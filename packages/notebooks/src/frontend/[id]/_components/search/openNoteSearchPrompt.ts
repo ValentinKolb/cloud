@@ -3,7 +3,6 @@ import { apiClient } from "@/api/client";
 
 type NoteResult = {
   id: string;
-  shortId: string;
   title: string;
 };
 
@@ -28,7 +27,6 @@ const cleanSnippet = (snippet: string | null): string | undefined =>
 
 export type PickedNote = {
   id: string;
-  shortId: string;
   title: string;
 };
 
@@ -59,7 +57,7 @@ const runNotePrompt = async (notebookId: string, dressing: PromptDressing): Prom
 
       const payload = await response.json();
       return (payload as SearchResponse).data.map((hit) => ({
-        value: { id: hit.note.id, shortId: hit.note.shortId, title: hit.note.title },
+        value: { id: hit.note.id, title: hit.note.title },
         label: hit.note.title,
         desc: cleanSnippet(hit.snippet),
       }));

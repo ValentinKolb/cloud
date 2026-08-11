@@ -9,7 +9,7 @@ export function DangerZone(props: { notebook: Notebook }) {
   const mutation = mutations.create({
     mutation: async () => {
       const res = await apiClient[":id"].$delete({
-        param: { id: props.notebook.shortId },
+        param: { id: props.notebook.id },
       });
       if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to delete notebook."));
     },

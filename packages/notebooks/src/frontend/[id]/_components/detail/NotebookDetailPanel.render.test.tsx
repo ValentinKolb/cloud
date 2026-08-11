@@ -18,8 +18,7 @@ const taskProgress: TaskProgress = { done: 2, total: 3 };
 const namedBlocks: NamedBlockSummary[] = [{ name: "inventory", type: "table", line: 8 }];
 const attachments: Attachment[] = [
   {
-    id: "attachment-id",
-    shortId: "attach",
+    id: "attach1",
     kind: "file",
     filename: "plan.pdf",
     notebookId: "notebook-id",
@@ -31,11 +30,9 @@ const attachments: Attachment[] = [
 ];
 const backlinks: Backlink[] = [
   {
-    noteId: "source-note-id",
-    noteShortId: "source",
+    noteId: "source",
     title: "Source note",
-    notebookId: "other-notebook-id",
-    notebookShortId: "other",
+    notebookId: "other1",
     notebookName: "Other notebook",
     updatedAt: now,
   },
@@ -51,9 +48,9 @@ const renderPanel = (overrides: Partial<Parameters<typeof NotebookDetailPanel>[0
       attachments={attachments}
       backlinks={backlinks}
       namedBlocks={namedBlocks}
-      currentNotebookId="notebook"
-      notebookId="notebook"
-      noteId="note"
+      currentNotebookId="book01"
+      notebookId="book01"
+      noteId="note01"
       noteTitle="Migration plan"
       contentMd="# Migration plan"
       createdAt={now}
@@ -103,12 +100,12 @@ describe("Notebook note detail panel", () => {
     expect(html).toContain('aria-label="Show Markdown source"');
     expect(html).toContain('aria-label="Copy note content"');
     expect(html).toContain('aria-label="Download note as Markdown"');
-    expect(html).toContain('href="/app/notebooks/notebook/notes/note?mode=versions"');
-    expect(html).toContain('href="/app/notebooks/notebook?mode=graph&amp;note=note"');
+    expect(html).toContain('href="/app/notebooks/book01/notes/note01?mode=versions"');
+    expect(html).toContain('href="/app/notebooks/book01?mode=graph&amp;note=note01"');
     expect(html).toContain('href="#overview"');
     expect(html).toContain('aria-label="Copy script snippet for inventory"');
     expect(html).toContain("plan.pdf");
-    expect(html).toContain('href="/app/notebooks/other/notes/source"');
+    expect(html).toContain('href="/app/notebooks/other1/notes/source"');
     expect(html).toContain('aria-label="Close note details"');
   });
 

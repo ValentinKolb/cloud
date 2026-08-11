@@ -18,7 +18,6 @@ import { assertActive, type KitAttachment, type KitAttachmentsAPI, type KitConte
 
 type ApiAttachment = {
   id: string;
-  shortId: string;
   notebookId: string;
   filename: string;
   mimeType: string;
@@ -28,7 +27,7 @@ type ApiAttachment = {
 };
 
 const toKitAttachment = (a: ApiAttachment): KitAttachment => ({
-  id: a.shortId,
+  id: a.id,
   filename: a.filename,
   mimeType: a.mimeType,
   sizeBytes: a.sizeBytes,

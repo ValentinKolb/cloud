@@ -1,5 +1,5 @@
-import { renderLiquidTemplate, validateLiquidTemplate } from "@valentinkolb/cloud/shared";
 import { type DateContext, dates } from "@k2b/stdlib";
+import { renderLiquidTemplate, validateLiquidTemplate } from "@valentinkolb/cloud/shared";
 import { normalizeNoteTitle } from "./note-title";
 
 export const DEFAULT_NOTE_TITLE_TEMPLATE = "New Document";
@@ -7,17 +7,15 @@ export const DEFAULT_NOTE_TITLE_TEMPLATE = "New Document";
 export type NoteTitleTemplateContext = {
   notebook: {
     id: string;
-    short_id: string;
     name: string;
   };
   note: {
-    short_id: string;
+    id: string;
     depth: number;
   };
   parent: {
     exists: boolean;
     id: string;
-    short_id: string;
     title: string;
     path: string;
   };
@@ -42,7 +40,6 @@ export const buildNoteTitleTemplateContext = (params: {
     parent: {
       exists: params.parent?.exists ?? false,
       id: params.parent?.id ?? "",
-      short_id: params.parent?.short_id ?? "",
       title: params.parent?.title ?? "",
       path: params.parent?.path ?? "",
     },

@@ -4,6 +4,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { notebooksService } from "@/service";
 import { ssr } from "../config";
 import { parseLastNotebookId } from "./[id]/_components/settings/NotebookSettingsStore";
+import { projectNotebook } from "./[id]/page-data";
 import NotebooksOverview from "./NotebooksOverview.island";
 
 /**
@@ -23,7 +24,7 @@ export default ssr<AuthContext>(async (c) => {
   if (url.searchParams.get("recent") === "true" && notebooks.length > 0) {
     const cookieHeader = c.req.raw.headers.get("Cookie") ?? undefined;
     const lastId = parseLastNotebookId(cookieHeader);
-    if (lastId && notebooks.some((n) => n.id === lastId || n.shortId === lastId)) {
+    if (lastId && notebooks.some((n) => n.shortId === lastId)) {
       return c.redirect(`/app/notebooks/${lastId}`);
     }
   }
@@ -31,7 +32,7 @@ export default ssr<AuthContext>(async (c) => {
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Notebooks" }]}>
-      <NotebooksOverview notebooks={notebooks} templates={templates} initialQuery={initialQuery} />
+      <NotebooksOverview notebooks={notebooks.map(projectNotebook)} templates={templates} initialQuery={initialQuery} />
     </Layout>
   );
 });

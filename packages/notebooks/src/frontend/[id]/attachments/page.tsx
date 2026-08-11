@@ -12,6 +12,7 @@ import { type AuthContext, expectUserBackedActor, getDateConfig } from "@valenti
 import { get } from "@valentinkolb/cloud/services";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
+import { toPublicAttachment } from "@/api/public-resources";
 import { notebooksService } from "@/service";
 import { ssr } from "../../../config";
 import { buildAttachmentsUrl } from "../../params";
@@ -20,6 +21,7 @@ import { parseSettings } from "../_components/settings/NotebookSettingsStore";
 import NotebookSidebar from "../_components/sidebar/NotebookSidebar.island";
 import type { NotebookContext } from "../_components/sidebar/types";
 import WorkspaceEventBridge from "../_components/sidebar/WorkspaceEventBridge.island";
+import { projectNotebook, projectTree } from "../page-data";
 
 const PER_PAGE = 200;
 
@@ -30,13 +32,11 @@ const parsePage = (raw: string | undefined): number => {
 
 export default ssr<AuthContext>(async (c) => {
   const user = expectUserBackedActor(c);
-  // Route param accepts either UUID or short-id — same boundary trick
-  // as `[id]/page.tsx`. Local `notebookId` holds the canonical UUID.
-  const idOrShort = c.req.param("id")!;
+  const notebookShortId = c.req.param("id")!;
   const search = (c.req.query("search") ?? "").trim();
   const page = parsePage(c.req.query("page"));
 
-  let notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId: idOrShort });
+  let notebook = await notebooksService.notebook.getByShortId({ shortId: notebookShortId });
   if (!notebook) {
     return () => (
       <Layout c={c} title="Not Found">
@@ -99,13 +99,15 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
   notebook = snapshotNotebook;
+  const publicNotebook = projectNotebook(notebook);
+  const publicTree = projectTree(tree, notebook.shortId);
   const totalPages = Math.max(1, Math.ceil(paginatedResult.total / paginatedResult.perPage));
   const baseHref = buildAttachmentsUrl(notebook.shortId);
   const paginationBaseUrl = search ? `${baseHref}?search=${encodeURIComponent(search)}&page=` : `${baseHref}?page=`;
 
   const ctx: NotebookContext = {
-    notebook,
-    tree,
+    notebook: publicNotebook,
+    tree: publicTree,
     selectedNoteId: null,
     userId: user.id,
     settings,
@@ -139,7 +141,11 @@ export default ssr<AuthContext>(async (c) => {
             <SearchBar value={search} action={baseHref} placeholder="Search attachments…" ariaLabel="Search attachments" />
 
             <div class="mt-2 flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">
-              <AttachmentsOverview notebookId={notebook.shortId} initial={paginatedResult.items} searchQuery={search} />
+              <AttachmentsOverview
+                notebookId={notebook.shortId}
+                initial={paginatedResult.items.map((attachment) => toPublicAttachment(attachment, notebook.shortId))}
+                searchQuery={search}
+              />
               <Pagination currentPage={paginatedResult.page} totalPages={totalPages} baseUrl={paginationBaseUrl} />
             </div>
           </AppWorkspace.Main>

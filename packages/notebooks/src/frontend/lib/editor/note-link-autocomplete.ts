@@ -44,7 +44,7 @@ import { withIcon } from "./kit-autocomplete";
 
 /** Lightweight note projection — only what the popup needs. */
 type NoteRef = {
-  shortId: string;
+  id: string;
   title: string;
 };
 
@@ -83,10 +83,10 @@ const noteCache = createNotebookFetchCache<CachedNotes>(
           truncated = all.length > 0;
           break;
         }
-        const payload = (await res.json()) as { data: Array<{ shortId: string; title: string }> };
+        const payload = (await res.json()) as { data: Array<{ id: string; title: string }> };
         if (payload.data.length === 0) break;
         for (const n of payload.data) {
-          all.push({ shortId: n.shortId, title: n.title });
+          all.push({ id: n.id, title: n.title });
         }
         // Last page = the API returned fewer than the page size, so
         // we're done. Otherwise: if we hit the cap on this iteration
@@ -122,7 +122,7 @@ const buildMarkdownLink = (note: NoteRef): string => {
   // bracket delimiters. Most titles won't contain these, but we
   // handle them for safety.
   const escapedTitle = note.title.replace(/\\/g, "\\\\").replace(/]/g, "\\]");
-  return `[${escapedTitle}](note://${note.shortId})`;
+  return `[${escapedTitle}](note://${note.id})`;
 };
 
 /** Build the Completion list. Sorts by title alphabetically — for
@@ -163,7 +163,7 @@ const buildCompletions = (notes: NoteRef[], triggerStart: number, truncated: boo
         // titles, the filter matches typed prefix.
         label: n.title,
         type: "namespace",
-        detail: n.shortId,
+        detail: n.id,
         // Apply as a function so we can dispatch a change range
         // that INCLUDES the leading `[[`. `to` is the doc position
         // CM gives us (end of the matched word range, = cursor or

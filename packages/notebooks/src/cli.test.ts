@@ -18,13 +18,11 @@ const runCli = async (server: string, args: string[]) => {
 };
 
 const notebookFixture = {
-  id: "00000000-0000-4000-8000-000000000002",
-  shortId: "wiki",
+  id: "wiki01",
   name: "Wiki",
   description: null,
   icon: null,
   homepageNoteId: null,
-  homepageNoteShortId: null,
   scriptsEnabled: false,
   defaultNoteTitleTemplate: "New Document",
   createdBy: null,
@@ -42,9 +40,8 @@ test("global search forwards full-text and structured filters", async () => {
         data: [
           {
             note: {
-              id: "00000000-0000-4000-8000-000000000001",
-              shortId: "abc123",
-              notebookId: "00000000-0000-4000-8000-000000000002",
+              id: "abc123",
+              notebookId: "nb1234",
               parentId: null,
               title: "Search architecture",
               position: 0,
@@ -57,8 +54,7 @@ test("global search forwards full-text and structured filters", async () => {
               lockedAt: null,
             },
             notebook: {
-              id: "00000000-0000-4000-8000-000000000002",
-              shortId: "nb1234",
+              id: "nb1234",
               name: "Wiki",
               icon: null,
             },
@@ -90,16 +86,70 @@ test("global search forwards full-text and structured filters", async () => {
   expect(requestUrl.searchParams.get("q")).toBe("postgres search");
   expect(requestUrl.searchParams.get("tags")).toBe("architecture,database");
   expect(requestUrl.searchParams.get("updated_after")).toBe("2026-07-01T00:00:00.000Z");
+  expect(result.stdout).toContain('"id": "abc123"');
+  expect(result.stdout).toContain('"id": "nb1234"');
+  expect(result.stdout).not.toContain("shortId");
 });
 
 test("destructive notebook deletion requires explicit confirmation", async () => {
   const server = Bun.serve({ port: 0, fetch: () => Response.json({ message: "unexpected" }, { status: 500 }) });
   servers.push(server);
 
-  const result = await runCli(`http://127.0.0.1:${server.port}`, ["notebooks", "delete", "wiki"]);
+  const result = await runCli(`http://127.0.0.1:${server.port}`, ["notebooks", "delete", "wiki01"]);
 
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain("without --yes");
+});
+
+test("resolves exact names through search without sending them as resource ids", async () => {
+  const requestUrls: string[] = [];
+  const server = Bun.serve({
+    port: 0,
+    fetch: (request) => {
+      requestUrls.push(request.url);
+      return Response.json({
+        data: [notebookFixture],
+        pagination: { page: 1, per_page: 20, total: 1, total_pages: 1, has_next: false },
+      });
+    },
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, ["--json", "notebooks", "get", "--notebook", "Wiki"]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(requestUrls).toHaveLength(1);
+  const requestUrl = new URL(requestUrls[0]!);
+  expect(requestUrl.pathname).toBe("/api/notebooks");
+  expect(requestUrl.searchParams.get("q")).toBe("Wiki");
+  expect(result.stdout).toContain('"id": "wiki01"');
+  expect(result.stdout).not.toContain("shortId");
+});
+
+test("does not send legacy UUID notebook refs to the resource reader", async () => {
+  const legacyUuid = "11111111-1111-4111-8111-111111111111";
+  const requestUrls: string[] = [];
+  const server = Bun.serve({
+    port: 0,
+    fetch: (request) => {
+      requestUrls.push(request.url);
+      return Response.json({
+        data: [],
+        pagination: { page: 1, per_page: 20, total: 0, total_pages: 0, has_next: false },
+      });
+    },
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, ["notebooks", "get", "--notebook", legacyUuid]);
+
+  expect(result.exitCode).toBe(1);
+  expect(requestUrls).toHaveLength(1);
+  const requestUrl = new URL(requestUrls[0]!);
+  expect(requestUrl.pathname).toBe("/api/notebooks");
+  expect(requestUrl.searchParams.get("q")).toBe(legacyUuid);
+  expect(requestUrl.pathname).not.toContain(legacyUuid);
 });
 
 test("create-note sends markdown without a separate title", async () => {
@@ -108,13 +158,12 @@ test("create-note sends markdown without a separate title", async () => {
     port: 0,
     fetch: async (request) => {
       const url = new URL(request.url);
-      if (request.method === "GET" && url.pathname === "/api/notebooks/wiki") return Response.json(notebookFixture);
-      if (request.method === "POST" && url.pathname === "/api/notebooks/wiki/notes") {
+      if (request.method === "GET" && url.pathname === "/api/notebooks/wiki01") return Response.json(notebookFixture);
+      if (request.method === "POST" && url.pathname === "/api/notebooks/wiki01/notes") {
         createBodies.push((await request.json()) as Record<string, unknown>);
         return Response.json({
-          id: "00000000-0000-4000-8000-000000000003",
-          shortId: "note01",
-          notebookId: notebookFixture.id,
+          id: "note01",
+          notebookId: "wiki01",
           parentId: null,
           title: "Incident review",
           position: 0,
@@ -136,7 +185,7 @@ test("create-note sends markdown without a separate title", async () => {
     "notebooks",
     "create-note",
     "--notebook",
-    "wiki",
+    "wiki01",
     "--content",
     "# Incident review\n",
   ]);
@@ -152,8 +201,8 @@ test("update forwards the default note title template", async () => {
     port: 0,
     fetch: async (request) => {
       const url = new URL(request.url);
-      if (request.method === "GET" && url.pathname === "/api/notebooks/wiki") return Response.json(notebookFixture);
-      if (request.method === "PATCH" && url.pathname === "/api/notebooks/wiki") {
+      if (request.method === "GET" && url.pathname === "/api/notebooks/wiki01") return Response.json(notebookFixture);
+      if (request.method === "PATCH" && url.pathname === "/api/notebooks/wiki01") {
         const body = (await request.json()) as Record<string, unknown>;
         updateBodies.push(body);
         return Response.json({ ...notebookFixture, ...body });
@@ -167,7 +216,7 @@ test("update forwards the default note title template", async () => {
     "notebooks",
     "update",
     "--notebook",
-    "wiki",
+    "wiki01",
     "--default-note-title-template",
     "{{ date }} Journal",
   ]);

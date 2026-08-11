@@ -12,7 +12,6 @@ type Props = {
 
 type CreateNoteResult = {
   id: string;
-  shortId: string;
 };
 
 const CreateNoteButton = (props: Props) => {
@@ -26,7 +25,7 @@ const CreateNoteButton = (props: Props) => {
       return (await res.json()) as CreateNoteResult;
     },
     onSuccess: (data) => {
-      void navigateToNotebookNote(buildNoteUrl(props.notebookId, data.shortId), { selectInitialTitle: data.shortId });
+      void navigateToNotebookNote(buildNoteUrl(props.notebookId, data.id), { selectInitialTitle: data.id });
     },
     onError: (err) => prompts.error(err.message),
   });

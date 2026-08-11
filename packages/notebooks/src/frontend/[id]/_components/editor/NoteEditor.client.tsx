@@ -61,7 +61,6 @@ type EditorInstanceProps = {
   // Y.Doc itself. The Y.Text content is the live source for body /
   // tags / tasks; everything else (title, timestamps, lockedAt,
   // parentId, notebookName) updates only on full page render.
-  noteShortId: string;
   noteCreatedAt: string;
   noteUpdatedAt: string;
   noteLockedAt: string | null;
@@ -83,7 +82,6 @@ type EditorInstanceProps = {
 const CURSOR_IDLE_TIMEOUT_MS = 8_000;
 
 type SoftNavigatedDetail = {
-  canonicalNoteId: string;
   noteId: string;
   noteTitle: string;
   contentMd: string | null;
@@ -130,8 +128,10 @@ const parseSameNotebookEditNoteUrl = (href: string, notebookId: string): SameNot
     if (url.origin !== window.location.origin || url.hash || !hasOnlyNavigatorQuery(url.searchParams)) return null;
     const match = url.pathname.match(/^\/app\/notebooks\/([^/]+)\/notes\/([^/]+)$/);
     if (!match || match[1] !== notebookId) return null;
+    const noteShortId = decodeURIComponent(match[2]!);
+    if (!/^[0-9A-Za-z]{6}$/.test(noteShortId)) return null;
     return {
-      noteShortId: decodeURIComponent(match[2]!),
+      noteShortId,
       canonicalHref: `${url.pathname}${url.search}`,
     };
   } catch {
@@ -150,7 +150,7 @@ export default function NoteEditor(props: Props) {
   const [failedSource, setFailedSource] = createSignal<string | null>(null);
   const navigation = createNoteNavigationCoordinator({
     initialSource: initialHref,
-    currentNoteShortId: () => current().noteShortId,
+    currentNoteShortId: () => current().noteId,
     currentHref: () => `${window.location.pathname}${window.location.search}`,
     setSource: setRouteSource,
     pushHistory: (href) => window.history.pushState({}, "", href),
@@ -175,7 +175,6 @@ export default function NoteEditor(props: Props) {
       props: {
         ...current(),
         noteId: note.id,
-        noteShortId: note.shortId,
         noteTitle: note.title,
         noteCreatedAt: note.createdAt,
         noteUpdatedAt: note.updatedAt,
@@ -439,7 +438,7 @@ function EditorInstance(props: EditorInstanceProps) {
             readOnly: () => !!props.readOnly,
             notebookId: props.notebookId,
             noteSnapshot: () => ({
-              shortId: props.noteShortId,
+              id: props.noteId,
               title: deriveNoteTitle(ytext.toString()),
               // Live content snapshot — kit's `note.content` getter
               // re-reads ytext on every access, but the snapshot
@@ -725,7 +724,7 @@ function EditorInstance(props: EditorInstanceProps) {
     writeSettings(props.notebookId, { lastNoteId: props.noteId });
     provider?.connect();
     if (!props.readOnly) {
-      if (consumeInitialTitleSelection(props.noteShortId)) selectInitialTitle();
+      if (consumeInitialTitleSelection(props.noteId)) selectInitialTitle();
       else focusEditor();
       scheduleCursorIdleHide();
     }

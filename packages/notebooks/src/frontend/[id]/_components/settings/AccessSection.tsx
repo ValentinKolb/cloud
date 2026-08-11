@@ -18,7 +18,7 @@ function RetryButton(props: { loading: boolean; onClick: () => void }) {
 
 export function ApiKeysSection(props: { notebook: Notebook }) {
   const apiKeys = query.create({
-    source: () => props.notebook.shortId,
+    source: () => props.notebook.id,
     load: async (notebookId, { abortSignal }): Promise<ResourceApiKey[]> => {
       const response = await apiClient[":id"]["api-keys"].$get({ param: { id: notebookId } }, { init: { signal: abortSignal } });
       if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to load notebook API keys."));
@@ -54,7 +54,7 @@ export function ApiKeysSection(props: { notebook: Notebook }) {
               initialKeys={items}
               createKey={async (input) => {
                 const response = await apiClient[":id"]["api-keys"].$post({
-                  param: { id: props.notebook.shortId },
+                  param: { id: props.notebook.id },
                   json: input,
                 });
                 if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to create API key."));
@@ -64,7 +64,7 @@ export function ApiKeysSection(props: { notebook: Notebook }) {
               }}
               revokeKey={async (credentialId) => {
                 const response = await apiClient[":id"]["api-keys"][":credentialId"].$delete({
-                  param: { id: props.notebook.shortId, credentialId },
+                  param: { id: props.notebook.id, credentialId },
                 });
                 if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to revoke API key."));
                 reconcile();
@@ -85,7 +85,7 @@ export function ApiKeysSection(props: { notebook: Notebook }) {
 
 export function PermissionsSection(props: { notebook: Notebook }) {
   const accessEntries = query.create({
-    source: () => props.notebook.shortId,
+    source: () => props.notebook.id,
     load: async (notebookId, { abortSignal }): Promise<AccessEntry[]> => {
       const response = await apiClient[":id"].access.$get({ param: { id: notebookId } }, { init: { signal: abortSignal } });
       if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to load notebook permissions."));
@@ -120,7 +120,7 @@ export function PermissionsSection(props: { notebook: Notebook }) {
               canEdit
               grantAccess={async (principal, permission) => {
                 const response = await apiClient[":id"].access.$post({
-                  param: { id: props.notebook.shortId },
+                  param: { id: props.notebook.id },
                   json: { principal, permission },
                 });
                 if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to grant access."));
@@ -130,7 +130,7 @@ export function PermissionsSection(props: { notebook: Notebook }) {
               }}
               updateAccess={async (accessId, permission) => {
                 const response = await apiClient[":id"].access[":accessId"].$patch({
-                  param: { id: props.notebook.shortId, accessId },
+                  param: { id: props.notebook.id, accessId },
                   json: { permission },
                 });
                 if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to update access."));
@@ -138,7 +138,7 @@ export function PermissionsSection(props: { notebook: Notebook }) {
               }}
               revokeAccess={async (accessId) => {
                 const response = await apiClient[":id"].access[":accessId"].$delete({
-                  param: { id: props.notebook.shortId, accessId },
+                  param: { id: props.notebook.id, accessId },
                 });
                 if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to revoke access."));
                 reconcile();

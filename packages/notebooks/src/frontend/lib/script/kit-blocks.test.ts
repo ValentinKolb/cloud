@@ -13,7 +13,7 @@ const makeCtx = (content: string): { ctx: KitContext; ytext: Y.Text } => {
       mode: "edit",
       notebookId: "Nb1234",
       note: {
-        shortId: "No1234",
+        id: "No1234",
         title: "Current",
         content,
         notebookName: "Notebook",

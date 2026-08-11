@@ -4,7 +4,7 @@ import { deleteAccess, hasPermission, type PermissionLevel } from "@valentinkolb
 import { logger, serviceAccounts } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { buildNoteTitleTemplateContext, renderNoteTitleTemplate, validateNoteTitleTemplate } from "../lib/note-title-template";
-import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";
+import { generateUniqueShortId } from "../lib/short-id";
 import {
   buildNotebookVisibleAccessCondition,
   getNotebookPermission,
@@ -440,20 +440,6 @@ export const getByShortId = async (params: { shortId: string }): Promise<Noteboo
 };
 
 /**
- * Resolve a notebook by either UUID or short-id. The format-detection
- * branch keeps each query on its own single-column index — no
- * `OR`-walk across two indexes. Used at the page-handler boundary so
- * URL routes can carry short-ids while the service layer below stays
- * UUID-driven.
- */
-export const getByIdOrShortId = async (params: { idOrShortId: string }): Promise<Notebook | null> => {
-  const v = params.idOrShortId;
-  if (isShortId(v)) return getByShortId({ shortId: v });
-  if (!isUuid(v)) return null;
-  return get({ id: v });
-};
-
-/**
  * Create a new notebook.
  * Automatically grants admin access to the creator.
  */
@@ -541,8 +527,8 @@ export const update = async (params: { id: string; data: UpdateNotebook; dateCon
     renderNoteTitleTemplate(
       defaultNoteTitleTemplate,
       buildNoteTitleTemplateContext({
-        notebook: { id: existing.id, short_id: existing.shortId, name },
-        note: { short_id: "preview", depth: 0 },
+        notebook: { id: existing.shortId, name },
+        note: { id: "preview", depth: 0 },
         dateConfig: params.dateConfig ?? { timeZone: "UTC", locale: "en", firstDayOfWeek: 1 },
       }),
     );

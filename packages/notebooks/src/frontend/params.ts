@@ -2,11 +2,9 @@
  * URL builders for the Notebooks app.
  *
  * Path shape: `/app/notebooks/{notebookShortId}/notes/{noteShortId}` —
- * all user-visible IDs are 6-char base62 short-ids (see
- * `lib/short-id.ts`). The builders accept *any* string and don't
- * validate, because the page-handler boundary resolves either UUID or
- * short-id (`getByIdOrShortId`) — but every call site should pass a
- * short-id so URLs stay readable and shareable.
+ * all user-visible IDs are 6-character readable IDs (see
+ * `lib/short-id.ts`). Page handlers resolve these public IDs to internal
+ * UUIDs; UUIDs are not accepted in user-visible routes.
  *
  * Mode toggles (`mode=versions`, `mode=graph`) stay as
  * query params: they're modes on the same

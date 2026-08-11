@@ -126,13 +126,6 @@ const requireNotebook = async (notebookId: string, context: CapabilityExecutionC
   return notebook ? authorizeNotebook(notebook, context, required) : fail(err.notFound("Notebook"));
 };
 
-const requireNote = async (noteId: string, context: CapabilityExecutionContext, required: PermissionLevel = "read") => {
-  const note = await noteStore.get({ id: noteId });
-  if (!note) return fail(err.notFound("Note"));
-  const access = await requireNotebook(note.notebookId, context, required);
-  return access.ok ? ok({ note, notebook: access.data.notebook, permission: access.data.permission }) : fail(err.notFound("Note"));
-};
-
 const requireNotebookByShortId = async (shortId: string, context: CapabilityExecutionContext, required: PermissionLevel = "read") => {
   const notebook = await notebookStore.getByShortId({ shortId });
   return notebook ? authorizeNotebook(notebook, context, required) : fail(err.notFound("Notebook"));
@@ -146,23 +139,20 @@ const requireNoteByShortId = async (shortId: string, context: CapabilityExecutio
 };
 
 const mapNotebook = (notebook: Notebook, permission: Exclude<PermissionLevel, "none">) => ({
-  id: notebook.id,
-  shortId: notebook.shortId,
+  id: notebook.shortId,
   name: notebook.name,
   description: notebook.description,
   icon: notebook.icon,
-  homepageNoteId: notebook.homepageNoteId,
-  homepageNoteShortId: notebook.homepageNoteShortId,
+  homepageNoteId: notebook.homepageNoteShortId,
   permission,
   createdAt: notebook.createdAt,
   updatedAt: notebook.updatedAt,
 });
 
-const mapNote = (note: Note) => ({
-  id: note.id,
-  shortId: note.shortId,
-  notebookId: note.notebookId,
-  parentId: note.parentId,
+const mapNote = (note: Note, notebookShortId: string, parentShortId: string | null) => ({
+  id: note.shortId,
+  notebookId: notebookShortId,
+  parentId: parentShortId,
   title: note.title,
   position: note.position,
   hasChildren: note.hasChildren,
@@ -174,6 +164,11 @@ const mapNote = (note: Note) => ({
 const notebookHref = (notebook: Pick<Notebook, "shortId">) => `/app/notebooks/${notebook.shortId}`;
 const noteHref = (notebook: Pick<Notebook, "shortId">, note: Pick<Note, "shortId">) =>
   `/app/notebooks/${notebook.shortId}/notes/${note.shortId}`;
+
+const resolveParentShortId = async (note: Note): Promise<string | null> => {
+  if (!note.parentId) return null;
+  return (await noteStore.resolveIdsToShortIds({ ids: [note.parentId] })).get(note.parentId) ?? null;
+};
 
 const cleanSearchSnippet = (value: string | null): string | undefined =>
   value ? value.replaceAll("\uE000", "").replaceAll("\uE001", "").trim() || undefined : undefined;
@@ -308,7 +303,7 @@ const runNotebookList = async (input: z.infer<typeof NotebookListInputSchema>, c
   return ok({
     data,
     page: capabilityPage(cursor.data * input.limit < page.total ? encodePageCursor(cursor.data + 1) : undefined),
-    refs: data.map((notebook) => ({ type: "notebooks.notebook", id: notebook.shortId })),
+    refs: data.map((notebook) => ({ type: "notebooks.notebook", id: notebook.id })),
   });
 };
 
@@ -325,19 +320,27 @@ const runNotebookRead = async (input: z.infer<typeof NotebookReadInputSchema>, c
 const runNoteTree = async (input: z.infer<typeof NoteTreeInputSchema>, context: CapabilityExecutionContext) => {
   const cursor = decodeNotebookTreeCursor(input.cursor);
   if (!cursor.ok) return cursor;
-  const access = await requireNotebook(input.notebookId, context);
+  const access = await requireNotebookByShortId(input.notebookId, context);
   if (!access.ok) return access;
   const rows = await noteStore.listTreePage({
-    notebookId: input.notebookId,
+    notebookId: access.data.notebook.id,
     afterId: cursor.data,
     limit: input.limit + 1,
   });
   const hasMore = rows.length > input.limit;
-  const data = rows.slice(0, input.limit).map((note) => ({
-    ...note,
+  const pageRows = rows.slice(0, input.limit);
+  const shortIds = await noteStore.resolveIdsToShortIds({
+    ids: pageRows.flatMap((note) => [note.id, ...(note.parentId ? [note.parentId] : [])]),
+  });
+  const data = pageRows.map((note) => ({
+    id: note.shortId,
+    parentId: note.parentId ? (shortIds.get(note.parentId) ?? null) : null,
+    title: note.title,
+    position: note.position,
+    hasChildren: note.hasChildren,
     links: [{ rel: "open" as const, href: noteHref(access.data.notebook, note) }],
   }));
-  const last = data.at(-1);
+  const last = pageRows.at(-1);
   return ok({
     data,
     page: capabilityPage(hasMore && last ? encodeTreeCursor(last.id) : undefined),
@@ -356,7 +359,7 @@ const runNoteRead = async (input: z.infer<typeof NoteReadInputSchema>, context: 
   const tags = noteTags.extractTags(content);
   return ok({
     data: {
-      ...mapNote(note),
+      ...mapNote(note, resolved.data.notebook.shortId, await resolveParentShortId(note)),
       content: content.slice(input.contentOffset, end),
       contentOffset: input.contentOffset,
       contentLength: content.length,
@@ -380,12 +383,12 @@ const runNoteRead = async (input: z.infer<typeof NoteReadInputSchema>, context: 
 const runNoteLinks = async (input: z.infer<typeof NoteLinksInputSchema>, context: CapabilityExecutionContext) => {
   const cursor = decodeNotebookCapabilityCursor(input.cursor);
   if (!cursor.ok) return cursor;
-  const resolved = await requireNote(input.noteId, context);
+  const resolved = await requireNoteByShortId(input.noteId, context);
   if (!resolved.ok) return resolved;
   const scope = scopedNotebookId(context, "read");
   if (!scope.ok) return scope;
   const rows = await noteLinks.listNoteRelations({
-    noteId: input.noteId,
+    noteId: resolved.data.note.id,
     ...principalIds(context),
     boundNotebookId: scope.data,
     direction: input.direction,
@@ -393,28 +396,33 @@ const runNoteLinks = async (input: z.infer<typeof NoteLinksInputSchema>, context
   });
   const hasMore = rows.length > input.limit;
   const data = rows.slice(0, input.limit).map((entry) => ({
-    ...entry,
+    direction: entry.direction,
+    noteId: entry.noteId,
+    title: entry.title,
+    notebookId: entry.notebookId,
+    notebookName: entry.notebookName,
+    updatedAt: entry.updatedAt,
     links: [
       {
         rel: "open" as const,
-        href: `/app/notebooks/${entry.notebookShortId}/notes/${entry.noteShortId}`,
+        href: `/app/notebooks/${entry.notebookId}/notes/${entry.noteId}`,
       },
     ],
   }));
   return ok({
     data,
     page: capabilityPage(hasMore ? encodePageCursor(cursor.data + 1) : undefined),
-    refs: data.map((entry) => ({ type: "notebooks.note", id: entry.noteShortId })),
+    refs: data.map((entry) => ({ type: "notebooks.note", id: entry.noteId })),
   });
 };
 
 const runTagList = async (input: z.infer<typeof TagListInputSchema>, context: CapabilityExecutionContext) => {
   const cursor = decodeNotebookCapabilityCursor(input.cursor);
   if (!cursor.ok) return cursor;
-  const access = await requireNotebook(input.notebookId, context);
+  const access = await requireNotebookByShortId(input.notebookId, context);
   if (!access.ok) return access;
   const rows = await noteTags.listForNotebook({
-    notebookId: input.notebookId,
+    notebookId: access.data.notebook.id,
     pagination: { limit: input.limit + 1, offset: (cursor.data - 1) * input.limit },
   });
   const hasMore = rows.length > input.limit;
@@ -430,10 +438,10 @@ const runTagList = async (input: z.infer<typeof TagListInputSchema>, context: Ca
 const runTagNotes = async (input: z.infer<typeof TagNotesInputSchema>, context: CapabilityExecutionContext) => {
   const cursor = decodeNotebookCapabilityCursor(input.cursor);
   if (!cursor.ok) return cursor;
-  const access = await requireNotebook(input.notebookId, context);
+  const access = await requireNotebookByShortId(input.notebookId, context);
   if (!access.ok) return access;
   const result = await noteTags.listNotesForTag({
-    notebookId: input.notebookId,
+    notebookId: access.data.notebook.id,
     tag: input.tag,
     search: input.query,
     pagination: { limit: input.limit, offset: (cursor.data - 1) * input.limit },
@@ -442,7 +450,9 @@ const runTagNotes = async (input: z.infer<typeof TagNotesInputSchema>, context: 
   const data = result.items.map((item) => {
     const updatedAt = item.updatedAt as string | Date;
     return {
-      ...item,
+      id: item.shortId,
+      title: item.title,
+      preview: item.preview,
       updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : updatedAt,
       links: [{ rel: "open" as const, href: noteHref(access.data.notebook, item) }],
     };
@@ -450,7 +460,7 @@ const runTagNotes = async (input: z.infer<typeof TagNotesInputSchema>, context: 
   return ok({
     data,
     page: capabilityPage(hasMore ? encodePageCursor(cursor.data + 1) : undefined),
-    refs: data.map((note) => ({ type: "notebooks.note", id: note.shortId })),
+    refs: data.map((note) => ({ type: "notebooks.note", id: note.id })),
   });
 };
 
@@ -491,10 +501,10 @@ const mutationError = <T>(result: Exclude<MutationResult<T>, { ok: true }>) => {
   return fail(err.badInput(result.error));
 };
 
-const noteMutationResult = (result: MutationResult<Note>, notebook: Notebook) => {
+const noteMutationResult = async (result: MutationResult<Note>, notebook: Notebook) => {
   if (!result.ok) return mutationError(result);
   return ok({
-    data: mapNote(result.data),
+    data: mapNote(result.data, notebook.shortId, await resolveParentShortId(result.data)),
     refs: [
       { type: "notebooks.note", id: result.data.shortId },
       { type: "notebooks.notebook", id: notebook.shortId },
@@ -503,34 +513,41 @@ const noteMutationResult = (result: MutationResult<Note>, notebook: Notebook) =>
   });
 };
 
-const runNoteCreate = async (input: z.infer<typeof NoteCreateInputSchema>, context: CapabilityExecutionContext) =>
-  audited(actionAudit(context, "note.create", "notebook", input.notebookId), async () => {
-    const access = await requireNotebook(input.notebookId, context, "write");
-    if (!access.ok) return access;
-    return noteMutationResult(
+const runNoteCreate = async (input: z.infer<typeof NoteCreateInputSchema>, context: CapabilityExecutionContext) => {
+  const access = await requireNotebookByShortId(input.notebookId, context, "write");
+  if (!access.ok) return access;
+  let parentId: string | undefined;
+  if (input.parentId) {
+    const parent = await requireNoteByShortId(input.parentId, context, "write");
+    if (!parent.ok || parent.data.note.notebookId !== access.data.notebook.id) return fail(err.notFound("Parent note"));
+    parentId = parent.data.note.id;
+  }
+  return audited(actionAudit(context, "note.create", "notebook", access.data.notebook.id), async () =>
+    noteMutationResult(
       await noteStore.create({
         data: {
-          notebookId: input.notebookId,
-          parentId: input.parentId,
+          notebookId: access.data.notebook.id,
+          parentId,
           position: input.position,
           contentMd: input.content,
         },
         creatorId: context.user?.id ?? null,
       }),
       access.data.notebook,
-    );
-  });
+    ),
+  );
+};
 
-const runNoteEdit = async (input: z.infer<typeof NoteEditInputSchema>, context: CapabilityExecutionContext) =>
-  audited(actionAudit(context, "note.edit", "note", input.noteId), async () => {
-    const resolved = await requireNote(input.noteId, context, "write");
-    if (!resolved.ok) return resolved;
+const runNoteEdit = async (input: z.infer<typeof NoteEditInputSchema>, context: CapabilityExecutionContext) => {
+  const resolved = await requireNoteByShortId(input.noteId, context, "write");
+  if (!resolved.ok) return resolved;
+  return audited(actionAudit(context, "note.edit", "note", resolved.data.note.id), async () => {
     const { noteId, ...data } = input;
-    const result = await noteStore.editContent({ noteId, data, createdBy: context.user?.id ?? null });
+    const result = await noteStore.editContent({ noteId: resolved.data.note.id, data, createdBy: context.user?.id ?? null });
     if (!result.ok) return mutationError(result);
     return ok({
       data: {
-        note: mapNote(result.data.note),
+        note: mapNote(result.data.note, resolved.data.notebook.shortId, await resolveParentShortId(result.data.note)),
         changed: result.data.changed,
         beforeHash: result.data.beforeHash,
         afterHash: result.data.afterHash,
@@ -544,16 +561,21 @@ const runNoteEdit = async (input: z.infer<typeof NoteEditInputSchema>, context: 
       links: [{ rel: "open" as const, href: noteHref(resolved.data.notebook, result.data.note) }],
     });
   });
+};
 
-const runNoteMove = async (input: z.infer<typeof NoteMoveInputSchema>, context: CapabilityExecutionContext) =>
-  audited(actionAudit(context, "note.move", "note", input.noteId), async () => {
-    const resolved = await requireNote(input.noteId, context, "write");
-    if (!resolved.ok) return resolved;
-    return noteMutationResult(
-      await noteStore.move({ id: input.noteId, parentId: input.parentId, position: input.position }),
-      resolved.data.notebook,
-    );
-  });
+const runNoteMove = async (input: z.infer<typeof NoteMoveInputSchema>, context: CapabilityExecutionContext) => {
+  const resolved = await requireNoteByShortId(input.noteId, context, "write");
+  if (!resolved.ok) return resolved;
+  let parentId: string | null = null;
+  if (input.parentId) {
+    const parent = await requireNoteByShortId(input.parentId, context, "write");
+    if (!parent.ok || parent.data.note.notebookId !== resolved.data.note.notebookId) return fail(err.notFound("Parent note"));
+    parentId = parent.data.note.id;
+  }
+  return audited(actionAudit(context, "note.move", "note", resolved.data.note.id), async () =>
+    noteMutationResult(await noteStore.move({ id: resolved.data.note.id, parentId, position: input.position }), resolved.data.notebook),
+  );
+};
 
 export const notebooksCapabilities = defineCapabilities({
   protocolVersion: 1,
@@ -667,7 +689,7 @@ export const notebooksCapabilities = defineCapabilities({
       idempotency: "none",
       approval: "rememberable",
       review: async (input, context) => {
-        const resolved = await requireNote(input.noteId, context, "write");
+        const resolved = await requireNoteByShortId(input.noteId, context, "write");
         if (!resolved.ok) return resolved;
         return ok({
           message: `Edit ${resolved.data.note.title}.`,
@@ -690,11 +712,11 @@ export const notebooksCapabilities = defineCapabilities({
       idempotency: "none",
       approval: "rememberable",
       review: async (input, context) => {
-        const resolved = await requireNote(input.noteId, context, "write");
+        const resolved = await requireNoteByShortId(input.noteId, context, "write");
         if (!resolved.ok) return resolved;
         let parentTitle = "Notebook root";
         if (input.parentId) {
-          const parent = await requireNote(input.parentId, context, "write");
+          const parent = await requireNoteByShortId(input.parentId, context, "write");
           if (!parent.ok || parent.data.note.notebookId !== resolved.data.note.notebookId) return fail(err.notFound("Parent note"));
           parentTitle = parent.data.note.title;
         }

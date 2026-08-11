@@ -20,7 +20,7 @@ type Props = {
 const findNoteByShortId = (nodes: NoteTreeNode[], shortId: string | null): NoteTreeNode | null => {
   if (!shortId) return null;
   for (const node of nodes) {
-    if (node.shortId === shortId) return node;
+    if (node.id === shortId) return node;
     const child = findNoteByShortId(node.children, shortId);
     if (child) return child;
   }
@@ -48,13 +48,13 @@ export default function NotebookSidebar(props: Props) {
   } = useNotebookWorkspaceState(props.ctx);
   const canWrite = props.ctx.permission === "write" || props.ctx.permission === "admin";
   const navigatorMode = () => props.ctx.settings.sidebarMode === "navigator";
-  const attachmentsHref = () => buildAttachmentsUrl(notebook().shortId);
+  const attachmentsHref = () => buildAttachmentsUrl(notebook().id);
   const hasTags = () => tags().length > 0;
   const allNotebooksHref = "/app/notebooks";
-  const homepageNote = createMemo(() => findNoteByShortId(noteTree(), notebook().homepageNoteShortId));
-  const homepageHref = () => (homepageNote() ? buildNoteUrl(notebook().shortId, homepageNote()!.shortId) : null);
+  const homepageNote = createMemo(() => findNoteByShortId(noteTree(), notebook().homepageNoteId));
+  const homepageHref = () => (homepageNote() ? buildNoteUrl(notebook().id, homepageNote()!.id) : null);
   const homepageIsActive = () => homepageNote()?.id === selectedNoteId();
-  const vt = (key: string) => `notebook-sidebar-${notebook().shortId}-${key}`;
+  const vt = (key: string) => `notebook-sidebar-${notebook().id}-${key}`;
 
   const explainMissingHomepage = () =>
     void prompts.alert("No homepage is selected for this notebook yet. Open notebook settings and choose a homepage in the General tab.", {
@@ -63,7 +63,7 @@ export default function NotebookSidebar(props: Props) {
     });
 
   const handleSameNotebookNoteNavigate = async (nav: LinkNavigateEvent) => {
-    const target = resolveSameNotebookNoteHref(nav.url, notebook().shortId);
+    const target = resolveSameNotebookNoteHref(nav.url, notebook().id);
     if (!target) {
       nav.fallback();
       return;
@@ -85,7 +85,7 @@ export default function NotebookSidebar(props: Props) {
   const renderTreeView = (scrollPreserveKey: string) => (
     <NoteTree
       tree={noteTree()}
-      notebookId={notebook().shortId}
+      notebookId={notebook().id}
       notebookName={notebook().name}
       selectedNoteId={selectedNoteId()}
       canWrite={canWrite}
@@ -116,7 +116,7 @@ export default function NotebookSidebar(props: Props) {
         <AppWorkspace.SidebarMobileItems>
           {canWrite && (
             <div style={`view-transition-name:${vt("create-mobile")}`}>
-              <CreateNoteButton notebookId={notebook().shortId} variant="chip" />
+              <CreateNoteButton notebookId={notebook().id} variant="chip" />
             </div>
           )}
           {homepageHref() && (
@@ -141,7 +141,7 @@ export default function NotebookSidebar(props: Props) {
             All Notebooks
           </AppWorkspace.SidebarItem>
           <div style={`view-transition-name:${vt("search-mobile")}`}>
-            <SearchButton notebookId={notebook().shortId} notebookName={notebook().name} variant="sidebar-mobile" />
+            <SearchButton notebookId={notebook().id} notebookName={notebook().name} variant="sidebar-mobile" />
           </div>
           <AppWorkspace.SidebarItem
             href={attachmentsHref()}
@@ -154,7 +154,7 @@ export default function NotebookSidebar(props: Props) {
           </AppWorkspace.SidebarItem>
           {hasTags() && (
             <div style={`view-transition-name:${vt("tags-mobile")}`}>
-              <TagsButton notebookId={notebook().shortId} tags={tags()} variant="sidebar-mobile" />
+              <TagsButton notebookId={notebook().id} tags={tags()} variant="sidebar-mobile" />
             </div>
           )}
           <NotebookSettingsButton
@@ -165,8 +165,8 @@ export default function NotebookSidebar(props: Props) {
             viewTransitionName={vt("settings-mobile")}
           />
         </AppWorkspace.SidebarMobileItems>
-        <AppWorkspace.SidebarMobileBody scrollPreserveKey={`notebooks-mobile-sidebar-${notebook().shortId}`}>
-          {renderTreeView(`notebooks-mobile-tree-${notebook().shortId}`)}
+        <AppWorkspace.SidebarMobileBody scrollPreserveKey={`notebooks-mobile-sidebar-${notebook().id}`}>
+          {renderTreeView(`notebooks-mobile-tree-${notebook().id}`)}
         </AppWorkspace.SidebarMobileBody>
       </AppWorkspace.SidebarMobile>
 
@@ -177,11 +177,9 @@ export default function NotebookSidebar(props: Props) {
             <>
               <div class="flex flex-col gap-2">
                 <AppWorkspace.SidebarIconGrid columns={3}>
-                  {canWrite && (
-                    <CreateNoteButton notebookId={notebook().shortId} variant="icon" viewTransitionName={vt("create-desktop")} />
-                  )}
+                  {canWrite && <CreateNoteButton notebookId={notebook().id} variant="icon" viewTransitionName={vt("create-desktop")} />}
                   <SearchButton
-                    notebookId={notebook().shortId}
+                    notebookId={notebook().id}
                     notebookName={notebook().name}
                     variant="workspace-icon"
                     viewTransitionName={vt("search-desktop")}
@@ -211,14 +209,14 @@ export default function NotebookSidebar(props: Props) {
                     viewTransitionName={vt("attachments-desktop")}
                   />
                   {hasTags() && (
-                    <TagsButton notebookId={notebook().shortId} tags={tags()} variant="icon" viewTransitionName={vt("tags-desktop")} />
+                    <TagsButton notebookId={notebook().id} tags={tags()} variant="icon" viewTransitionName={vt("tags-desktop")} />
                   )}
                 </AppWorkspace.SidebarIconGrid>
               </div>
 
-              <AppWorkspace.SidebarBody scrollPreserveKey={`notebooks-simple-sidebar-${notebook().shortId}`}>
+              <AppWorkspace.SidebarBody scrollPreserveKey={`notebooks-simple-sidebar-${notebook().id}`}>
                 <AppWorkspace.SidebarSection title="Notes" class="min-h-0 flex-1">
-                  {renderTreeView(`notebooks-simple-tree-${notebook().shortId}`)}
+                  {renderTreeView(`notebooks-simple-tree-${notebook().id}`)}
                 </AppWorkspace.SidebarSection>
               </AppWorkspace.SidebarBody>
               <AppWorkspace.SidebarFooter>

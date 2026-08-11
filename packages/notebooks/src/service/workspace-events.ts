@@ -1,5 +1,6 @@
 import { topic } from "@k2b/sync";
 import { logger } from "@valentinkolb/cloud/services";
+import { sql } from "bun";
 import type {
   NotebookWorkspaceEvent,
   NotebookWorkspaceInvalidationScope,
@@ -55,23 +56,31 @@ export const notebookUpdated = (notebook: NotebookWorkspaceNotebook): Promise<vo
     notebook,
   });
 
-export const noteCreated = (note: NotebookWorkspaceNote): Promise<void> =>
+const resolveNoteShortId = async (noteId: string | null): Promise<string | null> => {
+  if (!noteId) return null;
+  const [row] = await sql<{ short_id: string }[]>`
+    SELECT short_id FROM notebooks.notes WHERE id = ${noteId}::uuid
+  `;
+  return row?.short_id ?? null;
+};
+
+export const noteCreated = async (note: NotebookWorkspaceNote): Promise<void> =>
   publish(
     {
       v: 1,
       type: "note.created",
       notebookId: note.notebookId,
-      note,
+      note: { ...note, parentShortId: await resolveNoteShortId(note.parentId) },
     },
     `note:${note.id}:created:${note.createdAt}`,
   );
 
-export const noteUpdated = (note: NotebookWorkspaceNote): Promise<void> =>
+export const noteUpdated = async (note: NotebookWorkspaceNote): Promise<void> =>
   publish({
     v: 1,
     type: "note.updated",
     notebookId: note.notebookId,
-    note,
+    note: { ...note, parentShortId: await resolveNoteShortId(note.parentId) },
   });
 
 export const noteDeleted = (config: { notebookId: string; noteId: string; shortId: string }): Promise<void> =>
@@ -86,12 +95,18 @@ export const noteDeleted = (config: { notebookId: string; noteId: string; shortI
     `note:${config.noteId}:deleted`,
   );
 
-export const noteFavoriteChanged = (config: { notebookId: string; noteId: string; userId: string; favorite: boolean }): Promise<void> =>
+export const noteFavoriteChanged = async (config: {
+  notebookId: string;
+  noteId: string;
+  userId: string;
+  favorite: boolean;
+}): Promise<void> =>
   publish({
     v: 1,
     type: "note.favorite.changed",
     notebookId: config.notebookId,
     noteId: config.noteId,
+    shortId: await resolveNoteShortId(config.noteId),
     userId: config.userId,
     favorite: config.favorite,
   });

@@ -19,7 +19,7 @@ export const migrate = async (): Promise<void> => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
-  // `short_id`: 6-char base62 alias used in URLs and markdown link
+  // `short_id`: 6-character readable ID used in URLs and markdown link
   // schemes (`note://`, `attach://`). Nullable to allow the migration
   // path on existing rows; the startup backfill below fills any NULLs
   // and `service/notebooks.ts` always sets it on INSERT going forward.

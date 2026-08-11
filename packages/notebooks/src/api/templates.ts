@@ -4,6 +4,7 @@ import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { notebooksService } from "../service";
+import { ResourceShortIdSchema, toPublicNotebook } from "./public-resources";
 
 const TemplateSummarySchema = z.object({
   id: z.string(),
@@ -15,14 +16,13 @@ const TemplateSummarySchema = z.object({
 const TemplateListSchema = z.array(TemplateSummarySchema);
 
 const CreatedNotebookSchema = z.object({
-  id: z.uuid(),
-  shortId: z.string(),
+  id: ResourceShortIdSchema,
   name: z.string(),
   description: z.string().nullable(),
   icon: z.string().nullable(),
-  homepageNoteId: z.uuid().nullable(),
-  homepageNoteShortId: z.string().nullable(),
+  homepageNoteId: ResourceShortIdSchema.nullable(),
   scriptsEnabled: z.boolean(),
+  defaultNoteTitleTemplate: z.string(),
   createdBy: z.uuid().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -66,7 +66,14 @@ const app = new Hono<AuthContext>()
       const user = getUserBackedActor(c);
       if (!user) return c.json({ message: "This endpoint requires a user-backed actor", code: "FORBIDDEN" }, 403);
       const body = c.req.valid("json");
-      return respond(c, () => notebooksService.template.instantiate(c.req.param("templateId")!, { name: body.name }, user.id), 201);
+      return respond(
+        c,
+        async () => {
+          const result = await notebooksService.template.instantiate(c.req.param("templateId")!, { name: body.name }, user.id);
+          return result.ok ? { ...result, data: toPublicNotebook(result.data) } : result;
+        },
+        201,
+      );
     },
   );
 

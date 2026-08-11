@@ -5,9 +5,9 @@ import type { BackupDraft, BackupRunResult, BackupStatus, NoteSelectOption } fro
 export const flattenNoteOptions = (nodes: NoteTreeNode[], depth = 0): NoteSelectOption[] =>
   nodes.flatMap((note) => [
     {
-      id: note.shortId,
+      id: note.id,
       label: `${"\u00A0\u00A0".repeat(depth)}${note.title || "Untitled"}`,
-      description: `#${note.shortId}`,
+      description: `#${note.id}`,
       icon: note.lockedAt ? "ti ti-lock" : "ti ti-file-text",
     },
     ...flattenNoteOptions(note.children, depth + 1),

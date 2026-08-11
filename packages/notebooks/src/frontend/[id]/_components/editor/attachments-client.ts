@@ -76,7 +76,6 @@ import { formatBytes as sharedFormatBytes } from "@valentinkolb/cloud/shared";
 
 export type AttachmentRef = {
   id: string;
-  shortId: string;
   kind: "image" | "file";
   filename: string;
 };
@@ -109,7 +108,7 @@ export const uploadFile = async (notebookId: string, file: File, signal?: AbortS
  *  Uses the short-id `attach://` scheme — see `service/attachments.ts`
  *  for why we picked `attach://` over `file://`. */
 export const attachmentMarkdown = (att: AttachmentRef): string =>
-  att.kind === "image" ? `![${att.filename}](attach://${att.shortId})` : `[${att.filename}](attach://${att.shortId})`;
+  att.kind === "image" ? `![${att.filename}](attach://${att.id})` : `[${att.filename}](attach://${att.id})`;
 
 /**
  * Insert an attachment reference at the current cursor position. Images

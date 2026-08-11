@@ -39,6 +39,10 @@ export type NotebookWorkspaceNote = {
   lockedAt: string | null;
 };
 
+type NotebookWorkspaceEventNote = NotebookWorkspaceNote & {
+  parentShortId: string | null;
+};
+
 export type NotebookWorkspaceInvalidationScope = "notebook" | "tree" | "tags" | "references" | "permissions";
 
 export type NotebookWorkspaceEvent =
@@ -52,13 +56,13 @@ export type NotebookWorkspaceEvent =
       v: 1;
       type: "note.created";
       notebookId: string;
-      note: NotebookWorkspaceNote;
+      note: NotebookWorkspaceEventNote;
     }
   | {
       v: 1;
       type: "note.updated";
       notebookId: string;
-      note: NotebookWorkspaceNote;
+      note: NotebookWorkspaceEventNote;
     }
   | {
       v: 1;
@@ -66,6 +70,42 @@ export type NotebookWorkspaceEvent =
       notebookId: string;
       noteId: string;
       shortId: string;
+    }
+  | {
+      v: 1;
+      type: "note.favorite.changed";
+      notebookId: string;
+      noteId: string;
+      shortId: string | null;
+      userId: string;
+      favorite: boolean;
+    }
+  | {
+      v: 1;
+      type: "workspace.invalidated";
+      notebookId: string;
+      reason: "bulk" | "template" | "permissions" | "unknown";
+      scopes: NotebookWorkspaceInvalidationScope[];
+    };
+
+export type PublicNotebookWorkspaceEvent =
+  | {
+      v: 1;
+      type: "notebook.updated";
+      notebookId: string;
+      notebook: Omit<NotebookWorkspaceNotebook, "shortId" | "homepageNoteShortId">;
+    }
+  | {
+      v: 1;
+      type: "note.created" | "note.updated";
+      notebookId: string;
+      note: Omit<NotebookWorkspaceEventNote, "shortId" | "parentShortId">;
+    }
+  | {
+      v: 1;
+      type: "note.deleted";
+      notebookId: string;
+      noteId: string;
     }
   | {
       v: 1;

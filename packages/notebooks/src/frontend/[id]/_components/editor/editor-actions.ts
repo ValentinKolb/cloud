@@ -336,7 +336,7 @@ export const insertNoteLink = async (view: EditorView, notebookId: string): Prom
   // Carrying short-ids in markdown bodies (instead of full URLs)
   // means link references survive notebook renames / URL refactors
   // and stay short + portable across copy-paste between notebooks.
-  const url = `note://${picked.shortId}`;
+  const url = `note://${picked.id}`;
   const insert = `[${linkText}](${url})`;
 
   view.dispatch({

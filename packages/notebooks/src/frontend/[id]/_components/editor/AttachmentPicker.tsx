@@ -54,7 +54,7 @@ const AttachmentPicker = (props: Props) => {
     },
     onSuccess: (outcome) => {
       for (const att of outcome.uploaded) {
-        dispatchInsert({ id: att.id, shortId: att.shortId, kind: att.kind, filename: att.filename });
+        dispatchInsert({ id: att.id, kind: att.kind, filename: att.filename });
       }
       if (!outcome.error) {
         props.close();
@@ -75,7 +75,7 @@ const AttachmentPicker = (props: Props) => {
   };
 
   const pick = (att: Attachment) => {
-    dispatchInsert({ id: att.id, shortId: att.shortId, kind: att.kind, filename: att.filename });
+    dispatchInsert({ id: att.id, kind: att.kind, filename: att.filename });
     props.close();
   };
 

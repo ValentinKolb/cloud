@@ -3,7 +3,7 @@
  * notebook (cascades on notebook delete).
  *
  * Markdown encodes attachment references as `attach://<shortId>` (6-char
- * base62 alias). Resolution to the real download URL happens at render
+ * readable ID). Resolution to the real download URL happens at render
  * time (see `transformAttachments`) and inside CodeMirror image/file
  * widgets (client-side). The scheme is `attach://` (not `attachment://`
  * or `file://`) — the latter clashes with RFC 8089 filesystem URIs that
@@ -13,10 +13,10 @@
  * responsible for `notebook.permission.get(...)` checks before calling.
  */
 
-import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { fileIcons } from "@k2b/stdlib";
+import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";
+import { generateUniqueShortId } from "../lib/short-id";
 
 const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -96,24 +96,13 @@ export const get = async (params: { id: string }): Promise<Attachment | null> =>
   return row ? mapRow(row) : null;
 };
 
-/**
- * Resolve an attachment by either UUID or short-id. Format-detection
- * branches keep each query on its own single-column index — same
- * pattern as `notebooks.getByIdOrShortId` and `notes.getByIdOrShortId`.
- * Used by the content-serving route + detail-panel hydration so the
- * `attach://` markdown scheme can carry short-ids end-to-end.
- */
-export const getByIdOrShortId = async (params: { idOrShortId: string }): Promise<Attachment | null> => {
-  const v = params.idOrShortId;
-  if (isShortId(v)) {
-    const [row] = await sql<DbRow[]>`
-      SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
-      FROM notebooks.attachments WHERE short_id = ${v}
-    `;
-    return row ? mapRow(row) : null;
-  }
-  if (!isUuid(v)) return null;
-  return get({ id: v });
+/** Resolve the public attachment identity to its internal UUID-backed model. */
+export const getByShortId = async (params: { shortId: string }): Promise<Attachment | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at
+    FROM notebooks.attachments WHERE short_id = ${params.shortId}
+  `;
+  return row ? mapRow(row) : null;
 };
 
 export const getContent = async (params: { id: string }): Promise<AttachmentContent | null> => {
@@ -124,20 +113,13 @@ export const getContent = async (params: { id: string }): Promise<AttachmentCont
   return row ? { ...mapRow(row), content: row.content } : null;
 };
 
-/** `getContent` variant accepting UUID OR short-id — used by the
- *  attachment serving endpoint when callers reference blobs via the
- *  user-facing short-id form. */
-export const getContentByIdOrShortId = async (params: { idOrShortId: string }): Promise<AttachmentContent | null> => {
-  const v = params.idOrShortId;
-  if (isShortId(v)) {
-    const [row] = await sql<(DbRow & { content: Uint8Array })[]>`
-      SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at, content
-      FROM notebooks.attachments WHERE short_id = ${v}
-    `;
-    return row ? { ...mapRow(row), content: row.content } : null;
-  }
-  if (!isUuid(v)) return null;
-  return getContent({ id: v });
+/** Load attachment content by its public short ID. */
+export const getContentByShortId = async (params: { shortId: string }): Promise<AttachmentContent | null> => {
+  const [row] = await sql<(DbRow & { content: Uint8Array })[]>`
+    SELECT id, short_id, notebook_id, filename, mime_type, size_bytes, kind, created_by, created_at, content
+    FROM notebooks.attachments WHERE short_id = ${params.shortId}
+  `;
+  return row ? { ...mapRow(row), content: row.content } : null;
 };
 
 export const list = async (params: { notebookId: string }): Promise<Attachment[]> => {
@@ -292,12 +274,10 @@ export const reindexAttachmentRefs = async (params: { noteId: string; notebookId
 // =============================================================================
 
 /**
- * Notebook-scoped content URL. The API endpoint accepts either UUID or
- * short-id (see `getContentByIdOrShortId`), so we keep the short-id form
- * end-to-end — the URL stays short and stable through copy-paste, and
- * the route `:attId` param works either way.
+ * Notebook-scoped content URL using the public notebook and attachment IDs.
  */
-const buildContentUrl = (notebookId: string, idOrShortId: string) => `/api/notebooks/${notebookId}/attachments/${idOrShortId}/content?v=1`;
+const buildContentUrl = (notebookId: string, attachmentId: string) =>
+  `/api/notebooks/${notebookId}/attachments/${attachmentId}/content?v=1`;
 
 export const transformAttachments = (html: string, params: { notebookId: string; shortIdToFilename?: Map<string, string> }): string => {
   const { notebookId, shortIdToFilename } = params;

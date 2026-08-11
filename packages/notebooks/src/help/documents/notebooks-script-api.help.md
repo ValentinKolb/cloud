@@ -15,7 +15,7 @@ Script blocks expose four globals: `current`, `nb`, `ui`, and `std`. Type a name
 :::reference
 - **No imports:** Script blocks use exposed globals only: current, nb, ui, and std.
 - **Current notebook boundary:** The nb APIs are scoped to the current notebook. There is no parameter for reading another notebook.
-- **Short note ids:** Note ids in nb calls are the short ids used in note URLs and note:// links.
+- **Resource ids:** Notebook, note, parent, and attachment ids are the six-character ids used in URLs, APIs, and note:// or attach:// links.
 - **Bounded reads:** Structured searches default to limit: 50 and cap at 200. Search can mark large client-side results with __truncated.
 :::
 
@@ -33,7 +33,7 @@ Read properties of the note that contains the script.
 | `title` | `string` | `current.title` | Current note title. |
 | `content` | `string` | `current.content` | Current Markdown content. |
 | `tags` | `string[]` | `current.tags` | Tags parsed from current content. |
-| `notebook` | `{ id: string; name: string }` | `current.notebook` | Current notebook identity. |
+| `notebook` | `{ id: string; name: string }` | `current.notebook` | Current notebook identity; id is the public short id. |
 | `createdAt` | `string` | `current.createdAt` | Creation timestamp. |
 | `updatedAt` | `string` | `current.updatedAt` | Last update timestamp. |
 | `lockedAt` | `string \| null` | `current.lockedAt` | Lock timestamp, or null when the note is not locked. |

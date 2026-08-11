@@ -163,7 +163,7 @@ function SnapshotLogsSection(props: { entries: LogTableEntry[]; loading: boolean
 }
 
 export function ExportSection(props: { notebook: Notebook; onDirtyChange: (dirty: boolean) => void }) {
-  const href = () => `/api/notebooks/${encodeURIComponent(props.notebook.shortId)}/export.zip`;
+  const href = () => `/api/notebooks/${encodeURIComponent(props.notebook.id)}/export.zip`;
   const [lastRun, setLastRun] = createSignal<BackupRunResult | null>(null);
   const [base, setBase] = createSignal({
     enabled: false,
@@ -178,7 +178,7 @@ export function ExportSection(props: { notebook: Notebook; onDirtyChange: (dirty
   const [accessKeyId, setAccessKeyId] = createSignal("");
   const [secretAccessKey, setSecretAccessKey] = createSignal("");
   const status = query.create({
-    source: () => props.notebook.shortId,
+    source: () => props.notebook.id,
     load: async (notebookId, { abortSignal }): Promise<BackupStatus> => {
       const res = await apiClient[":id"].snapshots.config.$get({ param: { id: notebookId } }, { init: { signal: abortSignal } });
       if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to load snapshot settings."));
@@ -186,7 +186,7 @@ export function ExportSection(props: { notebook: Notebook; onDirtyChange: (dirty
     },
   });
   const logs = query.create({
-    source: () => props.notebook.shortId,
+    source: () => props.notebook.id,
     load: async (notebookId, { abortSignal }): Promise<LogTableEntry[]> => {
       const res = await apiClient[":id"].snapshots.logs.$get(
         {
@@ -244,7 +244,7 @@ export function ExportSection(props: { notebook: Notebook; onDirtyChange: (dirty
     mutation: async (intent, { abortSignal }) => {
       const res = await apiClient[":id"].snapshots.config.$put(
         {
-          param: { id: props.notebook.shortId },
+          param: { id: props.notebook.id },
           json: intent,
         },
         { init: { signal: abortSignal } },
@@ -261,7 +261,7 @@ export function ExportSection(props: { notebook: Notebook; onDirtyChange: (dirty
 
   const backupMutation = mutations.create<BackupRunResult, void>({
     mutation: async (_value, { abortSignal }) => {
-      const res = await apiClient[":id"].snapshots.run.$post({ param: { id: props.notebook.shortId } }, { init: { signal: abortSignal } });
+      const res = await apiClient[":id"].snapshots.run.$post({ param: { id: props.notebook.id } }, { init: { signal: abortSignal } });
       if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to upload snapshot."));
       return await res.json();
     },
@@ -303,7 +303,7 @@ export function ExportSection(props: { notebook: Notebook; onDirtyChange: (dirty
   const localLogEntries = (): LogTableEntry[] => {
     const run = lastRun();
     if (!run) return [];
-    return [snapshotLogEntryFromRun(run, props.notebook.shortId)];
+    return [snapshotLogEntryFromRun(run, props.notebook.id)];
   };
   const logEntries = () => {
     const remote = logs.data() ?? [];
@@ -358,7 +358,7 @@ export function ExportSection(props: { notebook: Notebook; onDirtyChange: (dirty
             }
           >
             <SnapshotConfigFields
-              notebookShortId={props.notebook.shortId}
+              notebookShortId={props.notebook.id}
               enabled={enabled}
               setEnabled={setEnabled}
               endpoint={endpoint}

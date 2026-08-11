@@ -7,7 +7,7 @@ const ctxWithDoc = (): KitContext => ({
   mode: "edit",
   notebookId: "nb1234",
   note: {
-    shortId: "nt1234",
+    id: "nt1234",
     title: "Test",
     content: "",
     notebookName: "Notebook",

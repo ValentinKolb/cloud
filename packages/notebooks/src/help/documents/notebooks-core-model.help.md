@@ -13,8 +13,8 @@ A notebook is a shared workspace. A note is the source document. Named blocks an
 ## The objects {icon="box-multiple"}
 
 :::reference
-- **Notebook:** A workspace with notes, attachments, settings, permissions, exports, optional scripts, and notebook-local state.
-- **Note:** A Markdown document that can contain prose, tasks, links, tables, data blocks, attachments, and script output.
+- **Notebook:** A workspace with notes, attachments, settings, permissions, exports, optional scripts, and notebook-local state. Its id is the immutable six-character id used in URLs and APIs.
+- **Note:** A Markdown document that can contain prose, tasks, links, tables, data blocks, attachments, and script output. Its id is the immutable six-character id used in URLs and note links.
 - **Note tree:** Notes can have parent notes. The sidebar uses that hierarchy for navigation.
 - **Tag:** A #tag parsed from note content and used by search, tag pages, and scripts.
 - **Attachment:** A file uploaded to the notebook and referenced from Markdown with attach://shortId.

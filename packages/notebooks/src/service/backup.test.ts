@@ -24,8 +24,7 @@ const config: NotebookBackupConfig = {
 const exported: NotebookExport = {
   filename: "daily-journal-2026-05-28.zip",
   notebook: {
-    id: "11111111-1111-4111-8111-111111111111",
-    shortId: "nb1234",
+    id: "nb1234",
     name: "Daily Journal",
   },
   files: [],
@@ -48,7 +47,7 @@ describe("notebook S3 backup", () => {
 
   test("creates a manifest from the portable export metadata", () => {
     const paths = buildNotebookBackupPaths(config, {
-      notebookShortId: exported.notebook.shortId,
+      notebookShortId: exported.notebook.id,
       exportedAt: new Date("2026-05-28T14:30:05.123Z"),
     });
 
@@ -67,6 +66,8 @@ describe("notebook S3 backup", () => {
       zipBytes: 4,
       paths,
     });
+    expect(manifest.notebook).toEqual({ id: "nb1234", name: "Daily Journal" });
+    expect(manifest.notebook).not.toHaveProperty("shortId");
     expect(manifest.sha256).toHaveLength(64);
   });
 

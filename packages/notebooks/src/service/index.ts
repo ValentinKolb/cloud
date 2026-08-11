@@ -58,7 +58,7 @@ export const notebooksService = {
       };
     },
     get: notebooks.get,
-    getByIdOrShortId: notebooks.getByIdOrShortId,
+    getByShortId: notebooks.getByShortId,
     create: notebooks.create,
     update: notebooks.update,
     remove: notebooks.remove,
@@ -157,9 +157,10 @@ export const notebooksService = {
       };
     },
     get: notes.get,
-    getByIdOrShortId: notes.getByIdOrShortId,
+    getByShortId: notes.getByShortId,
     getWithContent: notes.getWithContent,
-    getWithContentByIdOrShortId: notes.getWithContentByIdOrShortId,
+    getWithContentByShortId: notes.getWithContentByShortId,
+    resolveIdsToShortIds: notes.resolveIdsToShortIds,
     resolveShortIdsToNotebookShortIds: notes.resolveShortIdsToNotebookShortIds,
     getTree: notes.getTree,
     create: notes.create,
@@ -229,9 +230,9 @@ export const notebooksService = {
   attachment: {
     upload: attachments.upload,
     get: attachments.get,
-    getByIdOrShortId: attachments.getByIdOrShortId,
+    getByShortId: attachments.getByShortId,
     getContent: attachments.getContent,
-    getContentByIdOrShortId: attachments.getContentByIdOrShortId,
+    getContentByShortId: attachments.getContentByShortId,
     list: attachments.list,
     listByIds: attachments.listByIds,
     listByShortIds: attachments.listByShortIds,

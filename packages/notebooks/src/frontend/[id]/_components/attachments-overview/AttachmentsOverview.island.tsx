@@ -35,11 +35,11 @@ type Props = {
 const AttachmentsOverview = (props: Props) => {
   const [items, setItems] = createSignal<Attachment[]>(props.initial);
 
-  const onDownload = (att: Attachment) => void confirmAndDownload(att.filename, buildAttachmentContentUrl(props.notebookId, att.shortId));
+  const onDownload = (att: Attachment) => void confirmAndDownload(att.filename, buildAttachmentContentUrl(props.notebookId, att.id));
 
   const onCopy = async (att: Attachment) => {
     try {
-      await clipboard.copy(attachmentMarkdown({ id: att.id, shortId: att.shortId, kind: att.kind, filename: att.filename }));
+      await clipboard.copy(attachmentMarkdown({ id: att.id, kind: att.kind, filename: att.filename }));
       toast.success("Attachment Markdown copied");
     } catch {
       toast.error("Could not copy attachment Markdown");
@@ -48,7 +48,7 @@ const AttachmentsOverview = (props: Props) => {
 
   const onDelete = async (att: Attachment) => {
     const usageRes = await apiClient[":id"].attachments[":attId"].usage.$get({
-      param: { id: props.notebookId, attId: att.shortId },
+      param: { id: props.notebookId, attId: att.id },
     });
     if (!usageRes.ok) {
       await prompts.error("Failed to check attachment usage");
@@ -72,7 +72,7 @@ const AttachmentsOverview = (props: Props) => {
     if (!ok) return;
 
     const delRes = await apiClient[":id"].attachments[":attId"].$delete({
-      param: { id: props.notebookId, attId: att.shortId },
+      param: { id: props.notebookId, attId: att.id },
     });
     if (!delRes.ok) {
       const data = (await delRes.json().catch(() => null)) as {
@@ -118,7 +118,7 @@ const AttachmentsOverview = (props: Props) => {
               <div class="relative aspect-square overflow-hidden bg-zinc-100 dark:bg-zinc-800">
                 {att.kind === "image" ? (
                   <img
-                    src={buildAttachmentContentUrl(props.notebookId, att.shortId)}
+                    src={buildAttachmentContentUrl(props.notebookId, att.id)}
                     alt={att.filename}
                     loading="lazy"
                     class="absolute inset-0 w-full h-full object-contain"

@@ -1,15 +1,15 @@
 /**
  * Short-id generator + collision-aware uniqueness check, used for the
- * user-facing aliases on notebooks / notes / attachments.
+ * public identifiers for notebooks / notes / attachments.
  *
  * UUID stays as the canonical PK / FK target inside the DB. The
- * `short_id` column is a *display* identifier — it appears in URLs
+ * `short_id` column is the public resource identifier — it appears in URLs
  * (`/app/notebooks/{nbShortId}/notes/{noteShortId}`) and in markdown
  * body schemes (`[label](note://k2s8s6)`, `![](attach://sjss6s)`). The
  * mapping is shortId → uuid at every page-handler boundary; service
  * layer below the boundary continues to use UUIDs end-to-end.
  *
- * Format: 6-char base62 from `crypto.common.readableId` (≈ 56 billion
+ * Format: 6 characters from `crypto.common.readableId` (≈ 27.7 billion
  * combinations). At our scale (millions of rows max) the
  * birthday-paradox collision probability is negligible, but we still
  * use a `UNIQUE` index + `EXISTS`-check loop to be absolutely safe.
@@ -22,24 +22,18 @@
 import { crypto } from "@k2b/stdlib";
 import { sql } from "bun";
 
-/** Length of the generated short-id — 6 base62 chars. */
+/** Length of the generated readable ID. */
 const SHORT_ID_LEN = 6;
 
 /** Cap on retries before giving up — pure paranoia, in practice the
  *  loop never exits past attempt 0 because the keyspace is huge. */
 const MAX_ATTEMPTS = 10;
 
-/** Anchored regex caller can use to detect short-ids vs UUIDs. base62
- *  charset (`[0-9a-zA-Z]`) overlaps with the UUID hex alphabet at the
- *  character level, so we anchor on length: 6 = short-id, 36 = UUID. */
+/** Anchored public short-id format. */
 export const SHORT_ID_REGEX = /^[0-9a-zA-Z]{6}$/;
-export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-export const isShortId = (value: string): boolean => SHORT_ID_REGEX.test(value);
-export const isUuid = (value: string): boolean => UUID_REGEX.test(value);
 
 /**
- * Tables that carry a `short_id` alias column. Each entry pairs the
+ * Tables that carry a public `short_id` column. Each entry pairs the
  * caller-facing tag with the SQL-side identity used by the existence
  * check + the backfill update. Adding a new short-id-bearing table is
  * a one-line change.
@@ -55,7 +49,7 @@ export type ShortIdTable = "notebook" | "note" | "attachment";
  * Generate a short-id that doesn't collide with an existing row in the
  * named table. The `EXISTS` query is cheap because `short_id` has a
  * UNIQUE index. Throws after `MAX_ATTEMPTS` collisions (which, given
- * the 62^6 ≈ 56 B keyspace, would mean it's functionally saturated).
+ * the 55^6 ≈ 27.7 B keyspace, would indicate a systemic problem).
  */
 export const generateUniqueShortId = async (table: ShortIdTable): Promise<string> => {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {

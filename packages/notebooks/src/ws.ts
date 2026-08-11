@@ -1,12 +1,18 @@
+import type { TopicLiveEvent } from "@k2b/sync";
 import type { NotebookPresenceParticipant, User } from "@valentinkolb/cloud/contracts";
 import { auth } from "@valentinkolb/cloud/server";
 import { accounts, logger } from "@valentinkolb/cloud/services";
-import type { TopicLiveEvent } from "@k2b/sync";
 import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { z } from "zod";
-import { isPermissionInvalidation, notebooksWorkspace } from "./lib/workspace-events";
+import { SHORT_ID_REGEX } from "./lib/short-id";
+import {
+  isPermissionInvalidation,
+  type NotebookWorkspaceEvent,
+  notebooksWorkspace,
+  type PublicNotebookWorkspaceEvent,
+} from "./lib/workspace-events";
 import { notebooksYjs } from "./lib/yjs";
 import { notebooksService } from "./service";
 import { PRESENCE_HEARTBEAT_INTERVAL_MS } from "./service/presence";
@@ -55,10 +61,7 @@ const BASE64_REGEX = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{
 const ReplayRequestMessageSchema = z.object({
   type: z.literal(WS_TYPE.replayRequest),
   payload: z.object({
-    // Accepts either a UUID or a 6-char short-id — `evaluateAccess`
-    // resolves the form against `notebooks.notes` and stores the
-    // canonical UUID in `WsContext.noteId` for everything downstream.
-    noteId: z.string().min(6).max(36),
+    noteId: z.string().regex(SHORT_ID_REGEX),
     fromCursor: z.string().regex(notebooksYjs.streamCursorPattern).nullable().optional(),
   }),
 });
@@ -66,10 +69,7 @@ const ReplayRequestMessageSchema = z.object({
 const SyncPublishMessageSchema = z.object({
   type: z.literal(WS_TYPE.syncPublish),
   payload: z.object({
-    // Accepts either a UUID or a 6-char short-id — `evaluateAccess`
-    // resolves the form against `notebooks.notes` and stores the
-    // canonical UUID in `WsContext.noteId` for everything downstream.
-    noteId: z.string().min(6).max(36),
+    noteId: z.string().regex(SHORT_ID_REGEX),
     payload: z.string().min(1).max(MAX_SYNC_PAYLOAD_LENGTH),
   }),
 });
@@ -77,10 +77,7 @@ const SyncPublishMessageSchema = z.object({
 const AwarenessPublishMessageSchema = z.object({
   type: z.literal(WS_TYPE.awarenessPublish),
   payload: z.object({
-    // Accepts either a UUID or a 6-char short-id — `evaluateAccess`
-    // resolves the form against `notebooks.notes` and stores the
-    // canonical UUID in `WsContext.noteId` for everything downstream.
-    noteId: z.string().min(6).max(36),
+    noteId: z.string().regex(SHORT_ID_REGEX),
     payload: z.string().min(1).max(MAX_AWARENESS_PAYLOAD_LENGTH),
   }),
 });
@@ -88,7 +85,7 @@ const AwarenessPublishMessageSchema = z.object({
 const WorkspaceSubscribeMessageSchema = z.object({
   type: z.literal(WORKSPACE_WS_TYPE.subscribe),
   payload: z.object({
-    notebookId: z.string().min(6).max(36),
+    notebookId: z.string().regex(SHORT_ID_REGEX),
     fromCursor: z.string().regex(notebooksWorkspace.streamCursorPattern).nullable().optional(),
   }),
 });
@@ -110,11 +107,8 @@ type WsContext = {
   user: User | null;
   /** Canonical UUID — what every DB call + presence channel uses. */
   noteId: string | null;
-  /** The form the client sent on `replayRequest` (UUID or short-id) —
-   *  echoed back unchanged in server messages so the client's
-   *  `replayReady` matcher converges. Wire-level publishes are
-   *  validated against this. */
-  wireNoteId: string | null;
+  /** Stable public short-id used on the websocket wire. */
+  noteShortId: string | null;
   canWrite: boolean;
   peerId: string;
   streamAbort: AbortController | null;
@@ -125,6 +119,7 @@ type WsContext = {
   noteNotebookId: string | null;
   noteAccessWatchAbort: AbortController | null;
   workspaceNotebookId: string | null;
+  workspaceNotebookShortId: string | null;
   workspaceAbort: AbortController | null;
   workspaceAccessRefreshTimeout: ReturnType<typeof setTimeout> | null;
   dirty: boolean;
@@ -143,9 +138,7 @@ type AccessEvaluation = {
   code?: NotebooksYjsErrorCode;
   message?: string;
   noteId?: string;
-  /** Canonical UUID resolved from the route param (which may have been
-   *  a short-id). Set when `ok` is true so callers can store it in
-   *  `WsContext.noteId` for the rest of the session. */
+  /** Canonical UUID used below the websocket boundary. */
   resolvedNoteId?: string;
   /** Notebook the note belongs to; the tenant its permission events are published on. */
   notebookId?: string;
@@ -172,9 +165,9 @@ const createContext = (socket: ServerWebSocket<unknown>, sessionToken: string | 
   sessionToken,
   user: null,
   noteId: null,
+  noteShortId: null,
   noteNotebookId: null,
   noteAccessWatchAbort: null,
-  wireNoteId: null,
   canWrite: false,
   peerId: crypto.randomUUID(),
   streamAbort: null,
@@ -182,6 +175,7 @@ const createContext = (socket: ServerWebSocket<unknown>, sessionToken: string | 
   presenceHeartbeatInterval: null,
   accessRefreshTimeout: null,
   workspaceNotebookId: null,
+  workspaceNotebookShortId: null,
   workspaceAbort: null,
   workspaceAccessRefreshTimeout: null,
   dirty: false,
@@ -262,8 +256,8 @@ const broadcastPresence = (
   participants: NotebookPresenceParticipant[],
 ) => {
   for (const member of channel.members) {
-    if (member.phase !== "joined" || member.noteId !== channel.noteId) continue;
-    sendPresenceMessage(member.socket, type, channel.noteId, participants);
+    if (member.phase !== "joined" || member.noteId !== channel.noteId || !member.noteShortId) continue;
+    sendPresenceMessage(member.socket, type, member.noteShortId, participants);
   }
 };
 
@@ -336,7 +330,7 @@ const unregisterPresenceMember = (ctx: WsContext, noteId: string) => {
 
 const sendPresenceSnapshot = async (ctx: WsContext, noteId: string) => {
   const state = await notebooksService.presence.snapshot({ noteId });
-  sendPresenceMessage(ctx.socket, WS_TYPE.presenceSnapshot, noteId, state.participants);
+  if (ctx.noteShortId) sendPresenceMessage(ctx.socket, WS_TYPE.presenceSnapshot, ctx.noteShortId, state.participants);
 };
 
 const startPresenceHeartbeat = (ctx: WsContext) => {
@@ -432,6 +426,7 @@ const leaveCurrentNote = async (ctx: WsContext) => {
     }
   }
   ctx.noteId = null;
+  ctx.noteShortId = null;
   ctx.noteNotebookId = null;
   ctx.canWrite = false;
   ctx.dirty = false;
@@ -445,6 +440,7 @@ const leaveCurrentWorkspace = (ctx: WsContext) => {
   stopWorkspaceAccessRefresh(ctx);
   stopWorkspaceStream(ctx);
   ctx.workspaceNotebookId = null;
+  ctx.workspaceNotebookShortId = null;
 };
 
 const fatal = async (ctx: WsContext, code: NotebooksYjsErrorCode, message: string, noteId?: string) => {
@@ -465,25 +461,16 @@ const resolveSessionUser = async (sessionToken: string | null): Promise<User | n
   return accounts.users.get({ id: session.userId });
 };
 
-const evaluateAccess = async (
-  noteIdOrShortId: string,
+type ResolvedNote = NonNullable<Awaited<ReturnType<typeof notebooksService.note.get>>>;
+type ResolvedNotebook = NonNullable<Awaited<ReturnType<typeof notebooksService.notebook.get>>>;
+
+const evaluateResolvedNoteAccess = async (
+  note: ResolvedNote,
+  noteShortId: string,
   user: User,
   mode: "read" | "write",
   deniedCode: NotebooksYjsErrorCode,
 ): Promise<AccessEvaluation> => {
-  // Route param may be a UUID or a 6-char short-id — same boundary
-  // resolution as the HTTP API. From here on we work with the
-  // canonical UUID `note.id`.
-  const note = await notebooksService.note.getByIdOrShortId({ idOrShortId: noteIdOrShortId });
-  if (!note) {
-    return {
-      ok: false,
-      code: ERROR_CODE.noteNotFound,
-      message: "Note not found",
-      noteId: noteIdOrShortId,
-    };
-  }
-
   const permission = await notebooksService.notebook.permission.get({
     notebookId: note.notebookId,
     userId: user.id,
@@ -494,7 +481,7 @@ const evaluateAccess = async (
       ok: false,
       code: deniedCode,
       message: deniedCode === ERROR_CODE.accessRevoked ? "Access was revoked" : "Access denied",
-      noteId: note.id,
+      noteId: noteShortId,
     };
   }
 
@@ -504,7 +491,7 @@ const evaluateAccess = async (
       ok: false,
       code: ERROR_CODE.accessDenied,
       message: "Write access required",
-      noteId: note.id,
+      noteId: noteShortId,
     };
   }
 
@@ -513,7 +500,7 @@ const evaluateAccess = async (
       ok: false,
       code: ERROR_CODE.noteLocked,
       message: "Note is locked",
-      noteId: note.id,
+      noteId: noteShortId,
     };
   }
 
@@ -525,21 +512,30 @@ const evaluateAccess = async (
   };
 };
 
-const evaluateNotebookAccess = async (
-  notebookIdOrShortId: string,
+const evaluateAccess = async (
+  noteShortId: string,
   user: User,
+  mode: "read" | "write",
   deniedCode: NotebooksYjsErrorCode,
-): Promise<AccessEvaluation & { notebookId?: string }> => {
-  const notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId: notebookIdOrShortId });
-  if (!notebook) {
+): Promise<AccessEvaluation> => {
+  const note = await notebooksService.note.getByShortId({ shortId: noteShortId });
+  if (!note) {
     return {
       ok: false,
       code: ERROR_CODE.noteNotFound,
-      message: "Notebook not found",
-      noteId: notebookIdOrShortId,
+      message: "Note not found",
+      noteId: noteShortId,
     };
   }
+  return evaluateResolvedNoteAccess(note, noteShortId, user, mode, deniedCode);
+};
 
+const evaluateResolvedNotebookAccess = async (
+  notebook: ResolvedNotebook,
+  notebookShortId: string,
+  user: User,
+  deniedCode: NotebooksYjsErrorCode,
+): Promise<AccessEvaluation & { notebookId?: string }> => {
   const permission = await notebooksService.notebook.permission.get({
     notebookId: notebook.id,
     userId: user.id,
@@ -550,7 +546,7 @@ const evaluateNotebookAccess = async (
       ok: false,
       code: deniedCode,
       message: deniedCode === ERROR_CODE.accessRevoked ? "Access was revoked" : "Access denied",
-      noteId: notebook.id,
+      noteId: notebookShortId,
     };
   }
 
@@ -561,8 +557,25 @@ const evaluateNotebookAccess = async (
   };
 };
 
+const evaluateNotebookAccess = async (
+  notebookShortId: string,
+  user: User,
+  deniedCode: NotebooksYjsErrorCode,
+): Promise<AccessEvaluation & { notebookId?: string }> => {
+  const notebook = await notebooksService.notebook.getByShortId({ shortId: notebookShortId });
+  if (!notebook) {
+    return {
+      ok: false,
+      code: ERROR_CODE.noteNotFound,
+      message: "Notebook not found",
+      noteId: notebookShortId,
+    };
+  }
+  return evaluateResolvedNotebookAccess(notebook, notebookShortId, user, deniedCode);
+};
+
 const refreshJoinedAccess = async (ctx: WsContext): Promise<AccessEvaluation> => {
-  if (!ctx.noteId) {
+  if (!ctx.noteId || !ctx.noteShortId) {
     return {
       ok: false,
       code: ERROR_CODE.noteNotFound,
@@ -576,11 +589,13 @@ const refreshJoinedAccess = async (ctx: WsContext): Promise<AccessEvaluation> =>
       ok: false,
       code: ERROR_CODE.sessionExpired,
       message: "Session expired",
-      noteId: ctx.noteId,
+      noteId: ctx.noteShortId,
     };
   }
 
-  const access = await evaluateAccess(ctx.noteId, user, "read", ERROR_CODE.accessRevoked);
+  const note = await notebooksService.note.get({ id: ctx.noteId });
+  if (!note) return { ok: false, code: ERROR_CODE.noteNotFound, message: "Note not found", noteId: ctx.noteShortId };
+  const access = await evaluateResolvedNoteAccess(note, ctx.noteShortId, user, "read", ERROR_CODE.accessRevoked);
   if (!access.ok) return access;
   ctx.user = user;
   ctx.canWrite = access.canWrite ?? false;
@@ -588,7 +603,7 @@ const refreshJoinedAccess = async (ctx: WsContext): Promise<AccessEvaluation> =>
 };
 
 const refreshWorkspaceAccess = async (ctx: WsContext): Promise<AccessEvaluation> => {
-  if (!ctx.workspaceNotebookId) {
+  if (!ctx.workspaceNotebookId || !ctx.workspaceNotebookShortId) {
     return {
       ok: false,
       code: ERROR_CODE.noteNotFound,
@@ -602,11 +617,15 @@ const refreshWorkspaceAccess = async (ctx: WsContext): Promise<AccessEvaluation>
       ok: false,
       code: ERROR_CODE.sessionExpired,
       message: "Session expired",
-      noteId: ctx.workspaceNotebookId,
+      noteId: ctx.workspaceNotebookShortId,
     };
   }
 
-  const access = await evaluateNotebookAccess(ctx.workspaceNotebookId, user, ERROR_CODE.accessRevoked);
+  const notebook = await notebooksService.notebook.get({ id: ctx.workspaceNotebookId });
+  if (!notebook) {
+    return { ok: false, code: ERROR_CODE.noteNotFound, message: "Notebook not found", noteId: ctx.workspaceNotebookShortId };
+  }
+  const access = await evaluateResolvedNotebookAccess(notebook, ctx.workspaceNotebookShortId, user, ERROR_CODE.accessRevoked);
   if (!access.ok) return access;
   ctx.user = user;
   return access;
@@ -622,7 +641,7 @@ const revalidateNoteAccess = async (ctx: WsContext): Promise<boolean> => {
       ctx,
       access.code ?? ERROR_CODE.internalError,
       access.message ?? "Access refresh failed",
-      access.noteId ?? ctx.noteId ?? undefined,
+      access.noteId ?? ctx.noteShortId ?? undefined,
     );
     return false;
   } catch (error) {
@@ -630,7 +649,7 @@ const revalidateNoteAccess = async (ctx: WsContext): Promise<boolean> => {
       noteId: ctx.noteId,
       error: error instanceof Error ? error.message : String(error),
     });
-    await fatal(ctx, ERROR_CODE.internalError, "Access refresh failed", ctx.noteId ?? undefined);
+    await fatal(ctx, ERROR_CODE.internalError, "Access refresh failed", ctx.noteShortId ?? undefined);
     return false;
   }
 };
@@ -646,12 +665,12 @@ const startAccessRefresh = (ctx: WsContext) => {
 
 /** Re-evaluate the joined workspace's access. Returns false once it has been left. */
 const revalidateWorkspaceAccess = async (ctx: WsContext): Promise<boolean> => {
-  if (!ctx.workspaceNotebookId) return false;
+  if (!ctx.workspaceNotebookId || !ctx.workspaceNotebookShortId) return false;
   try {
     const access = await refreshWorkspaceAccess(ctx);
     if (access.ok) return true;
     send(ctx.socket, WORKSPACE_WS_TYPE.revoked, {
-      notebookId: ctx.workspaceNotebookId,
+      notebookId: ctx.workspaceNotebookShortId,
       code: access.code ?? ERROR_CODE.accessRevoked,
       message: access.message ?? "Workspace access revoked",
     });
@@ -663,7 +682,7 @@ const revalidateWorkspaceAccess = async (ctx: WsContext): Promise<boolean> => {
       error: error instanceof Error ? error.message : String(error),
     });
     send(ctx.socket, WORKSPACE_WS_TYPE.error, {
-      notebookId: ctx.workspaceNotebookId,
+      notebookId: ctx.workspaceNotebookShortId,
       code: ERROR_CODE.internalError,
       message: "Workspace access refresh failed",
     });
@@ -738,6 +757,7 @@ const CATCH_UP_MAX_MS = 2000;
 const startLiveStream = (
   ctx: WsContext,
   noteId: string,
+  noteShortId: string,
   afterCursor: string | null,
   /**
    * Fired exactly once when the catch-up phase ends — either because
@@ -764,7 +784,7 @@ const startLiveStream = (
       for await (const event of awarenessTopic.live({ signal: abort.signal })) {
         if (ctx.phase !== "joined" || ctx.noteId !== noteId) break;
         send(ctx.socket, WS_TYPE.awarenessPush, {
-          noteId,
+          noteId: noteShortId,
           updates: [toPushUpdate(event)],
         });
       }
@@ -774,7 +794,7 @@ const startLiveStream = (
           noteId,
           error: error instanceof Error ? error.message : String(error),
         });
-        await fatal(ctx, ERROR_CODE.internalError, "Live awareness stream failed", noteId);
+        await fatal(ctx, ERROR_CODE.internalError, "Live awareness stream failed", noteShortId);
       }
     }
   })();
@@ -897,10 +917,10 @@ const startLiveStream = (
         }
 
         const lastPending = pending.at(-1);
-        if (lastPending && lastPending.type === type && lastPending.noteId === noteId) {
+        if (lastPending && lastPending.type === type && lastPending.noteId === noteShortId) {
           lastPending.updates.push(update);
         } else {
-          pending.push({ type, noteId, updates: [update] });
+          pending.push({ type, noteId: noteShortId, updates: [update] });
         }
 
         pendingEvents++;
@@ -924,7 +944,7 @@ const startLiveStream = (
           noteId,
           error: error instanceof Error ? error.message : String(error),
         });
-        await fatal(ctx, ERROR_CODE.internalError, "Live sync stream failed", noteId);
+        await fatal(ctx, ERROR_CODE.internalError, "Live sync stream failed", noteShortId);
       }
     } finally {
       clearCatchUpTimers();
@@ -978,14 +998,54 @@ const startNoteAccessWatch = (ctx: WsContext, notebookId: string) => {
   })();
 };
 
-const startWorkspaceStream = (ctx: WsContext, notebookId: string, afterCursor: string | null) => {
+const toPublicWorkspaceEvent = async (event: NotebookWorkspaceEvent, notebookShortId: string): Promise<PublicNotebookWorkspaceEvent> => {
+  if (event.type === "notebook.updated") {
+    const { shortId, homepageNoteShortId, ...notebook } = event.notebook;
+    return {
+      ...event,
+      notebookId: notebookShortId,
+      notebook: { ...notebook, id: shortId, homepageNoteId: homepageNoteShortId },
+    };
+  }
+
+  if (event.type === "note.created" || event.type === "note.updated") {
+    const { shortId, parentShortId, ...note } = event.note;
+    return {
+      ...event,
+      notebookId: notebookShortId,
+      note: {
+        ...note,
+        id: shortId,
+        notebookId: notebookShortId,
+        parentId: parentShortId,
+      },
+    };
+  }
+
+  if (event.type === "note.deleted") {
+    const { shortId, ...rest } = event;
+    return { ...rest, notebookId: notebookShortId, noteId: shortId };
+  }
+
+  if (event.type === "note.favorite.changed") {
+    const { shortId, ...rest } = event;
+    if (!shortId) {
+      return { v: 1, type: "workspace.invalidated", notebookId: notebookShortId, reason: "unknown", scopes: ["tree"] };
+    }
+    return { ...rest, notebookId: notebookShortId, noteId: shortId };
+  }
+
+  return { ...event, notebookId: notebookShortId };
+};
+
+const startWorkspaceStream = (ctx: WsContext, notebookId: string, notebookShortId: string, afterCursor: string | null) => {
   stopWorkspaceStream(ctx);
   const abort = new AbortController();
   ctx.workspaceAbort = abort;
 
   void (async () => {
     try {
-      send(ctx.socket, WORKSPACE_WS_TYPE.ready, { notebookId });
+      send(ctx.socket, WORKSPACE_WS_TYPE.ready, { notebookId: notebookShortId });
       for await (const event of notebooksService.workspaceEvents.live({
         notebookId,
         after: afterCursor ?? undefined,
@@ -993,9 +1053,9 @@ const startWorkspaceStream = (ctx: WsContext, notebookId: string, afterCursor: s
       })) {
         if (abort.signal.aborted || ctx.workspaceNotebookId !== notebookId) break;
         send(ctx.socket, WORKSPACE_WS_TYPE.event, {
-          notebookId,
+          notebookId: notebookShortId,
           cursor: event.cursor,
-          event: event.data,
+          event: await toPublicWorkspaceEvent(event.data, notebookShortId),
         });
         // The client was told; now re-check on the server, which is the side
         // that decides. Previously this event was forwarded and nothing else.
@@ -1008,7 +1068,7 @@ const startWorkspaceStream = (ctx: WsContext, notebookId: string, afterCursor: s
           error: error instanceof Error ? error.message : String(error),
         });
         send(ctx.socket, WORKSPACE_WS_TYPE.error, {
-          notebookId,
+          notebookId: notebookShortId,
           code: ERROR_CODE.internalError,
           message: "Workspace event stream failed",
         });
@@ -1027,12 +1087,9 @@ const ensurePhase = (ctx: WsContext, allowedTypes: readonly string[], attemptedT
   return false;
 };
 
-const ensureJoinedNote = (ctx: WsContext, wireNoteId: string): boolean => {
-  // Compare against `wireNoteId` (the form the client sent at join
-  // time) — `ctx.noteId` is the canonical UUID we use for DB calls
-  // and may differ from what the client sent if they used a short-id.
-  if (ctx.phase !== "joined" || !ctx.wireNoteId || ctx.wireNoteId !== wireNoteId) {
-    warn(ctx.socket, ERROR_CODE.invalidPayload, "Replay request required before publishing", wireNoteId);
+const ensureJoinedNote = (ctx: WsContext, noteShortId: string): boolean => {
+  if (ctx.phase !== "joined" || !ctx.noteShortId || ctx.noteShortId !== noteShortId) {
+    warn(ctx.socket, ERROR_CODE.invalidPayload, "Replay request required before publishing", noteShortId);
     return false;
   }
   return true;
@@ -1058,13 +1115,6 @@ const handleReplayRequest = async (ctx: WsContext, payload: z.infer<typeof Repla
     await fatal(ctx, access.code ?? ERROR_CODE.accessDenied, access.message ?? "Access denied", access.noteId ?? payload.noteId);
     return;
   }
-  // Wire-level convention: the server emits canonical UUIDs in every
-  // message it sends, including the response to `replayRequest`. The
-  // client (`provider.ts`) starts with whatever form the caller passed
-  // (UUID or short-id) and adopts the server's canonical form on
-  // first `replayReady`. Subsequent client→server messages then use
-  // the canonical UUID, so both sides agree on a single per-message
-  // `payload.noteId` value for the rest of the session.
   const dbNoteId = access.resolvedNoteId!;
 
   if (ctx.noteId && ctx.noteId !== dbNoteId) {
@@ -1074,8 +1124,8 @@ const handleReplayRequest = async (ctx: WsContext, payload: z.infer<typeof Repla
   ctx.phase = "joined";
   ctx.user = user;
   ctx.noteId = dbNoteId;
+  ctx.noteShortId = payload.noteId;
   ctx.noteNotebookId = access.notebookId ?? null;
-  ctx.wireNoteId = dbNoteId; // converged
   ctx.canWrite = access.canWrite ?? false;
 
   registerPresenceMember(ctx, dbNoteId);
@@ -1095,7 +1145,7 @@ const handleReplayRequest = async (ctx: WsContext, payload: z.infer<typeof Repla
     const snapshot = await notebooksService.note.getYjsStateWithCursor({ noteId: dbNoteId });
     if (snapshot?.yjsState) {
       send(ctx.socket, WS_TYPE.syncPush, {
-        noteId: dbNoteId,
+        noteId: payload.noteId,
         updates: [
           {
             cursor: snapshot.streamCursor,
@@ -1115,8 +1165,8 @@ const handleReplayRequest = async (ctx: WsContext, payload: z.infer<typeof Repla
   // (codex review on commit d87df13). Catch-up usually resolves in
   // <100ms on a healthy local Redis; the hard cap is `CATCH_UP_MAX_MS`
   // (2 s) so dormant notes don't hang.
-  startLiveStream(ctx, dbNoteId, replayCursor, () => {
-    send(ctx.socket, WS_TYPE.replayReady, { noteId: dbNoteId });
+  startLiveStream(ctx, dbNoteId, payload.noteId, replayCursor, () => {
+    send(ctx.socket, WS_TYPE.replayReady, { noteId: payload.noteId });
   });
   startAccessRefresh(ctx);
   if (ctx.noteNotebookId) startNoteAccessWatch(ctx, ctx.noteNotebookId);
@@ -1135,8 +1185,7 @@ const handleSyncPublish = async (ctx: WsContext, payload: z.infer<typeof SyncPub
     return;
   }
 
-  // Topic key is the canonical UUID — peers may have joined with
-  // either form but they all converge on the same per-note topic.
+  // Topic keys stay UUID-backed below the public short-id boundary.
   const noteTopic = createYjsTopic(ctx.noteId!);
   const published = await noteTopic.pub({
     data: {
@@ -1191,7 +1240,8 @@ const handleWorkspaceSubscribe = async (ctx: WsContext, payload: z.infer<typeof 
 
   ctx.user = user;
   ctx.workspaceNotebookId = access.notebookId;
-  startWorkspaceStream(ctx, access.notebookId, payload.fromCursor ?? null);
+  ctx.workspaceNotebookShortId = payload.notebookId;
+  startWorkspaceStream(ctx, access.notebookId, payload.notebookId, payload.fromCursor ?? null);
   startWorkspaceAccessRefresh(ctx);
 };
 
@@ -1269,12 +1319,12 @@ const app = new Hono().get(
           return;
         }
         if (event.data.length > MAX_CLIENT_MESSAGE_LENGTH) {
-          await fatal(ctx, ERROR_CODE.invalidPayload, "Websocket message is too large", ctx.noteId ?? undefined);
+          await fatal(ctx, ERROR_CODE.invalidPayload, "Websocket message is too large", ctx.noteShortId ?? undefined);
           return;
         }
 
         if (pendingMessages >= MAX_PENDING_MESSAGES) {
-          await fatal(ctx, ERROR_CODE.backpressure, "Too many pending websocket messages", ctx.noteId ?? undefined);
+          await fatal(ctx, ERROR_CODE.backpressure, "Too many pending websocket messages", ctx.noteShortId ?? undefined);
           return;
         }
 
@@ -1288,7 +1338,7 @@ const app = new Hono().get(
               noteId: currentCtx.noteId,
               error: error instanceof Error ? error.message : String(error),
             });
-            await fatal(currentCtx, ERROR_CODE.internalError, "Message handling failed", currentCtx.noteId ?? undefined);
+            await fatal(currentCtx, ERROR_CODE.internalError, "Message handling failed", currentCtx.noteShortId ?? undefined);
           })
           .finally(() => {
             pendingMessages = Math.max(0, pendingMessages - 1);

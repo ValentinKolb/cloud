@@ -76,14 +76,14 @@ export default ssr<AuthContext>(async (c) => {
       title={[
         { title: "Start", href: "/" },
         { title: "Notebooks", href: "/app/notebooks" },
-        { title: notebook.name, href: `/app/notebooks/${notebook.shortId}` },
+        { title: notebook.name, href: `/app/notebooks/${notebook.id}` },
         ...(selectedNote ? [{ title: selectedNote.title }] : []),
       ]}
     >
       <AppWorkspace class="flex-1 min-h-0">
-        <NotebookHotkeys notebookId={notebook.shortId} notebookName={notebook.name} canWrite={canWrite} />
+        <NotebookHotkeys notebookId={notebook.id} notebookName={notebook.name} canWrite={canWrite} />
         {!editorOwnsWorkspaceSocket && (
-          <WorkspaceEventBridge notebookId={notebook.shortId} appUrl={appUrl} initialCursor={ctx.workspaceCursor} />
+          <WorkspaceEventBridge notebookId={notebook.id} appUrl={appUrl} initialCursor={ctx.workspaceCursor} />
         )}
 
         <NotebookSidebar ctx={ctx} />
@@ -104,8 +104,8 @@ export default ssr<AuthContext>(async (c) => {
             )}
             {isVersionsMode && selectedNoteId ? (
               <VersionHistory
-                notebookId={notebook.shortId}
-                noteId={selectedNote?.shortId ?? selectedNoteId}
+                notebookId={notebook.id}
+                noteId={selectedNote?.id ?? selectedNoteId}
                 noteTitle={selectedNote?.title ?? ""}
                 isLocked={!!selectedNote?.lockedAt}
                 currentContentMd={selectedNote?.contentMd ?? null}
@@ -114,14 +114,13 @@ export default ssr<AuthContext>(async (c) => {
                 initialTotal={versionHistory?.total}
               />
             ) : isGraphMode && graph ? (
-              <NotebookGraph notebookId={notebook.shortId} selectedNoteId={selectedNoteId} graph={graph} />
+              <NotebookGraph notebookId={notebook.id} selectedNoteId={selectedNoteId} graph={graph} />
             ) : selectedNote ? (
               <NoteEditor
                 noteId={selectedNote.id}
                 noteTitle={selectedNote.title}
-                notebookId={notebook.shortId}
+                notebookId={notebook.id}
                 scriptsEnabled={canRunScripts}
-                noteShortId={selectedNote.shortId}
                 noteCreatedAt={selectedNote.createdAt}
                 noteUpdatedAt={selectedNote.updatedAt}
                 noteLockedAt={selectedNote.lockedAt}
@@ -138,8 +137,7 @@ export default ssr<AuthContext>(async (c) => {
                 readOnly={readonlyMode}
                 initialHref={currentHref}
                 initialDetail={{
-                  canonicalNoteId: selectedNote.id,
-                  noteId: selectedNote.shortId,
+                  noteId: selectedNote.id,
                   noteTitle: selectedNote.title,
                   contentMd: selectedNote.contentMd,
                   createdAt: selectedNote.createdAt,
@@ -171,9 +169,9 @@ export default ssr<AuthContext>(async (c) => {
               attachments={panelAttachments}
               backlinks={backlinks}
               namedBlocks={namedBlocks}
-              currentNotebookId={notebook.shortId}
-              notebookId={notebook.shortId}
-              noteId={selectedNote.shortId}
+              currentNotebookId={notebook.id}
+              notebookId={notebook.id}
+              noteId={selectedNote.id}
               noteTitle={selectedNote.title}
               contentMd={selectedNote.contentMd}
               createdAt={selectedNote.createdAt}

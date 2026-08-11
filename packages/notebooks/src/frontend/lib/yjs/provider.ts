@@ -2,7 +2,7 @@ import { encoding } from "@k2b/stdlib";
 import { type NotebookPresenceParticipant, NotebookPresenceParticipantSchema } from "@valentinkolb/cloud/contracts";
 import * as awarenessProtocol from "y-protocols/awareness";
 import * as Y from "yjs";
-import { type NotebookWorkspaceEvent, notebooksWorkspace } from "../../../lib/workspace-events";
+import { notebooksWorkspace, type PublicNotebookWorkspaceEvent } from "../../../lib/workspace-events";
 import { notebooksYjs } from "../../../lib/yjs";
 
 type YjsErrorCode = (typeof notebooksYjs.errorCode)[keyof typeof notebooksYjs.errorCode];
@@ -29,7 +29,7 @@ export type YjsProviderOptions = {
   workspace?: {
     notebookId: string;
     initialCursor?: string | null;
-    onEvent: (event: NotebookWorkspaceEvent, cursor: string | null) => void | Promise<void>;
+    onEvent: (event: PublicNotebookWorkspaceEvent, cursor: string | null) => void | Promise<void>;
     onCursorChange?: (cursor: string) => void;
     onError?: (error: YjsProviderError) => void;
   };
@@ -50,6 +50,7 @@ const WORKSPACE_TERMINAL_ERROR_CODES = new Set<string>([
 const KNOWN_ERROR_CODES = new Set<string>(Object.values(notebooksYjs.errorCode));
 const RECONNECT_BASE_DELAY_MS = 2_000;
 const RECONNECT_JITTER_MS = 1_500;
+const SHORT_ID_REGEX = /^[0-9A-Za-z]{6}$/;
 
 const resolveHttpBaseUrl = (raw: string): URL => {
   const value = raw.trim();
@@ -70,12 +71,11 @@ const resolveHttpBaseUrl = (raw: string): URL => {
  */
 export function createYjsProvider(opts: YjsProviderOptions) {
   const { doc, awareness, appUrl } = opts;
-  // `activeNoteId` starts at whatever the caller passed (UUID or
-  // 6-char short-id) and converges to the server-canonical UUID on
-  // `replayReady`. Every subsequent client→server message uses the
-  // canonical form, so the per-message `payload.noteId` matcher on
-  // both sides agrees on a single value.
-  let activeNoteId = opts.noteId;
+  if (!SHORT_ID_REGEX.test(opts.noteId)) throw new Error("noteId must be a 6-character short id");
+  if (opts.workspace && !SHORT_ID_REGEX.test(opts.workspace.notebookId)) {
+    throw new Error("workspace.notebookId must be a 6-character short id");
+  }
+  const activeNoteId = opts.noteId;
   let ws: WebSocket | null = null;
   let isDisposed = false;
   let isTerminated = false;
@@ -84,7 +84,7 @@ export function createYjsProvider(opts: YjsProviderOptions) {
   let lastWorkspaceCursor = opts.workspace?.initialCursor ?? null;
   let workspaceEventQueue = Promise.resolve();
   let workspaceGeneration = 0;
-  let activeWorkspaceId = opts.workspace?.notebookId ?? null;
+  const activeWorkspaceId = opts.workspace?.notebookId ?? null;
   let replayReady = false;
   let localStateSent = false;
   let needsFullResync = false;
@@ -277,8 +277,6 @@ export function createYjsProvider(opts: YjsProviderOptions) {
 
   const handleWorkspaceReadyMessage = (msg: ProviderMessage): boolean => {
     if (msg.type !== WORKSPACE_WS_TYPE.ready) return false;
-    const payload = (msg.payload ?? {}) as { notebookId?: unknown };
-    if (typeof payload.notebookId === "string") activeWorkspaceId = payload.notebookId;
     return true;
   };
 
@@ -290,7 +288,7 @@ export function createYjsProvider(opts: YjsProviderOptions) {
       event?: unknown;
     };
     if (!opts.workspace || payload.notebookId !== activeWorkspaceId) return true;
-    const event = payload.event as NotebookWorkspaceEvent | undefined;
+    const event = payload.event as PublicNotebookWorkspaceEvent | undefined;
     if (!event || event.v !== 1 || event.notebookId !== activeWorkspaceId) return true;
     const cursor = typeof payload.cursor === "string" ? payload.cursor : null;
     const generation = workspaceGeneration;
@@ -314,11 +312,7 @@ export function createYjsProvider(opts: YjsProviderOptions) {
   const handleReplayReadyMessage = (msg: ProviderMessage): boolean => {
     if (msg.type !== WS_TYPE.replayReady) return false;
     const payload = (msg.payload ?? {}) as { noteId?: unknown };
-    // Adopt the server-canonical id form. We may have sent a
-    // short-id; the server replies with the canonical UUID. Updating
-    // `activeNoteId` here means every subsequent send + every
-    // inbound `payload.noteId` matcher uses the same value.
-    if (typeof payload.noteId === "string") activeNoteId = payload.noteId;
+    if (payload.noteId !== activeNoteId) return true;
     replayReady = true;
     sendLocalStateIfNeeded();
     return true;

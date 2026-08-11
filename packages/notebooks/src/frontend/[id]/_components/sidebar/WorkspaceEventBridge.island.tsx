@@ -1,6 +1,6 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import { onCleanup, onMount } from "solid-js";
-import { type NotebookWorkspaceEvent, notebooksWorkspace } from "../../../../lib/workspace-events";
+import { notebooksWorkspace, type PublicNotebookWorkspaceEvent } from "../../../../lib/workspace-events";
 import { dispatchWorkspaceEvent } from "./workspace-events";
 
 type Props = {
@@ -91,7 +91,7 @@ export default function WorkspaceEventBridge(props: Props) {
         }
         if (value.type !== notebooksWorkspace.wsType.event) return;
         if (value.payload?.notebookId !== activeWorkspaceId) return;
-        const event = value.payload?.event as NotebookWorkspaceEvent | undefined;
+        const event = value.payload?.event as PublicNotebookWorkspaceEvent | undefined;
         if (!event || event.v !== 1 || event.notebookId !== activeWorkspaceId) return;
         const cursor = typeof value.payload?.cursor === "string" ? value.payload.cursor : null;
         eventQueue = eventQueue

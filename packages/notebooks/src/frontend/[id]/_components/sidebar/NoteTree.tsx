@@ -14,7 +14,7 @@ import { useFavoriteNotes } from "./useFavoriteNotes";
 
 type Props = {
   tree: NoteTreeNode[];
-  /** Notebook short-id (6-char base62). Used both for URL building
+  /** Notebook short-id (6 readable characters). Used both for URL building
    *  (`buildNoteUrl`, etc.) and for API path params — the API resolves
    *  short-ids to UUIDs at the boundary, so islands never need both
    *  forms. Same convention applies to `noteId` references below. */
@@ -33,17 +33,17 @@ type Props = {
 // =============================================================================
 
 export function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
-  const createNoteMut = mutations.create<{ id: string; shortId: string }, { parentId?: string }>({
+  const createNoteMut = mutations.create<{ id: string }, { parentId?: string }>({
     mutation: async (data: { parentId?: string }) => {
       const res = await apiClient[":id"].notes.$post({
         param: { id: notebookId },
         json: data,
       });
       if (!res.ok) throw new Error("Failed to create note");
-      return (await res.json()) as { id: string; shortId: string };
+      return (await res.json()) as { id: string };
     },
     onSuccess: (data) => {
-      void navigateToNotebookNote(buildNoteUrl(notebookId, data.shortId), { selectInitialTitle: data.shortId });
+      void navigateToNotebookNote(buildNoteUrl(notebookId, data.id), { selectInitialTitle: data.id });
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -62,7 +62,7 @@ export function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
   });
 
   const copyNoteMut = mutations.create<
-    { id: string; shortId: string; notebookId: string; notebookShortId: string },
+    { id: string; notebookId: string },
     { noteId: string; targetNotebookId: string; targetParentId?: string | null }
   >({
     mutation: async (data: { noteId: string; targetNotebookId: string; targetParentId?: string | null }) => {
@@ -74,17 +74,10 @@ export function useNoteActions(notebookId: string, tree: () => NoteTreeNode[]) {
         },
       });
       if (!res.ok) throw new Error("Failed to duplicate note");
-      const json = (await res.json()) as { id: string; shortId: string; notebookId: string };
-      // The target notebook's short-id isn't on the response — we only
-      // get the note's short-id and the target notebook's UUID. The
-      // page-handler resolves either form so feeding the UUID through
-      // `buildNoteUrl` works; if URL aesthetics on cross-notebook copy
-      // become an issue we can hydrate the target notebook short-id
-      // here with a small extra fetch.
-      return { ...json, notebookShortId: json.notebookId };
+      return (await res.json()) as { id: string; notebookId: string };
     },
     onSuccess: (data) => {
-      void navigateToNotebookNote(buildNoteUrl(data.notebookShortId, data.shortId));
+      void navigateToNotebookNote(buildNoteUrl(data.notebookId, data.id));
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -342,7 +335,7 @@ function NoteTreeItems(props: {
               </span>
             }
             icon="ti ti-file-text"
-            href={buildNoteUrl(props.notebookId, node.shortId)}
+            href={buildNoteUrl(props.notebookId, node.id)}
             navigation="document"
             actions={
               props.onToggleFavorite || props.canWrite ? (
@@ -405,9 +398,9 @@ export default function NoteTree(props: Props) {
 
   onMount(() => {
     const onSoftNavigated = (event: Event) => {
-      const detail = (event as CustomEvent<{ canonicalNoteId?: string }>).detail;
-      if (!detail?.canonicalNoteId) return;
-      setSelectedNoteId(detail.canonicalNoteId);
+      const detail = (event as CustomEvent<{ noteId?: string }>).detail;
+      if (!detail?.noteId) return;
+      setSelectedNoteId(detail.noteId);
     };
     window.addEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated);
     onCleanup(() => window.removeEventListener(NOTE_SOFT_NAVIGATED_EVENT, onSoftNavigated));

@@ -26,12 +26,10 @@ import {
 
 type Notebook = {
   id: string;
-  shortId: string;
   name: string;
   description: string | null;
   icon: string | null;
   homepageNoteId: string | null;
-  homepageNoteShortId: string | null;
   scriptsEnabled: boolean;
   defaultNoteTitleTemplate: string;
   createdBy: string | null;
@@ -41,7 +39,6 @@ type Notebook = {
 
 type Note = {
   id: string;
-  shortId: string;
   notebookId: string;
   parentId: string | null;
   title: string;
@@ -98,7 +95,7 @@ type MessageResponse = {
 
 type NoteSearchHit = {
   note: Omit<Note, "contentMd">;
-  notebook: Pick<Notebook, "id" | "shortId" | "name" | "icon">;
+  notebook: Pick<Notebook, "id" | "name" | "icon">;
   snippet: string | null;
 };
 
@@ -109,7 +106,6 @@ const compactSearchSnippet = (snippet: string | null): string => {
 
 type Attachment = {
   id: string;
-  shortId: string;
   notebookId: string;
   filename: string;
   mimeType: string;
@@ -149,6 +145,7 @@ type SnapshotConfig = {
 };
 
 const NOTEBOOK_DEFAULT_KEY = "notebooks.notebook";
+const RESOURCE_ID_RE = /^[A-Za-z0-9]{6}$/;
 
 const stringFlag = (flags: CloudCliFlags, ...names: string[]): string | undefined => {
   for (const name of names) {
@@ -191,7 +188,6 @@ const paginationQuery = (flags: CloudCliFlags, extra: Record<string, string | un
 
 const notebookRows = (items: Notebook[]) =>
   items.map((notebook) => ({
-    shortId: notebook.shortId,
     id: notebook.id,
     name: notebook.name,
     updatedAt: notebook.updatedAt,
@@ -199,7 +195,6 @@ const notebookRows = (items: Notebook[]) =>
 
 const noteRows = (items: Note[]) =>
   items.map((note) => ({
-    shortId: note.shortId,
     id: note.id,
     title: note.title,
     parent: note.parentId ?? "",
@@ -208,7 +203,7 @@ const noteRows = (items: Note[]) =>
 
 const printTree = (ctx: CloudCliContext, nodes: NoteTreeNode[], depth = 0) => {
   for (const node of nodes) {
-    ctx.print(`${"  ".repeat(depth)}- ${node.title} (${node.shortId})`);
+    ctx.print(`${"  ".repeat(depth)}- ${node.title} (${node.id})`);
     printTree(ctx, node.children, depth + 1);
   }
 };
@@ -301,13 +296,13 @@ const isHttpStatus = (error: unknown, status: number): boolean => error instance
 const formatNotebookCandidates = (items: Notebook[]): string =>
   items
     .slice(0, 5)
-    .map((item) => `${item.name} (${item.shortId})`)
+    .map((item) => `${item.name} (${item.id})`)
     .join(", ");
 
 const formatNoteCandidates = (items: Note[]): string =>
   items
     .slice(0, 5)
-    .map((item) => `${item.title} (${item.shortId})`)
+    .map((item) => `${item.title} (${item.id})`)
     .join(", ");
 
 const resolveNotePath = (tree: NoteTreeNode[], path: string): Note | null => {
@@ -320,7 +315,7 @@ const resolveNotePath = (tree: NoteTreeNode[], path: string): Note | null => {
   let level = tree;
   let current: NoteTreeNode | null = null;
   for (const segment of segments) {
-    const matches = level.filter((note) => note.title === segment || note.shortId === segment);
+    const matches = level.filter((note) => note.title === segment || note.id === segment);
     if (matches.length > 1) {
       throw new Error(`Note path "${path}" is ambiguous at "${segment}". Use a short id for that segment.`);
     }
@@ -332,53 +327,57 @@ const resolveNotePath = (tree: NoteTreeNode[], path: string): Note | null => {
 };
 
 const resolveNotebookRef = async (ctx: CloudCliContext, api: CloudApiClient<ApiType>, ref: string): Promise<Notebook> => {
-  try {
-    return await ctx.readJson<Notebook>(await api[":id"].$get({ param: { id: ref } }));
-  } catch (error) {
-    if (!isHttpStatus(error, 404)) throw error;
-    const response = await api.index.$get({ query: { q: ref, per_page: "20" } });
-    const page = await ctx.readJson<Page<Notebook>>(response);
-    const matches = page.data.filter((item) => item.name === ref);
-    if (matches.length === 1) return matches[0]!;
-    if (matches.length > 1) {
-      throw new Error(`Notebook "${ref}" is ambiguous. Use one of: ${matches.map((item) => `${item.name} (${item.shortId})`).join(", ")}`);
+  if (RESOURCE_ID_RE.test(ref)) {
+    try {
+      return await ctx.readJson<Notebook>(await api[":id"].$get({ param: { id: ref } }));
+    } catch (error) {
+      if (!isHttpStatus(error, 404)) throw error;
     }
-    const candidates = formatNotebookCandidates(page.data);
-    throw new Error(
-      candidates
-        ? `Notebook "${ref}" was not found by id, short id, or exact name. Similar matches: ${candidates}`
-        : `Notebook "${ref}" was not found by id, short id, or exact name.`,
-    );
   }
+  const response = await api.index.$get({ query: { q: ref, per_page: "20" } });
+  const page = await ctx.readJson<Page<Notebook>>(response);
+  const matches = page.data.filter((item) => item.name === ref);
+  if (matches.length === 1) return matches[0]!;
+  if (matches.length > 1) {
+    throw new Error(`Notebook "${ref}" is ambiguous. Use one of: ${matches.map((item) => `${item.name} (${item.id})`).join(", ")}`);
+  }
+  const candidates = formatNotebookCandidates(page.data);
+  throw new Error(
+    candidates
+      ? `Notebook "${ref}" was not found by short id or exact name. Similar matches: ${candidates}`
+      : `Notebook "${ref}" was not found by short id or exact name.`,
+  );
 };
 
 const resolveNoteRef = async (ctx: CloudCliContext, api: CloudApiClient<ApiType>, notebookId: string, ref: string): Promise<Note> => {
-  try {
-    return await ctx.readJson<Note>(await api[":id"].notes[":noteId"].$get({ param: { id: notebookId, noteId: ref } }));
-  } catch (error) {
-    if (!isHttpStatus(error, 404)) throw error;
-    if (ref.includes("/")) {
-      const tree = await ctx.readJson<NoteTreeNode[]>(await api[":id"].tree.$get({ param: { id: notebookId } }));
-      const pathMatch = resolveNotePath(tree, ref);
-      if (pathMatch) return pathMatch;
+  if (RESOURCE_ID_RE.test(ref)) {
+    try {
+      return await ctx.readJson<Note>(await api[":id"].notes[":noteId"].$get({ param: { id: notebookId, noteId: ref } }));
+    } catch (error) {
+      if (!isHttpStatus(error, 404)) throw error;
     }
-    const response = await api[":id"].notes.$get({
-      param: { id: notebookId },
-      query: { q: ref, per_page: "50" },
-    });
-    const page = await ctx.readJson<Page<Note>>(response);
-    const matches = page.data.filter((item) => item.title === ref);
-    if (matches.length === 1) return matches[0]!;
-    if (matches.length > 1) {
-      throw new Error(`Note "${ref}" is ambiguous. Use one of: ${matches.map((item) => `${item.title} (${item.shortId})`).join(", ")}`);
-    }
-    const candidates = formatNoteCandidates(page.data);
-    throw new Error(
-      candidates
-        ? `Note "${ref}" was not found in notebook ${notebookId} by id, short id, or exact title. Similar matches: ${candidates}`
-        : `Note "${ref}" was not found in notebook ${notebookId} by id, short id, or exact title.`,
-    );
   }
+  if (ref.includes("/")) {
+    const tree = await ctx.readJson<NoteTreeNode[]>(await api[":id"].tree.$get({ param: { id: notebookId } }));
+    const pathMatch = resolveNotePath(tree, ref);
+    if (pathMatch) return pathMatch;
+  }
+  const response = await api[":id"].notes.$get({
+    param: { id: notebookId },
+    query: { q: ref, per_page: "50" },
+  });
+  const page = await ctx.readJson<Page<Note>>(response);
+  const matches = page.data.filter((item) => item.title === ref);
+  if (matches.length === 1) return matches[0]!;
+  if (matches.length > 1) {
+    throw new Error(`Note "${ref}" is ambiguous. Use one of: ${matches.map((item) => `${item.title} (${item.id})`).join(", ")}`);
+  }
+  const candidates = formatNoteCandidates(page.data);
+  throw new Error(
+    candidates
+      ? `Note "${ref}" was not found in notebook ${notebookId} by short id or exact title. Similar matches: ${candidates}`
+      : `Note "${ref}" was not found in notebook ${notebookId} by short id or exact title.`,
+  );
 };
 
 const buildEditOperation = async (ctx: CloudCliContext): Promise<NoteEditOperation> => {
@@ -435,10 +434,9 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const response = await api.index.$get({ query });
     const payload = await ctx.readJson<Page<Notebook>>(response);
     printJsonOrTable(ctx, payload, notebookRows(payload.data), [
-      { key: "shortId", label: "SHORT" },
+      { key: "id", label: "ID" },
       { key: "name", label: "NAME" },
       { key: "updatedAt", label: "UPDATED" },
-      { key: "id", label: "ID" },
     ]);
     return 0;
   }
@@ -446,9 +444,8 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   if (command === "use") {
     const notebookRef = requireArg(args, 0, "notebook");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, notebook.shortId);
-    if (!printStructured(ctx, { notebook, defaultNotebook: notebook.shortId }))
-      ctx.print(`Using notebook ${notebook.name} (${notebook.shortId}).`);
+    await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, notebook.id);
+    if (!printStructured(ctx, { notebook, defaultNotebook: notebook.id })) ctx.print(`Using notebook ${notebook.name} (${notebook.id}).`);
     return 0;
   }
 
@@ -456,7 +453,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const notebookRef = await ctx.getDefault(NOTEBOOK_DEFAULT_KEY);
     if (!notebookRef) throw new Error("No default notebook configured. Run `cld notebooks use <notebook>`.");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    if (!printStructured(ctx, { notebook, defaultNotebook: notebook.shortId })) ctx.print(`${notebook.name} (${notebook.shortId})`);
+    if (!printStructured(ctx, { notebook, defaultNotebook: notebook.id })) ctx.print(`${notebook.name} (${notebook.id})`);
     return 0;
   }
 
@@ -464,7 +461,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const payload = await resolveNotebookRef(ctx, api, notebookRef);
     if (!printStructured(ctx, payload)) {
-      ctx.print(`${payload.name} (${payload.shortId})`);
+      ctx.print(`${payload.name} (${payload.id})`);
       if (payload.description) ctx.print(payload.description);
       ctx.print(`id: ${payload.id}`);
       ctx.print(`updated: ${payload.updatedAt}`);
@@ -484,9 +481,9 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
       }),
     });
     const payload = await ctx.readJson<Notebook>(response);
-    if (booleanFlag(ctx.flags, "use")) await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, payload.shortId);
+    if (booleanFlag(ctx.flags, "use")) await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, payload.id);
     if (!printStructured(ctx, payload))
-      ctx.print(`Created ${payload.name} (${payload.shortId}).${booleanFlag(ctx.flags, "use") ? " Using it as default." : ""}`);
+      ctx.print(`Created ${payload.name} (${payload.id}).${booleanFlag(ctx.flags, "use") ? " Using it as default." : ""}`);
     return 0;
   }
 
@@ -504,19 +501,19 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     if (description !== undefined || booleanFlag(ctx.flags, "clear-description")) body.description = description ?? null;
     if (icon !== undefined || booleanFlag(ctx.flags, "clear-icon")) body.icon = icon ?? null;
     if (homepageRef || booleanFlag(ctx.flags, "clear-homepage")) {
-      body.homepageNoteId = homepageRef ? (await resolveNoteRef(ctx, api, notebook.shortId, homepageRef)).shortId : null;
+      body.homepageNoteId = homepageRef ? (await resolveNoteRef(ctx, api, notebook.id, homepageRef)).id : null;
     }
     if (scriptsEnabled !== undefined) body.scriptsEnabled = scriptsEnabled;
     if (defaultNoteTitleTemplate !== undefined) body.defaultNoteTitleTemplate = defaultNoteTitleTemplate;
     if (Object.keys(body).length === 0) throw new Error("No notebook updates supplied.");
     const payload = await ctx.readJson<Notebook>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}`, {
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       }),
     );
-    if (!printStructured(ctx, payload)) ctx.print(`Updated ${payload.name} (${payload.shortId}).`);
+    if (!printStructured(ctx, payload)) ctx.print(`Updated ${payload.name} (${payload.id}).`);
     return 0;
   }
 
@@ -525,9 +522,9 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const payload = await ctx.readJson<MessageResponse>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}`, { method: "DELETE" }),
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}`, { method: "DELETE" }),
     );
-    if ((await ctx.getDefault(NOTEBOOK_DEFAULT_KEY)) === notebook.shortId) await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, "");
+    if ((await ctx.getDefault(NOTEBOOK_DEFAULT_KEY)) === notebook.id) await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, "");
     if (!printStructured(ctx, payload)) ctx.print(payload.message);
     return 0;
   }
@@ -551,15 +548,15 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
         body: JSON.stringify({ name: stringFlag(ctx.flags, "name") }),
       }),
     );
-    if (booleanFlag(ctx.flags, "use")) await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, payload.shortId);
-    if (!printStructured(ctx, payload)) ctx.print(`Created ${payload.name} (${payload.shortId}) from ${templateId}.`);
+    if (booleanFlag(ctx.flags, "use")) await ctx.setDefault(NOTEBOOK_DEFAULT_KEY, payload.id);
+    if (!printStructured(ctx, payload)) ctx.print(`Created ${payload.name} (${payload.id}) from ${templateId}.`);
     return 0;
   }
 
   if (command === "tree") {
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const response = await api[":id"].tree.$get({ param: { id: notebook.shortId } });
+    const response = await api[":id"].tree.$get({ param: { id: notebook.id } });
     const payload = await ctx.readJson<NoteTreeNode[]>(response);
     if (!printStructured(ctx, payload)) printTree(ctx, payload);
     return 0;
@@ -569,9 +566,9 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const parentRef = stringFlag(ctx.flags, "parent", "parent-id");
-    const parent = parentRef ? await resolveNoteRef(ctx, api, notebook.shortId, parentRef) : null;
+    const parent = parentRef ? await resolveNoteRef(ctx, api, notebook.id, parentRef) : null;
     const response = await api[":id"].notes.$get({
-      param: { id: notebook.shortId },
+      param: { id: notebook.id },
       query: paginationQuery(ctx.flags, {
         q: stringFlag(ctx.flags, "q", "query"),
         parentId: parent?.id,
@@ -579,10 +576,9 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     });
     const payload = await ctx.readJson<Page<Note>>(response);
     printJsonOrTable(ctx, payload, noteRows(payload.data), [
-      { key: "shortId", label: "SHORT" },
+      { key: "id", label: "ID" },
       { key: "title", label: "TITLE" },
       { key: "updatedAt", label: "UPDATED" },
-      { key: "id", label: "ID" },
     ]);
     return 0;
   }
@@ -604,7 +600,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
       const response = await api.search.$get({
         query: paginationQuery(ctx.flags, {
           q: queryText || undefined,
-          notebook: notebook?.shortId,
+          notebook: notebook?.id,
           ...commonFilters,
         }),
       });
@@ -613,14 +609,14 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
         ctx,
         payload,
         payload.data.map((hit) => ({
-          shortId: hit.note.shortId,
+          id: hit.note.id,
           title: hit.note.title,
           notebook: hit.notebook.name,
           snippet: compactSearchSnippet(hit.snippet),
           updatedAt: hit.note.updatedAt,
         })),
         [
-          { key: "shortId", label: "SHORT" },
+          { key: "id", label: "ID" },
           { key: "title", label: "TITLE" },
           { key: "notebook", label: "NOTEBOOK" },
           { key: "snippet", label: "MATCH" },
@@ -634,15 +630,14 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const queryText = rest.join(" ").trim() || stringFlag(ctx.flags, "q", "query") || "";
     const response = await api[":id"].search.$get({
-      param: { id: notebook.shortId },
+      param: { id: notebook.id },
       query: paginationQuery(ctx.flags, { q: queryText || undefined, ...commonFilters }),
     });
     const payload = await ctx.readJson<Page<Note>>(response);
     printJsonOrTable(ctx, payload, noteRows(payload.data), [
-      { key: "shortId", label: "SHORT" },
+      { key: "id", label: "ID" },
       { key: "title", label: "TITLE" },
       { key: "updatedAt", label: "UPDATED" },
-      { key: "id", label: "ID" },
     ]);
     return 0;
   }
@@ -650,8 +645,8 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   if (command === "read") {
     const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
-    const response = await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.shortId, noteId: note.shortId } });
+    const note = await resolveNoteRef(ctx, api, notebook.id, noteRef);
+    const response = await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.id, noteId: note.id } });
     const payload = await ctx.readJson<NoteWithContent>(response);
     const content = payload.contentMd ?? "";
     const blocks = summarizeNoteEditBlocks(content);
@@ -667,7 +662,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
       ctx.json(result);
       return 0;
     }
-    ctx.print(`${payload.title} (${payload.shortId})`);
+    ctx.print(`${payload.title} (${payload.id})`);
     ctx.print(`updated: ${payload.updatedAt}`);
     ctx.print(`hash: ${result.contentHash}`);
     if (booleanFlag(ctx.flags, "blocks")) printBlocks(ctx, blocks);
@@ -680,9 +675,9 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef, noteRef, rest } = await resolveNoteCommandArgs(ctx, args, 1);
     const name = requireArg(rest, 0, "block name").replace(/^@/, "");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const note = await resolveNoteRef(ctx, api, notebook.id, noteRef);
     const payload = await ctx.readJson<NoteWithContent>(
-      await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.shortId, noteId: note.shortId } }),
+      await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.id, noteId: note.id } }),
     );
     const content = payload.contentMd ?? "";
     const type = stringFlag(ctx.flags, "type") as NamedBlockType | undefined;
@@ -696,8 +691,8 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     if (!block) throw new Error(`Named block @${name} index ${index} was not found.`);
     const body = namedBlockBody(content, block);
     const result = {
-      notebook: { id: notebook.id, shortId: notebook.shortId, name: notebook.name },
-      note: { id: note.id, shortId: note.shortId, title: note.title, updatedAt: note.updatedAt },
+      notebook: { id: notebook.id, name: notebook.name },
+      note: { id: note.id, title: note.title, updatedAt: note.updatedAt },
       block: {
         name: block.name,
         type: block.type,
@@ -715,7 +710,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   if (command === "edit") {
     const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const note = await resolveNoteRef(ctx, api, notebook.id, noteRef);
     const operation = await buildEditOperation(ctx);
     const request = {
       operations: [operation],
@@ -725,31 +720,28 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     };
 
     if (booleanFlag(ctx.flags, "dry-run")) {
-      const response = await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.shortId, noteId: note.shortId } });
+      const response = await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.id, noteId: note.id } });
       const payload = await ctx.readJson<NoteWithContent>(response);
       const edit = applyNoteEdits(payload.contentMd ?? "", request.operations, {
         ifContentHash: request.ifContentHash,
         ifBlockHash: request.ifBlockHash,
       });
       if (!printStructured(ctx, { note: payload, ...edit })) {
-        ctx.print(`Dry run for ${payload.title} (${payload.shortId})`);
+        ctx.print(`Dry run for ${payload.title} (${payload.id})`);
         ctx.print(`${edit.beforeHash} -> ${edit.afterHash}`);
         printBlocks(ctx, edit.blocks);
       }
       return 0;
     }
 
-    const response = await ctx.fetch(
-      `/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}/content`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-      },
-    );
+    const response = await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/notes/${encodeURIComponent(note.id)}/content`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
     const payload = await ctx.readJson<NoteEditResponse>(response);
     if (!printStructured(ctx, payload)) {
-      ctx.print(`${payload.changed ? "Edited" : "No changes"} ${payload.note.title} (${payload.note.shortId}).`);
+      ctx.print(`${payload.changed ? "Edited" : "No changes"} ${payload.note.title} (${payload.note.id}).`);
       ctx.print(`${payload.beforeHash} -> ${payload.afterHash}`);
     }
     return 0;
@@ -758,13 +750,13 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   if (command === "note") {
     const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const note = await resolveNoteRef(ctx, api, notebook.id, noteRef);
     const response = booleanFlag(ctx.flags, "content")
-      ? await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.shortId, noteId: note.shortId } })
-      : await api[":id"].notes[":noteId"].$get({ param: { id: notebook.shortId, noteId: note.shortId } });
+      ? await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.id, noteId: note.id } })
+      : await api[":id"].notes[":noteId"].$get({ param: { id: notebook.id, noteId: note.id } });
     const payload = await ctx.readJson<Note | NoteWithContent>(response);
     if (!printStructured(ctx, payload)) {
-      ctx.print(`${payload.title} (${payload.shortId})`);
+      ctx.print(`${payload.title} (${payload.id})`);
       ctx.print(`id: ${payload.id}`);
       if ("contentMd" in payload && payload.contentMd) {
         ctx.print("");
@@ -777,8 +769,8 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   if (command === "content") {
     const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
-    const response = await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.shortId, noteId: note.shortId } });
+    const note = await resolveNoteRef(ctx, api, notebook.id, noteRef);
+    const response = await api[":id"].notes[":noteId"].content.$get({ param: { id: notebook.id, noteId: note.id } });
     const payload = await ctx.readJson<NoteWithContent>(response);
     if (!printStructured(ctx, payload)) ctx.print(payload.contentMd ?? "");
     return 0;
@@ -787,37 +779,37 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   if (command === "move-note") {
     const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const note = await resolveNoteRef(ctx, api, notebook.id, noteRef);
     const parentRef = stringFlag(ctx.flags, "parent", "parent-id");
-    const parent = parentRef ? await resolveNoteRef(ctx, api, notebook.shortId, parentRef) : null;
+    const parent = parentRef ? await resolveNoteRef(ctx, api, notebook.id, parentRef) : null;
     const payload = await ctx.readJson<Note>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}/move`, {
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/notes/${encodeURIComponent(note.id)}/move`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ parentId: parent?.id ?? null, position: numberFlag(ctx.flags, "position") ?? note.position }),
       }),
     );
-    if (!printStructured(ctx, payload)) ctx.print(`Moved ${payload.title} (${payload.shortId}).`);
+    if (!printStructured(ctx, payload)) ctx.print(`Moved ${payload.title} (${payload.id}).`);
     return 0;
   }
 
   if (command === "copy-note") {
     const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const note = await resolveNoteRef(ctx, api, notebook.id, noteRef);
     const targetRef = stringFlag(ctx.flags, "target-notebook");
     if (!targetRef) throw new Error("Missing --target-notebook.");
     const target = await resolveNotebookRef(ctx, api, targetRef);
     const parentRef = stringFlag(ctx.flags, "parent", "parent-id");
-    const parent = parentRef ? await resolveNoteRef(ctx, api, target.shortId, parentRef) : null;
+    const parent = parentRef ? await resolveNoteRef(ctx, api, target.id, parentRef) : null;
     const payload = await ctx.readJson<Note>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}/copy`, {
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/notes/${encodeURIComponent(note.id)}/copy`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ targetNotebookId: target.id, targetParentId: parent?.id ?? null }),
       }),
     );
-    if (!printStructured(ctx, payload)) ctx.print(`Copied ${note.title} to ${target.name} as ${payload.shortId}.`);
+    if (!printStructured(ctx, payload)) ctx.print(`Copied ${note.title} to ${target.name} as ${payload.id}.`);
     return 0;
   }
 
@@ -825,9 +817,9 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     if (!booleanFlag(ctx.flags, "yes")) throw new Error("Refusing to delete a note and its children without --yes.");
     const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const note = await resolveNoteRef(ctx, api, notebook.id, noteRef);
     const payload = await ctx.readJson<MessageResponse>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}`, {
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/notes/${encodeURIComponent(note.id)}`, {
         method: "DELETE",
       }),
     );
@@ -839,29 +831,29 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     if (!booleanFlag(ctx.flags, "yes")) throw new Error("Refusing to permanently lock a note without --yes.");
     const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const note = await resolveNoteRef(ctx, api, notebook.id, noteRef);
     const payload = await ctx.readJson<Note>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}/lock`, {
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/notes/${encodeURIComponent(note.id)}/lock`, {
         method: "POST",
       }),
     );
-    if (!printStructured(ctx, payload)) ctx.print(`Locked ${payload.title} (${payload.shortId}).`);
+    if (!printStructured(ctx, payload)) ctx.print(`Locked ${payload.title} (${payload.id}).`);
     return 0;
   }
 
   if (command === "favorite" || command === "unfavorite") {
     const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const note = await resolveNoteRef(ctx, api, notebook.id, noteRef);
     const favorite = command === "favorite";
     const payload = await ctx.readJson<{ favorite: boolean }>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}/favorite`, {
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/notes/${encodeURIComponent(note.id)}/favorite`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ favorite }),
       }),
     );
-    if (!printStructured(ctx, payload)) ctx.print(`${favorite ? "Favorited" : "Unfavorited"} ${note.title} (${note.shortId}).`);
+    if (!printStructured(ctx, payload)) ctx.print(`${favorite ? "Favorited" : "Unfavorited"} ${note.title} (${note.id}).`);
     return 0;
   }
 
@@ -869,7 +861,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const payload = await ctx.readJson<{ noteId: string; createdAt: string }[]>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/favorites`),
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/favorites`),
     );
     printJsonOrTable(ctx, payload, payload, [
       { key: "noteId", label: "NOTE ID" },
@@ -881,14 +873,14 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   if (command === "backlinks") {
     const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const note = await resolveNoteRef(ctx, api, notebook.id, noteRef);
     const payload = await ctx.readJson<{ data: Array<Record<string, unknown>> }>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(note.shortId)}/backlinks`),
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/notes/${encodeURIComponent(note.id)}/backlinks`),
     );
     if (ctx.options.output === "json") ctx.json(payload);
     else
       ctx.table(payload.data, [
-        { key: "noteShortId", label: "SHORT" },
+        { key: "noteId", label: "ID" },
         { key: "title", label: "TITLE" },
         { key: "notebookName", label: "NOTEBOOK" },
         { key: "updatedAt", label: "UPDATED" },
@@ -899,7 +891,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   if (command === "graph") {
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const payload = await ctx.readJson<unknown>(await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/graph`));
+    const payload = await ctx.readJson<unknown>(await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/graph`));
     ctx.json(payload);
     return 0;
   }
@@ -908,27 +900,27 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const parentRef = stringFlag(ctx.flags, "parent", "parent-id");
-    const parent = parentRef ? await resolveNoteRef(ctx, api, notebook.shortId, parentRef) : null;
+    const parent = parentRef ? await resolveNoteRef(ctx, api, notebook.id, parentRef) : null;
     const content = await readInputContent(ctx, false);
-    const response = await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes`, {
+    const response = await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/notes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        parentId: parent?.shortId,
+        parentId: parent?.id,
         contentMd: content || undefined,
       }),
     });
     const payload = await ctx.readJson<Note>(response);
-    if (!printStructured(ctx, payload)) ctx.print(`Created ${payload.title} (${payload.shortId}).`);
+    if (!printStructured(ctx, payload)) ctx.print(`Created ${payload.title} (${payload.id}).`);
     return 0;
   }
 
   if (command === "versions") {
     const { notebookRef, noteRef } = await resolveNoteCommandArgs(ctx, args);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const note = await resolveNoteRef(ctx, api, notebook.id, noteRef);
     const response = await api[":id"].notes[":noteId"].versions.$get({
-      param: { id: notebook.shortId, noteId: note.shortId },
+      param: { id: notebook.id, noteId: note.id },
       query: paginationQuery(ctx.flags),
     });
     const payload = await ctx.readJson<Page<NoteVersion>>(response);
@@ -943,13 +935,13 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef, noteRef, rest } = await resolveNoteCommandArgs(ctx, args, 1);
     const versionId = requireArg(rest, 0, "version id");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const note = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
+    const note = await resolveNoteRef(ctx, api, notebook.id, noteRef);
     const response = booleanFlag(ctx.flags, "content")
       ? await api[":id"].notes[":noteId"].versions[":versionId"].content.$get({
-          param: { id: notebook.shortId, noteId: note.shortId, versionId },
+          param: { id: notebook.id, noteId: note.id, versionId },
         })
       : await api[":id"].notes[":noteId"].versions[":versionId"].$get({
-          param: { id: notebook.shortId, noteId: note.shortId, versionId },
+          param: { id: notebook.id, noteId: note.id, versionId },
         });
     const payload = await ctx.readJson<unknown>(response);
     ctx.json(payload);
@@ -962,15 +954,15 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const targetRef = stringFlag(ctx.flags, "target");
     if (!targetRef) throw new Error("Missing --target <empty-note>.");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const source = await resolveNoteRef(ctx, api, notebook.shortId, noteRef);
-    const target = await resolveNoteRef(ctx, api, notebook.shortId, targetRef);
+    const source = await resolveNoteRef(ctx, api, notebook.id, noteRef);
+    const target = await resolveNoteRef(ctx, api, notebook.id, targetRef);
     const version = await ctx.readJson<{ yjsSnapshot: string; contentMd: string | null }>(
       await api[":id"].notes[":noteId"].versions[":versionId"].content.$get({
-        param: { id: notebook.shortId, noteId: source.shortId, versionId },
+        param: { id: notebook.id, noteId: source.id, versionId },
       }),
     );
     const payload = await ctx.readJson<Note>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/notes/${encodeURIComponent(target.shortId)}/restore`, {
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/notes/${encodeURIComponent(target.id)}/restore`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ yjsSnapshot: version.yjsSnapshot }),
@@ -984,7 +976,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const payload = await ctx.readJson<{ tag: string; count: number }[]>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/tags`),
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/tags`),
     );
     printJsonOrTable(ctx, payload, payload, [
       { key: "tag", label: "TAG" },
@@ -999,12 +991,12 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const payload = await ctx.readJson<Page<Note>>(
       await api[":id"].search.$get({
-        param: { id: notebook.shortId },
+        param: { id: notebook.id },
         query: paginationQuery(ctx.flags, { tags: tag }),
       }),
     );
     printJsonOrTable(ctx, payload, noteRows(payload.data), [
-      { key: "shortId", label: "SHORT" },
+      { key: "id", label: "ID" },
       { key: "title", label: "TITLE" },
       { key: "updatedAt", label: "UPDATED" },
     ]);
@@ -1014,9 +1006,9 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   if (command === "attachments") {
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const payload = await ctx.readJson<Attachment[]>(await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments`));
+    const payload = await ctx.readJson<Attachment[]>(await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/attachments`));
     printJsonOrTable(ctx, payload, payload, [
-      { key: "shortId", label: "SHORT" },
+      { key: "id", label: "ID" },
       { key: "filename", label: "FILE" },
       { key: "mimeType", label: "TYPE" },
       { key: "sizeBytes", label: "BYTES" },
@@ -1030,10 +1022,10 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const attachmentRef = requireArg(rest, 0, "attachment");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const payload = await ctx.readJson<Attachment>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments/${encodeURIComponent(attachmentRef)}`),
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/attachments/${encodeURIComponent(attachmentRef)}`),
     );
     if (!printStructured(ctx, payload)) {
-      ctx.print(`${payload.filename} (${payload.shortId})`);
+      ctx.print(`${payload.filename} (${payload.id})`);
       ctx.print(`${payload.mimeType} · ${payload.sizeBytes} bytes · ${payload.createdAt}`);
     }
     return 0;
@@ -1046,9 +1038,9 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const form = new FormData();
     form.append("file", Bun.file(path), basename(path));
     const payload = await ctx.readJson<Attachment>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments`, { method: "POST", body: form }),
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/attachments`, { method: "POST", body: form }),
     );
-    if (!printStructured(ctx, payload)) ctx.print(`Uploaded ${payload.filename} as attach://${payload.shortId}.`);
+    if (!printStructured(ctx, payload)) ctx.print(`Uploaded ${payload.filename} as attach://${payload.id}.`);
     return 0;
   }
 
@@ -1057,11 +1049,11 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const attachmentRef = requireArg(rest, 0, "attachment");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const metadata = await ctx.readJson<Attachment>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments/${encodeURIComponent(attachmentRef)}`),
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/attachments/${encodeURIComponent(attachmentRef)}`),
     );
     const output = stringFlag(ctx.flags, "output-file", "out") ?? metadata.filename;
     const response = await ctx.fetch(
-      `/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments/${encodeURIComponent(metadata.shortId)}/content`,
+      `/api/notebooks/${encodeURIComponent(notebook.id)}/attachments/${encodeURIComponent(metadata.id)}/content`,
     );
     if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
     await Bun.write(output, response);
@@ -1074,7 +1066,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const attachmentRef = requireArg(rest, 0, "attachment");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const payload = await ctx.readJson<{ count: number }>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments/${encodeURIComponent(attachmentRef)}/usage`),
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/attachments/${encodeURIComponent(attachmentRef)}/usage`),
     );
     if (!printStructured(ctx, payload)) ctx.print(String(payload.count));
     return 0;
@@ -1086,7 +1078,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const attachmentRef = requireArg(rest, 0, "attachment");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const payload = await ctx.readJson<MessageResponse>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/attachments/${encodeURIComponent(attachmentRef)}`, {
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/attachments/${encodeURIComponent(attachmentRef)}`, {
         method: "DELETE",
       }),
     );
@@ -1098,7 +1090,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const output = stringFlag(ctx.flags, "output-file", "out") ?? `${notebook.name.replace(/[^a-zA-Z0-9._-]+/g, "-")}.zip`;
-    const response = await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/export.zip`);
+    const response = await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/export.zip`);
     if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
     await Bun.write(output, response);
     if (!printStructured(ctx, { notebook, output })) ctx.print(`Exported ${notebook.name} to ${output}.`);
@@ -1108,9 +1100,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
   if (command === "api-keys") {
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
-    const payload = await ctx.readJson<{ items: ApiKey[] }>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/api-keys`),
-    );
+    const payload = await ctx.readJson<{ items: ApiKey[] }>(await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/api-keys`));
     printJsonOrTable(ctx, payload, payload.items, [
       { key: "id", label: "ID" },
       { key: "name", label: "NAME" },
@@ -1128,7 +1118,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     if (!new Set(["read", "write", "admin"]).has(permission)) throw new Error("--permission must be read, write, or admin.");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const payload = await ctx.readJson<{ credential: ApiKey; token: string }>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/api-keys`, {
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/api-keys`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, permission, expiresAt: stringFlag(ctx.flags, "expires-at") ?? null }),
@@ -1147,7 +1137,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const credentialId = requireArg(rest, 0, "credential id");
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const payload = await ctx.readJson<MessageResponse>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/api-keys/${encodeURIComponent(credentialId)}`, {
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/api-keys/${encodeURIComponent(credentialId)}`, {
         method: "DELETE",
       }),
     );
@@ -1159,7 +1149,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const payload = await ctx.readJson<SnapshotConfig>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/snapshots/config`),
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/snapshots/config`),
     );
     ctx.json(payload);
     return 0;
@@ -1169,11 +1159,11 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const current = await ctx.readJson<SnapshotConfig>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/snapshots/config`),
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/snapshots/config`),
     );
     const enabled = optionalBooleanFlag(ctx.flags, "enabled") ?? current.enabled;
     const payload = await ctx.readJson<SnapshotConfig>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/snapshots/config`, {
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/snapshots/config`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1194,7 +1184,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const payload = await ctx.readJson<Array<Record<string, unknown>>>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/snapshots/logs`),
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/snapshots/logs`),
     );
     if (ctx.options.output === "json") ctx.json(payload);
     else
@@ -1210,7 +1200,7 @@ const runNotebooksCommand = async (ctx: CloudCliContext, command: string, args: 
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     const payload = await ctx.readJson<unknown>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/snapshots/run`, { method: "POST" }),
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/snapshots/run`, { method: "POST" }),
     );
     ctx.json(payload);
     return 0;
@@ -1225,11 +1215,11 @@ const paginationFlagSpecs = {
 };
 
 const notebookFlag = {
-  notebook: flag.string({ description: "Notebook id, short id, or exact name" }),
+  notebook: flag.string({ description: "Notebook short id or exact name" }),
 };
 
 const noteFlag = {
-  note: flag.string({ description: "Note id, short id, or exact title" }),
+  note: flag.string({ description: "Note short id or exact title" }),
 };
 
 const notebookArgs = {
@@ -1243,21 +1233,20 @@ const noteArgs = {
 const notebookAccessCommands = createAccessCommands({
   resourceLabel: "notebook",
   resourceArgLabel: "notebook",
-  resourceArgDescription: "Optional notebook id, short id, or exact name. If omitted, the default from `cld notebooks use` is used.",
+  resourceArgDescription: "Optional notebook short id or exact name. If omitted, the default from `cld notebooks use` is used.",
   resolveResource: async (ctx, args) => {
     const api = ctx.createApiClient<ApiType>("/api/notebooks");
     const { notebookRef } = await resolveNotebookArg(ctx, args, 0);
     const notebook = await resolveNotebookRef(ctx, api, notebookRef);
     return {
       ...notebook,
-      label: `${notebook.name} (${notebook.shortId})`,
+      label: `${notebook.name} (${notebook.id})`,
     };
   },
-  list: async (ctx, notebook) =>
-    ctx.readJson<AccessEntry[]>(await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/access`)),
+  list: async (ctx, notebook) => ctx.readJson<AccessEntry[]>(await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/access`)),
   grant: async (ctx, notebook, principal: Principal, permission: PermissionLevel) =>
     ctx.readJson<AccessEntry>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/access`, {
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/access`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ principal, permission }),
@@ -1265,7 +1254,7 @@ const notebookAccessCommands = createAccessCommands({
     ),
   update: async (ctx, notebook, accessId, permission) => {
     await ctx.readJson<MessageResponse>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/access/${encodeURIComponent(accessId)}`, {
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/access/${encodeURIComponent(accessId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ permission }),
@@ -1274,7 +1263,7 @@ const notebookAccessCommands = createAccessCommands({
   },
   revoke: async (ctx, notebook, accessId) => {
     await ctx.readJson<MessageResponse>(
-      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.shortId)}/access/${encodeURIComponent(accessId)}`, {
+      await ctx.fetch(`/api/notebooks/${encodeURIComponent(notebook.id)}/access/${encodeURIComponent(accessId)}`, {
         method: "DELETE",
       }),
     );
@@ -1344,7 +1333,7 @@ export default defineCliCommands({
     command("use", {
       summary: "Set the default notebook",
       args: {
-        notebook: arg.required({ description: "Notebook id, short id, or exact name" }),
+        notebook: arg.required({ description: "Notebook short id or exact name" }),
       },
       run: ({ ctx, args }) => runNotebooksCommand(ctx, "use", [args.notebook]),
     }),
@@ -1380,7 +1369,7 @@ export default defineCliCommands({
         clearDescription: flag.boolean({ name: "clear-description", description: "Clear the description" }),
         icon: flag.string({ description: "Notebook icon" }),
         clearIcon: flag.boolean({ name: "clear-icon", description: "Clear the icon" }),
-        homepage: flag.string({ description: "Homepage note id, short id, exact title, or path" }),
+        homepage: flag.string({ description: "Homepage note short id, exact title, or path" }),
         clearHomepage: flag.boolean({ name: "clear-homepage", description: "Clear the homepage note" }),
         scriptsEnabled: flag.string({ name: "scripts-enabled", description: "Enable or disable scripts: true|false" }),
         defaultNoteTitleTemplate: flag.string({
@@ -1422,7 +1411,7 @@ export default defineCliCommands({
       flags: {
         ...notebookFlag,
         q: flag.string({ aliases: ["query"], description: "Search query" }),
-        parent: flag.string({ aliases: ["parent-id"], description: "Parent note id or short id" }),
+        parent: flag.string({ aliases: ["parent-id"], description: "Parent note short id" }),
         ...paginationFlagSpecs,
       },
       run: ({ ctx, args }) => runNotebooksCommand(ctx, "notes", args.args),
@@ -1500,7 +1489,7 @@ export default defineCliCommands({
       flags: {
         ...notebookFlag,
         ...noteFlag,
-        parent: flag.string({ aliases: ["parent-id"], description: "Parent note id, short id, exact title, or path" }),
+        parent: flag.string({ aliases: ["parent-id"], description: "Parent note short id, exact title, or path" }),
         position: flag.int({ min: 0, description: "0-based sibling position" }),
       },
       run: ({ ctx, args }) => runNotebooksCommand(ctx, "move-note", args.args),
@@ -1511,8 +1500,8 @@ export default defineCliCommands({
       flags: {
         ...notebookFlag,
         ...noteFlag,
-        targetNotebook: flag.string({ name: "target-notebook", description: "Target notebook id, short id, or exact name" }),
-        parent: flag.string({ aliases: ["parent-id"], description: "Target parent note id, short id, exact title, or path" }),
+        targetNotebook: flag.string({ name: "target-notebook", description: "Target notebook short id or exact name" }),
+        parent: flag.string({ aliases: ["parent-id"], description: "Target parent note short id, exact title, or path" }),
       },
       run: ({ ctx, args }) => runNotebooksCommand(ctx, "copy-note", args.args),
     }),
@@ -1563,7 +1552,7 @@ export default defineCliCommands({
       args: notebookArgs,
       flags: {
         ...notebookFlag,
-        parent: flag.string({ aliases: ["parent-id"], description: "Parent note id, short id, exact title, or path" }),
+        parent: flag.string({ aliases: ["parent-id"], description: "Parent note short id, exact title, or path" }),
         content: flag.string({ description: "Initial markdown content" }),
         file: flag.string({ aliases: ["f"], description: "Read initial markdown from file" }),
         stdin: flag.boolean({ description: "Read initial markdown from stdin" }),
@@ -1598,7 +1587,7 @@ export default defineCliCommands({
       flags: {
         ...notebookFlag,
         ...noteFlag,
-        target: flag.string({ description: "Empty target note id, short id, exact title, or path" }),
+        target: flag.string({ description: "Empty target note short id, exact title, or path" }),
       },
       run: ({ ctx, args }) => runNotebooksCommand(ctx, "restore-version", args.args),
     }),

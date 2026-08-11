@@ -114,7 +114,7 @@ export default ssr<AuthContext>(async (c) => {
                   />
                 );
               }
-              if (col.id === "actions") return <AdminNotebookActions notebookId={notebook.id} notebookName={notebook.name} />;
+              if (col.id === "actions") return <AdminNotebookActions notebookId={notebook.shortId} notebookName={notebook.name} />;
               return "";
             }}
           />

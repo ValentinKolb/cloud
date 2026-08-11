@@ -202,14 +202,14 @@ export default function VersionHistory(props: Props) {
     return selectedVersionData()?.yjsSnapshot ?? null;
   };
 
-  const restoreAsNewMut = mutations.create<{ id: string; shortId: string }, string>({
+  const restoreAsNewMut = mutations.create<{ id: string }, string>({
     mutation: async (snapshot) => {
       const createRes = await apiClient[":id"].notes.$post({
         param: { id: props.notebookId },
         json: {},
       });
       if (!createRes.ok) throw new Error("Failed to create note");
-      const newNote = (await createRes.json()) as { id: string; shortId: string };
+      const newNote = (await createRes.json()) as { id: string };
 
       const restoreRes = await apiClient[":id"].notes[":noteId"].restore.$post({
         param: { id: props.notebookId, noteId: newNote.id },
@@ -224,7 +224,7 @@ export default function VersionHistory(props: Props) {
       return newNote;
     },
     onSuccess: (data) => {
-      navigateTo(buildNoteUrl(props.notebookId, data.shortId));
+      navigateTo(buildNoteUrl(props.notebookId, data.id));
     },
     onError: (err) => prompts.error(err.message),
   });

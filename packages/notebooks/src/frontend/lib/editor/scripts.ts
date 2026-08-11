@@ -59,9 +59,8 @@ import { selectionIntersectsRange } from "./_lib/cursor-zone-field";
  *  panel; the snapshot getter reflects the current note metadata
  *  at the moment a script is run.
  *
- *  `notebookId` is the user-visible short-id (6-char base62). The
- *  kit uses it both as the `:id` param for API calls (notebooks
- *  API accepts either UUID or short-id) and as the value of
+ *  `notebookId` is the user-visible 6-character ID. The kit uses it
+ *  both as the `:id` param for API calls and as the value of
  *  `current.notebook.id` exposed to script authors. */
 export type ScriptsConfig = {
   scriptsEnabled: () => boolean;

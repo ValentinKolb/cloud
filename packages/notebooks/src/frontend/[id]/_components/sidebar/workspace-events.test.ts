@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { NotebookWorkspaceEvent } from "../../../../lib/workspace-events";
+import type { PublicNotebookWorkspaceEvent } from "../../../../lib/workspace-events";
 import { dispatchWorkspaceEvent, WORKSPACE_EVENT, type WorkspaceEventDetail } from "./workspace-events";
 
-const event: NotebookWorkspaceEvent = {
+const event: PublicNotebookWorkspaceEvent = {
   v: 1,
   type: "workspace.invalidated",
-  notebookId: "notebook-id",
+  notebookId: "book01",
   reason: "bulk",
   scopes: ["tree"],
 };

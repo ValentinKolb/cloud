@@ -24,7 +24,7 @@ export function useFavoriteNotes(params: { notebookId: string; initialFavoriteNo
 
     try {
       const response = await apiClient[":id"].notes[":noteId"].favorite.$put({
-        param: { id: params.notebookId, noteId: note.shortId },
+        param: { id: params.notebookId, noteId: note.id },
         json: { favorite: next },
       });
       if (response.ok) return;

@@ -23,7 +23,7 @@ Use `cld notebooks` to discover knowledge, maintain notes safely, manage noteboo
 
 ## Core model
 
-- A **notebook** is the access and organization boundary. It has a name, optional description and icon, settings, and a tree of notes.
+- A **notebook** is the access and organization boundary. Its `id` is the immutable six-character id used by APIs, URLs, and automation.
 - A **note** has Markdown content, tags, an optional parent, timestamps, and an optional permanent lock. Its displayed title is a stored projection of the first H1 or, when no H1 exists, the first visible content line. Notes are addressed by a short id and can link to each other.
 - A **named block** is a stable region inside Markdown, such as a table, list, data object, section, or script. Block-aware edits avoid replacing unrelated note content.
 - An **attachment** belongs to a notebook and can be referenced from notes with an `attach://<short-id>` link.
@@ -101,11 +101,11 @@ Use `--json` whenever a later action depends on output. Use `--file` or `--stdin
 
 ### Notebook references
 
-Commands accept a notebook UUID, short id, or exact name. An exact name must be unique. Prefer the id returned by `list --json` in automation.
+Commands accept a notebook short id or exact name. An exact name must be unique. Persist only the `id` returned by `list --json` in automation.
 
 ```bash
 cld notebooks list --json
-cld notebooks get --notebook 8nP4x --json
+cld notebooks get --notebook 8nP4xA --json
 cld notebooks get --notebook "Engineering handbook" --json
 ```
 
@@ -113,13 +113,13 @@ cld notebooks get --notebook "Engineering handbook" --json
 
 ### Note references
 
-A note can be resolved by UUID, short id, exact title, or a notebook-relative path. Path segments resolve by exact title or short id in the note tree.
+A note can be resolved by short id, exact title, or a notebook-relative path. Path segments resolve by exact title or short id in the note tree.
 
 Titles are not edited separately. Change the first H1 or first visible line through `edit`; reads, search results, paths, and navigation then use the updated projected title.
 
 ```bash
-cld notebooks note --notebook 8nP4x --note runbook-2 --json
-cld notebooks note --notebook 8nP4x --note "Operations/Database/Recovery" --json
+cld notebooks note --notebook 8nP4xA --note rnbk02 --json
+cld notebooks note --notebook 8nP4xA --note "Operations/Database/Recovery" --json
 ```
 
 Exact titles can be ambiguous. Prefer ids from `tree`, `notes`, or `search` output. Use explicit `--notebook` and `--note` flags in agent commands; the optional positional shorthand is convenient for humans but easier to misread.
@@ -196,7 +196,7 @@ cld notebooks copy-note --notebook <notebook-id> --note <note-id> --target-noteb
 
 Exactly one of `--content`, `--file`, or `--stdin` can supply initial content. Without content, Notebooks creates an H1 from the notebook's default note title template. To rename a note safely, edit its first H1 with the same hash or timestamp preconditions used for any other content change.
 
-The default is `New Document`. Change it with `cld notebooks update --notebook <ref> --default-note-title-template '<liquid>'`. The template receives `notebook.id`, `notebook.short_id`, `notebook.name`, `note.short_id`, `note.depth`, `parent.exists`, `parent.id`, `parent.short_id`, `parent.title`, `parent.path`, `date`, `time`, `datetime`, and `timezone`. Its first non-empty rendered line becomes the initial H1.
+The default is `New Document`. Change it with `cld notebooks update --notebook <ref> --default-note-title-template '<liquid>'`. The template receives `notebook.id`, `notebook.name`, `note.id`, `note.depth`, `parent.exists`, `parent.id`, `parent.title`, `parent.path`, `date`, `time`, `datetime`, and `timezone`. Resource ids in the template are short ids. Its first non-empty rendered line becomes the initial H1.
 
 ### Safe edit operations
 
@@ -310,7 +310,7 @@ cld notebooks create-from-template <template-id> --name "Team handbook" --use --
 cld notebooks export --notebook <notebook-id> --output-file ./team-handbook.zip
 ```
 
-The ZIP export is portable notebook data. Keep it secure if notes or attachments contain private information.
+The ZIP export is portable notebook data. Notebook, note, parent, and attachment ids in its metadata are short ids. Keep it secure if notes or attachments contain private information.
 
 ## Access, API keys, and snapshots
 
@@ -448,8 +448,7 @@ Treat JSON fields as the command contract and avoid parsing human tables. The ex
 {
   "data": [
     {
-      "id": "notebook-uuid",
-      "shortId": "8nP4x",
+      "id": "8nP4xA",
       "name": "Engineering handbook"
     }
   ],
@@ -471,12 +470,12 @@ Continue with `page + 1` while `has_next` is true. List, scoped search, notes, t
   "data": [
     {
       "note": {
-        "shortId": "runbook-2",
+        "id": "rnbk02",
         "title": "Database recovery",
         "updatedAt": "2026-07-12T08:30:00.000Z"
       },
       "notebook": {
-        "shortId": "8nP4x",
+        "id": "8nP4xA",
         "name": "Engineering handbook"
       },
       "snippet": "...restore the latest verified backup..."
@@ -497,8 +496,8 @@ Global search includes notebook identity. Scoped search returns note objects dir
 
 ```json
 {
-  "notebook": { "id": "notebook-uuid", "shortId": "8nP4x", "name": "Engineering handbook" },
-  "note": { "shortId": "runbook-2", "title": "Database recovery", "updatedAt": "2026-07-12T08:30:00.000Z" },
+  "notebook": { "id": "8nP4xA", "name": "Engineering handbook" },
+  "note": { "id": "rnbk02", "title": "Database recovery", "updatedAt": "2026-07-12T08:30:00.000Z" },
   "content": "# Database recovery\n",
   "contentHash": "sha256-hex-value",
   "lineCount": 1,
@@ -514,7 +513,7 @@ Use `note.updatedAt` or `contentHash` as an edit precondition. Each block summar
 
 ```json
 {
-  "note": { "shortId": "runbook-2", "title": "Database recovery" },
+  "note": { "id": "rnbk02", "title": "Database recovery" },
   "block": {
     "name": "status",
     "type": "data",

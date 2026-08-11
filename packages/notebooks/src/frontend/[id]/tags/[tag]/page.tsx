@@ -19,6 +19,7 @@ import { parseSettings } from "../../_components/settings/NotebookSettingsStore"
 import NotebookSidebar from "../../_components/sidebar/NotebookSidebar.island";
 import type { NotebookContext } from "../../_components/sidebar/types";
 import WorkspaceEventBridge from "../../_components/sidebar/WorkspaceEventBridge.island";
+import { projectNotebook, projectTree } from "../../page-data";
 
 const PER_PAGE = 50;
 
@@ -31,15 +32,12 @@ const formatDate = (iso: string): string => new Date(iso).toLocaleDateString();
 
 export default ssr<AuthContext>(async (c) => {
   const user = expectUserBackedActor(c);
-  // Route param accepts either UUID or short-id — resolved to canonical
-  // UUID via `getByIdOrShortId`. The local `notebookId` variable below
-  // holds the UUID; `notebook.shortId` is what we hand to URL builders.
-  const idOrShort = c.req.param("id")!;
+  const notebookShortId = c.req.param("id")!;
   const tagParam = (c.req.param("tag") ?? "").toLowerCase();
   const search = (c.req.query("search") ?? "").trim();
   const page = parsePage(c.req.query("page"));
 
-  let notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId: idOrShort });
+  let notebook = await notebooksService.notebook.getByShortId({ shortId: notebookShortId });
   const notebookId = notebook?.id;
   if (!notebook || !notebookId) {
     return () => (
@@ -103,13 +101,15 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
   notebook = snapshotNotebook;
+  const publicNotebook = projectNotebook(notebook);
+  const publicTree = projectTree(tree, notebook.shortId);
   const totalPages = Math.max(1, Math.ceil(paginatedResult.total / PER_PAGE));
   const baseHref = buildTagPageUrl(notebook.shortId, tagParam);
   const paginationBaseUrl = search ? `${baseHref}?search=${encodeURIComponent(search)}&page=` : `${baseHref}?page=`;
 
   const ctx: NotebookContext = {
-    notebook,
-    tree,
+    notebook: publicNotebook,
+    tree: publicTree,
     selectedNoteId: null,
     userId: user.id,
     settings,

@@ -15,7 +15,6 @@ type Props = {
 
 type CreateNoteResult = {
   id: string;
-  shortId: string;
 };
 
 /** Note-level notebook shortcuts to avoid duplicate registrations from responsive sidebars. */
@@ -30,7 +29,7 @@ export default function NotebookHotkeys(props: Props) {
       return (await res.json()) as CreateNoteResult;
     },
     onSuccess: (data) => {
-      void navigateToNotebookNote(buildNoteUrl(props.notebookId, data.shortId), { selectInitialTitle: data.shortId });
+      void navigateToNotebookNote(buildNoteUrl(props.notebookId, data.id), { selectInitialTitle: data.id });
     },
     onError: (err) => prompts.error(err.message),
   });
@@ -38,7 +37,7 @@ export default function NotebookHotkeys(props: Props) {
   const openSearch = async () => {
     const picked = await openNoteSearchPrompt(props.notebookId, props.notebookName);
     if (picked) {
-      void navigateToNotebookNote(buildNoteUrl(props.notebookId, picked.shortId));
+      void navigateToNotebookNote(buildNoteUrl(props.notebookId, picked.id));
     }
   };
 

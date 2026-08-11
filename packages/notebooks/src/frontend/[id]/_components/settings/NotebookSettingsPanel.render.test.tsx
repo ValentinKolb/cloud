@@ -6,13 +6,11 @@ import "../detail/ssr-test-plugin";
 const { NotebookSettingsBody } = await import("./NotebookSettingsPanel.tsx");
 
 const notebook: Notebook = {
-  id: "notebook-id",
-  shortId: "notes1",
+  id: "notes1",
   name: "Research",
   description: "Shared research notes",
   icon: "ti ti-flask",
   homepageNoteId: null,
-  homepageNoteShortId: null,
   scriptsEnabled: false,
   defaultNoteTitleTemplate: "{{ date }}",
   createdBy: "user-id",

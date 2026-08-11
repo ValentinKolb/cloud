@@ -118,7 +118,7 @@ export default function NotebookDetailPanel(props: Props) {
   const [namedBlocks, setNamedBlocks] = createSignal<NamedBlockSummary[]>(props.namedBlocks);
 
   const buildAttachmentSource = (currentNoteId: string, ids: string[]) => `${props.notebookId}:${currentNoteId}:${ids.join(",")}`;
-  const initialAttachmentIds = props.attachments.map((attachment) => attachment.shortId);
+  const initialAttachmentIds = props.attachments.map((attachment) => attachment.id);
   const [attachmentRoute, setAttachmentRoute] = createSignal({ noteId: props.noteId, ids: initialAttachmentIds });
   const initialAttachmentSource = buildAttachmentSource(props.noteId, initialAttachmentIds);
   const [attachmentSnapshot, setAttachmentSnapshot] = createSignal<{ source: string; attachments: Attachment[] } | null>({
@@ -142,7 +142,7 @@ export default function NotebookDetailPanel(props: Props) {
       if (ids.length === 0) return { source, attachments: [] };
       const response = await apiClient[":id"].attachments.$get({ param: { id: props.notebookId } }, { init: { signal: abortSignal } });
       if (!response.ok) throw new Error(`Failed to load attachments (${response.status})`);
-      const byId = new Map((await response.json()).map((attachment) => [attachment.shortId, attachment]));
+      const byId = new Map((await response.json()).map((attachment) => [attachment.id, attachment]));
       return { source, attachments: ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])) };
     },
   });
@@ -264,7 +264,7 @@ export default function NotebookDetailPanel(props: Props) {
       setTocItems(detail.tocItems);
       setTasks(detail.taskProgress);
       setBacklinks(detail.backlinks);
-      const ids = detail.attachments.map((attachment) => attachment.shortId);
+      const ids = detail.attachments.map((attachment) => attachment.id);
       setAttachmentSnapshot({ source: buildAttachmentSource(detail.noteId, ids), attachments: detail.attachments });
       setAttachmentRoute({ noteId: detail.noteId, ids });
       setNamedBlocks(detail.namedBlocks);
@@ -446,7 +446,7 @@ export default function NotebookDetailPanel(props: Props) {
                       {(att) => (
                         <DetailPanel.Action
                           type="button"
-                          onClick={() => void confirmAndDownload(att.filename, buildAttachmentContentUrl(props.notebookId, att.shortId))}
+                          onClick={() => void confirmAndDownload(att.filename, buildAttachmentContentUrl(props.notebookId, att.id))}
                           leading={
                             <i
                               class={`ti ${fileIcons.getFileIcon({ name: att.filename, type: "file", mimeType: att.mimeType })}`}
@@ -467,10 +467,10 @@ export default function NotebookDetailPanel(props: Props) {
                   <div class="flex flex-col gap-1">
                     <For each={backlinks()}>
                       {(bl) => {
-                        const showNotebook = bl.notebookShortId !== props.currentNotebookId;
+                        const showNotebook = bl.notebookId !== props.currentNotebookId;
                         return (
                           <DetailPanel.Action
-                            href={`/app/notebooks/${bl.notebookShortId}/notes/${bl.noteShortId}`}
+                            href={`/app/notebooks/${bl.notebookId}/notes/${bl.noteId}`}
                             leading={<i class="ti ti-file-text" aria-hidden="true" />}
                             title={bl.title || "Untitled"}
                             description={showNotebook ? bl.notebookName : undefined}

@@ -39,7 +39,7 @@ const notes: Note[] = [
     id: "44444444-4444-4444-8444-444444444444",
     shortId: "noteB2",
     notebookId: notebook.id,
-    parentId: null,
+    parentId: "33333333-3333-4333-8333-333333333333",
     title: "Details",
     position: 1,
     hasChildren: false,
@@ -85,9 +85,30 @@ describe("notebook export", () => {
     ]);
 
     const overview = files.find((file) => file.path === "notes/noteA1--api-overview.md")?.content;
-    expect(overview).toContain('shortId: "noteA1"');
+    expect(overview).toContain('id: "noteA1"');
+    expect(overview).not.toContain("shortId:");
+    expect(overview).not.toContain(notes[0]!.id);
     expect(overview).toContain("[Details](./noteB2--details.md)");
     expect(overview).toContain("![Diagram](../attachments/attA01--Architecture-Diagram.png)");
+
+    const details = files.find((file) => file.path === "notes/noteB2--details.md")?.content;
+    expect(details).toContain('parentId: "noteA1"');
+
+    const notebookJson = String(files.find((file) => file.path === "notebook.json")?.content);
+    expect(JSON.parse(notebookJson)).toMatchObject({ version: 2, notebook: { id: "nb1234", homepageNoteId: null, name: "Tech Docs" } });
+    expect(notebookJson).not.toContain(notebook.id);
+    expect(notebookJson).not.toContain('"shortId"');
+
+    const treeJson = String(files.find((file) => file.path === "tree.json")?.content);
+    expect(treeJson).toContain('"id": "noteA1"');
+    expect(treeJson).toContain('"id": "noteB2"');
+    expect(treeJson).not.toContain(notes[0]!.id);
+    expect(treeJson).not.toContain('"shortId"');
+
+    const attachmentsJson = String(files.find((file) => file.path === "attachments.json")?.content);
+    expect(JSON.parse(attachmentsJson)[0]).toMatchObject({ id: "attA01", notebookId: "nb1234" });
+    expect(attachmentsJson).not.toContain(attachment.id);
+    expect(attachmentsJson).not.toContain('"shortId"');
   });
 
   test("creates a ZIP archive with local and central directory records", () => {

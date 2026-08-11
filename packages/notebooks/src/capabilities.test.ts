@@ -7,9 +7,14 @@ import {
   NoteCreateInputSchema,
   NoteDetailDataSchema,
   NoteEditInputSchema,
+  NoteLinksInputSchema,
+  NoteMoveInputSchema,
   NoteReadInputSchema,
   NoteTreeDataSchema,
+  NoteTreeInputSchema,
+  TagListInputSchema,
   TagNotesDataSchema,
+  TagNotesInputSchema,
 } from "./capability-contracts";
 import { noteContentHash } from "./lib/note-edit";
 import * as noteLinks from "./service/links";
@@ -161,32 +166,34 @@ describe("notebooks capabilities", () => {
   });
 
   test("keeps write schemas strict and bounded", () => {
-    expect(NoteCreateInputSchema.safeParse({ notebookId, content: "# Note", unexpected: true }).success).toBeFalse();
-    expect(NoteEditInputSchema.safeParse({ noteId, operations: [] }).success).toBeFalse();
+    expect(NoteCreateInputSchema.safeParse({ notebookId: notebook.shortId, content: "# Note", unexpected: true }).success).toBeFalse();
+    expect(NoteEditInputSchema.safeParse({ noteId: note.shortId, operations: [] }).success).toBeFalse();
     expect(
       NoteEditInputSchema.safeParse({
-        noteId,
+        noteId: note.shortId,
         operations: [{ kind: "append", content: "x" }],
         ifContentHash: "not-a-hash",
       }).success,
     ).toBeFalse();
     const fragment = "x".repeat(10_000);
     const structuralEdit = {
-      noteId,
+      noteId: note.shortId,
       operations: Array.from({ length: 20 }, () => ({ kind: "append" as const, content: fragment })),
     };
     expect(NoteEditInputSchema.safeParse(structuralEdit).success).toBeTrue();
     expect(Buffer.byteLength(JSON.stringify({ input: structuralEdit }))).toBeLessThan(220_000);
     const fullReplacement = {
-      noteId,
+      noteId: note.shortId,
       operations: [{ kind: "set-content" as const, content: "x".repeat(200_000) }],
     };
     expect(NoteEditInputSchema.safeParse(fullReplacement).success).toBeTrue();
     expect(Buffer.byteLength(JSON.stringify({ input: fullReplacement }))).toBeLessThan(220_000);
-    expect(NoteEditInputSchema.safeParse({ noteId, operations: [{ kind: "append", content: `${fragment}x` }] }).success).toBeFalse();
+    expect(
+      NoteEditInputSchema.safeParse({ noteId: note.shortId, operations: [{ kind: "append", content: `${fragment}x` }] }).success,
+    ).toBeFalse();
     expect(
       NoteEditInputSchema.safeParse({
-        noteId,
+        noteId: note.shortId,
         operations: [
           { kind: "set-content", content: "First" },
           { kind: "set-content", content: "Second" },
@@ -195,16 +202,30 @@ describe("notebooks capabilities", () => {
     ).toBeFalse();
     expect(
       NoteTreeDataSchema.safeParse([
-        { id: noteId, shortId: "def456", parentId: null, title: "Note", position: 0, hasChildren: false, content: "hidden" },
+        { id: note.shortId, parentId: null, title: "Note", position: 0, hasChildren: false, content: "hidden" },
       ]).success,
     ).toBeFalse();
   });
 
-  test("accepts only short IDs in canonical reader inputs", () => {
+  test("accepts only short IDs at every capability boundary", () => {
     expect(NotebookReadInputSchema.safeParse({ id: notebook.shortId }).success).toBeTrue();
     expect(NoteReadInputSchema.safeParse({ id: note.shortId }).success).toBeTrue();
     expect(NotebookReadInputSchema.safeParse({ id: notebookId }).success).toBeFalse();
     expect(NoteReadInputSchema.safeParse({ id: noteId }).success).toBeFalse();
+    expect(NoteTreeInputSchema.safeParse({ notebookId: notebook.shortId }).success).toBeTrue();
+    expect(NoteTreeInputSchema.safeParse({ notebookId }).success).toBeFalse();
+    expect(NoteLinksInputSchema.safeParse({ noteId: note.shortId }).success).toBeTrue();
+    expect(NoteLinksInputSchema.safeParse({ noteId }).success).toBeFalse();
+    expect(TagListInputSchema.safeParse({ notebookId: notebook.shortId }).success).toBeTrue();
+    expect(TagListInputSchema.safeParse({ notebookId }).success).toBeFalse();
+    expect(TagNotesInputSchema.safeParse({ notebookId: notebook.shortId, tag: "docs" }).success).toBeTrue();
+    expect(TagNotesInputSchema.safeParse({ notebookId, tag: "docs" }).success).toBeFalse();
+    expect(NoteCreateInputSchema.safeParse({ notebookId: notebook.shortId, parentId: note.shortId }).success).toBeTrue();
+    expect(NoteCreateInputSchema.safeParse({ notebookId, parentId: noteId }).success).toBeFalse();
+    expect(NoteEditInputSchema.safeParse({ noteId: note.shortId, operations: [{ kind: "append", content: "x" }] }).success).toBeTrue();
+    expect(NoteEditInputSchema.safeParse({ noteId, operations: [{ kind: "append", content: "x" }] }).success).toBeFalse();
+    expect(NoteMoveInputSchema.safeParse({ noteId: note.shortId, parentId: null, position: 0 }).success).toBeTrue();
+    expect(NoteMoveInputSchema.safeParse({ noteId, parentId: null, position: 0 }).success).toBeFalse();
   });
 
   test("accepts only opaque page and stable tree cursors", () => {
@@ -259,12 +280,12 @@ describe("notebooks capabilities", () => {
     expect(outside.ok).toBeFalse();
     expect(getPermission).not.toHaveBeenCalled();
 
-    trackedSpy(spyOn(noteStore, "get")).mockResolvedValue(note);
+    trackedSpy(spyOn(noteStore, "getByShortId")).mockResolvedValue(note);
     getPermission.mockResolvedValue("admin");
     const editContent = trackedSpy(spyOn(noteStore, "editContent"));
     trackedSpy(spyOn(audit, "recordResult")).mockImplementation(async ({ result }) => result);
     const edit = await notebooksCapabilities.actions["note.edit"].run(
-      { noteId, operations: [{ kind: "append", content: "Update" }] },
+      { noteId: note.shortId, operations: [{ kind: "append", content: "Update" }] },
       resourceContext(["read"]),
     );
     expect(edit.ok).toBeFalse();
@@ -311,22 +332,20 @@ describe("notebooks capabilities", () => {
     expect(search.data.data[0]?.ref).toEqual({ type: "notebooks.note", id: note.shortId });
     expect(search.data.data[0]?.links).toEqual([{ rel: "open", href: `/app/notebooks/${notebook.shortId}/notes/${note.shortId}` }]);
 
-    trackedSpy(spyOn(noteStore, "get")).mockResolvedValue(note);
+    trackedSpy(spyOn(noteStore, "getByShortId")).mockResolvedValue(note);
     trackedSpy(spyOn(notebookStore, "get")).mockResolvedValue(notebook);
     trackedSpy(spyOn(notebookStore, "getPermission")).mockResolvedValue("read");
     trackedSpy(spyOn(noteLinks, "listNoteRelations")).mockResolvedValue([
       {
         direction: "outgoing",
-        noteId,
-        noteShortId: note.shortId,
+        noteId: note.shortId,
         title: note.title,
-        notebookId,
-        notebookShortId: notebook.shortId,
+        notebookId: notebook.shortId,
         notebookName: notebook.name,
         updatedAt: createdAt,
       },
     ]);
-    const links = await notebooksCapabilities.queries["note.links"].run({ noteId, direction: "all", limit: 25 }, userContext);
+    const links = await notebooksCapabilities.queries["note.links"].run({ noteId: note.shortId, direction: "all", limit: 25 }, userContext);
     expect(links.ok).toBeTrue();
     if (!links.ok) return;
     expect(links.data.refs).toEqual([{ type: "notebooks.note", id: note.shortId }]);
@@ -334,7 +353,7 @@ describe("notebooks capabilities", () => {
   });
 
   test("routes edits through the conflict-aware service and audits success", async () => {
-    trackedSpy(spyOn(noteStore, "get")).mockResolvedValue(note);
+    trackedSpy(spyOn(noteStore, "getByShortId")).mockResolvedValue(note);
     trackedSpy(spyOn(notebookStore, "get")).mockResolvedValue(notebook);
     trackedSpy(spyOn(notebookStore, "getPermission")).mockResolvedValue("write");
     const afterHash = noteContentHash(`${note.contentMd}\nUpdate`);
@@ -352,7 +371,7 @@ describe("notebooks capabilities", () => {
     const record = trackedSpy(spyOn(audit, "recordResultAfterSideEffect")).mockImplementation(async ({ result }) => result);
 
     const result = await notebooksCapabilities.actions["note.edit"].run(
-      { noteId, operations: [{ kind: "append", content: "Update" }], ifContentHash: noteContentHash(note.contentMd) },
+      { noteId: note.shortId, operations: [{ kind: "append", content: "Update" }], ifContentHash: noteContentHash(note.contentMd) },
       userContext,
     );
     expect(result.ok).toBeTrue();
@@ -374,7 +393,7 @@ describe("notebooks capabilities", () => {
   });
 
   test("normalizes tagged-note timestamps before validating the capability result", async () => {
-    trackedSpy(spyOn(notebookStore, "get")).mockResolvedValue(notebook);
+    trackedSpy(spyOn(notebookStore, "getByShortId")).mockResolvedValue(notebook);
     trackedSpy(spyOn(notebookStore, "getPermission")).mockResolvedValue("read");
     trackedSpy(spyOn(noteTags, "listNotesForTag")).mockResolvedValue({
       items: [
@@ -389,7 +408,10 @@ describe("notebooks capabilities", () => {
       total: 1,
     });
 
-    const result = await notebooksCapabilities.queries["tag.notes"].run({ notebookId, tag: "docs", limit: 25 }, userContext);
+    const result = await notebooksCapabilities.queries["tag.notes"].run(
+      { notebookId: notebook.shortId, tag: "docs", limit: 25 },
+      userContext,
+    );
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
     expect(result.data.data[0]?.updatedAt).toBe(createdAt);
@@ -399,7 +421,7 @@ describe("notebooks capabilities", () => {
   });
 
   test("reviews note edits with bounded targets and content previews", async () => {
-    trackedSpy(spyOn(noteStore, "get")).mockResolvedValue(note);
+    trackedSpy(spyOn(noteStore, "getByShortId")).mockResolvedValue(note);
     trackedSpy(spyOn(notebookStore, "get")).mockResolvedValue(notebook);
     trackedSpy(spyOn(notebookStore, "getPermission")).mockResolvedValue("write");
     const review = notebooksCapabilities.actions["note.edit"].review;
@@ -407,7 +429,7 @@ describe("notebooks capabilities", () => {
 
     const result = await review(
       {
-        noteId,
+        noteId: note.shortId,
         operations: [{ kind: "replace-block", name: "facts", type: "data", content: '{"ready":false}' }],
       },
       userContext,

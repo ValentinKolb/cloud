@@ -12,7 +12,7 @@ export type NotebookExportFile = {
 
 export type NotebookExport = {
   filename: string;
-  notebook: Pick<Notebook, "id" | "shortId" | "name">;
+  notebook: Pick<Notebook, "name"> & { id: string };
   files: NotebookExportFile[];
   zip: Uint8Array;
 };
@@ -55,6 +55,19 @@ const noteFileName = (note: Note): string => `${note.shortId}--${slugify(note.ti
 const attachmentFileName = (attachment: AttachmentContent): string =>
   `${attachment.shortId}--${safeFilename(attachment.filename, "attachment")}`;
 
+const publicNotebook = (notebook: Notebook) => ({
+  id: notebook.shortId,
+  name: notebook.name,
+  description: notebook.description,
+  icon: notebook.icon,
+  homepageNoteId: notebook.homepageNoteShortId,
+  scriptsEnabled: notebook.scriptsEnabled,
+  defaultNoteTitleTemplate: notebook.defaultNoteTitleTemplate,
+  createdBy: notebook.createdBy,
+  createdAt: notebook.createdAt,
+  updatedAt: notebook.updatedAt,
+});
+
 const buildTree = (flatNotes: Note[]) => {
   type Node = Pick<Note, "id" | "shortId" | "parentId" | "title" | "position" | "createdAt" | "updatedAt"> & {
     children: Node[];
@@ -90,7 +103,17 @@ const buildTree = (flatNotes: Note[]) => {
   };
   sort(roots);
 
-  return roots;
+  const shortById = new Map(flatNotes.map((note) => [note.id, note.shortId]));
+  const toPublicNode = (node: Node): Record<string, unknown> => ({
+    id: node.shortId,
+    parentId: node.parentId ? (shortById.get(node.parentId) ?? null) : null,
+    title: node.title,
+    position: node.position,
+    createdAt: node.createdAt,
+    updatedAt: node.updatedAt,
+    children: node.children.map(toPublicNode),
+  });
+  return roots.map(toPublicNode);
 };
 
 const transformPortableLinks = (
@@ -108,13 +131,12 @@ const transformPortableLinks = (
       return file ? `../attachments/${file}` : match;
     });
 
-const noteFrontmatter = (note: Note): string =>
+const noteFrontmatter = (note: Note, parentId: string | null): string =>
   [
     "---",
-    `id: ${yamlValue(note.id)}`,
-    `shortId: ${yamlValue(note.shortId)}`,
+    `id: ${yamlValue(note.shortId)}`,
     `title: ${yamlValue(note.title)}`,
-    `parentId: ${yamlValue(note.parentId)}`,
+    `parentId: ${yamlValue(parentId)}`,
     `position: ${yamlValue(note.position)}`,
     `createdAt: ${yamlValue(note.createdAt)}`,
     `updatedAt: ${yamlValue(note.updatedAt)}`,
@@ -157,6 +179,7 @@ export const buildNotebookExportFiles = (params: {
   const sortedAttachments = [...params.attachments].sort((a, b) => a.shortId.localeCompare(b.shortId));
 
   const noteFileByShortId = new Map(sortedNotes.map((note) => [note.shortId, noteFileName(note)]));
+  const noteShortIdById = new Map(sortedNotes.map((note) => [note.id, note.shortId]));
   const attachmentFileByShortId = new Map(sortedAttachments.map((attachment) => [attachment.shortId, attachmentFileName(attachment)]));
 
   const files: NotebookExportFile[] = [
@@ -173,9 +196,9 @@ export const buildNotebookExportFiles = (params: {
       path: "notebook.json",
       content: json({
         format: "stuve.notebook.export",
-        version: 1,
+        version: 2,
         exportedAt,
-        notebook: params.notebook,
+        notebook: publicNotebook(params.notebook),
       }),
     },
     {
@@ -185,8 +208,15 @@ export const buildNotebookExportFiles = (params: {
     {
       path: "attachments.json",
       content: json(
-        sortedAttachments.map(({ content: _content, ...attachment }) => ({
-          ...attachment,
+        sortedAttachments.map((attachment) => ({
+          id: attachment.shortId,
+          notebookId: params.notebook.shortId,
+          filename: attachment.filename,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          kind: attachment.kind,
+          createdBy: attachment.createdBy,
+          createdAt: attachment.createdAt,
           file: `attachments/${attachmentFileName({ ...attachment, content: new Uint8Array() })}`,
         })),
       ),
@@ -197,7 +227,9 @@ export const buildNotebookExportFiles = (params: {
     const body = transformPortableLinks(note.contentMd ?? "", noteFileByShortId, attachmentFileByShortId);
     files.push({
       path: `notes/${noteFileName(note)}`,
-      content: `${noteFrontmatter(note)}${body.endsWith("\n") || body.length === 0 ? body : `${body}\n`}`,
+      content: `${noteFrontmatter(note, note.parentId ? (noteShortIdById.get(note.parentId) ?? null) : null)}${
+        body.endsWith("\n") || body.length === 0 ? body : `${body}\n`
+      }`,
     });
   }
 
@@ -356,8 +388,7 @@ export const exportNotebookZip = async (params: { notebookId: string; exportedAt
   return {
     filename: exportFilename(notebook, exportedAt),
     notebook: {
-      id: notebook.id,
-      shortId: notebook.shortId,
+      id: notebook.shortId,
       name: notebook.name,
     },
     files,

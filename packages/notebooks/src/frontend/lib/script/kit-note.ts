@@ -7,7 +7,6 @@
  * (notebook tag pills) so what `current.tags` returns matches what
  * the user sees in the UI.
  */
-import { apiClient } from "../../../api/client";
 import { deriveNoteTitle } from "../../../lib/note-title";
 import { extractTags } from "../tag-extract";
 import { createWritableNoteBlocks } from "./kit-blocks";
@@ -170,7 +169,7 @@ export const createKitCurrentNote = (ctx: KitContext): KitCurrentNote => {
 
     // Snapshot fields — these don't live in the doc.
     get id() {
-      return ctx.note.shortId;
+      return ctx.note.id;
     },
     get title() {
       return deriveNoteTitle(liveContent());

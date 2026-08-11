@@ -21,7 +21,7 @@ export function GeneralSection(props: {
     name: props.notebook.name,
     description: props.notebook.description ?? "",
     icon: props.notebook.icon ?? "",
-    homepageNoteId: props.notebook.homepageNoteShortId ?? "",
+    homepageNoteId: props.notebook.homepageNoteId ?? "",
     defaultNoteTitleTemplate: props.notebook.defaultNoteTitleTemplate,
   });
   const [name, setName] = createSignal(base().name);
@@ -36,8 +36,8 @@ export function GeneralSection(props: {
         title: renderNoteTitleTemplate(
           defaultNoteTitleTemplate(),
           buildNoteTitleTemplateContext({
-            notebook: { id: props.notebook.id, short_id: props.notebook.shortId, name: name().trim() || props.notebook.name },
-            note: { short_id: "ABC123", depth: 0 },
+            notebook: { id: props.notebook.id, name: name().trim() || props.notebook.name },
+            note: { id: "ABC123", depth: 0 },
             dateConfig: props.dateConfig,
           }),
         ),
@@ -86,7 +86,7 @@ export function GeneralSection(props: {
       if (!name().trim()) throw new Error("Name is required");
       if (titlePreview().error) throw new Error(titlePreview().error!);
       const res = await apiClient[":id"].$patch({
-        param: { id: props.notebook.shortId },
+        param: { id: props.notebook.id },
         json: {
           name: name().trim(),
           description: description().trim() || null,
@@ -103,7 +103,7 @@ export function GeneralSection(props: {
         name: next.name,
         description: next.description ?? "",
         icon: next.icon ?? "",
-        homepageNoteId: next.homepageNoteShortId ?? "",
+        homepageNoteId: next.homepageNoteId ?? "",
         defaultNoteTitleTemplate: next.defaultNoteTitleTemplate,
       });
       props.onNotebookChange(next);
@@ -204,10 +204,9 @@ export function GeneralSection(props: {
             <span class={titlePreview().error ? "text-dimmed" : "font-medium"}>{titlePreview().title ?? "Unavailable"}</span>
           </div>
           <p class="text-dimmed">
-            Variables: <code>notebook.id</code>, <code>notebook.short_id</code>, <code>notebook.name</code>, <code>note.short_id</code>,{" "}
-            <code>note.depth</code>, <code>parent.exists</code>, <code>parent.id</code>, <code>parent.short_id</code>,{" "}
-            <code>parent.title</code>, <code>parent.path</code>, <code>date</code>, <code>time</code>, <code>datetime</code>, and{" "}
-            <code>timezone</code>.
+            Variables: <code>notebook.id</code>, <code>notebook.name</code>, <code>note.id</code>, <code>note.depth</code>,{" "}
+            <code>parent.exists</code>, <code>parent.id</code>, <code>parent.title</code>, <code>parent.path</code>, <code>date</code>,{" "}
+            <code>time</code>, <code>datetime</code>, and <code>timezone</code>.
           </p>
         </div>
       </SettingsGroup>

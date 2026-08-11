@@ -5,12 +5,10 @@ import type { NotebookSettings } from "../settings/NotebookSettingsStore";
 /** Notebook metadata (matches backend NotebookSchema) */
 export type Notebook = {
   id: string;
-  shortId: string;
   name: string;
   description: string | null;
   icon: string | null;
   homepageNoteId: string | null;
-  homepageNoteShortId: string | null;
   /** Per-notebook opt-in for `\`\`\`script` block execution. */
   scriptsEnabled: boolean;
   defaultNoteTitleTemplate: string;
@@ -22,7 +20,6 @@ export type Notebook = {
 /** Note tree node (matches backend NoteTreeNodeSchema) */
 export type NoteTreeNode = {
   id: string;
-  shortId: string;
   notebookId: string;
   parentId: string | null;
   title: string;
@@ -52,7 +49,7 @@ export type NotebookContext = {
   permission: string;
   /** Number of attachments in the notebook — gates the sidebar link. */
   attachmentCount: number;
-  /** Current user's favorite note UUIDs for this notebook. */
+  /** Current user's favorite public note IDs for this notebook. */
   favoriteNoteIds: string[];
   /** Tag summaries for the navigator sidebar. */
   tags: TagSummary[];

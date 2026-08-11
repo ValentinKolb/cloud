@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 import { notebooksWorkspace } from "../../../lib/workspace-events";
+import { notebooksYjs } from "../../../lib/yjs";
 import { createYjsProvider } from "./provider";
+
+const NOTE_ID = "Note01";
+const NOTEBOOK_ID = "Book01";
 
 class FakeWebSocket {
   static readonly OPEN = 1;
@@ -39,7 +43,7 @@ class FakeWebSocket {
 
 const workspaceSubscriptions = (socket: FakeWebSocket) =>
   socket.sent
-    .map((value) => JSON.parse(value) as { type: string; payload: { fromCursor?: string | null } })
+    .map((value) => JSON.parse(value) as { type: string; payload: { notebookId: string; fromCursor?: string | null } })
     .filter((value) => value.type === notebooksWorkspace.wsType.subscribe);
 
 let originalWebSocket: typeof WebSocket | undefined;
@@ -66,10 +70,10 @@ describe("Yjs provider workspace cursor coverage", () => {
     const provider = createYjsProvider({
       doc,
       awareness: new Awareness(doc),
-      noteId: "note-id",
+      noteId: NOTE_ID,
       appUrl: "http://localhost",
       workspace: {
-        notebookId: "notebook-id",
+        notebookId: NOTEBOOK_ID,
         initialCursor: "1-0",
         onEvent: () => coverage,
         onCursorChange: (cursor) => confirmed.push(cursor),
@@ -79,13 +83,14 @@ describe("Yjs provider workspace cursor coverage", () => {
     provider.connect();
     const socket = FakeWebSocket.instances[0]!;
     socket.open();
-    socket.message({ type: notebooksWorkspace.wsType.ready, payload: { notebookId: "notebook-id" } });
+    expect(workspaceSubscriptions(socket).at(-1)?.payload.notebookId).toBe(NOTEBOOK_ID);
+    socket.message({ type: notebooksWorkspace.wsType.ready, payload: { notebookId: NOTEBOOK_ID } });
     socket.message({
       type: notebooksWorkspace.wsType.event,
       payload: {
-        notebookId: "notebook-id",
+        notebookId: NOTEBOOK_ID,
         cursor: "2-0",
-        event: { v: 1, type: "workspace.invalidated", notebookId: "notebook-id", reason: "bulk", scopes: ["tree"] },
+        event: { v: 1, type: "workspace.invalidated", notebookId: NOTEBOOK_ID, reason: "bulk", scopes: ["tree"] },
       },
     });
 
@@ -110,10 +115,10 @@ describe("Yjs provider workspace cursor coverage", () => {
     const provider = createYjsProvider({
       doc,
       awareness: new Awareness(doc),
-      noteId: "note-id",
+      noteId: NOTE_ID,
       appUrl: "http://localhost",
       workspace: {
-        notebookId: "notebook-id",
+        notebookId: NOTEBOOK_ID,
         onEvent: (_event, cursor) => {
           seen.push(cursor!);
           return cursor === "1-0" ? firstCoverage : Promise.resolve();
@@ -124,13 +129,13 @@ describe("Yjs provider workspace cursor coverage", () => {
     provider.connect();
     const socket = FakeWebSocket.instances[0]!;
     socket.open();
-    socket.message({ type: notebooksWorkspace.wsType.ready, payload: { notebookId: "notebook-id" } });
+    socket.message({ type: notebooksWorkspace.wsType.ready, payload: { notebookId: NOTEBOOK_ID } });
     const payload = (cursor: string) => ({
       type: notebooksWorkspace.wsType.event,
       payload: {
-        notebookId: "notebook-id",
+        notebookId: NOTEBOOK_ID,
         cursor,
-        event: { v: 1, type: "workspace.invalidated", notebookId: "notebook-id", reason: "bulk", scopes: ["tree"] },
+        event: { v: 1, type: "workspace.invalidated", notebookId: NOTEBOOK_ID, reason: "bulk", scopes: ["tree"] },
       },
     });
     socket.message(payload("1-0"));
@@ -149,10 +154,10 @@ describe("Yjs provider workspace cursor coverage", () => {
     const provider = createYjsProvider({
       doc,
       awareness: new Awareness(doc),
-      noteId: "note-id",
+      noteId: NOTE_ID,
       appUrl: "http://localhost",
       workspace: {
-        notebookId: "notebook-id",
+        notebookId: NOTEBOOK_ID,
         initialCursor: "1-0",
         onEvent: () => Promise.reject(new Error("refresh failed")),
       },
@@ -161,13 +166,13 @@ describe("Yjs provider workspace cursor coverage", () => {
     provider.connect();
     const socket = FakeWebSocket.instances[0]!;
     socket.open();
-    socket.message({ type: notebooksWorkspace.wsType.ready, payload: { notebookId: "notebook-id" } });
+    socket.message({ type: notebooksWorkspace.wsType.ready, payload: { notebookId: NOTEBOOK_ID } });
     socket.message({
       type: notebooksWorkspace.wsType.event,
       payload: {
-        notebookId: "notebook-id",
+        notebookId: NOTEBOOK_ID,
         cursor: "2-0",
-        event: { v: 1, type: "workspace.invalidated", notebookId: "notebook-id", reason: "bulk", scopes: ["tree"] },
+        event: { v: 1, type: "workspace.invalidated", notebookId: NOTEBOOK_ID, reason: "bulk", scopes: ["tree"] },
       },
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -184,9 +189,9 @@ describe("Yjs provider workspace cursor coverage", () => {
     const provider = createYjsProvider({
       doc,
       awareness: new Awareness(doc),
-      noteId: "note-id",
+      noteId: NOTE_ID,
       appUrl: "http://localhost",
-      workspace: { notebookId: "notebook-id", onEvent: () => undefined },
+      workspace: { notebookId: NOTEBOOK_ID, onEvent: () => undefined },
       onFatal: (error) => fatalErrors.push(error.code),
     });
 
@@ -209,9 +214,9 @@ describe("Yjs provider workspace cursor coverage", () => {
     const provider = createYjsProvider({
       doc,
       awareness: new Awareness(doc),
-      noteId: "note-id",
+      noteId: NOTE_ID,
       appUrl: "http://localhost",
-      workspace: { notebookId: "notebook-id", onEvent: () => undefined },
+      workspace: { notebookId: NOTEBOOK_ID, onEvent: () => undefined },
       onFatal: (error) => fatalErrors.push(error.code),
     });
 
@@ -222,6 +227,50 @@ describe("Yjs provider workspace cursor coverage", () => {
 
     expect(socket.readyState).toBe(3);
     expect(fatalErrors).toEqual(["ACCESS_REVOKED"]);
+    provider.dispose();
+  });
+
+  test("rejects UUID and malformed public resource ids", () => {
+    const doc = new Y.Doc();
+    expect(() =>
+      createYjsProvider({
+        doc,
+        awareness: new Awareness(doc),
+        noteId: "00000000-0000-4000-8000-000000000001",
+        appUrl: "http://localhost",
+      }),
+    ).toThrow("noteId must be a 6-character short id");
+    expect(() =>
+      createYjsProvider({
+        doc,
+        awareness: new Awareness(doc),
+        noteId: NOTE_ID,
+        appUrl: "http://localhost",
+        workspace: { notebookId: "too-long", onEvent: () => undefined },
+      }),
+    ).toThrow("workspace.notebookId must be a 6-character short id");
+  });
+
+  test("keeps the note short id stable across replay and publishes", () => {
+    const doc = new Y.Doc();
+    const provider = createYjsProvider({ doc, awareness: new Awareness(doc), noteId: NOTE_ID, appUrl: "http://localhost" });
+    provider.connect();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.open();
+
+    const replay = socket.sent.map((value) => JSON.parse(value)).find((value) => value.type === notebooksYjs.wsType.replayRequest);
+    expect(replay.payload.noteId).toBe(NOTE_ID);
+
+    socket.message({
+      type: notebooksYjs.wsType.replayReady,
+      payload: { noteId: "00000000-0000-4000-8000-000000000001" },
+    });
+    doc.getText("content").insert(0, "x");
+    expect(socket.sent.map((value) => JSON.parse(value)).some((value) => value.type === notebooksYjs.wsType.syncPublish)).toBe(false);
+
+    socket.message({ type: notebooksYjs.wsType.replayReady, payload: { noteId: NOTE_ID } });
+    const publish = socket.sent.map((value) => JSON.parse(value)).find((value) => value.type === notebooksYjs.wsType.syncPublish);
+    expect(publish.payload.noteId).toBe(NOTE_ID);
     provider.dispose();
   });
 });

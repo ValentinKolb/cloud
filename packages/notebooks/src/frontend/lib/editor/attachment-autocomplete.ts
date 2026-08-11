@@ -32,19 +32,7 @@ import { withIcon } from "./kit-autocomplete";
 
 /** Lightweight attachment projection — only what the picker needs. */
 type AttRef = {
-  shortId: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  kind: "image" | "file";
-};
-
-/** API response shape — minimal projection so the type doesn't bind
- *  us to fields we don't render. Mirrors `ApiAttachment` in
- *  `lib/script/kit-attachments.ts` (kept duplicated to avoid a
- *  cross-import that would pull in the whole kit runtime). */
-type ApiAttachment = {
-  shortId: string;
+  id: string;
   filename: string;
   mimeType: string;
   sizeBytes: number;
@@ -57,7 +45,7 @@ const attachmentCache = createNotebookFetchCache<AttRef[]>(
     if (!res.ok) return [];
     const payload = await res.json();
     return payload.map((a) => ({
-      shortId: a.shortId,
+      id: a.id,
       filename: a.filename,
       mimeType: a.mimeType,
       sizeBytes: a.sizeBytes,
@@ -73,7 +61,7 @@ const attachmentCache = createNotebookFetchCache<AttRef[]>(
  *  non-image → link. Filename is escaped against `]` and `\`. */
 const buildAttachmentMarkdown = (a: AttRef): string => {
   const escapedName = a.filename.replace(/\\/g, "\\\\").replace(/]/g, "\\]");
-  const url = `attach://${a.shortId}`;
+  const url = `attach://${a.id}`;
   const prefix = a.kind === "image" ? "!" : "";
   return `${prefix}[${escapedName}](${url})`;
 };

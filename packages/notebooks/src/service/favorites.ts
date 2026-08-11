@@ -9,11 +9,12 @@ export type FavoriteNoteId = {
 
 export const listIds = async (params: { notebookId: string; userId: string }): Promise<FavoriteNoteId[]> => {
   const rows = await sql<{ note_id: string; created_at: Date }[]>`
-    SELECT note_id, created_at
-    FROM notebooks.note_favorites
-    WHERE notebook_id = ${params.notebookId}::uuid
-      AND user_id = ${params.userId}::uuid
-    ORDER BY created_at DESC
+    SELECT n.short_id AS note_id, f.created_at
+    FROM notebooks.note_favorites f
+    JOIN notebooks.notes n ON n.id = f.note_id
+    WHERE f.notebook_id = ${params.notebookId}::uuid
+      AND f.user_id = ${params.userId}::uuid
+    ORDER BY f.created_at DESC
   `;
   return rows.map((row) => ({ noteId: row.note_id, createdAt: row.created_at.toISOString() }));
 };

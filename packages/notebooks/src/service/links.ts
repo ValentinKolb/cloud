@@ -75,10 +75,8 @@ export type NoteLink = {
 
 export type Backlink = {
   noteId: string;
-  noteShortId: string;
   title: string;
   notebookId: string;
-  notebookShortId: string;
   notebookName: string;
   updatedAt: string;
 };
@@ -86,10 +84,8 @@ export type Backlink = {
 export type NoteRelation = {
   direction: "incoming" | "outgoing";
   noteId: string;
-  noteShortId: string;
   title: string;
   notebookId: string;
-  notebookShortId: string;
   notebookName: string;
   updatedAt: string;
 };
@@ -99,7 +95,6 @@ export type NoteRelation = {
 // hundreds of notes without ballooning the SSR/JSON payload.
 export type GraphNode = {
   id: string;
-  shortId: string;
   title: string;
   /** Number of incoming links from inside this notebook — drives node size
    *  in the visualisation (more linked = bigger). */
@@ -122,7 +117,7 @@ export type NoteGraph = {
 
 /**
  * Matches internal note references of the form `note://<shortId>`
- * inside a markdown body. Short-ids are 6-char base62.
+ * inside a markdown body. Public IDs have six readable characters.
  */
 export const NOTE_LINK_REGEX = /note:\/\/([0-9a-zA-Z]{6})/g;
 
@@ -265,11 +260,9 @@ export const listBacklinks = async (params: {
       `;
 
   return rows.map((r) => ({
-    noteId: r.note_id,
-    noteShortId: r.note_short_id,
+    noteId: r.note_short_id,
     title: r.title,
-    notebookId: r.notebook_id,
-    notebookShortId: r.notebook_short_id,
+    notebookId: r.notebook_short_id,
     notebookName: r.notebook_name,
     updatedAt: r.updated_at.toISOString(),
   }));
@@ -357,11 +350,9 @@ export const listNoteRelations = async (params: {
   `;
   return rows.map((row) => ({
     direction: row.direction,
-    noteId: row.note_id,
-    noteShortId: row.note_short_id,
+    noteId: row.note_short_id,
     title: row.title,
-    notebookId: row.notebook_id,
-    notebookShortId: row.notebook_short_id,
+    notebookId: row.notebook_short_id,
     notebookName: row.notebook_name,
     updatedAt: row.updated_at.toISOString(),
   }));
@@ -398,8 +389,8 @@ export const buildNotebookGraph = async (params: { notebookId: string }): Promis
     ORDER BY created_at ASC
   `;
 
-  const edgeRows = await sql<{ source_note_id: string; target_note_id: string }[]>`
-    SELECT nl.source_note_id, nl.target_note_id
+  const edgeRows = await sql<{ source_note_id: string; target_note_id: string; source_short_id: string; target_short_id: string }[]>`
+    SELECT nl.source_note_id, nl.target_note_id, src.short_id AS source_short_id, tgt.short_id AS target_short_id
     FROM notebooks.note_links nl
     JOIN notebooks.notes src ON src.id = nl.source_note_id
     JOIN notebooks.notes tgt ON tgt.id = nl.target_note_id
@@ -414,11 +405,10 @@ export const buildNotebookGraph = async (params: { notebookId: string }): Promis
 
   return {
     nodes: noteRows.map((n) => ({
-      id: n.id,
-      shortId: n.short_id,
+      id: n.short_id,
       title: n.title,
       inDegree: inDegree.get(n.id) ?? 0,
     })),
-    edges: edgeRows.map((e) => ({ source: e.source_note_id, target: e.target_note_id })),
+    edges: edgeRows.map((e) => ({ source: e.source_short_id, target: e.target_short_id })),
   };
 };

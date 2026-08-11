@@ -31,19 +31,18 @@ import { z } from "zod";
 import { notebooksService, reindexRuntime } from "../service";
 import { NOTEBOOK_RESOURCE_TYPE, NOTEBOOKS_APP_ID } from "../service/access";
 import { loadEditableNoteRouteData } from "../service/route-state";
+import { ResourceShortIdSchema, toPublicAttachment, toPublicNote, toPublicNotebook, toPublicSnapshotLog } from "./public-resources";
 
 // ==========================
 // Zod Schemas
 // ==========================
 
 const NotebookSchema = z.object({
-  id: z.uuid(),
-  shortId: z.string().describe("6-char base62 alias for URLs"),
+  id: ResourceShortIdSchema,
   name: z.string(),
   description: z.string().nullable(),
   icon: z.string().nullable(),
-  homepageNoteId: z.uuid().nullable(),
-  homepageNoteShortId: z.string().nullable().describe("Homepage note short-id"),
+  homepageNoteId: ResourceShortIdSchema.nullable(),
   scriptsEnabled: z.boolean().describe("Per-notebook opt-in for `\`\`\`script` block execution"),
   defaultNoteTitleTemplate: z.string().describe("Liquid template used to initialize the H1 of new notes"),
   createdBy: z.uuid().nullable(),
@@ -61,7 +60,7 @@ const UpdateNotebookSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(500).nullable().optional(),
   icon: z.string().max(50).nullable().optional(),
-  homepageNoteId: z.string().nullable().optional().describe("Homepage note short-id"),
+  homepageNoteId: ResourceShortIdSchema.nullable().optional().describe("Homepage note ID"),
   // Toggling scripts_enabled is admin-only — see the PATCH handler
   // for the role check. Schema-level it's just a boolean field.
   scriptsEnabled: z.boolean().optional(),
@@ -84,10 +83,9 @@ const CreateNotebookApiKeyResponseSchema = z.object({
 });
 
 const NoteSchema = z.object({
-  id: z.uuid(),
-  shortId: z.string().describe("6-char base62 alias for URLs and `note://` schemes"),
-  notebookId: z.uuid(),
-  parentId: z.uuid().nullable(),
+  id: ResourceShortIdSchema,
+  notebookId: ResourceShortIdSchema,
+  parentId: ResourceShortIdSchema.nullable(),
   title: z.string().describe("Read-only title derived from note Markdown"),
   position: z.number().int(),
   hasChildren: z.boolean(),
@@ -108,8 +106,7 @@ const NoteSearchSummarySchema = NoteSchema.omit({ contentMd: true });
 const NoteSearchHitSchema = z.object({
   note: NoteSearchSummarySchema,
   notebook: z.object({
-    id: z.uuid(),
-    shortId: z.string(),
+    id: ResourceShortIdSchema,
     name: z.string(),
     icon: z.string().nullable(),
   }),
@@ -179,58 +176,56 @@ const TagSummarySchema = z.object({
 const WorkspaceStateSchema = z.object({
   notebook: NotebookSchema,
   tree: z.array(NoteTreeNodeSchema),
-  favoriteNoteIds: z.array(z.uuid()),
+  favoriteNoteIds: z.array(ResourceShortIdSchema),
   tags: z.array(TagSummarySchema),
   attachmentCount: z.number().int().nonnegative(),
 });
 
 const CreateNoteSchema = z.object({
-  parentId: z.string().min(1).optional().describe("Parent note UUID or short-id"),
+  parentId: ResourceShortIdSchema.optional().describe("Parent note ID"),
   position: z.number().int().min(0).optional(),
   contentMd: z.string().optional(),
 });
 
 const UpdateNoteSchema = z.object({
-  parentId: z.uuid().nullable().optional(),
+  parentId: ResourceShortIdSchema.nullable().optional(),
   position: z.number().int().min(0).optional(),
 });
 
 const MoveNoteSchema = z.object({
-  parentId: z.uuid().nullable(),
+  parentId: ResourceShortIdSchema.nullable(),
   position: z.number().int().min(0),
 });
 
 const CopyNoteSchema = z.object({
-  targetNotebookId: z.uuid(),
-  targetParentId: z.uuid().nullable().optional(),
+  targetNotebookId: ResourceShortIdSchema,
+  targetParentId: ResourceShortIdSchema.nullable().optional(),
 });
 
 const NoteVersionSchema = z.object({
   id: z.uuid(),
-  noteId: z.uuid(),
+  noteId: ResourceShortIdSchema,
   createdBy: z.uuid().nullable(),
   createdAt: z.string(),
 });
 
 const BacklinkSchema = z.object({
-  noteId: z.uuid(),
-  noteShortId: z.string(),
+  noteId: ResourceShortIdSchema,
   title: z.string(),
-  notebookId: z.uuid(),
-  notebookShortId: z.string(),
+  notebookId: ResourceShortIdSchema,
   notebookName: z.string(),
   updatedAt: z.string(),
 });
 
 const GraphNodeSchema = z.object({
-  id: z.uuid(),
+  id: ResourceShortIdSchema,
   title: z.string(),
   inDegree: z.number().int().min(0),
 });
 
 const GraphEdgeSchema = z.object({
-  source: z.uuid(),
-  target: z.uuid(),
+  source: ResourceShortIdSchema,
+  target: ResourceShortIdSchema,
 });
 
 const NoteGraphSchema = z.object({
@@ -239,7 +234,7 @@ const NoteGraphSchema = z.object({
 });
 
 const FavoriteNoteSchema = z.object({
-  noteId: z.uuid(),
+  noteId: ResourceShortIdSchema,
   createdAt: z.string(),
 });
 
@@ -256,9 +251,8 @@ const SnapshotLogsQuerySchema = z.object({
 });
 
 const AttachmentSchema = z.object({
-  id: z.uuid(),
-  shortId: z.string().describe("6-char base62 alias for `attach://` schemes"),
-  notebookId: z.uuid(),
+  id: ResourceShortIdSchema,
+  notebookId: ResourceShortIdSchema,
   filename: z.string(),
   mimeType: z.string(),
   sizeBytes: z.number().int(),
@@ -339,19 +333,17 @@ const NamedBlockSummarySchema = z.object({
 const EditableNoteRouteStateSchema = z.object({
   href: z.string(),
   note: z.object({
-    id: z.uuid(),
-    shortId: z.string(),
+    id: ResourceShortIdSchema,
     title: z.string(),
     yjsSnapshot: z.string().nullable(),
     contentMd: z.string().nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
     lockedAt: z.string().nullable(),
-    parentId: z.uuid().nullable(),
+    parentId: ResourceShortIdSchema.nullable(),
   }),
   detail: z.object({
-    canonicalNoteId: z.uuid(),
-    noteId: z.string(),
+    noteId: ResourceShortIdSchema,
     noteTitle: z.string(),
     contentMd: z.string().nullable(),
     createdAt: z.string(),
@@ -411,7 +403,7 @@ const ListNotebooksQuerySchema = z.object({
 const ListNotesQuerySchema = z.object({
   ...PaginationQuerySchema.shape,
   q: z.string().optional(),
-  parentId: z.uuid().optional(),
+  parentId: ResourceShortIdSchema.optional(),
 });
 
 const NoteSearchQuerySchema = z.object({
@@ -425,7 +417,7 @@ const NoteSearchQuerySchema = z.object({
 });
 
 const GlobalNoteSearchQuerySchema = NoteSearchQuerySchema.extend({
-  notebook: z.string().max(100).optional().describe("Notebook UUID or short-id"),
+  notebook: ResourceShortIdSchema.optional().describe("Notebook ID"),
 });
 
 const parseSearchFilters = (query: z.infer<typeof NoteSearchQuerySchema>) => ({
@@ -499,19 +491,10 @@ const getCollectionNotebookBinding = (subject: ReturnType<typeof getNotebookAcce
   return ok(subject.serviceAccount.resourceId);
 };
 
-/**
- * Check notebook access with permission level.
- *
- * `idOrShortId` accepts either the canonical UUID or the 6-char base62
- * `short_id` alias — `getByIdOrShortId` resolves the form on a
- * single-column index and the rest of this helper (and every caller)
- * proceeds with the canonical UUID via `notebook.id`. This is the only
- * boundary where the format ambiguity matters; below this point the
- * service layer is UUID-driven end-to-end.
- */
-const checkNotebookAccess = async (c: Context<AuthContext>, idOrShortId: string, requiredLevel: PermissionLevel = "read") => {
+/** Resolve the public notebook ID once, then authorize and operate on its UUID. */
+const checkNotebookAccess = async (c: Context<AuthContext>, shortId: string, requiredLevel: PermissionLevel = "read") => {
   const subject = getNotebookAccessSubject(c);
-  const notebook = await notebooksService.notebook.getByIdOrShortId({ idOrShortId });
+  const notebook = await notebooksService.notebook.getByShortId({ shortId });
 
   if (!notebook) {
     return {
@@ -570,20 +553,48 @@ const respondMessage = async (c: Context, resultPromise: Promise<Result<void> | 
   });
 };
 
-/**
- * Ensures a note belongs to the requested notebook so cross-notebook
- * access is rejected early. Both `notebookId` and `noteIdOrShortId`
- * accept either UUID or short-id — this helper compares against the
- * resolved `note.notebookId` (always UUID) AFTER the service-layer
- * lookup, so callers can pass whichever form the route param arrived
- * in. Returns the note for downstream use.
- */
-const requireNoteInNotebook = async (notebookId: string, noteIdOrShortId: string) => {
-  const note = await notebooksService.note.getByIdOrShortId({ idOrShortId: noteIdOrShortId });
+/** Resolve a public note ID and enforce notebook ownership before using its UUID. */
+const requireNoteInNotebook = async (notebookId: string, noteShortId: string) => {
+  const note = await notebooksService.note.getByShortId({ shortId: noteShortId });
   if (!note || note.notebookId !== notebookId) {
     return fail(err.notFound("Note"));
   }
   return ok(note);
+};
+
+const resolveParentShortIds = async (notes: Array<{ parentId: string | null }>) =>
+  notebooksService.note.resolveIdsToShortIds({ ids: notes.flatMap((note) => (note.parentId ? [note.parentId] : [])) });
+
+const toPublicNotes = async (notes: Parameters<typeof toPublicNote>[0][], notebookShortId: string) => {
+  const parentShortIds = await resolveParentShortIds(notes);
+  return notes.map((note) => toPublicNote(note, notebookShortId, note.parentId ? (parentShortIds.get(note.parentId) ?? null) : null));
+};
+
+const toPublicNoteResult = async (resultPromise: Promise<MutationResult<Parameters<typeof toPublicNote>[0]>>, notebookShortId: string) => {
+  const result = await resultPromise;
+  if (!result.ok) return result;
+  const [note] = await toPublicNotes([result.data], notebookShortId);
+  return { ...result, data: note! };
+};
+
+const toPublicNotebookResult = async (resultPromise: Promise<MutationResult<Parameters<typeof toPublicNotebook>[0]>>) => {
+  const result = await resultPromise;
+  return result.ok ? { ...result, data: toPublicNotebook(result.data) } : result;
+};
+
+type InternalNoteTreeNode = Parameters<typeof toPublicNote>[0] & { children: InternalNoteTreeNode[] };
+type PublicNoteTreeNode = ReturnType<typeof toPublicNote> & { children: PublicNoteTreeNode[] };
+
+const flattenNoteTree = (nodes: InternalNoteTreeNode[]): InternalNoteTreeNode[] =>
+  nodes.flatMap((node) => [node, ...flattenNoteTree(node.children)]);
+
+const toPublicNoteTree = async (nodes: InternalNoteTreeNode[], notebookShortId: string) => {
+  const parentShortIds = await resolveParentShortIds(flattenNoteTree(nodes));
+  const project = (node: InternalNoteTreeNode): PublicNoteTreeNode => ({
+    ...toPublicNote(node, notebookShortId, node.parentId ? (parentShortIds.get(node.parentId) ?? null) : null),
+    children: node.children.map(project),
+  });
+  return nodes.map(project);
 };
 
 const fileTooLarge = (c: Context, maxBytes: number) =>
@@ -655,7 +666,7 @@ const app = new Hono<AuthContext>()
       return respond(
         c,
         ok({
-          data: result.items,
+          data: result.items.map(toPublicNotebook),
           pagination: createPagination(pagination, result.total),
         }),
       );
@@ -681,7 +692,7 @@ const app = new Hono<AuthContext>()
       if (!userResult.ok) return respond(c, userResult);
       const user = userResult.data;
       const data = c.req.valid("json");
-      return respond(c, notebooksService.notebook.create({ data, creatorId: user.id }));
+      return respond(c, toPublicNotebookResult(notebooksService.notebook.create({ data, creatorId: user.id })));
     },
   )
 
@@ -722,12 +733,18 @@ const app = new Hono<AuthContext>()
         filters: parseSearchFilters(query),
         pagination,
       });
+      const parentShortIds = await resolveParentShortIds(result.hits.map((hit) => hit.note));
       return respond(
         c,
         ok({
           data: result.hits.map(({ note, ...hit }) => {
-            const { contentMd: _contentMd, ...summary } = note;
-            return { ...hit, note: summary };
+            const projected = toPublicNote(note, hit.notebook.shortId, note.parentId ? (parentShortIds.get(note.parentId) ?? null) : null);
+            const { contentMd: _contentMd, ...summary } = projected;
+            return {
+              ...hit,
+              note: summary,
+              notebook: { id: hit.notebook.shortId, name: hit.notebook.name, icon: hit.notebook.icon },
+            };
           }),
           pagination: createPagination(pagination, result.total),
         }),
@@ -755,7 +772,7 @@ const app = new Hono<AuthContext>()
       const { notebook, error } = await checkNotebookAccess(c, id);
       if (error) return error;
 
-      return respond(c, ok(notebook));
+      return respond(c, ok(toPublicNotebook(notebook!)));
     },
   )
 
@@ -792,11 +809,13 @@ const app = new Hono<AuthContext>()
 
       return respond(
         c,
-        notebooksService.notebook.update({
-          id: notebook!.id,
-          data: { ...data, homepageNoteId },
-          dateConfig: getDateConfig(c),
-        }),
+        toPublicNotebookResult(
+          notebooksService.notebook.update({
+            id: notebook!.id,
+            data: { ...data, homepageNoteId },
+            dateConfig: getDateConfig(c),
+          }),
+        ),
       );
     },
   )
@@ -848,7 +867,7 @@ const app = new Hono<AuthContext>()
       notebookId = notebook!.id;
 
       const tree = await notebooksService.note.getTree({ notebookId });
-      return respond(c, ok(tree));
+      return respond(c, ok(await toPublicNoteTree(tree, notebook!.shortId)));
     },
   )
 
@@ -878,12 +897,11 @@ const app = new Hono<AuthContext>()
         notebooksService.tag.listForNotebook({ notebookId: notebook!.id }),
         notebooksService.attachment.count({ notebookId: notebook!.id }),
       ]);
-
       return respond(
         c,
         ok({
-          notebook: notebook!,
-          tree,
+          notebook: toPublicNotebook(notebook!),
+          tree: await toPublicNoteTree(tree, notebook!.shortId),
           favoriteNoteIds: favoriteRows.map((row) => row.noteId),
           tags,
           attachmentCount,
@@ -951,7 +969,8 @@ const app = new Hono<AuthContext>()
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
       notebookId = notebook!.id;
-      return respond(c, ok(await notebooksService.note.favorites.listIds({ notebookId, userId: user.id })));
+      const favorites = await notebooksService.note.favorites.listIds({ notebookId, userId: user.id });
+      return respond(c, ok(favorites));
     },
   )
 
@@ -985,18 +1004,25 @@ const app = new Hono<AuthContext>()
       if (error) return error;
       notebookId = notebook!.id;
 
+      let parentId: string | undefined;
+      if (query.parentId) {
+        const parent = await requireNoteInNotebook(notebookId, query.parentId);
+        if (!parent.ok) return respond(c, parent);
+        parentId = parent.data.id;
+      }
+
       const result = await notebooksService.note.list({
         notebookId,
         pagination,
         filter: {
           query: query.q,
-          parentId: query.parentId,
+          parentId,
         },
       });
       return respond(
         c,
         ok({
-          data: result.items,
+          data: await toPublicNotes(result.items, notebook!.shortId),
           pagination: createPagination(pagination, result.total),
         }),
       );
@@ -1034,11 +1060,14 @@ const app = new Hono<AuthContext>()
       }
       return respond(
         c,
-        notebooksService.note.create({
-          data: { ...data, notebookId, parentId },
-          creatorId: user?.id ?? null,
-          dateConfig: getDateConfig(c),
-        }),
+        toPublicNoteResult(
+          notebooksService.note.create({
+            data: { ...data, notebookId, parentId },
+            creatorId: user?.id ?? null,
+            dateConfig: getDateConfig(c),
+          }),
+          notebook!.shortId,
+        ),
       );
     },
   )
@@ -1065,12 +1094,10 @@ const app = new Hono<AuthContext>()
       if (error) return error;
       notebookId = notebook!.id;
 
-      const note = await notebooksService.note.getByIdOrShortId({ idOrShortId: noteId });
-      if (!note || note.notebookId !== notebookId) {
-        return respond(c, fail(err.notFound("Note")));
-      }
-
-      return respond(c, ok(note));
+      const note = await requireNoteInNotebook(notebookId, noteId);
+      if (!note.ok) return respond(c, note);
+      const [data] = await toPublicNotes([note.data], notebook!.shortId);
+      return respond(c, ok(data!));
     },
   )
 
@@ -1130,12 +1157,12 @@ const app = new Hono<AuthContext>()
       if (error) return error;
       notebookId = notebook!.id;
 
-      const note = await notebooksService.note.getWithContentByIdOrShortId({ idOrShortId: noteId });
+      const note = await notebooksService.note.getWithContentByShortId({ shortId: noteId });
       if (!note || note.notebookId !== notebookId) {
         return respond(c, fail(err.notFound("Note")));
       }
-
-      return respond(c, ok(note));
+      const [data] = await toPublicNotes([note], notebook!.shortId);
+      return respond(c, ok({ ...data!, yjsSnapshot: note.yjsSnapshot }));
     },
   )
 
@@ -1168,14 +1195,10 @@ const app = new Hono<AuthContext>()
       if (!noteCheck.ok) return respond(c, noteCheck);
       noteId = noteCheck.data.id;
 
-      return respond(
-        c,
-        notebooksService.note.editContent({
-          noteId,
-          data,
-          createdBy: user?.id ?? null,
-        }),
-      );
+      const result = await notebooksService.note.editContent({ noteId, data, createdBy: user?.id ?? null });
+      if (!result.ok) return respond(c, result);
+      const [note] = await toPublicNotes([result.data.note], notebook!.shortId);
+      return respond(c, ok({ ...result.data, note: note! }));
     },
   )
 
@@ -1206,7 +1229,13 @@ const app = new Hono<AuthContext>()
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
       if (!noteCheck.ok) return respond(c, noteCheck);
       noteId = noteCheck.data.id;
-      return respond(c, notebooksService.note.update({ id: noteId, data }));
+      let parentId = data.parentId;
+      if (parentId) {
+        const parent = await requireNoteInNotebook(notebookId, parentId);
+        if (!parent.ok) return respond(c, parent);
+        parentId = parent.data.id;
+      }
+      return respond(c, toPublicNoteResult(notebooksService.note.update({ id: noteId, data: { ...data, parentId } }), notebook!.shortId));
     },
   )
 
@@ -1237,7 +1266,16 @@ const app = new Hono<AuthContext>()
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
       if (!noteCheck.ok) return respond(c, noteCheck);
       noteId = noteCheck.data.id;
-      return respond(c, notebooksService.note.move({ id: noteId, parentId, position }));
+      let resolvedParentId: string | null = null;
+      if (parentId) {
+        const parent = await requireNoteInNotebook(notebookId, parentId);
+        if (!parent.ok) return respond(c, parent);
+        resolvedParentId = parent.data.id;
+      }
+      return respond(
+        c,
+        toPublicNoteResult(notebooksService.note.move({ id: noteId, parentId: resolvedParentId, position }), notebook!.shortId),
+      );
     },
   )
 
@@ -1294,7 +1332,7 @@ const app = new Hono<AuthContext>()
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
       if (!noteCheck.ok) return respond(c, noteCheck);
       noteId = noteCheck.data.id;
-      return respond(c, notebooksService.note.lock({ id: noteId }));
+      return respond(c, toPublicNoteResult(notebooksService.note.lock({ id: noteId }), notebook!.shortId));
     },
   )
 
@@ -1327,17 +1365,27 @@ const app = new Hono<AuthContext>()
       const { notebook: targetNotebook, error: targetError } = await checkNotebookAccess(c, targetNotebookId, "write");
       if (targetError) return targetError;
 
+      let resolvedTargetParentId: string | null | undefined = targetParentId;
+      if (targetParentId) {
+        const targetParent = await requireNoteInNotebook(targetNotebook!.id, targetParentId);
+        if (!targetParent.ok) return respond(c, targetParent);
+        resolvedTargetParentId = targetParent.data.id;
+      }
+
       const noteCheck = await requireNoteInNotebook(notebookId, noteId);
       if (!noteCheck.ok) return respond(c, noteCheck);
       noteId = noteCheck.data.id;
       return respond(
         c,
-        notebooksService.note.copyToNotebook({
-          noteId,
-          targetNotebookId: targetNotebook!.id,
-          targetParentId,
-          creatorId: user?.id ?? null,
-        }),
+        toPublicNoteResult(
+          notebooksService.note.copyToNotebook({
+            noteId,
+            targetNotebookId: targetNotebook!.id,
+            targetParentId: resolvedTargetParentId,
+            creatorId: user?.id ?? null,
+          }),
+          targetNotebook!.shortId,
+        ),
       );
     },
   )
@@ -1386,7 +1434,7 @@ const app = new Hono<AuthContext>()
       return respond(
         c,
         ok({
-          data: versions,
+          data: versions.map((version) => ({ ...version, noteId: noteCheck.data.shortId })),
           pagination: createPagination(pagination, total),
         }),
       );
@@ -1464,11 +1512,7 @@ const app = new Hono<AuthContext>()
       noteId = noteCheck.data.id;
       return respond(
         c,
-        notebooksService.note.versions.restore({
-          noteId,
-          yjsSnapshot,
-          createdBy: user?.id ?? null,
-        }),
+        toPublicNoteResult(notebooksService.note.versions.restore({ noteId, yjsSnapshot, createdBy: user?.id ?? null }), notebook!.shortId),
       );
     },
   )
@@ -1508,12 +1552,13 @@ const app = new Hono<AuthContext>()
         filters: parseSearchFilters(query),
         pagination,
       });
+      const notes = result.hits.map((hit) => hit.note);
       return respond(
         c,
         ok({
           // Keep the long-standing scoped response compatible. Consumers that
           // need snippets and notebook identity use the global `/search` route.
-          data: result.hits.map((hit) => hit.note),
+          data: await toPublicNotes(notes, notebook!.shortId),
           pagination: createPagination(pagination, result.total),
         }),
       );
@@ -1944,7 +1989,7 @@ const appWithAttachments = app
         content,
         userId: user?.id ?? null,
       });
-      return respond(c, ok(attachment));
+      return respond(c, ok(toPublicAttachment(attachment, notebook!.shortId)));
     },
   )
 
@@ -1965,7 +2010,8 @@ const appWithAttachments = app
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
       notebookId = notebook!.id;
-      return respond(c, ok(await notebooksService.attachment.list({ notebookId })));
+      const attachments = await notebooksService.attachment.list({ notebookId });
+      return respond(c, ok(attachments.map((attachment) => toPublicAttachment(attachment, notebook!.shortId))));
     },
   )
 
@@ -1990,10 +2036,7 @@ const appWithAttachments = app
       if (error) return error;
       notebookId = notebook!.id;
 
-      // `attId` may be a UUID or a 6-char short-id (markdown bodies use
-      // `attach://<shortId>`). The lookup helper branches on length so
-      // each query stays on a single-column index.
-      const att = await notebooksService.attachment.getContentByIdOrShortId({ idOrShortId: attId });
+      const att = await notebooksService.attachment.getContentByShortId({ shortId: attId });
       if (!att || att.notebookId !== notebookId) return respond(c, fail(err.notFound("Attachment")));
 
       const isSafeInline =
@@ -2032,21 +2075,21 @@ const appWithAttachments = app
     }),
     async (c) => {
       let notebookId = c.req.param("id")!;
-      const attIdOrShort = c.req.param("attId")!;
+      const attachmentShortId = c.req.param("attId")!;
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
       notebookId = notebook!.id;
-      const att = await notebooksService.attachment.getByIdOrShortId({ idOrShortId: attIdOrShort });
+      const att = await notebooksService.attachment.getByShortId({ shortId: attachmentShortId });
       if (!att || att.notebookId !== notebookId) return respond(c, ok({ count: 0 }));
       const count = await notebooksService.attachment.usageCount({ notebookId, attachmentId: att.id });
       return respond(c, ok({ count }));
     },
   )
 
-  // Get metadata by id — sibling to the `/content` route, but
+  // Get metadata by short ID — sibling to the `/content` route, but
   // returns the AttachmentSchema (filename, mimeType, sizeBytes,
   // kind, createdAt) without the blob. Used by kit.attachments.get
-  // so scripts can resolve a single shortId in O(1) instead of
+  // so scripts can resolve a single ID in O(1) instead of
   // fetching the whole list and filtering client-side. MUST be
   // registered after `/content` and `/usage` so those more
   // specific paths match first (Hono is first-match wins).
@@ -2064,13 +2107,13 @@ const appWithAttachments = app
     }),
     async (c) => {
       let notebookId = c.req.param("id")!;
-      const attIdOrShort = c.req.param("attId")!;
+      const attachmentShortId = c.req.param("attId")!;
       const { notebook, error } = await checkNotebookAccess(c, notebookId);
       if (error) return error;
       notebookId = notebook!.id;
-      const att = await notebooksService.attachment.getByIdOrShortId({ idOrShortId: attIdOrShort });
+      const att = await notebooksService.attachment.getByShortId({ shortId: attachmentShortId });
       if (!att || att.notebookId !== notebookId) return respond(c, fail(err.notFound("Attachment")));
-      return respond(c, ok(att));
+      return respond(c, ok(toPublicAttachment(att, notebook!.shortId)));
     },
   )
 
@@ -2090,11 +2133,11 @@ const appWithAttachments = app
     }),
     async (c) => {
       let notebookId = c.req.param("id")!;
-      const attIdOrShort = c.req.param("attId")!;
+      const attachmentShortId = c.req.param("attId")!;
       const { notebook, error } = await checkNotebookAccess(c, notebookId, "write");
       if (error) return error;
       notebookId = notebook!.id;
-      const att = await notebooksService.attachment.getByIdOrShortId({ idOrShortId: attIdOrShort });
+      const att = await notebooksService.attachment.getByShortId({ shortId: attachmentShortId });
       if (!att || att.notebookId !== notebookId) return respond(c, fail(err.notFound("Attachment")));
       await notebooksService.attachment.remove({ id: att.id });
       return respond(c, ok({ message: "Attachment deleted" }));
@@ -2209,10 +2252,9 @@ const appWithExport = appWithAttachments
       return respond(
         c,
         ok(
-          await notebooksService.backup.listLogs({
-            notebookId: notebook!.id,
-            notebookShortId: notebook!.shortId,
-          }),
+          (await notebooksService.backup.listLogs({ notebookId: notebook!.id })).map((entry) =>
+            toPublicSnapshotLog(entry, notebook!.shortId),
+          ),
         ),
       );
     },
@@ -2257,12 +2299,7 @@ const appWithTags = appWithExport.get(
   }),
   async (c) => {
     let notebookId = c.req.param("id")!;
-    // Canonicalize: `checkNotebookAccess` accepts either short-id
-    // or UUID; the service layer needs the UUID for the SQL cast.
-    // Without this re-assignment, callers passing a short-id (kit
-    // scripts and any cross-notebook-tolerant frontend) would get
-    // an empty result or a `invalid input syntax for type uuid`
-    // error from Postgres.
+    // Resolve the public ID once before the UUID-backed tag query.
     const { notebook, error } = await checkNotebookAccess(c, notebookId);
     if (error) return error;
     notebookId = notebook!.id;

@@ -21,12 +21,9 @@ export type KitMode = "edit" | "read";
  * not from yjs).
  */
 export type KitNoteSnapshot = {
-  /** 6-char base62 — exposed to scripts as `current.id` and used
-   *  as the `noteId` param for API calls. The notebooks API accepts
-   *  either UUID or short-id at the `:noteId` boundary, so the kit
-   *  uses short-ids end-to-end for consistency with the user-facing
-   *  identifier. */
-  shortId: string;
+  /** Public 6-char note id, exposed to scripts as `current.id` and
+   *  used as the `noteId` param for API calls. */
+  id: string;
   title: string;
   content: string;
   notebookName: string;
@@ -48,11 +45,8 @@ export type KitNoteSnapshot = {
  */
 export type KitContext = {
   mode: KitMode;
-  /** Notebook short-id (6-char base62). Exposed to scripts as
-   *  `current.notebook.id` and used as the `:id` param for every
-   *  API call the runtime makes. APIs accept either UUID or short-id;
-   *  short-id keeps the wire form aligned with the user-visible
-   *  identifier. */
+  /** Public 6-char notebook id. Exposed to scripts as
+   *  `current.notebook.id` and used as the `:id` API parameter. */
   notebookId: string;
   /** Snapshot of the current note at script-run time. Updates to
    *  `ytext` (edit-mode) are reflected via the live getters in the

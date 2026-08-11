@@ -7,7 +7,6 @@ import { navigateToNotebookNote } from "../soft-navigation";
 import { type CursorZoneState, cursorZoneStateField, selectionIntersectsRange } from "./_lib/cursor-zone-field";
 import { buildAttachmentContentUrl, confirmAndDownload, extractAttachmentId, isSafeMarkdownUrl } from "./attachment-url";
 
-/** Matches the full URL of a same-app note link `/app/notebooks/<uuid>?note=<uuid>`. */
 /** Internal `note://<shortId>` markdown scheme — distinct from
  *  user-typed external URLs so we can render note links as pills. */
 const NOTE_LINK_URL_REGEX = /^note:\/\/[0-9a-zA-Z]{6}$/;

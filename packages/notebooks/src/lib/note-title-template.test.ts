@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { buildNoteTitleTemplateContext, renderNoteTitleTemplate, validateNoteTitleTemplate } from "./note-title-template";
 
 const context = buildNoteTitleTemplateContext({
-  notebook: { id: "notebook-id", short_id: "abc123", name: "Journal" },
-  note: { short_id: "def456", depth: 2 },
-  parent: { exists: true, id: "parent-id", short_id: "ghi789", title: "Week", path: "2026 / Week" },
+  notebook: { id: "abc123", name: "Journal" },
+  note: { id: "def456", depth: 2 },
+  parent: { exists: true, id: "ghi789", title: "Week", path: "2026 / Week" },
   dateConfig: { timeZone: "Europe/Berlin", locale: "en" },
   now: new Date("2026-07-15T12:34:00.000Z"),
 });
@@ -12,9 +12,9 @@ const context = buildNoteTitleTemplateContext({
 describe("note title template", () => {
   test("builds deterministic notebook, note, parent, and time context", () => {
     expect(context).toEqual({
-      notebook: { id: "notebook-id", short_id: "abc123", name: "Journal" },
-      note: { short_id: "def456", depth: 2 },
-      parent: { exists: true, id: "parent-id", short_id: "ghi789", title: "Week", path: "2026 / Week" },
+      notebook: { id: "abc123", name: "Journal" },
+      note: { id: "def456", depth: 2 },
+      parent: { exists: true, id: "ghi789", title: "Week", path: "2026 / Week" },
       date: "2026-07-15",
       time: "14:34",
       datetime: "2026-07-15T14:34",

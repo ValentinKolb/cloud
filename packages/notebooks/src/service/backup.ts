@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
+import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { job, scheduler } from "@k2b/sync";
 import { type LogEntry, logger, get as settingsGet, settingsService, trace } from "@valentinkolb/cloud/services";
 import { parsePgJsonRecord } from "@valentinkolb/cloud/services/postgres";
 import { decryptValue, encryptValue } from "@valentinkolb/cloud/services/settings/crypto";
-import { err, fail, ok, type Result } from "@k2b/stdlib";
-import { job, scheduler } from "@k2b/sync";
 import { sql } from "bun";
 import { exportNotebookZip, type NotebookExport } from "./export";
 
@@ -66,7 +66,6 @@ export type NotebookBackupManifest = {
   exportedAt: string;
   notebook: {
     id: string;
-    shortId: string;
     name: string;
   };
   filename: string;
@@ -404,9 +403,8 @@ const mapSnapshotLogRow = (row: SnapshotLogRow): LogEntry => ({
   createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
 });
 
-export const listLogs = async (params: { notebookId: string; notebookShortId?: string; limit?: number }): Promise<LogEntry[]> => {
+export const listLogs = async (params: { notebookId: string; limit?: number }): Promise<LogEntry[]> => {
   const perPage = Math.min(Math.max(params.limit ?? 10, 1), 50);
-  const notebookShortId = params.notebookShortId ?? null;
   const rows = await sql<SnapshotLogRow[]>`
     WITH snapshot_logs AS (
       SELECT
@@ -420,22 +418,13 @@ export const listLogs = async (params: { notebookId: string; notebookShortId?: s
           WHEN jsonb_typeof(metadata) = 'object' THEN metadata->>'notebookId'
           WHEN jsonb_typeof(metadata) = 'string' THEN ((metadata #>> '{}')::jsonb)->>'notebookId'
           ELSE NULL
-        END AS notebook_id,
-        CASE
-          WHEN jsonb_typeof(metadata) = 'object' THEN metadata->>'notebookShortId'
-          WHEN jsonb_typeof(metadata) = 'string' THEN ((metadata #>> '{}')::jsonb)->>'notebookShortId'
-          ELSE NULL
-        END AS notebook_short_id
+        END AS notebook_id
       FROM logging.entries
       WHERE source = ${SNAPSHOT_LOG_SOURCE}
     )
     SELECT id, level, source, message, metadata, created_at
     FROM snapshot_logs
-    WHERE
-      (
-        notebook_id = ${params.notebookId}
-        OR (${notebookShortId}::text IS NOT NULL AND notebook_short_id = ${notebookShortId})
-      )
+    WHERE notebook_id = ${params.notebookId}
       AND (
         message = 'Notebook S3 snapshot uploaded'
         OR message = 'Notebook S3 snapshot upload failed'
@@ -497,7 +486,6 @@ export const createNotebookBackupManifest = (params: {
   exportedAt: params.exportedAt.toISOString(),
   notebook: {
     id: params.exported.notebook.id,
-    shortId: params.exported.notebook.shortId,
     name: params.exported.notebook.name,
   },
   filename: params.exported.filename,
@@ -552,7 +540,7 @@ export const runNotebookS3Backup = async (params: {
   const exported = await exportNotebookZip({ notebookId: params.notebookId, exportedAt });
   if (!exported) return fail(err.notFound("Notebook"));
 
-  const paths = buildNotebookBackupPaths(config, { notebookShortId: exported.notebook.shortId, exportedAt });
+  const paths = buildNotebookBackupPaths(config, { notebookShortId: exported.notebook.id, exportedAt });
   const manifest = createNotebookBackupManifest({ exported, exportedAt, paths });
   const manifestJson = `${JSON.stringify(manifest, null, 2)}\n`;
   const objects: NotebookBackupObject[] = [
@@ -565,8 +553,8 @@ export const runNotebookS3Backup = async (params: {
     const uploaded = await (params.uploader ?? defaultS3Uploader)(config, objects);
     await writeSnapshotRunLogBestEffort("info", "Notebook S3 snapshot uploaded", {
       trigger: params.trigger ?? "manual",
-      notebookId: exported.notebook.id,
-      notebookShortId: exported.notebook.shortId,
+      notebookId: params.notebookId,
+      notebookShortId: exported.notebook.id,
       bucket: config.bucket,
       bytes: exported.zip.byteLength,
       sha256: manifest.sha256,
@@ -586,8 +574,8 @@ export const runNotebookS3Backup = async (params: {
     const detail = describeSnapshotError(error, S3_PROVIDER_HINT);
     await writeSnapshotRunLogBestEffort("error", "Notebook S3 snapshot upload failed", {
       trigger: params.trigger ?? "manual",
-      notebookId: exported.notebook.id,
-      notebookShortId: exported.notebook.shortId,
+      notebookId: params.notebookId,
+      notebookShortId: exported.notebook.id,
       bucket: config.bucket,
       endpoint: config.endpoint,
       region: config.region,

@@ -1,14 +1,14 @@
-import type { NotebookWorkspaceEvent } from "../../../../lib/workspace-events";
+import type { PublicNotebookWorkspaceEvent } from "../../../../lib/workspace-events";
 
 export const WORKSPACE_EVENT = "notebooks.workspace.event";
 
 export type WorkspaceEventDetail = {
   cursor: string | null;
-  event: NotebookWorkspaceEvent;
+  event: PublicNotebookWorkspaceEvent;
   cover: (coverage: Promise<void>) => void;
 };
 
-export const dispatchWorkspaceEvent = async (event: NotebookWorkspaceEvent, cursor: string | null): Promise<void> => {
+export const dispatchWorkspaceEvent = async (event: PublicNotebookWorkspaceEvent, cursor: string | null): Promise<void> => {
   const coverages: Promise<void>[] = [];
   window.dispatchEvent(
     new CustomEvent<WorkspaceEventDetail>(WORKSPACE_EVENT, {

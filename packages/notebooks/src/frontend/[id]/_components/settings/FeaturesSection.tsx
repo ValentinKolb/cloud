@@ -9,12 +9,12 @@ import { SaveStatus, settingsChoiceClass } from "./shared";
 import { readErrorMessage } from "./utils";
 
 function ViewSection(props: { notebook: Notebook }) {
-  const [mode, setMode] = createSignal(readSettings(props.notebook.shortId).sidebarMode);
+  const [mode, setMode] = createSignal(readSettings(props.notebook.id).sidebarMode);
 
   const selectMode = (next: "simple" | "navigator") => {
     if (next === mode()) return;
     setMode(next);
-    writeSettings(props.notebook.shortId, { sidebarMode: next });
+    writeSettings(props.notebook.id, { sidebarMode: next });
     refreshCurrentPath();
   };
 
@@ -68,7 +68,7 @@ export function FeaturesSection(props: { notebook: Notebook; isAdmin: boolean; o
   const mutation = mutations.create<Notebook, boolean>({
     mutation: async (next) => {
       const res = await apiClient[":id"].$patch({
-        param: { id: props.notebook.shortId },
+        param: { id: props.notebook.id },
         json: { scriptsEnabled: next },
       });
       if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to update scripting setting."));

@@ -6,10 +6,11 @@ import { notebooksService } from "./index";
 import type { Backlink } from "./links";
 import type { NoteWithContent } from "./notes";
 
+type PublicAttachment = Omit<Attachment, "shortId">;
+
 export type SelectedNoteRouteState = {
   note: {
     id: string;
-    shortId: string;
     title: string;
     yjsSnapshot: string | null;
     contentMd: string | null;
@@ -24,14 +25,13 @@ export type SelectedNoteRouteState = {
   taskProgress: TaskProgress;
   namedBlocks: NamedBlockSummary[];
   backlinks: Backlink[];
-  panelAttachments: Attachment[];
+  panelAttachments: PublicAttachment[];
 };
 
 export type EditableNoteRouteData = {
   href: string;
   note: {
     id: string;
-    shortId: string;
     title: string;
     yjsSnapshot: string | null;
     contentMd: string | null;
@@ -41,7 +41,6 @@ export type EditableNoteRouteData = {
     parentId: string | null;
   };
   detail: {
-    canonicalNoteId: string;
     noteId: string;
     noteTitle: string;
     contentMd: string | null;
@@ -51,7 +50,7 @@ export type EditableNoteRouteData = {
     isLocked: boolean;
     tocItems: TocItem[];
     taskProgress: TaskProgress;
-    attachments: Attachment[];
+    attachments: PublicAttachment[];
     backlinks: Backlink[];
     namedBlocks: NamedBlockSummary[];
   };
@@ -63,27 +62,29 @@ export type NotebookRouteStateResponse =
 
 type LoadSelectedNoteParams = {
   notebookId: string;
-  noteIdOrShortId: string;
+  notebookShortId: string;
+  noteId: string;
   canWrite: boolean;
   userId: string;
   bypassAccess: boolean;
 };
 
-const toSelectedNote = (note: NoteWithContent): SelectedNoteRouteState["note"] => ({
-  id: note.id,
-  shortId: note.shortId,
+const toSelectedNote = async (note: NoteWithContent): Promise<SelectedNoteRouteState["note"]> => ({
+  id: note.shortId,
   title: note.title,
   yjsSnapshot: note.yjsSnapshot,
   contentMd: note.contentMd,
   lockedAt: note.lockedAt,
-  parentId: note.parentId,
+  parentId: note.parentId
+    ? ((await notebooksService.note.resolveIdsToShortIds({ ids: [note.parentId] })).get(note.parentId) ?? null)
+    : null,
   createdAt: note.createdAt,
   updatedAt: note.updatedAt,
   createdBy: note.createdBy,
 });
 
 export const loadSelectedNoteRouteState = async (params: LoadSelectedNoteParams): Promise<SelectedNoteRouteState | null> => {
-  const note = await notebooksService.note.getWithContentByIdOrShortId({ idOrShortId: params.noteIdOrShortId });
+  const note = await notebooksService.note.getWithContentByShortId({ shortId: params.noteId });
   if (!note || note.notebookId !== params.notebookId) return null;
 
   const readonlyMode = !params.canWrite || !!note.lockedAt;
@@ -104,32 +105,42 @@ export const loadSelectedNoteRouteState = async (params: LoadSelectedNoteParams)
   ]);
 
   return {
-    note: toSelectedNote(note),
+    note: await toSelectedNote(note),
     readonlyMode,
     tocItems,
     taskProgress,
     namedBlocks,
     backlinks,
-    panelAttachments: referencedAttachments,
+    panelAttachments: referencedAttachments.map((attachment) => ({
+      id: attachment.shortId,
+      notebookId: params.notebookShortId,
+      filename: attachment.filename,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      kind: attachment.kind,
+      createdBy: attachment.createdBy,
+      createdAt: attachment.createdAt,
+    })),
   };
 };
 
-type ResolveEditableRouteParams = Omit<LoadSelectedNoteParams, "noteIdOrShortId"> & {
-  notebookShortId: string;
+type ResolveEditableRouteParams = Omit<LoadSelectedNoteParams, "noteId"> & {
   href: string;
   origin: string;
 };
 
 const parseSameNotebookNoteHref = (
   params: ResolveEditableRouteParams,
-): { noteIdOrShortId: string; hrefQuery: ReturnType<typeof parseNavigatorQuery> } | null => {
+): { noteId: string; hrefQuery: ReturnType<typeof parseNavigatorQuery> } | null => {
   try {
     const url = new URL(params.href, params.origin);
     if (url.origin !== params.origin || url.hash || !hasOnlyNavigatorQuery(url.searchParams)) return null;
     const match = url.pathname.match(/^\/app\/notebooks\/([^/]+)\/notes\/([^/]+)$/);
     if (!match || decodeURIComponent(match[1]!) !== params.notebookShortId) return null;
+    const noteId = decodeURIComponent(match[2]!);
+    if (!/^[A-Za-z0-9]{6}$/.test(noteId)) return null;
     return {
-      noteIdOrShortId: decodeURIComponent(match[2]!),
+      noteId,
       hrefQuery: parseNavigatorQuery(url.searchParams),
     };
   } catch {
@@ -141,12 +152,12 @@ export const loadEditableNoteRouteData = async (params: ResolveEditableRoutePara
   const target = parseSameNotebookNoteHref(params);
   if (!target) return { kind: "fallback", reason: "invalid-target" };
 
-  const state = await loadSelectedNoteRouteState({ ...params, noteIdOrShortId: target.noteIdOrShortId });
+  const state = await loadSelectedNoteRouteState({ ...params, noteId: target.noteId });
   if (!state) return { kind: "fallback", reason: "not-found" };
   if (state.readonlyMode) return { kind: "fallback", reason: "readonly" };
 
   const href = withNavigatorQuery(
-    `/app/notebooks/${encodeURIComponent(params.notebookShortId)}/notes/${encodeURIComponent(state.note.shortId)}`,
+    `/app/notebooks/${encodeURIComponent(params.notebookShortId)}/notes/${encodeURIComponent(state.note.id)}`,
     target.hrefQuery,
   );
   return {
@@ -155,7 +166,6 @@ export const loadEditableNoteRouteData = async (params: ResolveEditableRoutePara
       href,
       note: {
         id: state.note.id,
-        shortId: state.note.shortId,
         title: state.note.title,
         yjsSnapshot: state.note.yjsSnapshot,
         contentMd: state.note.contentMd,
@@ -165,8 +175,7 @@ export const loadEditableNoteRouteData = async (params: ResolveEditableRoutePara
         parentId: state.note.parentId,
       },
       detail: {
-        canonicalNoteId: state.note.id,
-        noteId: state.note.shortId,
+        noteId: state.note.id,
         noteTitle: state.note.title,
         contentMd: state.note.contentMd,
         createdAt: state.note.createdAt,

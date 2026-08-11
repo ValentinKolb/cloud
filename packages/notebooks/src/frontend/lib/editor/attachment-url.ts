@@ -21,11 +21,9 @@ export const extractAttachmentIds = (md: string | null): string[] => {
   return Array.from(ids);
 };
 
-/** Notebook-scoped content URL — the API endpoint accepts either UUID
- *  or short-id, and we keep the short-id end-to-end so the rendered
- *  `<img src>` / `<a href>` stays short and copy-paste-friendly. */
-export const buildAttachmentContentUrl = (notebookId: string, attachmentIdOrShortId: string): string =>
-  `/api/notebooks/${encodeURIComponent(notebookId)}/attachments/${encodeURIComponent(attachmentIdOrShortId)}/content?v=1`;
+/** Notebook-scoped content URL with public short IDs end-to-end. */
+export const buildAttachmentContentUrl = (notebookId: string, attachmentId: string): string =>
+  `/api/notebooks/${encodeURIComponent(notebookId)}/attachments/${encodeURIComponent(attachmentId)}/content?v=1`;
 
 const SAFE_URL_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 

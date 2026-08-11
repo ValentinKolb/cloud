@@ -84,7 +84,7 @@ const selectionFromQuery = (query: NavigatorQuery, nodes: NoteTreeNode[], select
   if (query.view === "favorites" || query.view === "recents") return { root: query.view };
   if (query.view === "tag") return { root: "tags", tag: query.tag };
   if (query.view === "folder") {
-    const folder = flattenTree(nodes).find((note) => note.shortId === query.folder);
+    const folder = flattenTree(nodes).find((note) => note.id === query.folder);
     if (folder) return { root: "notes", noteId: folder.id };
   }
   return { root: "notes", noteId: noteFolderContext(nodes, selectedNoteId) };
@@ -95,7 +95,7 @@ const queryFromSelection = (selection: Selection, nodes: NoteTreeNode[]): Naviga
   if (selection.root === "tags" && selection.tag) return { view: "tag", tag: selection.tag };
   if (selection.root === "notes" && selection.noteId) {
     const folder = flattenTree(nodes).find((note) => note.id === selection.noteId);
-    if (folder) return { view: "folder", folder: folder.shortId };
+    if (folder) return { view: "folder", folder: folder.id };
   }
   return {};
 };
@@ -154,9 +154,9 @@ export default function NotebookNavigator(props: Props) {
   const [sortMode, setSortMode] = createSignal<SortMode>(props.initialSortMode);
   const [treeMode, setTreeMode] = createSignal<TreeMode>("deep");
   const [activeNoteId, setActiveNoteId] = createSignal(props.selectedNoteId);
-  const actions = useNoteActions(props.notebook.shortId, () => props.tree);
+  const actions = useNoteActions(props.notebook.id, () => props.tree);
   const { favoriteNoteIds: favoriteIds, toggleFavorite } = useFavoriteNotes({
-    notebookId: props.notebook.shortId,
+    notebookId: props.notebook.id,
     initialFavoriteNoteIds: () => props.favoriteNoteIds,
   });
 
@@ -176,9 +176,9 @@ export default function NotebookNavigator(props: Props) {
     if (current.root === "tags" && current.tag) return tagTreeId(current.tag);
     return null;
   };
-  const attachmentsHref = () => buildAttachmentsUrl(props.notebook.shortId);
+  const attachmentsHref = () => buildAttachmentsUrl(props.notebook.id);
   const noteHref = (note: NoteTreeNode) =>
-    withNavigatorQuery(buildNoteUrl(props.notebook.shortId, note.shortId), queryFromSelection(selection(), props.tree));
+    withNavigatorQuery(buildNoteUrl(props.notebook.id, note.id), queryFromSelection(selection(), props.tree));
 
   const noteTags = (note: NoteTreeNode) => tagsFromMarkdown(note.contentMd);
 
@@ -212,11 +212,11 @@ export default function NotebookNavigator(props: Props) {
     return homepageNote();
   });
 
-  const vt = (key: string) => `notebook-navigator-${props.notebook.shortId}-${key}`;
+  const vt = (key: string) => `notebook-navigator-${props.notebook.id}-${key}`;
 
   const changeSortMode = (mode: SortMode) => {
     setSortMode(mode);
-    writeSettings(props.notebook.shortId, { navigatorSort: mode });
+    writeSettings(props.notebook.id, { navigatorSort: mode });
   };
 
   const select = (next: Selection, history: "push" | "replace" = "push") => {
@@ -233,13 +233,12 @@ export default function NotebookNavigator(props: Props) {
 
   onMount(() => {
     const onSoftNavigated = (event: Event) => {
-      const detail = (event as CustomEvent<{ canonicalNoteId?: string }>).detail;
-      if (!detail?.canonicalNoteId) return;
-      setActiveNoteId(detail.canonicalNoteId);
-      const noteVisibleInCurrentRoot =
-        visibleNotes().some((note) => note.id === detail.canonicalNoteId) || pinnedNote()?.id === detail.canonicalNoteId;
+      const detail = (event as CustomEvent<{ noteId?: string }>).detail;
+      if (!detail?.noteId) return;
+      setActiveNoteId(detail.noteId);
+      const noteVisibleInCurrentRoot = visibleNotes().some((note) => note.id === detail.noteId) || pinnedNote()?.id === detail.noteId;
       if (!noteVisibleInCurrentRoot) {
-        select({ root: "notes", noteId: noteFolderContext(props.tree, detail.canonicalNoteId) }, "replace");
+        select({ root: "notes", noteId: noteFolderContext(props.tree, detail.noteId) }, "replace");
       }
     };
     const offSearchParams = searchParams.onChange(() => {
@@ -267,7 +266,7 @@ export default function NotebookNavigator(props: Props) {
 
   return props.mode !== "list" ? (
     <>
-      <AppWorkspace.SidebarBody scrollPreserveKey={`notebooks-navigator-roots-${props.notebook.shortId}`}>
+      <AppWorkspace.SidebarBody scrollPreserveKey={`notebooks-navigator-roots-${props.notebook.id}`}>
         <AppWorkspace.SidebarSection>
           <AppWorkspace.SidebarIconGrid columns={2}>
             <For each={ROOTS}>
@@ -286,7 +285,7 @@ export default function NotebookNavigator(props: Props) {
               active={homepageNote()?.id === activeNoteId()}
               onClick={openHomepage}
             />
-            <SearchButton notebookId={props.notebook.shortId} notebookName={props.notebook.name} variant="workspace-icon" />
+            <SearchButton notebookId={props.notebook.id} notebookName={props.notebook.name} variant="workspace-icon" />
           </AppWorkspace.SidebarIconGrid>
         </AppWorkspace.SidebarSection>
 
@@ -350,7 +349,7 @@ export default function NotebookNavigator(props: Props) {
         </Show>
       </div>
 
-      <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={`notebooks-navigator-list-${props.notebook.shortId}`}>
+      <div class="min-h-0 flex-1 overflow-y-auto" data-scroll-preserve={`notebooks-navigator-list-${props.notebook.id}`}>
         <Show
           when={visibleNotes().length > 0 || pinnedNote()}
           fallback={<Placeholder surface="paper" align="left" description={<>No notes here yet.</>} />}

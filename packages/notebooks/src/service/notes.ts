@@ -1,6 +1,6 @@
 import { type DateContext, dates, fromBase64Strict } from "@k2b/stdlib";
 import type { MutationResult, PaginationParams } from "@valentinkolb/cloud/contracts";
-import { logger, get as settingsGet, toPgTextArray } from "@valentinkolb/cloud/services";
+import { logger, get as settingsGet, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import * as Y from "yjs";
 import {
@@ -14,7 +14,7 @@ import {
 } from "../lib/note-edit";
 import { createInitialNoteMarkdown, deriveNoteTitle, hasUsableNoteTitle } from "../lib/note-title";
 import { buildNoteTitleTemplateContext, renderNoteTitleTemplate } from "../lib/note-title-template";
-import { generateUniqueShortId, isShortId, isUuid } from "../lib/short-id";
+import { generateUniqueShortId } from "../lib/short-id";
 import { buildNotebookVisibleAccessCondition } from "./access";
 import { reindexNoteRefsSafe } from "./note-refs";
 import { noteCreated, noteDeleted, noteUpdated } from "./workspace-events";
@@ -235,13 +235,12 @@ const initialContentForNote = async (params: {
     : [];
   const parent = ancestors[0];
   const context = buildNoteTitleTemplateContext({
-    notebook: { id: notebook.id, short_id: notebook.short_id, name: notebook.name },
-    note: { short_id: params.noteShortId, depth: ancestors.length },
+    notebook: { id: notebook.short_id, name: notebook.name },
+    note: { id: params.noteShortId, depth: ancestors.length },
     parent: parent
       ? {
           exists: true,
-          id: parent.id,
-          short_id: parent.short_id,
+          id: parent.short_id,
           title: parent.title,
           path: [...ancestors]
             .reverse()
@@ -591,18 +590,16 @@ export const getByShortId = async (params: { shortId: string }): Promise<Note | 
   return row ? mapToNote(row) : null;
 };
 
-/**
- * Resolve a note by either UUID or short-id. Format-detection branches
- * keep each query on a single-column index — see `notebooks.getByIdOrShortId`
- * for the same pattern. Used at the page-handler boundary so URLs +
- * markdown `note://` schemes can carry short-ids while service
- * internals stay UUID-driven.
- */
-export const getByIdOrShortId = async (params: { idOrShortId: string }): Promise<Note | null> => {
-  const v = params.idOrShortId;
-  if (isShortId(v)) return getByShortId({ shortId: v });
-  if (!isUuid(v)) return null;
-  return get({ id: v });
+/** Resolve internal note UUIDs for projection at a public app boundary. */
+export const resolveIdsToShortIds = async (params: { ids: string[] }): Promise<Map<string, string>> => {
+  const ids = [...new Set(params.ids.filter(Boolean))];
+  if (ids.length === 0) return new Map();
+  const rows = await sql<{ id: string; short_id: string }[]>`
+    SELECT id, short_id
+    FROM notebooks.notes
+    WHERE id = ANY(${toPgUuidArray(ids)}::uuid[])
+  `;
+  return new Map(rows.map((row) => [row.id, row.short_id]));
 };
 
 /**
@@ -674,24 +671,17 @@ export const resolveShortIdsToNotebookShortIds = async (params: {
   return map;
 };
 
-/** `getWithContent` variant that accepts a UUID OR a short-id. Same
- *  branching trick as `getByIdOrShortId` so each query stays on its
- *  single-column index. */
-export const getWithContentByIdOrShortId = async (params: { idOrShortId: string }): Promise<NoteWithContent | null> => {
-  const v = params.idOrShortId;
-  if (isShortId(v)) {
-    const [row] = await sql<DbNote[]>`
-      SELECT
-        n.id, n.short_id, n.notebook_id, n.parent_id, n.title, n.position,
-        n.yjs_snapshot, n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
-        EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children
-      FROM notebooks.notes n
-      WHERE n.short_id = ${v}
-    `;
-    return row ? mapToNoteWithContent(row) : null;
-  }
-  if (!isUuid(v)) return null;
-  return getWithContent({ id: v });
+/** Resolve the public note identity and include its collaborative content. */
+export const getWithContentByShortId = async (params: { shortId: string }): Promise<NoteWithContent | null> => {
+  const [row] = await sql<DbNote[]>`
+    SELECT
+      n.id, n.short_id, n.notebook_id, n.parent_id, n.title, n.position,
+      n.yjs_snapshot, n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
+      EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children
+    FROM notebooks.notes n
+    WHERE n.short_id = ${params.shortId}
+  `;
+  return row ? mapToNoteWithContent(row) : null;
 };
 
 /**

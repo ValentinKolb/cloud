@@ -3,7 +3,6 @@ import { mutation as mutations } from "@k2b/stdlib/solid";
 import { AppOverview, Button, LinkCard, prompts, TextInput } from "@k2b/ui";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Notebook } from "../service/notebooks";
 import { setLastNotebookId } from "./[id]/_components/settings/NotebookSettingsStore";
 
 type TemplateSummary = {
@@ -14,20 +13,26 @@ type TemplateSummary = {
 };
 
 type Props = {
-  notebooks: Notebook[];
+  notebooks: PublicNotebook[];
   templates: TemplateSummary[];
   initialQuery: string;
 };
 
 type CreatedNotebook = {
   id: string;
-  shortId: string;
 };
 
-const notebookMatches = (notebook: Notebook, query: string) => {
+type PublicNotebook = {
+  id: string;
+  name: string;
+  description: string | null;
+  icon: string | null;
+};
+
+const notebookMatches = (notebook: PublicNotebook, query: string) => {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return `${notebook.name} ${notebook.description ?? ""} ${notebook.shortId}`.toLowerCase().includes(q);
+  return `${notebook.name} ${notebook.description ?? ""} ${notebook.id}`.toLowerCase().includes(q);
 };
 
 const setQueryParam = (value: string) => {
@@ -54,8 +59,8 @@ export default function NotebooksOverview(props: Props) {
   const filteredNotebooks = createMemo(() => props.notebooks.filter((notebook) => notebookMatches(notebook, query())));
 
   const openNotebook = (notebook: CreatedNotebook) => {
-    setLastNotebookId(notebook.shortId);
-    navigateTo(`/app/notebooks/${notebook.shortId}`);
+    setLastNotebookId(notebook.id);
+    navigateTo(`/app/notebooks/${notebook.id}`);
   };
 
   const createNotebookMutation = mutations.create<CreatedNotebook, { name: string; description?: string }>({
@@ -169,7 +174,7 @@ export default function NotebooksOverview(props: Props) {
               <For each={filteredNotebooks()}>
                 {(notebook) => (
                   <LinkCard
-                    href={`/app/notebooks/${notebook.shortId}`}
+                    href={`/app/notebooks/${notebook.id}`}
                     title={notebook.name}
                     description={notebook.description || "No description"}
                     icon={notebook.icon || "ti ti-notebook"}

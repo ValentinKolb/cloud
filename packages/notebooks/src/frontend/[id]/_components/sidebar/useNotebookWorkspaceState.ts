@@ -32,13 +32,13 @@ const loadWorkspaceState = async (source: string, abortSignal: AbortSignal): Pro
 };
 
 export function useNotebookWorkspaceState(ctx: NotebookContext) {
-  const source = () => ctx.notebook.shortId;
+  const source = () => ctx.notebook.id;
   const workspace = query.create<string, LoadedWorkspaceState, { cursor: string | null }>({
     source,
     initial: {
-      source: ctx.notebook.shortId,
+      source: ctx.notebook.id,
       data: {
-        source: ctx.notebook.shortId,
+        source: ctx.notebook.id,
         state: {
           notebook: ctx.notebook,
           tree: ctx.tree,
@@ -87,8 +87,8 @@ export function useNotebookWorkspaceState(ctx: NotebookContext) {
       }
     };
     const onSoftNavigated = (raw: Event) => {
-      const detail = (raw as CustomEvent<{ canonicalNoteId?: string }>).detail;
-      if (detail?.canonicalNoteId) setSelectedNoteId(detail.canonicalNoteId);
+      const detail = (raw as CustomEvent<{ noteId?: string }>).detail;
+      if (detail?.noteId) setSelectedNoteId(detail.noteId);
     };
     const onTitleChanged = (raw: Event) => {
       const detail = (raw as CustomEvent<{ noteId?: string; title?: string }>).detail;
