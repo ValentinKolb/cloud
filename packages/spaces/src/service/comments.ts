@@ -1,6 +1,7 @@
 import { type DateContext, type PageParams, type Paginated, paginate } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { MutationResult, SpaceComment } from "@/contracts";
+import { withShortId } from "../lib/short-id";
 import { resolveRecurringOccurrence } from "./recurrence";
 
 // ==========================
@@ -156,28 +157,30 @@ export const create = async (params: {
   const { itemId, userId, content } = params;
   const recurrenceId = params.recurrenceId ?? null;
 
-  const inserted = await sql.begin(async (tx): Promise<MutationResult<DbComment>> => {
-    if (recurrenceId) {
-      if (!(await isValidOccurrenceScope(tx, itemId, recurrenceId, params.dateConfig))) {
-        return { ok: false, error: "Recurring occurrence not found", status: 404 };
-      }
-    } else {
-      const [itemExists] = await tx<{ id: string }[]>`
+  const inserted = await withShortId("comment", (shortId) =>
+    sql.begin(async (tx): Promise<MutationResult<DbComment>> => {
+      if (recurrenceId) {
+        if (!(await isValidOccurrenceScope(tx, itemId, recurrenceId, params.dateConfig))) {
+          return { ok: false, error: "Recurring occurrence not found", status: 404 };
+        }
+      } else {
+        const [itemExists] = await tx<{ id: string }[]>`
         SELECT id
         FROM spaces.items
         WHERE id = ${itemId}
         FOR SHARE
       `;
-      if (!itemExists) return { ok: false, error: "Item not found", status: 404 };
-    }
+        if (!itemExists) return { ok: false, error: "Item not found", status: 404 };
+      }
 
-    const [row] = await tx<DbComment[]>`
-      INSERT INTO spaces.comments (item_id, recurrence_id, user_id, content)
-      VALUES (${itemId}, ${recurrenceId}, ${userId}, ${content})
+      const [row] = await tx<DbComment[]>`
+      INSERT INTO spaces.comments (short_id, item_id, recurrence_id, user_id, content)
+      VALUES (${shortId}, ${itemId}, ${recurrenceId}, ${userId}, ${content})
       RETURNING id, item_id, recurrence_id, user_id, content, created_at, updated_at
     `;
-    return row ? { ok: true, data: row } : { ok: false, error: "Failed to create comment", status: 500 };
-  });
+      return row ? { ok: true, data: row } : { ok: false, error: "Failed to create comment", status: 500 };
+    }),
+  );
   if (!inserted.ok) return inserted;
 
   const row = inserted.data;

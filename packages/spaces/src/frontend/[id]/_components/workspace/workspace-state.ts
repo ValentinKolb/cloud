@@ -1,8 +1,17 @@
-import { logger, weatherService } from "@valentinkolb/cloud/services";
 import { dates as calendar, type DateContext } from "@k2b/stdlib";
-import type { CalendarItem, ItemListResult, SpaceDetail, SpaceItem, SpaceWormhole, User } from "@/contracts";
+import { logger, weatherService } from "@valentinkolb/cloud/services";
+import {
+  type CalendarItem,
+  type ItemListResult,
+  ResourceShortIdSchema,
+  type SpaceDetail,
+  type SpaceItem,
+  type SpaceWormhole,
+  type User,
+} from "@/contracts";
 import { spacesService } from "@/service";
 import { latestSpaceEventCursor } from "@/service/events";
+import { spacesPublicResources } from "@/service/public-resources";
 import { resolveRecurringOccurrence } from "@/service/recurrence";
 import { type CalendarFilter, parseCalendarFilter } from "../calendar/filter";
 import type { CalendarView, DayWeather } from "../calendar/types";
@@ -17,7 +26,10 @@ const log = logger("spaces:workspace-state");
 
 type WorkspaceRequest = {
   user: AuthUser;
+  /** Internal UUID resolved once by the route or API boundary. */
   spaceId: string;
+  /** Canonical public ID used by URLs, cookies, and serialized state. */
+  spaceShortId: string;
   href: string;
   cookieHeader?: string;
   dateConfig?: DateContext;
@@ -51,7 +63,7 @@ const resolveView = (url: URL, settings: SpaceUserSettings) => {
 
 const resolveRouteState = (params: WorkspaceRequest): RouteState => {
   const url = new URL(params.href, "http://spaces.local");
-  const settings = parseSpaceSettings(params.cookieHeader, params.spaceId);
+  const settings = parseSpaceSettings(params.cookieHeader, params.spaceShortId);
   const { currentView, hasViewOverride } = resolveView(url, settings);
 
   return {
@@ -82,6 +94,54 @@ const resolvePermissions = async (params: { spaceId: string; user: AuthUser }) =
 };
 
 const nonEmpty = <T>(values: T[]) => (values.length > 0 ? values : undefined);
+
+const projectSpaceDetail = async (space: SpaceDetail): Promise<SpaceDetail> => {
+  const [[projectedSpace], columns, tags] = await Promise.all([
+    spacesPublicResources.projectSpaces([space]),
+    spacesPublicResources.projectColumns(space.columns),
+    spacesPublicResources.projectTags(space.tags),
+  ]);
+  if (!projectedSpace) throw new Error("Missing public ID for Space");
+  return { ...projectedSpace, columns, tags };
+};
+
+const projectItemResult = async (result: ItemListResult): Promise<ItemListResult> => ({
+  ...result,
+  items: await spacesPublicResources.projectItems(result.items),
+});
+
+const projectItemDetail = async (detail: SpaceItemDetail): Promise<SpaceItemDetail> => {
+  const [[item], comments] = await Promise.all([
+    spacesPublicResources.projectItems([detail.item]),
+    spacesPublicResources.projectComments(detail.comments.items),
+  ]);
+  if (!item) throw new Error("Missing public ID for Space item");
+  const seriesItemId = item.recurringEventId ?? item.id;
+  return {
+    item,
+    comments: { ...detail.comments, items: comments },
+    commentTarget: { ...detail.commentTarget, itemId: seriesItemId },
+    recurringContext: detail.recurringContext ? { ...detail.recurringContext, seriesItemId } : null,
+  };
+};
+
+const projectKanbanBuckets = async (buckets: KanbanBucketInitial[], columnIds: Map<string, string>): Promise<KanbanBucketInitial[]> => {
+  const internalItems = buckets.flatMap((bucket) => bucket.items);
+  const items = await spacesPublicResources.projectItems(internalItems);
+  let offset = 0;
+  return buckets.map((bucket) => {
+    const projectedItems = items.slice(offset, offset + bucket.items.length);
+    offset += bucket.items.length;
+    const columnId = bucket.columnId ? columnIds.get(bucket.columnId) : null;
+    if (bucket.columnId && !columnId) throw new Error(`Missing public ID for Space column ${bucket.columnId}`);
+    return {
+      ...bucket,
+      key: columnId ? `column:${columnId}` : bucket.key,
+      columnId: columnId ?? null,
+      items: projectedItems,
+    };
+  });
+};
 
 const toListFilter = (filter: FilterState) => ({
   type: filter.type,
@@ -374,11 +434,13 @@ const loadSelectedItemState = async (params: {
   userId: string;
   dateConfig?: DateContext;
 }): Promise<SpaceItemDetail | null> => {
-  if (!params.selectedItemId) return null;
+  if (!ResourceShortIdSchema.safeParse(params.selectedItemId).success) return null;
+  const selectedItemId = await spacesPublicResources.resolvePublicId("items", params.selectedItemId);
+  if (!selectedItemId) return null;
 
-  let selectedItem = params.itemsResult.items.find((item) => item.id === params.selectedItemId) ?? null;
+  let selectedItem = params.itemsResult.items.find((item) => item.id === selectedItemId) ?? null;
   if (!selectedItem) {
-    selectedItem = await spacesService.item.get({ id: params.selectedItemId });
+    selectedItem = await spacesService.item.get({ id: selectedItemId });
     if (selectedItem?.spaceId !== params.spaceId) selectedItem = null;
   }
   if (!selectedItem) return null;
@@ -406,7 +468,7 @@ const loadSelectedItemState = async (params: {
     pagination: { page: 1, perPage: COMMENT_PAGE_SIZE },
   });
 
-  return { item: detailItem, comments, commentTarget, recurringContext };
+  return projectItemDetail({ item: detailItem, comments, commentTarget, recurringContext });
 };
 
 const loadWormholes = async (params: { canWrite: boolean; spaceId: string; user: AuthUser }): Promise<SpaceWormhole[]> => {
@@ -483,8 +545,11 @@ type AuthorizedWorkspaceContext = {
 type WorkspaceContext = {
   route: RouteState;
   space: SpaceDetail;
+  publicSpace: SpaceDetail;
   permissions: { isAdmin: boolean; canWrite: boolean };
   calendarFilter: CalendarFilter;
+  publicCalendarFilter: CalendarFilter;
+  columnIds: Map<string, string>;
 };
 
 const authorizeWorkspace = async (
@@ -511,37 +576,59 @@ const loadWorkspaceContext = async (
 
   const space = await spacesService.space.getDetail({ id: params.spaceId });
   if (!space) return { ok: false, error: { kind: "notFound", title: "Not found", message: "Space not found" } };
-
-  const spaceTagIds = new Set(space.tags.map((tag) => tag.id));
-  const spaceColumnIds = new Set(space.columns.map((column) => column.id));
-  const calendarFilter = {
+  const publicSpace = await projectSpaceDetail(space);
+  const tagIds = new Map(publicSpace.tags.map((tag, index) => [tag.id, space.tags[index]!.id]));
+  const columnIdsByPublicId = new Map(publicSpace.columns.map((column, index) => [column.id, space.columns[index]!.id]));
+  const columnIds = new Map(space.columns.map((column, index) => [column.id, publicSpace.columns[index]!.id]));
+  const publicCalendarFilter = {
     ...access.value.route.calendarFilter,
-    tagIds: access.value.route.calendarFilter.tagIds.filter((tagId) => spaceTagIds.has(tagId)),
-    columnIds: access.value.route.calendarFilter.columnIds.filter((columnId) => spaceColumnIds.has(columnId)),
+    tagIds: access.value.route.calendarFilter.tagIds.filter((id) => tagIds.has(id)),
+    columnIds: access.value.route.calendarFilter.columnIds.filter((id) => columnIdsByPublicId.has(id)),
   };
-  return { ok: true, value: { ...access.value, space, calendarFilter } };
+  const calendarFilter = {
+    ...publicCalendarFilter,
+    tagIds: publicCalendarFilter.tagIds.map((id) => tagIds.get(id)!),
+    columnIds: publicCalendarFilter.columnIds.map((id) => columnIdsByPublicId.get(id)!),
+  };
+  const route = {
+    ...access.value.route,
+    filter: {
+      ...access.value.route.filter,
+      tagIds: access.value.route.filter.tagIds.flatMap((id) => (tagIds.has(id) ? [tagIds.get(id)!] : [])),
+      columnIds: access.value.route.filter.columnIds.flatMap((id) => (columnIdsByPublicId.has(id) ? [columnIdsByPublicId.get(id)!] : [])),
+    },
+  };
+  return {
+    ok: true,
+    value: { ...access.value, route, space, publicSpace, calendarFilter, publicCalendarFilter, columnIds },
+  };
 };
 
-const toViewSnapshot = (params: {
+const toViewSnapshot = async (params: {
   route: RouteState;
   itemsResult: ItemListResult;
   kanbanBuckets: KanbanBucketInitial[];
   wormholes: SpaceWormhole[];
   calendarState: Awaited<ReturnType<typeof loadCalendarState>>;
-  calendarFilter: CalendarFilter;
-}): SpacesViewSnapshot => {
+  publicCalendarFilter: CalendarFilter;
+  columnIds: Map<string, string>;
+}): Promise<SpacesViewSnapshot> => {
   if (params.route.currentView === "list" || params.route.currentView === "table") {
-    return { kind: "list", currentView: params.route.currentView, itemsResult: params.itemsResult };
+    return { kind: "list", currentView: params.route.currentView, itemsResult: await projectItemResult(params.itemsResult) };
   }
   if (params.route.currentView === "kanban") {
-    return { kind: "kanban", buckets: params.kanbanBuckets, wormholes: params.wormholes };
+    const [buckets, wormholes] = await Promise.all([
+      projectKanbanBuckets(params.kanbanBuckets, params.columnIds),
+      spacesPublicResources.projectWormholes(params.wormholes),
+    ]);
+    return { kind: "kanban", buckets, wormholes };
   }
   return {
     kind: "calendar",
     view: params.calendarState.calendarView,
     date: params.calendarState.calendarDate.toISOString(),
-    filter: params.calendarFilter,
-    items: params.calendarState.calendarItems,
+    filter: params.publicCalendarFilter,
+    items: await spacesPublicResources.projectCalendarItems(params.calendarState.calendarItems),
     weather: params.calendarState.calendarWeather,
   };
 };
@@ -551,7 +638,7 @@ export const loadSpacesViewSnapshot = async (
 ): Promise<SpacesViewSnapshot | Extract<SpacesWorkspaceState, { kind: "notFound" | "accessDenied" }>> => {
   const context = await loadWorkspaceContext(params);
   if (!context.ok) return context.error;
-  const { route, space, permissions, calendarFilter } = context.value;
+  const { route, space, permissions, calendarFilter, publicCalendarFilter, columnIds } = context.value;
 
   const [itemsResult, kanbanBuckets, calendarState, wormholes] = await Promise.all([
     loadListItems({
@@ -592,7 +679,8 @@ export const loadSpacesViewSnapshot = async (
     kanbanBuckets,
     wormholes,
     calendarState,
-    calendarFilter,
+    publicCalendarFilter,
+    columnIds,
   });
 };
 
@@ -635,7 +723,7 @@ export const loadSpaceItemDetail = async (params: {
     viewerUserId: params.user.id,
     pagination: { page: 1, perPage: COMMENT_PAGE_SIZE },
   });
-  return { kind: "ok", detail: { item: detailItem, comments, commentTarget, recurringContext } };
+  return { kind: "ok", detail: await projectItemDetail({ item: detailItem, comments, commentTarget, recurringContext }) };
 };
 
 export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promise<SpacesWorkspaceState> => {
@@ -647,7 +735,7 @@ export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promis
   const eventCursor = await loadEventCursor(params.spaceId);
   const context = await loadWorkspaceContext(params, authorized.value);
   if (!context.ok) return context.error;
-  const { route, space, permissions, calendarFilter } = context.value;
+  const { route, space, publicSpace, permissions, calendarFilter, publicCalendarFilter, columnIds } = context.value;
 
   const { wormholes, itemsResult, kanbanBuckets, calendarState } = await loadWorkspaceData({
     route,
@@ -665,12 +753,18 @@ export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promis
     userId: params.user.id,
     dateConfig: params.dateConfig,
   });
+  const [publicItemsResult, publicKanbanBuckets, publicCalendarItems, publicWormholes] = await Promise.all([
+    projectItemResult(itemsResult),
+    projectKanbanBuckets(kanbanBuckets, columnIds),
+    spacesPublicResources.projectCalendarItems(calendarState.calendarItems),
+    spacesPublicResources.projectWormholes(wormholes),
+  ]);
 
   return {
     kind: "ok",
-    title: buildWorkspaceTitle(space),
+    title: buildWorkspaceTitle(publicSpace),
     currentUserId: params.user.id,
-    space,
+    space: publicSpace,
     settings: route.settings,
     currentView: route.currentView,
     hasOverride: route.hasOverride,
@@ -679,14 +773,14 @@ export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promis
     query: route.url.searchParams.toString(),
     icalBaseUrl: `${route.url.protocol}//${route.url.host}`,
     eventCursor,
-    itemsResult,
-    kanbanBuckets,
+    itemsResult: publicItemsResult,
+    kanbanBuckets: publicKanbanBuckets,
     calendarView: calendarState.calendarView,
     calendarDate: calendarState.calendarDate.toISOString(),
-    calendarFilter,
-    calendarItems: calendarState.calendarItems,
+    calendarFilter: publicCalendarFilter,
+    calendarItems: publicCalendarItems,
     calendarWeather: calendarState.calendarWeather,
     selectedItemDetail,
-    wormholes,
+    wormholes: publicWormholes,
   };
 };

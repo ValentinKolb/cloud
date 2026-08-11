@@ -1,6 +1,7 @@
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type { User } from "@/contracts";
 import { spacesService } from "@/service";
+import { spacesPublicResources } from "@/service/public-resources";
 import type { SpaceSettingsContext, SpaceUserSettings } from "@/settings-context";
 
 export const loadSpaceSettingsContext = async (params: {
@@ -8,7 +9,7 @@ export const loadSpaceSettingsContext = async (params: {
   spaceId: string;
   settings: SpaceUserSettings;
 }): Promise<Result<SpaceSettingsContext>> => {
-  const [space, permission] = await Promise.all([
+  const [existingSpace, permission] = await Promise.all([
     spacesService.space.get({ id: params.spaceId }),
     spacesService.space.permission.get({
       spaceId: params.spaceId,
@@ -16,15 +17,22 @@ export const loadSpaceSettingsContext = async (params: {
     }),
   ]);
 
-  if (!space) return fail(err.notFound("Space"));
+  if (!existingSpace) return fail(err.notFound("Space"));
   if (permission === "none") return fail(err.forbidden("Access denied"));
 
   const detail = await spacesService.space.getDetail({ id: params.spaceId });
   if (!detail) return fail(err.notFound("Space"));
+  const [[space], columns, tags] = await Promise.all([
+    spacesPublicResources.projectSpaces([detail]),
+    spacesPublicResources.projectColumns(detail.columns),
+    spacesPublicResources.projectTags(detail.tags),
+  ]);
+  if (!space) return fail(err.notFound("Space"));
+  const publicDetail = { ...space, columns, tags };
 
   if (permission !== "admin") {
     return ok({
-      space: detail,
+      space: publicDetail,
       settings: params.settings,
       permission,
       accessEntries: [],
@@ -44,11 +52,11 @@ export const loadSpaceSettingsContext = async (params: {
   }
 
   return ok({
-    space: detail,
+    space: publicDetail,
     settings: params.settings,
     permission,
     accessEntries: access.items,
     apiKeys,
-    wormholes: wormholes.data,
+    wormholes: await spacesPublicResources.projectWormholes(wormholes.data),
   });
 };

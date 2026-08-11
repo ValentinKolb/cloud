@@ -2,6 +2,7 @@ import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { spacesService } from "@/service";
+import { spacesPublicResources } from "@/service/public-resources";
 import { ssr } from "../config";
 import { parseLastSpaceId } from "./[id]/_components/settings/SpaceSettingsStore";
 import SpacesOverview from "./SpacesOverview.island";
@@ -17,7 +18,7 @@ export default ssr<AuthContext>(async (c) => {
   const spacesPage = await spacesService.space.list({
     subject: { type: "user", userId: user.id },
   });
-  const userSpaces = spacesPage.items;
+  const userSpaces = await spacesPublicResources.projectSpaces(spacesPage.items);
 
   // Redirect to last opened space if ?recent=true
   if (url.searchParams.get("recent") === "true" && userSpaces.length > 0) {

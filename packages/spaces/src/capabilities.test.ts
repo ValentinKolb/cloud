@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { compileCapabilityManifest } from "@valentinkolb/cloud/capabilities/testing";
 import {
   CAPABILITY_MAX_RESULT_BYTES,
@@ -21,16 +21,24 @@ import {
   TaskListInputSchema,
   TaskUpdateInputSchema,
 } from "./capability-contracts";
-import type { SpaceComment, SpaceItem } from "./contracts";
+import type { SpaceComment, SpaceItem, SpaceTag } from "./contracts";
 import { spacesService } from "./service";
+import { type ResourceTable, spacesPublicResources } from "./service/public-resources";
 
 const userId = "11111111-1111-4111-8111-111111111111";
 const serviceAccountId = "22222222-2222-4222-8222-222222222222";
-const spaceId = "33333333-3333-4333-8333-333333333333";
-const otherSpaceId = "44444444-4444-4444-8444-444444444444";
-const columnId = "55555555-5555-4555-8555-555555555555";
-const itemId = "66666666-6666-4666-8666-666666666666";
-const commentId = "77777777-7777-4777-8777-777777777777";
+const spaceUuid = "33333333-3333-4333-8333-333333333333";
+const otherSpaceUuid = "44444444-4444-4444-8444-444444444444";
+const columnUuid = "55555555-5555-4555-8555-555555555555";
+const itemUuid = "66666666-6666-4666-8666-666666666666";
+const commentUuid = "77777777-7777-4777-8777-777777777777";
+const tagUuid = "88888888-8888-4888-8888-888888888888";
+const spaceId = "Spc001";
+const otherSpaceId = "Spc002";
+const columnId = "Col001";
+const itemId = "Itm001";
+const commentId = "Com001";
+const tagId = "Tag001";
 const createdAt = "2026-08-02T08:00:00.000Z";
 
 test("only exposes remembered approval for reversible Space changes", () => {
@@ -86,7 +94,7 @@ const serviceAccountContext = {
       delegatedUserId: null,
       appId: "spaces",
       resourceType: "space",
-      resourceId: spaceId,
+      resourceId: spaceUuid,
       createdBy: null,
       createdAt,
     },
@@ -99,7 +107,7 @@ const serviceAccountContext = {
 } satisfies CapabilityExecutionContext;
 
 const space = {
-  id: spaceId,
+  id: spaceUuid,
   name: "Product",
   description: "Product planning",
   color: "#3b82f6",
@@ -109,9 +117,9 @@ const space = {
 };
 
 const task: SpaceItem = {
-  id: itemId,
-  spaceId,
-  columnId,
+  id: itemUuid,
+  spaceId: spaceUuid,
+  columnId: columnUuid,
   title: "Ship capability",
   description: null,
   location: null,
@@ -142,8 +150,8 @@ const event: SpaceItem = {
 };
 
 const comment: SpaceComment = {
-  id: commentId,
-  itemId,
+  id: commentUuid,
+  itemId: itemUuid,
   recurrenceId: null,
   userId,
   userName: user.displayName,
@@ -154,7 +162,79 @@ const comment: SpaceComment = {
   canDelete: true,
 };
 
+const tag: SpaceTag = { id: tagUuid, spaceId: spaceUuid, name: "Launch", color: "#22c55e" };
+
 afterEach(() => mock.restore());
+
+const publicIds: Record<ResourceTable, Map<string, string>> = {
+  spaces: new Map([
+    [spaceUuid, spaceId],
+    [otherSpaceUuid, otherSpaceId],
+  ]),
+  columns: new Map([[columnUuid, columnId]]),
+  items: new Map([[itemUuid, itemId]]),
+  comments: new Map([[commentUuid, commentId]]),
+  tags: new Map([[tagUuid, tagId]]),
+  wormholes: new Map(),
+};
+
+beforeEach(() => {
+  const requiredPublicId = (table: ResourceTable, internalId: string): string => {
+    const value = publicIds[table].get(internalId);
+    if (!value) throw new Error(`Missing ${table} public ID for ${internalId}`);
+    return value;
+  };
+  spyOn(spacesPublicResources, "resolvePublicId").mockImplementation(async (table, value) => {
+    for (const [internal, short] of publicIds[table]) if (short === value) return internal;
+    return null;
+  });
+  spyOn(spacesPublicResources, "resolvePublicIds").mockImplementation(async (table, values) => {
+    const resolved = values.map((value) => [...publicIds[table]].find(([, short]) => short === value)?.[0]);
+    return resolved.every(Boolean) ? (resolved as string[]) : null;
+  });
+  spyOn(spacesPublicResources, "resolveSpacePublicIds").mockImplementation(async (table, internalSpaceId, values) => {
+    if (internalSpaceId !== spaceUuid) return null;
+    const resolved = values.map((value) => [...publicIds[table]].find(([, short]) => short === value)?.[0]);
+    return resolved.every(Boolean) ? (resolved as string[]) : null;
+  });
+  spyOn(spacesPublicResources, "projectSpaces").mockImplementation(async (items) =>
+    items.map((item) => ({ ...item, id: requiredPublicId("spaces", item.id) })),
+  );
+  spyOn(spacesPublicResources, "projectColumns").mockImplementation(async (items) =>
+    items.map((item) => ({
+      ...item,
+      id: requiredPublicId("columns", item.id),
+      spaceId: requiredPublicId("spaces", item.spaceId),
+    })),
+  );
+  spyOn(spacesPublicResources, "projectTags").mockImplementation(async (items) =>
+    items.map((item) => ({
+      ...item,
+      id: requiredPublicId("tags", item.id),
+      spaceId: requiredPublicId("spaces", item.spaceId),
+    })),
+  );
+  spyOn(spacesPublicResources, "projectItems").mockImplementation(async (items) =>
+    items.map((item) => ({
+      ...item,
+      id: requiredPublicId("items", item.id),
+      spaceId: requiredPublicId("spaces", item.spaceId),
+      columnId: requiredPublicId("columns", item.columnId),
+      tags: item.tags?.map((itemTag) => ({
+        ...itemTag,
+        id: requiredPublicId("tags", itemTag.id),
+        spaceId: requiredPublicId("spaces", itemTag.spaceId),
+      })),
+    })),
+  );
+  spyOn(spacesPublicResources, "projectComments").mockImplementation(async (items) =>
+    items.map((item) => ({
+      ...item,
+      id: requiredPublicId("comments", item.id),
+      itemId: requiredPublicId("items", item.itemId),
+    })),
+  );
+});
 
 describe("spaces capabilities", () => {
   test("compiles calendar integration inputs into the registered manifest", () => {
@@ -265,7 +345,7 @@ describe("spaces capabilities", () => {
 
     const result = await spacesCapabilities.queries["space.assignee.list"].run({ spaceId, query: "Spaces", limit: 5 }, userContext);
 
-    expect(listAssignable).toHaveBeenCalledWith({ spaceId, search: "Spaces", limit: 5 });
+    expect(listAssignable).toHaveBeenCalledWith({ spaceId: spaceUuid, search: "Spaces", limit: 5 });
     expect(result).toEqual({
       ok: true,
       data: { data: [{ id: userId, displayName: user.displayName, description: "spaces-user · direct access" }] },
@@ -352,8 +432,8 @@ describe("spaces capabilities", () => {
 
     expect(prepare).toHaveBeenCalledWith(
       expect.objectContaining({
-        spaceId,
-        itemId,
+        spaceId: spaceUuid,
+        itemId: itemUuid,
         subject: userContext.accessSubject,
         deliveryId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       }),
@@ -438,7 +518,7 @@ describe("spaces capabilities", () => {
 
     expect(list).toHaveBeenCalledWith({
       subject: serviceAccountContext.accessSubject,
-      boundSpaceId: spaceId,
+      boundSpaceId: spaceUuid,
       requiredLevel: "read",
       query: undefined,
       pagination: { page: 2, perPage: 1 },
@@ -450,6 +530,97 @@ describe("spaces capabilities", () => {
         refs: [{ type: "spaces.space", id: spaceId }],
         page: { hasMore: true },
       },
+    });
+  });
+
+  test("projects Space detail tags without leaking internal IDs", async () => {
+    spyOn(spacesService.space, "get").mockResolvedValue(space);
+    spyOn(spacesService.space.permission, "get").mockResolvedValue("write");
+    spyOn(spacesService.space, "getDetail").mockResolvedValue({
+      ...space,
+      columns: [{ id: columnUuid, spaceId: spaceUuid, name: "Todo", color: null, rank: "1024", isDone: false }],
+      tags: [tag],
+    });
+
+    const result = await spacesCapabilities.queries["space.read"].run({ id: spaceId }, userContext);
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: { data: { id: spaceId, columns: [{ id: columnId }], tags: [{ id: tagId }] } },
+    });
+  });
+
+  test("reviews a calendar response with the public Space item link", async () => {
+    spyOn(spacesService.calendarInvitations, "getCalendarResponseCommitContext").mockResolvedValue({
+      ok: true,
+      data: { itemId: itemUuid, spaceId: spaceUuid, title: event.title },
+    });
+    spyOn(spacesService.item, "get").mockResolvedValue(event);
+    spyOn(spacesService.space, "get").mockResolvedValue(space);
+    spyOn(spacesService.space.permission, "get").mockResolvedValue("write");
+
+    const result = await spacesCapabilities.actions["calendar-invitation.response.commit"].review!(
+      {
+        mailboxId: "99999999-9999-4999-8999-999999999999",
+        messageId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        participationStatus: "accepted",
+        draftId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      },
+      userContext,
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: { links: [{ rel: "open", href: `/app/spaces/${spaceId}?item=${itemId}` }] },
+    });
+  });
+
+  test("reviews an existing calendar import against the internal Space boundary", async () => {
+    spyOn(spacesService.space, "get").mockResolvedValue(space);
+    spyOn(spacesService.space.permission, "get").mockResolvedValue("write");
+    spyOn(spacesService.calendarInvitations, "previewCalendarInvitation").mockResolvedValue({
+      ok: true,
+      data: {
+        invitation: {
+          method: "request",
+          uid: "planning@example.test",
+          sequence: 1,
+          status: "confirmed",
+          title: event.title,
+          description: null,
+          location: null,
+          url: null,
+          startsAt: event.startsAt!,
+          endsAt: event.endsAt!,
+          allDay: false,
+          recurrenceRule: null,
+          organizer: null,
+          attendees: [],
+        },
+        response: null,
+        existing: {
+          itemId: itemUuid,
+          spaceId: spaceUuid,
+          href: `/app/spaces/${spaceId}?item=${itemId}`,
+          sequence: 1,
+          method: "request",
+        },
+      },
+    });
+
+    const result = await spacesCapabilities.actions["calendar-invitation.import"].review!(
+      {
+        mailboxId: "99999999-9999-4999-8999-999999999999",
+        messageId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        calendar: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n",
+        spaceId,
+      },
+      userContext,
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: { links: [{ rel: "open", href: `/app/spaces/${spaceId}?item=${itemId}` }] },
     });
   });
 
@@ -488,8 +659,8 @@ describe("spaces capabilities", () => {
     );
 
     expect(create).toHaveBeenCalledWith({
-      spaceId,
-      data: { columnId, title: task.title, priority: "high" },
+      spaceId: spaceUuid,
+      data: { columnId: columnUuid, title: task.title, priority: "high", tagIds: [] },
       createdBy: userId,
     });
     expect(result).toMatchObject({

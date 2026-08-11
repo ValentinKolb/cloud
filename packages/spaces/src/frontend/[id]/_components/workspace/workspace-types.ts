@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   CalendarItemSchema,
   ItemListResultSchema,
+  ResourceShortIdSchema,
   SpaceCommentSchema,
   SpaceDetailSchema,
   SpaceItemSchema,
@@ -48,7 +49,7 @@ export const SpaceCommentPageSchema = z.object({
 });
 
 export const SpaceItemRecurringContextSchema = z.object({
-  seriesItemId: z.string().uuid(),
+  seriesItemId: ResourceShortIdSchema,
   recurrenceId: z.string().datetime(),
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime(),
@@ -60,7 +61,7 @@ export const SpaceItemDetailSchema = z.object({
   item: SpaceItemSchema,
   comments: SpaceCommentPageSchema,
   commentTarget: z.object({
-    itemId: z.string().uuid(),
+    itemId: ResourceShortIdSchema,
     recurrenceId: z.string().datetime().nullable(),
   }),
   recurringContext: SpaceItemRecurringContextSchema.nullable(),
@@ -113,7 +114,7 @@ export type SpacesWorkspaceState = z.infer<typeof SpacesWorkspaceStateSchema>;
 export const parseSpacesWorkspaceHref = (href: string) => {
   const url = new URL(href, "http://spaces.local");
   const parts = url.pathname.split("/").filter(Boolean);
-  if (parts[0] !== "app" || parts[1] !== "spaces" || !parts[2] || !z.uuid().safeParse(parts[2]).success) return null;
+  if (parts[0] !== "app" || parts[1] !== "spaces" || !parts[2] || !ResourceShortIdSchema.safeParse(parts[2]).success) return null;
   return parts.length === 3 ? { spaceId: parts[2] } : null;
 };
 

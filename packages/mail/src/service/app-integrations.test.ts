@@ -1,5 +1,74 @@
 import { describe, expect, test } from "bun:test";
+import {
+  calendarEventSchema,
+  calendarInvitationImportResultSchema,
+  eventInvitationCommitDataSchema,
+  spacesMailDestinationContextSchema,
+} from "../app-integration-contracts";
 import { projectAppCapabilityError } from "./app-integrations";
+
+const legacyUuid = "11111111-1111-4111-8111-111111111111";
+
+describe("Mail Spaces integration resource IDs", () => {
+  test("accepts short Space resource IDs and rejects UUIDs", () => {
+    expect(
+      spacesMailDestinationContextSchema.safeParse({
+        selectedSpaceId: "space1",
+        items: [{ id: "space1", name: "Roadmap", color: "#3b82f6" }],
+      }).success,
+    ).toBeTrue();
+    expect(spacesMailDestinationContextSchema.safeParse({ selectedSpaceId: legacyUuid, items: [] }).success).toBeFalse();
+
+    const event = {
+      kind: "event",
+      id: "event1",
+      spaceId: "space1",
+      columnId: "todo01",
+      title: "Planning",
+      location: null,
+      startsAt: "2026-08-11T08:00:00.000Z",
+      endsAt: "2026-08-11T09:00:00.000Z",
+      allDay: false,
+    };
+    expect(calendarEventSchema.safeParse(event).success).toBeTrue();
+    expect(calendarEventSchema.safeParse({ ...event, id: legacyUuid }).success).toBeFalse();
+  });
+
+  test("keeps delivery IDs UUID-backed while Space and item IDs are short", () => {
+    expect(
+      calendarInvitationImportResultSchema.safeParse({
+        itemId: "event1",
+        spaceId: "space1",
+        href: "/app/spaces/space1?item=event1",
+        outcome: "created",
+      }).success,
+    ).toBeTrue();
+    expect(
+      calendarInvitationImportResultSchema.safeParse({
+        itemId: "event1",
+        spaceId: "space1",
+        href: `/app/spaces/${legacyUuid}?item=${legacyUuid}`,
+        outcome: "created",
+      }).success,
+    ).toBeFalse();
+    expect(
+      eventInvitationCommitDataSchema.safeParse({
+        deliveryId: legacyUuid,
+        itemId: "event1",
+        draftId: "22222222-2222-4222-8222-222222222222",
+        state: "drafted",
+      }).success,
+    ).toBeTrue();
+    expect(
+      eventInvitationCommitDataSchema.safeParse({
+        deliveryId: "short1",
+        itemId: legacyUuid,
+        draftId: "22222222-2222-4222-8222-222222222222",
+        state: "drafted",
+      }).success,
+    ).toBeFalse();
+  });
+});
 
 describe("Mail app capability integration errors", () => {
   test("preserves an unknown action outcome without retrying or relabeling it", () => {

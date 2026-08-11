@@ -11,6 +11,7 @@ import type {
   User,
   WormholeTransferResult,
 } from "@/contracts";
+import { withShortId } from "../lib/short-id";
 import { buildSpacePrincipalCondition, getSpacePermission } from "./access";
 import * as columns from "./columns";
 import { publishSpaceEvent } from "./events";
@@ -152,28 +153,30 @@ export const create = async (params: {
   }
   if (!(await canAccess(target.targetSpaceId, params.actor, "admin"))) return denied();
 
-  const createdId = await sql.begin(async (tx): Promise<string | "duplicate" | null> => {
-    const [source] = await tx<{ id: string }[]>`
+  const createdId = await withShortId("wormhole", (shortId) =>
+    sql.begin(async (tx): Promise<string | "duplicate" | null> => {
+      const [source] = await tx<{ id: string }[]>`
       SELECT id FROM spaces.spaces WHERE id = ${params.sourceSpaceId}::uuid FOR UPDATE
     `;
-    const [lockedTarget] = await tx<{ space_id: string }[]>`
+      const [lockedTarget] = await tx<{ space_id: string }[]>`
       SELECT space_id FROM spaces.columns WHERE id = ${params.data.targetColumnId}::uuid FOR KEY SHARE
     `;
-    if (!source || !lockedTarget || lockedTarget.space_id !== target.targetSpaceId) return null;
+      if (!source || !lockedTarget || lockedTarget.space_id !== target.targetSpaceId) return null;
 
-    const [existing] = await tx<{ id: string }[]>`
+      const [existing] = await tx<{ id: string }[]>`
       SELECT id FROM spaces.wormholes
       WHERE source_space_id = ${params.sourceSpaceId}::uuid
         AND target_column_id = ${params.data.targetColumnId}::uuid
     `;
-    if (existing) return "duplicate";
+      if (existing) return "duplicate";
 
-    const [maxRow] = await tx<{ max: string | null }[]>`
+      const [maxRow] = await tx<{ max: string | null }[]>`
       SELECT MAX(rank)::text AS max FROM spaces.wormholes WHERE source_space_id = ${params.sourceSpaceId}::uuid
     `;
-    const [created] = await tx<{ id: string }[]>`
-      INSERT INTO spaces.wormholes (source_space_id, target_column_id, color, rank)
+      const [created] = await tx<{ id: string }[]>`
+      INSERT INTO spaces.wormholes (short_id, source_space_id, target_column_id, color, rank)
       VALUES (
+        ${shortId},
         ${params.sourceSpaceId}::uuid,
         ${params.data.targetColumnId}::uuid,
         ${params.data.color},
@@ -181,8 +184,9 @@ export const create = async (params: {
       )
       RETURNING id
     `;
-    return created?.id ?? null;
-  });
+      return created?.id ?? null;
+    }),
+  );
 
   if (createdId === "duplicate") return { ok: false, error: "This wormhole already exists", status: 409 };
   if (!createdId) return { ok: false, error: "Could not create wormhole", status: 404 };
@@ -288,12 +292,17 @@ export const reorder = async (params: {
 
 export const remove = async (params: { sourceSpaceId: string; id: string; actor: WormholeActor }): Promise<MutationResult<void>> => {
   if (!(await canAccess(params.sourceSpaceId, params.actor, "admin"))) return denied();
-  const result = await sql`
+  const rows = await sql<{ short_id: string }[]>`
     DELETE FROM spaces.wormholes
     WHERE id = ${params.id}::uuid AND source_space_id = ${params.sourceSpaceId}::uuid
+    RETURNING short_id
   `;
-  if (result.count === 0) return { ok: false, error: "Wormhole not found", status: 404 };
-  await publishSpaceEvent({ type: "wormhole.deleted", spaceId: params.sourceSpaceId, wormholeId: params.id });
+  const deleted = rows[0];
+  if (!deleted) return { ok: false, error: "Wormhole not found", status: 404 };
+  await publishSpaceEvent(
+    { type: "wormhole.deleted", spaceId: params.sourceSpaceId, wormholeId: params.id },
+    { wormholeId: deleted.short_id },
+  );
   return { ok: true, data: undefined };
 };
 

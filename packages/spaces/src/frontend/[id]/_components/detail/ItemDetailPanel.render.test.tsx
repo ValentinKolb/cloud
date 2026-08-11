@@ -14,15 +14,15 @@ process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
 const { default: ItemDetailPanel } = await import("./ItemDetailPanel");
 
-const spaceId = "11111111-1111-4111-8111-111111111111";
-const itemId = "22222222-2222-4222-8222-222222222222";
+const spaceId = "Space1";
+const itemId = "Item01";
 const userId = "33333333-3333-4333-8333-333333333333";
 const now = "2026-08-09T10:00:00.000Z";
 
 const task: SpaceItem = {
   id: itemId,
   spaceId,
-  columnId: "44444444-4444-4444-8444-444444444444",
+  columnId: "Col001",
   title: "Planning review",
   description: null,
   location: null,
@@ -53,11 +53,11 @@ const event: SpaceItem = {
   endsAt: "2026-08-10T11:00:00.000Z",
   priority: "high",
   assignees: [{ id: userId, displayName: "Valentin Kolb", avatarHash: null }],
-  tags: [{ id: "55555555-5555-4555-8555-555555555555", spaceId, name: "Release", color: "#2563eb" }],
+  tags: [{ id: "Tag001", spaceId, name: "Release", color: "#2563eb" }],
 };
 
 const comment: SpaceComment = {
-  id: "66666666-6666-4666-8666-666666666666",
+  id: "Com001",
   itemId,
   recurrenceId: null,
   userId,
@@ -98,9 +98,7 @@ describe("Spaces item detail panel", () => {
 
     expect(html).toContain('class="k2b-detail-panel"');
     expect(html).toContain("<h2>Planning review</h2>");
-    expect(html).toContain(
-      'data-scroll-preserve="spaces-detail-11111111-1111-4111-8111-111111111111-22222222-2222-4222-8222-222222222222-series"',
-    );
+    expect(html).toContain('data-scroll-preserve="spaces-detail-Space1-Item01-series"');
     expect(html.match(/k2b-detail-panel__body/g)).toHaveLength(1);
     expect(html).toContain('class="k2b-detail-panel__summary"');
     expect(html).toContain("Event time");

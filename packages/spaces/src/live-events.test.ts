@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { parseSpaceLiveServerMessage, SPACE_LIVE_WS_TYPE, SpaceLiveClientMessageSchema } from "./live-events";
+import { parseSpaceLiveServerMessage, SPACE_LIVE_WS_TYPE, SpaceLiveClientMessageSchema, toPublicSpaceEvent } from "./live-events";
 
-const SPACE_ID = "865c713f-4f1c-43a1-a5e7-35e8e70eaec5";
-const ITEM_ID = "965c713f-4f1c-43a1-a5e7-35e8e70eaec5";
+const SPACE_ID = "Space1";
+const ITEM_ID = "Item01";
 
 describe("Spaces live event protocol", () => {
   test("validates subscriptions with optional replay cursors", () => {
@@ -16,6 +16,12 @@ describe("Spaces live event protocol", () => {
       SpaceLiveClientMessageSchema.safeParse({
         type: SPACE_LIVE_WS_TYPE.subscribe,
         payload: { spaceId: SPACE_ID, fromCursor: "invalid" },
+      }).success,
+    ).toBeFalse();
+    expect(
+      SpaceLiveClientMessageSchema.safeParse({
+        type: SPACE_LIVE_WS_TYPE.subscribe,
+        payload: { spaceId: "865c713f-4f1c-43a1-a5e7-35e8e70eaec5", fromCursor: null },
       }).success,
     ).toBeFalse();
   });
@@ -38,6 +44,8 @@ describe("Spaces live event protocol", () => {
     );
 
     expect(message?.type).toBe(SPACE_LIVE_WS_TYPE.event);
+    if (message?.type === SPACE_LIVE_WS_TYPE.event)
+      expect(message.payload.event).toEqual({ type: "item.updated", spaceId: SPACE_ID, itemId: ITEM_ID, at: "2026-07-16T20:00:00.000Z" });
     expect(parseSpaceLiveServerMessage("not-json")).toBeNull();
     expect(parseSpaceLiveServerMessage(JSON.stringify({ type: SPACE_LIVE_WS_TYPE.event, payload: {} }))).toBeNull();
   });
@@ -53,5 +61,19 @@ describe("Spaces live event protocol", () => {
         ),
       ).not.toBeNull();
     }
+  });
+
+  test("projects internal events without exposing resource UUIDs", () => {
+    expect(
+      toPublicSpaceEvent(
+        {
+          type: "item.updated",
+          spaceId: "865c713f-4f1c-43a1-a5e7-35e8e70eaec5",
+          itemId: "965c713f-4f1c-43a1-a5e7-35e8e70eaec5",
+          at: "2026-07-16T20:00:00.000Z",
+        },
+        { spaceId: SPACE_ID, itemId: ITEM_ID },
+      ),
+    ).toEqual({ type: "item.updated", spaceId: SPACE_ID, itemId: ITEM_ID, at: "2026-07-16T20:00:00.000Z" });
   });
 });

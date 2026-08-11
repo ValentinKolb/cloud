@@ -1,4 +1,5 @@
 import { sql } from "bun";
+import { backfillShortIds, type ShortIdTable } from "./lib/short-id";
 
 export const migrate = async (): Promise<void> => {
   await sql`CREATE EXTENSION IF NOT EXISTS pgcrypto`.simple();
@@ -22,6 +23,8 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_spaces_ical_token
     ON spaces.spaces(ical_token) WHERE ical_token IS NOT NULL
   `.simple();
+  await sql`ALTER TABLE spaces.spaces ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_spaces_short_id ON spaces.spaces(short_id)`.simple();
   console.log("  ✓ spaces.spaces table");
 
   await sql`
@@ -53,6 +56,8 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_columns_space_position
     ON spaces.columns(space_id, position)
   `.simple();
+  await sql`ALTER TABLE spaces.columns ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_short_id ON spaces.columns(short_id)`.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_columns_space_rank
     ON spaces.columns(space_id, rank)
@@ -76,6 +81,8 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_wormholes_source_rank
     ON spaces.wormholes(source_space_id, rank, id)
   `.simple();
+  await sql`ALTER TABLE spaces.wormholes ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_wormholes_short_id ON spaces.wormholes(short_id)`.simple();
   console.log("  ✓ spaces.wormholes table");
 
   await sql`
@@ -87,6 +94,8 @@ export const migrate = async (): Promise<void> => {
       CONSTRAINT labels_space_id_name_key UNIQUE (space_id, name)
     )
   `.simple();
+  await sql`ALTER TABLE spaces.tags ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_short_id ON spaces.tags(short_id)`.simple();
   console.log("  ✓ spaces.tags table");
 
   await sql`
@@ -167,6 +176,8 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_items_space
     ON spaces.items(space_id)
   `.simple();
+  await sql`ALTER TABLE spaces.items ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_items_short_id ON spaces.items(short_id)`.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_items_column
     ON spaces.items(column_id)
@@ -317,6 +328,8 @@ export const migrate = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_comments_item_scope
     ON spaces.comments(item_id, recurrence_id, created_at)
   `.simple();
+  await sql`ALTER TABLE spaces.comments ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_comments_short_id ON spaces.comments(short_id)`.simple();
   await sql`DROP INDEX IF EXISTS spaces.idx_comments_item`.simple();
   console.log("  ✓ spaces.comments table");
 
@@ -347,4 +360,34 @@ export const migrate = async (): Promise<void> => {
     $$ LANGUAGE plpgsql STABLE
   `.simple();
   console.log("  ✓ spaces.check_overlap function");
+
+  await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext('cloud.spaces.short-id-backfill'))`;
+    const shortIdTables: ShortIdTable[] = ["space", "column", "item", "comment", "tag", "wormhole"];
+    for (const table of shortIdTables) {
+      const filled = await backfillShortIds(table, tx);
+      if (filled > 0) console.log(`  ✓ spaces short_id backfill: ${filled} ${table}(s)`);
+    }
+  });
+
+  await sql`
+    ALTER TABLE spaces.spaces ALTER COLUMN short_id SET NOT NULL;
+    ALTER TABLE spaces.spaces DROP CONSTRAINT IF EXISTS spaces_short_id_format;
+    ALTER TABLE spaces.spaces ADD CONSTRAINT spaces_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$');
+    ALTER TABLE spaces.columns ALTER COLUMN short_id SET NOT NULL;
+    ALTER TABLE spaces.columns DROP CONSTRAINT IF EXISTS columns_short_id_format;
+    ALTER TABLE spaces.columns ADD CONSTRAINT columns_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$');
+    ALTER TABLE spaces.items ALTER COLUMN short_id SET NOT NULL;
+    ALTER TABLE spaces.items DROP CONSTRAINT IF EXISTS items_short_id_format;
+    ALTER TABLE spaces.items ADD CONSTRAINT items_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$');
+    ALTER TABLE spaces.comments ALTER COLUMN short_id SET NOT NULL;
+    ALTER TABLE spaces.comments DROP CONSTRAINT IF EXISTS comments_short_id_format;
+    ALTER TABLE spaces.comments ADD CONSTRAINT comments_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$');
+    ALTER TABLE spaces.tags ALTER COLUMN short_id SET NOT NULL;
+    ALTER TABLE spaces.tags DROP CONSTRAINT IF EXISTS tags_short_id_format;
+    ALTER TABLE spaces.tags ADD CONSTRAINT tags_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$');
+    ALTER TABLE spaces.wormholes ALTER COLUMN short_id SET NOT NULL;
+    ALTER TABLE spaces.wormholes DROP CONSTRAINT IF EXISTS wormholes_short_id_format;
+    ALTER TABLE spaces.wormholes ADD CONSTRAINT wormholes_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$')
+  `.simple();
 };

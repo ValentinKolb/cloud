@@ -69,6 +69,21 @@ import {
 import { CreateEventInvitationDraftInputSchema, EventInvitationContextSchema, EventInvitationDraftSchema } from "../integration";
 import { spacesService } from "../service";
 import { isSpaceResourceId, SPACE_RESOURCE_TYPE, SPACES_APP_ID } from "../service/access";
+import {
+  projectCalendarItems,
+  projectColumns,
+  projectComments,
+  projectItems,
+  projectOverlapItems,
+  projectSpaces,
+  projectTags,
+  projectWormholeDestinations,
+  projectWormholes,
+  projectWormholeTargets,
+  resolvePublicId,
+  resolvePublicIds,
+  resolveSpacePublicIds,
+} from "../service/public-resources";
 import wsRoutes from "../ws";
 
 // ==========================
@@ -220,13 +235,23 @@ const mailIntegrationRequest = (c: Context<AuthContext>) => ({
  * Middleware to check space access with permission level.
  * Global roles never imply resource access; recovery operations use adminApp.
  */
-const checkSpaceAccess = async (c: Context<AuthContext>, spaceId: string, requiredLevel: PermissionLevel = "read") => {
+const checkSpaceAccess = async (c: Context<AuthContext>, shortId: string, requiredLevel: PermissionLevel = "read") => {
   const subject = getSpaceAccessSubject(c);
+  const spaceId = await resolvePublicId("spaces", shortId);
+  if (!spaceId) {
+    return {
+      space: null,
+      internalId: null,
+      permission: "none" as PermissionLevel,
+      error: await respond(c, fail(err.notFound("Space"))),
+    };
+  }
   const space = await spacesService.space.get({ id: spaceId });
 
   if (!space) {
     return {
       space: null,
+      internalId: null,
       permission: "none" as PermissionLevel,
       error: await respond(c, fail(err.notFound("Space"))),
     };
@@ -240,6 +265,7 @@ const checkSpaceAccess = async (c: Context<AuthContext>, spaceId: string, requir
   ) {
     return {
       space: null,
+      internalId: null,
       permission: "none" as PermissionLevel,
       error: await respond(c, fail(err.forbidden("Access denied"))),
     };
@@ -257,18 +283,21 @@ const checkSpaceAccess = async (c: Context<AuthContext>, spaceId: string, requir
   if (!hasPermission(permission, requiredLevel)) {
     return {
       space: null,
+      internalId: null,
       permission: "none" as PermissionLevel,
       error: await respond(c, fail(err.forbidden("Access denied"))),
     };
   }
 
-  return { space, permission, user: subject.user };
+  return { space, internalId: spaceId, permission, user: subject.user };
 };
 
-const requireExistingSpace = async (c: Context<AuthContext>, spaceId: string) => {
+const requireExistingSpace = async (c: Context<AuthContext>, shortId: string) => {
+  const spaceId = await resolvePublicId("spaces", shortId);
+  if (!spaceId) return { space: null, internalId: null, error: await respond(c, fail(err.notFound("Space"))) };
   const space = await spacesService.space.get({ id: spaceId });
-  if (space) return { space, error: null };
-  return { space: null, error: await respond(c, fail(err.notFound("Space"))) };
+  if (space) return { space, internalId: spaceId, error: null };
+  return { space: null, internalId: null, error: await respond(c, fail(err.notFound("Space"))) };
 };
 
 /**
@@ -285,7 +314,9 @@ const respondMessage = async (c: Context, resultPromise: Promise<Result<void> | 
 /**
  * Ensures an item exists and belongs to the requested space before mutation handlers run.
  */
-const requireItemInSpace = async (spaceId: string, itemId: string) => {
+const requireItemInSpace = async (spaceId: string, itemShortId: string) => {
+  const itemId = await resolvePublicId("items", itemShortId);
+  if (!itemId) return fail(err.notFound("Item"));
   const item = await spacesService.item.get({ id: itemId });
   if (!item || item.spaceId !== spaceId) {
     return fail(err.notFound("Item"));
@@ -293,7 +324,9 @@ const requireItemInSpace = async (spaceId: string, itemId: string) => {
   return ok(item);
 };
 
-const requireColumnInSpace = async (spaceId: string, columnId: string) => {
+const requireColumnInSpace = async (spaceId: string, columnShortId: string) => {
+  const columnId = await resolvePublicId("columns", columnShortId);
+  if (!columnId) return fail(err.notFound("Column"));
   const column = await spacesService.column.get({ id: columnId });
   if (!column || column.spaceId !== spaceId) {
     return fail(err.notFound("Column"));
@@ -301,12 +334,59 @@ const requireColumnInSpace = async (spaceId: string, columnId: string) => {
   return ok(column);
 };
 
-const requireTagInSpace = async (spaceId: string, tagId: string) => {
+const requireTagInSpace = async (spaceId: string, tagShortId: string) => {
+  const tagId = await resolvePublicId("tags", tagShortId);
+  if (!tagId) return fail(err.notFound("Tag"));
   const tag = await spacesService.tag.get({ id: tagId });
   if (!tag || tag.spaceId !== spaceId) {
     return fail(err.notFound("Tag"));
   }
   return ok(tag);
+};
+
+const projectMutation = async <T extends object>(
+  resultPromise: Promise<MutationResult<T>>,
+  projector: (items: T[]) => Promise<T[]>,
+): Promise<MutationResult<T>> => {
+  const result = await resultPromise;
+  if (!result.ok) return result;
+  const [data] = await projector([result.data]);
+  return { ...result, data: data! };
+};
+
+const resolveItemData = async <T extends { columnId?: string; recurringEventId?: string | null; tagIds?: string[] }>(
+  spaceId: string,
+  data: T,
+): Promise<Result<T>> => {
+  let columnId = data.columnId;
+  if (columnId) {
+    const column = await requireColumnInSpace(spaceId, columnId);
+    if (!column.ok) return column;
+    columnId = column.data.id;
+  }
+  let recurringEventId = data.recurringEventId;
+  if (recurringEventId) {
+    const recurring = await requireItemInSpace(spaceId, recurringEventId);
+    if (!recurring.ok) return recurring;
+    recurringEventId = recurring.data.id;
+  }
+  let tagIds = data.tagIds;
+  if (tagIds) {
+    const resolved = await resolveSpacePublicIds("tags", spaceId, tagIds);
+    if (!resolved) return fail(err.notFound("Tag"));
+    tagIds = resolved;
+  }
+  return ok({ ...data, columnId, recurringEventId, tagIds });
+};
+
+const resolveItemFilter = async <T extends { tagIds?: string[]; columnIds?: string[] }>(spaceId: string, filter: T): Promise<Result<T>> => {
+  const [tagIds, columnIds] = await Promise.all([
+    filter.tagIds ? resolveSpacePublicIds("tags", spaceId, filter.tagIds) : Promise.resolve(undefined),
+    filter.columnIds ? resolveSpacePublicIds("columns", spaceId, filter.columnIds) : Promise.resolve(undefined),
+  ]);
+  if (tagIds === null) return fail(err.notFound("Tag"));
+  if (columnIds === null) return fail(err.notFound("Column"));
+  return ok({ ...filter, tagIds, columnIds });
 };
 
 // Widgets and WebSockets mount before the HTTP auth middleware because both
@@ -339,9 +419,12 @@ const app = new Hono<AuthContext>()
       const href = c.req.valid("query").href;
       const target = parseSpacesWorkspaceHref(href);
       if (!target) return respond(c, fail(err.badInput("Unsupported workspace view route")));
+      const spaceId = await resolvePublicId("spaces", target.spaceId);
+      if (!spaceId) return respond(c, fail(err.notFound("Space")));
       const snapshot = await loadSpacesViewSnapshot({
         user: userResult.data,
-        spaceId: target.spaceId,
+        spaceId,
+        spaceShortId: target.spaceId,
         href,
         cookieHeader: c.req.header("Cookie"),
         dateConfig: getDateConfig(c),
@@ -370,15 +453,16 @@ const app = new Hono<AuthContext>()
       const userResult = requireUserBackedActor(c);
       if (!userResult.ok) return respond(c, userResult);
 
-      const spaceId = c.req.param("id") ?? "";
-      if (!isSpaceResourceId(spaceId)) return respond(c, fail(err.badInput("Invalid space identifier")));
+      const spaceShortId = c.req.param("id") ?? "";
+      const spaceId = await resolvePublicId("spaces", spaceShortId);
+      if (!spaceId) return respond(c, fail(err.notFound("Space")));
 
       return respond(
         c,
         loadSpaceSettingsContext({
           user: userResult.data,
           spaceId,
-          settings: parseSpaceSettings(c.req.header("Cookie"), spaceId),
+          settings: parseSpaceSettings(c.req.header("Cookie"), spaceShortId),
         }),
       );
     },
@@ -402,11 +486,9 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const userResult = requireUserBackedActor(c);
       if (!userResult.ok) return respond(c, userResult);
-      const spaceId = c.req.param("id") ?? "";
-      const itemId = c.req.param("itemId") ?? "";
-      if (!z.uuid().safeParse(spaceId).success || !z.uuid().safeParse(itemId).success) {
-        return respond(c, fail(err.badInput("Invalid space or item identifier")));
-      }
+      const spaceId = await resolvePublicId("spaces", c.req.param("id") ?? "");
+      const itemId = await resolvePublicId("items", c.req.param("itemId") ?? "");
+      if (!spaceId || !itemId) return respond(c, fail(err.notFound("Item")));
       const result = await loadSpaceItemDetail({
         user: userResult.data,
         spaceId,
@@ -435,18 +517,16 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
-      const itemId = c.req.param("itemId") ?? "";
-      if (!z.uuid().safeParse(spaceId).success || !z.uuid().safeParse(itemId).success) {
-        return respond(c, fail(err.badInput("Invalid space or event identifier")));
-      }
-      const access = await checkSpaceAccess(c, spaceId, "write");
+      const access = await checkSpaceAccess(c, c.req.param("id") ?? "", "write");
       if (access.error) return access.error;
+      const spaceId = access.internalId!;
+      const item = await requireItemInSpace(spaceId, c.req.param("itemId") ?? "");
+      if (!item.ok) return respond(c, item);
       return respond(
         c,
         spacesService.calendarInvitations.getEventInvitationContext({
           spaceId,
-          itemId,
+          itemId: item.data.id,
           subject: getSpaceAccessSubject(c).subject,
           request: mailIntegrationRequest(c),
         }),
@@ -470,18 +550,16 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateEventInvitationDraftInputSchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
-      const itemId = c.req.param("itemId") ?? "";
-      if (!z.uuid().safeParse(spaceId).success || !z.uuid().safeParse(itemId).success) {
-        return respond(c, fail(err.badInput("Invalid space or event identifier")));
-      }
-      const access = await checkSpaceAccess(c, spaceId, "write");
+      const access = await checkSpaceAccess(c, c.req.param("id") ?? "", "write");
       if (access.error) return access.error;
+      const spaceId = access.internalId!;
+      const item = await requireItemInSpace(spaceId, c.req.param("itemId") ?? "");
+      if (!item.ok) return respond(c, item);
       return respond(
         c,
         spacesService.calendarInvitations.createEventInvitationDraft({
           spaceId,
-          itemId,
+          itemId: item.data.id,
           subject: getSpaceAccessSubject(c).subject,
           input: c.req.valid("json"),
           request: mailIntegrationRequest(c),
@@ -511,7 +589,7 @@ const app = new Hono<AuthContext>()
         subject: access.data.subject,
         boundSpaceId: access.data.boundSpaceId,
       });
-      return respond(c, ok(result.items));
+      return respond(c, ok(await projectSpaces(result.items)));
     },
   )
 
@@ -537,7 +615,7 @@ const app = new Hono<AuthContext>()
       if (!userResult.ok) return respond(c, userResult);
       const user = userResult.data;
       const data = c.req.valid("json");
-      return respond(c, spacesService.space.create({ data, creatorId: user.id }));
+      return respond(c, projectMutation(spacesService.space.create({ data, creatorId: user.id }), projectSpaces));
     },
   )
 
@@ -559,12 +637,17 @@ const app = new Hono<AuthContext>()
     }),
     async (c) => {
       const id = c.req.param("id") ?? "";
-      const { error } = await checkSpaceAccess(c, id);
+      const { internalId, error } = await checkSpaceAccess(c, id);
       if (error) return error;
 
-      const space = await spacesService.space.getDetail({ id });
+      const space = await spacesService.space.getDetail({ id: internalId! });
       if (!space) return respond(c, fail(err.notFound("Space")));
-      return respond(c, ok(space));
+      const [projectedSpace, columns, tags] = await Promise.all([
+        projectSpaces([space]),
+        projectColumns(space.columns),
+        projectTags(space.tags),
+      ]);
+      return respond(c, ok({ ...projectedSpace[0]!, columns, tags }));
     },
   )
 
@@ -589,9 +672,9 @@ const app = new Hono<AuthContext>()
       const id = c.req.param("id") ?? "";
       const data = c.req.valid("json");
 
-      const { error } = await checkSpaceAccess(c, id, "write");
+      const { internalId, error } = await checkSpaceAccess(c, id, "write");
       if (error) return error;
-      return respond(c, spacesService.space.update({ id, data }));
+      return respond(c, projectMutation(spacesService.space.update({ id: internalId!, data }), projectSpaces));
     },
   )
 
@@ -614,9 +697,9 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const id = c.req.param("id") ?? "";
 
-      const { error } = await checkSpaceAccess(c, id, "admin");
+      const { internalId, error } = await checkSpaceAccess(c, id, "admin");
       if (error) return error;
-      return respondMessage(c, spacesService.space.remove({ id }), "Space deleted");
+      return respondMessage(c, spacesService.space.remove({ id: internalId! }), "Space deleted");
     },
   )
 
@@ -639,9 +722,9 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const id = c.req.param("id") ?? "";
 
-      const { error } = await checkSpaceAccess(c, id, "admin");
+      const { internalId, error } = await checkSpaceAccess(c, id, "admin");
       if (error) return error;
-      return respond(c, spacesService.space.regenerateICalToken({ id }));
+      return respond(c, spacesService.space.regenerateICalToken({ id: internalId! }));
     },
   )
 
@@ -666,12 +749,12 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateColumnSchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const data = c.req.valid("json");
 
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
-      return respond(c, spacesService.column.create({ spaceId, data }));
+      return respond(c, projectMutation(spacesService.column.create({ spaceId: spaceId!, data }), projectColumns));
     },
   )
 
@@ -691,15 +774,15 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateColumnSchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const columnId = c.req.param("columnId") ?? "";
       const data = c.req.valid("json");
 
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
-      const columnCheck = await requireColumnInSpace(spaceId, columnId);
+      const columnCheck = await requireColumnInSpace(spaceId!, columnId);
       if (!columnCheck.ok) return respond(c, columnCheck);
-      return respond(c, spacesService.column.update({ id: columnId, data }));
+      return respond(c, projectMutation(spacesService.column.update({ id: columnCheck.data.id, data }), projectColumns));
     },
   )
 
@@ -719,14 +802,14 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const columnId = c.req.param("columnId") ?? "";
 
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
-      const columnCheck = await requireColumnInSpace(spaceId, columnId);
+      const columnCheck = await requireColumnInSpace(spaceId!, columnId);
       if (!columnCheck.ok) return respond(c, columnCheck);
-      return respondMessage(c, spacesService.column.remove({ id: columnId }), "Column deleted");
+      return respondMessage(c, spacesService.column.remove({ id: columnCheck.data.id }), "Column deleted");
     },
   )
 
@@ -747,12 +830,14 @@ const app = new Hono<AuthContext>()
     }),
     v("json", ReorderColumnsSchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const { columnIds } = c.req.valid("json");
 
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
-      return respondMessage(c, spacesService.column.reorder({ spaceId, columnIds }), "Columns reordered");
+      const resolvedColumnIds = await resolveSpacePublicIds("columns", spaceId!, columnIds);
+      if (!resolvedColumnIds) return respond(c, fail(err.notFound("Column")));
+      return respondMessage(c, spacesService.column.reorder({ spaceId: spaceId!, columnIds: resolvedColumnIds }), "Columns reordered");
     },
   )
 
@@ -774,10 +859,11 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const sourceSpaceId = c.req.param("id") ?? "";
-      const { error } = await checkSpaceAccess(c, sourceSpaceId, "read");
+      const { internalId: sourceSpaceId, error } = await checkSpaceAccess(c, c.req.param("id") ?? "", "read");
       if (error) return error;
-      return respond(c, async () => ok(await spacesService.wormhole.listUsable({ sourceSpaceId, actor: getWormholeActor(c) })));
+      return respond(c, async () =>
+        ok(await projectWormholes(await spacesService.wormhole.listUsable({ sourceSpaceId: sourceSpaceId!, actor: getWormholeActor(c) }))),
+      );
     },
   )
 
@@ -795,10 +881,13 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const sourceSpaceId = c.req.param("id") ?? "";
-      const { error } = await checkSpaceAccess(c, sourceSpaceId, "admin");
+      const { internalId: sourceSpaceId, error } = await checkSpaceAccess(c, c.req.param("id") ?? "", "admin");
       if (error) return error;
-      return respond(c, spacesService.wormhole.listConfigured({ sourceSpaceId, actor: getWormholeActor(c) }));
+      return respond(c, async () => {
+        const result = await spacesService.wormhole.listConfigured({ sourceSpaceId: sourceSpaceId!, actor: getWormholeActor(c) });
+        if (!result.ok) return result;
+        return ok(await projectWormholes(result.data));
+      });
     },
   )
 
@@ -816,10 +905,13 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const sourceSpaceId = c.req.param("id") ?? "";
-      const { error } = await checkSpaceAccess(c, sourceSpaceId, "admin");
+      const { internalId: sourceSpaceId, error } = await checkSpaceAccess(c, c.req.param("id") ?? "", "admin");
       if (error) return error;
-      return respond(c, spacesService.wormhole.listDestinations({ sourceSpaceId, actor: getWormholeActor(c) }));
+      return respond(c, async () => {
+        const result = await spacesService.wormhole.listDestinations({ sourceSpaceId: sourceSpaceId!, actor: getWormholeActor(c) });
+        if (!result.ok) return result;
+        return ok(await projectWormholeDestinations(result.data));
+      });
     },
   )
 
@@ -840,16 +932,21 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateWormholeSchema),
     async (c) => {
-      const sourceSpaceId = c.req.param("id") ?? "";
-      const { error } = await checkSpaceAccess(c, sourceSpaceId, "admin");
+      const { internalId: sourceSpaceId, error } = await checkSpaceAccess(c, c.req.param("id") ?? "", "admin");
       if (error) return error;
+      const data = c.req.valid("json");
+      const targetColumnId = await resolvePublicId("columns", data.targetColumnId);
+      if (!targetColumnId) return respond(c, fail(err.notFound("Destination column")));
       return respond(
         c,
-        spacesService.wormhole.create({
-          sourceSpaceId,
-          data: c.req.valid("json"),
-          actor: getWormholeActor(c),
-        }),
+        projectMutation(
+          spacesService.wormhole.create({
+            sourceSpaceId: sourceSpaceId!,
+            data: { ...data, targetColumnId },
+            actor: getWormholeActor(c),
+          }),
+          projectWormholes,
+        ),
       );
     },
   )
@@ -871,17 +968,24 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateWormholeSchema),
     async (c) => {
-      const sourceSpaceId = c.req.param("id") ?? "";
-      const { error } = await checkSpaceAccess(c, sourceSpaceId, "admin");
+      const { internalId: sourceSpaceId, error } = await checkSpaceAccess(c, c.req.param("id") ?? "", "admin");
       if (error) return error;
+      const wormholeId = await resolvePublicId("wormholes", c.req.param("wormholeId") ?? "");
+      if (!wormholeId) return respond(c, fail(err.notFound("Wormhole")));
+      const data = c.req.valid("json");
+      const targetColumnId = data.targetColumnId ? ((await resolvePublicId("columns", data.targetColumnId)) ?? undefined) : undefined;
+      if (data.targetColumnId && !targetColumnId) return respond(c, fail(err.notFound("Destination column")));
       return respond(
         c,
-        spacesService.wormhole.update({
-          sourceSpaceId,
-          id: c.req.param("wormholeId") ?? "",
-          data: c.req.valid("json"),
-          actor: getWormholeActor(c),
-        }),
+        projectMutation(
+          spacesService.wormhole.update({
+            sourceSpaceId: sourceSpaceId!,
+            id: wormholeId,
+            data: { ...data, targetColumnId },
+            actor: getWormholeActor(c),
+          }),
+          projectWormholes,
+        ),
       );
     },
   )
@@ -902,14 +1006,15 @@ const app = new Hono<AuthContext>()
     }),
     v("json", ReorderWormholesSchema),
     async (c) => {
-      const sourceSpaceId = c.req.param("id") ?? "";
-      const { error } = await checkSpaceAccess(c, sourceSpaceId, "admin");
+      const { internalId: sourceSpaceId, error } = await checkSpaceAccess(c, c.req.param("id") ?? "", "admin");
       if (error) return error;
+      const wormholeIds = await resolvePublicIds("wormholes", c.req.valid("json").wormholeIds);
+      if (!wormholeIds) return respond(c, fail(err.notFound("Wormhole")));
       return respondMessage(
         c,
         spacesService.wormhole.reorder({
-          sourceSpaceId,
-          wormholeIds: c.req.valid("json").wormholeIds,
+          sourceSpaceId: sourceSpaceId!,
+          wormholeIds,
           actor: getWormholeActor(c),
         }),
         "Wormholes reordered",
@@ -931,14 +1036,15 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const sourceSpaceId = c.req.param("id") ?? "";
-      const { error } = await checkSpaceAccess(c, sourceSpaceId, "admin");
+      const { internalId: sourceSpaceId, error } = await checkSpaceAccess(c, c.req.param("id") ?? "", "admin");
       if (error) return error;
+      const wormholeId = await resolvePublicId("wormholes", c.req.param("wormholeId") ?? "");
+      if (!wormholeId) return respond(c, fail(err.notFound("Wormhole")));
       return respondMessage(
         c,
         spacesService.wormhole.remove({
-          sourceSpaceId,
-          id: c.req.param("wormholeId") ?? "",
+          sourceSpaceId: sourceSpaceId!,
+          id: wormholeId,
           actor: getWormholeActor(c),
         }),
         "Wormhole deleted",
@@ -967,12 +1073,12 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateTagSchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const data = c.req.valid("json");
 
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
-      return respond(c, spacesService.tag.create({ spaceId, data }));
+      return respond(c, projectMutation(spacesService.tag.create({ spaceId: spaceId!, data }), projectTags));
     },
   )
 
@@ -993,15 +1099,15 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateTagSchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const tagId = c.req.param("tagId") ?? "";
       const data = c.req.valid("json");
 
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
-      const tagCheck = await requireTagInSpace(spaceId, tagId);
+      const tagCheck = await requireTagInSpace(spaceId!, tagId);
       if (!tagCheck.ok) return respond(c, tagCheck);
-      return respond(c, spacesService.tag.update({ id: tagId, data }));
+      return respond(c, projectMutation(spacesService.tag.update({ id: tagCheck.data.id, data }), projectTags));
     },
   )
 
@@ -1020,14 +1126,14 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const tagId = c.req.param("tagId") ?? "";
 
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
-      const tagCheck = await requireTagInSpace(spaceId, tagId);
+      const tagCheck = await requireTagInSpace(spaceId!, tagId);
       if (!tagCheck.ok) return respond(c, tagCheck);
-      return respondMessage(c, spacesService.tag.remove({ id: tagId }), "Tag deleted");
+      return respondMessage(c, spacesService.tag.remove({ id: tagCheck.data.id }), "Tag deleted");
     },
   )
 
@@ -1050,14 +1156,14 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const includeCompleted = c.req.query("includeCompleted") === "true";
 
-      const { error } = await checkSpaceAccess(c, spaceId);
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId);
       if (error) return error;
 
-      const result = await spacesService.item.list({ spaceId, includeCompleted });
-      return respond(c, ok(result.items));
+      const result = await spacesService.item.list({ spaceId: spaceId!, includeCompleted });
+      return respond(c, ok(await projectItems(result.items)));
     },
   )
 
@@ -1078,14 +1184,20 @@ const app = new Hono<AuthContext>()
     v("json", ItemFilterSchema),
     async (c) => {
       const user = getUserBackedActor(c);
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const filter = c.req.valid("json");
 
-      const { error } = await checkSpaceAccess(c, spaceId);
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId);
       if (error) return error;
-
-      const result = await spacesService.item.listFiltered({ spaceId, filter, currentUserId: user?.id, dateConfig: getDateConfig(c) });
-      return respond(c, ok(result));
+      const resolvedFilter = await resolveItemFilter(spaceId!, filter);
+      if (!resolvedFilter.ok) return respond(c, resolvedFilter);
+      const result = await spacesService.item.listFiltered({
+        spaceId: spaceId!,
+        filter: resolvedFilter.data,
+        currentUserId: user?.id,
+        dateConfig: getDateConfig(c),
+      });
+      return respond(c, ok({ ...result, items: await projectItems(result.items) }));
     },
   )
 
@@ -1107,19 +1219,19 @@ const app = new Hono<AuthContext>()
     }),
     v("query", AssignableUsersQuerySchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const query = c.req.valid("query");
 
       // This is the assignee picker's data source, so it needs the permission
       // that assigning needs. Read access to a space's items is not a reason to
       // be handed a searchable directory of everyone who can see it.
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
       const excludeUserIds = parseUuidCsv(query.exclude_user_ids, "exclude_user_ids");
       if (!excludeUserIds.ok) return respond(c, excludeUserIds);
 
       const users = await spacesService.item.listAssignableUsers({
-        spaceId,
+        spaceId: spaceId!,
         search: query.search,
         excludeUserIds: excludeUserIds.data,
       });
@@ -1145,12 +1257,25 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateItemSchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const data = c.req.valid("json");
 
-      const { user, error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, user, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
-      return respond(c, spacesService.item.create({ spaceId, data, createdBy: user?.id ?? null, dateConfig: getDateConfig(c) }));
+      const resolvedData = await resolveItemData(spaceId!, data);
+      if (!resolvedData.ok) return respond(c, resolvedData);
+      return respond(
+        c,
+        projectMutation(
+          spacesService.item.create({
+            spaceId: spaceId!,
+            data: resolvedData.data,
+            createdBy: user?.id ?? null,
+            dateConfig: getDateConfig(c),
+          }),
+          projectItems,
+        ),
+      );
     },
   )
 
@@ -1169,18 +1294,14 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
 
-      const { error } = await checkSpaceAccess(c, spaceId);
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId);
       if (error) return error;
-
-      const item = await spacesService.item.get({ id: itemId });
-      if (!item || item.spaceId !== spaceId) {
-        return respond(c, fail(err.notFound("Item")));
-      }
-
-      return respond(c, ok(item));
+      const item = await requireItemInSpace(spaceId!, itemId);
+      if (!item.ok) return respond(c, item);
+      return respond(c, ok((await projectItems([item.data]))[0]!));
     },
   )
 
@@ -1201,15 +1322,23 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateItemSchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
       const data = c.req.valid("json");
 
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
-      const itemCheck = await requireItemInSpace(spaceId, itemId);
+      const itemCheck = await requireItemInSpace(spaceId!, itemId);
       if (!itemCheck.ok) return respond(c, itemCheck);
-      return respond(c, spacesService.item.update({ id: itemId, data, dateConfig: getDateConfig(c) }));
+      const resolvedData = await resolveItemData(spaceId!, data);
+      if (!resolvedData.ok) return respond(c, resolvedData);
+      return respond(
+        c,
+        projectMutation(
+          spacesService.item.update({ id: itemCheck.data.id, data: resolvedData.data, dateConfig: getDateConfig(c) }),
+          projectItems,
+        ),
+      );
     },
   )
 
@@ -1230,22 +1359,25 @@ const app = new Hono<AuthContext>()
     }),
     v("json", SplitRecurringItemSchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
       const data = c.req.valid("json");
 
-      const { user, error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, user, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
-      const itemCheck = await requireItemInSpace(spaceId, itemId);
+      const itemCheck = await requireItemInSpace(spaceId!, itemId);
       if (!itemCheck.ok) return respond(c, itemCheck);
       return respond(
         c,
-        spacesService.item.splitRecurring({
-          id: itemId,
-          data,
-          createdBy: user?.id ?? null,
-          dateConfig: getDateConfig(c),
-        }),
+        projectMutation(
+          spacesService.item.splitRecurring({
+            id: itemCheck.data.id,
+            data,
+            createdBy: user?.id ?? null,
+            dateConfig: getDateConfig(c),
+          }),
+          projectItems,
+        ),
       );
     },
   )
@@ -1265,14 +1397,14 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
 
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
-      const itemCheck = await requireItemInSpace(spaceId, itemId);
+      const itemCheck = await requireItemInSpace(spaceId!, itemId);
       if (!itemCheck.ok) return respond(c, itemCheck);
-      return respondMessage(c, spacesService.item.remove({ id: itemId }), "Item deleted");
+      return respondMessage(c, spacesService.item.remove({ id: itemCheck.data.id }), "Item deleted");
     },
   )
 
@@ -1293,15 +1425,20 @@ const app = new Hono<AuthContext>()
     }),
     v("json", MoveItemSchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
       const { columnId, rank, completed } = c.req.valid("json");
 
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
-      const itemCheck = await requireItemInSpace(spaceId, itemId);
+      const itemCheck = await requireItemInSpace(spaceId!, itemId);
       if (!itemCheck.ok) return respond(c, itemCheck);
-      return respond(c, spacesService.item.move({ id: itemId, columnId, rank, completed }));
+      const column = await requireColumnInSpace(spaceId!, columnId);
+      if (!column.ok) return respond(c, column);
+      return respond(
+        c,
+        projectMutation(spacesService.item.move({ id: itemCheck.data.id, columnId: column.data.id, rank, completed }), projectItems),
+      );
     },
   )
 
@@ -1321,18 +1458,30 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const sourceSpaceId = c.req.param("id") ?? "";
-      const { error } = await checkSpaceAccess(c, sourceSpaceId, "write");
+      const { internalId: sourceSpaceId, error } = await checkSpaceAccess(c, c.req.param("id") ?? "", "write");
       if (error) return error;
-      return respond(
-        c,
-        spacesService.wormhole.transfer({
-          sourceSpaceId,
-          itemId: c.req.param("itemId") ?? "",
-          wormholeId: c.req.param("wormholeId") ?? "",
+      const item = await requireItemInSpace(sourceSpaceId!, c.req.param("itemId") ?? "");
+      if (!item.ok) return respond(c, item);
+      const wormholeId = await resolvePublicId("wormholes", c.req.param("wormholeId") ?? "");
+      if (!wormholeId) return respond(c, fail(err.notFound("Wormhole")));
+      return respond(c, async () => {
+        const result = await spacesService.wormhole.transfer({
+          sourceSpaceId: sourceSpaceId!,
+          itemId: item.data.id,
+          wormholeId,
           actor: getWormholeActor(c),
-        }),
-      );
+        });
+        if (!result.ok) return result;
+        const [projectedItem, projectedDestination] = await Promise.all([
+          projectItems([result.data.item]),
+          projectWormholeTargets([result.data.destination]),
+        ]);
+        return ok({
+          ...result.data,
+          item: projectedItem[0]!,
+          destination: projectedDestination[0]!,
+        });
+      });
     },
   )
 
@@ -1352,15 +1501,15 @@ const app = new Hono<AuthContext>()
     }),
     v("json", SetCompletedSchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
       const { completed } = c.req.valid("json");
 
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
-      const itemCheck = await requireItemInSpace(spaceId, itemId);
+      const itemCheck = await requireItemInSpace(spaceId!, itemId);
       if (!itemCheck.ok) return respond(c, itemCheck);
-      return respond(c, spacesService.item.setCompleted({ id: itemId, completed }));
+      return respond(c, projectMutation(spacesService.item.setCompleted({ id: itemCheck.data.id, completed }), projectItems));
     },
   )
 
@@ -1384,21 +1533,21 @@ const app = new Hono<AuthContext>()
     }),
     v("query", RecurringOccurrenceQuerySchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
 
-      const { error } = await checkSpaceAccess(c, spaceId);
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId);
       if (error) return error;
-      const itemCheck = await requireItemInSpace(spaceId, itemId);
+      const itemCheck = await requireItemInSpace(spaceId!, itemId);
       if (!itemCheck.ok) return respond(c, itemCheck);
 
       const user = getUserBackedActor(c);
       const result = await spacesService.comment.list({
-        itemId,
+        itemId: itemCheck.data.id,
         recurrenceId: c.req.valid("query").recurrence_id,
         viewerUserId: user?.id ?? null,
       });
-      return respond(c, ok(result.items));
+      return respond(c, ok(await projectComments(result.items)));
     },
   )
 
@@ -1417,21 +1566,21 @@ const app = new Hono<AuthContext>()
     }),
     v("query", CommentPageQuerySchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
-      const { error } = await checkSpaceAccess(c, spaceId);
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId);
       if (error) return error;
-      const itemCheck = await requireItemInSpace(spaceId, itemId);
+      const itemCheck = await requireItemInSpace(spaceId!, itemId);
       if (!itemCheck.ok) return respond(c, itemCheck);
       const query = c.req.valid("query");
       const user = getUserBackedActor(c);
       const result = await spacesService.comment.list({
-        itemId,
+        itemId: itemCheck.data.id,
         recurrenceId: query.recurrence_id,
         viewerUserId: user?.id ?? null,
         pagination: { page: query.page, perPage: query.per_page },
       });
-      return respond(c, ok(result));
+      return respond(c, ok({ ...result, items: await projectComments(result.items) }));
     },
   )
 
@@ -1456,23 +1605,26 @@ const app = new Hono<AuthContext>()
       const userResult = requireUserBackedActor(c);
       if (!userResult.ok) return respond(c, userResult);
       const user = userResult.data;
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
       const { content } = c.req.valid("json");
 
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
-      const itemCheck = await requireItemInSpace(spaceId, itemId);
+      const itemCheck = await requireItemInSpace(spaceId!, itemId);
       if (!itemCheck.ok) return respond(c, itemCheck);
       return respond(
         c,
-        spacesService.comment.create({
-          itemId,
-          recurrenceId: c.req.valid("query").recurrence_id,
-          dateConfig: getDateConfig(c),
-          userId: user.id,
-          content,
-        }),
+        projectMutation(
+          spacesService.comment.create({
+            itemId: itemCheck.data.id,
+            recurrenceId: c.req.valid("query").recurrence_id,
+            dateConfig: getDateConfig(c),
+            userId: user.id,
+            content,
+          }),
+          projectComments,
+        ),
       );
     },
   )
@@ -1496,31 +1648,29 @@ const app = new Hono<AuthContext>()
       const userResult = requireUserBackedActor(c);
       if (!userResult.ok) return respond(c, userResult);
       const user = userResult.data;
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
       const commentId = c.req.param("commentId") ?? "";
       const { content } = c.req.valid("json");
 
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
 
       // Cross-check the comment is actually in this space's item — owner-check
       // in the service prevents cross-user mutation, but this stops a user
       // from updating their own comment in space B via space A's URL.
-      const itemCheck = await requireItemInSpace(spaceId, itemId);
+      const itemCheck = await requireItemInSpace(spaceId!, itemId);
       if (!itemCheck.ok) return respond(c, itemCheck);
-      const existing = await spacesService.comment.get({ id: commentId, viewerUserId: user.id });
-      if (!existing || existing.itemId !== itemId) {
+      const internalCommentId = await resolvePublicId("comments", commentId);
+      if (!internalCommentId) return respond(c, fail(err.notFound("Comment")));
+      const existing = await spacesService.comment.get({ id: internalCommentId, viewerUserId: user.id });
+      if (!existing || existing.itemId !== itemCheck.data.id) {
         return respond(c, fail(err.notFound("Comment")));
       }
 
       return respond(
         c,
-        spacesService.comment.update({
-          id: commentId,
-          content,
-          userId: user.id,
-        }),
+        projectMutation(spacesService.comment.update({ id: internalCommentId, content, userId: user.id }), projectComments),
       );
     },
   )
@@ -1543,25 +1693,27 @@ const app = new Hono<AuthContext>()
       const userResult = requireUserBackedActor(c);
       if (!userResult.ok) return respond(c, userResult);
       const user = userResult.data;
-      const spaceId = c.req.param("id") ?? "";
+      const spaceShortId = c.req.param("id") ?? "";
       const itemId = c.req.param("itemId") ?? "";
       const commentId = c.req.param("commentId") ?? "";
 
-      const { error } = await checkSpaceAccess(c, spaceId, "write");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, spaceShortId, "write");
       if (error) return error;
 
       // Cross-check (see Update Comment above for rationale).
-      const itemCheck = await requireItemInSpace(spaceId, itemId);
+      const itemCheck = await requireItemInSpace(spaceId!, itemId);
       if (!itemCheck.ok) return respond(c, itemCheck);
-      const existing = await spacesService.comment.get({ id: commentId, viewerUserId: user.id });
-      if (!existing || existing.itemId !== itemId) {
+      const internalCommentId = await resolvePublicId("comments", commentId);
+      if (!internalCommentId) return respond(c, fail(err.notFound("Comment")));
+      const existing = await spacesService.comment.get({ id: internalCommentId, viewerUserId: user.id });
+      if (!existing || existing.itemId !== itemCheck.data.id) {
         return respond(c, fail(err.notFound("Comment")));
       }
 
       return respondMessage(
         c,
         spacesService.comment.remove({
-          id: commentId,
+          id: internalCommentId,
           userId: user.id,
         }),
         "Comment deleted",
@@ -1590,11 +1742,10 @@ const app = new Hono<AuthContext>()
       const userResult = requireUserBackedActor(c);
       if (!userResult.ok) return respond(c, userResult);
 
-      const spaceId = c.req.param("id") ?? "";
-      const { error } = await checkSpaceAccess(c, spaceId, "admin");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, c.req.param("id") ?? "", "admin");
       if (error) return error;
 
-      return respond(c, async () => ok({ items: await spacesService.access.apiKeys.list({ spaceId }) }));
+      return respond(c, async () => ok({ items: await spacesService.access.apiKeys.list({ spaceId: spaceId! }) }));
     },
   )
 
@@ -1617,15 +1768,14 @@ const app = new Hono<AuthContext>()
       const userResult = requireUserBackedActor(c);
       if (!userResult.ok) return respond(c, userResult);
       const user = userResult.data;
-      const spaceId = c.req.param("id") ?? "";
       const data = c.req.valid("json");
-      const { space, error } = await checkSpaceAccess(c, spaceId, "admin");
+      const { space, internalId: spaceId, error } = await checkSpaceAccess(c, c.req.param("id") ?? "", "admin");
       if (error) return error;
 
       return respond(
         c,
         spacesService.access.apiKeys.create({
-          spaceId,
+          spaceId: spaceId!,
           actor: user,
           spaceName: space?.name ?? "Space",
           data: {
@@ -1656,12 +1806,11 @@ const app = new Hono<AuthContext>()
       const userResult = requireUserBackedActor(c);
       if (!userResult.ok) return respond(c, userResult);
       const user = userResult.data;
-      const spaceId = c.req.param("id") ?? "";
       const credentialId = c.req.param("credentialId") ?? "";
-      const { error } = await checkSpaceAccess(c, spaceId, "admin");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, c.req.param("id") ?? "", "admin");
       if (error) return error;
 
-      return respond(c, spacesService.access.apiKeys.revoke({ spaceId, credentialId, actor: user }));
+      return respond(c, spacesService.access.apiKeys.revoke({ spaceId: spaceId!, credentialId, actor: user }));
     },
   )
 
@@ -1686,12 +1835,10 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const userResult = requireUserBackedActor(c);
       if (!userResult.ok) return respond(c, userResult);
-      const spaceId = c.req.param("id") ?? "";
-
-      const { error } = await checkSpaceAccess(c, spaceId, "admin");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, c.req.param("id") ?? "", "admin");
       if (error) return error;
 
-      const entries = await spacesService.access.list({ spaceId });
+      const entries = await spacesService.access.list({ spaceId: spaceId! });
       return respond(c, ok(entries.items));
     },
   )
@@ -1715,15 +1862,14 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const userResult = requireUserBackedActor(c);
       if (!userResult.ok) return respond(c, userResult);
-      const spaceId = c.req.param("id") ?? "";
       const { principal, permission } = c.req.valid("json");
 
-      const { error } = await checkSpaceAccess(c, spaceId, "admin");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, c.req.param("id") ?? "", "admin");
       if (error) return error;
       return respond(
         c,
         spacesService.access.grant({
-          spaceId,
+          spaceId: spaceId!,
           principal,
           permission,
         }),
@@ -1749,14 +1895,13 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const userResult = requireUserBackedActor(c);
       if (!userResult.ok) return respond(c, userResult);
-      const spaceId = c.req.param("id") ?? "";
       const accessId = c.req.param("accessId") ?? "";
       const { permission } = c.req.valid("json");
 
-      const { error } = await checkSpaceAccess(c, spaceId, "admin");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, c.req.param("id") ?? "", "admin");
       if (error) return error;
 
-      return respondMessage(c, spacesService.access.update({ spaceId, accessId, permission }), "Access updated");
+      return respondMessage(c, spacesService.access.update({ spaceId: spaceId!, accessId, permission }), "Access updated");
     },
   )
 
@@ -1778,13 +1923,12 @@ const app = new Hono<AuthContext>()
     async (c) => {
       const userResult = requireUserBackedActor(c);
       if (!userResult.ok) return respond(c, userResult);
-      const spaceId = c.req.param("id") ?? "";
       const accessId = c.req.param("accessId") ?? "";
 
-      const { error } = await checkSpaceAccess(c, spaceId, "admin");
+      const { internalId: spaceId, error } = await checkSpaceAccess(c, c.req.param("id") ?? "", "admin");
       if (error) return error;
 
-      return respondMessage(c, spacesService.access.remove({ spaceId, accessId }), "Access revoked");
+      return respondMessage(c, spacesService.access.remove({ spaceId: spaceId!, accessId }), "Access revoked");
     },
   );
 
@@ -1806,10 +1950,9 @@ const adminApp = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
-      const { error } = await requireExistingSpace(c, spaceId);
+      const { internalId: spaceId, error } = await requireExistingSpace(c, c.req.param("id") ?? "");
       if (error) return error;
-      const entries = await spacesService.access.list({ spaceId });
+      const entries = await spacesService.access.list({ spaceId: spaceId! });
       return respond(c, ok(entries.items));
     },
   )
@@ -1829,11 +1972,10 @@ const adminApp = new Hono<AuthContext>()
     }),
     v("json", GrantAccessSchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
-      const { error } = await requireExistingSpace(c, spaceId);
+      const { internalId: spaceId, error } = await requireExistingSpace(c, c.req.param("id") ?? "");
       if (error) return error;
       const { principal, permission } = c.req.valid("json");
-      return respond(c, spacesService.access.grant({ spaceId, principal, permission }));
+      return respond(c, spacesService.access.grant({ spaceId: spaceId!, principal, permission }));
     },
   )
   .patch(
@@ -1852,12 +1994,11 @@ const adminApp = new Hono<AuthContext>()
     }),
     v("json", UpdateAccessSchema),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
-      const { error } = await requireExistingSpace(c, spaceId);
+      const { internalId: spaceId, error } = await requireExistingSpace(c, c.req.param("id") ?? "");
       if (error) return error;
       const accessId = c.req.param("accessId") ?? "";
       const { permission } = c.req.valid("json");
-      return respondMessage(c, spacesService.access.update({ spaceId, accessId, permission }), "Access updated");
+      return respondMessage(c, spacesService.access.update({ spaceId: spaceId!, accessId, permission }), "Access updated");
     },
   )
   .delete(
@@ -1875,11 +2016,10 @@ const adminApp = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
-      const { error } = await requireExistingSpace(c, spaceId);
+      const { internalId: spaceId, error } = await requireExistingSpace(c, c.req.param("id") ?? "");
       if (error) return error;
       const accessId = c.req.param("accessId") ?? "";
-      return respondMessage(c, spacesService.access.remove({ spaceId, accessId }), "Access revoked");
+      return respondMessage(c, spacesService.access.remove({ spaceId: spaceId!, accessId }), "Access revoked");
     },
   )
   .delete(
@@ -1896,10 +2036,9 @@ const adminApp = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const spaceId = c.req.param("id") ?? "";
-      const { error } = await requireExistingSpace(c, spaceId);
+      const { internalId: spaceId, error } = await requireExistingSpace(c, c.req.param("id") ?? "");
       if (error) return error;
-      return respondMessage(c, spacesService.space.remove({ id: spaceId }), "Space deleted");
+      return respondMessage(c, spacesService.space.remove({ id: spaceId! }), "Space deleted");
     },
   );
 
@@ -1936,7 +2075,7 @@ const calendarApp = new Hono<AuthContext>()
         from,
         to,
       });
-      return respond(c, ok(result));
+      return respond(c, ok(await projectCalendarItems(result)));
     },
   )
 
@@ -1957,14 +2096,16 @@ const calendarApp = new Hono<AuthContext>()
       const access = getScopedSpaceAccess(c);
       if (!access.ok) return respond(c, access);
       const { from, to, excludeItemId } = c.req.valid("query");
+      const internalExcludeItemId = excludeItemId ? ((await resolvePublicId("items", excludeItemId)) ?? undefined) : undefined;
+      if (excludeItemId && !internalExcludeItemId) return respond(c, fail(err.notFound("Item")));
 
       const result = await spacesService.item.calendar.checkOverlap({
         ...access.data,
         from,
         to,
-        excludeItemId,
+        excludeItemId: internalExcludeItemId,
       });
-      return respond(c, ok(result));
+      return respond(c, ok(await projectOverlapItems(result)));
     },
   );
 
@@ -2015,8 +2156,8 @@ const icalApp = new Hono().get(
 
 // Combined export: spaces API + calendar sub-routes.
 // Calendar is mounted BEFORE the spaces app — `app` has a `/:id` handler that
-// would otherwise match the literal path "calendar" and try to parse it as a
-// space UUID (causing a 500 from Postgres uuid validation). Hono's router
+// would otherwise match the literal path "calendar" as a Space resource route.
+// Hono's router
 // honours registration order for overlapping static-vs-dynamic paths.
 const combined = new Hono()
   .use(rateLimit())

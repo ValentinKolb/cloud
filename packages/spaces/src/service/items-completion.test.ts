@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { setCompleted } from "./items";
 
 const canUseDatabase = async () => {
@@ -23,25 +24,25 @@ suite("Spaces item completion workflow", () => {
   test("moves items between active and completed workflow columns", async () => {
     const suffix = crypto.randomUUID();
     const [space] = await sql<{ id: string }[]>`
-      INSERT INTO spaces.spaces (name, description, color)
-      VALUES (${`Completion Test ${suffix}`}, 'completion workflow test', '#16a34a')
+      INSERT INTO spaces.spaces (short_id, name, description, color)
+      VALUES (${newShortId()}, ${`Completion Test ${suffix}`}, 'completion workflow test', '#16a34a')
       RETURNING id
     `;
 
     try {
       const [activeColumn] = await sql<{ id: string }[]>`
-        INSERT INTO spaces.columns (space_id, name, rank, is_done)
-        VALUES (${space!.id}::uuid, 'To Do', 1024, false)
+        INSERT INTO spaces.columns (short_id, space_id, name, rank, is_done)
+        VALUES (${newShortId()}, ${space!.id}::uuid, 'To Do', 1024, false)
         RETURNING id
       `;
       const [doneColumn] = await sql<{ id: string }[]>`
-        INSERT INTO spaces.columns (space_id, name, rank, is_done)
-        VALUES (${space!.id}::uuid, 'Done', 2048, true)
+        INSERT INTO spaces.columns (short_id, space_id, name, rank, is_done)
+        VALUES (${newShortId()}, ${space!.id}::uuid, 'Done', 2048, true)
         RETURNING id
       `;
       const [item] = await sql<{ id: string }[]>`
-        INSERT INTO spaces.items (space_id, column_id, title, rank)
-        VALUES (${space!.id}::uuid, ${activeColumn!.id}::uuid, 'Ship the workflow', 1024)
+        INSERT INTO spaces.items (short_id, space_id, column_id, title, rank)
+        VALUES (${newShortId()}, ${space!.id}::uuid, ${activeColumn!.id}::uuid, 'Ship the workflow', 1024)
         RETURNING id
       `;
 

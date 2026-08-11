@@ -20,6 +20,7 @@ import type {
   SplitRecurringItem,
   UpdateItem,
 } from "@/contracts";
+import { withShortId } from "../lib/short-id";
 import { buildSpacePrincipalCondition, isSpaceResourceId } from "./access";
 import { publishSpaceEvent } from "./events";
 import { rank } from "./rank";
@@ -145,6 +146,7 @@ export const persistCalendarEvent = async (params: {
   itemId: string | null;
   createdBy: string;
   completed: boolean;
+  shortId: string;
   data: CalendarEventPersistence;
 }): Promise<MutationResult<{ id: string; created: boolean }>> => {
   if (new Date(params.data.endsAt).getTime() <= new Date(params.data.startsAt).getTime()) {
@@ -168,10 +170,10 @@ export const persistCalendarEvent = async (params: {
     if (!column) return { ok: false, error: "The destination Space needs an open column", status: 400 };
     const [created] = await params.db<{ id: string }[]>`
       INSERT INTO spaces.items (
-        space_id, column_id, title, description, location, url, starts_at, ends_at, all_day,
+        short_id, space_id, column_id, title, description, location, url, starts_at, ends_at, all_day,
         recurrence_rrule, recurrence_dtstart, recurrence_exdate, rank, created_by
       ) VALUES (
-        ${params.spaceId}::uuid, ${column.id}::uuid, ${params.data.title}, ${params.data.description},
+        ${params.shortId}, ${params.spaceId}::uuid, ${column.id}::uuid, ${params.data.title}, ${params.data.description},
         ${params.data.location}, ${params.data.url}, ${params.data.startsAt}::timestamptz, ${params.data.endsAt}::timestamptz,
         ${params.data.allDay}, ${params.data.recurrenceRule},
         ${params.data.recurrenceRule ? params.data.startsAt : null}::timestamptz,
@@ -1179,14 +1181,16 @@ export const create = async (params: {
   const nextRank = rank.next(maxRow?.max);
   const recurrence = recurrenceValues(data.recurrence);
 
-  const row = await sql.begin(async (tx): Promise<{ id: string } | null> => {
-    const [created] = await tx<{ id: string }[]>`
+  const row = await withShortId("item", (shortId) =>
+    sql.begin(async (tx): Promise<{ id: string } | null> => {
+      const [created] = await tx<{ id: string }[]>`
       INSERT INTO spaces.items (
-        space_id, column_id, title, description, location, url, starts_at, ends_at, deadline,
+        short_id, space_id, column_id, title, description, location, url, starts_at, ends_at, deadline,
         all_day, priority, recurrence_rrule, recurrence_dtstart, recurrence_exdate,
         recurring_event_id, recurrence_id, rank, completed_at, created_by
       )
       VALUES (
+        ${shortId},
         ${spaceId},
         ${data.columnId},
         ${data.title},
@@ -1213,18 +1217,19 @@ export const create = async (params: {
       RETURNING id
     `;
 
-    if (!created) return null;
+      if (!created) return null;
 
-    if (data.assigneeIds !== undefined) {
-      await replaceItemAssignees(tx, created.id, data.assigneeIds);
-    }
+      if (data.assigneeIds !== undefined) {
+        await replaceItemAssignees(tx, created.id, data.assigneeIds);
+      }
 
-    if (data.tagIds !== undefined) {
-      await replaceItemTags(tx, created.id, data.tagIds);
-    }
+      if (data.tagIds !== undefined) {
+        await replaceItemTags(tx, created.id, data.tagIds);
+      }
 
-    return created;
-  });
+      return created;
+    }),
+  );
 
   if (!row) {
     if (data.recurringEventId && data.recurrenceId) {
@@ -1420,8 +1425,9 @@ export const splitRecurring = async (params: {
   createdBy: string | null;
   dateConfig?: DateContext;
 }): Promise<MutationResult<SpaceItem>> => {
-  const result = await sql.begin(async (tx): Promise<MutationResult<{ id: string; spaceId: string; created: boolean }>> => {
-    const [source] = await tx<DbItem[]>`
+  const result = await withShortId("item", (shortId) =>
+    sql.begin(async (tx): Promise<MutationResult<{ id: string; spaceId: string; created: boolean }>> => {
+      const [source] = await tx<DbItem[]>`
       SELECT
         id, space_id, column_id, title, description, location, url, starts_at, ends_at, all_day, deadline, priority,
         recurrence_rrule, recurrence_dtstart, recurrence_exdate, recurring_event_id, recurrence_id, rank::text AS rank,
@@ -1430,38 +1436,38 @@ export const splitRecurring = async (params: {
       WHERE id = ${params.id}
       FOR UPDATE
     `;
-    if (!source) return { ok: false, error: "Item not found", status: 404 };
-    if (!source.starts_at || !source.ends_at || !source.recurrence_rrule || source.recurring_event_id) {
-      return { ok: false, error: "Item is not a recurring series", status: 400 };
-    }
+      if (!source) return { ok: false, error: "Item not found", status: 404 };
+      if (!source.starts_at || !source.ends_at || !source.recurrence_rrule || source.recurring_event_id) {
+        return { ok: false, error: "Item is not a recurring series", status: 400 };
+      }
 
-    const split = splitRecurringEvent({
-      event: {
-        id: source.id,
-        title: source.title,
-        start: source.starts_at,
-        end: source.ends_at,
-        allDay: source.all_day,
-        recurrence: {
-          rrule: source.recurrence_rrule,
-          dtstart: source.recurrence_dtstart ?? source.starts_at,
-          exdate: source.recurrence_exdate ?? [],
+      const split = splitRecurringEvent({
+        event: {
+          id: source.id,
+          title: source.title,
+          start: source.starts_at,
+          end: source.ends_at,
+          allDay: source.all_day,
+          recurrence: {
+            rrule: source.recurrence_rrule,
+            dtstart: source.recurrence_dtstart ?? source.starts_at,
+            exdate: source.recurrence_exdate ?? [],
+          },
         },
-      },
-      recurrenceId: params.data.recurrenceId,
-      nextStart: params.data.startsAt,
-      dateConfig: params.dateConfig,
-    });
-    if (!split) return { ok: false, error: "Recurring occurrence not found", status: 404 };
+        recurrenceId: params.data.recurrenceId,
+        nextStart: params.data.startsAt,
+        dateConfig: params.dateConfig,
+      });
+      if (!split) return { ok: false, error: "Recurring occurrence not found", status: 404 };
 
-    const recurrenceId = new Date(params.data.recurrenceId).toISOString();
-    const shiftMilliseconds = new Date(params.data.startsAt).getTime() - new Date(recurrenceId).getTime();
-    const interval = sql`(${shiftMilliseconds}::double precision * interval '1 millisecond')`;
-    const previousExdate = split.previousExdate.length > 0 ? toPgTimestampArray(split.previousExdate) : null;
-    const nextExdate = split.nextExdate.length > 0 ? toPgTimestampArray(split.nextExdate) : null;
+      const recurrenceId = new Date(params.data.recurrenceId).toISOString();
+      const shiftMilliseconds = new Date(params.data.startsAt).getTime() - new Date(recurrenceId).getTime();
+      const interval = sql`(${shiftMilliseconds}::double precision * interval '1 millisecond')`;
+      const previousExdate = split.previousExdate.length > 0 ? toPgTimestampArray(split.previousExdate) : null;
+      const nextExdate = split.nextExdate.length > 0 ? toPgTimestampArray(split.nextExdate) : null;
 
-    if (split.isFirstOccurrence) {
-      await tx`
+      if (split.isFirstOccurrence) {
+        await tx`
         UPDATE spaces.items
         SET starts_at = ${params.data.startsAt}::timestamptz,
             ends_at = ${params.data.endsAt}::timestamptz,
@@ -1472,7 +1478,7 @@ export const splitRecurring = async (params: {
             updated_at = now()
         WHERE id = ${source.id}
       `;
-      await tx`
+        await tx`
         UPDATE spaces.items
         SET recurrence_id = recurrence_id + ${interval},
             starts_at = starts_at + ${interval},
@@ -1481,16 +1487,16 @@ export const splitRecurring = async (params: {
         WHERE recurring_event_id = ${source.id}
           AND recurrence_id IS NOT NULL
       `;
-      await tx`
+        await tx`
         UPDATE spaces.comments
         SET recurrence_id = recurrence_id + ${interval}
         WHERE item_id = ${source.id}
           AND recurrence_id IS NOT NULL
       `;
-      return { ok: true, data: { id: source.id, spaceId: source.space_id, created: false } };
-    }
+        return { ok: true, data: { id: source.id, spaceId: source.space_id, created: false } };
+      }
 
-    await tx`
+      await tx`
       UPDATE spaces.items
       SET recurrence_rrule = ${split.previousRrule},
           recurrence_exdate = ${previousExdate ? sql`${previousExdate}::timestamptz[]` : null},
@@ -1498,13 +1504,14 @@ export const splitRecurring = async (params: {
       WHERE id = ${source.id}
     `;
 
-    const [created] = await tx<{ id: string }[]>`
+      const [created] = await tx<{ id: string }[]>`
       INSERT INTO spaces.items (
-        space_id, column_id, title, description, location, url, starts_at, ends_at, all_day, deadline, priority,
+        short_id, space_id, column_id, title, description, location, url, starts_at, ends_at, all_day, deadline, priority,
         recurrence_rrule, recurrence_dtstart, recurrence_exdate, recurring_event_id, recurrence_id, rank,
         completed_at, email_thread_id, created_by
       )
       SELECT
+        ${shortId},
         space_id,
         column_id,
         title,
@@ -1529,23 +1536,23 @@ export const splitRecurring = async (params: {
       WHERE id = ${source.id}
       RETURNING id
     `;
-    if (!created) return { ok: false, error: "Failed to create split series", status: 500 };
+      if (!created) return { ok: false, error: "Failed to create split series", status: 500 };
 
-    await tx`
+      await tx`
       INSERT INTO spaces.item_assignees (item_id, user_id)
       SELECT ${created.id}, user_id
       FROM spaces.item_assignees
       WHERE item_id = ${source.id}
       ON CONFLICT DO NOTHING
     `;
-    await tx`
+      await tx`
       INSERT INTO spaces.item_tags (item_id, tag_id)
       SELECT ${created.id}, tag_id
       FROM spaces.item_tags
       WHERE item_id = ${source.id}
       ON CONFLICT DO NOTHING
     `;
-    await tx`
+      await tx`
       UPDATE spaces.items
       SET recurring_event_id = ${created.id},
           recurrence_id = recurrence_id + ${interval},
@@ -1555,7 +1562,7 @@ export const splitRecurring = async (params: {
       WHERE recurring_event_id = ${source.id}
         AND recurrence_id >= ${recurrenceId}::timestamptz
     `;
-    await tx`
+      await tx`
       UPDATE spaces.comments
       SET item_id = ${created.id},
           recurrence_id = recurrence_id + ${interval}
@@ -1563,8 +1570,9 @@ export const splitRecurring = async (params: {
         AND recurrence_id >= ${recurrenceId}::timestamptz
     `;
 
-    return { ok: true, data: { id: created.id, spaceId: source.space_id, created: true } };
-  });
+      return { ok: true, data: { id: created.id, spaceId: source.space_id, created: true } };
+    }),
+  );
   if (!result.ok) return result;
 
   const item = await get({ id: result.data.id });
@@ -1582,16 +1590,20 @@ export const splitRecurring = async (params: {
  */
 export const remove = async (params: { id: string }): Promise<MutationResult<void>> => {
   const existing = await get({ id: params.id });
-  const result = await sql`
+  const rows = await sql<{ short_id: string }[]>`
     DELETE FROM spaces.items
     WHERE id = ${params.id}
+    RETURNING short_id
   `;
 
-  if (result.count === 0) {
+  const deleted = rows[0];
+  if (!deleted) {
     return { ok: false, error: "Item not found", status: 404 };
   }
 
-  if (existing) await publishSpaceEvent({ type: "item.deleted", spaceId: existing.spaceId, itemId: existing.id });
+  if (existing) {
+    await publishSpaceEvent({ type: "item.deleted", spaceId: existing.spaceId, itemId: existing.id }, { itemId: deleted.short_id });
+  }
   return { ok: true, data: undefined };
 };
 

@@ -58,7 +58,8 @@ const parsePositiveInt = (value: string | undefined, fallback: number, label: st
   return parsed;
 };
 
-const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+const isResourceId = (value: string): boolean => /^[0-9A-Za-z]{6}$/.test(value);
+const isHttpStatus = (error: unknown, status: number): boolean => error instanceof Error && error.message.startsWith(`${status} `);
 
 const readInputContent = async (ctx: CloudCliContext, flagName = "content", required = true): Promise<string | undefined> => {
   const literal = stringFlag(ctx.flags, flagName);
@@ -104,8 +105,12 @@ const formatItemCandidates = (items: SpaceItem[]): string =>
     .join(", ");
 
 const resolveSpaceRef = async (ctx: CloudCliContext, ref: string): Promise<SpaceDetail> => {
-  if (isUuid(ref)) {
-    return readApi<SpaceDetail>(ctx, `/${ref}`);
+  if (isResourceId(ref)) {
+    try {
+      return await readApi<SpaceDetail>(ctx, `/${ref}`);
+    } catch (error) {
+      if (!isHttpStatus(error, 404)) throw error;
+    }
   }
 
   const spaces = await readApi<Space[]>(ctx, "/");
@@ -138,8 +143,12 @@ const resolveSpaceArg = async (
 };
 
 const resolveItemRef = async (ctx: CloudCliContext, spaceId: string, ref: string): Promise<SpaceItem> => {
-  if (isUuid(ref)) {
-    return readApi<SpaceItem>(ctx, `/${spaceId}/items/${ref}`);
+  if (isResourceId(ref)) {
+    try {
+      return await readApi<SpaceItem>(ctx, `/${spaceId}/items/${ref}`);
+    } catch (error) {
+      if (!isHttpStatus(error, 404)) throw error;
+    }
   }
 
   const payload = await readApi<ItemListResult>(
@@ -168,7 +177,7 @@ const resolveItemRef = async (ctx: CloudCliContext, spaceId: string, ref: string
 };
 
 const resolveColumnId = (space: SpaceDetail, ref: string): string => {
-  if (isUuid(ref)) return ref;
+  if (isResourceId(ref)) return ref;
   const matches = space.columns.filter((column) => column.name === ref);
   if (matches.length === 1) return matches[0]!.id;
   if (matches.length > 1)
@@ -178,7 +187,7 @@ const resolveColumnId = (space: SpaceDetail, ref: string): string => {
 
 const resolveTagIds = (space: SpaceDetail, refs: string[]): string[] =>
   refs.map((ref) => {
-    if (isUuid(ref)) return ref;
+    if (isResourceId(ref)) return ref;
     const matches = space.tags.filter((tag) => tag.name === ref);
     if (matches.length === 1) return matches[0]!.id;
     if (matches.length > 1)

@@ -15,10 +15,10 @@ process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 const { default: SpaceEditPanel } = await import("./SpaceEditPanel.tsx");
 const { StatusesSection } = await import("./StatusesSection.tsx");
 
-const spaceId = "11111111-1111-4111-8111-111111111111";
+const spaceId = "Space1";
 const columns: SpaceColumn[] = [
   {
-    id: "22222222-2222-4222-8222-222222222222",
+    id: "Col001",
     spaceId,
     name: "Open",
     color: "#2563eb",
@@ -26,7 +26,7 @@ const columns: SpaceColumn[] = [
     isDone: false,
   },
   {
-    id: "33333333-3333-4333-8333-333333333333",
+    id: "Col002",
     spaceId,
     name: "Done",
     color: "#16a34a",

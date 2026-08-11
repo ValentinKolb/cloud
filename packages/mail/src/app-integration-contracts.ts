@@ -1,8 +1,9 @@
-import { CapabilitySemanticLinkSchema, type CapabilitySemanticLink } from "@valentinkolb/cloud/contracts";
+import { type CapabilitySemanticLink, CapabilitySemanticLinkSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 
 const timestampSchema = z.string().datetime({ offset: true });
 const nullableTextSchema = z.string().nullable();
+const spacesResourceIdSchema = z.string().regex(/^[0-9A-Za-z]{6}$/);
 
 export const normalizedContactEmailSchema = z.email().max(320);
 const contactPointEmailSchema = z.object({ label: nullableTextSchema, email: z.email() }).passthrough();
@@ -117,32 +118,43 @@ const calendarResponseStateSchema = z
     updatedAt: z.string().datetime(),
   })
   .passthrough();
+const canonicalSpacesItemHref = (spaceId: string, itemId: string): string => `/app/spaces/${spaceId}?item=${itemId}`;
+const calendarInvitationExistingSchema = z
+  .object({
+    itemId: spacesResourceIdSchema,
+    spaceId: spacesResourceIdSchema,
+    href: z.string(),
+    sequence: z.number().int().nonnegative(),
+    method: z.enum(["request", "cancel", "reply", "publish", "unknown"]),
+  })
+  .passthrough()
+  .superRefine((value, context) => {
+    if (value.href !== canonicalSpacesItemHref(value.spaceId, value.itemId)) {
+      context.addIssue({ code: "custom", path: ["href"], message: "href must match the Space and item IDs" });
+    }
+  });
 export const calendarInvitationPreviewSchema = z
   .object({
     invitation: calendarInvitationSchema,
     response: calendarResponseStateSchema.nullable(),
-    existing: z
-      .object({
-        itemId: z.uuid(),
-        spaceId: z.uuid(),
-        href: z.string().startsWith("/app/spaces/"),
-        sequence: z.number().int().nonnegative(),
-        method: z.enum(["request", "cancel", "reply", "publish", "unknown"]),
-      })
-      .passthrough()
-      .nullable(),
+    existing: calendarInvitationExistingSchema.nullable(),
   })
   .passthrough();
 export type CalendarInvitationPreview = z.infer<typeof calendarInvitationPreviewSchema>;
 
 export const calendarInvitationImportResultSchema = z
   .object({
-    itemId: z.uuid(),
-    spaceId: z.uuid(),
-    href: z.string().startsWith("/app/spaces/"),
+    itemId: spacesResourceIdSchema,
+    spaceId: spacesResourceIdSchema,
+    href: z.string(),
     outcome: z.enum(["created", "updated", "unchanged", "cancelled"]),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((value, context) => {
+    if (value.href !== canonicalSpacesItemHref(value.spaceId, value.itemId)) {
+      context.addIssue({ code: "custom", path: ["href"], message: "href must match the Space and item IDs" });
+    }
+  });
 export type CalendarInvitationImportResult = z.infer<typeof calendarInvitationImportResultSchema>;
 
 export const calendarInvitationResponseSchema = z
@@ -159,18 +171,20 @@ export const calendarInvitationResponseSchema = z
 export const calendarResponseStateDataSchema = calendarResponseStateSchema;
 
 export const spacesMailDestinationSchema = z
-  .object({ id: z.uuid(), name: z.string().min(1).max(100), color: z.string().regex(/^#[0-9a-fA-F]{6}$/) })
+  .object({ id: spacesResourceIdSchema, name: z.string().min(1).max(100), color: z.string().regex(/^#[0-9a-fA-F]{6}$/) })
   .passthrough();
 export const spacesMailDestinationsSchema = z.array(spacesMailDestinationSchema).max(500);
 export const spacesMailDestinationContextSchema = z
-  .object({ selectedSpaceId: z.uuid().nullable(), items: spacesMailDestinationsSchema })
+  .object({ selectedSpaceId: spacesResourceIdSchema.nullable(), items: spacesMailDestinationsSchema })
   .passthrough();
 export type SpacesMailDestinationContext = z.infer<typeof spacesMailDestinationContextSchema>;
 
-const spaceColumnSchema = z.object({ id: z.uuid(), name: z.string().min(1), color: nullableTextSchema, isDone: z.boolean() }).passthrough();
+const spaceColumnSchema = z
+  .object({ id: spacesResourceIdSchema, name: z.string().min(1), color: nullableTextSchema, isDone: z.boolean() })
+  .passthrough();
 export const spaceDetailSchema = z
   .object({
-    id: z.uuid(),
+    id: spacesResourceIdSchema,
     name: z.string().min(1),
     description: nullableTextSchema,
     color: z.string().min(1),
@@ -183,9 +197,9 @@ export const spaceDetailSchema = z
 export const calendarEventSchema = z
   .object({
     kind: z.literal("event"),
-    id: z.uuid(),
-    spaceId: z.uuid(),
-    columnId: z.uuid(),
+    id: spacesResourceIdSchema,
+    spaceId: spacesResourceIdSchema,
+    columnId: spacesResourceIdSchema,
     title: z.string().min(1),
     location: nullableTextSchema,
     startsAt: timestampSchema,
@@ -199,7 +213,7 @@ export type CalendarEvent = z.infer<typeof calendarEventSchema>;
 export const eventInvitationPrepareDataSchema = z
   .object({
     deliveryId: z.uuid(),
-    itemId: z.uuid(),
+    itemId: spacesResourceIdSchema,
     mailboxId: z.uuid(),
     draftId: z.uuid(),
     sequence: z.number().int().nonnegative(),
@@ -212,5 +226,5 @@ export const eventInvitationPrepareDataSchema = z
   })
   .passthrough();
 export const eventInvitationCommitDataSchema = z
-  .object({ deliveryId: z.uuid(), itemId: z.uuid(), draftId: z.uuid(), state: z.literal("drafted") })
+  .object({ deliveryId: z.uuid(), itemId: spacesResourceIdSchema, draftId: z.uuid(), state: z.literal("drafted") })
   .passthrough();

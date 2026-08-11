@@ -15,7 +15,9 @@ cld spaces current
 cld spaces get --json
 ```
 
-Most item commands accept a space ID or exact name first, or `--space <id-or-exact-name>`. Set a default space when a series of commands works on the same space.
+Spaces, items, columns, tags, comments, and wormholes use immutable six-character IDs in CLI output, APIs, links, and calendar exports. Internal database UUIDs are not accepted as resource references.
+
+Most item commands accept a space short ID or exact name first, or `--space <short-id-or-exact-name>`. Item commands likewise accept an item short ID or exact title. Persist the returned `id` in automation; names and titles are convenient selectors but can become ambiguous. Set a default space when a series of commands works on the same space.
 
 ## Work with items
 
@@ -42,7 +44,7 @@ cld spaces overlap --space "Roadmap" --from 2026-07-20T10:00:00Z --to 2026-07-20
 
 ## Send event invitations through Mail
 
-Spaces generates iCalendar REQUEST, update, and CANCEL payloads from the canonical event. Mail only supplies an authorized verified sender and an editable delivery draft.
+Spaces generates iCalendar REQUEST, update, and CANCEL payloads from the canonical event. Event URLs and UIDs use the immutable Space and item short IDs. Mail only supplies an authorized verified sender and an editable delivery draft; Mail mailbox, identity, draft, and idempotency IDs remain UUIDs.
 
 ```bash
 cld --json spaces invitation context "Roadmap" "Launch review"

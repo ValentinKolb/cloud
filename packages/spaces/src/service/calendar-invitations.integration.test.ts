@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { crypto as stdCrypto } from "@k2b/stdlib";
 import type { AccessSubject } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import type { User } from "../contracts";
@@ -81,12 +82,14 @@ suite("Spaces calendar invitation imports", () => {
       `;
       userId = userRow!.id;
       const [space] = await sql<{ id: string }[]>`
-        INSERT INTO spaces.spaces (name, color) VALUES (${`Calendar Import ${suffix}`}, '#3b82f6') RETURNING id
+        INSERT INTO spaces.spaces (short_id, name, color)
+        VALUES (${stdCrypto.common.readableId(6)}, ${`Calendar Import ${suffix}`}, '#3b82f6')
+        RETURNING id
       `;
       spaceId = space!.id;
       await sql`
-        INSERT INTO spaces.columns (space_id, name, rank, is_done)
-        VALUES (${spaceId}::uuid, 'Calendar', 1024, false)
+        INSERT INTO spaces.columns (short_id, space_id, name, rank, is_done)
+        VALUES (${stdCrypto.common.readableId(6)}, ${spaceId}::uuid, 'Calendar', 1024, false)
       `;
       const [access] = await sql<{ id: string }[]>`
         INSERT INTO auth.access (user_id, permission) VALUES (${userId}::uuid, 'write') RETURNING id
@@ -179,14 +182,14 @@ suite("Spaces calendar invitation imports", () => {
         }),
       ).toEqual(hidden);
 
-      const [linked] = await sql<{ item_id: string; column_id: string }[]>`
-        SELECT source.item_id, item.column_id
+      const [linked] = await sql<{ item_id: string; item_short_id: string; column_id: string }[]>`
+        SELECT source.item_id, item.short_id AS item_short_id, item.column_id
         FROM spaces.calendar_invitation_sources source
         JOIN spaces.items item ON item.id = source.item_id
         WHERE source.mailbox_id = ${mailboxId}::uuid AND source.calendar_uid = ${uid}
       `;
 
-      const outgoingUid = `${linked!.item_id}@spaces.cloud`;
+      const outgoingUid = `${linked!.item_short_id}@spaces.cloud`;
       blocker = await sql.reserve();
       const outgoingLockKey = `spaces:calendar-invitation:${mailboxId}:${outgoingUid}`;
       const [outgoingBackend] = await blocker<{ pid: number }[]>`SELECT pg_backend_pid()::int AS pid`;
@@ -225,9 +228,9 @@ suite("Spaces calendar invitation imports", () => {
       expect(await outgoingPreparation).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
 
       const [series] = await sql<{ id: string }[]>`
-        INSERT INTO spaces.items (space_id, column_id, title, starts_at, ends_at, recurrence_rrule, rank, created_by)
+        INSERT INTO spaces.items (short_id, space_id, column_id, title, starts_at, ends_at, recurrence_rrule, rank, created_by)
         VALUES (
-          ${spaceId}::uuid, ${linked!.column_id}::uuid, 'Parent series',
+          ${stdCrypto.common.readableId(6)}, ${spaceId}::uuid, ${linked!.column_id}::uuid, 'Parent series',
           '2026-08-12T10:00:00.000Z'::timestamptz, '2026-08-12T11:00:00.000Z'::timestamptz,
           'FREQ=DAILY;COUNT=3', 2048, ${userId}::uuid
         )

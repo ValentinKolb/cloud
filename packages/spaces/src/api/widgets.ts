@@ -1,10 +1,10 @@
-import type { WidgetBlock, WidgetListItem, WidgetResponse, WidgetTone } from "@valentinkolb/cloud/contracts";
-import { type AuthContext, auth, getDateConfig } from "@valentinkolb/cloud/server";
 import { type DateContext, dates } from "@k2b/stdlib";
+import type { WidgetBlock, WidgetListItem, WidgetResponse, WidgetTone } from "@valentinkolb/cloud/contracts";
+import { type AuthContext, auth, getDateConfig, getUserBackedActor } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
-import { getUserBackedActor } from "@valentinkolb/cloud/server";
 import { buildSpaceItemHref } from "../routes";
 import { spacesService } from "../service";
+import { projectItemReferences } from "../service/public-resources";
 
 /**
  * Spaces dashboard widget — today's events + next-up todos for the user,
@@ -56,11 +56,16 @@ const app = new Hono<AuthContext>().use(auth.requireRole("*")).get("/today", asy
   if (!user) return c.body(null, 403);
 
   const dateConfig = getDateConfig(c);
-  const snap = await spacesService.item.dashboardSnapshot({
+  const internalSnapshot = await spacesService.item.dashboardSnapshot({
     userId: user.id,
     todoLimit: 3,
     dateConfig,
   });
+  const [events, todos] = await Promise.all([
+    projectItemReferences(internalSnapshot.events),
+    projectItemReferences(internalSnapshot.todos),
+  ]);
+  const snap = { ...internalSnapshot, events, todos };
 
   if (snap.openTodoCount === 0 && snap.events.length === 0) {
     const body: WidgetResponse = {

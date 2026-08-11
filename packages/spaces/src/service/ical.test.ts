@@ -3,6 +3,7 @@ import { createICalContent } from "./ical";
 
 const space = {
   id: "11111111-1111-1111-1111-111111111111",
+  short_id: "space1",
   name: "Team Space",
   description: "Shared schedule",
   color: "#3b82f6",
@@ -13,6 +14,7 @@ const space = {
 
 const baseItem = {
   id: "22222222-2222-2222-2222-222222222222",
+  shortId: "event1",
   title: "Planning",
   description: "Weekly planning",
   location: "Office",
@@ -26,6 +28,7 @@ const baseItem = {
   recurrenceDtstart: null,
   recurrenceExdate: [],
   recurringEventId: null,
+  recurringEventShortId: null,
   recurrenceId: null,
   createdAt: new Date("2026-06-01T08:00:00.000Z"),
   updatedAt: new Date("2026-06-01T08:00:00.000Z"),
@@ -45,9 +48,9 @@ describe("createICalContent", () => {
 
     expect(content).toContain("X-WR-TIMEZONE:America/New_York");
     expect(content).toContain("DTSTART;TZID=America/New_York:");
-    expect(unfold(content)).toContain(
-      "https://cloud.test/app/spaces/11111111-1111-1111-1111-111111111111?view=calendar&item=22222222-2222-2222-2222-222222222222",
-    );
+    expect(unfold(content)).toContain("https://cloud.test/app/spaces/space1?view=calendar&item=event1");
+    expect(content).toContain("UID:event1@spaces.cloud");
+    expect(content).not.toContain(baseItem.id);
   });
 
   test("writes recurring events, exclusions, and occurrence overrides", async () => {
@@ -63,6 +66,7 @@ describe("createICalContent", () => {
         {
           ...baseItem,
           id: "33333333-3333-3333-3333-333333333333",
+          shortId: "over01",
           title: "Moved planning",
           startsAt: new Date("2026-06-03T11:00:00.000Z"),
           endsAt: new Date("2026-06-03T12:00:00.000Z"),
@@ -70,6 +74,7 @@ describe("createICalContent", () => {
           recurrenceDtstart: null,
           recurrenceExdate: [],
           recurringEventId: baseItem.id,
+          recurringEventShortId: baseItem.shortId,
           recurrenceId: new Date("2026-06-03T07:00:00.000Z"),
         },
       ],
@@ -80,7 +85,7 @@ describe("createICalContent", () => {
 
     expect(content).toContain("RRULE:FREQ=WEEKLY;COUNT=4;INTERVAL=2;BYDAY=MO,WE");
     expect(content).toContain("EXDATE");
-    expect(content).toContain("UID:22222222-2222-2222-2222-222222222222");
+    expect(content).toContain("UID:event1@spaces.cloud");
     expect(content).toContain("RECURRENCE-ID;TZID=Europe/Berlin:");
     expect(content).toContain("SUMMARY:Moved planning");
   });

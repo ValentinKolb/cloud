@@ -8,9 +8,6 @@ import {
   type CalendarAddress,
   type CalendarAttendee,
   type CalendarInvitation,
-  type CalendarInvitationImportInput,
-  type CalendarInvitationImportResult,
-  type CalendarInvitationPreview,
   type CalendarInvitationPreviewInput,
   type CalendarInvitationResponse,
   type CalendarInvitationResponseCommitInput,
@@ -21,6 +18,8 @@ import {
   type EventInvitationContext,
   type EventInvitationDraft,
 } from "../integration";
+import { withShortId } from "../lib/short-id";
+import { buildSpaceCalendarUid, buildSpaceItemHref } from "../routes";
 import { getSpacePermission } from "./access";
 import { publishSpaceEvent } from "./events";
 import * as items from "./items";
@@ -32,6 +31,25 @@ import {
 
 type ParsedProperty = { name: string; params: Record<string, string>; value: string };
 type SqlExecutor = typeof sql;
+type InternalCalendarInvitationExisting = {
+  itemId: string;
+  spaceId: string;
+  href: string;
+  sequence: number;
+  method: CalendarInvitation["method"];
+};
+type InternalCalendarInvitationPreview = {
+  invitation: CalendarInvitation;
+  response: CalendarInvitationResponseState | null;
+  existing: InternalCalendarInvitationExisting | null;
+};
+type InternalCalendarInvitationImportInput = CalendarInvitationPreviewInput & { spaceId: string };
+type InternalCalendarInvitationImportResult = {
+  itemId: string;
+  spaceId: string;
+  href: string;
+  outcome: "created" | "updated" | "unchanged" | "cancelled";
+};
 
 const unfold = (source: string): string[] =>
   source
@@ -245,7 +263,15 @@ export const parseCalendarInvitation = (source: string): Result<CalendarInvitati
   }
 };
 
-const sourceHref = (spaceId: string, itemId: string) => `/app/spaces/${spaceId}?item=${itemId}`;
+const publicEventRef = async (itemId: string, db: SqlExecutor = sql): Promise<{ spaceId: string; itemId: string } | null> => {
+  const [row] = await db<{ space_id: string; item_id: string }[]>`
+    SELECT space.short_id AS space_id, item.short_id AS item_id
+    FROM spaces.items item
+    JOIN spaces.spaces space ON space.id = item.space_id
+    WHERE item.id = ${itemId}::uuid
+  `;
+  return row ? { spaceId: row.space_id, itemId: row.item_id } : null;
+};
 const calendarSourceLockKey = (mailboxId: string, uid: string) => `spaces:calendar-invitation:${mailboxId}:${uid}`;
 const calendarItemLockKey = (itemId: string) => `spaces:calendar-invitation-item:${itemId}`;
 
@@ -254,15 +280,19 @@ const findExisting = async (mailboxId: string, uid: string, db: SqlExecutor = sq
     {
       item_id: string;
       space_id: string;
+      item_short_id: string;
+      space_short_id: string;
       sequence: number;
       method: CalendarInvitation["method"];
       message_id: string | null;
       last_response: CalendarInvitationResponseState | string | null;
     }[]
   >`
-    SELECT source.item_id, item.space_id, source.sequence, source.method, source.message_id, source.last_response
+    SELECT source.item_id, item.space_id, item.short_id AS item_short_id, space.short_id AS space_short_id,
+           source.sequence, source.method, source.message_id, source.last_response
     FROM spaces.calendar_invitation_sources source
     JOIN spaces.items item ON item.id = source.item_id
+    JOIN spaces.spaces space ON space.id = item.space_id
     WHERE source.mailbox_id = ${mailboxId}::uuid AND source.calendar_uid = ${uid}
     ${lock ? sql`FOR UPDATE OF source` : sql``}
   `;
@@ -278,7 +308,7 @@ const findExisting = async (mailboxId: string, uid: string, db: SqlExecutor = sq
     sequence: row.sequence,
     method: row.method,
     messageId: row.message_id,
-    href: sourceHref(row.space_id, row.item_id),
+    href: buildSpaceItemHref(row.space_short_id, row.item_short_id),
     response,
   };
 };
@@ -319,7 +349,9 @@ const lockCalendarSourceForItem = async (
   return !targetSource || targetSource.item_id === itemId;
 };
 
-export const previewCalendarInvitation = async (input: CalendarInvitationPreviewInput): Promise<Result<CalendarInvitationPreview>> => {
+export const previewCalendarInvitation = async (
+  input: CalendarInvitationPreviewInput,
+): Promise<Result<InternalCalendarInvitationPreview>> => {
   const parsed = parseCalendarInvitation(input.calendar);
   if (!parsed.ok) return parsed;
   const existing = await findExisting(input.mailboxId, parsed.data.uid);
@@ -392,78 +424,80 @@ export const decideCalendarImport = (params: {
 };
 
 const importParsedCalendarInvitation = async (params: {
-  input: CalendarInvitationImportInput;
+  input: InternalCalendarInvitationImportInput;
   invitation: CalendarInvitation;
   user: User;
   subject: AccessSubject;
-}): Promise<Result<CalendarInvitationImportResult>> => {
+}): Promise<Result<InternalCalendarInvitationImportResult>> => {
   const { invitation } = params;
   const permission = await getSpacePermission({ spaceId: params.input.spaceId, subject: params.subject });
   if (permission !== "write" && permission !== "admin") return fail(err.forbidden("Write access to the destination Space is required"));
-  const result = await sql.begin(async (tx): Promise<Result<CalendarInvitationImportResult>> => {
-    await tx`
+  const result = await withShortId("item", (shortId) =>
+    sql.begin(async (tx): Promise<Result<InternalCalendarInvitationImportResult>> => {
+      await tx`
       SELECT pg_advisory_xact_lock(
         hashtextextended(${calendarSourceLockKey(params.input.mailboxId, invitation.uid)}, 0)
       )
     `;
-    let existing = await findExisting(params.input.mailboxId, invitation.uid, tx, true);
-    if (existing) {
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${calendarItemLockKey(existing.itemId)}, 0))`;
-      const current = await findExisting(params.input.mailboxId, invitation.uid, tx, true);
-      if (!current || current.itemId !== existing.itemId) return fail(err.conflict("Calendar invitation linkage changed concurrently"));
-      existing = current;
-    }
-    if (existing && existing.spaceId !== params.input.spaceId) {
-      return fail(err.conflict("This calendar event is already linked to another Space"));
-    }
-    const decision = decideCalendarImport({ existing, invitation });
-    if (existing && decision === "unchanged") {
-      return ok({ itemId: existing.itemId, spaceId: existing.spaceId, href: existing.href, outcome: "unchanged" });
-    }
-    const cancelled = invitation.method === "cancel" || invitation.status === "cancelled";
-    if (decision === "reject_cancellation") return fail(err.badInput("A cancellation cannot create a new event"));
-    const persisted = await items.persistCalendarEvent({
-      db: tx,
-      spaceId: params.input.spaceId,
-      itemId: existing?.itemId ?? null,
-      createdBy: params.user.id,
-      completed: cancelled,
-      data: {
-        title: invitation.title,
-        description: invitation.description,
-        location: invitation.location,
-        url: invitation.url,
-        startsAt: invitation.startsAt,
-        endsAt: invitation.endsAt,
-        allDay: invitation.allDay,
-        recurrenceRule: invitation.recurrenceRule,
-      },
-    });
-    if (!persisted.ok) {
-      return fail(
-        persisted.status === 404
-          ? err.notFound(persisted.error)
-          : persisted.status === 500
-            ? err.internal(persisted.error)
-            : err.badInput(persisted.error),
-      );
-    }
-    if (existing) {
-      await tx`
+      let existing = await findExisting(params.input.mailboxId, invitation.uid, tx, true);
+      if (existing) {
+        await tx`SELECT pg_advisory_xact_lock(hashtextextended(${calendarItemLockKey(existing.itemId)}, 0))`;
+        const current = await findExisting(params.input.mailboxId, invitation.uid, tx, true);
+        if (!current || current.itemId !== existing.itemId) return fail(err.conflict("Calendar invitation linkage changed concurrently"));
+        existing = current;
+      }
+      if (existing && existing.spaceId !== params.input.spaceId) {
+        return fail(err.conflict("This calendar event is already linked to another Space"));
+      }
+      const decision = decideCalendarImport({ existing, invitation });
+      if (existing && decision === "unchanged") {
+        return ok({ itemId: existing.itemId, spaceId: existing.spaceId, href: existing.href, outcome: "unchanged" });
+      }
+      const cancelled = invitation.method === "cancel" || invitation.status === "cancelled";
+      if (decision === "reject_cancellation") return fail(err.badInput("A cancellation cannot create a new event"));
+      const persisted = await items.persistCalendarEvent({
+        db: tx,
+        spaceId: params.input.spaceId,
+        itemId: existing?.itemId ?? null,
+        createdBy: params.user.id,
+        completed: cancelled,
+        shortId,
+        data: {
+          title: invitation.title,
+          description: invitation.description,
+          location: invitation.location,
+          url: invitation.url,
+          startsAt: invitation.startsAt,
+          endsAt: invitation.endsAt,
+          allDay: invitation.allDay,
+          recurrenceRule: invitation.recurrenceRule,
+        },
+      });
+      if (!persisted.ok) {
+        return fail(
+          persisted.status === 404
+            ? err.notFound(persisted.error)
+            : persisted.status === 500
+              ? err.internal(persisted.error)
+              : err.badInput(persisted.error),
+        );
+      }
+      if (existing) {
+        await tx`
         UPDATE spaces.calendar_invitation_sources
         SET message_id = ${params.input.messageId}::uuid, sequence = ${invitation.sequence}, method = ${invitation.method},
             organizer = ${invitation.organizer}::jsonb, attendees = ${invitation.attendees}::jsonb,
             last_response = NULL, updated_at = now()
         WHERE item_id = ${existing.itemId}::uuid
       `;
-      return ok({
-        itemId: existing.itemId,
-        spaceId: existing.spaceId,
-        href: existing.href,
-        outcome: cancelled ? "cancelled" : "updated",
-      });
-    }
-    await tx`
+        return ok({
+          itemId: existing.itemId,
+          spaceId: existing.spaceId,
+          href: existing.href,
+          outcome: cancelled ? "cancelled" : "updated",
+        });
+      }
+      await tx`
       INSERT INTO spaces.calendar_invitation_sources (
         item_id, mailbox_id, message_id, calendar_uid, sequence, method, organizer, attendees
       ) VALUES (
@@ -471,13 +505,16 @@ const importParsedCalendarInvitation = async (params: {
         ${invitation.sequence}, ${invitation.method}, ${invitation.organizer}::jsonb, ${invitation.attendees}::jsonb
       )
     `;
-    return ok({
-      itemId: persisted.data.id,
-      spaceId: params.input.spaceId,
-      href: sourceHref(params.input.spaceId, persisted.data.id),
-      outcome: "created",
-    });
-  });
+      const publicRef = await publicEventRef(persisted.data.id, tx);
+      if (!publicRef) return fail(err.internal("Created calendar event has no public ID"));
+      return ok({
+        itemId: persisted.data.id,
+        spaceId: params.input.spaceId,
+        href: buildSpaceItemHref(publicRef.spaceId, publicRef.itemId),
+        outcome: "created",
+      });
+    }),
+  );
   if (!result.ok || result.data.outcome === "unchanged") return result;
   if (result.data.outcome === "created") {
     await publishSpaceEvent({ type: "item.created", spaceId: result.data.spaceId, itemId: result.data.itemId });
@@ -491,10 +528,10 @@ const importParsedCalendarInvitation = async (params: {
 };
 
 export const importCalendarInvitation = async (params: {
-  input: CalendarInvitationImportInput;
+  input: InternalCalendarInvitationImportInput;
   user: User;
   subject: AccessSubject;
-}): Promise<Result<CalendarInvitationImportResult>> => {
+}): Promise<Result<InternalCalendarInvitationImportResult>> => {
   const invitation = parseCalendarInvitation(params.input.calendar);
   if (!invitation.ok) return invitation;
   return importParsedCalendarInvitation({ ...params, invitation: invitation.data });
@@ -673,7 +710,9 @@ export const prepareEventInvitationAttachment = async (params: {
     .digest("hex");
   const filename = "invitation.ics";
   const contentType = "text/calendar; method=REQUEST; charset=utf-8";
-  const uid = `${params.itemId}@spaces.cloud`;
+  const publicRef = await publicEventRef(params.itemId);
+  if (!publicRef) return fail(err.notFound("Event"));
+  const uid = buildSpaceCalendarUid(publicRef.itemId);
 
   return sql.begin(async (tx) => {
     await tx`
@@ -892,7 +931,9 @@ export const createEventInvitationDraft = async (params: {
   if (!identity) return fail(err.forbidden("The selected verified sender identity is unavailable"));
   const attendees = normalizeAttendees(params.input.attendees, identity.from.address);
   if (attendees.length === 0) return fail(err.badInput("Add at least one attendee other than the organizer"));
-  const uid = `${params.itemId}@spaces.cloud`;
+  const publicRef = await publicEventRef(params.itemId);
+  if (!publicRef) return fail(err.notFound("Event"));
+  const uid = buildSpaceCalendarUid(publicRef.itemId);
 
   const prepared = await sql.begin(async (tx) => {
     const [delivery] = await tx<

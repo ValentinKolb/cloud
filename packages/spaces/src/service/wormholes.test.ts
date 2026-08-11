@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { PermissionLevel } from "@valentinkolb/cloud/server";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { actorForUser, create, transfer, type WormholeActor } from "./wormholes";
 
 type Fixture = {
@@ -52,16 +53,16 @@ const createFixture = async (targetPermission: PermissionLevel = "admin"): Promi
   const keptUserId = await insertUser(suffix, "kept");
   const removedUserId = await insertUser(suffix, "removed");
   const [source] = await sql<{ id: string }[]>`
-    INSERT INTO spaces.spaces (name, color) VALUES (${`Source ${suffix}`}, '#3b82f6') RETURNING id
+    INSERT INTO spaces.spaces (short_id, name, color) VALUES (${newShortId()}, ${`Source ${suffix}`}, '#3b82f6') RETURNING id
   `;
   const [target] = await sql<{ id: string }[]>`
-    INSERT INTO spaces.spaces (name, color) VALUES (${`Target ${suffix}`}, '#10b981') RETURNING id
+    INSERT INTO spaces.spaces (short_id, name, color) VALUES (${newShortId()}, ${`Target ${suffix}`}, '#10b981') RETURNING id
   `;
   const [sourceColumn] = await sql<{ id: string }[]>`
-    INSERT INTO spaces.columns (space_id, name, rank) VALUES (${source!.id}::uuid, 'To do', 1024) RETURNING id
+    INSERT INTO spaces.columns (short_id, space_id, name, rank) VALUES (${newShortId()}, ${source!.id}::uuid, 'To do', 1024) RETURNING id
   `;
   const [targetColumn] = await sql<{ id: string }[]>`
-    INSERT INTO spaces.columns (space_id, name, rank, is_done) VALUES (${target!.id}::uuid, 'Done', 1024, true) RETURNING id
+    INSERT INTO spaces.columns (short_id, space_id, name, rank, is_done) VALUES (${newShortId()}, ${target!.id}::uuid, 'Done', 1024, true) RETURNING id
   `;
   const accessIds = [
     await grant(source!.id, actorUserId, "admin"),
@@ -140,19 +141,20 @@ suite("Spaces wormholes", () => {
     const fixture = await createFixture();
     try {
       const [item] = await sql<{ id: string }[]>`
-        INSERT INTO spaces.items (space_id, column_id, title, description, rank)
-        VALUES (${fixture.sourceSpaceId}::uuid, ${fixture.sourceColumnId}::uuid, 'Transfer me', 'Keep this', 1024)
+        INSERT INTO spaces.items (short_id, space_id, column_id, title, description, rank)
+        VALUES (${newShortId()}, ${fixture.sourceSpaceId}::uuid, ${fixture.sourceColumnId}::uuid, 'Transfer me', 'Keep this', 1024)
         RETURNING id
       `;
       const [tag] = await sql<{ id: string }[]>`
-        INSERT INTO spaces.tags (space_id, name, color) VALUES (${fixture.sourceSpaceId}::uuid, 'Source only', '#ef4444') RETURNING id
+        INSERT INTO spaces.tags (short_id, space_id, name, color)
+        VALUES (${newShortId()}, ${fixture.sourceSpaceId}::uuid, 'Source only', '#ef4444') RETURNING id
       `;
       await sql`INSERT INTO spaces.item_tags (item_id, tag_id) VALUES (${item!.id}::uuid, ${tag!.id}::uuid)`;
       await sql`
         INSERT INTO spaces.item_assignees (item_id, user_id)
         VALUES (${item!.id}::uuid, ${fixture.keptUserId}::uuid), (${item!.id}::uuid, ${fixture.removedUserId}::uuid)
       `;
-      await sql`INSERT INTO spaces.comments (item_id, user_id, content) VALUES (${item!.id}::uuid, ${fixture.actorUserId}::uuid, 'Keep me')`;
+      await sql`INSERT INTO spaces.comments (short_id, item_id, user_id, content) VALUES (${newShortId()}, ${item!.id}::uuid, ${fixture.actorUserId}::uuid, 'Keep me')`;
 
       const created = await create({
         sourceSpaceId: fixture.sourceSpaceId,
@@ -193,8 +195,8 @@ suite("Spaces wormholes", () => {
       `;
       fixture.accessIds.push(authenticatedAccess!.id);
       const [broadAccessItem] = await sql<{ id: string }[]>`
-        INSERT INTO spaces.items (space_id, column_id, title, rank)
-        VALUES (${fixture.sourceSpaceId}::uuid, ${fixture.sourceColumnId}::uuid, 'Keep authenticated assignee', 2048)
+        INSERT INTO spaces.items (short_id, space_id, column_id, title, rank)
+        VALUES (${newShortId()}, ${fixture.sourceSpaceId}::uuid, ${fixture.sourceColumnId}::uuid, 'Keep authenticated assignee', 2048)
         RETURNING id
       `;
       await sql`
@@ -243,8 +245,8 @@ suite("Spaces wormholes", () => {
     const fixture = await createFixture();
     try {
       const [item] = await sql<{ id: string }[]>`
-        INSERT INTO spaces.items (space_id, column_id, title, rank, recurrence_rrule, recurrence_dtstart)
-        VALUES (${fixture.sourceSpaceId}::uuid, ${fixture.sourceColumnId}::uuid, 'Recurring', 1024, 'FREQ=DAILY', now())
+        INSERT INTO spaces.items (short_id, space_id, column_id, title, rank, recurrence_rrule, recurrence_dtstart)
+        VALUES (${newShortId()}, ${fixture.sourceSpaceId}::uuid, ${fixture.sourceColumnId}::uuid, 'Recurring', 1024, 'FREQ=DAILY', now())
         RETURNING id
       `;
       const created = await create({

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ResourceShortIdSchema } from "./contracts";
 
 export const SPACE_LIVE_WS_TYPE = {
   subscribe: "spaces.live.subscribe",
@@ -35,12 +36,49 @@ export type SpaceServiceEventData = SpaceServiceEvent extends infer Event
     : never
   : never;
 
+export const PublicSpaceEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.enum(["item.created", "item.updated", "item.deleted", "item.moved", "item.completed", "item.transferred"]),
+    spaceId: ResourceShortIdSchema,
+    itemId: ResourceShortIdSchema,
+    at: z.string().datetime(),
+  }),
+  z.object({
+    type: z.enum(["wormhole.created", "wormhole.updated", "wormhole.deleted"]),
+    spaceId: ResourceShortIdSchema,
+    wormholeId: ResourceShortIdSchema,
+    at: z.string().datetime(),
+  }),
+  z.object({
+    type: z.enum(["space.updated", "space.deleted", "access.changed"]),
+    spaceId: ResourceShortIdSchema,
+    at: z.string().datetime(),
+  }),
+]);
+
+export type PublicSpaceEvent = z.infer<typeof PublicSpaceEventSchema>;
+
+export const toPublicSpaceEvent = (
+  event: SpaceServiceEvent,
+  ids: { spaceId: string; itemId?: string; wormholeId?: string },
+): PublicSpaceEvent => {
+  if ("itemId" in event) {
+    if (!ids.itemId) throw new Error("Missing public item ID for Spaces event");
+    return { type: event.type, spaceId: ids.spaceId, itemId: ids.itemId, at: event.at };
+  }
+  if ("wormholeId" in event) {
+    if (!ids.wormholeId) throw new Error("Missing public wormhole ID for Spaces event");
+    return { type: event.type, spaceId: ids.spaceId, wormholeId: ids.wormholeId, at: event.at };
+  }
+  return { type: event.type, spaceId: ids.spaceId, at: event.at };
+};
+
 const StreamCursorSchema = z.string().regex(/^\d+-\d+$/);
 
 export const SpaceLiveClientMessageSchema = z.object({
   type: z.literal(SPACE_LIVE_WS_TYPE.subscribe),
   payload: z.object({
-    spaceId: z.uuid(),
+    spaceId: ResourceShortIdSchema,
     fromCursor: StreamCursorSchema.nullable(),
   }),
 });
@@ -50,19 +88,19 @@ export type SpaceLiveClientMessage = z.infer<typeof SpaceLiveClientMessageSchema
 export const SpaceLiveServerMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal(SPACE_LIVE_WS_TYPE.ready),
-    payload: z.object({ spaceId: z.uuid(), cursor: StreamCursorSchema }),
+    payload: z.object({ spaceId: ResourceShortIdSchema, cursor: StreamCursorSchema }),
   }),
   z.object({
     type: z.literal(SPACE_LIVE_WS_TYPE.event),
-    payload: z.object({ spaceId: z.uuid(), cursor: StreamCursorSchema, event: SpaceServiceEventSchema }),
+    payload: z.object({ spaceId: ResourceShortIdSchema, cursor: StreamCursorSchema, event: PublicSpaceEventSchema }),
   }),
   z.object({
     type: z.literal(SPACE_LIVE_WS_TYPE.revoked),
-    payload: z.object({ spaceId: z.uuid(), code: z.string().min(1), message: z.string().min(1) }),
+    payload: z.object({ spaceId: ResourceShortIdSchema, code: z.string().min(1), message: z.string().min(1) }),
   }),
   z.object({
     type: z.literal(SPACE_LIVE_WS_TYPE.error),
-    payload: z.object({ spaceId: z.uuid().optional(), code: z.string().min(1), message: z.string().min(1) }),
+    payload: z.object({ spaceId: ResourceShortIdSchema.optional(), code: z.string().min(1), message: z.string().min(1) }),
   }),
 ]);
 

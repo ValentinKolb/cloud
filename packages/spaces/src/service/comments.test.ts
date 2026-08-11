@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { list } from "./comments";
 import { create, splitRecurring, update } from "./items";
 
@@ -18,22 +20,23 @@ const suite = (await canUseDatabase()) ? describe : describe.skip;
 suite("Spaces comment pagination", () => {
   test("returns the newest bounded page in chronological display order", async () => {
     const [space] = await sql<{ id: string }[]>`
-      INSERT INTO spaces.spaces (name, description, color)
-      VALUES (${`Comments Test ${crypto.randomUUID()}`}, 'comments pagination test', '#2563eb')
+      INSERT INTO spaces.spaces (short_id, name, description, color)
+      VALUES (${newShortId()}, ${`Comments Test ${crypto.randomUUID()}`}, 'comments pagination test', '#2563eb')
       RETURNING id
     `;
 
     try {
       const [column] = await sql<{ id: string }[]>`
-        INSERT INTO spaces.columns (space_id, name, rank, is_done)
-        VALUES (${space!.id}::uuid, 'To Do', 1024, false)
+        INSERT INTO spaces.columns (short_id, space_id, name, rank, is_done)
+        VALUES (${newShortId()}, ${space!.id}::uuid, 'To Do', 1024, false)
         RETURNING id
       `;
       const [item] = await sql<{ id: string }[]>`
         INSERT INTO spaces.items (
-          space_id, column_id, title, starts_at, ends_at, recurrence_rrule, recurrence_dtstart, rank
+          short_id, space_id, column_id, title, starts_at, ends_at, recurrence_rrule, recurrence_dtstart, rank
         )
         VALUES (
+          ${newShortId()},
           ${space!.id}::uuid,
           ${column!.id}::uuid,
           'Review comments',
@@ -45,15 +48,17 @@ suite("Spaces comment pagination", () => {
         )
         RETURNING id
       `;
+      const commentShortIds = toPgTextArray(Array.from({ length: 55 }, newShortId));
       await sql`
-        INSERT INTO spaces.comments (item_id, user_id, content, created_at, updated_at)
+        INSERT INTO spaces.comments (short_id, item_id, user_id, content, created_at, updated_at)
         SELECT
+          generated.short_id,
           ${item!.id}::uuid,
           NULL,
-          'Comment ' || entry,
-          '2026-01-01T00:00:00Z'::timestamptz + entry * interval '1 minute',
-          '2026-01-01T00:00:00Z'::timestamptz + entry * interval '1 minute'
-        FROM generate_series(1, 55) AS entry
+          'Comment ' || generated.entry,
+          '2026-01-01T00:00:00Z'::timestamptz + generated.entry * interval '1 minute',
+          '2026-01-01T00:00:00Z'::timestamptz + generated.entry * interval '1 minute'
+        FROM unnest(${commentShortIds}::text[]) WITH ORDINALITY AS generated(short_id, entry)
       `;
 
       const first = await list({ itemId: item!.id, pagination: { page: 1, perPage: 20 } });
@@ -97,10 +102,10 @@ suite("Spaces comment pagination", () => {
       const firstOccurrence = "2026-07-17T09:00:00.000Z";
       const secondOccurrence = "2026-07-18T09:00:00.000Z";
       await sql`
-        INSERT INTO spaces.comments (item_id, recurrence_id, user_id, content)
+        INSERT INTO spaces.comments (short_id, item_id, recurrence_id, user_id, content)
         VALUES
-          (${item!.id}::uuid, ${firstOccurrence}::timestamptz, NULL, 'First occurrence'),
-          (${item!.id}::uuid, ${secondOccurrence}::timestamptz, NULL, 'Second occurrence')
+          (${newShortId()}, ${item!.id}::uuid, ${firstOccurrence}::timestamptz, NULL, 'First occurrence'),
+          (${newShortId()}, ${item!.id}::uuid, ${secondOccurrence}::timestamptz, NULL, 'Second occurrence')
       `;
 
       const series = await list({ itemId: item!.id });
@@ -110,9 +115,10 @@ suite("Spaces comment pagination", () => {
 
       const [override] = await sql<{ id: string }[]>`
         INSERT INTO spaces.items (
-          space_id, column_id, title, starts_at, ends_at, recurring_event_id, recurrence_id, rank
+          short_id, space_id, column_id, title, starts_at, ends_at, recurring_event_id, recurrence_id, rank
         )
         VALUES (
+          ${newShortId()},
           ${space!.id}::uuid,
           ${column!.id}::uuid,
           'Moved occurrence',
@@ -145,9 +151,10 @@ suite("Spaces comment pagination", () => {
       const splitRecurrenceId = "2026-07-18T10:00:00.000Z";
       const [futureOverride] = await sql<{ id: string }[]>`
         INSERT INTO spaces.items (
-          space_id, column_id, title, starts_at, ends_at, recurring_event_id, recurrence_id, rank
+          short_id, space_id, column_id, title, starts_at, ends_at, recurring_event_id, recurrence_id, rank
         )
         VALUES (
+          ${newShortId()},
           ${space!.id}::uuid,
           ${column!.id}::uuid,
           'Future moved occurrence',

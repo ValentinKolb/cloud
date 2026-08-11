@@ -51,6 +51,15 @@ mock.module("@/service", () => ({
   },
 }));
 
+mock.module("@/service/public-resources", () => ({
+  spacesPublicResources: {
+    projectSpaces: async (items: Array<{ id: string }>) => items.map((item) => ({ ...item, id: "Space1" })),
+    projectColumns: async (items: unknown[]) => items,
+    projectTags: async (items: unknown[]) => items,
+    projectWormholes: async (items: unknown[]) => items,
+  },
+}));
+
 const { loadSpaceSettingsContext } = await import("./settings-state");
 
 beforeEach(() => {
@@ -67,6 +76,7 @@ describe("Space settings context", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.permission).toBe("read");
+    expect(result.data.space.id).toBe("Space1");
     expect(result.data.settings).toEqual(settings);
     expect(result.data.accessEntries).toEqual([]);
     expect(result.data.apiKeys).toEqual([]);

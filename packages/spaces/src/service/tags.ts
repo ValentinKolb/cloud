@@ -1,5 +1,6 @@
 import { sql } from "bun";
-import type { MutationResult, SpaceTag, CreateTag, UpdateTag } from "@/contracts";
+import type { CreateTag, MutationResult, SpaceTag, UpdateTag } from "@/contracts";
+import { withShortId } from "../lib/short-id";
 
 // ==========================
 // Tags Service
@@ -67,11 +68,14 @@ export const create = async (params: { spaceId: string; data: CreateTag }): Prom
     };
   }
 
-  const [row] = await sql<DbTag[]>`
-    INSERT INTO spaces.tags (space_id, name, color)
-    VALUES (${spaceId}, ${data.name}, ${data.color})
-    RETURNING id, space_id, name, color
-  `;
+  const row = await withShortId("tag", async (shortId) => {
+    const [created] = await sql<DbTag[]>`
+      INSERT INTO spaces.tags (short_id, space_id, name, color)
+      VALUES (${shortId}, ${spaceId}, ${data.name}, ${data.color})
+      RETURNING id, space_id, name, color
+    `;
+    return created;
+  });
 
   if (!row) {
     return { ok: false, error: "Failed to create tag", status: 500 };

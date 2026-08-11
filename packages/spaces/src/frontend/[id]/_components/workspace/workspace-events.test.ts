@@ -30,19 +30,19 @@ describe("Spaces detail navigation classification", () => {
 
 describe("Spaces workspace route parsing", () => {
   test("accepts only the Space workspace route", () => {
-    const id = "11111111-1111-4111-8111-111111111111";
+    const id = "Space1";
     expect(parseSpacesWorkspaceHref(`/app/spaces/${id}`)).toEqual({ spaceId: id });
     expect(parseSpacesWorkspaceHref(`/app/spaces/${id}/settings`)).toBeNull();
   });
 
   test("rejects malformed identifiers and unsupported nested routes", () => {
-    expect(parseSpacesWorkspaceHref("/app/spaces/not-a-uuid")).toBeNull();
-    expect(parseSpacesWorkspaceHref("/app/spaces/11111111-1111-4111-8111-111111111111/unknown")).toBeNull();
+    expect(parseSpacesWorkspaceHref("/app/spaces/not-a-short-id")).toBeNull();
+    expect(parseSpacesWorkspaceHref("/app/spaces/Space1/unknown")).toBeNull();
   });
 });
 
 describe("Spaces calendar navigation target", () => {
-  const path = "/app/spaces/11111111-1111-4111-8111-111111111111";
+  const path = "/app/spaces/Space1";
 
   test("keeps canonical same-space paths and queries", () => {
     expect(resolveCalendarNavigationHref(`${path}?view=calendar&cv=week&cd=2026-07-17#ignored`, ORIGIN, path)).toBe(
@@ -51,7 +51,7 @@ describe("Spaces calendar navigation target", () => {
   });
 
   test("rejects cross-space, cross-origin, and malformed targets", () => {
-    expect(resolveCalendarNavigationHref("/app/spaces/22222222-2222-4222-8222-222222222222?view=calendar", ORIGIN, path)).toBeNull();
+    expect(resolveCalendarNavigationHref("/app/spaces/Space2?view=calendar", ORIGIN, path)).toBeNull();
     expect(resolveCalendarNavigationHref(`https://other.example${path}?view=calendar`, ORIGIN, path)).toBeNull();
     expect(resolveCalendarNavigationHref("http://[", ORIGIN, path)).toBeNull();
   });

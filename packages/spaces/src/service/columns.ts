@@ -1,5 +1,6 @@
 import { sql } from "bun";
-import type { MutationResult, SpaceColumn, CreateColumn, UpdateColumn } from "@/contracts";
+import type { CreateColumn, MutationResult, SpaceColumn, UpdateColumn } from "@/contracts";
+import { withShortId } from "../lib/short-id";
 import { rank } from "./rank";
 
 // ==========================
@@ -67,11 +68,14 @@ export const create = async (params: { spaceId: string; data: CreateColumn }): P
   `;
   const nextRank = rank.next(maxRow?.max);
 
-  const [row] = await sql<{ id: string }[]>`
-    INSERT INTO spaces.columns (space_id, name, color, rank, is_done)
-    VALUES (${spaceId}, ${data.name}, ${data.color ?? null}, ${rank.toDb(nextRank)}::bigint, ${data.isDone})
-    RETURNING id
-  `;
+  const row = await withShortId("column", async (shortId) => {
+    const [created] = await sql<{ id: string }[]>`
+      INSERT INTO spaces.columns (short_id, space_id, name, color, rank, is_done)
+      VALUES (${shortId}, ${spaceId}, ${data.name}, ${data.color ?? null}, ${rank.toDb(nextRank)}::bigint, ${data.isDone})
+      RETURNING id
+    `;
+    return created;
+  });
 
   if (!row) {
     return { ok: false, error: "Failed to create column", status: 500 };

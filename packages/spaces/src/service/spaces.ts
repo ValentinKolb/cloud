@@ -1,8 +1,9 @@
+import { type PageParams, type Paginated, paginate } from "@k2b/stdlib";
 import { type AccessSubject, hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { serviceAccounts } from "@valentinkolb/cloud/services";
-import { type PageParams, type Paginated, paginate } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { CreateSpace, MutationResult, Space, SpaceDetail, UpdateSpace } from "@/contracts";
+import { newShortId, withShortIdRetry } from "../lib/short-id";
 import {
   buildSpacePrincipalCondition,
   getSpacePermission,
@@ -388,24 +389,26 @@ export const create = async (params: { data: CreateSpace; creatorId: string }): 
   const { data, creatorId } = params;
   const columns = STARTER_COLUMNS[data.starter ?? "blank"];
 
-  const row = await sql.begin(async (tx): Promise<DbSpace | null> => {
-    const [created] = await tx<DbSpace[]>`
-      INSERT INTO spaces.spaces (name, description, color)
-      VALUES (${data.name}, ${data.description ?? null}, ${data.color})
+  const row = await withShortIdRetry(["space", "column"], () =>
+    sql.begin(async (tx): Promise<DbSpace | null> => {
+      const [created] = await tx<DbSpace[]>`
+      INSERT INTO spaces.spaces (short_id, name, description, color)
+      VALUES (${newShortId()}, ${data.name}, ${data.description ?? null}, ${data.color})
       RETURNING id, name, description, color, ical_token, created_at, updated_at
     `;
 
-    if (!created) return null;
+      if (!created) return null;
 
-    for (const [index, col] of columns.entries()) {
-      await tx`
-      INSERT INTO spaces.columns (space_id, name, color, rank, is_done)
-      VALUES (${created.id}, ${col.name}, ${col.color}, ${rank.toDb(rank.atIndex(index))}::bigint, ${col.isDone})
+      for (const [index, col] of columns.entries()) {
+        await tx`
+      INSERT INTO spaces.columns (short_id, space_id, name, color, rank, is_done)
+      VALUES (${newShortId()}, ${created.id}, ${col.name}, ${col.color}, ${rank.toDb(rank.atIndex(index))}::bigint, ${col.isDone})
     `;
-    }
+      }
 
-    return created;
-  });
+      return created;
+    }),
+  );
 
   if (!row) {
     return { ok: false, error: "Failed to create space", status: 500 };
@@ -461,12 +464,14 @@ export const update = async (params: { id: string; data: UpdateSpace }): Promise
  * Delete a space
  */
 export const remove = async (params: { id: string }): Promise<MutationResult<void>> => {
-  const result = await sql`
+  const rows = await sql<{ short_id: string }[]>`
     DELETE FROM spaces.spaces
     WHERE id = ${params.id}
+    RETURNING short_id
   `;
 
-  if (result.count === 0) {
+  const deleted = rows[0];
+  if (!deleted) {
     return { ok: false, error: "Space not found", status: 404 };
   }
 
@@ -476,7 +481,7 @@ export const remove = async (params: { id: string }): Promise<MutationResult<voi
     resourceId: params.id,
   });
 
-  await publishSpaceEvent({ type: "space.deleted", spaceId: params.id });
+  await publishSpaceEvent({ type: "space.deleted", spaceId: params.id }, { spaceId: deleted.short_id });
 
   return { ok: true, data: undefined };
 };

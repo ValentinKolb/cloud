@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { grantSpaceAccess, resolveSpaceApiKeyPermission, revokeSpaceAccess, updateSpaceAccessPermission } from "./access";
 import { checkOverlap, listCalendar, searchAcross } from "./items";
 import { list as listSpaces, listPage as listSpacesPage } from "./spaces";
@@ -49,10 +50,10 @@ test("Space pages filter and paginate in SQL while enforcing resource bindings",
     RETURNING id
   `;
   const createdSpaces = await sql<{ id: string; name: string }[]>`
-    INSERT INTO spaces.spaces (name, description)
+    INSERT INTO spaces.spaces (short_id, name, description)
     VALUES
-      (${`Capability Alpha ${suffix}`}, 'first match'),
-      (${`Capability Beta ${suffix}`}, 'second match')
+      (${newShortId()}, ${`Capability Alpha ${suffix}`}, 'first match'),
+      (${newShortId()}, ${`Capability Beta ${suffix}`}, 'second match')
     RETURNING id, name
   `;
   const accessEntries = await sql<{ id: string }[]>`
@@ -123,10 +124,10 @@ test("Space access mutations preserve an administrator and can recover an orphan
     RETURNING id
   `;
   const [space] = await sql<{ id: string }[]>`
-    INSERT INTO spaces.spaces (name) VALUES (${`Access Guard ${suffix}`}) RETURNING id
+    INSERT INTO spaces.spaces (short_id, name) VALUES (${newShortId()}, ${`Access Guard ${suffix}`}) RETURNING id
   `;
   const [orphaned] = await sql<{ id: string }[]>`
-    INSERT INTO spaces.spaces (name) VALUES (${`Orphaned ${suffix}`}) RETURNING id
+    INSERT INTO spaces.spaces (short_id, name) VALUES (${newShortId()}, ${`Orphaned ${suffix}`}) RETURNING id
   `;
   const accessEntries = await sql<{ id: string }[]>`
     INSERT INTO auth.access (user_id, permission)

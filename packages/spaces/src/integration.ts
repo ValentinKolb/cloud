@@ -1,4 +1,35 @@
 import { z } from "zod";
+import { ResourceShortIdSchema } from "./contracts";
+import { buildSpaceItemHref } from "./routes";
+
+const CalendarInvitationExistingSchema = z
+  .object({
+    itemId: ResourceShortIdSchema,
+    spaceId: ResourceShortIdSchema,
+    href: z.string(),
+    sequence: z.number().int().nonnegative(),
+    method: z.enum(["request", "cancel", "reply", "publish", "unknown"]),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.href !== buildSpaceItemHref(value.spaceId, value.itemId)) {
+      context.addIssue({ code: "custom", path: ["href"], message: "href must match the Space and item IDs" });
+    }
+  });
+
+const CalendarInvitationImportResultObjectSchema = z
+  .object({
+    itemId: ResourceShortIdSchema,
+    spaceId: ResourceShortIdSchema,
+    href: z.string(),
+    outcome: z.enum(["created", "updated", "unchanged", "cancelled"]),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.href !== buildSpaceItemHref(value.spaceId, value.itemId)) {
+      context.addIssue({ code: "custom", path: ["href"], message: "href must match the Space and item IDs" });
+    }
+  });
 
 export const CalendarAddressSchema = z
   .object({
@@ -59,33 +90,17 @@ export const CalendarInvitationPreviewSchema = z
       })
       .strict()
       .nullable(),
-    existing: z
-      .object({
-        itemId: z.string().uuid(),
-        spaceId: z.string().uuid(),
-        href: z.string().startsWith("/app/spaces/"),
-        sequence: z.number().int().nonnegative(),
-        method: z.enum(["request", "cancel", "reply", "publish", "unknown"]),
-      })
-      .strict()
-      .nullable(),
+    existing: CalendarInvitationExistingSchema.nullable(),
   })
   .strict();
 export type CalendarInvitationPreview = z.infer<typeof CalendarInvitationPreviewSchema>;
 
 export const CalendarInvitationImportInputSchema = CalendarInvitationPreviewInputSchema.extend({
-  spaceId: z.string().uuid(),
+  spaceId: ResourceShortIdSchema,
 }).strict();
 export type CalendarInvitationImportInput = z.infer<typeof CalendarInvitationImportInputSchema>;
 
-export const CalendarInvitationImportResultSchema = z
-  .object({
-    itemId: z.string().uuid(),
-    spaceId: z.string().uuid(),
-    href: z.string().startsWith("/app/spaces/"),
-    outcome: z.enum(["created", "updated", "unchanged", "cancelled"]),
-  })
-  .strict();
+export const CalendarInvitationImportResultSchema = CalendarInvitationImportResultObjectSchema;
 export type CalendarInvitationImportResult = z.infer<typeof CalendarInvitationImportResultSchema>;
 
 export const CalendarParticipationStatusSchema = z.enum(["accepted", "tentative", "declined"]);
@@ -118,7 +133,7 @@ export type CalendarInvitationResponseState = z.infer<typeof CalendarInvitationR
 
 export const SpacesMailDestinationSchema = z
   .object({
-    id: z.string().uuid(),
+    id: ResourceShortIdSchema,
     name: z.string().min(1).max(100),
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   })
@@ -129,7 +144,7 @@ export const SpacesMailDestinationsSchema = z.array(SpacesMailDestinationSchema)
 
 export const SpacesMailDestinationContextSchema = z
   .object({
-    selectedSpaceId: z.string().uuid().nullable(),
+    selectedSpaceId: ResourceShortIdSchema.nullable(),
     items: SpacesMailDestinationsSchema,
   })
   .strict();

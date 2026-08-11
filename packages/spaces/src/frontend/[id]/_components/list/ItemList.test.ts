@@ -3,11 +3,12 @@ import { dates } from "@k2b/stdlib";
 import type { SpaceItem } from "@/contracts";
 import { getEffectiveSchedule, groupItems } from "./item-list-groups";
 
-const SPACE_ID = "00000000-0000-4000-8000-000000000001";
-const COLUMN_ID = "00000000-0000-4000-8000-000000000002";
+const SPACE_ID = "Space1";
+const COLUMN_ID = "Col001";
+let nextItemId = 0;
 
 const item = (overrides: Partial<SpaceItem> = {}): SpaceItem => ({
-  id: crypto.randomUUID(),
+  id: `It${String(++nextItemId).padStart(4, "0")}`,
   spaceId: SPACE_ID,
   columnId: COLUMN_ID,
   title: "Item",

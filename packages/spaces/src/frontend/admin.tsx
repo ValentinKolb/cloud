@@ -4,6 +4,7 @@ import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { ssr } from "../config";
 import { spacesService } from "../service";
+import { spacesPublicResources } from "../service/public-resources";
 import AdminSpaceActions from "./_components/AdminSpaceActions.island";
 
 const PER_PAGE = 100;
@@ -22,6 +23,7 @@ export default ssr<AuthContext>(async (c) => {
     }),
     spacesService.space.admin.summary({ filter: { query: search || undefined } }),
   ]);
+  spaces.items = await spacesPublicResources.projectSpaces(spaces.items);
 
   const totalPages = Math.ceil(spaces.total / spaces.perPage);
   const baseUrl = search ? `/admin/spaces?search=${encodeURIComponent(search)}&page=` : "/admin/spaces?page=";

@@ -6,6 +6,7 @@ import {
   CreateWormholeSchema,
   ItemFilterSchema,
   OverlapQuerySchema,
+  ReorderColumnsSchema,
   ReorderWormholesSchema,
   UpdateItemSchema,
   UpdateWormholeSchema,
@@ -14,19 +15,19 @@ import {
 const START = "2026-06-01T09:00:00.000Z";
 const END = "2026-06-01T10:00:00.000Z";
 const BEFORE_START = "2026-06-01T08:00:00.000Z";
+const columnId = "Col001";
+const wormholeId = "Whl001";
 
 describe("Spaces contract time ranges", () => {
   test("accepts valid create, update, calendar, and overlap ranges", () => {
-    expect(CreateItemSchema.safeParse({ columnId: crypto.randomUUID(), title: "Event", startsAt: START, endsAt: END }).success).toBe(true);
+    expect(CreateItemSchema.safeParse({ columnId, title: "Event", startsAt: START, endsAt: END }).success).toBe(true);
     expect(UpdateItemSchema.safeParse({ startsAt: START, endsAt: END }).success).toBe(true);
     expect(CalendarQuerySchema.safeParse({ from: START, to: END }).success).toBe(true);
     expect(OverlapQuerySchema.safeParse({ from: START, to: END }).success).toBe(true);
   });
 
   test("rejects ranges whose end is not after the start", () => {
-    expect(
-      CreateItemSchema.safeParse({ columnId: crypto.randomUUID(), title: "Event", startsAt: START, endsAt: BEFORE_START }).success,
-    ).toBe(false);
+    expect(CreateItemSchema.safeParse({ columnId, title: "Event", startsAt: START, endsAt: BEFORE_START }).success).toBe(false);
     expect(UpdateItemSchema.safeParse({ startsAt: START, endsAt: BEFORE_START }).success).toBe(false);
     expect(CalendarQuerySchema.safeParse({ from: START, to: BEFORE_START }).success).toBe(false);
     expect(OverlapQuerySchema.safeParse({ from: START, to: BEFORE_START }).success).toBe(false);
@@ -52,13 +53,23 @@ test("Spaces item filters default the overview to schedule grouping", () => {
 
 describe("Spaces wormhole contracts", () => {
   test("accepts typed create, update, and reorder payloads", () => {
-    expect(CreateWormholeSchema.safeParse({ targetColumnId: crypto.randomUUID(), color: "#6366f1" }).success).toBe(true);
+    expect(CreateWormholeSchema.safeParse({ targetColumnId: columnId, color: "#6366f1" }).success).toBe(true);
     expect(UpdateWormholeSchema.safeParse({ color: "#10b981" }).success).toBe(true);
-    expect(ReorderWormholesSchema.safeParse({ wormholeIds: [crypto.randomUUID()] }).success).toBe(true);
+    expect(ReorderWormholesSchema.safeParse({ wormholeIds: [wormholeId] }).success).toBe(true);
   });
 
   test("rejects empty updates and invalid colors", () => {
     expect(UpdateWormholeSchema.safeParse({}).success).toBe(false);
-    expect(CreateWormholeSchema.safeParse({ targetColumnId: crypto.randomUUID(), color: "indigo" }).success).toBe(false);
+    expect(CreateWormholeSchema.safeParse({ targetColumnId: columnId, color: "indigo" }).success).toBe(false);
+  });
+
+  test("rejects legacy UUID resource identifiers", () => {
+    expect(CreateWormholeSchema.safeParse({ targetColumnId: crypto.randomUUID(), color: "#6366f1" }).success).toBe(false);
+    expect(CreateItemSchema.safeParse({ columnId: crypto.randomUUID(), title: "Legacy" }).success).toBe(false);
+  });
+
+  test("bounds public reorder requests", () => {
+    expect(ReorderColumnsSchema.safeParse({ columnIds: Array.from({ length: 101 }, () => columnId) }).success).toBe(false);
+    expect(ReorderWormholesSchema.safeParse({ wormholeIds: Array.from({ length: 101 }, () => wormholeId) }).success).toBe(false);
   });
 });

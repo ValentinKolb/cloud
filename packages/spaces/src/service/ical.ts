@@ -1,8 +1,9 @@
-import { coreSettings } from "@valentinkolb/cloud/services";
 import { type DateContext, dates } from "@k2b/stdlib";
+import { coreSettings } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import icalGenerator, { ICalEventRepeatingFreq, type ICalRepeatingOptions, ICalWeekday } from "ical-generator";
-import type { Priority, Space } from "@/contracts";
+import type { Priority } from "@/contracts";
+import { buildSpaceCalendarUid } from "../routes";
 
 // ==========================
 // iCal Service
@@ -10,6 +11,7 @@ import type { Priority, Space } from "@/contracts";
 
 type DbSpace = {
   id: string;
+  short_id: string;
   name: string;
   description: string | null;
   color: string;
@@ -20,6 +22,7 @@ type DbSpace = {
 
 type DbItem = {
   id: string;
+  short_id: string;
   title: string;
   description: string | null;
   location: string | null;
@@ -33,6 +36,7 @@ type DbItem = {
   recurrence_dtstart: Date | null;
   recurrence_exdate: Date[] | null;
   recurring_event_id: string | null;
+  recurring_event_short_id: string | null;
   recurrence_id: Date | null;
   created_at: Date;
   updated_at: Date;
@@ -40,6 +44,7 @@ type DbItem = {
 
 type ICalFeedItem = {
   id: string;
+  shortId: string;
   title: string;
   description: string | null;
   location: string | null;
@@ -53,6 +58,7 @@ type ICalFeedItem = {
   recurrenceDtstart: Date | null;
   recurrenceExdate: Date[];
   recurringEventId: string | null;
+  recurringEventShortId: string | null;
   recurrenceId: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -61,7 +67,7 @@ type ICalFeedItem = {
 /**
  * Converts one space row into the shared `Space` type for iCal token lookup and feed metadata.
  */
-const mapToSpace = (row: DbSpace): Space => ({
+const mapToSpace = (row: DbSpace) => ({
   id: row.id,
   name: row.name,
   description: row.description,
@@ -73,6 +79,7 @@ const mapToSpace = (row: DbSpace): Space => ({
 
 const mapItem = (row: DbItem): ICalFeedItem => ({
   id: row.id,
+  shortId: row.short_id,
   title: row.title,
   description: row.description,
   location: row.location,
@@ -86,6 +93,7 @@ const mapItem = (row: DbItem): ICalFeedItem => ({
   recurrenceDtstart: row.recurrence_dtstart,
   recurrenceExdate: row.recurrence_exdate ?? [],
   recurringEventId: row.recurring_event_id,
+  recurringEventShortId: row.recurring_event_short_id,
   recurrenceId: row.recurrence_id,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -94,9 +102,9 @@ const mapItem = (row: DbItem): ICalFeedItem => ({
 /**
  * Get a space by its iCal token
  */
-export const getByToken = async (params: { token: string }): Promise<Space | null> => {
+export const getByToken = async (params: { token: string }): Promise<ReturnType<typeof mapToSpace> | null> => {
   const [row] = await sql<DbSpace[]>`
-    SELECT id, name, description, color, ical_token, created_at, updated_at
+    SELECT id, short_id, name, description, color, ical_token, created_at, updated_at
     FROM spaces.spaces
     WHERE ical_token = ${params.token}
   `;
@@ -150,7 +158,7 @@ const toRepeatingOptions = (item: ICalFeedItem): ICalRepeatingOptions | undefine
 };
 
 const eventUrl = (baseUrl: string, spaceId: string, item: ICalFeedItem): string =>
-  item.url ?? `${baseUrl}/app/spaces/${spaceId}?view=calendar&item=${item.id}`;
+  item.url ?? `${baseUrl}/app/spaces/${spaceId}?view=calendar&item=${item.shortId}`;
 
 export const createICalContent = async (params: {
   space: DbSpace;
@@ -174,7 +182,7 @@ export const createICalContent = async (params: {
   for (const item of params.items) {
     if (item.startsAt && item.endsAt) {
       calendar.createEvent({
-        id: item.recurringEventId ?? item.id,
+        id: buildSpaceCalendarUid(item.recurringEventShortId ?? item.shortId),
         start: item.recurrenceDtstart ?? item.startsAt,
         end: item.endsAt,
         allDay: item.allDay,
@@ -184,21 +192,21 @@ export const createICalContent = async (params: {
         summary: item.title,
         description: item.description ?? undefined,
         location: item.location ?? undefined,
-        url: eventUrl(params.baseUrl, params.space.id, item),
+        url: eventUrl(params.baseUrl, params.space.short_id, item),
         created: item.createdAt,
         lastModified: item.updatedAt,
         priority: priorityToIcal(item.priority),
       });
     } else if (item.deadline) {
       calendar.createEvent({
-        id: item.id,
+        id: buildSpaceCalendarUid(item.shortId),
         start: item.deadline,
         allDay: true,
         timezone,
         summary: `[Deadline] ${item.title}`,
         description: item.description ?? undefined,
         location: item.location ?? undefined,
-        url: eventUrl(params.baseUrl, params.space.id, item),
+        url: eventUrl(params.baseUrl, params.space.short_id, item),
         created: item.createdAt,
         lastModified: item.updatedAt,
         priority: priorityToIcal(item.priority),
@@ -215,7 +223,7 @@ export const createICalContent = async (params: {
 export const generate = async (params: { spaceId: string; baseUrl: string; dateConfig?: DateContext }): Promise<string> => {
   // Get space
   const [space] = await sql<DbSpace[]>`
-    SELECT id, name, description, color, ical_token, created_at, updated_at
+    SELECT id, short_id, name, description, color, ical_token, created_at, updated_at
     FROM spaces.spaces
     WHERE id = ${params.spaceId}
   `;
@@ -226,14 +234,16 @@ export const generate = async (params: { spaceId: string; baseUrl: string; dateC
 
   // Get all non-completed items with time data
   const rows = await sql<DbItem[]>`
-    SELECT id, title, description, location, url, starts_at, ends_at, all_day, deadline, priority,
-           recurrence_rrule, recurrence_dtstart, recurrence_exdate, recurring_event_id, recurrence_id,
-           created_at, updated_at
-    FROM spaces.items
-    WHERE space_id = ${params.spaceId}
-      AND completed_at IS NULL
-      AND (starts_at IS NOT NULL OR deadline IS NOT NULL)
-    ORDER BY COALESCE(starts_at, deadline)
+    SELECT item.id, item.short_id, item.title, item.description, item.location, item.url, item.starts_at, item.ends_at,
+           item.all_day, item.deadline, item.priority, item.recurrence_rrule, item.recurrence_dtstart, item.recurrence_exdate,
+           item.recurring_event_id, recurring.short_id AS recurring_event_short_id, item.recurrence_id,
+           item.created_at, item.updated_at
+    FROM spaces.items item
+    LEFT JOIN spaces.items recurring ON recurring.id = item.recurring_event_id
+    WHERE item.space_id = ${params.spaceId}
+      AND item.completed_at IS NULL
+      AND (item.starts_at IS NOT NULL OR item.deadline IS NOT NULL)
+    ORDER BY COALESCE(item.starts_at, item.deadline)
   `;
 
   return createICalContent({

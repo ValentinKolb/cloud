@@ -1,10 +1,11 @@
 import { z } from "zod";
 
 // PostgreSQL uuid text format (accepts PostgreSQL's broader non-RFC version/variant values too).
-const SpaceUuidSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+const UuidSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+export const ResourceShortIdSchema = z.string().regex(/^[0-9A-Za-z]{6}$/);
 
 export const SpaceSchema = z.object({
-  id: SpaceUuidSchema.describe("Space UUID"),
+  id: ResourceShortIdSchema.describe("Space ID"),
   name: z.string().describe("Space name"),
   description: z.string().nullable().describe("Space description"),
   color: z.string().describe("Space color (hex)"),
@@ -15,8 +16,8 @@ export const SpaceSchema = z.object({
 export type Space = z.infer<typeof SpaceSchema>;
 
 export const SpaceColumnSchema = z.object({
-  id: SpaceUuidSchema.describe("Column UUID"),
-  spaceId: SpaceUuidSchema.describe("Parent space UUID"),
+  id: ResourceShortIdSchema.describe("Column ID"),
+  spaceId: ResourceShortIdSchema.describe("Parent space ID"),
   name: z.string().describe("Column name"),
   color: z.string().nullable().describe("Column color (hex)"),
   rank: z.string().describe("Column ordering rank"),
@@ -25,26 +26,26 @@ export const SpaceColumnSchema = z.object({
 export type SpaceColumn = z.infer<typeof SpaceColumnSchema>;
 
 export const SpaceTagSchema = z.object({
-  id: SpaceUuidSchema.describe("Tag UUID"),
-  spaceId: SpaceUuidSchema.describe("Parent space UUID"),
+  id: ResourceShortIdSchema.describe("Tag ID"),
+  spaceId: ResourceShortIdSchema.describe("Parent space ID"),
   name: z.string().describe("Tag name"),
   color: z.string().describe("Tag color (hex)"),
 });
 export type SpaceTag = z.infer<typeof SpaceTagSchema>;
 
 export const SpaceWormholeTargetSchema = z.object({
-  spaceId: SpaceUuidSchema.describe("Destination space UUID"),
+  spaceId: ResourceShortIdSchema.describe("Destination space ID"),
   spaceName: z.string().describe("Destination space name"),
   spaceColor: z.string().describe("Destination space color (hex)"),
-  columnId: SpaceUuidSchema.describe("Destination column UUID"),
+  columnId: ResourceShortIdSchema.describe("Destination column ID"),
   columnName: z.string().describe("Destination column name"),
   columnIsDone: z.boolean().describe("Whether the destination column completes items"),
 });
 export type SpaceWormholeTarget = z.infer<typeof SpaceWormholeTargetSchema>;
 
 export const SpaceWormholeSchema = z.object({
-  id: SpaceUuidSchema.describe("Wormhole UUID"),
-  sourceSpaceId: SpaceUuidSchema.describe("Source space UUID"),
+  id: ResourceShortIdSchema.describe("Wormhole ID"),
+  sourceSpaceId: ResourceShortIdSchema.describe("Source space ID"),
   color: z.string().describe("Wormhole color (hex)"),
   rank: z.string().describe("Wormhole ordering rank"),
   target: SpaceWormholeTargetSchema.nullable().describe("Destination metadata, or null when it is no longer manageable"),
@@ -54,7 +55,7 @@ export const SpaceWormholeSchema = z.object({
 export type SpaceWormhole = z.infer<typeof SpaceWormholeSchema>;
 
 export const SpaceWormholeDestinationSchema = z.object({
-  spaceId: SpaceUuidSchema.describe("Destination space UUID"),
+  spaceId: ResourceShortIdSchema.describe("Destination space ID"),
   spaceName: z.string().describe("Destination space name"),
   spaceColor: z.string().describe("Destination space color (hex)"),
   columns: z.array(SpaceColumnSchema).describe("Columns in the destination space"),
@@ -72,7 +73,7 @@ export const RecurrenceSchema = z.object({
 export type Recurrence = z.infer<typeof RecurrenceSchema>;
 
 export const SpaceItemAssigneeSchema = z.object({
-  id: SpaceUuidSchema.describe("User UUID"),
+  id: UuidSchema.describe("User UUID"),
   displayName: z.string().describe("User display name"),
   avatarHash: z.string().nullable().describe("User avatar hash"),
 });
@@ -84,9 +85,9 @@ export const SpaceAssignableUserSchema = SpaceItemAssigneeSchema.extend({
 export type SpaceAssignableUser = z.infer<typeof SpaceAssignableUserSchema>;
 
 export const SpaceItemSchema = z.object({
-  id: SpaceUuidSchema.describe("Item UUID"),
-  spaceId: SpaceUuidSchema.describe("Parent space UUID"),
-  columnId: SpaceUuidSchema.describe("Current column UUID"),
+  id: ResourceShortIdSchema.describe("Item ID"),
+  spaceId: ResourceShortIdSchema.describe("Parent space ID"),
+  columnId: ResourceShortIdSchema.describe("Current column ID"),
   title: z.string().describe("Item title"),
   description: z.string().nullable().describe("Item description (markdown)"),
   location: z.string().nullable().describe("Event location"),
@@ -97,11 +98,11 @@ export const SpaceItemSchema = z.object({
   deadline: z.string().nullable().describe("Todo deadline (ISO)"),
   priority: PrioritySchema.nullable().describe("Item priority"),
   recurrence: RecurrenceSchema.nullable().describe("Recurring event series data"),
-  recurringEventId: SpaceUuidSchema.nullable().describe("Parent recurring event UUID for overrides"),
+  recurringEventId: ResourceShortIdSchema.nullable().describe("Parent recurring event ID for overrides"),
   recurrenceId: z.string().nullable().describe("Original occurrence timestamp (ISO) for overrides"),
   rank: z.string().describe("Item ordering rank within a column"),
   completedAt: z.string().nullable().describe("Completion timestamp (ISO)"),
-  createdBy: SpaceUuidSchema.nullable().describe("Creator user UUID"),
+  createdBy: UuidSchema.nullable().describe("Creator user UUID"),
   createdAt: z.string().describe("Creation timestamp (ISO)"),
   updatedAt: z.string().describe("Last update timestamp (ISO)"),
   // Optional relations (loaded on demand)
@@ -111,10 +112,10 @@ export const SpaceItemSchema = z.object({
 export type SpaceItem = z.infer<typeof SpaceItemSchema>;
 
 export const SpaceCommentSchema = z.object({
-  id: SpaceUuidSchema.describe("Comment UUID"),
-  itemId: SpaceUuidSchema.describe("Parent item UUID"),
+  id: ResourceShortIdSchema.describe("Comment ID"),
+  itemId: ResourceShortIdSchema.describe("Parent item ID"),
   recurrenceId: z.string().datetime().nullable().describe("Recurring occurrence timestamp, or null for an item or entire series"),
-  userId: SpaceUuidSchema.nullable().describe("Author user UUID"),
+  userId: UuidSchema.nullable().describe("Author user UUID"),
   userName: z.string().nullable().describe("Author display name"),
   userAvatarHash: z.string().nullable().describe("Author avatar hash"),
   content: z.string().describe("Comment content"),
@@ -134,7 +135,7 @@ export type SpaceDetail = z.infer<typeof SpaceDetailSchema>;
 // Calendar item (for calendar view)
 export const CalendarItemSchema = z.object({
   id: z.string().describe("Calendar item ID; recurring instances use a stable virtual ID"),
-  spaceId: SpaceUuidSchema.describe("Parent space UUID"),
+  spaceId: ResourceShortIdSchema.describe("Parent space ID"),
   spaceName: z.string().describe("Space name"),
   spaceColor: z.string().describe("Space color"),
   title: z.string().describe("Item title"),
@@ -146,7 +147,7 @@ export const CalendarItemSchema = z.object({
   deadline: z.string().nullable().describe("Todo deadline (ISO)"),
   priority: PrioritySchema.nullable().describe("Item priority"),
   recurrence: RecurrenceSchema.nullable().describe("Recurring event series data"),
-  recurringEventId: SpaceUuidSchema.nullable().describe("Parent recurring event UUID for overrides"),
+  recurringEventId: ResourceShortIdSchema.nullable().describe("Parent recurring event ID for overrides"),
   recurrenceId: z.string().nullable().describe("Original occurrence timestamp (ISO) for overrides"),
   isRecurringInstance: z.boolean().optional().describe("Whether this calendar item is an expanded recurring instance"),
   tags: z.array(SpaceTagSchema).optional().describe("Attached tags"),
@@ -155,8 +156,8 @@ export type CalendarItem = z.infer<typeof CalendarItemSchema>;
 
 // Overlap result
 export const OverlapItemSchema = z.object({
-  itemId: SpaceUuidSchema.describe("Overlapping item UUID"),
-  spaceId: SpaceUuidSchema.describe("Space UUID"),
+  itemId: ResourceShortIdSchema.describe("Overlapping item ID"),
+  spaceId: ResourceShortIdSchema.describe("Space ID"),
   spaceName: z.string().describe("Space name"),
   title: z.string().describe("Item title"),
   startsAt: z.string().describe("Event start time (ISO)"),
@@ -213,7 +214,7 @@ export const UpdateColumnSchema = z.object({
 export type UpdateColumn = z.infer<typeof UpdateColumnSchema>;
 
 export const ReorderColumnsSchema = z.object({
-  columnIds: z.array(SpaceUuidSchema).describe("Column IDs in new order"),
+  columnIds: z.array(ResourceShortIdSchema).max(100).describe("Column IDs in new order"),
 });
 export type ReorderColumns = z.infer<typeof ReorderColumnsSchema>;
 
@@ -238,7 +239,7 @@ export type UpdateTag = z.infer<typeof UpdateTagSchema>;
 
 export const CreateItemSchema = z
   .object({
-    columnId: SpaceUuidSchema.describe("Target column UUID"),
+    columnId: ResourceShortIdSchema.describe("Target column ID"),
     title: z.string().min(1).max(200).describe("Item title"),
     description: z.string().max(5000).optional().describe("Item description (markdown)"),
     location: z.string().max(500).optional().describe("Event location"),
@@ -249,10 +250,10 @@ export const CreateItemSchema = z
     deadline: z.string().datetime().optional().describe("Todo deadline (ISO)"),
     priority: PrioritySchema.optional().describe("Item priority"),
     recurrence: RecurrenceSchema.optional().describe("Recurring event series data"),
-    recurringEventId: SpaceUuidSchema.optional().describe("Parent recurring event UUID for overrides"),
+    recurringEventId: ResourceShortIdSchema.optional().describe("Parent recurring event ID for overrides"),
     recurrenceId: z.string().datetime().optional().describe("Original occurrence timestamp (ISO) for overrides"),
-    assigneeIds: z.array(SpaceUuidSchema).optional().describe("Assigned user UUIDs"),
-    tagIds: z.array(SpaceUuidSchema).optional().describe("Tag UUIDs"),
+    assigneeIds: z.array(UuidSchema).max(100).optional().describe("Assigned user UUIDs"),
+    tagIds: z.array(ResourceShortIdSchema).max(100).optional().describe("Tag IDs"),
   })
   .refine((data) => !data.startsAt || !data.endsAt || new Date(data.endsAt) > new Date(data.startsAt), {
     message: "End time must be after start time",
@@ -262,7 +263,7 @@ export type CreateItem = z.infer<typeof CreateItemSchema>;
 
 export const UpdateItemSchema = z
   .object({
-    columnId: SpaceUuidSchema.optional().describe("Target column UUID"),
+    columnId: ResourceShortIdSchema.optional().describe("Target column ID"),
     title: z.string().min(1).max(200).optional().describe("Item title"),
     description: z.string().max(5000).nullable().optional().describe("Item description (markdown)"),
     location: z.string().max(500).nullable().optional().describe("Event location"),
@@ -273,10 +274,10 @@ export const UpdateItemSchema = z
     deadline: z.string().datetime().nullable().optional().describe("Todo deadline (ISO)"),
     priority: PrioritySchema.nullable().optional().describe("Item priority"),
     recurrence: RecurrenceSchema.nullable().optional().describe("Recurring event series data"),
-    recurringEventId: SpaceUuidSchema.nullable().optional().describe("Parent recurring event UUID for overrides"),
+    recurringEventId: ResourceShortIdSchema.nullable().optional().describe("Parent recurring event ID for overrides"),
     recurrenceId: z.string().datetime().nullable().optional().describe("Original occurrence timestamp (ISO) for overrides"),
-    assigneeIds: z.array(SpaceUuidSchema).optional().describe("Assigned user UUIDs"),
-    tagIds: z.array(SpaceUuidSchema).optional().describe("Tag UUIDs"),
+    assigneeIds: z.array(UuidSchema).max(100).optional().describe("Assigned user UUIDs"),
+    tagIds: z.array(ResourceShortIdSchema).max(100).optional().describe("Tag IDs"),
   })
   .refine((data) => !data.startsAt || !data.endsAt || new Date(data.endsAt) > new Date(data.startsAt), {
     message: "End time must be after start time",
@@ -298,7 +299,7 @@ export const SplitRecurringItemSchema = z
 export type SplitRecurringItem = z.infer<typeof SplitRecurringItemSchema>;
 
 export const MoveItemSchema = z.object({
-  columnId: SpaceUuidSchema.describe("Target column UUID"),
+  columnId: ResourceShortIdSchema.describe("Target column ID"),
   rank: z
     .string()
     .regex(/^-?\d+$/)
@@ -308,7 +309,7 @@ export const MoveItemSchema = z.object({
 export type MoveItem = z.infer<typeof MoveItemSchema>;
 
 export const CreateWormholeSchema = z.object({
-  targetColumnId: SpaceUuidSchema.describe("Destination column UUID"),
+  targetColumnId: ResourceShortIdSchema.describe("Destination column ID"),
   color: z
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/)
@@ -319,7 +320,7 @@ export type CreateWormhole = z.infer<typeof CreateWormholeSchema>;
 
 export const UpdateWormholeSchema = z
   .object({
-    targetColumnId: SpaceUuidSchema.optional().describe("Destination column UUID"),
+    targetColumnId: ResourceShortIdSchema.optional().describe("Destination column ID"),
     color: z
       .string()
       .regex(/^#[0-9a-fA-F]{6}$/)
@@ -332,7 +333,7 @@ export const UpdateWormholeSchema = z
 export type UpdateWormhole = z.infer<typeof UpdateWormholeSchema>;
 
 export const ReorderWormholesSchema = z.object({
-  wormholeIds: z.array(SpaceUuidSchema).describe("Wormhole IDs in new order"),
+  wormholeIds: z.array(ResourceShortIdSchema).max(100).describe("Wormhole IDs in new order"),
 });
 export type ReorderWormholes = z.infer<typeof ReorderWormholesSchema>;
 
@@ -374,7 +375,7 @@ export const OverlapQuerySchema = z
   .object({
     from: z.string().datetime().describe("Start of time range (ISO)"),
     to: z.string().datetime().describe("End of time range (ISO)"),
-    excludeItemId: SpaceUuidSchema.optional().describe("Item to exclude from check"),
+    excludeItemId: ResourceShortIdSchema.optional().describe("Item to exclude from check"),
   })
   .refine((data) => new Date(data.to) > new Date(data.from), {
     message: "End time must be after start time",
@@ -406,11 +407,11 @@ export const ItemFilterSchema = z.object({
   // Filter options
   type: ItemTypeSchema.default("all").describe("Filter by item type"),
   status: ItemStatusSchema.default("active").describe("Filter by completion status"),
-  priority: z.array(PrioritySchema).optional().describe("Filter by priorities"),
-  tagIds: z.array(SpaceUuidSchema).optional().describe("Filter by tag IDs"),
-  assigneeIds: z.array(SpaceUuidSchema).optional().describe("Filter by assignee IDs"),
+  priority: z.array(PrioritySchema).max(4).optional().describe("Filter by priorities"),
+  tagIds: z.array(ResourceShortIdSchema).max(100).optional().describe("Filter by tag IDs"),
+  assigneeIds: z.array(UuidSchema).max(100).optional().describe("Filter by assignee IDs"),
   assignedTo: AssignedToFilterSchema.default("all").describe("Filter by assignment: all, me, or unassigned"),
-  columnIds: z.array(SpaceUuidSchema).optional().describe("Filter by column IDs"),
+  columnIds: z.array(ResourceShortIdSchema).max(100).optional().describe("Filter by column IDs"),
   deadlineFilter: DeadlineFilterSchema.default("all").describe("Filter by deadline range"),
   search: z.string().optional().describe("Search in title and description"),
 

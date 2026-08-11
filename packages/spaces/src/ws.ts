@@ -6,6 +6,7 @@ import { upgradeWebSocket } from "hono/bun";
 import { SPACE_LIVE_WS_TYPE, SpaceLiveClientMessageSchema, type SpaceLiveServerMessage } from "./live-events";
 import { spacesService } from "./service";
 import { latestSpaceEventCursor, liveSpaceEvents } from "./service/events";
+import { spacesPublicResources } from "./service/public-resources";
 
 const log = logger("spaces:websocket");
 const ACCESS_REFRESH_INTERVAL_MS = 8_000;
@@ -19,6 +20,7 @@ type WsContext = {
   sessionToken: string | null;
   phase: WsPhase;
   spaceId: string | null;
+  spaceShortId: string | null;
   streamAbort: AbortController | null;
   accessRefreshTimer: ReturnType<typeof setTimeout> | null;
 };
@@ -30,6 +32,7 @@ const createContext = (socket: ServerWebSocket<unknown>, sessionToken: string | 
   sessionToken,
   phase: "open",
   spaceId: null,
+  spaceShortId: null,
   streamAbort: null,
   accessRefreshTimer: null,
 });
@@ -58,24 +61,25 @@ const stopSubscription = (ctx: WsContext) => {
   stopAccessRefresh(ctx);
   stopStream(ctx);
   ctx.spaceId = null;
+  ctx.spaceShortId = null;
 };
 
 const closeWithError = (ctx: WsContext, code: string, message: string, closeCode: number) => {
   if (ctx.phase === "closing") return;
-  const spaceId = ctx.spaceId ?? undefined;
+  const spaceId = ctx.spaceShortId ?? undefined;
   ctx.phase = "closing";
   stopSubscription(ctx);
   send(ctx.socket, { type: SPACE_LIVE_WS_TYPE.error, payload: { spaceId, code, message } });
   ctx.socket.close(closeCode, code);
 };
 
-const revoke = (ctx: WsContext, spaceId: string, access: Exclude<AccessResult, { ok: true }>) => {
+const revoke = (ctx: WsContext, spaceShortId: string, access: Exclude<AccessResult, { ok: true }>) => {
   if (ctx.phase === "closing") return;
   ctx.phase = "closing";
   stopSubscription(ctx);
   send(ctx.socket, {
     type: SPACE_LIVE_WS_TYPE.revoked,
-    payload: { spaceId, code: access.code, message: access.message },
+    payload: { spaceId: spaceShortId, code: access.code, message: access.message },
   });
   ctx.socket.close(1008, access.code);
 };
@@ -96,7 +100,7 @@ const evaluateAccess = async (sessionToken: string | null, spaceId: string): Pro
   return hasPermission(permission, "read") ? { ok: true } : { ok: false, code: "access_denied", message: "Access denied" };
 };
 
-const startAccessRefresh = (ctx: WsContext, spaceId: string) => {
+const startAccessRefresh = (ctx: WsContext, spaceId: string, spaceShortId: string) => {
   stopAccessRefresh(ctx);
   ctx.accessRefreshTimer = setTimeout(async () => {
     if (ctx.phase !== "subscribed" || ctx.spaceId !== spaceId) return;
@@ -104,10 +108,10 @@ const startAccessRefresh = (ctx: WsContext, spaceId: string) => {
       const access = await evaluateAccess(ctx.sessionToken, spaceId);
       if (ctx.phase !== "subscribed" || ctx.spaceId !== spaceId) return;
       if (!access.ok) {
-        revoke(ctx, spaceId, access);
+        revoke(ctx, spaceShortId, access);
         return;
       }
-      startAccessRefresh(ctx, spaceId);
+      startAccessRefresh(ctx, spaceId, spaceShortId);
     } catch (error) {
       if (ctx.phase !== "subscribed" || ctx.spaceId !== spaceId) return;
       log.error("Space WebSocket access refresh failed", {
@@ -119,7 +123,7 @@ const startAccessRefresh = (ctx: WsContext, spaceId: string) => {
   }, ACCESS_REFRESH_INTERVAL_MS);
 };
 
-const startStream = (ctx: WsContext, spaceId: string, after: string) => {
+const startStream = (ctx: WsContext, spaceId: string, spaceShortId: string, after: string) => {
   stopStream(ctx);
   const abort = new AbortController();
   ctx.streamAbort = abort;
@@ -128,18 +132,23 @@ const startStream = (ctx: WsContext, spaceId: string, after: string) => {
     try {
       for await (const event of liveSpaceEvents({ spaceId, after, signal: abort.signal })) {
         if (abort.signal.aborted || ctx.phase !== "subscribed" || ctx.spaceId !== spaceId) break;
+        const sendEvent = () =>
+          send(ctx.socket, {
+            type: SPACE_LIVE_WS_TYPE.event,
+            payload: { spaceId: spaceShortId, cursor: event.cursor, event: event.data.public },
+          });
+        if (event.data.public.type === "space.deleted") {
+          if (!sendEvent()) closeWithError(ctx, "backpressure", "Live updates exceeded the connection capacity", 1013);
+          else revoke(ctx, spaceShortId, { ok: false, code: "not_found", message: "Space not found" });
+          break;
+        }
         const access = await evaluateAccess(ctx.sessionToken, spaceId);
         if (abort.signal.aborted || ctx.phase !== "subscribed" || ctx.spaceId !== spaceId) break;
         if (!access.ok) {
-          revoke(ctx, spaceId, access);
+          revoke(ctx, spaceShortId, access);
           break;
         }
-        if (
-          !send(ctx.socket, {
-            type: SPACE_LIVE_WS_TYPE.event,
-            payload: { spaceId, cursor: event.cursor, event: event.data },
-          })
-        ) {
+        if (!sendEvent()) {
           closeWithError(ctx, "backpressure", "Live updates exceeded the connection capacity", 1013);
           break;
         }
@@ -157,13 +166,20 @@ const startStream = (ctx: WsContext, spaceId: string, after: string) => {
   })();
 };
 
-const handleSubscribe = async (ctx: WsContext, spaceId: string, fromCursor: string | null) => {
+const handleSubscribe = async (ctx: WsContext, spaceShortId: string, fromCursor: string | null) => {
   if (isClosing(ctx)) return;
+  const spaceId = await spacesPublicResources.resolvePublicId("spaces", spaceShortId);
+  if (!spaceId) {
+    ctx.spaceShortId = spaceShortId;
+    revoke(ctx, spaceShortId, { ok: false, code: "not_found", message: "Space not found" });
+    return;
+  }
   const access = await evaluateAccess(ctx.sessionToken, spaceId);
   if (isClosing(ctx)) return;
   if (!access.ok) {
     ctx.spaceId = spaceId;
-    revoke(ctx, spaceId, access);
+    ctx.spaceShortId = spaceShortId;
+    revoke(ctx, spaceShortId, access);
     return;
   }
 
@@ -172,12 +188,13 @@ const handleSubscribe = async (ctx: WsContext, spaceId: string, fromCursor: stri
   stopSubscription(ctx);
   ctx.phase = "subscribed";
   ctx.spaceId = spaceId;
-  if (!send(ctx.socket, { type: SPACE_LIVE_WS_TYPE.ready, payload: { spaceId, cursor } })) {
+  ctx.spaceShortId = spaceShortId;
+  if (!send(ctx.socket, { type: SPACE_LIVE_WS_TYPE.ready, payload: { spaceId: spaceShortId, cursor } })) {
     closeWithError(ctx, "backpressure", "Live updates exceeded the connection capacity", 1013);
     return;
   }
-  startStream(ctx, spaceId, cursor);
-  startAccessRefresh(ctx, spaceId);
+  startStream(ctx, spaceId, spaceShortId, cursor);
+  startAccessRefresh(ctx, spaceId, spaceShortId);
 };
 
 const handleMessage = async (ctx: WsContext, raw: string) => {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { create, get, listAssignableUsers, setAssignees, setTags, update } from "./items";
 import { canAccess, getPermission, list as listSpaces } from "./spaces";
 
@@ -77,8 +78,8 @@ const grantGroup = async (spaceId: string, groupId: string) => {
 
 const insertTag = async (spaceId: string, suffix: string, label: string) => {
   const [row] = await sql<{ id: string }[]>`
-    INSERT INTO spaces.tags (space_id, name, color)
-    VALUES (${spaceId}::uuid, ${`Tag ${label} ${suffix}`}, '#3b82f6')
+    INSERT INTO spaces.tags (short_id, space_id, name, color)
+    VALUES (${newShortId()}, ${spaceId}::uuid, ${`Tag ${label} ${suffix}`}, '#3b82f6')
     RETURNING id
   `;
   return row!.id;
@@ -98,13 +99,13 @@ const createFixture = async (): Promise<Fixture> => {
   await sql`INSERT INTO auth.group_groups_v2 (parent_group_id, child_group_id) VALUES (${parentGroupId}::uuid, ${childGroupId}::uuid)`;
 
   const [space] = await sql<{ id: string }[]>`
-    INSERT INTO spaces.spaces (name, description, color)
-    VALUES (${`Assignee Test ${suffix}`}, 'assignee access test', '#3b82f6')
+    INSERT INTO spaces.spaces (short_id, name, description, color)
+    VALUES (${newShortId()}, ${`Assignee Test ${suffix}`}, 'assignee access test', '#3b82f6')
     RETURNING id
   `;
   const [column] = await sql<{ id: string }[]>`
-    INSERT INTO spaces.columns (space_id, name, rank)
-    VALUES (${space!.id}::uuid, 'To Do', 1024)
+    INSERT INTO spaces.columns (short_id, space_id, name, rank)
+    VALUES (${newShortId()}, ${space!.id}::uuid, 'To Do', 1024)
     RETURNING id
   `;
   const firstTagId = await insertTag(space!.id, suffix, "first");
