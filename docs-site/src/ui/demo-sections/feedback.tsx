@@ -1,4 +1,4 @@
-import { Button, NoticeCard, prompts, StatusBadge, Tooltip, toast } from "@k2b/ui";
+import { Button, ButtonLink, InlineGuidance, NoticeCard, prompts, StatusBadge, Tooltip, toast } from "@k2b/ui";
 import { DemoCard } from "../DemoCard";
 import { DemoGrid, type DemoSection } from "./types";
 
@@ -8,8 +8,9 @@ const BlocksDemo = () => (
     chip={[
       { kind: "component", name: "NoticeCard", from: "@k2b/ui" },
       { kind: "component", name: "NoticeCard.Grid", from: "@k2b/ui" },
+      { kind: "component", name: "InlineGuidance", from: "@k2b/ui" },
     ]}
-    description="Persistent findings that sit between ephemeral toasts and full empty states."
+    description="Persistent findings and quiet state-specific guidance with a direct next step."
     code={`const notices = [
   { tone: "neutral", title: "Release note", detail: "Version 2.4 is available." },
   { tone: "info", title: "Import ready", detail: "12 rows validated." },
@@ -20,19 +21,34 @@ const BlocksDemo = () => (
 
 <NoticeCard.Grid items={notices}>
   {(notice) => <NoticeCard {...notice} />}
-</NoticeCard.Grid>`}
+</NoticeCard.Grid>
+
+<InlineGuidance tone="danger">
+  No delivery provider is connected.{" "}
+  <ButtonLink variant="text" size="xs" href="/settings/providers">
+    Open settings
+  </ButtonLink>
+</InlineGuidance>`}
   >
-    <NoticeCard.Grid
-      items={[
-        { tone: "neutral" as const, title: "Release note", detail: "Version 2.4 is available." },
-        { tone: "info" as const, title: "Import ready", detail: "12 rows validated." },
-        { tone: "success" as const, title: "Import complete", detail: "12 rows created." },
-        { tone: "warning" as const, title: "Review needed", detail: "2 rows have no owner." },
-        { tone: "danger" as const, title: "Source unavailable", detail: "Retrying in the background." },
-      ]}
-    >
-      {(notice) => <NoticeCard {...notice} />}
-    </NoticeCard.Grid>
+    <div class="flex flex-col gap-4">
+      <NoticeCard.Grid
+        items={[
+          { tone: "neutral" as const, title: "Release note", detail: "Version 2.4 is available." },
+          { tone: "info" as const, title: "Import ready", detail: "12 rows validated." },
+          { tone: "success" as const, title: "Import complete", detail: "12 rows created." },
+          { tone: "warning" as const, title: "Review needed", detail: "2 rows have no owner." },
+          { tone: "danger" as const, title: "Source unavailable", detail: "Retrying in the background." },
+        ]}
+      >
+        {(notice) => <NoticeCard {...notice} />}
+      </NoticeCard.Grid>
+      <InlineGuidance tone="danger">
+        No delivery provider is connected.{" "}
+        <ButtonLink variant="text" size="xs" href="#blocks">
+          Open settings
+        </ButtonLink>
+      </InlineGuidance>
+    </div>
   </DemoCard>
 );
 

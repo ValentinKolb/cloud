@@ -5,6 +5,7 @@ import {
   DataTable,
   type DataTableColumn,
   IconButton,
+  InlineGuidance,
   NoticeCard,
   Placeholder,
   ProgressBar,
@@ -576,7 +577,7 @@ export default function MailOperationalSettings(props: {
             <p class="text-xs font-semibold text-primary">Connected accounts</p>
             <Show
               when={props.bindings.some((binding) => binding.state !== "revoked")}
-              fallback={<p class="text-xs text-dimmed">No connected account. Connect a provider before running discovery.</p>}
+              fallback={<InlineGuidance>No connected account. Connect a provider before running discovery.</InlineGuidance>}
             >
               <For each={props.bindings.filter((binding) => binding.state !== "revoked")}>
                 {(binding) => (

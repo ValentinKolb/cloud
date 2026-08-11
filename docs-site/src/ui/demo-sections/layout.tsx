@@ -24,6 +24,7 @@ import {
   SettingsModal,
   SettingsPage,
   SettingsPanelFooter,
+  SettingsSaveBar,
   SettingsSection,
   StatusBadge,
   Tag,
@@ -613,6 +614,22 @@ const SettingsPageDemo = () => {
   );
 };
 
+const SettingsSaveBarDemo = () => (
+  <DemoCard
+    id="settings-save-bar"
+    chip={{ kind: "component", name: "SettingsSaveBar", from: "@k2b/ui" }}
+    description="A sticky page-level save bar that appears only while settings have unsaved changes."
+    code={`<SettingsSaveBar
+  changeCount={() => 2}
+  loading={() => false}
+  onDiscard={discard}
+  onSave={save}
+/>`}
+  >
+    <SettingsSaveBar changeCount={() => 2} loading={() => false} onDiscard={() => undefined} onSave={() => undefined} />
+  </DemoCard>
+);
+
 const PanelDemo = () => {
   const [tab, setTab] = createSignal("general");
   return (
@@ -1134,6 +1151,7 @@ const demos: DemoSection = {
     <DemoGrid columns="one">
       <SettingsPageDemo />
       <SettingsDemo />
+      <SettingsSaveBarDemo />
     </DemoGrid>
   ),
   "panel-dialog": () => (

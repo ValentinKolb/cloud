@@ -1,5 +1,7 @@
 export type { DialogClose, DialogCore, DialogRender, OpenDialogOptions } from "./dialog-core";
 export { dialogCore } from "./dialog-core";
+export type { InlineGuidanceProps } from "./InlineGuidance";
+export { default as InlineGuidance } from "./InlineGuidance";
 export type {
   DialogOptions,
   FieldSchema,

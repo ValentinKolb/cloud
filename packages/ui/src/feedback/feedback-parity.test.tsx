@@ -13,6 +13,8 @@ Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
 const { createDialogCore } = await import("./dialog-core");
+const { ButtonLink } = await import("../actions/Button");
+const { default: InlineGuidance } = await import("./InlineGuidance");
 const { DialogHeader, createFormState } = await import("./prompts");
 const { K2B_TOAST_CONTAINER_ID, toast } = await import("./toast");
 const { Tooltip } = await import("./Tooltip");
@@ -30,6 +32,38 @@ afterEach(() => {
 });
 
 describe("@k2b/ui Cloud feedback parity", () => {
+  test("renders quiet contextual guidance with semantic tones and native actions", () => {
+    const html = renderToString(() =>
+      createComponent(InlineGuidance, {
+        tone: "danger",
+        icon: "ti ti-alert-circle",
+        role: "status",
+        children: createComponent(ButtonLink, {
+          href: "/settings",
+          size: "xs",
+          variant: "text",
+          children: "Open settings",
+        }),
+      }),
+    );
+
+    expect(html).toContain('class="k2b-inline-guidance');
+    expect(html).toContain('data-tone="danger"');
+    expect(html).toContain('role="status"');
+    expect(html).toContain('class="ti ti-alert-circle k2b-inline-guidance__icon"');
+    expect(html).toContain('href="/settings"');
+    expect(html).toContain("Open settings");
+    expect(html).not.toContain('role="alert"');
+
+    const quietHtml = renderToString(() =>
+      createComponent(InlineGuidance, {
+        children: "This setting is optional.",
+      }),
+    );
+    expect(quietHtml).toContain('data-tone="neutral"');
+    expect(quietHtml).not.toContain("k2b-inline-guidance__icon");
+  });
+
   test("keeps form defaults and validates declared form rules", () => {
     createRoot((dispose) => {
       const form = createFormState({
@@ -160,7 +194,7 @@ describe("@k2b/ui Cloud feedback parity", () => {
 
   test("keeps package class names prefixed and free of Tailwind utilities", async () => {
     const sources = await Promise.all(
-      ["prompts.tsx", "toast.ts", "Tooltip.tsx"].map((file) => Bun.file(resolve(import.meta.dir, file)).text()),
+      ["InlineGuidance.tsx", "prompts.tsx", "toast.ts", "Tooltip.tsx"].map((file) => Bun.file(resolve(import.meta.dir, file)).text()),
     );
 
     for (const source of sources) {

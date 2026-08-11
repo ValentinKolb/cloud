@@ -601,6 +601,60 @@
   outline-offset: 2px;
 }
 
+.k2b-ui .k2b-inline-guidance {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.375rem;
+  color: var(--k2b-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+}
+
+.k2b-ui .k2b-inline-guidance[data-tone="info"] {
+  color: var(--k2b-info-text);
+}
+
+.k2b-ui .k2b-inline-guidance[data-tone="success"] {
+  color: var(--k2b-success-text);
+}
+
+.k2b-ui .k2b-inline-guidance[data-tone="warning"] {
+  color: var(--k2b-warning-text);
+}
+
+.k2b-ui .k2b-inline-guidance[data-tone="danger"] {
+  color: var(--k2b-danger-text);
+}
+
+.k2b-ui .k2b-inline-guidance__icon {
+  flex: 0 0 auto;
+  margin-top: 0.1875rem;
+  color: inherit;
+  font-size: 0.75rem;
+}
+
+.k2b-ui .k2b-inline-guidance__content {
+  min-width: 0;
+}
+
+.k2b-ui .k2b-inline-guidance__content > a,
+.k2b-ui .k2b-inline-guidance .k2b-button[data-variant="text"] {
+  min-height: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.125rem;
+}
+
+.k2b-ui .k2b-inline-guidance__content > a:hover,
+.k2b-ui .k2b-inline-guidance .k2b-button[data-variant="text"]:not(:disabled):hover {
+  color: inherit;
+  text-decoration-thickness: 0.125rem;
+}
+
 /* ------------------------------------------------------------ responsive */
 
 @media (min-height: 68.75rem) {

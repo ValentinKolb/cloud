@@ -160,7 +160,7 @@ const portableSections = [
     title: "Feedback",
     icon: "ti ti-message-circle",
     pages: [
-      page("blocks", "Notices", "ti ti-info-circle", "Persistent informational, warning, and error findings."),
+      page("blocks", "Notices", "ti ti-info-circle", "Persistent findings and quiet contextual guidance."),
       page("badges", "Status badges", "ti ti-status-change", "Semantic status presentation in chip, dot, and text forms."),
       page("toast", "Toast", "ti ti-bell", "Scoped transient feedback with updates, actions, and dismissal."),
       page("tooltip", "Tooltip", "ti ti-message", "Concise accessible hints with viewport-aware positioning."),
@@ -255,7 +255,7 @@ const cloudEntries = cloudPages.map((page, pageIndex) => entry("cloud", "Cloud c
 export const uiCatalogEntries: UiCatalogEntry[] = [...portableEntries, ...cloudEntries];
 
 /** Runtime component exports from @k2b/ui. Kept honest by check-ui-catalog.ts. */
-export const portableUiComponentCount = 101;
+export const portableUiComponentCount = 102;
 
 export const uiCatalogSections: UiCatalogSection[] = [
   ...portableSections.map((section) => ({

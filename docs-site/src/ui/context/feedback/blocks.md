@@ -1,6 +1,8 @@
-# Notices
+# Notices and inline guidance
 
 `NoticeCard` keeps an important finding visible between an ephemeral toast and a full empty or error state. `NoticeCard.Grid` arranges several findings without nested card chrome.
+
+`InlineGuidance` explains one local prerequisite, consequence, or recovery step without adding a card surface. Use it beside the affected control when a section or field description cannot explain the current state on its own.
 
 ## Use notices
 
@@ -8,10 +10,12 @@ Use `neutral` for general notes, `info` for contextual information, `success` fo
 
 Use a toast for short confirmation. Use `Placeholder` when the finding replaces an entire content region.
 
+Use `InlineGuidance` for small state-specific copy such as why an action is disabled or what the user must configure next. Prefer hiding an irrelevant control over explaining it, and do not repeat static section or field descriptions as guidance.
+
 ## Import
 
 ```tsx
-import { NoticeCard } from "@k2b/ui";
+import { ButtonLink, InlineGuidance, NoticeCard } from "@k2b/ui";
 ```
 
 ## Composition
@@ -21,6 +25,8 @@ import { NoticeCard } from "@k2b/ui";
 one, two, or three responsive columns from the item count.
 
 The component owns presentation only. Put retry, dismissal, and navigation controls beside the notice when they are needed.
+
+`InlineGuidance` accepts `children`, an optional `tone`, and an optional icon. It is borderless and has no default icon. Its tones use the shared `neutral`, `info`, `success`, `warning`, and `danger` vocabulary. Put a native link or `ButtonLink variant="text"` inside the guidance when a real next step exists.
 
 ### Render outside Solid
 
@@ -37,6 +43,8 @@ should render `NoticeCard` instead of assembling its internal markup.
 ## Accessibility
 
 Notice cards add no live-region role. If a new error notice must be announced immediately, the owning application must provide the appropriate alert semantics. All tones keep visible text, so the result never depends on color or icon.
+
+Inline guidance also adds no live-region role. A danger tone must still name the problem in text; color is not enough. Add `role="alert"` only when a newly appearing error needs immediate announcement.
 
 Action labels must say what happens next, such as **Retry** or **Open settings**.
 
@@ -58,4 +66,11 @@ const notices = [
 <NoticeCard.Grid items={notices}>
   {(notice) => <NoticeCard {...notice} />}
 </NoticeCard.Grid>
+
+<InlineGuidance tone="danger">
+  No delivery provider is connected.{" "}
+  <ButtonLink variant="text" size="xs" href="/settings/providers">
+    Open settings
+  </ButtonLink>
+</InlineGuidance>
 ```

@@ -263,7 +263,8 @@ describe("@k2b/ui complete settings surfaces", () => {
         description: "Public service URL",
         changed: () => true,
         error: () => "Invalid URL",
-        children: (control) => createComponent(TextInput, { "aria-label": "Endpoint", "aria-describedby": control.describedBy() }),
+        children: (control) =>
+          createComponent(TextInput, { value: "", "aria-label": "Endpoint", "aria-describedby": control.describedBy() }),
       }),
     );
     const bar = renderToString(() =>
