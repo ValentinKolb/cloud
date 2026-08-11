@@ -5,14 +5,20 @@ import {
   ButtonLink,
   CheckboxCard,
   ColorInput,
+  confirmDiscardIfDirty,
   dialogCore,
   IconInput,
   ImageInput,
+  NoticeCard,
   Placeholder,
   panelDialogOptions,
   prompts,
   SegmentedControl,
+  SettingsCollection,
+  SettingsField,
+  SettingsGroup,
   SettingsModal,
+  SettingsPanelFooter,
   TextInput,
   toast,
 } from "@k2b/ui";
@@ -75,24 +81,19 @@ export function VenueDangerZone(props: { venue: Venue; onPendingChange: (pending
   });
 
   return (
-    <div class="flex flex-col gap-3">
-      <p class="text-xs text-dimmed">
-        This removes opening hours, shifts, public sections, feedback, access grants, and API keys. It cannot be undone.
-      </p>
-      <Button type="button" variant="danger" onClick={handleDelete} disabled={remove.loading()} class="self-start">
-        {remove.loading() ? (
-          <>
-            <i class="ti ti-loader-2 animate-spin" />
-            Deleting
-          </>
-        ) : (
-          <>
-            <i class="ti ti-trash" />
-            Delete venue
-          </>
-        )}
-      </Button>
-    </div>
+    <Button type="button" variant="danger" onClick={handleDelete} disabled={remove.loading()} class="self-start">
+      {remove.loading() ? (
+        <>
+          <i class="ti ti-loader-2 animate-spin" />
+          Deleting
+        </>
+      ) : (
+        <>
+          <i class="ti ti-trash" />
+          Delete venue
+        </>
+      )}
+    </Button>
   );
 }
 
@@ -256,6 +257,34 @@ export function SettingsDialog(props: {
     logoBase64: logo(),
     bannerBase64: banner(),
   });
+  const generalChangeCount = () => {
+    const draft = venueInput();
+    const confirmed = currentVenue();
+    return (
+      Number(draft.name !== confirmed.name) +
+      Number(draft.icon !== (confirmed.icon || "ti ti-building-carousel")) +
+      Number(draft.slug !== confirmed.slug) +
+      Number(draft.description !== (confirmed.description ?? null)) +
+      Number(draft.openMode !== confirmed.openMode) +
+      Number(draft.feedbackEnabled !== confirmed.feedbackEnabled) +
+      Number(draft.accentColor !== confirmed.accentColor) +
+      Number(draft.logoBase64 !== confirmed.logoBase64) +
+      Number(draft.bannerBase64 !== confirmed.bannerBase64)
+    );
+  };
+  const discardGeneral = () => {
+    const confirmed = currentVenue();
+    setName(confirmed.name);
+    setIcon(confirmed.icon || "ti ti-building-carousel");
+    setSlug(confirmed.slug);
+    setDescription(confirmed.description ?? "");
+    setOpenMode(confirmed.openMode);
+    setAccentColor(confirmed.accentColor);
+    setFeedbackEnabled(confirmed.feedbackEnabled);
+    setLogo(confirmed.logoBase64);
+    setBanner(confirmed.bannerBase64);
+    setGeneralDirty(false);
+  };
   const save = mutation.create<void, VenueInput>({
     mutation: async (input, { abortSignal }) => {
       const res = await apiClient.venues[":id"].$patch(
@@ -511,6 +540,30 @@ export function SettingsDialog(props: {
   const settingsOperationBusy = () => settingsInteractionBlocked(interactionState());
   const closeBlocked = () => settingsCloseBlocked(interactionState());
   const scheduleBusy = () => settingsOperationBusy() || settingsQuery.refreshing() || Boolean(settingsQuery.error());
+  const requestClose = () => {
+    if (closeBlocked()) return;
+    if (generalChangeCount() === 0) {
+      props.close(workspaceChanged());
+      return;
+    }
+    setPrompting(true);
+    void confirmDiscardIfDirty(true)
+      .then((confirmed) => {
+        if (confirmed && !disposed) props.close(workspaceChanged());
+      })
+      .finally(() => {
+        if (!disposed) setPrompting(false);
+      });
+  };
+  const SettingsReadError = () => (
+    <Show when={settingsQuery.error()}>
+      <NoticeCard tone="danger" title="Venue settings could not be refreshed" detail="The last confirmed data is still shown.">
+        <Button type="button" variant="secondary" size="sm" disabled={settingsQuery.refreshing()} onClick={() => void retrySettingsRead()}>
+          Retry
+        </Button>
+      </NoticeCard>
+    </Show>
+  );
 
   onCleanup(() => {
     disposed = true;
@@ -538,237 +591,277 @@ export function SettingsDialog(props: {
         onTabChange={(tab) => {
           if (!settingsOperationBusy()) setActiveTab(tab);
         }}
-        onClose={() => {
-          if (!closeBlocked()) props.close(workspaceChanged());
-        }}
+        onClose={requestClose}
         closeLabel="Close settings"
       >
-        <Show when={settingsQuery.error()}>
-          <div class="paper mx-4 mt-4 flex items-center justify-between gap-3 p-3 text-sm">
-            <p class="text-danger">Venue settings could not be refreshed. The last confirmed data is still shown.</p>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={settingsQuery.refreshing()}
-              onClick={() => void retrySettingsRead()}
-            >
-              Retry
-            </Button>
-          </div>
-        </Show>
-        <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, public page branding, and feedback.">
-          <fieldset disabled={!settingsHydrated() || settingsWriteBlocked()} class="grid gap-3">
-            <TextInput
-              label="Name"
-              description="Shown in the app and on the public page."
-              value={name}
-              onValueChange={(value) => {
-                setGeneralDirty(true);
-                setName(value);
-              }}
-              required
-            />
-            <TextInput
-              label="Slug"
-              description="Used in the public page URL."
-              value={slug}
-              onValueChange={(value) => {
-                setGeneralDirty(true);
-                setSlug(value);
-              }}
-              required
-            />
-            <TextInput
-              label="Description"
-              description="Short public summary shown below the venue name."
-              value={description}
-              onValueChange={(value) => {
-                setGeneralDirty(true);
-                setDescription(value);
-              }}
-              multiline
-              lines={3}
-            />
-            <div class="grid gap-3 md:grid-cols-2">
-              <IconInput
-                label="Icon"
-                description="Used as fallback logo and venue symbol."
-                value={icon}
-                onValueChange={(value) => {
-                  setGeneralDirty(true);
-                  setIcon(value ?? "ti ti-building-carousel");
-                }}
-                clearable={false}
-              />
-              <ColorInput
-                label="Theme color"
-                description="Used for public page accents."
-                value={accentColor}
-                onValueChange={(value) => {
-                  setGeneralDirty(true);
-                  setAccentColor(value);
-                }}
-              />
-            </div>
-            <div class="grid gap-3 md:grid-cols-2">
-              <ImageInput
-                label="Logo"
-                description="Optional image shown next to the venue name."
-                value={logo}
-                onValueChange={(value) => {
-                  setGeneralDirty(true);
-                  setLogo(value);
-                }}
-                variant="small"
-              />
-              <ImageInput
-                label="Banner image"
-                description="Optional wide image for the public page header."
-                value={banner}
-                onValueChange={(value) => {
-                  setGeneralDirty(true);
-                  setBanner(value);
-                }}
-                variant="small"
-                transform={bannerTransform}
-              />
-            </div>
-            <CheckboxCard
-              label="Feedback activated"
-              description="Allow visitors to leave anonymous ratings and comments on the public page."
-              icon="ti ti-message-star"
-              value={feedbackEnabled}
-              onValueChange={(value) => {
-                setGeneralDirty(true);
-                setFeedbackEnabled(value);
-              }}
-              variant="input"
-            />
-            <div class="flex justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                size="sm"
-                disabled={save.loading() || settingsQuery.refreshing() || Boolean(settingsQuery.error())}
-                onClick={() => void saveSettings()}
-              >
-                Save
-              </Button>
-            </div>
-          </fieldset>
-        </SettingsModal.Tab>
+        <SettingsModal.Group title="Venue">
+          <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Identity, public branding, and feedback.">
+            <SettingsReadError />
+            <fieldset disabled={!settingsHydrated() || settingsWriteBlocked()} class="grid gap-6">
+              <SettingsGroup title="Identity" description="Describe this venue wherever it appears in Cloud.">
+                <div class="grid gap-4 md:grid-cols-2">
+                  <SettingsField
+                    label="Name"
+                    description="Shown in the app and on the public page."
+                    error={() => (!name().trim() ? "Name is required" : undefined)}
+                    changed={() => name() !== currentVenue().name}
+                  >
+                    <TextInput
+                      aria-label="Name"
+                      value={name}
+                      onValueChange={(value) => {
+                        setGeneralDirty(true);
+                        setName(value);
+                      }}
+                      required
+                    />
+                  </SettingsField>
+                  <SettingsField
+                    label="Slug"
+                    description="Used in the public page URL."
+                    error={() => (!slug().trim() ? "Slug is required" : undefined)}
+                    changed={() => slug() !== currentVenue().slug}
+                  >
+                    <TextInput
+                      aria-label="Slug"
+                      value={slug}
+                      onValueChange={(value) => {
+                        setGeneralDirty(true);
+                        setSlug(value);
+                      }}
+                      required
+                    />
+                  </SettingsField>
+                </div>
+                <SettingsField
+                  label="Description"
+                  description="Short public summary shown below the venue name."
+                  error={() => undefined}
+                  changed={() => description() !== (currentVenue().description ?? "")}
+                >
+                  <TextInput
+                    aria-label="Description"
+                    value={description}
+                    onValueChange={(value) => {
+                      setGeneralDirty(true);
+                      setDescription(value);
+                    }}
+                    multiline
+                    lines={3}
+                  />
+                </SettingsField>
+              </SettingsGroup>
 
-        {venueSettingsCanAdmin(settings()) && (
-          <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Permission changes save immediately.">
-            <Show
-              when={!settingsQuery.refreshing() && !settingsQuery.error()}
-              fallback={<Placeholder align="left" description={<>Refresh venue settings before changing access or API keys.</>} />}
-            >
-              <div class="grid gap-5">
-                <Show keyed when={settings().accessEntries}>
-                  {(entries) => (
-                    <PermissionEditor
-                      initialEntries={entries.filter((entry) => entry.principal.type !== "service_account")}
-                      canEdit
-                      allowedLevels={[
-                        { level: "read", label: "Read" },
-                        { level: "write", label: "Staff" },
-                        { level: "admin", label: "Admin" },
-                      ]}
-                      grantAccess={async (principal: Principal, permission: Exclude<PermissionLevel, "none">): Promise<AccessEntry> => {
-                        const entry = await runRequest(async (abortSignal) => {
-                          const response = await apiClient.venues[":id"].access.$post(
-                            {
-                              param: { id: venue.id },
-                              json: { principal, permission },
-                            },
-                            { init: { signal: abortSignal } },
-                          );
-                          if (!response.ok) throw new Error(await readError(response, "Failed to grant access."));
-                          return response.json();
-                        });
-                        await finishSettingsChange("Access granted");
-                        return entry;
+              <SettingsGroup title="Public branding" description="Choose the visual identity used on the public venue page.">
+                <div class="grid gap-4 md:grid-cols-2">
+                  <SettingsField
+                    label="Icon"
+                    description="Used as the fallback logo and venue symbol."
+                    error={() => undefined}
+                    changed={() => icon() !== (currentVenue().icon || "ti ti-building-carousel")}
+                  >
+                    <IconInput
+                      aria-label="Icon"
+                      value={icon}
+                      onValueChange={(value) => {
+                        setGeneralDirty(true);
+                        setIcon(value ?? "ti ti-building-carousel");
                       }}
-                      updateAccess={async (accessId, permission) => {
-                        await runRequest(async (abortSignal) => {
-                          const response = await apiClient.venues[":id"].access[":accessId"].$patch(
-                            {
-                              param: { id: venue.id, accessId },
-                              json: { permission },
-                            },
-                            { init: { signal: abortSignal } },
-                          );
-                          if (!response.ok) throw new Error(await readError(response, "Failed to update access."));
-                        });
-                        await finishSettingsChange("Access updated");
-                      }}
-                      revokeAccess={async (accessId) => {
-                        await runRequest(async (abortSignal) => {
-                          const response = await apiClient.venues[":id"].access[":accessId"].$delete(
-                            { param: { id: venue.id, accessId } },
-                            { init: { signal: abortSignal } },
-                          );
-                          if (!response.ok) throw new Error(await readError(response, "Failed to revoke access."));
-                        });
-                        await finishSettingsChange("Access revoked");
+                      clearable={false}
+                    />
+                  </SettingsField>
+                  <SettingsField
+                    label="Theme color"
+                    description="Used for public page accents."
+                    error={() => undefined}
+                    changed={() => accentColor() !== currentVenue().accentColor}
+                  >
+                    <ColorInput
+                      aria-label="Theme color"
+                      value={accentColor}
+                      onValueChange={(value) => {
+                        setGeneralDirty(true);
+                        setAccentColor(value);
                       }}
                     />
-                  )}
-                </Show>
-                <div>
-                  <ResourceApiKeys
-                    title="API keys"
-                    description="Resource-bound keys for integrations that need access to this venue."
-                    initialKeys={settings().apiKeys}
-                    createKey={async (input) => {
-                      const created = await runRequest(async (abortSignal) => {
-                        const response = await apiClient.venues[":id"]["api-keys"].$post(
-                          {
-                            param: { id: venue.id },
-                            json: input,
-                          },
-                          { init: { signal: abortSignal } },
-                        );
-                        if (!response.ok) throw new Error(await readError(response, "Failed to create API key."));
-                        return (await response.json()) as { credential: ResourceApiKey; token: string };
-                      });
-                      await finishSettingsChange("API key created");
-                      return created;
-                    }}
-                    revokeKey={async (credentialId) => {
-                      await runRequest(async (abortSignal) => {
-                        const response = await apiClient.venues[":id"]["api-keys"][":credentialId"].$delete(
-                          {
-                            param: { id: venue.id, credentialId },
-                          },
-                          { init: { signal: abortSignal } },
-                        );
-                        if (!response.ok) throw new Error(await readError(response, "Failed to revoke API key."));
-                      });
-                      await finishSettingsChange("API key revoked");
-                    }}
-                  />
+                  </SettingsField>
+                  <SettingsField
+                    label="Logo"
+                    description="Optional image shown next to the venue name."
+                    error={() => undefined}
+                    changed={() => logo() !== currentVenue().logoBase64}
+                  >
+                    <ImageInput
+                      aria-label="Logo"
+                      value={logo}
+                      onValueChange={(value) => {
+                        setGeneralDirty(true);
+                        setLogo(value);
+                      }}
+                      variant="small"
+                    />
+                  </SettingsField>
+                  <SettingsField
+                    label="Banner image"
+                    description="Optional wide image for the public page header."
+                    error={() => undefined}
+                    changed={() => banner() !== currentVenue().bannerBase64}
+                  >
+                    <ImageInput
+                      aria-label="Banner image"
+                      value={banner}
+                      onValueChange={(value) => {
+                        setGeneralDirty(true);
+                        setBanner(value);
+                      }}
+                      variant="small"
+                      transform={bannerTransform}
+                    />
+                  </SettingsField>
                 </div>
-              </div>
-            </Show>
+              </SettingsGroup>
+
+              <SettingsGroup title="Visitor feedback" description="Control whether the public page accepts anonymous ratings and comments.">
+                <CheckboxCard
+                  label="Feedback activated"
+                  description="Allow visitors to leave anonymous ratings and comments on the public page."
+                  icon="ti ti-message-star"
+                  value={feedbackEnabled}
+                  onValueChange={(value) => {
+                    setGeneralDirty(true);
+                    setFeedbackEnabled(value);
+                  }}
+                  variant="input"
+                />
+              </SettingsGroup>
+            </fieldset>
+            <SettingsModal.Footer>
+              <SettingsPanelFooter
+                changeCount={generalChangeCount}
+                loading={save.loading}
+                onDiscard={discardGeneral}
+                onSave={() => void saveSettings()}
+              />
+            </SettingsModal.Footer>
           </SettingsModal.Tab>
+        </SettingsModal.Group>
+
+        {venueSettingsCanAdmin(settings()) && (
+          <SettingsModal.Group title="Sharing">
+            <SettingsModal.Tab id="access" title="Access" icon="ti ti-shield" description="Permission changes save immediately.">
+              <SettingsReadError />
+              <Show
+                when={!settingsQuery.refreshing() && !settingsQuery.error()}
+                fallback={<Placeholder align="left" description={<>Refresh venue settings before changing access or API keys.</>} />}
+              >
+                <div class="grid gap-6">
+                  <SettingsGroup title="People and groups" description="Grant read, staff, or admin access to this venue.">
+                    <Show keyed when={settings().accessEntries}>
+                      {(entries) => (
+                        <PermissionEditor
+                          initialEntries={entries.filter((entry) => entry.principal.type !== "service_account")}
+                          canEdit
+                          allowedLevels={[
+                            { level: "read", label: "Read" },
+                            { level: "write", label: "Staff" },
+                            { level: "admin", label: "Admin" },
+                          ]}
+                          grantAccess={async (principal: Principal, permission: Exclude<PermissionLevel, "none">): Promise<AccessEntry> => {
+                            const entry = await runRequest(async (abortSignal) => {
+                              const response = await apiClient.venues[":id"].access.$post(
+                                {
+                                  param: { id: venue.id },
+                                  json: { principal, permission },
+                                },
+                                { init: { signal: abortSignal } },
+                              );
+                              if (!response.ok) throw new Error(await readError(response, "Failed to grant access."));
+                              return response.json();
+                            });
+                            await finishSettingsChange("Access granted");
+                            return entry;
+                          }}
+                          updateAccess={async (accessId, permission) => {
+                            await runRequest(async (abortSignal) => {
+                              const response = await apiClient.venues[":id"].access[":accessId"].$patch(
+                                {
+                                  param: { id: venue.id, accessId },
+                                  json: { permission },
+                                },
+                                { init: { signal: abortSignal } },
+                              );
+                              if (!response.ok) throw new Error(await readError(response, "Failed to update access."));
+                            });
+                            await finishSettingsChange("Access updated");
+                          }}
+                          revokeAccess={async (accessId) => {
+                            await runRequest(async (abortSignal) => {
+                              const response = await apiClient.venues[":id"].access[":accessId"].$delete(
+                                { param: { id: venue.id, accessId } },
+                                { init: { signal: abortSignal } },
+                              );
+                              if (!response.ok) throw new Error(await readError(response, "Failed to revoke access."));
+                            });
+                            await finishSettingsChange("Access revoked");
+                          }}
+                        />
+                      )}
+                    </Show>
+                  </SettingsGroup>
+                  <SettingsGroup
+                    title="Integration access"
+                    description="Create resource-bound credentials for services that need this venue."
+                  >
+                    <ResourceApiKeys
+                      title="API keys"
+                      description="Resource-bound keys for integrations that need access to this venue."
+                      initialKeys={settings().apiKeys}
+                      createKey={async (input) => {
+                        const created = await runRequest(async (abortSignal) => {
+                          const response = await apiClient.venues[":id"]["api-keys"].$post(
+                            {
+                              param: { id: venue.id },
+                              json: input,
+                            },
+                            { init: { signal: abortSignal } },
+                          );
+                          if (!response.ok) throw new Error(await readError(response, "Failed to create API key."));
+                          return (await response.json()) as { credential: ResourceApiKey; token: string };
+                        });
+                        await finishSettingsChange("API key created");
+                        return created;
+                      }}
+                      revokeKey={async (credentialId) => {
+                        await runRequest(async (abortSignal) => {
+                          const response = await apiClient.venues[":id"]["api-keys"][":credentialId"].$delete(
+                            {
+                              param: { id: venue.id, credentialId },
+                            },
+                            { init: { signal: abortSignal } },
+                          );
+                          if (!response.ok) throw new Error(await readError(response, "Failed to revoke API key."));
+                        });
+                        await finishSettingsChange("API key revoked");
+                      }}
+                    />
+                  </SettingsGroup>
+                </div>
+              </Show>
+            </SettingsModal.Tab>
+          </SettingsModal.Group>
         )}
 
-        <SettingsModal.Tab
-          id="schedule"
-          title="Schedule"
-          icon="ti ti-calendar-time"
-          description="Regular hours, closed days, and staffing targets."
-        >
-          <div class="grid gap-5">
-            <Show when={venueSettingsCanAdmin(settings())}>
-              <section>
-                <h4 class="text-sm font-semibold text-primary">Public opening logic</h4>
-                <p class="mt-1 text-xs leading-relaxed text-dimmed">
-                  Choose whether the public status follows regular hours, confirmed staffed openings, or either source.
-                </p>
-                <div class="mt-3">
+        <SettingsModal.Group title="Operations">
+          <SettingsModal.Tab
+            id="schedule"
+            title="Schedule"
+            icon="ti ti-calendar-time"
+            description="Regular hours, closed days, and staffing targets."
+          >
+            <SettingsReadError />
+            <div class="grid gap-6">
+              <Show when={venueSettingsCanAdmin(settings())}>
+                <SettingsGroup title="Public opening logic" description="Choose which schedule determines the public open status.">
                   <SegmentedControl<Venue["openMode"]>
                     value={openMode}
                     onValueChange={(value) => {
@@ -781,192 +874,186 @@ export function SettingsDialog(props: {
                       { value: "combined", label: "Both", icon: "ti ti-arrows-join" },
                     ]}
                   />
-                </div>
-                <div class="mt-3 flex justify-end">
-                  <Button type="button" size="sm" disabled={save.loading() || scheduleBusy()} onClick={() => void saveSettings()}>
-                    Save opening logic
-                  </Button>
-                </div>
-              </section>
-            </Show>
-            <section>
-              <div class="mb-3 flex items-center justify-between gap-2">
-                <h4 class="text-sm font-semibold text-primary">Regular hours</h4>
+                </SettingsGroup>
+              </Show>
+
+              <SettingsCollection
+                title="Regular hours"
+                description="Weekly opening windows shown on the public page."
+                empty="No regular hours yet."
+              >
                 <Show when={venueSettingsCanAdmin(settings())}>
-                  <Button type="button" variant="secondary" size="sm" disabled={scheduleBusy()} onClick={() => void openCreateOpening()}>
-                    <i class={createOpening.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} /> Add
-                  </Button>
+                  <SettingsCollection.Action>
+                    <Button type="button" size="sm" disabled={scheduleBusy()} onClick={() => void openCreateOpening()}>
+                      <i class={createOpening.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} /> New hours
+                    </Button>
+                  </SettingsCollection.Action>
                 </Show>
-              </div>
-              <div class="grid gap-2 sm:grid-cols-2">
-                <For
-                  each={openingRules()}
-                  fallback={<Placeholder align="left" class="px-0 py-2 sm:col-span-2" description={<>No regular hours.</>} />}
-                >
+                <For each={openingRules()}>
                   {(rule) => (
-                    <div class="paper p-3 text-sm">
-                      <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                          <p class="font-medium text-primary">{weekdays[rule.weekday]}</p>
-                          <p class="text-dimmed">
-                            {rule.startTime}-{rule.endTime}
-                            {rule.note ? ` · ${rule.note}` : ""}
-                          </p>
-                        </div>
-                        <Show when={venueSettingsCanAdmin(settings())}>
-                          <div class="flex shrink-0 gap-1">
-                            <ScheduleActionButton
-                              label="Edit opening hours"
-                              icon="ti ti-pencil"
-                              tone="edit"
-                              loading={scheduleBusy()}
-                              onClick={() => void openEditOpening(rule)}
-                            />
-                            <ScheduleActionButton
-                              label="Delete opening hours"
-                              icon="ti ti-trash"
-                              tone="delete"
-                              loading={scheduleBusy()}
-                              onClick={() => void confirmDeleteOpening(rule)}
-                            />
-                          </div>
-                        </Show>
-                      </div>
-                    </div>
+                    <SettingsCollection.Item
+                      title={weekdays[rule.weekday]}
+                      description={`${rule.startTime}-${rule.endTime}${rule.note ? ` · ${rule.note}` : ""}`}
+                      icon={<i class="ti ti-clock" aria-hidden="true" />}
+                    >
+                      <Show when={venueSettingsCanAdmin(settings())}>
+                        <SettingsCollection.Item.Actions>
+                          <ScheduleActionButton
+                            label="Edit opening hours"
+                            icon="ti ti-pencil"
+                            tone="edit"
+                            loading={scheduleBusy()}
+                            onClick={() => void openEditOpening(rule)}
+                          />
+                          <ScheduleActionButton
+                            label="Delete opening hours"
+                            icon="ti ti-trash"
+                            tone="delete"
+                            loading={scheduleBusy()}
+                            onClick={() => void confirmDeleteOpening(rule)}
+                          />
+                        </SettingsCollection.Item.Actions>
+                      </Show>
+                    </SettingsCollection.Item>
                   )}
                 </For>
-              </div>
-            </section>
+              </SettingsCollection>
 
-            <section>
-              <div class="mb-3 flex items-center justify-between gap-2">
-                <h4 class="text-sm font-semibold text-primary">Closed days</h4>
+              <SettingsCollection
+                title="Closed days"
+                description="Date-specific exceptions to the regular schedule."
+                empty="No closed days yet."
+              >
                 <Show when={venueSettingsCanAdmin(settings())}>
-                  <Button type="button" variant="secondary" size="sm" disabled={scheduleBusy()} onClick={() => void openAddHoliday()}>
-                    <i class={addHoliday.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} /> Add
-                  </Button>
+                  <SettingsCollection.Action>
+                    <Button type="button" size="sm" disabled={scheduleBusy()} onClick={() => void openAddHoliday()}>
+                      <i class={addHoliday.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} /> New closed day
+                    </Button>
+                  </SettingsCollection.Action>
                 </Show>
-              </div>
-              <div class="grid gap-2 sm:grid-cols-2">
-                <For
-                  each={overrides()}
-                  fallback={<Placeholder align="left" class="px-0 py-2 sm:col-span-2" description={<>No closed days.</>} />}
-                >
+                <For each={overrides()}>
                   {(entry) => (
-                    <div class="paper p-3 text-sm">
-                      <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                          <p class="font-medium text-primary">{entry.date}</p>
-                          <p class="text-dimmed">
-                            {entry.kind}
-                            {entry.note ? ` · ${entry.note}` : ""}
-                          </p>
-                        </div>
-                        <Show when={venueSettingsCanAdmin(settings())}>
-                          <div class="flex shrink-0 gap-1">
-                            <ScheduleActionButton
-                              label="Edit closed day"
-                              icon="ti ti-pencil"
-                              tone="edit"
-                              loading={scheduleBusy()}
-                              onClick={() => void openEditHoliday(entry)}
-                            />
-                            <ScheduleActionButton
-                              label="Delete closed day"
-                              icon="ti ti-trash"
-                              tone="delete"
-                              loading={scheduleBusy()}
-                              onClick={() => void confirmDeleteHoliday(entry)}
-                            />
-                          </div>
-                        </Show>
-                      </div>
-                    </div>
+                    <SettingsCollection.Item
+                      title={entry.date}
+                      description={`${entry.kind}${entry.note ? ` · ${entry.note}` : ""}`}
+                      icon={<i class="ti ti-calendar-off" aria-hidden="true" />}
+                    >
+                      <Show when={venueSettingsCanAdmin(settings())}>
+                        <SettingsCollection.Item.Actions>
+                          <ScheduleActionButton
+                            label="Edit closed day"
+                            icon="ti ti-pencil"
+                            tone="edit"
+                            loading={scheduleBusy()}
+                            onClick={() => void openEditHoliday(entry)}
+                          />
+                          <ScheduleActionButton
+                            label="Delete closed day"
+                            icon="ti ti-trash"
+                            tone="delete"
+                            loading={scheduleBusy()}
+                            onClick={() => void confirmDeleteHoliday(entry)}
+                          />
+                        </SettingsCollection.Item.Actions>
+                      </Show>
+                    </SettingsCollection.Item>
                   )}
                 </For>
-              </div>
-            </section>
+              </SettingsCollection>
 
-            <section>
-              <div class="mb-3 flex items-center justify-between gap-2">
-                <h4 class="text-sm font-semibold text-primary">Shifts</h4>
+              <SettingsCollection
+                title="Shifts"
+                description="Recurring staffing windows and opening targets."
+                empty="No shifts configured yet."
+              >
                 <Show when={venueSettingsCanAdmin(settings())}>
-                  <Button type="button" variant="secondary" size="sm" disabled={scheduleBusy()} onClick={() => void openCreateShift()}>
-                    <i class={createShift.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} /> Add
-                  </Button>
+                  <SettingsCollection.Action>
+                    <Button type="button" size="sm" disabled={scheduleBusy()} onClick={() => void openCreateShift()}>
+                      <i class={createShift.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"} /> New shift
+                    </Button>
+                  </SettingsCollection.Action>
                 </Show>
-              </div>
-              <div class="grid gap-2 sm:grid-cols-2">
-                <For
-                  each={shiftTemplates()}
-                  fallback={<Placeholder align="left" class="px-0 py-2 sm:col-span-2" description={<>No shifts configured.</>} />}
-                >
+                <For each={shiftTemplates()}>
                   {(shift) => (
-                    <div class="paper p-3 text-sm">
-                      <div class="flex items-start justify-between gap-3">
-                        <div class="min-w-0">
-                          <p class="font-medium text-primary">{shift.title}</p>
-                          <p class="text-dimmed">
-                            {weekdays[shift.weekday]} · {shift.startTime}-{shift.endTime}
-                          </p>
-                          <p class="mt-2 text-xs text-dimmed">
-                            Target {shift.minPeople}
-                            {shift.maxPeople ? ` · max ${shift.maxPeople}` : ""}
-                          </p>
-                          <p class="mt-1 text-xs text-dimmed">
-                            {shift.requireTargetForOpening ? "Opens after target is staffed" : "Opens after the first signup"}
-                          </p>
-                        </div>
-                        <Show when={venueSettingsCanAdmin(settings())}>
-                          <div class="flex shrink-0 gap-1">
-                            <ScheduleActionButton
-                              label="Edit shift"
-                              icon="ti ti-pencil"
-                              tone="edit"
-                              loading={scheduleBusy()}
-                              onClick={() => void openEditShift(shift)}
-                            />
-                            <ScheduleActionButton
-                              label="Delete shift"
-                              icon="ti ti-trash"
-                              tone="delete"
-                              loading={scheduleBusy()}
-                              onClick={() => void confirmDeleteShift(shift)}
-                            />
-                          </div>
-                        </Show>
-                      </div>
-                    </div>
+                    <SettingsCollection.Item
+                      title={shift.title}
+                      description={`${weekdays[shift.weekday]} · ${shift.startTime}-${shift.endTime} · target ${shift.minPeople}${shift.maxPeople ? `-${shift.maxPeople}` : "+"}`}
+                      icon={<i class="ti ti-users" aria-hidden="true" />}
+                    >
+                      <Show when={venueSettingsCanAdmin(settings())}>
+                        <SettingsCollection.Item.Actions>
+                          <ScheduleActionButton
+                            label="Edit shift"
+                            icon="ti ti-pencil"
+                            tone="edit"
+                            loading={scheduleBusy()}
+                            onClick={() => void openEditShift(shift)}
+                          />
+                          <ScheduleActionButton
+                            label="Delete shift"
+                            icon="ti ti-trash"
+                            tone="delete"
+                            loading={scheduleBusy()}
+                            onClick={() => void confirmDeleteShift(shift)}
+                          />
+                        </SettingsCollection.Item.Actions>
+                      </Show>
+                    </SettingsCollection.Item>
                   )}
                 </For>
-              </div>
-            </section>
-          </div>
-        </SettingsModal.Tab>
+              </SettingsCollection>
+            </div>
+            <Show when={venueSettingsCanAdmin(settings())}>
+              <SettingsModal.Footer>
+                <SettingsPanelFooter
+                  changeCount={generalChangeCount}
+                  loading={save.loading}
+                  onDiscard={discardGeneral}
+                  onSave={() => void saveSettings()}
+                />
+              </SettingsModal.Footer>
+            </Show>
+          </SettingsModal.Tab>
+        </SettingsModal.Group>
 
-        <SettingsModal.Tab id="links" title="Links" icon="ti ti-link" description="Public page and personal calendar subscription.">
-          <div class="flex flex-wrap gap-2">
-            <Button type="button" variant="secondary" size="sm" onClick={() => openVenuePublicDisplayDialog(currentVenue().slug)}>
-              <i class="ti ti-device-tv" />
-              Public page
-            </Button>
-            <ButtonLink variant="secondary" size="sm" href={`/api/venue/calendar/${props.icalToken}.ics`}>
-              <i class="ti ti-calendar-down" />
-              iCal
-            </ButtonLink>
-          </div>
-        </SettingsModal.Tab>
+        <SettingsModal.Group title="Connections">
+          <SettingsModal.Tab id="links" title="Links" icon="ti ti-link" description="Public page and personal calendar subscription.">
+            <SettingsGroup title="Venue links" description="Open the public display or subscribe to the personal calendar feed.">
+              <SettingsGroup.Action>
+                <div class="flex flex-wrap gap-2">
+                  <Button type="button" variant="secondary" size="sm" onClick={() => openVenuePublicDisplayDialog(currentVenue().slug)}>
+                    <i class="ti ti-device-tv" />
+                    Public page
+                  </Button>
+                  <ButtonLink variant="secondary" size="sm" href={`/api/venue/calendar/${props.icalToken}.ics`}>
+                    <i class="ti ti-calendar-down" />
+                    iCal
+                  </ButtonLink>
+                </div>
+              </SettingsGroup.Action>
+            </SettingsGroup>
+          </SettingsModal.Tab>
+        </SettingsModal.Group>
 
         {venueSettingsCanAdmin(settings()) && (
-          <SettingsModal.Tab
-            id="danger"
-            title="Danger zone"
-            icon="ti ti-alert-triangle"
-            description="Permanently delete this venue and all of its data."
-            tone="danger"
-          >
-            <VenueDangerZone venue={currentVenue()} onPendingChange={setDangerPending} />
-          </SettingsModal.Tab>
+          <SettingsModal.Group title="Lifecycle">
+            <SettingsModal.Tab
+              id="danger"
+              title="Danger zone"
+              icon="ti ti-alert-triangle"
+              description="Permanently delete this venue and all of its data."
+              tone="danger"
+            >
+              <SettingsGroup
+                title="Delete venue"
+                description="Remove opening hours, shifts, public content, feedback, access, and API keys."
+              >
+                <SettingsGroup.Action>
+                  <VenueDangerZone venue={currentVenue()} onPendingChange={setDangerPending} />
+                </SettingsGroup.Action>
+              </SettingsGroup>
+            </SettingsModal.Tab>
+          </SettingsModal.Group>
         )}
       </SettingsModal>
     </div>

@@ -2,11 +2,15 @@ import { mutation } from "@k2b/stdlib/solid";
 import {
   Button,
   CheckboxCard,
+  confirmDiscardIfDirty,
   DataTable,
   type DataTableColumn,
   IconInput,
   prompts,
+  SettingsField,
+  SettingsGroup,
   SettingsModal,
+  SettingsPanelFooter,
   StatusBadge,
   type StatusTone,
   TextInput,
@@ -185,6 +189,23 @@ function EditConversationForm(props: EditConversationFormProps) {
   const [icon, setIcon] = createSignal(conversationIcon(props.conversation));
   const [description, setDescription] = createSignal(props.conversation.description);
   const [pinned, setPinned] = createSignal(Boolean(props.conversation.pinnedAt));
+  const initial = {
+    title: props.conversation.title,
+    icon: conversationIcon(props.conversation),
+    description: props.conversation.description,
+    pinned: Boolean(props.conversation.pinnedAt),
+  };
+  const changeCount = () =>
+    Number(title() !== initial.title) +
+    Number(icon() !== initial.icon) +
+    Number(description() !== initial.description) +
+    Number(pinned() !== initial.pinned);
+  const discard = () => {
+    setTitle(initial.title);
+    setIcon(initial.icon);
+    setDescription(initial.description);
+    setPinned(initial.pinned);
+  };
 
   const save = mutation.create<AiConversation, void>({
     mutation: async () =>
@@ -223,80 +244,107 @@ function EditConversationForm(props: EditConversationFormProps) {
     onError: (error) => prompts.error(error.message),
   });
   const busy = () => save.loading() || archive.loading();
+  const requestClose = async () => {
+    if (!busy() && (await confirmDiscardIfDirty(() => changeCount() > 0))) props.close();
+  };
 
   return (
     <div class="dialog-fixed-frame flex min-h-0 flex-col overflow-hidden">
-      <SettingsModal title="Chat settings" onClose={() => props.close()} closeLabel="Close chat settings">
-        <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, icon, description, and list placement.">
-          <form
-            class="flex flex-col gap-4"
-            aria-busy={busy()}
-            onSubmit={(event) => {
-              event.preventDefault();
-              void save.mutate(undefined);
-            }}
+      <SettingsModal title="Chat settings" onClose={() => void requestClose()} closeLabel="Close chat settings">
+        <SettingsModal.Group title="Chat">
+          <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, icon, description, and list placement.">
+            <SettingsGroup title="Identity" description="Choose how this chat appears in navigation and search results.">
+              <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <SettingsField
+                  label="Name"
+                  description="Shown in the chat list and header."
+                  error={() => (!title().trim() ? "Name is required" : undefined)}
+                  changed={() => title() !== initial.title}
+                >
+                  <TextInput aria-label="Name" value={title} onValueChange={setTitle} required maxLength={120} disabled={busy()} />
+                </SettingsField>
+                <SettingsField
+                  label="Icon"
+                  description="Used beside this chat in navigation."
+                  error={() => undefined}
+                  changed={() => icon() !== initial.icon}
+                >
+                  <IconInput aria-label="Icon" value={icon} onValueChange={setIcon} required clearable={false} disabled={busy()} />
+                </SettingsField>
+              </div>
+              <SettingsField
+                label="Description"
+                description="Optional context shown with this chat."
+                error={() => undefined}
+                changed={() => description() !== initial.description}
+              >
+                <TextInput
+                  aria-label="Description"
+                  value={description}
+                  onValueChange={setDescription}
+                  multiline
+                  lines={3}
+                  maxLength={500}
+                  placeholder="Optional context for this chat..."
+                  disabled={busy()}
+                />
+              </SettingsField>
+              <CheckboxCard
+                label="Pin this chat"
+                description="Keep this chat at the top of your chat list."
+                icon="ti ti-pin"
+                value={pinned}
+                onValueChange={setPinned}
+                disabled={busy()}
+              />
+            </SettingsGroup>
+            <SettingsModal.Footer>
+              <SettingsPanelFooter
+                changeCount={changeCount}
+                loading={save.loading}
+                onDiscard={discard}
+                onSave={() => save.mutate(undefined)}
+              />
+            </SettingsModal.Footer>
+          </SettingsModal.Tab>
+
+          <SettingsModal.Tab
+            id="search"
+            title="Search"
+            icon="ti ti-list-search"
+            description="Review and refresh the generated summary and keywords used to find this chat."
           >
-            <IconInput label="Icon" value={icon} onValueChange={setIcon} required clearable={false} disabled={busy()} />
-            <TextInput label="Name" value={title} onValueChange={setTitle} required maxLength={120} disabled={busy()} />
-            <TextInput
-              label="Description"
-              value={description}
-              onValueChange={setDescription}
-              multiline
-              lines={3}
-              maxLength={500}
-              placeholder="Optional context for this chat..."
-              disabled={busy()}
-            />
-            <CheckboxCard
-              label="Pin this chat"
-              description="Keep this chat at the top of your chat list."
-              icon="ti ti-pin"
-              value={pinned}
-              onValueChange={setPinned}
-              disabled={busy()}
-            />
-            <div class="flex justify-end pt-2">
-              <Button type="submit" size="sm" loading={save.loading()} loadingLabel="Saving changes" disabled={busy() || !title().trim()}>
-                <i class="ti ti-device-floppy" aria-hidden="true" />
-                Save changes
-              </Button>
-            </div>
-          </form>
-        </SettingsModal.Tab>
+            <SettingsGroup title="Search index" description="Index status and recent enrichment runs for this chat.">
+              <SearchIndexSection conversationId={props.conversation.id} />
+            </SettingsGroup>
+          </SettingsModal.Tab>
+        </SettingsModal.Group>
 
-        <SettingsModal.Tab
-          id="search"
-          title="Search"
-          icon="ti ti-list-search"
-          description="Review and refresh the generated summary and keywords used to find this chat."
-        >
-          <SearchIndexSection conversationId={props.conversation.id} />
-        </SettingsModal.Tab>
-
-        <SettingsModal.Tab
-          id="archive"
-          title="Archive"
-          icon="ti ti-archive"
-          description="Remove this chat from your active lists. You can restore it later from All Chats."
-        >
-          <div class="flex max-w-xl flex-col items-start gap-3">
-            <Button
-              variant="secondary"
-              size="sm"
-              class="shrink-0"
-              loading={archive.loading()}
-              loadingLabel="Archiving chat"
-              disabled={busy() || props.archiveDisabled}
-              title={props.archiveDisabledReason}
-              onClick={() => archive.mutate(undefined)}
-            >
-              <i class="ti ti-archive" aria-hidden="true" />
-              Archive chat
-            </Button>
-            <Show when={props.archiveDisabledReason}>{(reason) => <p class="text-xs leading-5 text-dimmed">{reason()}</p>}</Show>
-          </div>
-        </SettingsModal.Tab>
+        <SettingsModal.Group title="Lifecycle">
+          <SettingsModal.Tab
+            id="archive"
+            title="Archive"
+            icon="ti ti-archive"
+            description="Remove this chat from active lists. You can restore it later from All Chats."
+          >
+            <SettingsGroup title="Archive chat" description={props.archiveDisabledReason ?? "Move this chat out of your active lists."}>
+              <SettingsGroup.Action>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={archive.loading()}
+                  loadingLabel="Archiving chat"
+                  disabled={busy() || props.archiveDisabled}
+                  title={props.archiveDisabledReason}
+                  onClick={() => archive.mutate(undefined)}
+                >
+                  <i class="ti ti-archive" aria-hidden="true" />
+                  Archive chat
+                </Button>
+              </SettingsGroup.Action>
+            </SettingsGroup>
+          </SettingsModal.Tab>
+        </SettingsModal.Group>
       </SettingsModal>
     </div>
   );

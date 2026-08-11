@@ -58,7 +58,7 @@ personalization, and guidance for better requests. Developers can read
 [Tools and approvals](/en/docs/ai/tools-and-approvals) for the shared contracts
 Assistant adopts.
 
-Open **Personalization → Approvals** to review Actions previously accepted with
+Open **Assistant settings → Approvals** to review Actions previously accepted with
 **Always approve**. Revoking an entry makes Assistant ask again on the next
 matching call. Sending email, deleting data, open-world effects, and other
 Actions not explicitly marked as rememberable continue to require confirmation

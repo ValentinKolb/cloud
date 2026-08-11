@@ -1,8 +1,23 @@
 import { Link } from "@k2b/ssr/nav";
-import { Button, Placeholder, prompts, Select, SettingsModal, Switch, TextInput, toast } from "@k2b/ui";
+import {
+  Button,
+  confirmDiscardIfDirty,
+  IconButton,
+  Placeholder,
+  prompts,
+  Select,
+  SettingsCollection,
+  SettingsField,
+  SettingsGroup,
+  SettingsModal,
+  SettingsPanelFooter,
+  Switch,
+  TextInput,
+  toast,
+} from "@k2b/ui";
 import type { AiApprovalPreferenceView, AiMemory, AiMemoryKind, AiUserPrefs } from "@valentinkolb/cloud/ai";
 import { coreClient } from "@valentinkolb/cloud/clients/core";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { assistantConversationHref } from "./assistant-navigation";
 
@@ -44,7 +59,7 @@ function ApprovalPreferences() {
   };
 
   return (
-    <div class="flex flex-col gap-3" aria-busy={approvals.loading || Boolean(revokingId())}>
+    <div aria-busy={approvals.loading || Boolean(revokingId())}>
       <Show when={approvals.error}>
         <div class="flex items-center justify-between gap-3 rounded-lg border border-red-200 p-3 text-sm dark:border-red-900">
           <span class="text-red-700 dark:text-red-300">{approvals.error.message}</span>
@@ -56,40 +71,37 @@ function ApprovalPreferences() {
       <Show when={approvals.loading}>
         <Placeholder state="loading" title="Loading remembered approvals" />
       </Show>
-      <Show when={!approvals.loading && !approvals.error && (approvals()?.length ?? 0) === 0}>
-        <Placeholder title="No remembered approvals" description="Actions will ask before they run." />
-      </Show>
-      <Show when={!approvals.error && (approvals()?.length ?? 0) > 0}>
-        <ul class="divide-y overflow-hidden rounded-lg border">
+      <Show when={!approvals.loading && !approvals.error}>
+        <SettingsCollection
+          title="Remembered approvals"
+          description="Actions listed here can run without asking again. Revoking a decision applies immediately."
+          empty="No remembered approvals. Actions will ask before they run."
+        >
           <For each={approvals()}>
             {(approval) => (
-              <li class="flex items-center gap-3 p-3">
-                <i
-                  class={`${approval.app?.icon ?? "ti ti-tool"} shrink-0 text-lg`}
-                  style={{ color: approval.app?.accent }}
-                  aria-hidden="true"
-                />
-                <div class="min-w-0 flex-1">
-                  <p class="truncate text-sm font-medium text-primary">{approval.title}</p>
-                  <p class="truncate text-xs text-secondary">
-                    {approval.app?.name ?? approval.contextAppId}
-                    {approval.resource ? ` · ${approval.resource.resourceType}` : " · Direct chats"}
-                  </p>
-                </div>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  loading={revokingId() === approval.id}
-                  loadingLabel="Revoking"
-                  disabled={Boolean(revokingId())}
-                  onClick={() => void revoke(approval)}
-                >
-                  Revoke
-                </Button>
-              </li>
+              <SettingsCollection.Item
+                title={approval.title}
+                description={`${approval.app?.name ?? approval.contextAppId}${
+                  approval.resource ? ` · ${approval.resource.resourceType}` : " · Direct chats"
+                }`}
+                icon={<i class={approval.app?.icon ?? "ti ti-tool"} style={{ color: approval.app?.accent }} aria-hidden="true" />}
+              >
+                <SettingsCollection.Item.Actions>
+                  <IconButton
+                    label={`Revoke approval for ${approval.title}`}
+                    title="Revoke approval"
+                    size="sm"
+                    loading={revokingId() === approval.id}
+                    disabled={Boolean(revokingId())}
+                    onClick={() => void revoke(approval)}
+                  >
+                    <i class="ti ti-shield-x" aria-hidden="true" />
+                  </IconButton>
+                </SettingsCollection.Item.Actions>
+              </SettingsCollection.Item>
             )}
           </For>
-        </ul>
+        </SettingsCollection>
       </Show>
     </div>
   );
@@ -98,10 +110,10 @@ function ApprovalPreferences() {
 function SystemPromptPanel() {
   const [prompt, { refetch }] = createResource(() => assistantApi.getSystemPromptPreview());
   return (
-    <div class="flex flex-col gap-3">
-      <p class="text-sm text-secondary">
-        This is the complete prompt a new Assistant chat starts with right now, including active personalization and organization rules.
-      </p>
+    <SettingsGroup
+      title="Effective instructions"
+      description="The complete prompt a new chat starts with, including active personalization and organization rules."
+    >
       <Show when={prompt.loading}>
         <Placeholder state="loading" title="Loading system prompt" />
       </Show>
@@ -120,7 +132,7 @@ function SystemPromptPanel() {
           </pre>
         )}
       </Show>
-    </div>
+    </SettingsGroup>
   );
 }
 
@@ -172,17 +184,30 @@ const openAddPersonalizationDialog = (): Promise<{ kind: AiMemoryKind; content: 
     { title: "Add personalization", icon: "ti ti-user-cog", size: "medium" },
   );
 
-function MemorySettings(props: { prefs: AiUserPrefs }) {
+function MemorySettings(props: { prefs: AiUserPrefs; onDirtyChange: (dirty: boolean) => void }) {
   const [query, setQuery] = createSignal("");
   const [memories, { refetch }] = createResource(query, (q) => assistantApi.listMemories({ q: q.trim() || undefined, limit: 50 }));
   const [memoryEnabled, setMemoryEnabled] = createSignal(props.prefs.memoryEnabled);
   const [learningEnabled, setLearningEnabled] = createSignal(props.prefs.memoryLearningEnabled);
+  const [savedPreferences, setSavedPreferences] = createSignal({
+    memoryEnabled: props.prefs.memoryEnabled,
+    learningEnabled: props.prefs.memoryLearningEnabled,
+  });
   const [busyId, setBusyId] = createSignal<string | null>(null);
+  const changeCount = () =>
+    Number(memoryEnabled() !== savedPreferences().memoryEnabled) + Number(learningEnabled() !== savedPreferences().learningEnabled);
+  const discardSettings = () => {
+    setMemoryEnabled(savedPreferences().memoryEnabled);
+    setLearningEnabled(savedPreferences().learningEnabled);
+  };
+  createEffect(() => props.onDirtyChange(changeCount() > 0));
+  onCleanup(() => props.onDirtyChange(false));
 
   const saveSettings = async () => {
     setBusyId("settings");
     try {
       await assistantApi.updatePrefs({ memoryEnabled: memoryEnabled(), memoryLearningEnabled: learningEnabled() });
+      setSavedPreferences({ memoryEnabled: memoryEnabled(), learningEnabled: learningEnabled() });
       toast.success("Personalization settings saved");
     } catch (error) {
       await prompts.error(error instanceof Error ? error.message : "Failed to save personalization settings");
@@ -250,152 +275,174 @@ function MemorySettings(props: { prefs: AiUserPrefs }) {
   };
 
   return (
-    <div class="flex flex-col gap-5" aria-busy={Boolean(busyId()) || memories.loading}>
-      <div class="flex flex-col gap-3">
-        <Switch
-          label="Use personalization in Assistant chats"
-          description="Relevant personal facts and preferences are added to the context of new turns."
-          value={memoryEnabled}
-          onValueChange={setMemoryEnabled}
-          disabled={Boolean(busyId())}
-        />
-        <Switch
-          label="Learn personalization from private chats"
-          description="After a chat becomes idle, Assistant may save durable facts and preferences with a link to that chat."
-          value={learningEnabled}
-          onValueChange={setLearningEnabled}
-          disabled={Boolean(busyId())}
-        />
-        <div class="flex justify-end">
-          <Button
-            size="sm"
-            variant="secondary"
-            loading={busyId() === "settings"}
-            loadingLabel="Saving settings"
-            onClick={() => void saveSettings()}
-          >
-            Save settings
-          </Button>
-        </div>
-      </div>
-
-      <div class="flex items-end gap-2">
-        <div class="min-w-0 flex-1">
-          <TextInput
-            label="Search personalization"
-            value={query}
-            onValueChange={setQuery}
-            placeholder="Search facts and preferences"
+    <>
+      <div class="flex flex-col gap-6" aria-busy={Boolean(busyId()) || memories.loading}>
+        <SettingsGroup title="Use personalization" description="Choose how Assistant uses and learns durable context about you.">
+          <Switch
+            label="Use personalization in Assistant chats"
+            description="Relevant personal facts and preferences are added to the context of new turns."
+            value={memoryEnabled}
+            onValueChange={setMemoryEnabled}
             disabled={Boolean(busyId())}
           />
-        </div>
-        <Button variant="secondary" loading={busyId() === "new"} disabled={Boolean(busyId())} onClick={() => void addMemory()}>
-          + Add
-        </Button>
-      </div>
+          <Switch
+            label="Learn personalization from private chats"
+            description="After a chat becomes idle, Assistant may save durable facts and preferences with a link to that chat."
+            value={learningEnabled}
+            onValueChange={setLearningEnabled}
+            disabled={Boolean(busyId())}
+          />
+        </SettingsGroup>
 
-      <Show when={memories.loading}>
-        <Placeholder state="loading" title="Loading memories" />
-      </Show>
-      <Show when={memories.error}>
-        <div class="flex flex-col items-center gap-2">
-          <Placeholder state="error" title="Could not load personalization" description={memories.error.message} />
-          <Button size="xs" variant="secondary" onClick={() => void refetch()}>
-            Retry
-          </Button>
-        </div>
-      </Show>
-      <Show when={!memories.loading && !memories.error && (memories()?.length ?? 0) === 0}>
-        <Placeholder
-          title={query().trim() ? "No matching personalization" : "No personalization yet"}
-          description={
-            query().trim() ? "Try a different search." : "Add a durable fact or preference, or enable learning from private chats."
-          }
+        <SettingsGroup title="Find personalization" description="Filter the saved facts and preferences shown below.">
+          <SettingsField label="Search" description="Search by words contained in a saved entry." error={() => undefined}>
+            <TextInput
+              aria-label="Search personalization"
+              value={query}
+              onValueChange={setQuery}
+              placeholder="Search facts and preferences"
+              disabled={Boolean(busyId())}
+            />
+          </SettingsField>
+        </SettingsGroup>
+
+        <Show when={memories.loading}>
+          <Placeholder state="loading" title="Loading memories" />
+        </Show>
+        <Show when={memories.error}>
+          <div class="flex flex-col items-center gap-2">
+            <Placeholder state="error" title="Could not load personalization" description={memories.error.message} />
+            <Button size="xs" variant="secondary" onClick={() => void refetch()}>
+              Retry
+            </Button>
+          </div>
+        </Show>
+        <Show when={!memories.loading && !memories.error}>
+          <SettingsCollection
+            title="Saved personalization"
+            description="Facts and preferences Assistant may carry into future conversations. Item changes save immediately."
+            empty={query().trim() ? "No matching personalization. Try a different search." : "No personalization yet."}
+          >
+            <SettingsCollection.Action>
+              <Button size="sm" loading={busyId() === "new"} disabled={Boolean(busyId())} onClick={() => void addMemory()}>
+                <i class="ti ti-plus" aria-hidden="true" />
+                Add personalization
+              </Button>
+            </SettingsCollection.Action>
+            <For each={memories()}>
+              {(memory) => (
+                <SettingsCollection.Item
+                  title={memory.content}
+                  description={`${memory.kind === "preference" ? "Preference" : "Fact"}${
+                    memory.priority === "pinned" ? " · Pinned" : ""
+                  } · Updated ${new Date(memory.updatedAt).toLocaleDateString()}`}
+                  icon={<i class={memory.priority === "pinned" ? "ti ti-pin-filled" : "ti ti-brain"} aria-hidden="true" />}
+                >
+                  <Show when={memory.sourceConversationId}>
+                    {(conversationId) => (
+                      <SettingsCollection.Item.Status>
+                        <Link href={assistantConversationHref(globalThis.location?.href ?? "/app/assistant", conversationId())}>
+                          Source chat
+                        </Link>
+                      </SettingsCollection.Item.Status>
+                    )}
+                  </Show>
+                  <SettingsCollection.Item.Actions>
+                    <IconButton
+                      label={`${memory.priority === "pinned" ? "Unpin" : "Pin"} personalization`}
+                      title={memory.priority === "pinned" ? "Unpin" : "Pin"}
+                      size="sm"
+                      disabled={Boolean(busyId())}
+                      onClick={() => void togglePinned(memory)}
+                    >
+                      <i class={memory.priority === "pinned" ? "ti ti-pin-off" : "ti ti-pin"} aria-hidden="true" />
+                    </IconButton>
+                    <IconButton
+                      label="Edit personalization"
+                      title="Edit"
+                      size="sm"
+                      disabled={Boolean(busyId())}
+                      onClick={() => void editMemory(memory)}
+                    >
+                      <i class="ti ti-pencil" aria-hidden="true" />
+                    </IconButton>
+                    <IconButton
+                      label="Forget personalization"
+                      title="Forget"
+                      size="sm"
+                      disabled={Boolean(busyId())}
+                      onClick={() => void removeMemory(memory)}
+                    >
+                      <i class="ti ti-trash" aria-hidden="true" />
+                    </IconButton>
+                  </SettingsCollection.Item.Actions>
+                </SettingsCollection.Item>
+              )}
+            </For>
+          </SettingsCollection>
+        </Show>
+      </div>
+      <SettingsModal.Footer>
+        <SettingsPanelFooter
+          changeCount={changeCount}
+          loading={() => busyId() === "settings"}
+          onDiscard={discardSettings}
+          onSave={() => void saveSettings()}
         />
-      </Show>
-      <Show when={!memories.error && (memories()?.length ?? 0) > 0}>
-        <ul class="flex flex-col gap-3">
-          <For each={memories()}>
-            {(memory) => (
-              <li class="rounded-lg bg-muted p-3">
-                <div class="flex items-start justify-between gap-3">
-                  <div class="min-w-0 flex-1">
-                    <p class="text-sm text-primary">{memory.content}</p>
-                    <p class="mt-1 text-xs text-secondary">
-                      {memory.kind === "preference" ? "Preference" : "Fact"}
-                      {memory.priority === "pinned" ? " · Pinned" : ""} · Updated {new Date(memory.updatedAt).toLocaleDateString()}
-                      <Show when={memory.sourceConversationId}>
-                        {(conversationId) => (
-                          <>
-                            {" · "}
-                            <Link href={assistantConversationHref(globalThis.location?.href ?? "/app/assistant", conversationId())}>
-                              Source chat
-                            </Link>
-                          </>
-                        )}
-                      </Show>
-                    </p>
-                  </div>
-                  <div class="flex shrink-0 flex-wrap justify-end gap-1">
-                    <Button size="xs" variant="ghost" disabled={Boolean(busyId())} onClick={() => void togglePinned(memory)}>
-                      {memory.priority === "pinned" ? "Unpin" : "Pin"}
-                    </Button>
-                    <Button size="xs" variant="ghost" disabled={Boolean(busyId())} onClick={() => void editMemory(memory)}>
-                      Edit
-                    </Button>
-                    <Button size="xs" variant="ghost" disabled={Boolean(busyId())} onClick={() => void removeMemory(memory)}>
-                      Forget
-                    </Button>
-                  </div>
-                </div>
-              </li>
-            )}
-          </For>
-        </ul>
-      </Show>
-    </div>
+      </SettingsModal.Footer>
+    </>
   );
 }
 
 function PrefsDialog(props: { prefs: AiUserPrefs; initialTab: AssistantPrefsTab; close: () => void }) {
   const [activeTab, setActiveTab] = createSignal<AssistantPrefsTab>(props.initialTab);
+  const [personalizationDirty, setPersonalizationDirty] = createSignal(false);
+  const requestClose = async () => {
+    if (await confirmDiscardIfDirty(personalizationDirty)) props.close();
+  };
   return (
     <div class="dialog-fixed-frame flex min-h-0 flex-col overflow-hidden">
       <SettingsModal
         title="Assistant settings"
         activeTab={activeTab()}
         onTabChange={(tab) => setActiveTab(tab as AssistantPrefsTab)}
-        onClose={props.close}
+        onClose={() => void requestClose()}
         closeLabel="Close Assistant settings"
       >
-        <SettingsModal.Tab
-          id="personalization"
-          title="Personalization"
-          icon="ti ti-user-cog"
-          description="Manage the facts and preferences Assistant can carry into future conversations."
-        >
-          <MemorySettings prefs={props.prefs} />
-        </SettingsModal.Tab>
+        <SettingsModal.Group title="Personal">
+          <SettingsModal.Tab
+            id="personalization"
+            title="Personalization"
+            icon="ti ti-user-cog"
+            description="Manage the facts and preferences Assistant can carry into future conversations."
+          >
+            <MemorySettings prefs={props.prefs} onDirtyChange={setPersonalizationDirty} />
+          </SettingsModal.Tab>
+        </SettingsModal.Group>
 
-        <SettingsModal.Tab
-          id="system-prompt"
-          title="System prompt"
-          icon="ti ti-code"
-          description="Inspect the complete instructions and context applied to new chats."
-        >
-          <Show when={activeTab() === "system-prompt"}>
-            <SystemPromptPanel />
-          </Show>
-        </SettingsModal.Tab>
+        <SettingsModal.Group title="Transparency">
+          <SettingsModal.Tab
+            id="system-prompt"
+            title="System prompt"
+            icon="ti ti-code"
+            description="Inspect the complete instructions and context applied to new chats."
+          >
+            <Show when={activeTab() === "system-prompt"}>
+              <SystemPromptPanel />
+            </Show>
+          </SettingsModal.Tab>
+        </SettingsModal.Group>
 
-        <SettingsModal.Tab
-          id="approvals"
-          title="Approvals"
-          icon="ti ti-shield-check"
-          description="Manage actions Assistant may run without asking each time."
-        >
-          <ApprovalPreferences />
-        </SettingsModal.Tab>
+        <SettingsModal.Group title="Permissions">
+          <SettingsModal.Tab
+            id="approvals"
+            title="Approvals"
+            icon="ti ti-shield-check"
+            description="Manage actions Assistant may run without asking each time."
+          >
+            <ApprovalPreferences />
+          </SettingsModal.Tab>
+        </SettingsModal.Group>
       </SettingsModal>
     </div>
   );

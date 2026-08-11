@@ -14,7 +14,7 @@ Assistant keeps recent chats in the sidebar and stores older chats on the All Ch
 - **Recent groups:** The sidebar groups recent chats into Today, This Week, and This Month.
 - **Search chats:** Use the sidebar search button or the platform shortcut to search saved chats.
 - **All Chats:** Open All Chats for paginated chat history, server-side search, and edit actions.
-- **Edit or delete:** Use the settings action on a chat to change its name, icon, description, or delete it.
+- **Edit or archive:** Use the settings action on a chat to change its name, icon, description, pinning, or archive it.
 :::
 
 ## Message actions {icon="point"}

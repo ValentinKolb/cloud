@@ -21,6 +21,7 @@ The venue workspace separates daily staffing, personal assignments, public conte
 
 :::reference
 - **General:** Edit name, slug, description, icon, theme color, logo, banner, and feedback activation.
+- **Schedule:** Choose the public opening logic and manage regular hours, closed days, and recurring shifts.
 - **Access:** Admins grant read, staff, or admin access to users, groups, public, or signed-in users.
 - **Links:** Open the public page or copy your personal iCal subscription for venue shifts.
 - **API keys:** Admins can create resource-bound keys for integrations that need access to this venue.

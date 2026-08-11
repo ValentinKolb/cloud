@@ -46,7 +46,7 @@ describe("Assistant frontend contracts", () => {
     expect(preferences).toContain("Learn personalization from private chats");
     expect(preferences).toContain("Search personalization");
     expect(preferences).toContain("Add personalization");
-    expect(preferences).toContain("+ Add");
+    expect(preferences).toContain("SettingsCollection.Item.Actions");
     expect(preferences).toContain("System prompt");
     expect(preferences).not.toContain("Custom instructions");
     expect(preferences).not.toContain("PanelDialog");
