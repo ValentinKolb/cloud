@@ -5,7 +5,7 @@ section: Platform services
 order: 555
 description: Publish a small, versioned RPC surface for cross-app calls, agents, CLI, and MCP.
 tags: [capabilities, rpc, agents, mcp]
-updated: 2026-08-10
+updated: 2026-08-11
 ---
 
 # App capabilities
@@ -288,10 +288,10 @@ resolve directly. The reader performs the same current authorization as every
 other Query.
 
 Use the resource's stable, app-owned public ID for `CloudResourceRef.id`, not
-an internal database primary key. Apps commonly use a short immutable ID so
-references remain compact and recognizable while UUID primary and foreign keys
-stay private to the app. Resolve that public ID to the internal key at the app
-service boundary.
+an internal database primary key. The app's canonical reader accepts that value
+unchanged and resolves it at the application boundary. See
+[Public resource identifiers](/en/docs/data/public-resource-identifiers) when
+choosing between an existing domain identifier and a compact generated ID.
 
 Consumers resolve a reader from the current live manifest: find the owning app
 from the qualified `ref.type`, find the matching Type, then invoke the Query in

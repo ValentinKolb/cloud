@@ -5,7 +5,7 @@ section: Reference
 order: 1220
 description: Look up the route prefixes reserved by Cloud and those owned by applications.
 tags: [routes, gateway, prefixes]
-updated: 2026-07-27
+updated: 2026-08-11
 ---
 
 # Route conventions
@@ -59,6 +59,17 @@ The gateway uses the longest matching segment path. For example,
 
 Exact duplicate prefixes are skipped and reported as route warnings. The first
 application in the deterministic registry ordering keeps the prefix.
+
+## Use public IDs in resource routes
+
+When a route addresses an application resource, use that resource's canonical
+public ID in the path or query. Do not expose an internal database key merely
+because the router can pass it directly to a query.
+
+Short IDs are optional. If an application adopts them, the same ID belongs in
+its URLs, APIs, Capabilities, and other public surfaces. See
+[Public resource identifiers](/en/docs/data/public-resource-identifiers) for
+the decision and consistency rules.
 
 ## Align route declarations
 

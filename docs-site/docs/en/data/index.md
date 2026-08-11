@@ -5,7 +5,7 @@ section: Data
 order: 400
 description: Decide which data belongs to an application and which data belongs to the platform.
 tags: [data, postgres, settings, storage]
-updated: 2026-07-27
+updated: 2026-08-11
 ---
 
 # Data ownership
@@ -36,6 +36,7 @@ Valkey coordinates work. Durable domain records stay in Postgres.
 | Task | Page |
 | --- | --- |
 | Query an application-owned schema | [Postgres queries](/en/docs/data/postgres-queries) |
+| Choose a stable public identity for a resource | [Public resource identifiers](/en/docs/data/public-resource-identifiers) |
 | Change the schema or write atomically | [Migrations and transactions](/en/docs/data/migrations-and-transactions) |
 | Place secrets, cache entries, files, and other state | [Secrets and persistent state](/en/docs/data/secrets-and-persistent-state) |
 | Link domain resources to platform access | [Resource authorization](/en/docs/identity/authorization) |

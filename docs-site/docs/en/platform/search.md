@@ -5,7 +5,7 @@ section: Platform services
 order: 560
 description: Project focused application Queries into the shared Cloud search.
 tags: [search, capabilities, authorization]
-updated: 2026-08-10
+updated: 2026-08-11
 ---
 
 # Universal search
@@ -144,7 +144,7 @@ Pass the imported declaration to `app.start({ capabilities, fetch })` as describ
 Each returned resource must:
 
 - use a Type declared by the app;
-- have a stable resource ID;
+- have a stable [public resource ID](/en/docs/data/public-resource-identifiers);
 - include at least one root-relative `open` link;
 - contain only information the current access subject may read;
 - stay within the requested limit.
