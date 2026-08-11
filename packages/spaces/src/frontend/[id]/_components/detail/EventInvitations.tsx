@@ -1,5 +1,17 @@
 import { mutation, query } from "@k2b/stdlib/solid";
-import { Button, DetailPanel, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, Select, TextInput, toast } from "@k2b/ui";
+import {
+  Button,
+  DetailPanel,
+  dialogCore,
+  NoticeCard,
+  PanelDialog,
+  Placeholder,
+  panelDialogOptions,
+  prompts,
+  Select,
+  TextInput,
+  toast,
+} from "@k2b/ui";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { z } from "zod";
 import { apiClient } from "@/api/client";
@@ -235,10 +247,12 @@ function InvitationDialog(props: {
         <Button
           type="button"
           variant={props.method === "cancel" ? "danger" : "primary"}
-          disabled={contextQuery.loading() || create.loading() || !context() || !mailboxId() || !senderIdentityId()}
+          loading={create.loading()}
+          loadingLabel="Creating Mail"
+          disabled={contextQuery.loading() || !context() || !mailboxId() || !senderIdentityId()}
           onClick={createInvitation}
         >
-          <i class={create.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-mail-plus"} aria-hidden="true" />
+          <i class="ti ti-mail-plus" aria-hidden="true" />
           Create Mail
         </Button>
       </PanelDialog.Footer>
@@ -273,19 +287,28 @@ export default function EventInvitations(props: { spaceId: string; itemId: strin
     >
       <Show when={contextQuery.error()}>
         {(error) => (
-          <div class="mb-2 flex items-center justify-between gap-2 text-xs text-danger" role="alert">
-            <span>{error().message}</span>
-            <Button type="button" variant="ghost" size="xs" onClick={() => void contextQuery.refresh()}>
-              Retry
-            </Button>
-          </div>
+          <Placeholder
+            state="error"
+            variant="compact"
+            align="left"
+            class="mb-2"
+            title="Invitation status unavailable"
+            description={error().message}
+            action={
+              <Button type="button" variant="secondary" size="xs" onClick={() => void contextQuery.refresh()}>
+                Retry
+              </Button>
+            }
+          />
         )}
       </Show>
       <Show when={context()?.lastDelivery?.state === "failed"}>
-        <p class="mb-2 text-xs text-danger">
-          <i class="ti ti-alert-circle mr-1" aria-hidden="true" />
-          {context()?.lastDelivery?.errorMessage ?? "The latest Mail draft could not be created."} Retry by creating the invitation again.
-        </p>
+        <NoticeCard
+          tone="danger"
+          class="mb-2"
+          title="Mail draft failed"
+          detail={`${context()?.lastDelivery?.errorMessage ?? "The latest Mail draft could not be created."} Retry by creating the invitation again.`}
+        />
       </Show>
       <div class="flex flex-col gap-1">
         <DetailPanel.Action

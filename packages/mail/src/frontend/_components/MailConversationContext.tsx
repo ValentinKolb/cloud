@@ -1,5 +1,5 @@
 import { mutation, query } from "@k2b/stdlib/solid";
-import { Button, DetailPanel, Placeholder, prompts } from "@k2b/ui";
+import { Button, DetailPanel, Disclosure, Placeholder, prompts } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { MailConversationContext, RelatedMailPage } from "../../contracts";
@@ -53,25 +53,33 @@ function RelatedMail(props: {
   });
 
   return (
-    <div class="mt-2">
-      <DetailPanel.Action
-        type="button"
-        aria-expanded={open()}
-        onClick={() => {
-          const next = !open();
-          setOpen(next);
-        }}
-        leading={<i class="ti ti-history" aria-hidden="true" />}
-        title="Related Mail"
-        trailing={<i class={`ti ${open() ? "ti-chevron-up" : "ti-chevron-down"}`} aria-hidden="true" />}
-      />
-      <Show when={open()}>
-        <Show when={!related.error()} fallback={<p class="mt-2 text-xs text-red-600 dark:text-red-300">{related.error()?.message}</p>}>
+    <Disclosure summary="Related Mail" icon="ti ti-history" class="mt-2" value={open} onValueChange={setOpen}>
+      <Show
+        when={!related.error()}
+        fallback={
+          <Placeholder
+            state="error"
+            variant="compact"
+            align="left"
+            title="Related Mail unavailable"
+            description={related.error()?.message}
+            action={
+              <Button variant="secondary" size="xs" type="button" onClick={() => void related.refresh()}>
+                Retry
+              </Button>
+            }
+          />
+        }
+      >
+        <Show
+          when={!related.loading()}
+          fallback={<Placeholder state="loading" variant="compact" align="left" title="Loading related Mail" />}
+        >
           <Show
             when={relatedItems().length > 0}
-            fallback={<p class="mt-2 text-xs text-dimmed">{related.loading() ? "Loading..." : "No related Mail"}</p>}
+            fallback={<Placeholder state="empty" variant="compact" align="left" icon="ti ti-mail-off" title="No related Mail" />}
           >
-            <div class="mt-2 flex flex-col gap-1">
+            <div class="flex flex-col gap-1">
               <For each={relatedItems()}>
                 {(item) => (
                   <DetailPanel.Action
@@ -92,7 +100,8 @@ function RelatedMail(props: {
               size="xs"
               type="button"
               class="mt-2"
-              disabled={related.loadingMore()}
+              loading={related.loadingMore()}
+              loadingLabel="Loading more"
               onClick={() => void related.loadMore()}
             >
               Load more
@@ -100,7 +109,7 @@ function RelatedMail(props: {
           </Show>
         </Show>
       </Show>
-    </div>
+    </Disclosure>
   );
 }
 
@@ -214,23 +223,54 @@ export default function MailConversationContext(props: {
         when={context()}
         fallback={
           <Show when={contexts.error()} fallback={<Placeholder state="loading" align="left" title="Loading contacts..." />}>
-            {(error) => <Placeholder title="Contacts unavailable" description={error().message} icon="ti ti-address-book-off" />}
+            {(error) => (
+              <Placeholder
+                state="error"
+                align="left"
+                title="Contacts unavailable"
+                description={error().message}
+                icon="ti ti-address-book-off"
+                action={
+                  <Button variant="secondary" size="sm" type="button" onClick={() => void contexts.refresh()}>
+                    Retry
+                  </Button>
+                }
+              />
+            )}
           </Show>
         }
       >
         <Show
           when={!contexts.error()}
           fallback={
-            <Placeholder title="Contacts unavailable" description={contexts.error()?.message ?? ""} icon="ti ti-address-book-off" />
+            <Placeholder
+              state="error"
+              align="left"
+              title="Contacts unavailable"
+              description={contexts.error()?.message ?? ""}
+              icon="ti ti-address-book-off"
+              action={
+                <Button variant="secondary" size="sm" type="button" onClick={() => void contexts.refresh()}>
+                  Retry
+                </Button>
+              }
+            />
           }
         >
           <Show
             when={context()?.contacts.status === "ready"}
             fallback={
               <Placeholder
+                state="error"
+                align="left"
                 title="Contacts unavailable"
                 description="Contact context could not be refreshed."
                 icon="ti ti-address-book-off"
+                action={
+                  <Button variant="secondary" size="sm" type="button" onClick={() => void contexts.refresh()}>
+                    Retry
+                  </Button>
+                }
               />
             }
           >
@@ -342,7 +382,8 @@ export default function MailConversationContext(props: {
                   size="sm"
                   type="button"
                   class="mt-3"
-                  disabled={contexts.loadingMore()}
+                  loading={contexts.loadingMore()}
+                  loadingLabel="Loading more"
                   onClick={() => void contexts.loadMore()}
                 >
                   Load more

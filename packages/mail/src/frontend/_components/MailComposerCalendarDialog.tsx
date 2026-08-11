@@ -1,6 +1,16 @@
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation, query } from "@k2b/stdlib/solid";
-import { Button, DateTimePicker, dialogCore, PanelDialog, panelDialogOptions, SegmentedControl, Select, TextInput } from "@k2b/ui";
+import {
+  Button,
+  DateTimePicker,
+  dialogCore,
+  PanelDialog,
+  Placeholder,
+  panelDialogOptions,
+  SegmentedControl,
+  Select,
+  TextInput,
+} from "@k2b/ui";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { CalendarEvent } from "../../app-integration-contracts";
@@ -71,7 +81,6 @@ function MailComposerCalendarDialog(props: {
     setEventId(values[0]?.id ?? "");
   });
 
-  createEffect(() => setError(destinationQuery.error()?.message ?? eventQuery.error()?.message ?? null));
   const loading = () => destinationQuery.loading() || eventQuery.loading();
 
   const selectSpace = (value: string | null) => {
@@ -154,6 +163,7 @@ function MailComposerCalendarDialog(props: {
         subtitle="Attach an existing event or create one in Spaces"
         icon="ti ti-calendar-plus"
         close={closeDialog}
+        closeDisabled={saving()}
       />
       <PanelDialog.Body>
         <PanelDialog.Section
@@ -176,71 +186,139 @@ function MailComposerCalendarDialog(props: {
                 { value: "create", label: "New event", icon: "ti ti-calendar-plus" },
               ]}
             />
-            <Select
-              label="Space"
-              placeholder={loading() ? "Loading Spaces..." : "Choose a Space"}
-              value={spaceId}
-              onValueChange={selectSpace}
-              options={destinations().map((space) => ({ id: space.id, label: space.name, color: space.color }))}
-              disabled={loading() || saving() || Boolean(createdEventId())}
-            />
-            <Show when={!loading() && destinations().length === 0}>
-              <p class="text-xs text-dimmed">No writable Spaces are available. Create a Space or ask for write access first.</p>
-            </Show>
             <Show
-              when={mode() === "existing"}
-              fallback={
-                <div class="grid gap-3 sm:grid-cols-2">
-                  <div class="sm:col-span-2">
-                    <TextInput
-                      label="Title"
-                      value={title}
-                      onValueChange={setTitle}
-                      maxLength={200}
-                      disabled={saving() || Boolean(createdEventId())}
-                    />
-                  </div>
-                  <div class="sm:col-span-2">
-                    <TextInput
-                      label="Location"
-                      value={location}
-                      onValueChange={setLocation}
-                      maxLength={500}
-                      disabled={saving() || Boolean(createdEventId())}
-                    />
-                  </div>
-                  <DateTimePicker
-                    label="Starts"
-                    value={startsAt}
-                    onValueChange={setStartsAt}
-                    dateConfig={props.dateConfig}
-                    disabled={saving() || Boolean(createdEventId())}
-                  />
-                  <DateTimePicker
-                    label="Ends"
-                    value={endsAt}
-                    onValueChange={setEndsAt}
-                    dateConfig={props.dateConfig}
-                    disabled={saving() || Boolean(createdEventId())}
-                  />
-                </div>
-              }
+              when={!destinationQuery.loading()}
+              fallback={<Placeholder state="loading" variant="compact" align="left" title="Loading writable Spaces" />}
             >
-              <Select
-                label="Event"
-                placeholder={loading() ? "Loading events..." : "Choose an event"}
-                value={eventId}
-                onValueChange={setEventId}
-                options={events().map((event) => ({
-                  id: event.id,
-                  label: event.title,
-                  description: `${dates.formatDateTime(event.startsAt, props.dateConfig)}${event.location ? ` · ${event.location}` : ""}`,
-                  icon: "ti ti-calendar-event",
-                }))}
-                disabled={loading() || saving()}
-              />
-              <Show when={!loading() && Boolean(spaceId()) && events().length === 0}>
-                <p class="text-xs text-dimmed">No events are available in this Space. Choose New event to create one.</p>
+              <Show
+                when={!destinationQuery.error()}
+                fallback={
+                  <Placeholder
+                    state="error"
+                    variant="compact"
+                    align="left"
+                    title="Writable Spaces unavailable"
+                    description={destinationQuery.error()?.message}
+                    action={
+                      <Button variant="secondary" size="sm" type="button" onClick={() => void destinationQuery.refresh()}>
+                        Retry
+                      </Button>
+                    }
+                  />
+                }
+              >
+                <Show
+                  when={destinations().length > 0}
+                  fallback={
+                    <Placeholder
+                      state="empty"
+                      variant="compact"
+                      align="left"
+                      icon="ti ti-calendar-off"
+                      title="No writable Spaces"
+                      description="Create a Space or ask for write access first."
+                    />
+                  }
+                >
+                  <Select
+                    label="Space"
+                    placeholder="Choose a Space"
+                    value={spaceId}
+                    onValueChange={selectSpace}
+                    options={destinations().map((space) => ({ id: space.id, label: space.name, color: space.color }))}
+                    disabled={saving() || Boolean(createdEventId())}
+                  />
+                  <Show
+                    when={mode() === "existing"}
+                    fallback={
+                      <div class="grid gap-3 sm:grid-cols-2">
+                        <div class="sm:col-span-2">
+                          <TextInput
+                            label="Title"
+                            value={title}
+                            onValueChange={setTitle}
+                            maxLength={200}
+                            disabled={saving() || Boolean(createdEventId())}
+                          />
+                        </div>
+                        <div class="sm:col-span-2">
+                          <TextInput
+                            label="Location"
+                            value={location}
+                            onValueChange={setLocation}
+                            maxLength={500}
+                            disabled={saving() || Boolean(createdEventId())}
+                          />
+                        </div>
+                        <DateTimePicker
+                          label="Starts"
+                          value={startsAt}
+                          onValueChange={setStartsAt}
+                          dateConfig={props.dateConfig}
+                          disabled={saving() || Boolean(createdEventId())}
+                        />
+                        <DateTimePicker
+                          label="Ends"
+                          value={endsAt}
+                          onValueChange={setEndsAt}
+                          dateConfig={props.dateConfig}
+                          disabled={saving() || Boolean(createdEventId())}
+                        />
+                      </div>
+                    }
+                  >
+                    <Show
+                      when={!eventQuery.loading()}
+                      fallback={<Placeholder state="loading" variant="compact" align="left" title="Loading events" />}
+                    >
+                      <Show
+                        when={!eventQuery.error()}
+                        fallback={
+                          <Placeholder
+                            state="error"
+                            variant="compact"
+                            align="left"
+                            title="Events unavailable"
+                            description={eventQuery.error()?.message}
+                            action={
+                              <Button variant="secondary" size="sm" type="button" onClick={() => void eventQuery.refresh()}>
+                                Retry
+                              </Button>
+                            }
+                          />
+                        }
+                      >
+                        <Show
+                          when={events().length > 0}
+                          fallback={
+                            <Placeholder
+                              state="empty"
+                              variant="compact"
+                              align="left"
+                              icon="ti ti-calendar-off"
+                              title="No events in this Space"
+                              description="Choose New event to create one."
+                            />
+                          }
+                        >
+                          <Select
+                            label="Event"
+                            placeholder="Choose an event"
+                            value={eventId}
+                            onValueChange={setEventId}
+                            options={events().map((event) => ({
+                              id: event.id,
+                              label: event.title,
+                              description: `${dates.formatDateTime(event.startsAt, props.dateConfig)}${event.location ? ` · ${event.location}` : ""}`,
+                              icon: "ti ti-calendar-event",
+                            }))}
+                            disabled={saving()}
+                          />
+                        </Show>
+                      </Show>
+                    </Show>
+                  </Show>
+                </Show>
               </Show>
             </Show>
             <Show when={error() ?? (attempted() ? validationError() : null)}>
@@ -260,8 +338,15 @@ function MailComposerCalendarDialog(props: {
         <Button variant="secondary" size="sm" type="button" disabled={saving()} onClick={closeDialog}>
           Cancel
         </Button>
-        <Button size="sm" type="button" disabled={loading() || saving()} onClick={() => void attach()}>
-          <i class={`ti ${saving() ? "ti-loader-2 animate-spin" : "ti-paperclip"}`} aria-hidden="true" />
+        <Button
+          size="sm"
+          type="button"
+          loading={saving()}
+          loadingLabel="Attaching invitation"
+          disabled={loading() || !spaceId() || Boolean(destinationQuery.error()) || (mode() === "existing" && Boolean(eventQuery.error()))}
+          onClick={() => void attach()}
+        >
+          <i class="ti ti-paperclip" aria-hidden="true" />
           Attach invitation
         </Button>
       </PanelDialog.Footer>

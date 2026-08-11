@@ -15,6 +15,7 @@ export default function MailCalendarInvitation(props: {
   dateConfig: DateContext;
 }) {
   const [selectedSpaceId, setSelectedSpaceId] = createSignal<string | null>(null);
+  const [pendingResponse, setPendingResponse] = createSignal<"accepted" | "tentative" | "declined" | null>(null);
   let responseIdempotencyKeys = new Map<"accepted" | "tentative" | "declined", string>();
   let destinationTouched = false;
 
@@ -100,6 +101,7 @@ export default function MailCalendarInvitation(props: {
   });
 
   const respond = mutation.create<void, "accepted" | "tentative" | "declined">({
+    onBefore: (participationStatus) => setPendingResponse(participationStatus),
     mutation: async (participationStatus, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"].messages[":messageId"]["calendar-invitation"].respond.$post(
         {
@@ -116,6 +118,7 @@ export default function MailCalendarInvitation(props: {
       const draft = await response.json();
       documentNavigate(mailDraftHref(props.mailboxId, draft.id, props.requestUrl));
     },
+    onFinally: () => setPendingResponse(null),
   });
 
   const invitation = () => preview()?.invitation;
@@ -137,7 +140,7 @@ export default function MailCalendarInvitation(props: {
   });
 
   return (
-    <div class="mt-3 min-h-24 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-3" aria-live="polite">
+    <div class="mt-3 min-h-24 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-3">
       <Show
         when={preview()}
         fallback={
@@ -220,10 +223,12 @@ export default function MailCalendarInvitation(props: {
                       variant="secondary"
                       size="sm"
                       type="button"
-                      disabled={!selectedSpaceId() || importEvent.loading()}
+                      loading={importEvent.loading()}
+                      loadingLabel="Adding to Spaces"
+                      disabled={!selectedSpaceId()}
                       onClick={() => importEvent.mutate()}
                     >
-                      <i class={importEvent.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-calendar-plus"} aria-hidden="true" />
+                      <i class="ti ti-calendar-plus" aria-hidden="true" />
                       Add to Spaces
                     </Button>
                   }
@@ -240,6 +245,8 @@ export default function MailCalendarInvitation(props: {
                     <Button
                       size="sm"
                       type="button"
+                      loading={respond.loading() && pendingResponse() === "accepted"}
+                      loadingLabel="Preparing acceptance"
                       disabled={respond.loading() || importEvent.loading()}
                       onClick={() => respond.mutate("accepted")}
                     >
@@ -249,6 +256,8 @@ export default function MailCalendarInvitation(props: {
                       variant="secondary"
                       size="sm"
                       type="button"
+                      loading={respond.loading() && pendingResponse() === "tentative"}
+                      loadingLabel="Preparing tentative response"
                       disabled={respond.loading() || importEvent.loading()}
                       onClick={() => respond.mutate("tentative")}
                     >
@@ -258,6 +267,8 @@ export default function MailCalendarInvitation(props: {
                       variant="secondary"
                       size="sm"
                       type="button"
+                      loading={respond.loading() && pendingResponse() === "declined"}
+                      loadingLabel="Preparing decline"
                       disabled={respond.loading() || importEvent.loading()}
                       onClick={() => respond.mutate("declined")}
                     >
@@ -268,24 +279,39 @@ export default function MailCalendarInvitation(props: {
               </div>
             </Show>
             <Show when={importEvent.error() || respond.error()}>
-              <p class="text-xs text-danger">{importEvent.error()?.message ?? respond.error()?.message}</p>
+              <p class="text-xs text-danger" role="alert">
+                {importEvent.error()?.message ?? respond.error()?.message}
+              </p>
             </Show>
             <Show when={props.canWrite && destinationQuery.loading()}>
-              <p class="text-xs text-dimmed">Loading writable Spaces…</p>
+              <Placeholder state="loading" variant="compact" align="left" title="Loading writable Spaces" />
             </Show>
             <Show when={props.canWrite && destinationQuery.error()}>
-              <div class="flex flex-wrap items-center gap-2 text-xs text-danger">
-                <span>{destinationQuery.error()?.message}</span>
-                <Button variant="ghost" size="sm" type="button" onClick={() => void destinationQuery.refresh()}>
-                  Retry
-                </Button>
-              </div>
+              <Placeholder
+                state="error"
+                variant="compact"
+                align="left"
+                title="Writable Spaces unavailable"
+                description={destinationQuery.error()?.message}
+                action={
+                  <Button variant="secondary" size="sm" type="button" onClick={() => void destinationQuery.refresh()}>
+                    Retry
+                  </Button>
+                }
+              />
             </Show>
             <Show when={props.canWrite && value().existing && destinations() && !linkedSpaceIsWritable()}>
               <p class="text-xs text-dimmed">This event is linked to a Space where you do not have write access.</p>
             </Show>
             <Show when={props.canWrite && destinations() && destinationOptions().length === 0}>
-              <p class="text-xs text-dimmed">No writable Space is available. Ask a Space owner for write access.</p>
+              <Placeholder
+                state="empty"
+                variant="compact"
+                align="left"
+                icon="ti ti-calendar-off"
+                title="No writable Space"
+                description="Ask a Space owner for write access."
+              />
             </Show>
           </div>
         )}
