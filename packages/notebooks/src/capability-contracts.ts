@@ -7,6 +7,10 @@ const CursorSchema = z.string().min(1).max(256).optional().describe("Opaque curs
 const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maximum number of results to return.");
 const QuerySchema = z.string().trim().max(500).optional().describe("Optional text search.");
 const ContentHashSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+const ResourceShortIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9]{6}$/)
+  .describe("Stable 6-character resource ID.");
 const NamedBlockTypeSchema = z.enum(["table", "list", "data", "section", "script", "unknown"]);
 const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
 
@@ -34,7 +38,7 @@ export const NotebookListInputSchema = z
     limit: LimitSchema,
   })
   .strict();
-export const NotebookReadInputSchema = z.object({ id: z.uuid().describe("Stable notebook UUID.") }).strict();
+export const NotebookReadInputSchema = z.object({ id: ResourceShortIdSchema }).strict();
 
 export const NoteSummaryDataSchema = z
   .object({
@@ -76,7 +80,7 @@ export const NoteTreeDataSchema = z
 
 export const NoteReadInputSchema = z
   .object({
-    id: z.uuid().describe("Stable note UUID."),
+    id: ResourceShortIdSchema,
     contentOffset: z.number().int().nonnegative().default(0).describe("Zero-based character offset into the Markdown source."),
     contentLimit: z.number().int().min(1).max(50_000).default(20_000).describe("Maximum Markdown characters to return."),
   })

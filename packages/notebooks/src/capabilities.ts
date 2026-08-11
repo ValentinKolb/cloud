@@ -108,20 +108,38 @@ const principalIds = (context: CapabilityExecutionContext) => ({
   serviceAccountId: context.accessSubject.type === "service_account" ? context.accessSubject.serviceAccountId : null,
 });
 
+const authorizeNotebook = async (notebook: Notebook, context: CapabilityExecutionContext, required: PermissionLevel = "read") => {
+  const scope = scopedNotebookId(context, required);
+  if (!scope.ok) return scope;
+  if (scope.data && scope.data !== notebook.id) return fail(err.notFound("Notebook"));
+  const ids = principalIds(context);
+  const granted = await notebookStore.getPermission({ notebookId: notebook.id, ...ids });
+  const permission = granted === "none" ? "none" : effectivePermission(granted, context);
+  return hasPermission(permission, required) ? ok({ notebook, permission }) : fail(err.notFound("Notebook"));
+};
+
 const requireNotebook = async (notebookId: string, context: CapabilityExecutionContext, required: PermissionLevel = "read") => {
   const scope = scopedNotebookId(context, required);
   if (!scope.ok) return scope;
   if (scope.data && scope.data !== notebookId) return fail(err.notFound("Notebook"));
   const notebook = await notebookStore.get({ id: notebookId });
-  if (!notebook) return fail(err.notFound("Notebook"));
-  const ids = principalIds(context);
-  const granted = await notebookStore.getPermission({ notebookId, ...ids });
-  const permission = granted === "none" ? "none" : effectivePermission(granted, context);
-  return hasPermission(permission, required) ? ok({ notebook, permission }) : fail(err.notFound("Notebook"));
+  return notebook ? authorizeNotebook(notebook, context, required) : fail(err.notFound("Notebook"));
 };
 
 const requireNote = async (noteId: string, context: CapabilityExecutionContext, required: PermissionLevel = "read") => {
   const note = await noteStore.get({ id: noteId });
+  if (!note) return fail(err.notFound("Note"));
+  const access = await requireNotebook(note.notebookId, context, required);
+  return access.ok ? ok({ note, notebook: access.data.notebook, permission: access.data.permission }) : fail(err.notFound("Note"));
+};
+
+const requireNotebookByShortId = async (shortId: string, context: CapabilityExecutionContext, required: PermissionLevel = "read") => {
+  const notebook = await notebookStore.getByShortId({ shortId });
+  return notebook ? authorizeNotebook(notebook, context, required) : fail(err.notFound("Notebook"));
+};
+
+const requireNoteByShortId = async (shortId: string, context: CapabilityExecutionContext, required: PermissionLevel = "read") => {
+  const note = await noteStore.getByShortId({ shortId });
   if (!note) return fail(err.notFound("Note"));
   const access = await requireNotebook(note.notebookId, context, required);
   return access.ok ? ok({ note, notebook: access.data.notebook, permission: access.data.permission }) : fail(err.notFound("Note"));
@@ -236,7 +254,7 @@ const runNotebookSearch = async (input: UniversalSearchInput, context: Capabilit
     query: input.query,
   });
   const data: CloudResourceView[] = page.items.map((notebook) => ({
-    ref: { type: "notebooks.notebook", id: notebook.id },
+    ref: { type: "notebooks.notebook", id: notebook.shortId },
     title: notebook.name,
     preview: notebook.description ?? undefined,
     icon: notebook.icon ?? "ti ti-notebook",
@@ -257,7 +275,7 @@ const runNoteSearch = async (input: UniversalSearchInput, context: CapabilityExe
     pagination: { page: 1, perPage: input.limit, offset: 0 },
   });
   const data: CloudResourceView[] = hits.hits.map(({ note, notebook, snippet }) => ({
-    ref: { type: "notebooks.note", id: note.id },
+    ref: { type: "notebooks.note", id: note.shortId },
     title: note.title,
     preview: cleanSearchSnippet(snippet) ?? compactSnippet(note.contentMd),
     icon: "ti ti-file-text",
@@ -290,16 +308,16 @@ const runNotebookList = async (input: z.infer<typeof NotebookListInputSchema>, c
   return ok({
     data,
     page: capabilityPage(cursor.data * input.limit < page.total ? encodePageCursor(cursor.data + 1) : undefined),
-    refs: data.map((notebook) => ({ type: "notebooks.notebook", id: notebook.id })),
+    refs: data.map((notebook) => ({ type: "notebooks.notebook", id: notebook.shortId })),
   });
 };
 
 const runNotebookRead = async (input: z.infer<typeof NotebookReadInputSchema>, context: CapabilityExecutionContext) => {
-  const access = await requireNotebook(input.id, context);
+  const access = await requireNotebookByShortId(input.id, context);
   if (!access.ok) return access;
   return ok({
     data: mapNotebook(access.data.notebook, access.data.permission as Exclude<PermissionLevel, "none">),
-    refs: [{ type: "notebooks.notebook", id: access.data.notebook.id }],
+    refs: [{ type: "notebooks.notebook", id: access.data.notebook.shortId }],
     links: [{ rel: "open" as const, href: notebookHref(access.data.notebook) }],
   });
 };
@@ -327,9 +345,9 @@ const runNoteTree = async (input: z.infer<typeof NoteTreeInputSchema>, context: 
 };
 
 const runNoteRead = async (input: z.infer<typeof NoteReadInputSchema>, context: CapabilityExecutionContext) => {
-  const resolved = await requireNote(input.id, context);
+  const resolved = await requireNoteByShortId(input.id, context);
   if (!resolved.ok) return resolved;
-  const note = await noteStore.getWithContent({ id: input.id });
+  const note = await noteStore.getWithContent({ id: resolved.data.note.id });
   if (!note) return fail(err.notFound("Note"));
   const content = note.contentMd ?? "";
   if (input.contentOffset > content.length) return fail(err.badInput("contentOffset is outside the note"));
@@ -352,8 +370,8 @@ const runNoteRead = async (input: z.infer<typeof NoteReadInputSchema>, context: 
       blocksTruncated: blocks.length > 500,
     },
     refs: [
-      { type: "notebooks.note", id: note.id },
-      { type: "notebooks.notebook", id: note.notebookId },
+      { type: "notebooks.note", id: note.shortId },
+      { type: "notebooks.notebook", id: resolved.data.notebook.shortId },
     ],
     links: [{ rel: "open" as const, href: noteHref(resolved.data.notebook, note) }],
   });
@@ -386,7 +404,7 @@ const runNoteLinks = async (input: z.infer<typeof NoteLinksInputSchema>, context
   return ok({
     data,
     page: capabilityPage(hasMore ? encodePageCursor(cursor.data + 1) : undefined),
-    refs: data.map((entry) => ({ type: "notebooks.note", id: entry.noteId })),
+    refs: data.map((entry) => ({ type: "notebooks.note", id: entry.noteShortId })),
   });
 };
 
@@ -432,7 +450,7 @@ const runTagNotes = async (input: z.infer<typeof TagNotesInputSchema>, context: 
   return ok({
     data,
     page: capabilityPage(hasMore ? encodePageCursor(cursor.data + 1) : undefined),
-    refs: data.map((note) => ({ type: "notebooks.note", id: note.id })),
+    refs: data.map((note) => ({ type: "notebooks.note", id: note.shortId })),
   });
 };
 
@@ -478,8 +496,8 @@ const noteMutationResult = (result: MutationResult<Note>, notebook: Notebook) =>
   return ok({
     data: mapNote(result.data),
     refs: [
-      { type: "notebooks.note", id: result.data.id },
-      { type: "notebooks.notebook", id: result.data.notebookId },
+      { type: "notebooks.note", id: result.data.shortId },
+      { type: "notebooks.notebook", id: notebook.shortId },
     ],
     links: [{ rel: "open" as const, href: noteHref(notebook, result.data) }],
   });
@@ -520,8 +538,8 @@ const runNoteEdit = async (input: z.infer<typeof NoteEditInputSchema>, context: 
         blocksTruncated: result.data.blocks.length > 500,
       },
       refs: [
-        { type: "notebooks.note", id: result.data.note.id },
-        { type: "notebooks.notebook", id: result.data.note.notebookId },
+        { type: "notebooks.note", id: result.data.note.shortId },
+        { type: "notebooks.notebook", id: resolved.data.notebook.shortId },
       ],
       links: [{ rel: "open" as const, href: noteHref(resolved.data.notebook, result.data.note) }],
     });

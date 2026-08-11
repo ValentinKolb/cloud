@@ -3,21 +3,26 @@ import type { CapabilityActionDefinition, CapabilityExecutionContext, User } fro
 import { audit } from "@valentinkolb/cloud/services";
 import { decodeNotebookCapabilityCursor, decodeNotebookTreeCursor, notebooksCapabilities } from "./capabilities";
 import {
+  NotebookReadInputSchema,
   NoteCreateInputSchema,
   NoteDetailDataSchema,
   NoteEditInputSchema,
+  NoteReadInputSchema,
   NoteTreeDataSchema,
   TagNotesDataSchema,
 } from "./capability-contracts";
 import { noteContentHash } from "./lib/note-edit";
+import * as noteLinks from "./service/links";
 import * as notebookStore from "./service/notebooks";
 import * as noteStore from "./service/notes";
+import * as noteSearch from "./service/search";
 import * as noteTags from "./service/tags";
 
 const userId = "11111111-1111-4111-8111-111111111111";
 const serviceAccountId = "22222222-2222-4222-8222-222222222222";
 const notebookId = "33333333-3333-4333-8333-333333333333";
 const otherNotebookId = "44444444-4444-4444-8444-444444444444";
+const otherNotebookShortId = "ghi789";
 const noteId = "55555555-5555-4555-8555-555555555555";
 const createdAt = "2026-08-02T08:00:00.000Z";
 const activeSpies: Array<{ mockRestore(): void }> = [];
@@ -195,6 +200,13 @@ describe("notebooks capabilities", () => {
     ).toBeFalse();
   });
 
+  test("accepts only short IDs in canonical reader inputs", () => {
+    expect(NotebookReadInputSchema.safeParse({ id: notebook.shortId }).success).toBeTrue();
+    expect(NoteReadInputSchema.safeParse({ id: note.shortId }).success).toBeTrue();
+    expect(NotebookReadInputSchema.safeParse({ id: notebookId }).success).toBeFalse();
+    expect(NoteReadInputSchema.safeParse({ id: noteId }).success).toBeFalse();
+  });
+
   test("accepts only opaque page and stable tree cursors", () => {
     const pageCursor = Buffer.from(JSON.stringify({ v: 1, page: 4 }), "utf8").toString("base64url");
     const treeCursor = Buffer.from(JSON.stringify({ v: 1, afterId: noteId }), "utf8").toString("base64url");
@@ -207,7 +219,7 @@ describe("notebooks capabilities", () => {
   });
 
   test("reads bounded Markdown without exposing Yjs state", async () => {
-    trackedSpy(spyOn(noteStore, "get")).mockResolvedValue(note);
+    const getByShortId = trackedSpy(spyOn(noteStore, "getByShortId")).mockResolvedValue(note);
     trackedSpy(spyOn(notebookStore, "get")).mockResolvedValue(notebook);
     trackedSpy(spyOn(notebookStore, "getPermission")).mockResolvedValue("read");
     trackedSpy(spyOn(noteStore, "getWithContent")).mockResolvedValue({
@@ -215,9 +227,18 @@ describe("notebooks capabilities", () => {
       yjsSnapshot: "private-snapshot",
     });
 
-    const result = await notebooksCapabilities.queries["note.read"].run({ id: noteId, contentOffset: 0, contentLimit: 12 }, userContext);
+    const result = await notebooksCapabilities.queries["note.read"].run(
+      { id: note.shortId, contentOffset: 0, contentLimit: 12 },
+      userContext,
+    );
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
+    expect(getByShortId).toHaveBeenCalledWith({ shortId: note.shortId });
+    expect(result.data.refs).toEqual([
+      { type: "notebooks.note", id: note.shortId },
+      { type: "notebooks.notebook", id: notebook.shortId },
+    ]);
+    expect(result.data.links).toEqual([{ rel: "open", href: `/app/notebooks/${notebook.shortId}/notes/${note.shortId}` }]);
     expect(result.data.data.content).toBe("# Knowledge ");
     expect(result.data.data.contentComplete).toBeFalse();
     expect(result.data.data.nextContentOffset).toBe(12);
@@ -228,20 +249,88 @@ describe("notebooks capabilities", () => {
   });
 
   test("confines resource accounts and caps writes by scope", async () => {
-    const getNotebook = trackedSpy(spyOn(notebookStore, "get")).mockResolvedValue(notebook);
-    const outside = await notebooksCapabilities.queries["notebook.read"].run({ id: otherNotebookId }, resourceContext(["read"]));
+    const getPermission = trackedSpy(spyOn(notebookStore, "getPermission"));
+    trackedSpy(spyOn(notebookStore, "getByShortId")).mockResolvedValue({
+      ...notebook,
+      id: otherNotebookId,
+      shortId: otherNotebookShortId,
+    });
+    const outside = await notebooksCapabilities.queries["notebook.read"].run({ id: otherNotebookShortId }, resourceContext(["read"]));
     expect(outside.ok).toBeFalse();
-    expect(getNotebook).not.toHaveBeenCalled();
+    expect(getPermission).not.toHaveBeenCalled();
 
     trackedSpy(spyOn(noteStore, "get")).mockResolvedValue(note);
-    trackedSpy(spyOn(notebookStore, "getPermission")).mockResolvedValue("admin");
+    getPermission.mockResolvedValue("admin");
     const editContent = trackedSpy(spyOn(noteStore, "editContent"));
+    trackedSpy(spyOn(audit, "recordResult")).mockImplementation(async ({ result }) => result);
     const edit = await notebooksCapabilities.actions["note.edit"].run(
       { noteId, operations: [{ kind: "append", content: "Update" }] },
       resourceContext(["read"]),
     );
     expect(edit.ok).toBeFalse();
     expect(editContent).not.toHaveBeenCalled();
+  });
+
+  test("keeps universal-search refs readable without changing their short IDs", async () => {
+    trackedSpy(spyOn(notebookStore, "listWithPermission")).mockResolvedValue({
+      items: [{ ...notebook, permission: "read" }],
+      total: 1,
+    });
+    const getByShortId = trackedSpy(spyOn(notebookStore, "getByShortId")).mockResolvedValue(notebook);
+    trackedSpy(spyOn(notebookStore, "getPermission")).mockResolvedValue("read");
+
+    const search = await notebooksCapabilities.queries["notebook.search"].run({ query: "Knowledge", limit: 10, tags: [] }, userContext);
+    expect(search.ok).toBeTrue();
+    if (!search.ok) return;
+    const ref = search.data.data[0]?.ref;
+    expect(ref).toEqual({ type: "notebooks.notebook", id: notebook.shortId });
+    if (!ref) return;
+
+    const read = await notebooksCapabilities.queries["notebook.read"].run({ id: ref.id }, userContext);
+    expect(read.ok).toBeTrue();
+    expect(getByShortId).toHaveBeenCalledWith({ shortId: ref.id });
+    if (!read.ok) return;
+    expect(read.data.refs).toEqual([ref]);
+    expect(read.data.links).toEqual([{ rel: "open", href: `/app/notebooks/${notebook.shortId}` }]);
+  });
+
+  test("publishes note short IDs from search and link results", async () => {
+    trackedSpy(spyOn(noteSearch, "searchAcross")).mockResolvedValue({
+      hits: [
+        {
+          note,
+          notebook: { id: notebook.id, shortId: notebook.shortId, name: notebook.name, icon: notebook.icon },
+          snippet: "Knowledge",
+        },
+      ],
+      total: 1,
+    });
+    const search = await notebooksCapabilities.queries["note.search"].run({ query: "Knowledge", limit: 10, tags: [] }, userContext);
+    expect(search.ok).toBeTrue();
+    if (!search.ok) return;
+    expect(search.data.data[0]?.ref).toEqual({ type: "notebooks.note", id: note.shortId });
+    expect(search.data.data[0]?.links).toEqual([{ rel: "open", href: `/app/notebooks/${notebook.shortId}/notes/${note.shortId}` }]);
+
+    trackedSpy(spyOn(noteStore, "get")).mockResolvedValue(note);
+    trackedSpy(spyOn(notebookStore, "get")).mockResolvedValue(notebook);
+    trackedSpy(spyOn(notebookStore, "getPermission")).mockResolvedValue("read");
+    trackedSpy(spyOn(noteLinks, "listNoteRelations")).mockResolvedValue([
+      {
+        direction: "outgoing",
+        noteId,
+        noteShortId: note.shortId,
+        title: note.title,
+        notebookId,
+        notebookShortId: notebook.shortId,
+        notebookName: notebook.name,
+        updatedAt: createdAt,
+      },
+    ]);
+    const links = await notebooksCapabilities.queries["note.links"].run({ noteId, direction: "all", limit: 25 }, userContext);
+    expect(links.ok).toBeTrue();
+    if (!links.ok) return;
+    expect(links.data.refs).toEqual([{ type: "notebooks.note", id: note.shortId }]);
+    expect(links.data.data[0]?.links).toEqual([{ rel: "open", href: `/app/notebooks/${notebook.shortId}/notes/${note.shortId}` }]);
   });
 
   test("routes edits through the conflict-aware service and audits success", async () => {
@@ -267,6 +356,12 @@ describe("notebooks capabilities", () => {
       userContext,
     );
     expect(result.ok).toBeTrue();
+    if (result.ok) {
+      expect(result.data.refs).toEqual([
+        { type: "notebooks.note", id: note.shortId },
+        { type: "notebooks.notebook", id: notebook.shortId },
+      ]);
+    }
     expect(editContent).toHaveBeenCalledWith({
       noteId,
       data: {
@@ -298,6 +393,7 @@ describe("notebooks capabilities", () => {
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
     expect(result.data.data[0]?.updatedAt).toBe(createdAt);
+    expect(result.data.refs).toEqual([{ type: "notebooks.note", id: note.shortId }]);
     expect(result.data.data[0]?.links).toEqual([{ rel: "open", href: `/app/notebooks/${notebook.shortId}/notes/${note.shortId}` }]);
     expect(TagNotesDataSchema.safeParse(result.data.data).success).toBeTrue();
   });

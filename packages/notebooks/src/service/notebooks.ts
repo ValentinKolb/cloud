@@ -416,6 +416,29 @@ export const get = async (params: { id: string }): Promise<Notebook | null> => {
   return row ? mapToNotebook(row) : null;
 };
 
+/** Resolve the public notebook identity to its internal UUID-backed model. */
+export const getByShortId = async (params: { shortId: string }): Promise<Notebook | null> => {
+  const [row] = await sql<DbNotebook[]>`
+    SELECT
+      n.id,
+      n.short_id,
+      n.name,
+      n.description,
+      n.icon,
+      n.homepage_note_id,
+      h.short_id AS homepage_note_short_id,
+      n.scripts_enabled,
+      n.default_note_title_template,
+      n.created_by,
+      n.created_at,
+      n.updated_at
+    FROM notebooks.notebooks n
+    LEFT JOIN notebooks.notes h ON h.id = n.homepage_note_id
+    WHERE n.short_id = ${params.shortId}
+  `;
+  return row ? mapToNotebook(row) : null;
+};
+
 /**
  * Resolve a notebook by either UUID or short-id. The format-detection
  * branch keeps each query on its own single-column index — no
@@ -425,27 +448,7 @@ export const get = async (params: { id: string }): Promise<Notebook | null> => {
  */
 export const getByIdOrShortId = async (params: { idOrShortId: string }): Promise<Notebook | null> => {
   const v = params.idOrShortId;
-  if (isShortId(v)) {
-    const [row] = await sql<DbNotebook[]>`
-      SELECT
-        n.id,
-        n.short_id,
-        n.name,
-        n.description,
-        n.icon,
-        n.homepage_note_id,
-        h.short_id AS homepage_note_short_id,
-        n.scripts_enabled,
-        n.default_note_title_template,
-        n.created_by,
-        n.created_at,
-        n.updated_at
-      FROM notebooks.notebooks n
-      LEFT JOIN notebooks.notes h ON h.id = n.homepage_note_id
-      WHERE n.short_id = ${v}
-    `;
-    return row ? mapToNotebook(row) : null;
-  }
+  if (isShortId(v)) return getByShortId({ shortId: v });
   if (!isUuid(v)) return null;
   return get({ id: v });
 };

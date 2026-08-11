@@ -578,6 +578,19 @@ export const get = async (params: { id: string }): Promise<Note | null> => {
   return row ? mapToNote(row) : null;
 };
 
+/** Resolve the public note identity to its internal UUID-backed model. */
+export const getByShortId = async (params: { shortId: string }): Promise<Note | null> => {
+  const [row] = await sql<DbNote[]>`
+    SELECT
+      n.id, n.short_id, n.notebook_id, n.parent_id, n.title, n.position,
+      n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
+      EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children
+    FROM notebooks.notes n
+    WHERE n.short_id = ${params.shortId}
+  `;
+  return row ? mapToNote(row) : null;
+};
+
 /**
  * Resolve a note by either UUID or short-id. Format-detection branches
  * keep each query on a single-column index — see `notebooks.getByIdOrShortId`
@@ -587,17 +600,7 @@ export const get = async (params: { id: string }): Promise<Note | null> => {
  */
 export const getByIdOrShortId = async (params: { idOrShortId: string }): Promise<Note | null> => {
   const v = params.idOrShortId;
-  if (isShortId(v)) {
-    const [row] = await sql<DbNote[]>`
-      SELECT
-        n.id, n.short_id, n.notebook_id, n.parent_id, n.title, n.position,
-        n.yjs_snapshot_at, n.content_md, n.created_by, n.created_at, n.updated_at, n.locked_at,
-        EXISTS(SELECT 1 FROM notebooks.notes c WHERE c.parent_id = n.id) as has_children
-      FROM notebooks.notes n
-      WHERE n.short_id = ${v}
-    `;
-    return row ? mapToNote(row) : null;
-  }
+  if (isShortId(v)) return getByShortId({ shortId: v });
   if (!isUuid(v)) return null;
   return get({ id: v });
 };

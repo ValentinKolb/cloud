@@ -67,9 +67,9 @@ type Item = {
 
 const items = new Map<string, Item>([
   [
-    "11111111-1111-4111-8111-111111111111",
+    "k3P9xQ",
     {
-      id: "11111111-1111-4111-8111-111111111111",
+      id: "k3P9xQ",
       ownerId: "user-42",
       name: "USB-C adapter",
       quantity: 4,
@@ -100,12 +100,12 @@ export const inventoryCapabilities = defineCapabilities({
       description: "Read one visible inventory item by stable ID.",
       input: z
         .object({
-          id: z.string().uuid().describe("Stable inventory item UUID."),
+          id: z.string().regex(/^[A-Za-z0-9]{6}$/).describe("Stable inventory item ID."),
         })
         .strict(),
       data: z
         .object({
-          id: z.string().uuid(),
+          id: z.string().regex(/^[A-Za-z0-9]{6}$/),
           name: z.string(),
           quantity: z.number().int(),
         })
@@ -137,11 +137,11 @@ export const inventoryCapabilities = defineCapabilities({
       description: "Rename one inventory item the caller may edit.",
       input: z
         .object({
-          itemId: z.string().uuid().describe("Stable inventory item UUID."),
+          itemId: z.string().regex(/^[A-Za-z0-9]{6}$/).describe("Stable inventory item ID."),
           name: z.string().trim().min(1).max(120).describe("New item name."),
         })
         .strict(),
-      data: z.object({ id: z.string().uuid(), name: z.string() }).strict(),
+      data: z.object({ id: z.string().regex(/^[A-Za-z0-9]{6}$/), name: z.string() }).strict(),
       destructive: true,
       openWorld: false,
       idempotency: "none",
@@ -286,6 +286,12 @@ pagination or content windows, but no other required field. Every
 provider-owned `CloudResourceRef` for that Type must use an `id` the reader can
 resolve directly. The reader performs the same current authorization as every
 other Query.
+
+Use the resource's stable, app-owned public ID for `CloudResourceRef.id`, not
+an internal database primary key. Apps commonly use a short immutable ID so
+references remain compact and recognizable while UUID primary and foreign keys
+stay private to the app. Resolve that public ID to the internal key at the app
+service boundary.
 
 Consumers resolve a reader from the current live manifest: find the owning app
 from the qualified `ref.type`, find the matching Type, then invoke the Query in
