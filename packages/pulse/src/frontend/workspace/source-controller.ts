@@ -1,6 +1,7 @@
-import type { ResourceApiKey, ResourceApiKeysProps } from "@valentinkolb/cloud/access/ui";
+import { mutation } from "@k2b/stdlib/solid";
 import { prompts, toast } from "@k2b/ui";
-import type { Accessor, Setter } from "solid-js";
+import type { ResourceApiKey, ResourceApiKeysProps } from "@valentinkolb/cloud/access/ui";
+import { type Accessor, onCleanup, type Setter } from "solid-js";
 import type { PulseSource } from "../../contracts";
 import { jsonFetch } from "../http";
 import {
@@ -20,28 +21,106 @@ type SourceControllerDeps = {
   selectedBaseId: Accessor<string>;
   loading: Accessor<boolean>;
   setLoading: Setter<boolean>;
-  setSources: Setter<PulseSource[]>;
   setSelectedSourceId: Setter<string>;
-  setSourceApiKeys: Setter<Record<string, ResourceApiKey[]>>;
   navigate: (state: { view: WorkspaceView; sourceId?: string }) => void;
-  loadBaseData: (baseId: string) => Promise<void>;
-  loadSourceScrapes: (baseId: string, sourceId: string) => Promise<void>;
+  refreshBaseData: () => Promise<void>;
+  refreshSourceDetail: () => Promise<void>;
   refreshDashboard: () => Promise<void>;
+  writeBlocked: Accessor<boolean>;
 };
 
 export const createSourceController = (deps: SourceControllerDeps) => {
-  const scrapeCreatedMetricsSource = async (baseId: string, sourceId: string) => {
+  let disposed = false;
+  const createMutation = mutation.create<PulseSource, { baseId: string; input: CreateSourceInput }>({
+    mutation: ({ baseId, input }, { abortSignal }) => createPulseSource(baseId, input, abortSignal),
+  });
+  const scrapeMutation = mutation.create<Awaited<ReturnType<typeof scrapePulseSourceOnce>>, { baseId: string; sourceId: string }>({
+    mutation: ({ baseId, sourceId }, { abortSignal }) => scrapePulseSourceOnce(baseId, sourceId, abortSignal),
+  });
+  const toggleMutation = mutation.create<PulseSource, { baseId: string; sourceId: string; enabled: boolean }>({
+    mutation: ({ baseId, sourceId, enabled }, { abortSignal }) =>
+      jsonFetch<PulseSource>(`/api/pulse/bases/${baseId}/sources/${sourceId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled }),
+        signal: abortSignal,
+      }),
+  });
+  const editMutation = mutation.create<PulseSource, { baseId: string; sourceId: string; patch: Record<string, unknown> }>({
+    mutation: ({ baseId, sourceId, patch }, { abortSignal }) =>
+      jsonFetch<PulseSource>(`/api/pulse/bases/${baseId}/sources/${sourceId}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+        signal: abortSignal,
+      }),
+  });
+  const removeMutation = mutation.create<void, { baseId: string; sourceId: string }>({
+    mutation: ({ baseId, sourceId }, { abortSignal }) =>
+      jsonFetch<void>(`/api/pulse/bases/${baseId}/sources/${sourceId}`, { method: "DELETE", signal: abortSignal }),
+  });
+  type ApiKeyInput = Parameters<ResourceApiKeysProps["createKey"]>[0];
+  const createApiKeyMutation = mutation.create<
+    { credential: ResourceApiKey; token: string },
+    { baseId: string; sourceId: string; input: ApiKeyInput }
+  >({
+    mutation: ({ baseId, sourceId, input }, { abortSignal }) =>
+      jsonFetch<{ credential: ResourceApiKey; token: string }>(`/api/pulse/bases/${baseId}/sources/${sourceId}/api-keys`, {
+        method: "POST",
+        body: JSON.stringify(input),
+        signal: abortSignal,
+      }),
+  });
+  const revokeApiKeyMutation = mutation.create<void, { baseId: string; sourceId: string; credentialId: string }>({
+    mutation: ({ baseId, sourceId, credentialId }, { abortSignal }) =>
+      jsonFetch<void>(`/api/pulse/bases/${baseId}/sources/${sourceId}/api-keys/${credentialId}`, {
+        method: "DELETE",
+        signal: abortSignal,
+      }),
+  });
+  onCleanup(() => {
+    disposed = true;
+    createMutation.abort();
+    scrapeMutation.abort();
+    toggleMutation.abort();
+    editMutation.abort();
+    removeMutation.abort();
+    createApiKeyMutation.abort();
+    revokeApiKeyMutation.abort();
+  });
+  const reconcile = async (tasks: Array<() => Promise<void>>, message: string): Promise<boolean> => {
     try {
-      const counts = await scrapePulseSourceOnce(baseId, sourceId);
-      await deps.loadBaseData(baseId);
-      await deps.loadSourceScrapes(baseId, sourceId);
+      await Promise.all(tasks.map((task) => task()));
+      return !disposed;
+    } catch {
+      if (!disposed) toast.error(message);
+      return false;
+    }
+  };
+  const requireWritable = (): boolean => {
+    if (!deps.writeBlocked()) return true;
+    toast.error("Refresh Pulse data before making more changes.");
+    return false;
+  };
+
+  const scrapeCreatedMetricsSource = async (baseId: string, sourceId: string): Promise<boolean> => {
+    try {
+      await scrapeMutation.mutate({ baseId, sourceId });
+      if (disposed) return false;
+      if (scrapeMutation.error()) throw scrapeMutation.error();
+      const counts = scrapeMutation.data()!;
+      if (!(await reconcile([deps.refreshBaseData], "The source was created and scraped, but Pulse data could not be refreshed.")))
+        return false;
       toast.success(sourceInitialScrapeSuccessMessage(counts));
+      return true;
     } catch (error) {
+      if (disposed) return false;
+      if (!(await reconcile([deps.refreshBaseData], "The source was created, but the source list could not be refreshed."))) return false;
       toast.error(sourceInitialScrapeFailureMessage(error));
+      return true;
     }
   };
 
   const createSource = async (input: CreateSourceInput) => {
+    if (disposed || !requireWritable()) return false;
     const baseId = deps.selectedBaseId();
     if (!baseId) return false;
     const validationError = sourceCreateValidationError(input);
@@ -51,13 +130,17 @@ export const createSourceController = (deps: SourceControllerDeps) => {
     }
     deps.setLoading(true);
     try {
-      const source = await createPulseSource(baseId, input);
-      deps.navigate({ view: "sources", sourceId: source.id });
-      await deps.loadBaseData(baseId);
+      await createMutation.mutate({ baseId, input: { ...input } });
+      if (disposed) return false;
+      if (createMutation.error()) throw createMutation.error();
+      const source = createMutation.data()!;
       if (input.kind === "metrics") {
-        await scrapeCreatedMetricsSource(baseId, source.id);
+        if (!(await scrapeCreatedMetricsSource(baseId, source.id))) return true;
+        deps.navigate({ view: "sources", sourceId: source.id });
         return true;
       }
+      if (!(await reconcile([deps.refreshBaseData], "The source was created, but the source list could not be refreshed."))) return true;
+      deps.navigate({ view: "sources", sourceId: source.id });
       toast.success(sourceCreatedMessage(input.kind));
       return true;
     } catch (error) {
@@ -68,17 +151,28 @@ export const createSourceController = (deps: SourceControllerDeps) => {
     }
   };
 
-  const addSource = () => openSourceCreateDialog({ loading: deps.loading, createSource });
+  const addSource = () => {
+    if (!requireWritable()) return;
+    return openSourceCreateDialog({ loading: deps.loading, createSource });
+  };
 
   const scrape = async (source: PulseSource) => {
+    if (!requireWritable()) return;
     const baseId = deps.selectedBaseId();
     if (!baseId) return;
     deps.setLoading(true);
     try {
-      const counts = await scrapePulseSourceOnce(baseId, source.id);
-      await deps.loadBaseData(baseId);
-      await deps.loadSourceScrapes(baseId, source.id);
-      await deps.refreshDashboard();
+      await scrapeMutation.mutate({ baseId, sourceId: source.id });
+      if (disposed) return;
+      if (scrapeMutation.error()) throw scrapeMutation.error();
+      const counts = scrapeMutation.data()!;
+      if (
+        !(await reconcile(
+          [deps.refreshBaseData, deps.refreshSourceDetail, deps.refreshDashboard],
+          "The scrape completed, but Pulse data could not be refreshed.",
+        ))
+      )
+        return;
       toast.success(`Metrics scraped: ${formatIngestCounts(counts)}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Scrape failed");
@@ -88,16 +182,17 @@ export const createSourceController = (deps: SourceControllerDeps) => {
   };
 
   const toggleSource = async (source: PulseSource) => {
+    if (!requireWritable()) return;
     const baseId = deps.selectedBaseId();
     if (!baseId) return;
     deps.setLoading(true);
     try {
-      const updated = await jsonFetch<PulseSource>(`/api/pulse/bases/${baseId}/sources/${source.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ enabled: !source.enabled }),
-      });
-      deps.setSources((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-      await deps.refreshDashboard();
+      await toggleMutation.mutate({ baseId, sourceId: source.id, enabled: !source.enabled });
+      if (disposed) return;
+      if (toggleMutation.error()) throw toggleMutation.error();
+      const updated = toggleMutation.data()!;
+      if (!(await reconcile([deps.refreshBaseData, deps.refreshDashboard], "The source changed, but Pulse data could not be refreshed.")))
+        return;
       toast.success(updated.enabled ? "Source resumed" : "Source paused");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update source");
@@ -107,17 +202,17 @@ export const createSourceController = (deps: SourceControllerDeps) => {
   };
 
   const editSource = async (source: PulseSource) => {
+    if (!requireWritable()) return;
     const baseId = deps.selectedBaseId();
     if (!baseId) return;
     const patch = await openSourceEditDialog(source);
-    if (!patch) return;
+    if (disposed || !patch || !requireWritable()) return;
     deps.setLoading(true);
     try {
-      const updated = await jsonFetch<PulseSource>(`/api/pulse/bases/${baseId}/sources/${source.id}`, {
-        method: "PATCH",
-        body: JSON.stringify(patch),
-      });
-      deps.setSources((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      await editMutation.mutate({ baseId, sourceId: source.id, patch: { ...patch } });
+      if (disposed) return;
+      if (editMutation.error()) throw editMutation.error();
+      if (!(await reconcile([deps.refreshBaseData], "The source was updated, but the source list could not be refreshed."))) return;
       toast.success("Source updated");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update source");
@@ -127,19 +222,24 @@ export const createSourceController = (deps: SourceControllerDeps) => {
   };
 
   const removeSource = async (source: PulseSource) => {
+    if (!requireWritable()) return;
     const baseId = deps.selectedBaseId();
     if (!baseId) return;
     const confirmed = await prompts.confirm(`Remove source "${source.name}"? Existing samples stay available, but new data will stop.`, {
       title: "Remove source",
       variant: "danger",
     });
-    if (!confirmed) return;
+    if (disposed || !confirmed || !requireWritable()) return;
     deps.setLoading(true);
     try {
-      await jsonFetch<void>(`/api/pulse/bases/${baseId}/sources/${source.id}`, { method: "DELETE" });
+      await removeMutation.mutate({ baseId, sourceId: source.id });
+      if (disposed) return;
+      if (removeMutation.error()) throw removeMutation.error();
+      if (
+        !(await reconcile([deps.refreshBaseData, deps.refreshDashboard], "The source was removed, but Pulse data could not be refreshed."))
+      )
+        return;
       deps.setSelectedSourceId((current) => (current === source.id ? "" : current));
-      await deps.loadBaseData(baseId);
-      await deps.refreshDashboard();
       toast.success("Source removed");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not remove source");
@@ -149,24 +249,27 @@ export const createSourceController = (deps: SourceControllerDeps) => {
   };
 
   const createApiKey = async (source: PulseSource, input: Parameters<ResourceApiKeysProps["createKey"]>[0]) => {
+    if (deps.writeBlocked()) throw new Error("Refresh Pulse data before making more changes.");
     const baseId = deps.selectedBaseId();
     if (!baseId) throw new Error("No Pulse base selected.");
-    const created = await jsonFetch<{ credential: ResourceApiKey; token: string }>(
-      `/api/pulse/bases/${baseId}/sources/${source.id}/api-keys`,
-      { method: "POST", body: JSON.stringify(input) },
-    );
-    deps.setSourceApiKeys((current) => ({ ...current, [source.id]: [created.credential, ...(current[source.id] ?? [])] }));
+    await createApiKeyMutation.mutate({ baseId, sourceId: source.id, input: { ...input } });
+    if (disposed) throw new DOMException("Source owner was disposed", "AbortError");
+    if (createApiKeyMutation.error()) throw createApiKeyMutation.error();
+    const created = createApiKeyMutation.data()!;
+    await reconcile([deps.refreshSourceDetail], "The API key was created, but the key list could not be refreshed.");
+    if (disposed) throw new DOMException("Source owner was disposed", "AbortError");
     return created;
   };
 
   const revokeApiKey = async (source: PulseSource, credentialId: string) => {
+    if (deps.writeBlocked()) throw new Error("Refresh Pulse data before making more changes.");
     const baseId = deps.selectedBaseId();
     if (!baseId) throw new Error("No Pulse base selected.");
-    await jsonFetch<void>(`/api/pulse/bases/${baseId}/sources/${source.id}/api-keys/${credentialId}`, { method: "DELETE" });
-    deps.setSourceApiKeys((current) => ({
-      ...current,
-      [source.id]: (current[source.id] ?? []).filter((key) => key.id !== credentialId),
-    }));
+    await revokeApiKeyMutation.mutate({ baseId, sourceId: source.id, credentialId });
+    if (disposed) throw new DOMException("Source owner was disposed", "AbortError");
+    if (revokeApiKeyMutation.error()) throw revokeApiKeyMutation.error();
+    await reconcile([deps.refreshSourceDetail], "The API key was revoked, but the key list could not be refreshed.");
+    if (disposed) throw new DOMException("Source owner was disposed", "AbortError");
   };
 
   return { addSource, createApiKey, editSource, removeSource, revokeApiKey, scrape, toggleSource };

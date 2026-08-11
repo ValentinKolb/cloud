@@ -1,13 +1,14 @@
 import type { DateContext } from "@k2b/stdlib";
-import { Placeholder } from "@k2b/ui";
-import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { query } from "@k2b/stdlib/solid";
+import { Button, NoticeCard, Placeholder } from "@k2b/ui";
+import { createEffect, onCleanup, Show } from "solid-js";
 import type { PulseDashboardSnapshot } from "../contracts";
 import { jsonFetch } from "./http";
 import { PublicDashboardSections } from "./PublicDashboardSections";
 import {
+  type PublicDashboardDisplayHeight,
   publicDashboardRefreshDelayMs,
   resolvePublicDashboardRefreshSeconds,
-  type PublicDashboardDisplayHeight,
 } from "./public-dashboard-runtime";
 import { defaultPulseDateContext } from "./workspace/helpers";
 
@@ -19,15 +20,16 @@ type Props = {
 };
 
 export default function PublicPulseDashboard(props: Props) {
-  const [snapshot, setSnapshot] = createSignal(props.initialSnapshot);
+  const source = props.token;
+  const snapshotQuery = query.create({
+    source: () => source,
+    initial: { source, data: props.initialSnapshot },
+    load: (token, { abortSignal }) =>
+      jsonFetch<PulseDashboardSnapshot>(`/api/pulse/public-dashboard/${token}`, { signal: abortSignal }, "Could not refresh dashboard"),
+  });
+  const snapshot = () => snapshotQuery.data()!;
   const dateContext = () => ({ ...defaultPulseDateContext, ...(props.initialDateConfig ?? {}) });
   const refreshIntervalSeconds = () => resolvePublicDashboardRefreshSeconds(snapshot().dashboard.config.refreshIntervalSeconds);
-
-  const reload = async (signal?: AbortSignal) => {
-    setSnapshot(
-      await jsonFetch<PulseDashboardSnapshot>(`/api/pulse/public-dashboard/${props.token}`, { signal }, "Could not refresh dashboard"),
-    );
-  };
 
   const renderRefreshProgress = () => (
     <Show
@@ -67,7 +69,6 @@ export default function PublicPulseDashboard(props: Props) {
 
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let currentRefresh: AbortController | undefined;
     let failures = 0;
 
     const schedule = (delayMs: number) => {
@@ -84,61 +85,68 @@ export default function PublicPulseDashboard(props: Props) {
         return;
       }
 
-      currentRefresh?.abort();
-      const refresh = new AbortController();
-      currentRefresh = refresh;
-      reload(refresh.signal)
+      snapshotQuery
+        .refresh()
         .then(() => {
-          failures = 0;
+          const error = snapshotQuery.error();
+          if (error) {
+            failures += 1;
+            console.warn("Pulse public dashboard refresh failed", error);
+          } else failures = 0;
         })
-        .catch((error) => {
-          if (refresh.signal.aborted) return;
-          failures += 1;
-          console.warn("Pulse public dashboard refresh failed", error);
-        })
-        .finally(() => {
-          if (currentRefresh === refresh) currentRefresh = undefined;
-          schedule(nextDelay());
-        });
+        .finally(() => schedule(nextDelay()));
     };
 
     schedule(nextDelay());
     onCleanup(() => {
       disposed = true;
       if (timer) clearTimeout(timer);
-      currentRefresh?.abort();
+      snapshotQuery.abort();
     });
   });
 
   return (
-    <main
-      class={`bg-zinc-50 px-4 py-6 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50 sm:px-6 lg:px-8 ${
-        props.displayHeight === "full" ? "h-screen overflow-hidden" : "min-h-screen overflow-auto"
-      }`}
-    >
-      <style>{`
+    <>
+      <Show when={snapshotQuery.error()}>
+        {(error) => (
+          <div class="fixed inset-x-4 bottom-4 z-10 mx-auto max-w-lg">
+            <NoticeCard tone="warning" title="Dashboard could not be refreshed" detail={error().message}>
+              <Button variant="secondary" size="sm" onClick={() => void snapshotQuery.refresh()}>
+                Retry
+              </Button>
+            </NoticeCard>
+          </div>
+        )}
+      </Show>
+      <main
+        class={`bg-zinc-50 px-4 py-6 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-50 sm:px-6 lg:px-8 ${
+          props.displayHeight === "full" ? "h-screen overflow-hidden" : "min-h-screen overflow-auto"
+        }`}
+      >
+        <style>{`
         @keyframes pulse-public-refresh-progress {
           from { stroke-dashoffset: 50.265; }
           to { stroke-dashoffset: 0; }
         }
       `}</style>
-      <div class={`flex w-full flex-col gap-5 ${props.displayHeight === "full" ? "h-full min-h-0" : ""}`}>
-        <header class="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 class="text-3xl font-semibold tracking-normal">{snapshot().dashboard.name}</h1>
-          </div>
-          {renderRefreshProgress()}
-        </header>
+        <div class={`flex w-full flex-col gap-5 ${props.displayHeight === "full" ? "h-full min-h-0" : ""}`}>
+          <header class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-3xl font-semibold tracking-normal">{snapshot().dashboard.name}</h1>
+            </div>
+            {renderRefreshProgress()}
+          </header>
 
-        <Show
-          when={snapshot().dashboard.config.layout?.sections.length}
-          fallback={<Placeholder surface="paper" variant="panel" title="This dashboard has no widgets." />}
-        >
-          <section class={`space-y-6 ${props.displayHeight === "full" ? "min-h-0 flex-1 overflow-hidden" : ""}`}>
-            <PublicDashboardSections snapshot={snapshot()} dateContext={dateContext()} />
-          </section>
-        </Show>
-      </div>
-    </main>
+          <Show
+            when={snapshot().dashboard.config.layout?.sections.length}
+            fallback={<Placeholder surface="paper" variant="panel" title="This dashboard has no widgets." />}
+          >
+            <section class={`space-y-6 ${props.displayHeight === "full" ? "min-h-0 flex-1 overflow-hidden" : ""}`}>
+              <PublicDashboardSections snapshot={snapshot()} dateContext={dateContext()} />
+            </section>
+          </Show>
+        </div>
+      </main>
+    </>
   );
 }

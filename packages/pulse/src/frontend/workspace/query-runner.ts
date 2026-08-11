@@ -1,4 +1,4 @@
-import { isEventAggregateQuery, type Aggregation, type PulseExplorerQuery, type PulseQueryCompileResult } from "../../contracts";
+import { type Aggregation, isEventAggregateQuery, type PulseExplorerQuery, type PulseQueryCompileResult } from "../../contracts";
 import { jsonFetch } from "./helpers";
 import type { ExplorerResultView, MetricTextQueryResult } from "./types";
 
@@ -10,10 +10,11 @@ type MetricQueryControls = {
   sourceId: string;
 };
 
-export const runPulseTextQuery = async (baseId: string, query: string): Promise<MetricTextQueryResult> =>
+export const runPulseTextQuery = async (baseId: string, query: string, signal?: AbortSignal): Promise<MetricTextQueryResult> =>
   jsonFetch<MetricTextQueryResult>("/api/pulse/query/metric-text", {
     method: "POST",
     body: JSON.stringify({ baseId, query }),
+    signal,
   });
 
 export const metricControlsFromQuery = (compiled: PulseExplorerQuery): MetricQueryControls | null => {

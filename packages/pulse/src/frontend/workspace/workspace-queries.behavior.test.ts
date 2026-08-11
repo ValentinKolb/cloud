@@ -1,0 +1,348 @@
+import { describe, expect, test } from "bun:test";
+import { createSignal } from "solid-js";
+import { isServer, render } from "solid-js/web";
+import { createDomTestHarness } from "../../../../ui/test/dom";
+import type { PulseDashboard, PulseMetricSeries } from "../../contracts";
+import type { PulseWorkspaceProps, PulseWorkspaceQueryCoverage, WorkspaceView } from "./types";
+import { createPulseWorkspaceQueries } from "./workspace-queries";
+
+const deferred = <T>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+};
+
+const row = (id: string): PulseMetricSeries => ({
+  id,
+  metric: "requests",
+  sourceId: "source-1",
+  entityId: null,
+  entityType: null,
+  dimensions: {},
+  lastSeenAt: null,
+  latestValue: 1,
+  latestSampleAt: null,
+});
+
+const flush = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
+const fullCoverage: PulseWorkspaceQueryCoverage = {
+  activity: true,
+  baseData: true,
+  bases: true,
+  dashboard: true,
+  focused: true,
+  resources: true,
+  resourceSignals: true,
+  sourceDetail: true,
+};
+
+const queryDeps = (view: WorkspaceView, overrides: Partial<Parameters<typeof createPulseWorkspaceQueries>[1]> = {}) => ({
+  activeView: () => view,
+  activitySearch: () => "",
+  dashboardControlValues: () => ({}),
+  dashboardPreviewConfig: () => null,
+  focusedSearch: () => "",
+  focusedSignalId: () => "",
+  metricTypeFilter: () => "" as const,
+  resourceSearch: () => "",
+  resourceSourceFilter: () => "",
+  resourceTypeFilter: () => "",
+  selectedBaseId: () => "base-1",
+  selectedDashboardId: () => "",
+  selectedMetric: () => "",
+  selectedQuerySourceId: () => "",
+  selectedResourceKey: () => "",
+  selectedSourceId: () => "",
+  selectedSourceKind: () => null,
+  ...overrides,
+});
+
+const queryProps = (overrides: Partial<PulseWorkspaceProps> = {}): PulseWorkspaceProps => ({
+  initialBases: [],
+  initialCapabilities: null,
+  initialQueryCoverage: fullCoverage,
+  initialBaseId: "base-1",
+  initialRouteState: { view: "resources", dashboardId: "", sourceId: "", signalId: "" },
+  initialActivityQuery: { q: "", type: "" },
+  initialInventory: { resources: [], metrics: [], events: [], states: [], fields: [] },
+  ...overrides,
+});
+
+describe("Pulse workspace queries", () => {
+  if (isServer) {
+    test.skip("runs with browser export conditions", () => {});
+    return;
+  }
+
+  test("shares load-more, aborts it for invalidation, and atomically commits the rebuilt focused chain", async () => {
+    const dom = createDomTestHarness();
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ url: string; signal: AbortSignal; response: ReturnType<typeof deferred<Response>> }> = [];
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      const response = deferred<Response>();
+      requests.push({ url: String(input), signal: init?.signal as AbortSignal, response });
+      return response.promise;
+    }) as typeof fetch;
+
+    let controls!: ReturnType<typeof createPulseWorkspaceQueries>;
+    const dispose = render(() => {
+      const [focusedSearch] = createSignal("");
+      controls = createPulseWorkspaceQueries(
+        queryProps({
+          initialBaseId: "base-1",
+          initialRouteState: { view: "metric-detail", dashboardId: "", sourceId: "", signalId: "requests" },
+          initialResourceQuery: { q: "", sourceId: "", type: "" },
+          initialFocusedMetricSeries: [row("initial")],
+          initialFocusedHasMore: true,
+        }),
+        queryDeps("metric-detail", {
+          focusedSearch,
+          focusedSignalId: () => "requests",
+        }),
+      );
+      return dom.document.createTextNode("");
+    }, dom.root);
+
+    await flush();
+    expect(requests).toHaveLength(0);
+    const first = controls.queries.focused.loadMore();
+    const shared = controls.queries.focused.loadMore();
+    expect(shared).toBe(first);
+    await flush();
+    expect(requests[0]!.url).toContain("offset=1");
+
+    const covered = controls.queries.focused.invalidate();
+    await flush();
+    expect(requests[0]!.signal.aborted).toBe(true);
+    expect(requests[1]!.url).toContain("offset=0");
+    requests[0]!.response.resolve(Response.json([row("stale")]));
+    requests[1]!.response.resolve(Response.json([row("fresh")]));
+    await covered;
+    expect(controls.focusedMetricSeries().map((item) => item.id)).toEqual(["fresh"]);
+    expect(controls.focusedHasMore()).toBe(false);
+
+    dispose();
+    dom.cleanup();
+    globalThis.fetch = originalFetch;
+  });
+
+  test("uses exact SSR sources and reloads only uncovered snapshots", async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requests.push(String(input));
+      return Response.json([]);
+    }) as typeof fetch;
+
+    const renderQueries = (coverage: PulseWorkspaceQueryCoverage) => {
+      const dom = createDomTestHarness();
+      const dispose = render(() => {
+        createPulseWorkspaceQueries(
+          queryProps({
+            initialQueryCoverage: coverage,
+            initialSearch: "?q=cpu&source=source-1&type=server",
+            initialRouteState: { view: "resources", dashboardId: "", sourceId: "", signalId: "" },
+          }),
+          queryDeps("resources", {
+            resourceSearch: () => "cpu",
+            resourceSourceFilter: () => "source-1",
+            resourceTypeFilter: () => "server",
+          }),
+        );
+        return dom.document.createTextNode("");
+      }, dom.root);
+      return { dom, dispose };
+    };
+
+    try {
+      const covered = renderQueries(fullCoverage);
+      await flush();
+      expect(requests).toHaveLength(0);
+      covered.dispose();
+      covered.dom.cleanup();
+
+      const uncovered = renderQueries({ ...fullCoverage, resources: false });
+      await flush();
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toContain("q=cpu");
+      expect(requests[0]).toContain("sourceId=source-1");
+      expect(requests[0]).toContain("type=server");
+      uncovered.dispose();
+      uncovered.dom.cleanup();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("keeps a failed dashboard widget local while healthy widgets refresh", async () => {
+    const dom = createDomTestHarness();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      const metric = JSON.parse(String(init?.body)).query.includes("broken") ? "broken" : "healthy";
+      return metric === "broken" ? new Response("failed", { status: 500 }) : Response.json({ points: [{ bucket: "new", value: 2 }] });
+    }) as typeof fetch;
+    const metricWidget = (id: string, metric: string) => ({
+      id,
+      kind: "metric" as const,
+      title: id,
+      metric,
+      visual: "line" as const,
+      aggregation: "avg" as const,
+      bucket: "5m",
+      since: "24h",
+    });
+    const dashboard: PulseDashboard = {
+      id: "dashboard-1",
+      baseId: "base-1",
+      name: "Operations",
+      config: {
+        dsl: "",
+        layout: {
+          version: 1,
+          sections: [
+            {
+              id: "section-1",
+              kind: "section",
+              title: "Overview",
+              rows: [
+                {
+                  id: "row-1",
+                  kind: "row",
+                  height: "md",
+                  cells: [metricWidget("broken", "broken"), metricWidget("healthy", "healthy")],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      publicEnabled: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    let controls!: ReturnType<typeof createPulseWorkspaceQueries>;
+    const dispose = render(() => {
+      controls = createPulseWorkspaceQueries(
+        queryProps({
+          initialRouteState: { view: "dashboard", dashboardId: dashboard.id, sourceId: "", signalId: "" },
+          initialDashboards: [dashboard],
+          initialMetricWidgetPoints: { broken: [{ bucket: "old", value: 1 }], healthy: [{ bucket: "old", value: 1 }] },
+        }),
+        queryDeps("dashboard", { selectedDashboardId: () => dashboard.id }),
+      );
+      return dom.document.createTextNode("");
+    }, dom.root);
+
+    try {
+      await flush();
+      expect(controls.metricWidgetPoints().broken).toEqual([{ bucket: "old", value: 1 }]);
+      await controls.queries.dashboard.refresh();
+      expect(controls.queries.dashboard.error()).toBeNull();
+      expect(controls.metricWidgetPoints().broken).toEqual([{ bucket: "old", value: 1 }]);
+      expect(controls.metricWidgetPoints().healthy).toEqual([{ bucket: "new", value: 2 }]);
+    } finally {
+      dispose();
+      dom.cleanup();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("does not let an aborted dashboard load replace the current last-good snapshot", async () => {
+    const dom = createDomTestHarness();
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ response: ReturnType<typeof deferred<Response>>; signal: AbortSignal }> = [];
+    globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
+      const response = deferred<Response>();
+      requests.push({ response, signal: init?.signal as AbortSignal });
+      return response.promise;
+    }) as typeof fetch;
+    const [controlValues, setControlValues] = createSignal({ "dashboard-1": { range: "old" } });
+    const dashboard: PulseDashboard = {
+      id: "dashboard-1",
+      baseId: "base-1",
+      name: "Operations",
+      config: {
+        dsl: "",
+        layout: {
+          version: 1,
+          controls: [{ id: "range", kind: "range", variable: "range", label: "Range", defaultValue: "old" }],
+          sections: [
+            {
+              id: "section-1",
+              kind: "section",
+              title: "Overview",
+              rows: [
+                {
+                  id: "row-1",
+                  kind: "row",
+                  height: "md",
+                  cells: [
+                    {
+                      id: "metric-1",
+                      kind: "metric",
+                      title: "Requests",
+                      metric: "requests",
+                      visual: "line",
+                      aggregation: "avg",
+                      bucket: "5m",
+                      since: "24h",
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      publicEnabled: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    let controls!: ReturnType<typeof createPulseWorkspaceQueries>;
+    const dispose = render(() => {
+      controls = createPulseWorkspaceQueries(
+        queryProps({
+          initialRouteState: { view: "dashboard", dashboardId: dashboard.id, sourceId: "", signalId: "" },
+          initialDashboards: [dashboard],
+          initialDashboardControlValues: { range: "old" },
+          initialMetricWidgetPoints: { "metric-1": [{ bucket: "initial", value: 1 }] },
+        }),
+        queryDeps("dashboard", { dashboardControlValues: controlValues, selectedDashboardId: () => dashboard.id }),
+      );
+      return dom.document.createTextNode("");
+    }, dom.root);
+
+    try {
+      await flush();
+      const stale = controls.queries.dashboard.refresh();
+      await flush();
+      setControlValues({ "dashboard-1": { range: "new" } });
+      const fresh = controls.queries.dashboard.refresh();
+      await flush();
+      expect(requests).toHaveLength(2);
+      expect(requests[0]!.signal.aborted).toBe(true);
+
+      requests[1]!.response.resolve(Response.json({ points: [{ bucket: "fresh", value: 2 }] }));
+      await fresh;
+      requests[0]!.response.resolve(Response.json({ points: [{ bucket: "stale", value: 0 }] }));
+      await stale;
+      await flush();
+
+      const retry = controls.queries.dashboard.refresh();
+      await flush();
+      requests[2]!.response.resolve(new Response("failed", { status: 500 }));
+      await retry;
+      expect(controls.metricWidgetPoints()["metric-1"]).toEqual([{ bucket: "fresh", value: 2 }]);
+    } finally {
+      dispose();
+      dom.cleanup();
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

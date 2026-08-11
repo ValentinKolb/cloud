@@ -1,7 +1,7 @@
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, Dropdown, IconButton, prompts, SegmentedControl, Tooltip, toast } from "@k2b/ui";
-import { createSignal } from "solid-js";
+import { Button, Dropdown, prompts, SegmentedControl, toast } from "@k2b/ui";
+import { createSignal, onCleanup } from "solid-js";
 import { apiClient } from "@/api/client";
 import { buildDisplayUrl, type DisplaySettings } from "./params";
 
@@ -67,15 +67,11 @@ function DisplaySettingsForm(props: { onSubmit: (settings: DisplaySettings) => v
 }
 
 export default function LocationActions(props: { id: string; lat: number; lon: number }) {
-  const remove = mutation.create({
-    mutation: async () => {
-      const confirmed = await prompts.confirm("Remove this location?", {
-        title: "Remove location",
-        variant: "danger",
-      });
-      if (!confirmed) return false;
-
-      const response = await apiClient.locations[":id"].$delete({ param: { id: props.id } });
+  const [confirmingRemove, setConfirmingRemove] = createSignal(false);
+  let disposed = false;
+  const remove = mutation.create<boolean, { id: string }>({
+    mutation: async ({ id }, { abortSignal }) => {
+      const response = await apiClient.locations[":id"].$delete({ param: { id } }, { init: { signal: abortSignal } });
       if (!response.ok) {
         const body: unknown = await response.json().catch(() => null);
         throw new Error(
@@ -93,6 +89,27 @@ export default function LocationActions(props: { id: string; lat: number; lon: n
     },
     onError: (error) => prompts.error(error.message),
   });
+
+  onCleanup(() => {
+    disposed = true;
+    remove.abort();
+  });
+
+  const removeLocation = async () => {
+    if (confirmingRemove() || remove.loading()) return;
+    const id = props.id;
+    setConfirmingRemove(true);
+    try {
+      const confirmed = await prompts.confirm("Remove this location?", {
+        title: "Remove location",
+        variant: "danger",
+      });
+      if (!disposed && confirmed) await remove.mutate({ id });
+    } finally {
+      if (!disposed) setConfirmingRemove(false);
+    }
+  };
+  const removing = () => confirmingRemove() || remove.loading();
 
   const openDisplay = () => {
     prompts.dialog(
@@ -124,20 +141,13 @@ export default function LocationActions(props: { id: string; lat: number; lon: n
                 icon: "ti ti-trash",
                 label: "Remove location",
                 variant: "danger",
-                action: () => void remove.mutate({}),
+                action: () => void removeLocation(),
               },
             ],
           },
         ]}
       >
-        <Dropdown.Trigger
-          iconOnly
-          label="Location options"
-          size="sm"
-          disabled={remove.loading()}
-          loading={remove.loading()}
-          tooltip="Location options"
-        >
+        <Dropdown.Trigger iconOnly label="Location options" size="sm" disabled={removing()} loading={removing()} tooltip="Location options">
           <i class="ti ti-dots" aria-hidden="true" />
         </Dropdown.Trigger>
       </Dropdown.Root>

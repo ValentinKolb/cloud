@@ -12,7 +12,7 @@ import {
   TextInput,
   toast,
 } from "@k2b/ui";
-import { createMemo, createSignal } from "solid-js";
+import { createMemo, createSignal, onCleanup } from "solid-js";
 import { apiClient } from "@/api/client";
 
 type Initial = {
@@ -45,11 +45,9 @@ export default function WeatherSettingsForm(props: { initial: Initial }) {
     window.onbeforeunload = () => (hasChanges() ? "" : null);
   }
 
-  const save = mutations.create<void, void>({
-    mutation: async () => {
-      const updates: Record<string, unknown> = {};
-      for (const k of changedKeys()) updates[k as string] = draft()[k];
-      const response = await apiClient.admin.settings.$put({ json: updates });
+  const save = mutations.create<void, Record<string, unknown>>({
+    mutation: async (updates, { abortSignal }) => {
+      const response = await apiClient.admin.settings.$put({ json: updates }, { init: { signal: abortSignal } });
       if (!response.ok) {
         const { message, fields } = await readSettingsError(response, `Save failed (HTTP ${response.status})`);
         setFieldErrors(fields);
@@ -63,6 +61,16 @@ export default function WeatherSettingsForm(props: { initial: Initial }) {
     },
     onError: (e) => prompts.error(e.message),
   });
+  onCleanup(() => {
+    save.abort();
+    if (typeof window !== "undefined") window.onbeforeunload = null;
+  });
+  const saveSettings = () => {
+    const updates: Record<string, unknown> = {};
+    const values = draft();
+    for (const key of changedKeys()) updates[key] = values[key];
+    return save.mutate(updates);
+  };
 
   const discardAll = () => {
     setDraft({ ...props.initial });
@@ -83,7 +91,7 @@ export default function WeatherSettingsForm(props: { initial: Initial }) {
           changeCount={() => changedKeys().length}
           loading={() => save.loading()}
           onDiscard={discardAll}
-          onSave={() => save.mutate()}
+          onSave={saveSettings}
         />
       }
     >

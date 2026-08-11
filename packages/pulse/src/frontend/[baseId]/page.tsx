@@ -31,6 +31,7 @@ export default ssr<AuthContext>(async (c) => {
       <PulseWorkspace
         initialBases={workspaceProps.initialBases}
         initialCapabilities={workspaceProps.initialCapabilities}
+        initialQueryCoverage={workspaceProps.initialQueryCoverage}
         initialBaseId={workspaceProps.initialBaseId}
         initialPath={workspaceProps.initialPath}
         initialSearch={workspaceProps.initialSearch}

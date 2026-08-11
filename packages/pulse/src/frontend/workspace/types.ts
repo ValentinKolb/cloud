@@ -1,7 +1,7 @@
-import type { PermissionLevel } from "@valentinkolb/cloud/contracts";
-import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
-import type { PanesValue } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import type { PanesValue } from "@k2b/ui";
+import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
+import type { PermissionLevel } from "@valentinkolb/cloud/contracts";
 import type {
   MetricQueryPoint,
   PulseBase,
@@ -35,6 +35,17 @@ export type GrantableLevel = Exclude<PermissionLevel, "none">;
 export type ExplorerResultView = "chart" | "table" | "compiled";
 export type QueryHistoryEntry = { query: string; ranAt: string };
 export type RefreshIntervalOption = "1" | "5" | "10" | "60" | "never";
+
+export type PulseWorkspaceQueryCoverage = {
+  activity: boolean;
+  baseData: boolean;
+  bases: boolean;
+  dashboard: boolean;
+  focused: boolean;
+  resources: boolean;
+  resourceSignals: boolean;
+  sourceDetail: boolean;
+};
 
 export type BrowseEntity = {
   id: string;
@@ -74,6 +85,7 @@ export type CreateSourceInput = {
 export type PulseWorkspaceProps = {
   initialBases: PulseBase[];
   initialCapabilities: PulseCapabilitySnapshot | null;
+  initialQueryCoverage: PulseWorkspaceQueryCoverage;
   initialBaseId?: string | null;
   initialPath?: string;
   initialSearch?: string;

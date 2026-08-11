@@ -1,6 +1,7 @@
-import { NoticeCard, AppOverview, Button, prompts, TextInput, toast } from "@k2b/ui";
 import { navigate, navigateTo } from "@k2b/ssr/nav";
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { mutation } from "@k2b/stdlib/solid";
+import { AppOverview, Button, NoticeCard, prompts, TextInput, toast } from "@k2b/ui";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { PulseBase, PulseCapabilitySnapshot } from "../contracts";
 import { jsonFetch } from "./http";
 
@@ -26,8 +27,25 @@ const matchesBase = (base: PulseBase, query: string): boolean => {
 
 export default function PulseOverview(props: Props) {
   const [query, setQuery] = createSignal(props.initialQuery);
-  const [creating, setCreating] = createSignal(false);
+  let disposed = false;
   const filteredBases = createMemo(() => props.bases.filter((base) => matchesBase(base, query())));
+  const createMutation = mutation.create<PulseBase, { name: string; description: string | null }>({
+    mutation: (intent, { abortSignal }) =>
+      jsonFetch<PulseBase>(
+        "/api/pulse/bases",
+        { method: "POST", body: JSON.stringify(intent), signal: abortSignal },
+        "Failed to create Pulse base",
+      ),
+    onSuccess: (base) => {
+      toast.success("Pulse base created");
+      navigateTo(`/app/pulse/${base.id}`);
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+  onCleanup(() => {
+    disposed = true;
+    createMutation.abort();
+  });
 
   const onSearchInput = (value: string) => {
     setQuery(value);
@@ -44,30 +62,11 @@ export default function PulseOverview(props: Props) {
       },
       confirmText: "Create",
     });
-    if (!result) return;
+    if (disposed || !result) return;
 
     const name = String(result.name ?? "").trim();
     if (!name) return;
-    setCreating(true);
-    try {
-      const base = await jsonFetch<PulseBase>(
-        "/api/pulse/bases",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            name,
-            description: String(result.description ?? "").trim() || null,
-          }),
-        },
-        "Failed to create Pulse base",
-      );
-      toast.success("Pulse base created");
-      navigateTo(`/app/pulse/${base.id}`);
-    } catch (error) {
-      prompts.error(error instanceof Error ? error.message : "Could not create Pulse base");
-    } finally {
-      setCreating(false);
-    }
+    await createMutation.mutate({ name, description: String(result.description ?? "").trim() || null });
   };
 
   return (
@@ -103,7 +102,7 @@ export default function PulseOverview(props: Props) {
               icon="ti ti-activity-heartbeat"
               class="min-h-72"
             >
-              <Button variant="secondary" size="sm" disabled={creating()} onClick={() => void createBase()}>
+              <Button variant="secondary" size="sm" disabled={createMutation.loading()} onClick={() => void createBase()}>
                 <i class="ti ti-plus" /> Create a base
               </Button>
             </AppOverview.EmptyState>
@@ -142,7 +141,7 @@ export default function PulseOverview(props: Props) {
             type="button"
             variant="ghost"
             class="group h-auto w-full items-start justify-start gap-3 rounded-xl border border-[var(--ui-border)] p-4 text-left hover:bg-[var(--ui-surface-subtle)]"
-            disabled={creating()}
+            disabled={createMutation.loading()}
             onClick={() => void createBase()}
           >
             <span class="thumbnail flex h-9 w-9 shrink-0 items-center justify-center bg-zinc-100 dark:bg-zinc-900">

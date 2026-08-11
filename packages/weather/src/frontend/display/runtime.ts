@@ -18,3 +18,6 @@ export const displayRefreshBackoffMs = (refreshSeconds: number, failures: number
   const retryCap = Math.max(baseDelay, MAX_DISPLAY_RETRY_DELAY_MS);
   return Math.min(retryCap, baseDelay * 2 ** Math.max(0, failures));
 };
+
+export const displayInitialRefreshDelayMs = (hasInitialData: boolean, refreshSeconds: number): number =>
+  hasInitialData ? displayRefreshBackoffMs(refreshSeconds, 0) : 0;

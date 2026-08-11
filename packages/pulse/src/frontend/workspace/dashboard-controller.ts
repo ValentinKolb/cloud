@@ -1,6 +1,7 @@
-import { prompts, toast } from "@k2b/ui";
 import { clipboard } from "@k2b/stdlib/browser";
-import type { Accessor, Setter } from "solid-js";
+import { mutation, query } from "@k2b/stdlib/solid";
+import { prompts, toast } from "@k2b/ui";
+import { type Accessor, createSignal, onCleanup, type Setter } from "solid-js";
 import type { PulseDashboard, PulseDashboardConfig, PulseDashboardControl, PulseDashboardDslCompileResult } from "../../contracts";
 import { jsonFetch } from "../http";
 import {
@@ -17,7 +18,7 @@ import {
   emptyDashboardDsl,
   shouldSkipDashboardDslPreview,
 } from "./dashboard-dsl-helpers";
-import { openPulseDashboardSettingsDialog } from "./dashboard-settings-dialog";
+import { type DashboardWriteResult, openPulseDashboardSettingsDialog } from "./dashboard-settings-dialog";
 import {
   openPublicDashboardDisplayDialog as openPublicDashboardDisplayOptionsDialog,
   type PublicDashboardDisplayHeight,
@@ -31,7 +32,6 @@ type DashboardControllerDeps = {
   selectedDashboard: Accessor<PulseDashboard | null>;
   selectedDashboardId: Accessor<string>;
   dashboards: Accessor<PulseDashboard[]>;
-  setDashboards: Setter<PulseDashboard[]>;
   setSelectedDashboardId: Setter<string>;
   loading: Accessor<boolean>;
   setLoading: Setter<boolean>;
@@ -50,14 +50,79 @@ type DashboardControllerDeps = {
   dashboardControlValues: Accessor<Record<string, Record<string, string>>>;
   setDashboardControlValues: Setter<Record<string, Record<string, string>>>;
   navigate: (state: { view: WorkspaceView; dashboardId?: string }) => void;
+  refreshBaseData: () => Promise<void>;
   refreshDashboard: (dashboard?: PulseDashboard | null) => Promise<void>;
   refreshDashboardConfig: (config: PulseDashboardConfig, dashboard?: PulseDashboard | null, baseId?: string) => Promise<void>;
+  writeBlocked: Accessor<boolean>;
 };
 
 export const createDashboardController = (deps: DashboardControllerDeps) => {
+  let disposed = false;
   let compileRequestId = 0;
+  const createMutation = mutation.create<PulseDashboard, { baseId: string; name: string; dsl: string }>({
+    mutation: ({ baseId, name, dsl }, { abortSignal }) =>
+      jsonFetch<PulseDashboard>(`/api/pulse/bases/${baseId}/dashboards`, {
+        method: "POST",
+        body: JSON.stringify({ name, config: { dsl } }),
+        signal: abortSignal,
+      }),
+  });
+  const [compileIntent, setCompileIntent] = createSignal<{ baseId: string; text: string; requestId: number } | null>(null);
+  const compileQuery = query.create({
+    source: compileIntent,
+    enabled: () => compileIntent() !== null,
+    load: (intent, { abortSignal }) => {
+      if (!intent) throw new Error("No dashboard compile requested");
+      return compileDashboardDslText(intent.baseId, intent.text, abortSignal);
+    },
+  });
+  const saveMutation = mutation.create<PulseDashboard, { dashboard: PulseDashboard; config: PulseDashboardConfig }>({
+    mutation: ({ dashboard, config }, { abortSignal }) => savePulseDashboardConfig(dashboard, config, abortSignal),
+  });
+  const publicLinkMutation = mutation.create<{ dashboard: PulseDashboard; token: string }, { dashboardId: string }>({
+    mutation: ({ dashboardId }, { abortSignal }) => createPublicDashboardToken(dashboardId, abortSignal),
+  });
+  const disablePublicLinkMutation = mutation.create<PulseDashboard, { dashboardId: string }>({
+    mutation: ({ dashboardId }, { abortSignal }) => deletePublicDashboardToken(dashboardId, abortSignal),
+  });
+  const settingsMutation = mutation.create<PulseDashboard, { dashboardId: string; name: string; config: PulseDashboardConfig }>({
+    mutation: ({ dashboardId, name, config }, { abortSignal }) =>
+      jsonFetch<PulseDashboard>(`/api/pulse/dashboards/${dashboardId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name, config }),
+        signal: abortSignal,
+      }),
+  });
+  const deleteMutation = mutation.create<void, { dashboardId: string }>({
+    mutation: ({ dashboardId }, { abortSignal }) =>
+      jsonFetch<void>(`/api/pulse/dashboards/${dashboardId}`, { method: "DELETE", signal: abortSignal }),
+  });
+  onCleanup(() => {
+    disposed = true;
+    createMutation.abort();
+    saveMutation.abort();
+    publicLinkMutation.abort();
+    disablePublicLinkMutation.abort();
+    settingsMutation.abort();
+    deleteMutation.abort();
+  });
+  const reconcile = async (tasks: Array<() => Promise<void>>, message: string, notify = true): Promise<boolean> => {
+    try {
+      await Promise.all(tasks.map((task) => task()));
+      return !disposed;
+    } catch {
+      if (!disposed && notify) toast.error(message);
+      return false;
+    }
+  };
+  const requireWritable = (): boolean => {
+    if (!deps.writeBlocked()) return true;
+    toast.error("Refresh Pulse data before making more changes.");
+    return false;
+  };
 
   const createDashboard = async () => {
+    if (!requireWritable()) return null;
     const baseId = deps.selectedBaseId();
     if (!baseId) return null;
     const result = await prompts.form({
@@ -69,17 +134,19 @@ export const createDashboardController = (deps: DashboardControllerDeps) => {
       },
       confirmText: "Create",
     });
-    const name = result ? String(result.name ?? "").trim() : "";
+    if (disposed || !result || !requireWritable()) return null;
+    const name = String(result.name ?? "").trim();
     if (!name) return null;
-    const dsl = emptyDashboardDsl(name, String(result?.description ?? "").trim());
+    const dsl = emptyDashboardDsl(name, String(result.description ?? "").trim());
     deps.setLoading(true);
     try {
-      const dashboard = await jsonFetch<PulseDashboard>(`/api/pulse/bases/${baseId}/dashboards`, {
-        method: "POST",
-        body: JSON.stringify({ name, config: { dsl } }),
-      });
+      await createMutation.mutate({ baseId, name, dsl });
+      if (disposed) return null;
+      if (createMutation.error()) throw createMutation.error();
+      const dashboard = createMutation.data()!;
+      if (!(await reconcile([deps.refreshBaseData], "The dashboard was created, but the dashboard list could not be refreshed.")))
+        return null;
       const dashboardDsl = dashboardToDsl(dashboard);
-      deps.setDashboards((current) => [dashboard, ...current]);
       deps.setDashboardDslText(dashboardDsl);
       deps.setDashboardPreviewConfig(dashboard.config);
       deps.setDashboardDslDiagnostics({ ok: true, diagnostics: [], config: dashboard.config });
@@ -115,7 +182,11 @@ export const createDashboardController = (deps: DashboardControllerDeps) => {
         text,
       });
     try {
-      const result = await compileDashboardDslText(baseId, text);
+      setCompileIntent({ baseId, text, requestId });
+      await compileQuery.refresh();
+      if (disposed) return;
+      if (compileQuery.error()) throw compileQuery.error();
+      const result = compileQuery.data()!;
       if (!previewIsCurrent()) return;
       deps.setDashboardDslDiagnostics(result);
       deps.setDashboardDslDiagnosticsText(text);
@@ -123,8 +194,10 @@ export const createDashboardController = (deps: DashboardControllerDeps) => {
       if (previewConfig) {
         deps.setDashboardPreviewConfig(previewConfig);
         await deps.refreshDashboardConfig(previewConfig, dashboard, baseId);
+        if (disposed) return;
       }
     } catch (error) {
+      if (disposed) return;
       if (!previewIsCurrent()) return;
       deps.setDashboardDslDiagnostics(dashboardDslCompileError(error));
       deps.setDashboardDslDiagnosticsText(text);
@@ -132,6 +205,7 @@ export const createDashboardController = (deps: DashboardControllerDeps) => {
   };
 
   const saveDsl = async () => {
+    if (!requireWritable()) return;
     const dashboard = deps.selectedDashboard();
     const compiled = deps.dashboardDslDiagnostics();
     if (!dashboard || deps.dashboardDslDiagnosticsText() !== deps.dashboardDslText() || !compiled?.ok || !compiled.config) {
@@ -144,12 +218,16 @@ export const createDashboardController = (deps: DashboardControllerDeps) => {
         ...compiled.config,
         refreshIntervalSeconds: dashboard.config.refreshIntervalSeconds,
       };
-      const updated = await savePulseDashboardConfig(dashboard, config);
-      deps.setDashboards((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      await saveMutation.mutate({ dashboard, config });
+      if (disposed) return;
+      if (saveMutation.error()) throw saveMutation.error();
+      const updated = saveMutation.data()!;
+      if (!(await reconcile([deps.refreshBaseData], "The dashboard was saved, but the dashboard list could not be refreshed."))) return;
       deps.setDashboardDslSeededFor("");
-      toast.success("Dashboard saved");
-      await deps.refreshDashboard(updated);
+      if (!(await reconcile([() => deps.refreshDashboard(updated)], "The dashboard was saved, but its data could not be refreshed.")))
+        return;
       deps.navigate({ view: "dashboard", dashboardId: updated.id });
+      toast.success("Dashboard saved");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save dashboard");
     } finally {
@@ -169,8 +247,15 @@ export const createDashboardController = (deps: DashboardControllerDeps) => {
     dashboard: PulseDashboard,
     options: { theme?: PublicDashboardDisplayTheme; height?: PublicDashboardDisplayHeight } = {},
   ) => {
-    const result = await createPublicDashboardToken(dashboard.id);
-    deps.setDashboards((current) => current.map((item) => (item.id === result.dashboard.id ? result.dashboard : item)));
+    if (deps.writeBlocked()) throw new Error("Refresh Pulse data before making more changes.");
+    await publicLinkMutation.mutate({ dashboardId: dashboard.id });
+    if (disposed) throw new DOMException("Dashboard owner was disposed", "AbortError");
+    if (publicLinkMutation.error()) throw publicLinkMutation.error();
+    const result = publicLinkMutation.data()!;
+    if (!(await reconcile([deps.refreshBaseData], "The public link was created, but the dashboard list could not be refreshed.", false))) {
+      if (disposed) throw new DOMException("Dashboard owner was disposed", "AbortError");
+      throw new Error("The public link was created, but the dashboard list could not be refreshed.");
+    }
     return publicUrl(result.token, options);
   };
 
@@ -179,7 +264,9 @@ export const createDashboardController = (deps: DashboardControllerDeps) => {
     deps.setLoading(true);
     try {
       const link = await ensurePublicLink(dashboard);
+      if (disposed) return;
       if (options.copy) await clipboard.copy(link);
+      if (disposed) return;
       toast.success(options.copy ? "Public dashboard link copied" : "Public dashboard link enabled");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not create public link");
@@ -189,11 +276,15 @@ export const createDashboardController = (deps: DashboardControllerDeps) => {
   };
 
   const disablePublicLink = async (dashboard = deps.selectedDashboard()) => {
+    if (!requireWritable()) return;
     if (!dashboard) return;
     deps.setLoading(true);
     try {
-      const updated = await deletePublicDashboardToken(dashboard.id);
-      deps.setDashboards((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      await disablePublicLinkMutation.mutate({ dashboardId: dashboard.id });
+      if (disposed) return;
+      if (disablePublicLinkMutation.error()) throw disablePublicLinkMutation.error();
+      if (!(await reconcile([deps.refreshBaseData], "The public link was disabled, but the dashboard list could not be refreshed.")))
+        return;
       toast.success("Public dashboard link disabled");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not disable public link");
@@ -205,11 +296,15 @@ export const createDashboardController = (deps: DashboardControllerDeps) => {
   const openPublicDisplay = (dashboard: PulseDashboard) =>
     openPublicDashboardDisplayOptionsDialog({ resolveLink: (options) => ensurePublicLink(dashboard, options) });
 
-  const updateSettings = async (dashboard: PulseDashboard, input: { name: string; refreshInterval: RefreshIntervalOption }) => {
+  const updateSettings = async (
+    dashboard: PulseDashboard,
+    input: { name: string; refreshInterval: RefreshIntervalOption },
+  ): Promise<DashboardWriteResult> => {
+    if (!requireWritable()) return "failed";
     const name = input.name.trim();
     if (!name) {
       toast.error("Dashboard name is required");
-      return false;
+      return "failed";
     }
     deps.setLoading(true);
     try {
@@ -217,37 +312,42 @@ export const createDashboardController = (deps: DashboardControllerDeps) => {
         ...dashboard.config,
         refreshIntervalSeconds: refreshIntervalFromOption(input.refreshInterval),
       };
-      const updated = await jsonFetch<PulseDashboard>(`/api/pulse/dashboards/${dashboard.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ name, config }),
-      });
-      deps.setDashboards((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      await settingsMutation.mutate({ dashboardId: dashboard.id, name, config });
+      if (disposed) return "failed";
+      if (settingsMutation.error()) throw settingsMutation.error();
+      if (!(await reconcile([deps.refreshBaseData], "The dashboard was updated, but the dashboard list could not be refreshed.")))
+        return "persisted";
       toast.success("Dashboard updated");
-      return true;
+      return "reconciled";
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update dashboard");
-      return false;
+      return "failed";
     } finally {
       deps.setLoading(false);
     }
   };
 
-  const deleteDashboard = async (dashboard: PulseDashboard) => {
+  const deleteDashboard = async (dashboard: PulseDashboard): Promise<DashboardWriteResult> => {
+    if (!requireWritable()) return "failed";
     const confirmed = await prompts.confirm(`Delete dashboard "${dashboard.name}"?`, { title: "Delete dashboard", variant: "danger" });
-    if (!confirmed) return false;
+    if (disposed || !confirmed || !requireWritable()) return "failed";
     deps.setLoading(true);
     try {
-      await jsonFetch<void>(`/api/pulse/dashboards/${dashboard.id}`, { method: "DELETE" });
-      const nextDashboards = deps.dashboards().filter((item) => item.id !== dashboard.id);
-      deps.setDashboards(nextDashboards);
-      const fallback = nextDashboards[0] ?? null;
+      await deleteMutation.mutate({ dashboardId: dashboard.id });
+      if (disposed) return "failed";
+      if (deleteMutation.error()) throw deleteMutation.error();
+      if (!(await reconcile([deps.refreshBaseData], "The dashboard was deleted, but the dashboard list could not be refreshed."))) {
+        if (deps.selectedDashboardId() === dashboard.id) deps.navigate({ view: "dashboard" });
+        return "persisted";
+      }
+      const fallback = deps.dashboards().find((item) => item.id !== dashboard.id) ?? null;
       if (deps.selectedDashboardId() === dashboard.id)
         deps.navigate(fallback ? { view: "dashboard", dashboardId: fallback.id } : { view: "dashboard" });
       toast.success("Dashboard deleted");
-      return true;
+      return "reconciled";
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not delete dashboard");
-      return false;
+      return "failed";
     } finally {
       deps.setLoading(false);
     }
@@ -259,6 +359,7 @@ export const createDashboardController = (deps: DashboardControllerDeps) => {
         currentDashboard: () => deps.dashboards().find((item) => item.id === dashboard.id) ?? dashboard,
         dashboard,
         loading: deps.loading,
+        writeBlocked: deps.writeBlocked,
         updateDashboardSettings: updateSettings,
         enablePublicLink,
         disablePublicLink,

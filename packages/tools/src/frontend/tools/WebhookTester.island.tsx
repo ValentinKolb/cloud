@@ -1,5 +1,5 @@
 import { navigate } from "@k2b/ssr/nav";
-import { timed } from "@k2b/stdlib/solid";
+import { mutation, timed } from "@k2b/stdlib/solid";
 import {
   AppWorkspace,
   Button,
@@ -18,37 +18,9 @@ import {
   TextInput,
   toast,
 } from "@k2b/ui";
-import { createEffect, createMemo, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-
-type Endpoint = {
-  id: string;
-  token: string;
-  name: string;
-  urlPath: string;
-  requestCount: number;
-  lastRequestAt: string | null;
-  createdAt: string;
-};
-
-type WebhookLog = {
-  id: string;
-  endpointId: string | null;
-  direction: "incoming" | "outgoing";
-  method: string;
-  url: string;
-  path: string;
-  query: string;
-  requestHeaders: Record<string, string>;
-  requestBody: string | null;
-  requestContentType: string | null;
-  responseStatus: number | null;
-  responseHeaders: Record<string, string> | null;
-  responseBody: string | null;
-  durationMs: number | null;
-  error: string | null;
-  createdAt: string;
-};
+import { assertOk, createWebhookQueries, type Endpoint, type WebhookLog } from "./webhook-queries";
 
 type Mode = "receive" | "send";
 type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -102,15 +74,6 @@ export const parseWebhookTesterState = (url: URL): WebhookTesterInitialState => 
     query: url.searchParams.get("q") ?? "",
     requestId: url.searchParams.get("request") || null,
   };
-};
-
-const assertOk = async (response: Response): Promise<void> => {
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    const message =
-      body && typeof body === "object" && "message" in body && typeof body.message === "string" ? body.message : `HTTP ${response.status}`;
-    throw new Error(message);
-  }
 };
 
 const isWebhookLog = (value: unknown): value is WebhookLog =>
@@ -182,15 +145,6 @@ const statusClass = (status: number | null, error: string | null) => {
   return "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300";
 };
 
-const buildLogQuery = (state: WebhookTesterInitialState) => {
-  const query: { endpointId?: string; method?: Method; q?: string } = {};
-  if (state.endpointId && state.mode === "receive") query.endpointId = state.endpointId;
-  if (state.method) query.method = state.method;
-  const q = state.query.trim();
-  if (q) query.q = q;
-  return query;
-};
-
 function RequestSearchInput(props: { value: string; onSearch: (value: string) => Promise<void> | void }) {
   const [value, setValue] = createSignal(props.value);
   const [focused, setFocused] = createSignal(false);
@@ -228,27 +182,6 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
   const [sendMethod, setSendMethod] = createSignal<Method>("POST");
   const [headers, setHeaders] = createSignal('{\n  "content-type": "application/json"\n}');
   const [body, setBody] = createSignal('{\n  "hello": "world"\n}');
-  const [busy, setBusy] = createSignal(false);
-
-  const [endpoints, { refetch: refetchEndpoints }] = createResource(async () => {
-    const response = await apiClient.webhooks.endpoints.$get();
-    await assertOk(response);
-    const data = (await response.json()) as { items: Endpoint[] };
-    return data.items;
-  });
-
-  const endpointOptions = (): FilterChipSection[] => [
-    {
-      options: [
-        { value: "all", label: "All endpoints", icon: "ti ti-world" },
-        ...(endpoints() ?? []).map((endpoint) => ({
-          value: endpoint.id,
-          label: endpoint.name,
-          icon: "ti ti-webhook",
-        })),
-      ],
-    },
-  ];
 
   const requestQuery = createMemo(
     () => ({
@@ -265,18 +198,21 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
     },
   );
 
-  const [logs, { refetch: refetchLogs }] = createResource(requestQuery, async (state) => {
-    const query = buildLogQuery(state);
-    const response =
-      state.mode === "receive"
-        ? await apiClient.webhooks["incoming-logs"].$get({ query })
-        : await apiClient.webhooks["outgoing-logs"].$get({ query });
-    await assertOk(response);
-    const data = (await response.json()) as { items: WebhookLog[] };
-    return data.items;
-  });
+  const { endpoints: endpointsQuery, logs: logsQuery } = createWebhookQueries(requestQuery);
+  const endpointOptions = (): FilterChipSection[] => [
+    {
+      options: [
+        { value: "all", label: "All endpoints", icon: "ti ti-world" },
+        ...(endpointsQuery.data() ?? []).map((endpoint) => ({
+          value: endpoint.id,
+          label: endpoint.name,
+          icon: "ti ti-webhook",
+        })),
+      ],
+    },
+  ];
 
-  const selectedLog = createMemo(() => (logs() ?? []).find((log) => log.id === routeState().requestId) ?? null);
+  const selectedLog = createMemo(() => (logsQuery.data() ?? []).find((log) => log.id === routeState().requestId) ?? null);
   const baseUrl = () => props.baseHref ?? (typeof window === "undefined" ? "/tools/webhooks" : window.location.pathname);
   const absoluteEndpointUrl = (endpoint: Endpoint) => `${window.location.origin}${endpoint.urlPath}`;
 
@@ -291,92 +227,187 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
     return `${baseUrl()}${query ? `?${query}` : ""}`;
   };
 
+  let routeRevision = 0;
   const commitRoute = (patch: Partial<WebhookTesterInitialState>, options: { replace?: boolean } = { replace: true }) => {
     const next = { ...routeState(), ...patch };
     if (patch.mode && patch.mode !== routeState().mode) {
       next.endpointId = patch.mode === "receive" ? next.endpointId : null;
       next.requestId = null;
     }
+    routeRevision += 1;
     setRouteState(next);
     navigate(buildHref(next), { replace: options.replace ?? true, scroll: "preserve" });
   };
 
   onMount(() => {
-    const onPopState = () => setRouteState(parseWebhookTesterState(new URL(window.location.href)));
+    const onPopState = () => {
+      routeRevision += 1;
+      setRouteState(parseWebhookTesterState(new URL(window.location.href)));
+    };
     window.addEventListener("popstate", onPopState);
     onCleanup(() => window.removeEventListener("popstate", onPopState));
   });
 
+  const createEndpointMutation = mutation.create<Endpoint, { name: string }>({
+    mutation: async ({ name }, { abortSignal }) => {
+      const response = await apiClient.webhooks.endpoints.$post({ json: { name } }, { init: { signal: abortSignal } });
+      await assertOk(response);
+      return (await response.json()) as Endpoint;
+    },
+  });
+
+  const deleteEndpointMutation = mutation.create<Endpoint, Endpoint>({
+    mutation: async (endpoint, { abortSignal }) => {
+      const response = await apiClient.webhooks.endpoints[":endpointId"].$delete(
+        { param: { endpointId: endpoint.id } },
+        { init: { signal: abortSignal } },
+      );
+      await assertOk(response);
+      return endpoint;
+    },
+  });
+
+  const sendRequestMutation = mutation.create<WebhookLog, { url: string; method: Method; headers: Record<string, string>; body: string }>({
+    mutation: async (intent, { abortSignal }) => {
+      const response = await apiClient.webhooks.send.$post({ json: intent }, { init: { signal: abortSignal } });
+      await assertOk(response);
+      return assertWebhookLog(await response.json());
+    },
+  });
+
+  const [reconciling, setReconciling] = createSignal(false);
+  let disposed = false;
+  let promptingCreate = false;
+  const reconcile = async (tasks: Array<Promise<void>>) => {
+    setReconciling(true);
+    try {
+      await Promise.all(tasks);
+    } finally {
+      if (!disposed) setReconciling(false);
+    }
+  };
+  const writePending = () =>
+    createEndpointMutation.loading() || deleteEndpointMutation.loading() || sendRequestMutation.loading() || reconciling();
+  const writesBlocked = () =>
+    writePending() ||
+    endpointsQuery.loading() ||
+    endpointsQuery.refreshing() ||
+    logsQuery.loading() ||
+    logsQuery.refreshing() ||
+    Boolean(endpointsQuery.error() || logsQuery.error());
+
+  onCleanup(() => {
+    disposed = true;
+    createEndpointMutation.abort();
+    deleteEndpointMutation.abort();
+    sendRequestMutation.abort();
+  });
+
   const createEndpoint = async (nameInput: string) => {
+    if (writesBlocked()) return;
     const name = nameInput.trim();
     if (!name) {
       toast.error("Enter an endpoint name.");
       return;
     }
-    setBusy(true);
-    try {
-      const response = await apiClient.webhooks.endpoints.$post({ json: { name } });
-      await assertOk(response);
-      const endpoint = (await response.json()) as Endpoint;
-      await refetchEndpoints();
-      commitRoute({ mode: "receive", endpointId: endpoint.id, requestId: null });
-      toast.success("Endpoint created.");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Endpoint could not be created.");
-    } finally {
-      setBusy(false);
+    const startedAtRevision = routeRevision;
+    await createEndpointMutation.mutate({ name });
+    if (disposed) return;
+    const error = createEndpointMutation.error();
+    if (error) {
+      toast.error(error.message || "Endpoint could not be created.");
+      return;
     }
+    const endpoint = createEndpointMutation.data()!;
+    try {
+      await reconcile([endpointsQuery.invalidate()]);
+    } catch {
+      if (disposed) return;
+      toast.error("Endpoint created, but the endpoint list could not be refreshed.");
+      return;
+    }
+    if (disposed) return;
+    if (routeRevision === startedAtRevision) commitRoute({ mode: "receive", endpointId: endpoint.id, requestId: null });
+    toast.success("Endpoint created.");
   };
 
   const openCreateEndpoint = async () => {
-    const result = await prompts.form({
-      title: "New endpoint",
-      icon: "ti ti-webhook",
-      fields: {
-        name: { type: "text", label: "Name", required: true, placeholder: "e.g. Stripe test" },
-      },
-      confirmText: "Create",
-    });
-    if (!result) return;
-    await createEndpoint(String(result.name ?? ""));
-  };
-
-  const deleteEndpoint = async (endpoint: Endpoint) => {
-    setBusy(true);
+    if (writesBlocked() || promptingCreate) return;
+    promptingCreate = true;
     try {
-      const response = await apiClient.webhooks.endpoints[":endpointId"].$delete({ param: { endpointId: endpoint.id } });
-      await assertOk(response);
-      await refetchEndpoints();
-      if (routeState().endpointId === endpoint.id) commitRoute({ endpointId: null, requestId: null });
-      await refetchLogs();
-      toast.success("Endpoint deleted.");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Endpoint could not be deleted.");
+      const result = await prompts.form({
+        title: "New endpoint",
+        icon: "ti ti-webhook",
+        fields: {
+          name: { type: "text", label: "Name", required: true, placeholder: "e.g. Stripe test" },
+        },
+        confirmText: "Create",
+      });
+      if (disposed || !result) return;
+      await createEndpoint(String(result.name ?? ""));
     } finally {
-      setBusy(false);
+      promptingCreate = false;
     }
   };
 
-  const sendRequest = async () => {
-    setBusy(true);
+  const deleteEndpoint = async (endpoint: Endpoint) => {
+    if (writesBlocked()) return;
+    const startedAtRevision = routeRevision;
+    await deleteEndpointMutation.mutate(endpoint);
+    if (disposed) return;
+    const error = deleteEndpointMutation.error();
+    if (error) {
+      toast.error(error.message || "Endpoint could not be deleted.");
+      return;
+    }
     try {
-      const response = await apiClient.webhooks.send.$post({
-        json: {
-          url: targetUrl(),
-          method: sendMethod(),
-          headers: parseHeaders(headers()),
-          body: body(),
-        },
-      });
-      await assertOk(response);
-      const log = assertWebhookLog(await response.json());
-      await refetchLogs();
-      commitRoute({ mode: "send", requestId: log.id });
+      await reconcile([endpointsQuery.invalidate(), logsQuery.invalidate()]);
+    } catch {
+      if (disposed) return;
+      toast.error("Endpoint deleted, but webhook data could not be refreshed.");
+      return;
+    }
+    if (disposed) return;
+    if (routeRevision === startedAtRevision && routeState().endpointId === endpoint.id) {
+      commitRoute({ endpointId: null, requestId: null });
+    }
+    toast.success("Endpoint deleted.");
+  };
+
+  const sendRequest = async () => {
+    if (writesBlocked()) return;
+    try {
+      const startedAtRevision = routeRevision;
+      const intent = {
+        url: targetUrl(),
+        method: sendMethod(),
+        headers: parseHeaders(headers()),
+        body: body(),
+      };
+      await sendRequestMutation.mutate(intent);
+      if (disposed) return;
+      const error = sendRequestMutation.error();
+      if (error) {
+        toast.error(error.message || "Request failed.");
+        return;
+      }
+      const log = sendRequestMutation.data()!;
+      if (routeState().mode === "send") {
+        try {
+          await reconcile([logsQuery.invalidate()]);
+        } catch {
+          if (disposed) return;
+          if (routeRevision === startedAtRevision) {
+            toast.error("Request sent, but request logs could not be refreshed.");
+            return;
+          }
+        }
+      }
+      if (disposed) return;
+      if (routeRevision === startedAtRevision) commitRoute({ mode: "send", requestId: log.id });
       toast.success("Request sent.");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Request failed.");
-    } finally {
-      setBusy(false);
+    } catch (error) {
+      if (error instanceof Error) toast.error(error.message);
     }
   };
 
@@ -413,7 +444,7 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
           label={`Delete endpoint ${ctx.row.name}`}
           variant="danger"
           size="sm"
-          disabled={busy()}
+          disabled={writesBlocked()}
           onClick={() => deleteEndpoint(ctx.row)}
         >
           <i class="ti ti-trash" aria-hidden="true" />
@@ -442,10 +473,12 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
   };
   const clearFilters = () => commitRoute({ endpointId: null, method: null, query: "", requestId: null });
   const totalLabel = () => {
-    const count = logs()?.length ?? 0;
+    const count = logsQuery.data()?.length ?? 0;
     const base = count === 1 ? "1 request" : `${count} requests`;
-    return logs.loading ? "Loading requests..." : hasActiveFilters() ? `${base} filtered` : base;
+    return logsQuery.loading() ? "Loading requests..." : hasActiveFilters() ? `${base} filtered` : base;
   };
+  const retryReads = () => void Promise.all([endpointsQuery.refresh(), logsQuery.refresh()]).catch(() => undefined);
+  const refreshLogs = () => void logsQuery.refresh().catch(() => undefined);
 
   return (
     <div class="flex min-h-0 min-w-0 flex-1">
@@ -472,7 +505,7 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
             <AppWorkspace.SidebarMobileBody scrollPreserveKey="webhook-tester-mobile-sidebar">
               <WebhookSidebarBody
                 mode={routeState().mode}
-                endpoints={endpoints() ?? []}
+                endpoints={endpointsQuery.data() ?? []}
                 activeEndpointId={routeState().endpointId}
                 onMode={(mode) => commitRoute({ mode, endpointId: mode === "send" ? null : routeState().endpointId, requestId: null })}
                 onEndpoint={(endpointId) => commitRoute({ mode: "receive", endpointId, requestId: null })}
@@ -483,7 +516,7 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
             <AppWorkspace.SidebarBody scrollPreserveKey="webhook-tester-sidebar">
               <WebhookSidebarBody
                 mode={routeState().mode}
-                endpoints={endpoints() ?? []}
+                endpoints={endpointsQuery.data() ?? []}
                 activeEndpointId={routeState().endpointId}
                 onMode={(mode) => commitRoute({ mode, endpointId: mode === "send" ? null : routeState().endpointId, requestId: null })}
                 onEndpoint={(endpointId) => commitRoute({ mode: "receive", endpointId, requestId: null })}
@@ -501,7 +534,13 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
                   <p class="mt-0.5 text-xs text-dimmed">Create receive URLs, send test calls, and inspect stored request logs.</p>
                 </div>
                 <Show when={routeState().mode === "receive"}>
-                  <Button variant="secondary" size="xs" class="shrink-0" disabled={busy()} onClick={() => void openCreateEndpoint()}>
+                  <Button
+                    variant="secondary"
+                    size="xs"
+                    class="shrink-0"
+                    disabled={writesBlocked()}
+                    onClick={() => void openCreateEndpoint()}
+                  >
                     <i class="ti ti-plus text-sm" />
                     Add
                   </Button>
@@ -515,11 +554,22 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
                 </span>
               </NoticeCard>
 
+              <Show when={endpointsQuery.error() ?? logsQuery.error()}>
+                {(error) => (
+                  <NoticeCard tone="danger" title="Webhook data could not be refreshed" detail={error().message}>
+                    <Button variant="secondary" size="sm" onClick={retryReads}>
+                      Retry
+                    </Button>
+                  </NoticeCard>
+                )}
+              </Show>
+
               <Show
                 when={routeState().mode === "receive"}
                 fallback={
                   <SendPanel
-                    busy={busy()}
+                    blocked={writesBlocked()}
+                    pending={writePending()}
                     targetUrl={targetUrl}
                     setTargetUrl={setTargetUrl}
                     method={sendMethod}
@@ -535,10 +585,10 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
                 <section class="flex flex-col gap-2">
                   <div class="flex items-center justify-between gap-2">
                     <h2 class="text-sm font-semibold text-primary">Endpoints</h2>
-                    <span class="text-xs text-dimmed">{endpoints()?.length ?? 0} endpoints</span>
+                    <span class="text-xs text-dimmed">{endpointsQuery.data()?.length ?? 0} endpoints</span>
                   </div>
                   <DataTable
-                    rows={endpoints() ?? []}
+                    rows={endpointsQuery.data() ?? []}
                     columns={endpointColumns}
                     getRowId={(row) => row.id}
                     selectedRowId={routeState().endpointId}
@@ -590,14 +640,14 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
                     </Button>
                   </Show>
                   <span class="text-xs text-dimmed">{totalLabel()}</span>
-                  <Button variant="secondary" size="sm" class="ml-auto" onClick={() => refetchLogs()}>
+                  <Button variant="secondary" size="sm" class="ml-auto" onClick={refreshLogs}>
                     <i class="ti ti-refresh" />
                     Refresh
                   </Button>
                 </div>
 
                 <DataTable
-                  rows={logs() ?? []}
+                  rows={logsQuery.data() ?? []}
                   columns={logColumns}
                   getRowId={(row) => row.id}
                   selectedRowId={routeState().requestId}
@@ -620,7 +670,7 @@ export default function WebhookTester(props: { initialState?: WebhookTesterIniti
               {(log) => (
                 <RequestDetail
                   log={log()}
-                  endpoint={log().endpointId ? endpoints()?.find((endpoint) => endpoint.id === log().endpointId) : null}
+                  endpoint={log().endpointId ? endpointsQuery.data()?.find((endpoint) => endpoint.id === log().endpointId) : null}
                   onClose={() => commitRoute({ requestId: null })}
                 />
               )}
@@ -678,7 +728,8 @@ function WebhookSidebarBody(props: {
 }
 
 function SendPanel(props: {
-  busy: boolean;
+  blocked: boolean;
+  pending: boolean;
   targetUrl: () => string;
   setTargetUrl: (value: string) => void;
   method: () => Method;
@@ -699,9 +750,9 @@ function SendPanel(props: {
         <Button
           size="sm"
           class="shrink-0"
-          loading={props.busy}
+          loading={props.pending}
           loadingLabel="Sending"
-          disabled={!props.targetUrl().trim()}
+          disabled={props.blocked || !props.targetUrl().trim()}
           onClick={props.onSend}
         >
           <i class="ti ti-send text-sm" />

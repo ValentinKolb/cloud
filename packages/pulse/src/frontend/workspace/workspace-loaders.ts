@@ -117,10 +117,15 @@ export const fetchPulseActivityData = async (
   return { events, metrics, states };
 };
 
-export const fetchPulseMetricSeries = async (baseId: string, metric: string, sourceId?: string | null): Promise<PulseMetricSeries[]> => {
+export const fetchPulseMetricSeries = async (
+  baseId: string,
+  metric: string,
+  sourceId?: string | null,
+  signal?: AbortSignal,
+): Promise<PulseMetricSeries[]> => {
   const params = new URLSearchParams({ metric });
   if (sourceId) params.set("sourceId", sourceId);
-  return jsonFetch<PulseMetricSeries[]>(`/api/pulse/bases/${baseId}/series?${params}`);
+  return jsonFetch<PulseMetricSeries[]>(`/api/pulse/bases/${baseId}/series?${params}`, { signal });
 };
 
 export const fetchPulseSourceScrapes = (baseId: string, sourceId: string, signal?: AbortSignal): Promise<PulseSourceScrape[]> =>

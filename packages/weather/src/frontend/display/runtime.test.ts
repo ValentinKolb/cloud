@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_DISPLAY_REFRESH_SECONDS,
+  displayInitialRefreshDelayMs,
   displayRefreshBackoffMs,
   MIN_DISPLAY_REFRESH_SECONDS,
   parseDisplayCoordinate,
@@ -27,5 +28,10 @@ describe("weather display refresh", () => {
     expect(displayRefreshBackoffMs(60, 1)).toBe(120_000);
     expect(displayRefreshBackoffMs(60, 4)).toBe(300_000);
     expect(displayRefreshBackoffMs(600, 3)).toBe(600_000);
+  });
+
+  test("refreshes immediately only when the SSR snapshot has no forecast", () => {
+    expect(displayInitialRefreshDelayMs(false, 60)).toBe(0);
+    expect(displayInitialRefreshDelayMs(true, 60)).toBe(60_000);
   });
 });

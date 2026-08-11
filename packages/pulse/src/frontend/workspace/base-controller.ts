@@ -1,21 +1,9 @@
-import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
+import { mutation } from "@k2b/stdlib/solid";
 import { prompts, toast } from "@k2b/ui";
-import type { Accessor, Setter } from "solid-js";
-import type {
-  PulseBase,
-  PulseCurrentState,
-  PulseDashboard,
-  PulseInventory,
-  PulseMetricSeries,
-  PulseMetricSummary,
-  PulseRecordedEvent,
-  PulseSavedQuery,
-  PulseSource,
-  PulseSourceScrape,
-} from "../../contracts";
+import { type Accessor, onCleanup, type Setter } from "solid-js";
+import type { PulseBase } from "../../contracts";
 import { jsonFetch } from "../http";
-import { openPulseBaseSettingsDialog } from "./base-settings-dialog";
+import { type BaseSettingsSaveResult, openPulseBaseSettingsDialog } from "./base-settings-dialog";
 
 type BaseControllerDeps = {
   bases: Accessor<PulseBase[]>;
@@ -24,28 +12,58 @@ type BaseControllerDeps = {
   settingsDialogOpen: Accessor<boolean>;
   setLoading: Setter<boolean>;
   setSettingsDialogOpen: Setter<boolean>;
-  setBases: Setter<PulseBase[]>;
-  setSelectedBaseId: Setter<string>;
-  setSelectedSourceId: Setter<string>;
-  setSelectedMetric: Setter<string>;
-  setSelectedDashboardId: Setter<string>;
-  setSelectedResourceKey: Setter<string>;
-  setRecentEvents: Setter<PulseRecordedEvent[]>;
-  setCurrentStates: Setter<PulseCurrentState[]>;
-  setActivityMetrics: Setter<PulseMetricSummary[]>;
-  setMetrics: Setter<PulseMetricSummary[]>;
-  setSeries: Setter<PulseMetricSeries[]>;
-  setSourceScrapes: Setter<Record<string, PulseSourceScrape[]>>;
-  setSourceApiKeys: Setter<Record<string, ResourceApiKey[]>>;
-  setInventory: Setter<PulseInventory>;
-  setSources: Setter<PulseSource[]>;
-  setDashboards: Setter<PulseDashboard[]>;
-  setSavedQueries: Setter<PulseSavedQuery[]>;
-  loadBaseData: (baseId: string) => Promise<void>;
+  refreshBases: () => Promise<void>;
+  refreshWorkspace: () => Promise<void>;
+  writeBlocked: Accessor<boolean>;
   navigateToBase: (baseId: string) => void;
 };
 
 export const createBaseController = (deps: BaseControllerDeps) => {
+  let disposed = false;
+  type SettingsIntent = {
+    baseId: string;
+    name: string;
+    description: string | null;
+    rawRetentionDays: number;
+    rollupRetentionDays: number;
+    sensitiveRetentionHours: number;
+  };
+  const updateMutation = mutation.create<PulseBase, SettingsIntent>({
+    mutation: ({ baseId, ...body }, { abortSignal }) =>
+      jsonFetch<PulseBase>(`/api/pulse/bases/${baseId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        signal: abortSignal,
+      }),
+  });
+  const clearMutation = mutation.create<void, string>({
+    mutation: (baseId, { abortSignal }) =>
+      jsonFetch<void>(`/api/pulse/bases/${baseId}/clear-data`, { method: "POST", signal: abortSignal }),
+  });
+  const deleteMutation = mutation.create<void, string>({
+    mutation: (baseId, { abortSignal }) => jsonFetch<void>(`/api/pulse/bases/${baseId}`, { method: "DELETE", signal: abortSignal }),
+  });
+  onCleanup(() => {
+    disposed = true;
+    updateMutation.abort();
+    clearMutation.abort();
+    deleteMutation.abort();
+  });
+  const reconcile = async (refresh: () => Promise<void>, message: string): Promise<boolean> => {
+    try {
+      await refresh();
+      return !disposed;
+    } catch {
+      if (!disposed) toast.error(message);
+      return false;
+    }
+  };
+  const requireWritable = (): boolean => {
+    if (!deps.writeBlocked()) return true;
+    toast.error("Refresh Pulse data before making more changes.");
+    return false;
+  };
+
   const updateSettings = async (
     base: PulseBase,
     input: {
@@ -55,67 +73,68 @@ export const createBaseController = (deps: BaseControllerDeps) => {
       rollupRetentionDays: number;
       sensitiveRetentionHours: number;
     },
-  ) => {
+  ): Promise<BaseSettingsSaveResult> => {
+    if (!requireWritable()) return "failed";
     const name = input.name.trim();
     if (!name) {
       toast.error("Pulse name is required");
-      return false;
+      return "failed";
     }
     if (!Number.isInteger(input.rawRetentionDays) || input.rawRetentionDays < 1 || input.rawRetentionDays > 3650) {
       toast.error("Raw retention must be between 1 and 3650 days");
-      return false;
+      return "failed";
     }
     if (!Number.isInteger(input.rollupRetentionDays) || input.rollupRetentionDays < 1 || input.rollupRetentionDays > 3650) {
       toast.error("Rollup retention must be between 1 and 3650 days");
-      return false;
+      return "failed";
     }
     if (!Number.isInteger(input.sensitiveRetentionHours) || input.sensitiveRetentionHours < 1 || input.sensitiveRetentionHours > 8760) {
       toast.error("Sensitive retention must be between 1 and 8760 hours");
-      return false;
+      return "failed";
     }
     deps.setLoading(true);
     try {
-      const updated = await jsonFetch<PulseBase>(`/api/pulse/bases/${base.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          name,
-          description: input.description.trim() || null,
-          rawRetentionDays: input.rawRetentionDays,
-          rollupRetentionDays: input.rollupRetentionDays,
-          sensitiveRetentionHours: input.sensitiveRetentionHours,
-        }),
+      await updateMutation.mutate({
+        baseId: base.id,
+        name,
+        description: input.description.trim() || null,
+        rawRetentionDays: input.rawRetentionDays,
+        rollupRetentionDays: input.rollupRetentionDays,
+        sensitiveRetentionHours: input.sensitiveRetentionHours,
       });
-      deps.setBases((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      if (disposed) return "failed";
+      if (updateMutation.error()) throw updateMutation.error();
+      if (
+        !(await reconcile(
+          () => Promise.all([deps.refreshBases(), deps.refreshWorkspace()]).then(() => undefined),
+          "Pulse settings were saved, but the workspace could not be refreshed.",
+        ))
+      )
+        return "persisted";
       toast.success("Pulse settings saved");
-      return true;
+      return "persisted";
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update Pulse settings");
-      return false;
+      return "failed";
     } finally {
       deps.setLoading(false);
     }
   };
 
   const clearData = async (base: PulseBase) => {
+    if (!requireWritable()) return;
     const confirmed = await prompts.confirm(
       `Clear all metrics, events, states, observed resources, and scrape history from "${base.name}"? Sources, API keys, dashboards, saved queries, access, and settings will be kept.`,
       { title: "Clear Pulse data", variant: "danger", confirmText: "Clear data" },
     );
-    if (!confirmed) return;
+    if (disposed || !confirmed || !requireWritable()) return;
 
     deps.setLoading(true);
     try {
-      await jsonFetch<void>(`/api/pulse/bases/${base.id}/clear-data`, { method: "POST" });
-      deps.setSelectedMetric("");
-      deps.setSelectedResourceKey("");
-      deps.setRecentEvents([]);
-      deps.setCurrentStates([]);
-      deps.setActivityMetrics([]);
-      deps.setMetrics([]);
-      deps.setSeries([]);
-      deps.setSourceScrapes({});
-      deps.setInventory({ resources: [], metrics: [], events: [], states: [], fields: [] });
-      deps.setSources((items) => items.map((item) => ({ ...item, lastSeenAt: null, lastError: null, lastErrorAt: null })));
+      await clearMutation.mutate(base.id);
+      if (disposed) return;
+      if (clearMutation.error()) throw clearMutation.error();
+      if (!(await reconcile(deps.refreshWorkspace, "Pulse data clearing started, but the workspace could not be refreshed."))) return;
       toast.success("Pulse data clear started");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not clear Pulse data");
@@ -125,41 +144,21 @@ export const createBaseController = (deps: BaseControllerDeps) => {
   };
 
   const deleteBase = async (base: PulseBase) => {
+    if (!requireWritable()) return false;
     const confirmed = await prompts.confirm(
       `Delete "${base.name}" and all Pulse data in this base? This cannot be undone. Large bases are removed in the background.`,
       { title: "Delete Pulse base", variant: "danger", confirmText: "Delete" },
     );
-    if (!confirmed) return false;
+    if (disposed || !confirmed || !requireWritable()) return false;
 
     deps.setLoading(true);
     try {
-      await jsonFetch<void>(`/api/pulse/bases/${base.id}`, { method: "DELETE" });
-      const nextBases = deps.bases().filter((item) => item.id !== base.id);
-      const nextBase = nextBases[0] ?? null;
-      deps.setBases(nextBases);
-      deps.setSelectedBaseId(nextBase?.id ?? "");
-      deps.setSelectedSourceId("");
-      deps.setSelectedMetric("");
-      deps.setSelectedDashboardId("");
-      deps.setSelectedResourceKey("");
-      deps.setRecentEvents([]);
-      deps.setCurrentStates([]);
-      deps.setActivityMetrics([]);
-      deps.setSeries([]);
-      deps.setSourceScrapes({});
-      deps.setSourceApiKeys({});
-
-      if (nextBase) {
-        deps.navigateToBase(nextBase.id);
-        await deps.loadBaseData(nextBase.id);
-      } else {
-        deps.setSources([]);
-        deps.setMetrics([]);
-        deps.setInventory({ resources: [], metrics: [], events: [], states: [], fields: [] });
-        deps.setDashboards([]);
-        deps.setSavedQueries([]);
-        deps.navigateToBase("");
-      }
+      await deleteMutation.mutate(base.id);
+      if (disposed) return false;
+      if (deleteMutation.error()) throw deleteMutation.error();
+      if (!(await reconcile(deps.refreshBases, "Pulse base deletion started, but the base list could not be refreshed."))) return false;
+      const nextBase = deps.bases().find((item) => item.id !== base.id) ?? null;
+      deps.navigateToBase(nextBase?.id ?? "");
 
       toast.success("Pulse base deletion started");
       return true;
@@ -176,14 +175,11 @@ export const createBaseController = (deps: BaseControllerDeps) => {
     const base = deps.selectedBase();
     if (!base) return;
     try {
-      deps.setLoading(true);
-      const accessEntries = await jsonFetch<AccessEntry[]>(`/api/pulse/bases/${base.id}/access`);
-      deps.setLoading(false);
       deps.setSettingsDialogOpen(true);
       await openPulseBaseSettingsDialog({
-        accessEntries,
         base,
         loading: deps.loading,
+        writeBlocked: deps.writeBlocked,
         updateBaseSettings: updateSettings,
         clearBaseData: () => clearData(base),
         deleteBase: () => deleteBase(base),

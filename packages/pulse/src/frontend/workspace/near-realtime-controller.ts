@@ -6,10 +6,10 @@ type NearRealtimeControllerDeps = {
   selectedBaseId: Accessor<string>;
   activeView: Accessor<WorkspaceView>;
   selectedDashboard: Accessor<PulseDashboard | null>;
-  refreshSources: (baseId: string, signal: AbortSignal) => Promise<void>;
-  refreshActivity: (baseId: string, signal: AbortSignal) => Promise<void>;
-  refreshDashboard: (baseId: string, signal: AbortSignal) => Promise<void>;
-  refreshResources: (baseId: string, signal: AbortSignal) => Promise<void>;
+  refreshSources: (baseId: string) => Promise<void>;
+  refreshActivity: (baseId: string) => Promise<void>;
+  refreshDashboard: (baseId: string) => Promise<void>;
+  refreshResources: (baseId: string) => Promise<void>;
 };
 
 const refreshInterval = (view: WorkspaceView, dashboard: PulseDashboard | null): number | null => {
@@ -38,7 +38,6 @@ export const installNearRealtimeController = (deps: NearRealtimeControllerDeps):
 
     let disposed = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let currentRefresh: AbortController | undefined;
     let failures = 0;
 
     const schedule = (delayMs: number) => {
@@ -52,29 +51,24 @@ export const installNearRealtimeController = (deps: NearRealtimeControllerDeps):
         schedule(intervalSeconds * 1000);
         return;
       }
-      currentRefresh?.abort();
-      const refresh = new AbortController();
-      currentRefresh = refresh;
       const task =
         view === "dashboard"
-          ? deps.refreshDashboard(baseId, refresh.signal)
+          ? deps.refreshDashboard(baseId)
           : view === "sources"
-            ? deps.refreshSources(baseId, refresh.signal)
+            ? deps.refreshSources(baseId)
             : view === "resources" || view === "resource-detail"
-              ? deps.refreshResources(baseId, refresh.signal)
-              : deps.refreshActivity(baseId, refresh.signal);
+              ? deps.refreshResources(baseId)
+              : deps.refreshActivity(baseId);
 
       task
         .then(() => {
           failures = 0;
         })
         .catch((error) => {
-          if (refresh.signal.aborted) return;
           failures += 1;
           console.warn("Pulse workspace refresh failed", error);
         })
         .finally(() => {
-          if (currentRefresh === refresh) currentRefresh = undefined;
           schedule(Math.min(60_000, intervalSeconds * 1000 * Math.max(1, 2 ** failures)));
         });
     };
@@ -83,7 +77,6 @@ export const installNearRealtimeController = (deps: NearRealtimeControllerDeps):
     onCleanup(() => {
       disposed = true;
       if (timer) clearTimeout(timer);
-      currentRefresh?.abort();
     });
   });
 };

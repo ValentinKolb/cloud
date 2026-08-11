@@ -2,9 +2,9 @@ import type { PulseCurrentState, PulseMetricSeries, PulseRecordedEvent } from ".
 import { jsonFetch } from "./helpers";
 import type { WorkspaceView } from "./types";
 
-type FocusedRowsView = Extract<WorkspaceView, "metric-detail" | "state-detail" | "event-detail">;
+export type FocusedRowsView = Extract<WorkspaceView, "metric-detail" | "state-detail" | "event-detail">;
 
-type FocusedRowsPage =
+export type FocusedRowsPage =
   | { hasMore: boolean; rows: PulseMetricSeries[]; view: "metric-detail" }
   | { hasMore: boolean; rows: PulseCurrentState[]; view: "state-detail" }
   | { hasMore: boolean; rows: PulseRecordedEvent[]; view: "event-detail" };
@@ -19,14 +19,6 @@ type FetchFocusedRowsPageInput = {
   view: FocusedRowsView;
 };
 
-type FocusedRowsOffsetInput = {
-  append?: boolean;
-  eventCount: number;
-  metricSeriesCount: number;
-  stateCount: number;
-  view: FocusedRowsView;
-};
-
 const focusedRowsParams = (input: FetchFocusedRowsPageInput) => {
   const params = new URLSearchParams({
     limit: String(input.pageSize + 1),
@@ -35,15 +27,6 @@ const focusedRowsParams = (input: FetchFocusedRowsPageInput) => {
   if (input.search) params.set("q", input.search);
   return params;
 };
-
-export const focusedRowsOffset = (input: FocusedRowsOffsetInput): number => {
-  if (!input.append) return 0;
-  if (input.view === "metric-detail") return input.metricSeriesCount;
-  if (input.view === "state-detail") return input.stateCount;
-  return input.eventCount;
-};
-
-export const mergeFocusedRows = <T>(current: T[], rows: T[], append?: boolean): T[] => (append ? [...current, ...rows] : rows);
 
 export const fetchFocusedRowsPage = async (input: FetchFocusedRowsPageInput): Promise<FocusedRowsPage> => {
   const params = focusedRowsParams(input);

@@ -50,14 +50,16 @@ export const sourceInitialScrapeSuccessMessage = (counts: IngestCounts): string 
 export const sourceInitialScrapeFailureMessage = (error: unknown): string =>
   error instanceof Error ? `Source added, initial scrape failed: ${error.message}` : "Source added, initial scrape failed";
 
-export const createPulseSource = (baseId: string, input: CreateSourceInput): Promise<PulseSource> =>
+export const createPulseSource = (baseId: string, input: CreateSourceInput, signal?: AbortSignal): Promise<PulseSource> =>
   jsonFetch<PulseSource>(`/api/pulse/bases/${baseId}/sources`, {
     method: "POST",
     body: JSON.stringify(sourceCreateRequest(input)),
+    signal,
   });
 
-export const scrapePulseSourceOnce = (baseId: string, sourceId: string): Promise<IngestCounts> =>
+export const scrapePulseSourceOnce = (baseId: string, sourceId: string, signal?: AbortSignal): Promise<IngestCounts> =>
   jsonFetch<IngestCounts>(`/api/pulse/bases/${baseId}/sources/${sourceId}/scrape`, {
     method: "POST",
     body: "{}",
+    signal,
   });

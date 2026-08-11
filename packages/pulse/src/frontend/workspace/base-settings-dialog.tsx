@@ -1,6 +1,8 @@
+import { mutation, query } from "@k2b/stdlib/solid";
 import {
   Button,
   confirmDiscardIfDirty,
+  NoticeCard,
   NumberInput,
   prompts,
   SettingsField,
@@ -8,16 +10,16 @@ import {
   SettingsModal,
   SettingsPanelFooter,
   TextInput,
+  toast,
 } from "@k2b/ui";
 import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
 import type { AccessEntry, Principal } from "@valentinkolb/cloud/contracts";
-import { type Accessor, createSignal } from "solid-js";
+import { type Accessor, createSignal, onCleanup, Show } from "solid-js";
 import type { PulseBase } from "../../contracts";
 import { jsonFetch } from "./helpers";
 import type { GrantableLevel } from "./types";
 
 type BaseSettingsDialogOptions = {
-  accessEntries: AccessEntry[];
   base: PulseBase;
   loading: Accessor<boolean>;
   updateBaseSettings: (
@@ -29,14 +31,18 @@ type BaseSettingsDialogOptions = {
       rollupRetentionDays: number;
       sensitiveRetentionHours: number;
     },
-  ) => Promise<boolean>;
+  ) => Promise<BaseSettingsSaveResult>;
+  writeBlocked: Accessor<boolean>;
   clearBaseData: () => Promise<void>;
   deleteBase: () => Promise<boolean>;
 };
 
+export type BaseSettingsSaveResult = "failed" | "persisted";
+
 export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) =>
   prompts.dialog<void>(
     (close) => {
+      let disposed = false;
       const [name, setName] = createSignal(options.base.name);
       const [description, setDescription] = createSignal(options.base.description ?? "");
       const [rawRetentionDays, setRawRetentionDays] = createSignal<number | null>(options.base.rawRetentionDays);
@@ -48,6 +54,10 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
         rawRetentionDays: options.base.rawRetentionDays,
         rollupRetentionDays: options.base.rollupRetentionDays,
         sensitiveRetentionHours: options.base.sensitiveRetentionHours,
+      });
+      const access = query.create({
+        source: () => options.base.id,
+        load: (baseId, { abortSignal }) => jsonFetch<AccessEntry[]>(`/api/pulse/bases/${baseId}/access`, { signal: abortSignal }),
       });
       const draft = () => ({
         name: name(),
@@ -71,28 +81,80 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
       };
       const saveSettings = async () => {
         const next = draft();
-        if (await options.updateBaseSettings(options.base, next)) setSaved(next);
+        if ((await options.updateBaseSettings(options.base, next)) === "persisted") setSaved(next);
       };
 
-      const grantAccess = (principal: Principal, permission: GrantableLevel) =>
-        jsonFetch<AccessEntry>(`/api/pulse/bases/${options.base.id}/access`, {
-          method: "POST",
-          body: JSON.stringify({ principal, permission }),
-        });
-
-      const updateAccess = (accessId: string, permission: GrantableLevel) =>
-        jsonFetch<void>(`/api/pulse/bases/${options.base.id}/access/${accessId}`, {
-          method: "PATCH",
-          body: JSON.stringify({ permission }),
-        });
-
-      const revokeAccess = (accessId: string) =>
-        jsonFetch<void>(`/api/pulse/bases/${options.base.id}/access/${accessId}`, { method: "DELETE" });
-
+      const grantMutation = mutation.create<AccessEntry, { principal: Principal; permission: GrantableLevel }>({
+        mutation: ({ principal, permission }, { abortSignal }) =>
+          jsonFetch<AccessEntry>(`/api/pulse/bases/${options.base.id}/access`, {
+            method: "POST",
+            body: JSON.stringify({ principal, permission }),
+            signal: abortSignal,
+          }),
+      });
+      const updateMutation = mutation.create<void, { accessId: string; permission: GrantableLevel }>({
+        mutation: ({ accessId, permission }, { abortSignal }) =>
+          jsonFetch<void>(`/api/pulse/bases/${options.base.id}/access/${accessId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ permission }),
+            signal: abortSignal,
+          }),
+      });
+      const revokeMutation = mutation.create<void, string>({
+        mutation: (accessId, { abortSignal }) =>
+          jsonFetch<void>(`/api/pulse/bases/${options.base.id}/access/${accessId}`, { method: "DELETE", signal: abortSignal }),
+      });
+      const refreshAccess = async () => {
+        try {
+          await access.invalidate();
+        } catch {
+          if (!disposed) toast.error("Access changed, but the access list could not be refreshed.");
+        }
+      };
+      const requireAccessWritable = () => {
+        if (!access.stale() && !access.loading() && !access.refreshing()) return;
+        throw new Error("Refresh the access list before making more changes.");
+      };
+      const grantAccess = async (principal: Principal, permission: GrantableLevel) => {
+        requireAccessWritable();
+        await grantMutation.mutate({ principal, permission });
+        if (disposed) throw new DOMException("Settings dialog was disposed", "AbortError");
+        const error = grantMutation.error();
+        if (error) throw error;
+        await refreshAccess();
+        if (disposed) throw new DOMException("Settings dialog was disposed", "AbortError");
+        return grantMutation.data()!;
+      };
+      const updateAccess = async (accessId: string, permission: GrantableLevel) => {
+        requireAccessWritable();
+        await updateMutation.mutate({ accessId, permission });
+        if (disposed) throw new DOMException("Settings dialog was disposed", "AbortError");
+        const error = updateMutation.error();
+        if (error) throw error;
+        await refreshAccess();
+        if (disposed) throw new DOMException("Settings dialog was disposed", "AbortError");
+      };
+      const revokeAccess = async (accessId: string) => {
+        requireAccessWritable();
+        await revokeMutation.mutate(accessId);
+        if (disposed) throw new DOMException("Settings dialog was disposed", "AbortError");
+        const error = revokeMutation.error();
+        if (error) throw error;
+        await refreshAccess();
+        if (disposed) throw new DOMException("Settings dialog was disposed", "AbortError");
+      };
+      const accessBusy = () => grantMutation.loading() || updateMutation.loading() || revokeMutation.loading() || access.refreshing();
       const requestClose = async () => {
-        if (options.loading()) return;
+        if (options.loading() || accessBusy()) return;
         if (await confirmDiscardIfDirty(() => changeCount() > 0)) close();
       };
+
+      onCleanup(() => {
+        disposed = true;
+        grantMutation.abort();
+        updateMutation.abort();
+        revokeMutation.abort();
+      });
 
       return (
         <div class="flex h-[86vh] min-h-0 flex-col overflow-hidden">
@@ -145,18 +207,41 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
             <SettingsModal.Group title="Sharing">
               <SettingsModal.Tab id="access" title="Access" icon="ti ti-users" description="Permission changes save immediately.">
                 <SettingsGroup title="People and groups" description="Grant view, edit, or management access to this Pulse base.">
-                  <PermissionEditor
-                    initialEntries={options.accessEntries}
-                    canEdit
-                    grantAccess={grantAccess}
-                    updateAccess={updateAccess}
-                    revokeAccess={revokeAccess}
-                    allowedLevels={[
-                      { level: "read", label: "View", icon: "ti-eye" },
-                      { level: "write", label: "Edit", icon: "ti-pencil" },
-                      { level: "admin", label: "Manage", icon: "ti-shield" },
-                    ]}
-                  />
+                  <Show when={access.data() && access.error()}>
+                    {(error) => (
+                      <NoticeCard tone="danger" title="Access could not be refreshed" detail={error().message}>
+                        <Button onClick={() => void access.refresh()}>Retry</Button>
+                      </NoticeCard>
+                    )}
+                  </Show>
+                  <Show
+                    keyed
+                    when={access.data()}
+                    fallback={
+                      <NoticeCard
+                        tone={access.error() ? "danger" : "neutral"}
+                        title={access.error() ? "Access could not be loaded" : "Loading access"}
+                        detail={access.error()?.message}
+                      >
+                        {access.error() ? <Button onClick={() => void access.refresh()}>Retry</Button> : null}
+                      </NoticeCard>
+                    }
+                  >
+                    {(entries) => (
+                      <PermissionEditor
+                        initialEntries={entries}
+                        canEdit
+                        grantAccess={grantAccess}
+                        updateAccess={updateAccess}
+                        revokeAccess={revokeAccess}
+                        allowedLevels={[
+                          { level: "read", label: "View", icon: "ti-eye" },
+                          { level: "write", label: "Edit", icon: "ti-pencil" },
+                          { level: "admin", label: "Manage", icon: "ti-shield" },
+                        ]}
+                      />
+                    )}
+                  </Show>
                 </SettingsGroup>
               </SettingsModal.Tab>
             </SettingsModal.Group>
@@ -249,7 +334,7 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
                       type="button"
                       variant="danger"
                       size="sm"
-                      disabled={options.loading()}
+                      disabled={options.loading() || options.writeBlocked()}
                       onClick={() => void options.clearBaseData()}
                     >
                       <i class="ti ti-eraser text-sm" />
@@ -266,7 +351,7 @@ export const openPulseBaseSettingsDialog = (options: BaseSettingsDialogOptions) 
                       type="button"
                       variant="danger"
                       size="sm"
-                      disabled={options.loading()}
+                      disabled={options.loading() || options.writeBlocked()}
                       onClick={() => void options.deleteBase().then((deleted) => deleted && close())}
                     >
                       <i class="ti ti-trash text-sm" />

@@ -1,6 +1,6 @@
+import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
 import { type AuthContext, expectUserBackedActor, getDateConfig } from "@valentinkolb/cloud/server";
 import { get as getSetting } from "@valentinkolb/cloud/services";
-import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
 import type { Context } from "hono";
 import type {
   MetricQueryPoint,
@@ -59,6 +59,7 @@ type PulseWorkspacePageData =
 type SelectedSourceData = {
   initialSourceScrapes: Record<string, PulseSourceScrape[]>;
   initialSourceApiKeys: Record<string, ResourceApiKey[]>;
+  covered: boolean;
 };
 
 type FocusedSignalData = {
@@ -66,6 +67,7 @@ type FocusedSignalData = {
   initialFocusedEvents: PulseRecordedEvent[];
   initialFocusedStates: PulseCurrentState[];
   initialFocusedHasMore: boolean;
+  covered: boolean;
 };
 
 type DashboardWidgetData = {
@@ -73,10 +75,14 @@ type DashboardWidgetData = {
   initialDashboardEvents: Record<string, PulseRecordedEvent[]>;
   initialDashboardStates: Record<string, PulseCurrentState[]>;
   initialDashboardMaps: Record<string, PulseMapSeries[]>;
+  covered: boolean;
 };
 
 type ResourceInitialData = {
   inventory: PulseInventory;
+  inventoryCovered: boolean;
+  resourcesCovered: boolean;
+  resourceSignalsCovered: boolean;
 };
 
 const dashboardControlValues = (config: PulseDashboardConfig, values: DashboardControlValues): DashboardControlValues =>
@@ -138,7 +144,7 @@ const publicOrigin = (rawAppUrl: string | null | undefined, requestOrigin: strin
 };
 
 const loadSelectedSourceData = async (baseId: string, user: PulseUser, selectedSource: PulseSource | null): Promise<SelectedSourceData> => {
-  if (!selectedSource) return { initialSourceScrapes: {}, initialSourceApiKeys: {} };
+  if (!selectedSource) return { initialSourceScrapes: {}, initialSourceApiKeys: {}, covered: true };
 
   const [scrapesResult, apiKeysResult] = await Promise.all([
     pulseService.source.scrapes({ baseId, sourceId: selectedSource.id, user }),
@@ -148,6 +154,7 @@ const loadSelectedSourceData = async (baseId: string, user: PulseUser, selectedS
   return {
     initialSourceScrapes: scrapesResult.ok ? { [selectedSource.id]: scrapesResult.data } : {},
     initialSourceApiKeys: apiKeysResult ? { [selectedSource.id]: apiKeysResult } : {},
+    covered: scrapesResult.ok && (selectedSource.kind !== "http_ingest" || apiKeysResult !== null),
   };
 };
 
@@ -166,6 +173,7 @@ const emptyFocusedSignalData = (): FocusedSignalData => ({
   initialFocusedEvents: [],
   initialFocusedStates: [],
   initialFocusedHasMore: false,
+  covered: true,
 });
 
 const hasMoreFocusedRows = (rows: unknown[]): boolean => rows.length > FOCUSED_PAGE_SIZE;
@@ -179,34 +187,37 @@ const loadFocusedMetricSeries = async (
   q: string | undefined,
 ): Promise<FocusedSignalData> => {
   const result = await pulseService.query.series(baseId, user, { metric, q, limit: FOCUSED_PAGE_SIZE + 1 });
-  if (!result.ok) return emptyFocusedSignalData();
+  if (!result.ok) return { ...emptyFocusedSignalData(), covered: false };
   return {
     initialFocusedMetricSeries: visibleFocusedRows(result.data),
     initialFocusedEvents: [],
     initialFocusedStates: [],
     initialFocusedHasMore: hasMoreFocusedRows(result.data),
+    covered: true,
   };
 };
 
 const loadFocusedEvents = async (baseId: string, user: PulseUser, kind: string, q: string | undefined): Promise<FocusedSignalData> => {
   const result = await pulseService.query.recentEvents(baseId, user, { kind, q, limit: FOCUSED_PAGE_SIZE + 1 });
-  if (!result.ok) return emptyFocusedSignalData();
+  if (!result.ok) return { ...emptyFocusedSignalData(), covered: false };
   return {
     initialFocusedMetricSeries: [],
     initialFocusedEvents: visibleFocusedRows(result.data),
     initialFocusedStates: [],
     initialFocusedHasMore: hasMoreFocusedRows(result.data),
+    covered: true,
   };
 };
 
 const loadFocusedStates = async (baseId: string, user: PulseUser, key: string, q: string | undefined): Promise<FocusedSignalData> => {
   const result = await pulseService.query.currentStates(baseId, user, { key, q, limit: FOCUSED_PAGE_SIZE + 1 });
-  if (!result.ok) return emptyFocusedSignalData();
+  if (!result.ok) return { ...emptyFocusedSignalData(), covered: false };
   return {
     initialFocusedMetricSeries: [],
     initialFocusedEvents: [],
     initialFocusedStates: visibleFocusedRows(result.data),
     initialFocusedHasMore: hasMoreFocusedRows(result.data),
+    covered: true,
   };
 };
 
@@ -232,62 +243,71 @@ const loadDashboardWidgetData = async (
   controlValues: DashboardControlValues,
 ): Promise<DashboardWidgetData> => {
   if (!selectedDashboard || (routeState.view !== "dashboard" && routeState.view !== "dashboard-edit")) {
-    return { initialMetricWidgetPoints: {}, initialDashboardEvents: {}, initialDashboardStates: {}, initialDashboardMaps: {} };
+    return {
+      initialMetricWidgetPoints: {},
+      initialDashboardEvents: {},
+      initialDashboardStates: {},
+      initialDashboardMaps: {},
+      covered: true,
+    };
   }
 
   const [metricWidgetPointEntries, eventEntries, stateEntries, mapEntries] = await Promise.all([
     Promise.all(
-      dashboardMetricWidgets(selectedDashboard.config).map(async (widget): Promise<[string, MetricQueryPoint[]]> => {
+      dashboardMetricWidgets(selectedDashboard.config).map(async (widget): Promise<[string, MetricQueryPoint[], boolean]> => {
         const result = await pulseService.query.metricText({
           baseId,
           query: resolveDashboardQueryText(metricWidgetQueryText(widget), selectedDashboard.config, controlValues),
           user,
         });
-        return [widget.id, result.ok ? result.data.points : []];
+        return [widget.id, result.ok ? result.data.points : [], result.ok];
       }),
     ),
     Promise.all(
-      dashboardEventsWidgets(selectedDashboard.config).map(async (widget): Promise<[string, PulseRecordedEvent[]]> => {
+      dashboardEventsWidgets(selectedDashboard.config).map(async (widget): Promise<[string, PulseRecordedEvent[], boolean]> => {
         const result = await pulseService.query.metricText({
           baseId,
           query: widgetQueryText(widget, selectedDashboard, controlValues),
           user,
         });
-        return [widget.id, result.ok ? result.data.events : []];
+        return [widget.id, result.ok ? result.data.events : [], result.ok];
       }),
     ),
     Promise.all(
-      dashboardStatesWidgets(selectedDashboard.config).map(async (widget): Promise<[string, PulseCurrentState[]]> => {
+      dashboardStatesWidgets(selectedDashboard.config).map(async (widget): Promise<[string, PulseCurrentState[], boolean]> => {
         const result = await pulseService.query.metricText({
           baseId,
           query: widgetQueryText(widget, selectedDashboard, controlValues),
           user,
         });
-        return [widget.id, result.ok ? result.data.states : []];
+        return [widget.id, result.ok ? result.data.states : [], result.ok];
       }),
     ),
     Promise.all(
-      dashboardMapWidgets(selectedDashboard.config).map(async (widget: PulseDashboardMapWidget): Promise<[string, PulseMapSeries[]]> => {
-        const result = await pulseService.query.eventMapText({
-          baseId,
-          query: resolveDashboardQueryText(widget.queryText, selectedDashboard.config, controlValues),
-          latitude: widget.latitude,
-          longitude: widget.longitude,
-          label: widget.label,
-          series: widget.series,
-          size: widget.size,
-          user,
-        });
-        return [widget.id, result.ok ? result.data : []];
-      }),
+      dashboardMapWidgets(selectedDashboard.config).map(
+        async (widget: PulseDashboardMapWidget): Promise<[string, PulseMapSeries[], boolean]> => {
+          const result = await pulseService.query.eventMapText({
+            baseId,
+            query: resolveDashboardQueryText(widget.queryText, selectedDashboard.config, controlValues),
+            latitude: widget.latitude,
+            longitude: widget.longitude,
+            label: widget.label,
+            series: widget.series,
+            size: widget.size,
+            user,
+          });
+          return [widget.id, result.ok ? result.data : [], result.ok];
+        },
+      ),
     ),
   ]);
 
   return {
-    initialMetricWidgetPoints: Object.fromEntries(metricWidgetPointEntries),
-    initialDashboardEvents: Object.fromEntries(eventEntries),
-    initialDashboardStates: Object.fromEntries(stateEntries),
-    initialDashboardMaps: Object.fromEntries(mapEntries),
+    initialMetricWidgetPoints: Object.fromEntries(metricWidgetPointEntries.map(([id, data]) => [id, data])),
+    initialDashboardEvents: Object.fromEntries(eventEntries.map(([id, data]) => [id, data])),
+    initialDashboardStates: Object.fromEntries(stateEntries.map(([id, data]) => [id, data])),
+    initialDashboardMaps: Object.fromEntries(mapEntries.map(([id, data]) => [id, data])),
+    covered: [...metricWidgetPointEntries, ...eventEntries, ...stateEntries, ...mapEntries].every(([, , ok]) => ok),
   };
 };
 
@@ -302,11 +322,17 @@ const loadResourceInitialData = async (
 ): Promise<ResourceInitialData> => {
   if (routeState.view === "resource-detail") {
     const ref = routeState.signalId.trim();
-    if (!ref) return { inventory: emptyInventory() };
+    if (!ref) return { inventory: emptyInventory(), inventoryCovered: false, resourcesCovered: true, resourceSignalsCovered: true };
     const resourcesResult = await pulseService.query.resources(baseId, user, { ref, limit: 20 });
     const resources = dataOr(resourcesResult, []);
     const resource = exactResourceMatch(resources, ref);
-    if (!resource) return { inventory: { ...emptyInventory(), resources } };
+    if (!resource)
+      return {
+        inventory: { ...emptyInventory(), resources },
+        inventoryCovered: false,
+        resourcesCovered: resourcesResult.ok,
+        resourceSignalsCovered: true,
+      };
 
     const [metricsResult, statesResult, eventsResult] = await Promise.all([
       pulseService.query.resourceMetrics(baseId, user, { resourceKey: resource.key, limit: 500 }),
@@ -322,6 +348,9 @@ const loadResourceInitialData = async (
         states: dataOr<PulseCurrentState[]>(statesResult, []),
         events: dataOr<PulseRecordedEvent[]>(eventsResult, []),
       },
+      inventoryCovered: false,
+      resourcesCovered: resourcesResult.ok,
+      resourceSignalsCovered: metricsResult.ok && statesResult.ok && eventsResult.ok,
     };
   }
 
@@ -332,11 +361,19 @@ const loadResourceInitialData = async (
         ...emptyInventory(),
         resources: dataOr(resourcesResult, []),
       },
+      inventoryCovered: false,
+      resourcesCovered: resourcesResult.ok,
+      resourceSignalsCovered: true,
     };
   }
 
   const inventoryResult = await pulseService.query.inventory(baseId, user);
-  return { inventory: dataOr(inventoryResult, emptyInventory()) };
+  return {
+    inventory: dataOr(inventoryResult, emptyInventory()),
+    inventoryCovered: inventoryResult.ok,
+    resourcesCovered: true,
+    resourceSignalsCovered: true,
+  };
 };
 
 export async function loadPulseWorkspacePageData<T extends AuthContext>(c: PulseWorkspacePageContext<T>): Promise<PulseWorkspacePageData> {
@@ -387,6 +424,7 @@ export async function loadPulseWorkspacePageData<T extends AuthContext>(c: Pulse
       initialNow: new Date().toISOString(),
       initialOrigin: publicOrigin(appUrl, url.origin),
       ...workspaceData,
+      initialQueryCoverage: { ...workspaceData.initialQueryCoverage, bases: basesResult.ok },
     },
   };
 }
@@ -398,7 +436,7 @@ async function loadPulseWorkspaceInitialData(params: {
   activityQuery: { q: string; type: MetricType | "" };
   dashboardControlValues: DashboardControlValues;
   searchParams: URLSearchParams;
-}): Promise<Partial<PulseWorkspaceProps>> {
+}): Promise<Partial<PulseWorkspaceProps> & Pick<PulseWorkspaceProps, "initialQueryCoverage">> {
   const activityQuery = activityQueryInput(params.activityQuery);
   const [
     sourcesResult,
@@ -430,6 +468,16 @@ async function loadPulseWorkspaceInitialData(params: {
   ]);
 
   return {
+    initialQueryCoverage: {
+      activity: activityMetricsResult.ok && eventsResult.ok && statesResult.ok,
+      baseData: sourcesResult.ok && metricsResult.ok && dashboardsResult.ok && savedQueriesResult.ok && resourceData.inventoryCovered,
+      bases: false,
+      dashboard: widgetData.covered,
+      focused: focusedData.covered,
+      resources: resourceData.resourcesCovered,
+      resourceSignals: resourceData.resourceSignalsCovered,
+      sourceDetail: sourceData.covered,
+    },
     initialSources: sources,
     initialSourceScrapes: sourceData.initialSourceScrapes,
     initialSourceApiKeys: sourceData.initialSourceApiKeys,

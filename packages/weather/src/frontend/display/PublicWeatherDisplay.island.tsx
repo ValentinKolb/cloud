@@ -1,43 +1,11 @@
 import { timing } from "@k2b/stdlib";
-import { mutation } from "@k2b/stdlib/solid";
-import { createSignal, onCleanup, onMount, Show } from "solid-js";
-import { apiClient } from "../../api/client";
-import { type WeatherDataPayload, WeatherDataSchema } from "../../contracts";
+import { timed } from "@k2b/stdlib/solid";
+import { Button, NoticeCard } from "@k2b/ui";
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
+import type { WeatherDataPayload } from "../../contracts";
 import { DetailDisplayView, DisplayUnavailable, SimpleDisplayView } from "./DisplayViews";
-import { displayRefreshBackoffMs } from "./runtime";
-
-const DISPLAY_REQUEST_TIMEOUT_MS = 10_000;
-
-const readResponseError = async (response: Response): Promise<string> => {
-  const body: unknown = await response.json().catch(() => null);
-  return body && typeof body === "object" && "message" in body && typeof body.message === "string"
-    ? body.message
-    : "Could not refresh weather data";
-};
-
-const fetchWeather = async (lat: string, lon: string, parentSignal: AbortSignal): Promise<WeatherDataPayload> => {
-  const request = new AbortController();
-  let timedOut = false;
-  const abort = () => request.abort();
-  if (parentSignal.aborted) abort();
-  else parentSignal.addEventListener("abort", abort, { once: true });
-  const timeout = setTimeout(() => {
-    timedOut = true;
-    abort();
-  }, DISPLAY_REQUEST_TIMEOUT_MS);
-
-  try {
-    const response = await apiClient.index.$get({ query: { lat, lon } }, { init: { cache: "no-store", signal: request.signal } });
-    if (!response.ok) throw new Error(await readResponseError(response));
-    return WeatherDataSchema.parse(await response.json());
-  } catch (error) {
-    if (timedOut) throw new Error("Weather refresh timed out");
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-    parentSignal.removeEventListener("abort", abort);
-  }
-};
+import { displayInitialRefreshDelayMs, displayRefreshBackoffMs } from "./runtime";
+import { createWeatherDisplayQuery } from "./weather-display-query";
 
 type PublicWeatherDisplayProps = {
   lat: string;
@@ -52,27 +20,27 @@ type PublicWeatherDisplayProps = {
 };
 
 export default function PublicWeatherDisplay(props: PublicWeatherDisplayProps) {
-  const [data, setData] = createSignal(props.initialData);
   const [now, setNow] = createSignal(props.initialNow);
   const [refreshedAt, setRefreshedAt] = createSignal<string | null>(null);
+  const weather = createWeatherDisplayQuery(props);
   let disposed = false;
   let failures = 0;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
-  let clockTimer: ReturnType<typeof setInterval> | undefined;
+  let lastData = props.initialData;
 
-  const refresh = mutation.create<WeatherDataPayload, void>({
-    mutation: (_, { abortSignal }) => fetchWeather(props.lat, props.lon, abortSignal),
-    onSuccess: (nextData) => {
-      failures = 0;
-      setData(nextData);
-      const timestamp = new Date().toISOString();
-      setNow(timestamp);
-      setRefreshedAt(timestamp);
-    },
-    onError: (error) => {
-      failures += 1;
-      console.warn("Weather display refresh failed", error);
-    },
+  const clock = timed.interval(() => setNow(new Date().toISOString()), 30_000, {
+    autoStart: false,
+    executeImmediately: false,
+  });
+
+  createEffect(() => {
+    const nextData = weather.data();
+    if (!nextData || nextData === lastData) return;
+    lastData = nextData;
+    failures = 0;
+    const timestamp = new Date().toISOString();
+    setNow(timestamp);
+    setRefreshedAt(timestamp);
   });
 
   const nextDelay = () => Math.max(1_000, timing.jitter(displayRefreshBackoffMs(props.refreshSeconds, failures), 350));
@@ -89,8 +57,16 @@ export default function PublicWeatherDisplay(props: PublicWeatherDisplayProps) {
       schedule(displayRefreshBackoffMs(props.refreshSeconds, 0));
       return;
     }
-    if (refresh.loading()) return;
-    await refresh.mutate();
+    if (weather.refreshing() || weather.loading()) {
+      schedule(nextDelay());
+      return;
+    }
+    await weather.refresh();
+    const error = weather.error();
+    if (error) {
+      failures += 1;
+      console.warn("Weather display refresh failed", error);
+    }
     schedule(nextDelay());
   };
 
@@ -102,25 +78,24 @@ export default function PublicWeatherDisplay(props: PublicWeatherDisplayProps) {
 
   onMount(() => {
     if (typeof document === "undefined") return;
+    clock.start();
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("online", handleOnline);
-    clockTimer = setInterval(() => setNow(new Date().toISOString()), 30_000);
-    schedule(data() ? displayRefreshBackoffMs(props.refreshSeconds, 0) : 0);
+    schedule(displayInitialRefreshDelayMs(Boolean(weather.data()), props.refreshSeconds));
   });
 
   onCleanup(() => {
     disposed = true;
     if (refreshTimer) clearTimeout(refreshTimer);
-    if (clockTimer) clearInterval(clockTimer);
     if (typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("online", handleOnline);
     }
-    refresh.abort();
+    weather.abort();
   });
 
   const viewProps = () => ({
-    data: data()!,
+    data: weather.data()!,
     location: props.location,
     state: props.state,
     zoom: props.zoom,
@@ -130,18 +105,29 @@ export default function PublicWeatherDisplay(props: PublicWeatherDisplayProps) {
   });
 
   return (
-    <Show
-      when={data()}
-      fallback={
-        <DisplayUnavailable
-          message="The forecast provider is not responding right now."
-          refreshSeconds={props.refreshSeconds}
-          refreshedAt={refreshedAt()}
-          retrying
-        />
-      }
-    >
-      {props.detail ? <DetailDisplayView {...viewProps()} /> : <SimpleDisplayView {...viewProps()} />}
-    </Show>
+    <>
+      <Show when={weather.error() && weather.data()}>
+        <div class="fixed inset-x-4 bottom-4 z-10 mx-auto max-w-lg">
+          <NoticeCard tone="warning" title="Weather could not be refreshed" detail={weather.error()!.message}>
+            <Button variant="secondary" size="sm" onClick={() => schedule(0)}>
+              Retry
+            </Button>
+          </NoticeCard>
+        </div>
+      </Show>
+      <Show
+        when={weather.data()}
+        fallback={
+          <DisplayUnavailable
+            message={weather.error()?.message ?? "The forecast provider is not responding right now."}
+            refreshSeconds={props.refreshSeconds}
+            refreshedAt={refreshedAt()}
+            retrying
+          />
+        }
+      >
+        {props.detail ? <DetailDisplayView {...viewProps()} /> : <SimpleDisplayView {...viewProps()} />}
+      </Show>
+    </>
   );
 }

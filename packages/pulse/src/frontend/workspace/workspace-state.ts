@@ -1,21 +1,13 @@
-import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
 import { createSignal } from "solid-js";
 import type {
   Aggregation,
   MetricQueryPoint,
-  MetricType,
   PanelVisual,
   PulseCurrentState,
   PulseDashboardConfig,
   PulseDashboardDslCompileResult,
-  PulseInventory,
-  PulseMapSeries,
-  PulseMetricSeries,
-  PulseMetricSummary,
   PulseQueryCompileResult,
   PulseRecordedEvent,
-  PulseSource,
-  PulseSourceScrape,
 } from "../../contracts";
 import { readQueryHistory } from "./query-history";
 import { readActivityQueryState, readResourceQueryState } from "./routes";
@@ -37,42 +29,23 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
   const initialResourceQuery = props.initialResourceQuery ?? readResourceQueryState(props.initialSearch ?? "");
   const initialFocusedSearch = new URLSearchParams(props.initialSearch ?? "").get("q")?.trim() ?? "";
 
-  const [bases, setBases] = createSignal(props.initialBases);
   const [selectedBaseId, setSelectedBaseId] = createSignal(initialBaseId);
-  const [sources, setSources] = createSignal<PulseSource[]>(props.initialSources ?? []);
-  const [sourceScrapes, setSourceScrapes] = createSignal<Record<string, PulseSourceScrape[]>>(props.initialSourceScrapes ?? {});
-  const [sourceApiKeys, setSourceApiKeys] = createSignal<Record<string, ResourceApiKey[]>>(props.initialSourceApiKeys ?? {});
   const [sourceSearch, setSourceSearch] = createSignal("");
-  const [metrics, setMetrics] = createSignal<PulseMetricSummary[]>(props.initialMetrics ?? []);
-  const [inventory, setInventory] = createSignal<PulseInventory>(
-    props.initialInventory ?? { resources: [], metrics: [], events: [], states: [], fields: [] },
-  );
   const [resourceSearch, setResourceSearch] = createSignal(initialResourceQuery.q);
   const [resourceSourceFilter, setResourceSourceFilter] = createSignal(initialResourceQuery.sourceId);
   const [resourceTypeFilter, setResourceTypeFilter] = createSignal(initialResourceQuery.type);
   const [selectedResourceKey, setSelectedResourceKey] = createSignal(
     initialRouteState.view === "resource-detail" ? initialRouteState.signalId : (props.initialInventory?.resources[0]?.key ?? ""),
   );
-  const [activityMetrics, setActivityMetrics] = createSignal<PulseMetricSummary[]>(props.initialActivityMetrics ?? []);
-  const [series, setSeries] = createSignal<PulseMetricSeries[]>(props.initialSeries ?? []);
-  const [recentEvents, setRecentEvents] = createSignal<PulseRecordedEvent[]>(props.initialRecentEvents ?? []);
-  const [currentStates, setCurrentStates] = createSignal<PulseCurrentState[]>(props.initialCurrentStates ?? []);
-  const [dashboards, setDashboards] = createSignal(props.initialDashboards ?? []);
-  const [savedQueries, setSavedQueries] = createSignal(props.initialSavedQueries ?? []);
   const [selectedDashboardId, setSelectedDashboardId] = createSignal(initialDashboardId);
   const [activeView] = createSignal<WorkspaceView>(initialRouteState.view);
   const [selectedMetric, setSelectedMetric] = createSignal(props.initialMetrics?.[0]?.name ?? "");
   const [selectedSourceId, setSelectedSourceId] = createSignal(initialRouteState.sourceId);
   const [selectedQuerySourceId, setSelectedQuerySourceId] = createSignal("");
   const [activitySearch, setActivitySearch] = createSignal(initialActivityQuery.q);
-  const [metricTypeFilter, setMetricTypeFilter] = createSignal<"" | MetricType>(initialActivityQuery.type);
+  const [metricTypeFilter, setMetricTypeFilter] = createSignal(initialActivityQuery.type);
   const [focusedSignalId] = createSignal(initialRouteState.signalId);
   const [focusedSearch, setFocusedSearch] = createSignal(initialFocusedSearch);
-  const [focusedMetricSeries, setFocusedMetricSeries] = createSignal<PulseMetricSeries[]>(props.initialFocusedMetricSeries ?? []);
-  const [focusedEvents, setFocusedEvents] = createSignal<PulseRecordedEvent[]>(props.initialFocusedEvents ?? []);
-  const [focusedStates, setFocusedStates] = createSignal<PulseCurrentState[]>(props.initialFocusedStates ?? []);
-  const [focusedHasMore, setFocusedHasMore] = createSignal(props.initialFocusedHasMore ?? false);
-  const [focusedLoadingMore, setFocusedLoadingMore] = createSignal(false);
   const [selectedFocusedSeriesId, setSelectedFocusedSeriesId] = createSignal("");
   const [selectedFocusedStateId, setSelectedFocusedStateId] = createSignal("");
   const [selectedFocusedEventId, setSelectedFocusedEventId] = createSignal("");
@@ -96,12 +69,6 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
   const [explorerEvents, setExplorerEvents] = createSignal<PulseRecordedEvent[]>([]);
   const [explorerStates, setExplorerStates] = createSignal<PulseCurrentState[]>([]);
   const [queryRunning, setQueryRunning] = createSignal(false);
-  const [metricWidgetPoints, setMetricWidgetPoints] = createSignal<Record<string, MetricQueryPoint[]>>(
-    props.initialMetricWidgetPoints ?? {},
-  );
-  const [dashboardEvents, setDashboardEvents] = createSignal<Record<string, PulseRecordedEvent[]>>(props.initialDashboardEvents ?? {});
-  const [dashboardStates, setDashboardStates] = createSignal<Record<string, PulseCurrentState[]>>(props.initialDashboardStates ?? {});
-  const [dashboardMaps, setDashboardMaps] = createSignal<Record<string, PulseMapSeries[]>>(props.initialDashboardMaps ?? {});
   const [dashboardControlValues, setDashboardControlValues] = createSignal<Record<string, Record<string, string>>>(
     initialDashboardId && Object.keys(props.initialDashboardControlValues ?? {}).length
       ? { [initialDashboardId]: props.initialDashboardControlValues ?? {} }
@@ -119,40 +86,25 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
 
   return {
     activeView,
-    activityMetrics,
     activitySearch,
-    bases,
     browseEntityId,
     browseSearch,
     browseSourceId,
-    currentStates,
     dashboardControlValues,
     dashboardDslDiagnostics,
     dashboardDslDiagnosticsText,
     dashboardDslSaving,
     dashboardDslSeededFor,
     dashboardDslText,
-    dashboardEvents,
     dashboardPreviewConfig,
-    dashboards,
-    dashboardStates,
-    dashboardMaps,
     explorerEvents,
     explorerResultView,
     explorerStates,
-    focusedEvents,
-    focusedHasMore,
-    focusedLoadingMore,
-    focusedMetricSeries,
     focusedSearch,
     focusedSignalId,
-    focusedStates,
-    inventory,
     lastRunQuery,
     loading,
     metricTypeFilter,
-    metricWidgetPoints,
-    metrics,
     origin,
     points,
     queryDiagnostics,
@@ -162,11 +114,9 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
     querySuggestionSearch,
     querySuggestionsExpanded,
     queryText,
-    recentEvents,
     resourceSearch,
     resourceSourceFilter,
     resourceTypeFilter,
-    savedQueries,
     selectedAggregation,
     selectedBaseId,
     selectedBucket,
@@ -181,40 +131,24 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
     selectedSince,
     selectedSourceId,
     selectedVisual,
-    series,
-    setActivityMetrics,
     setActivitySearch,
-    setBases,
     setBrowseEntityId,
     setBrowseSearch,
     setBrowseSourceId,
-    setCurrentStates,
     setDashboardControlValues,
     setDashboardDslDiagnostics,
     setDashboardDslDiagnosticsText,
     setDashboardDslSaving,
     setDashboardDslSeededFor,
     setDashboardDslText,
-    setDashboardEvents,
     setDashboardPreviewConfig,
-    setDashboards,
-    setDashboardStates,
-    setDashboardMaps,
     setExplorerEvents,
     setExplorerResultView,
     setExplorerStates,
-    setFocusedEvents,
-    setFocusedHasMore,
-    setFocusedLoadingMore,
-    setFocusedMetricSeries,
     setFocusedSearch,
-    setFocusedStates,
-    setInventory,
     setLastRunQuery,
     setLoading,
     setMetricTypeFilter,
-    setMetricWidgetPoints,
-    setMetrics,
     setOrigin,
     setPoints,
     setQueryDiagnostics,
@@ -224,11 +158,9 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
     setQuerySuggestionSearch,
     setQuerySuggestionsExpanded,
     setQueryText,
-    setRecentEvents,
     setResourceSearch,
     setResourceSourceFilter,
     setResourceTypeFilter,
-    setSavedQueries,
     setSelectedAggregation,
     setSelectedBaseId,
     setSelectedBucket,
@@ -243,16 +175,9 @@ export const createPulseWorkspaceState = (props: PulseWorkspaceProps) => {
     setSelectedSince,
     setSelectedSourceId,
     setSelectedVisual,
-    setSeries,
-    setSourceApiKeys,
-    setSourceScrapes,
-    setSources,
     setSettingsDialogOpen,
     settingsDialogOpen,
-    sourceApiKeys,
-    sourceScrapes,
     sourceSearch,
-    sources,
     setSourceSearch,
   };
 };

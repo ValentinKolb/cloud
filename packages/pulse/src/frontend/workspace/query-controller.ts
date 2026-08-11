@@ -1,6 +1,7 @@
-import { prompts, toast } from "@k2b/ui";
 import { clipboard } from "@k2b/stdlib/browser";
-import type { Accessor, Setter } from "solid-js";
+import { mutation, query } from "@k2b/stdlib/solid";
+import { prompts, toast } from "@k2b/ui";
+import { type Accessor, createSignal, onCleanup, type Setter } from "solid-js";
 import type {
   Aggregation,
   MetricQueryPoint,
@@ -61,7 +62,8 @@ type QueryControllerDeps = {
   setQueryRunning: Setter<boolean>;
   loading: Accessor<boolean>;
   setLoading: Setter<boolean>;
-  setSavedQueries: Setter<PulseSavedQuery[]>;
+  refreshBaseData: () => Promise<void>;
+  writeBlocked: Accessor<boolean>;
   selectedVisual: Accessor<PanelVisual>;
   browseSourceId: Accessor<string>;
   browseEntityId: Accessor<string>;
@@ -70,6 +72,42 @@ type QueryControllerDeps = {
 
 export const createQueryController = (deps: QueryControllerDeps) => {
   let runId = 0;
+  let disposed = false;
+  const [runIntent, setRunIntent] = createSignal<{ baseId: string; query: string; requestId: number } | null>(null);
+  const runQuery = query.create({
+    source: runIntent,
+    enabled: () => runIntent() !== null,
+    load: (intent, { abortSignal }) => {
+      if (!intent) throw new Error("No query run requested");
+      return runPulseTextQuery(intent.baseId, intent.query, abortSignal);
+    },
+  });
+  const saveMutation = mutation.create<PulseSavedQuery, { baseId: string; name: string; description: string | null; query: string }>({
+    mutation: ({ baseId, ...input }, { abortSignal }) => createPulseSavedQuery(baseId, input, abortSignal),
+  });
+  const deleteMutation = mutation.create<void, PulseSavedQuery>({
+    mutation: (savedQuery, { abortSignal }) => deletePulseSavedQuery(savedQuery, abortSignal),
+  });
+  onCleanup(() => {
+    disposed = true;
+    runId += 1;
+    saveMutation.abort();
+    deleteMutation.abort();
+  });
+  const reconcileSavedQueries = async (message: string): Promise<boolean> => {
+    try {
+      await deps.refreshBaseData();
+      return !disposed;
+    } catch {
+      if (!disposed) toast.error(message);
+      return false;
+    }
+  };
+  const requireWritable = (): boolean => {
+    if (!deps.writeBlocked()) return true;
+    toast.error("Refresh Pulse data before making more changes.");
+    return false;
+  };
   const current = () => deps.queryText().trim() || deps.defaultQueryText() || defaultPulseQuery(deps.metrics());
 
   const applyDimensionFilter = (key: string, value: string) => {
@@ -124,7 +162,11 @@ export const createQueryController = (deps: QueryControllerDeps) => {
     const requestId = ++runId;
     deps.setQueryRunning(true);
     try {
-      const result = await runPulseTextQuery(baseId, query);
+      setRunIntent({ baseId, query, requestId });
+      await runQuery.refresh();
+      if (disposed || requestId !== runId) return;
+      if (runQuery.error()) throw runQuery.error();
+      const result = runQuery.data()!;
       if (requestId !== runId) return;
       const application = queryRunApplication(deps.explorerResultView(), result);
       deps.setQueryText(query);
@@ -152,15 +194,18 @@ export const createQueryController = (deps: QueryControllerDeps) => {
   };
 
   const save = async () => {
+    if (!requireWritable()) return;
     const baseId = deps.selectedBaseId();
     const query = current();
     if (!baseId || !query) return;
     const result = await openSaveQueryDialog(deps.compiledQuery());
-    if (!result) return;
+    if (disposed || !result || !requireWritable()) return;
     deps.setLoading(true);
     try {
-      const saved = await createPulseSavedQuery(baseId, { name: result.name, description: result.description, query });
-      deps.setSavedQueries((currentItems) => [saved, ...currentItems]);
+      await saveMutation.mutate({ baseId, name: result.name, description: result.description, query });
+      if (disposed) return;
+      if (saveMutation.error()) throw saveMutation.error();
+      if (!(await reconcileSavedQueries("The query was saved, but the saved-query list could not be refreshed."))) return;
       toast.success("Query saved");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save query");
@@ -175,18 +220,28 @@ export const createQueryController = (deps: QueryControllerDeps) => {
     if (!query || !compiled) return;
     try {
       await clipboard.copy(dashboardWidgetSnippetFromQuery(query, compiled, deps.selectedVisual()));
+      if (disposed) return;
       toast.success("Dashboard widget DSL copied");
     } catch (error) {
+      if (disposed) return;
       toast.error(error instanceof Error ? error.message : "Could not copy widget DSL");
     }
   };
 
   const removeSaved = async (query: PulseSavedQuery) => {
-    if (!(await prompts.confirm(`Remove saved query "${query.name}"?`, { title: "Remove query", variant: "danger" }))) return;
+    if (!requireWritable()) return;
+    if (
+      !(await prompts.confirm(`Remove saved query "${query.name}"?`, { title: "Remove query", variant: "danger" })) ||
+      disposed ||
+      !requireWritable()
+    )
+      return;
     deps.setLoading(true);
     try {
-      await deletePulseSavedQuery(query);
-      deps.setSavedQueries((currentItems) => currentItems.filter((item) => item.id !== query.id));
+      await deleteMutation.mutate(query);
+      if (disposed) return;
+      if (deleteMutation.error()) throw deleteMutation.error();
+      if (!(await reconcileSavedQueries("The query was removed, but the saved-query list could not be refreshed."))) return;
       toast.success("Query removed");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not remove query");

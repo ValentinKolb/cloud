@@ -19,11 +19,17 @@ type DashboardSettingsDialogOptions = {
   currentDashboard: Accessor<PulseDashboard>;
   dashboard: PulseDashboard;
   loading: Accessor<boolean>;
-  updateDashboardSettings: (dashboard: PulseDashboard, input: { name: string; refreshInterval: RefreshIntervalOption }) => Promise<boolean>;
+  updateDashboardSettings: (
+    dashboard: PulseDashboard,
+    input: { name: string; refreshInterval: RefreshIntervalOption },
+  ) => Promise<DashboardWriteResult>;
   enablePublicLink: (dashboard: PulseDashboard, options: { copy: boolean }) => Promise<void>;
   disablePublicLink: (dashboard: PulseDashboard) => Promise<void>;
-  deleteDashboard: (dashboard: PulseDashboard) => Promise<boolean>;
+  deleteDashboard: (dashboard: PulseDashboard) => Promise<DashboardWriteResult>;
+  writeBlocked: Accessor<boolean>;
 };
+
+export type DashboardWriteResult = "failed" | "persisted" | "reconciled";
 
 export const openPulseDashboardSettingsDialog = (options: DashboardSettingsDialogOptions) =>
   prompts.dialog<void>(
@@ -38,7 +44,7 @@ export const openPulseDashboardSettingsDialog = (options: DashboardSettingsDialo
       };
       const save = async () => {
         const next = { name: name(), refreshInterval: refreshInterval() };
-        if (await options.updateDashboardSettings(options.currentDashboard(), next)) setSaved(next);
+        if ((await options.updateDashboardSettings(options.currentDashboard(), next)) !== "failed") setSaved(next);
       };
       const requestClose = async () => {
         if (!options.loading() && (await confirmDiscardIfDirty(() => changeCount() > 0))) close();
@@ -108,7 +114,7 @@ export const openPulseDashboardSettingsDialog = (options: DashboardSettingsDialo
                       type="button"
                       variant="secondary"
                       size="sm"
-                      disabled={options.loading()}
+                      disabled={options.loading() || options.writeBlocked()}
                       onClick={() => void options.enablePublicLink(options.currentDashboard(), { copy: true })}
                     >
                       <i class="ti ti-copy" />
@@ -119,7 +125,7 @@ export const openPulseDashboardSettingsDialog = (options: DashboardSettingsDialo
                         type="button"
                         variant="secondary"
                         size="sm"
-                        disabled={options.loading()}
+                        disabled={options.loading() || options.writeBlocked()}
                         onClick={() => void options.disablePublicLink(options.currentDashboard())}
                       >
                         <i class="ti ti-link-off" />
@@ -145,8 +151,8 @@ export const openPulseDashboardSettingsDialog = (options: DashboardSettingsDialo
                       type="button"
                       variant="danger"
                       size="sm"
-                      disabled={options.loading()}
-                      onClick={() => void options.deleteDashboard(options.dashboard).then((deleted) => deleted && close())}
+                      disabled={options.loading() || options.writeBlocked()}
+                      onClick={() => void options.deleteDashboard(options.dashboard).then((result) => result !== "failed" && close())}
                     >
                       <i class="ti ti-trash text-sm" />
                       Delete dashboard

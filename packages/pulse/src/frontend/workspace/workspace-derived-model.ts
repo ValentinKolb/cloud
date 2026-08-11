@@ -13,9 +13,10 @@ import {
   filterBrowseSeries,
 } from "./query-browser-model";
 import type { ActivityEventGroup, ActivityStateGroup, PulseWorkspaceProps } from "./types";
+import type { createPulseWorkspaceQueries } from "./workspace-queries";
 import type { createPulseWorkspaceState } from "./workspace-state";
 
-type WorkspaceState = ReturnType<typeof createPulseWorkspaceState>;
+type WorkspaceState = ReturnType<typeof createPulseWorkspaceState> & ReturnType<typeof createPulseWorkspaceQueries>;
 
 export const createWorkspaceDerivedModel = (props: PulseWorkspaceProps, state: WorkspaceState) => {
   const {

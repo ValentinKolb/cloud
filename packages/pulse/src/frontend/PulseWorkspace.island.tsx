@@ -1,28 +1,13 @@
-import { AppWorkspace, Panes, type PanesValue, toast } from "@k2b/ui";
 import { clipboard } from "@k2b/stdlib/browser";
-import { createSignal } from "solid-js";
+import { AppWorkspace, Button, NoticeCard, Panes, type PanesValue, toast } from "@k2b/ui";
+import { createEffect, createSignal, on, Show, untrack } from "solid-js";
 import type { MetricType, PulseDashboard, PulseDashboardConfig, PulseResourceSummary, PulseSource } from "../contracts";
 import { createBaseController } from "./workspace/base-controller";
 import DashboardEditorView from "./workspace/DashboardEditorView";
 import DashboardView, { type DashboardRenderContext } from "./workspace/DashboardView";
 import { createDashboardController } from "./workspace/dashboard-controller";
-import {
-  fetchDashboardEventsWidgetRows,
-  fetchDashboardMapWidgetSeries,
-  fetchDashboardMetricWidgetPoints,
-  fetchDashboardStatesWidgetRows,
-} from "./workspace/dashboard-runtime";
 import FocusedSignalView, { FocusedSignalDetail } from "./workspace/FocusedSignalView";
-import {
-  dashboardEventsWidgets,
-  dashboardMapWidgets,
-  dashboardMetricWidgets,
-  dashboardStatesWidgets,
-  eventKindQueryText,
-  metricSummaryQueryText,
-  openQueryReferenceWindow,
-  stateKeyQueryText,
-} from "./workspace/helpers";
+import { eventKindQueryText, metricSummaryQueryText, openQueryReferenceWindow, stateKeyQueryText } from "./workspace/helpers";
 import { navigatePulseWorkspace, replacePulseWorkspaceUrl } from "./workspace/navigation";
 import { installNearRealtimeController } from "./workspace/near-realtime-controller";
 import PulseSidebar from "./workspace/PulseSidebar";
@@ -54,13 +39,71 @@ import {
   stateGroupColumns,
 } from "./workspace/table-columns";
 import type { PulseWorkspaceProps, WorkspaceView } from "./workspace/types";
-import { createWorkspaceDataController } from "./workspace/workspace-data-controller";
 import { createWorkspaceDerivedModel } from "./workspace/workspace-derived-model";
 import { installWorkspaceEffects } from "./workspace/workspace-effects";
+import { createPulseWorkspaceQueries } from "./workspace/workspace-queries";
 import { createPulseWorkspaceState } from "./workspace/workspace-state";
 
 export default function PulseWorkspace(props: PulseWorkspaceProps) {
-  const state = createPulseWorkspaceState(props);
+  const localState = createPulseWorkspaceState(props);
+  let selectedSourceKind = () => props.initialSources?.find((source) => source.id === localState.selectedSourceId())?.kind ?? null;
+  const queryState = createPulseWorkspaceQueries(props, {
+    activeView: localState.activeView,
+    activitySearch: localState.activitySearch,
+    dashboardControlValues: localState.dashboardControlValues,
+    dashboardPreviewConfig: localState.dashboardPreviewConfig,
+    focusedSearch: localState.focusedSearch,
+    focusedSignalId: localState.focusedSignalId,
+    metricTypeFilter: localState.metricTypeFilter,
+    resourceSearch: localState.resourceSearch,
+    resourceSourceFilter: localState.resourceSourceFilter,
+    resourceTypeFilter: localState.resourceTypeFilter,
+    selectedBaseId: localState.selectedBaseId,
+    selectedDashboardId: localState.selectedDashboardId,
+    selectedMetric: localState.selectedMetric,
+    selectedQuerySourceId: localState.selectedQuerySourceId,
+    selectedResourceKey: localState.selectedResourceKey,
+    selectedSourceId: localState.selectedSourceId,
+    selectedSourceKind: () => selectedSourceKind(),
+  });
+  selectedSourceKind = () => queryState.sources().find((source) => source.id === localState.selectedSourceId())?.kind ?? null;
+  const state = { ...localState, ...queryState };
+  let missingBaseNavigationStarted = false;
+  createEffect(
+    on(
+      queryState.queries.bases.data,
+      (nextBases) => {
+        const currentBaseId = untrack(localState.selectedBaseId);
+        if (!nextBases || !currentBaseId || nextBases.some((base) => base.id === currentBaseId) || missingBaseNavigationStarted) return;
+        missingBaseNavigationStarted = true;
+        navigatePulseWorkspace({ baseId: nextBases[0]?.id ?? "", state: { view: "resources" } });
+      },
+      { defer: true },
+    ),
+  );
+  createEffect(
+    on(
+      queryState.queries.baseData.data,
+      (data) => {
+        if (!data) return;
+        untrack(() => {
+          localState.setSelectedResourceKey((current) =>
+            current && data.inventory.resources.some((resource) => resource.key === current)
+              ? current
+              : (data.inventory.resources[0]?.key ?? ""),
+          );
+          localState.setSelectedMetric((current) =>
+            current && data.metrics.some((metric) => metric.name === current) ? current : (data.metrics[0]?.name ?? ""),
+          );
+          localState.setSelectedSourceId((current) => (current && !data.sources.some((source) => source.id === current) ? "" : current));
+          localState.setSelectedDashboardId(
+            (current) => data.dashboards.find((dashboard) => dashboard.id === current)?.id ?? data.dashboards[0]?.id ?? "",
+          );
+        });
+      },
+      { defer: true },
+    ),
+  );
   const [explorerPanesValue, setExplorerPanesValue] = createSignal(
     initialPulsePanesValue(props.initialExplorerPanesValue, createQueryExplorerPanesValue(), QUERY_EXPLORER_ELEMENT_IDS),
   );
@@ -119,43 +162,27 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     selectedBaseId,
     selectedDashboardId,
     selectedMetric,
-    selectedQuerySourceId,
     selectedResourceKey,
     selectedSourceId,
     selectedVisual,
-    setActivityMetrics,
     setActivitySearch,
-    setBases,
     setBrowseEntityId,
     setBrowseSearch,
     setBrowseSourceId,
-    setCurrentStates,
     setDashboardControlValues,
     setDashboardDslDiagnostics,
     setDashboardDslDiagnosticsText,
     setDashboardDslSaving,
     setDashboardDslSeededFor,
     setDashboardDslText,
-    setDashboardEvents,
-    setDashboardMaps,
     setDashboardPreviewConfig,
-    setDashboards,
-    setDashboardStates,
     setExplorerEvents,
     setExplorerResultView,
     setExplorerStates,
-    setFocusedEvents,
-    setFocusedHasMore,
-    setFocusedLoadingMore,
-    setFocusedMetricSeries,
     setFocusedSearch,
-    setFocusedStates,
-    setInventory,
     setLastRunQuery,
     setLoading,
     setMetricTypeFilter,
-    setMetricWidgetPoints,
-    setMetrics,
     setOrigin,
     setPoints,
     setQueryDiagnostics,
@@ -165,13 +192,10 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     setQuerySuggestionSearch,
     setQuerySuggestionsExpanded,
     setQueryText,
-    setRecentEvents,
     setResourceSearch,
     setResourceSourceFilter,
     setResourceTypeFilter,
-    setSavedQueries,
     setSelectedAggregation,
-    setSelectedBaseId,
     setSelectedBucket,
     setSelectedDashboardId,
     setSelectedFocusedEventId,
@@ -180,19 +204,15 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     setSelectedMetric,
     setSelectedQuerySourceId,
     setSelectedResourceKey,
-    setSelectedSeriesId,
     setSelectedSince,
     setSelectedSourceId,
     setSelectedVisual,
-    setSeries,
-    setSourceApiKeys,
-    setSourceScrapes,
-    setSources,
     setSettingsDialogOpen,
     settingsDialogOpen,
     sourceSearch,
     sources,
     setSourceSearch,
+    queries,
   } = state;
   const {
     browseEvents,
@@ -245,88 +265,35 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     states: selectedResourceStates,
     events: selectedResourceEvents,
   });
-  const {
-    loadActivity: loadActivityData,
-    loadBase: loadBaseData,
-    loadFocusedRows,
-    loadSeries,
-    loadSourceApiKeys,
-    loadSourceScrapes,
-    refreshResources: refreshResourceView,
-  } = createWorkspaceDataController({
-    selectedBaseId,
-    activeView,
-    activitySearch,
-    metricTypeFilter,
-    resourceSearch,
-    resourceSourceFilter,
-    resourceTypeFilter,
-    selectedResourceKey,
-    selectedMetric,
-    selectedQuerySourceId,
-    focusedSignalId,
-    focusedSearch,
-    focusedEvents,
-    focusedMetricSeries,
-    focusedStates,
-    setSources,
-    setMetrics,
-    setInventory,
-    setDashboards,
-    setSavedQueries,
-    setSelectedResourceKey,
-    setSelectedMetric,
-    setSelectedSourceId,
-    setSelectedDashboardId,
-    setRecentEvents,
-    setCurrentStates,
-    setActivityMetrics,
-    setSeries,
-    setSelectedSeriesId,
-    setFocusedEvents,
-    setFocusedMetricSeries,
-    setFocusedStates,
-    setFocusedHasMore,
-    setFocusedLoadingMore,
-    setSourceScrapes,
-    setSourceApiKeys,
-  });
-
-  const refreshDashboardConfig = async (
-    config: PulseDashboardConfig,
-    dashboard = selectedDashboard(),
-    baseId = selectedBaseId(),
-    signal?: AbortSignal,
-  ) => {
-    if (!dashboard || !baseId) return;
-    const controlValues = dashboardControlValues()[dashboard.id];
-    await Promise.all([
-      ...dashboardMetricWidgets(config).map((widget) =>
-        fetchDashboardMetricWidgetPoints({ baseId, config, controlValues, dashboard, signal, widget })
-          .then((points) => setMetricWidgetPoints((current) => ({ ...current, [widget.id]: points })))
-          .catch(() => undefined),
-      ),
-      ...dashboardEventsWidgets(config).map((widget) =>
-        fetchDashboardEventsWidgetRows({ baseId, config, controlValues, dashboard, signal, widget })
-          .then((events) => setDashboardEvents((current) => ({ ...current, [widget.id]: events })))
-          .catch(() => undefined),
-      ),
-      ...dashboardStatesWidgets(config).map((widget) =>
-        fetchDashboardStatesWidgetRows({ baseId, config, controlValues, dashboard, signal, widget })
-          .then((states) => setDashboardStates((current) => ({ ...current, [widget.id]: states })))
-          .catch(() => undefined),
-      ),
-      ...dashboardMapWidgets(config).map((widget) =>
-        fetchDashboardMapWidgetSeries({ baseId, config, controlValues, dashboard, signal, widget })
-          .then((series) => setDashboardMaps((current) => ({ ...current, [widget.id]: series })))
-          .catch(() => undefined),
-      ),
-    ]);
+  const loadFocusedRows = (options: { append?: boolean; signal?: AbortSignal } = {}) =>
+    options.append ? queries.focused.loadMore() : queries.focused.refresh();
+  const refreshResourceView = async (_baseId?: string, _signal?: AbortSignal) => {
+    await queries.resources.refresh();
+    if (activeView() === "resource-detail") await queries.resourceSignals.refresh();
+    const error = queries.resources.error() ?? (activeView() === "resource-detail" ? queries.resourceSignals.error() : null);
+    if (error) throw error;
   };
 
-  const refreshDashboard = async (dashboard = selectedDashboard(), baseId = selectedBaseId(), signal?: AbortSignal) => {
-    if (!dashboard) return;
-    await refreshDashboardConfig(dashboard.config, dashboard, baseId, signal);
+  const refreshDashboardConfig = async (_config?: PulseDashboardConfig, _dashboard?: PulseDashboard | null, _baseId?: string) => {
+    await queries.dashboard.refresh();
+    if (queries.dashboard.error()) throw queries.dashboard.error();
+  };
+
+  const refreshDashboard = async (_dashboard?: PulseDashboard | null, _baseId?: string) => refreshDashboardConfig();
+
+  const queryBlocksWrite = (item: { error: () => Error | null; loading: () => boolean; stale: () => boolean }) =>
+    item.loading() || item.stale() || item.error() !== null;
+  const canonicalWriteBlocked = () => {
+    const activeQueries: Array<Parameters<typeof queryBlocksWrite>[0]> = [queries.bases, queries.baseData];
+    const view = activeView();
+    if (view === "sources" && selectedSourceId()) activeQueries.push(queries.sourceDetail);
+    else if (view === "resources") activeQueries.push(queries.resources);
+    else if (view === "resource-detail") activeQueries.push(queries.resources, queries.resourceSignals);
+    else if (["metric-detail", "state-detail", "event-detail"].includes(view)) activeQueries.push(queries.focused);
+    else if (["dashboard", "dashboard-edit"].includes(view)) activeQueries.push(queries.dashboard);
+    else if (view === "explorer") activeQueries.push(queries.activity, queries.series);
+    else if (["activity-events", "activity-states", "activity-metrics"].includes(view)) activeQueries.push(queries.activity);
+    return activeQueries.some(queryBlocksWrite);
   };
 
   const navigateWorkspace = (
@@ -361,24 +328,20 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     settingsDialogOpen,
     setLoading,
     setSettingsDialogOpen,
-    setBases,
-    setSelectedBaseId,
-    setSelectedSourceId,
-    setSelectedMetric,
-    setSelectedDashboardId,
-    setSelectedResourceKey,
-    setRecentEvents,
-    setCurrentStates,
-    setActivityMetrics,
-    setMetrics,
-    setSeries,
-    setSourceScrapes,
-    setSourceApiKeys,
-    setInventory,
-    setSources,
-    setDashboards,
-    setSavedQueries,
-    loadBaseData: (baseId) => loadBaseData(baseId),
+    refreshBases: () => queries.bases.invalidate(),
+    refreshWorkspace: async () => {
+      const tasks: Promise<void>[] = [queries.baseData.invalidate()];
+      const view = activeView();
+      if (["resources", "resource-detail"].includes(view)) tasks.push(queries.resources.invalidate());
+      if (view === "resource-detail" && selectedResourceKey()) tasks.push(queries.resourceSignals.invalidate());
+      if (["explorer", "activity-events", "activity-states", "activity-metrics"].includes(view)) tasks.push(queries.activity.invalidate());
+      if (view === "explorer" && selectedMetric()) tasks.push(queries.series.invalidate());
+      if (view === "sources" && selectedSourceId()) tasks.push(queries.sourceDetail.invalidate());
+      if (["dashboard", "dashboard-edit"].includes(view) && selectedDashboard()) tasks.push(queries.dashboard.invalidate());
+      if (["metric-detail", "state-detail", "event-detail"].includes(view) && focusedSignalId()) tasks.push(queries.focused.invalidate());
+      await Promise.all(tasks);
+    },
+    writeBlocked: canonicalWriteBlocked,
     navigateToBase: (baseId) => navigatePulseWorkspace({ baseId, state: { view: "resources" } }),
   });
 
@@ -386,13 +349,12 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     selectedBaseId,
     loading,
     setLoading,
-    setSources,
     setSelectedSourceId,
-    setSourceApiKeys,
     navigate: (state) => navigateWorkspace(state),
-    loadBaseData: (baseId) => loadBaseData(baseId),
-    loadSourceScrapes: (baseId, sourceId) => loadSourceScrapes(baseId, sourceId),
+    refreshBaseData: () => queries.baseData.invalidate(),
+    refreshSourceDetail: () => queries.sourceDetail.invalidate(),
     refreshDashboard: () => refreshDashboard(),
+    writeBlocked: canonicalWriteBlocked,
   });
   const { addSource, editSource, removeSource, scrape, toggleSource } = sourceController;
 
@@ -420,7 +382,8 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     setQueryRunning,
     loading,
     setLoading,
-    setSavedQueries,
+    refreshBaseData: () => queries.baseData.invalidate(),
+    writeBlocked: canonicalWriteBlocked,
     selectedVisual,
     browseSourceId,
     browseEntityId,
@@ -446,7 +409,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     selectedDashboard,
     selectedDashboardId,
     dashboards,
-    setDashboards,
     setSelectedDashboardId,
     loading,
     setLoading,
@@ -465,8 +427,10 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     dashboardControlValues,
     setDashboardControlValues,
     navigate: (state) => navigateWorkspace(state),
+    refreshBaseData: () => queries.baseData.invalidate(),
     refreshDashboard: (dashboard) => refreshDashboard(dashboard),
     refreshDashboardConfig: (config, dashboard, baseId) => refreshDashboardConfig(config, dashboard, baseId),
+    writeBlocked: canonicalWriteBlocked,
   });
   const {
     compilePreview: compileDashboardDslPreview,
@@ -490,21 +454,21 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     onOpenPublicDisplay: (dashboard) => void openPublicDashboardDisplayDialog(dashboard),
   };
 
-  const refreshSourcesView = async (baseId: string, signal: AbortSignal) => {
-    await loadBaseData(baseId, signal);
-    const source = selectedSource();
-    if (!source) return;
-    await loadSourceScrapes(baseId, source.id, signal);
-    if (source.kind === "http_ingest") await loadSourceApiKeys(baseId, source.id, signal);
+  const refreshSourcesView = async () => {
+    await Promise.all([queries.baseData.refresh(), ...(selectedSourceId() ? [queries.sourceDetail.refresh()] : [])]);
+    const error = queries.baseData.error() ?? (selectedSourceId() ? queries.sourceDetail.error() : null);
+    if (error) throw error;
   };
 
-  const refreshActivityView = async (baseId: string, signal: AbortSignal) => {
-    await loadActivityData(baseId, signal);
+  const refreshActivityView = async () => {
+    await queries.activity.refresh();
+    if (queries.activity.error()) throw queries.activity.error();
   };
 
-  const refreshDashboardView = async (baseId: string, signal: AbortSignal) => {
-    await loadBaseData(baseId, signal);
-    await refreshDashboard(selectedDashboard(), baseId, signal);
+  const refreshDashboardView = async (baseId: string) => {
+    await queries.baseData.refresh();
+    if (queries.baseData.error()) throw queries.baseData.error();
+    await refreshDashboard(selectedDashboard(), baseId);
   };
 
   installNearRealtimeController({
@@ -523,11 +487,9 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     selectedDashboard,
     origin,
     setOrigin,
-    loadBaseData: () => loadBaseData(),
     setQueryHistory,
     dashboardControlValues,
     setDashboardControlValues,
-    refreshDashboard: (dashboard) => refreshDashboard(dashboard),
     dashboardDslSeededFor,
     setDashboardDslText,
     setDashboardPreviewConfig,
@@ -544,36 +506,6 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     setQueryDiagnostics,
     currentExplorerQuery,
     runTextQuery,
-    loadSeries,
-    selectedMetric,
-    selectedQuerySourceId,
-    compiledMetricQuery,
-    setSeries,
-    setSelectedSeriesId,
-    resourceSearch,
-    resourceSourceFilter,
-    resourceTypeFilter,
-    selectedResourceKey,
-    refreshResourceView,
-    setInventory,
-    activitySearch,
-    metricTypeFilter,
-    loadActivityData,
-    setRecentEvents,
-    setCurrentStates,
-    setActivityMetrics,
-    focusedSignalId,
-    focusedSearch,
-    loadFocusedRows,
-    setFocusedHasMore,
-    setFocusedMetricSeries,
-    setFocusedStates,
-    setFocusedEvents,
-    selectedSource,
-    loadSourceScrapes,
-    loadSourceApiKeys,
-    setSourceScrapes,
-    setSourceApiKeys,
   });
 
   const openDashboard = (dashboardId: string) => {
@@ -1105,6 +1037,53 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
     return null;
   };
 
+  const activeReadError = () => {
+    const view = activeView();
+    return (
+      queries.bases.error() ??
+      queries.baseData.error() ??
+      (view === "sources"
+        ? selectedSourceId()
+          ? queries.sourceDetail.error()
+          : null
+        : view === "resources"
+          ? queries.resources.error()
+          : view === "resource-detail"
+            ? (queries.resources.error() ?? queries.resourceSignals.error())
+            : ["metric-detail", "state-detail", "event-detail"].includes(view)
+              ? queries.focused.error()
+              : ["dashboard", "dashboard-edit"].includes(view)
+                ? queries.dashboard.error()
+                : view === "explorer"
+                  ? (queries.activity.error() ?? queries.series.error())
+                  : queries.activity.error())
+    );
+  };
+
+  const retryActiveRead = async () => {
+    const view = activeView();
+    if (queries.bases.error()) {
+      await queries.bases.refresh();
+      if (queries.bases.error()) return;
+      if (!bases().some((base) => base.id === selectedBaseId())) return;
+    }
+    const retriedBaseData = Boolean(queries.baseData.error());
+    if (retriedBaseData) {
+      await queries.baseData.refresh();
+      if (queries.baseData.error()) return;
+    }
+    if (view === "sources") {
+      if (selectedSourceId()) return queries.sourceDetail.refresh();
+      if (!retriedBaseData) return queries.baseData.refresh();
+      return;
+    }
+    if (view === "resources" || view === "resource-detail") return refreshResourceView();
+    if (["metric-detail", "state-detail", "event-detail"].includes(view)) return queries.focused.refresh();
+    if (["dashboard", "dashboard-edit"].includes(view)) return queries.dashboard.refresh();
+    if (view === "explorer") await Promise.all([queries.activity.refresh(), queries.series.refresh()]);
+    else await queries.activity.refresh();
+  };
+
   return (
     <AppWorkspace class={`${activeView() === "explorer" ? "min-h-0" : "min-h-[760px]"}`}>
       <PulseSidebar
@@ -1133,6 +1112,15 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         <AppWorkspace.Main
           class={`p-[var(--ui-space-shell)] ${activeView() === "explorer" ? "gap-2 overflow-hidden" : "gap-2 overflow-y-auto"}`}
         >
+          <Show when={activeReadError()}>
+            {(error) => (
+              <NoticeCard tone="danger" title="Pulse data could not be refreshed" detail={error().message}>
+                <Button variant="secondary" size="sm" onClick={() => void retryActiveRead()}>
+                  Retry
+                </Button>
+              </NoticeCard>
+            )}
+          </Show>
           {activeView() === "dashboard"
             ? renderDashboardView()
             : activeView() === "dashboard-edit"
