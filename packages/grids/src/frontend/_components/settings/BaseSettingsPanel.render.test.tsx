@@ -1,0 +1,84 @@
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createConfig } from "@k2b/ssr";
+import { SettingsModal } from "@k2b/ui";
+import { createComponent } from "solid-js";
+import { renderToString } from "solid-js/web";
+
+const root = mkdtempSync(join(tmpdir(), "grids-base-settings-render-tests-"));
+const { plugin } = createConfig({ dev: true, rootDir: root });
+Bun.plugin(plugin());
+process.once("exit", () => rmSync(root, { recursive: true, force: true }));
+
+const [{ default: BaseSettingsPanel }, { DocumentProfileForm }] = await Promise.all([
+  import("./BaseSettingsPanel.tsx"),
+  import("./BaseSettingsSections.tsx"),
+]);
+
+const base = {
+  id: "00000000-0000-4000-8000-000000000001",
+  shortId: "BASE01",
+  name: "Operations",
+  description: "Operational records",
+  documentProfile: {},
+};
+
+describe("Grids Base settings composition", () => {
+  test("groups the category rail and gives General one panel footer", () => {
+    const html = renderToString(() =>
+      createComponent(BaseSettingsPanel, {
+        base,
+        accessEntries: [],
+        onClose: () => undefined,
+      }),
+    );
+
+    for (const group of ["Base", "Sharing", "Recovery", "Lifecycle"]) expect(html).toContain(group);
+    for (const tab of ["General", "Documents", "Access", "Trash", "Danger zone"]) expect(html).toContain(tab);
+    expect(html).toContain("Identity shown across Grids.");
+    expect(html).toContain("Describe this Base wherever it appears in Grids.");
+    expect(html.match(/<footer class="k2b-settings__footer">/g)).toHaveLength(1);
+    expect(html).toContain('aria-describedby="k2b-settings-field-');
+  });
+
+  test("groups the long document form behind one save footer", () => {
+    const html = renderToString(() =>
+      createComponent(SettingsModal, {
+        title: "Base settings",
+        defaultTab: "documents",
+        children: createComponent(SettingsModal.Tab, {
+          id: "documents",
+          title: "Documents",
+          children: createComponent(DocumentProfileForm, {
+            base,
+            onDirtyChange: () => undefined,
+            onSavingChange: () => undefined,
+          }),
+        }),
+      }),
+    );
+
+    expect(html).toContain("Business identity");
+    expect(html).toContain("Contact");
+    expect(html).toContain("Billing and footer");
+    expect(html.match(/<footer class="k2b-settings__footer">/g)).toHaveLength(1);
+    expect(html).not.toContain("Save document profile");
+  });
+
+  test("keeps every dialog exit behind the dirty and save guards", () => {
+    const panel = readFileSync(join(import.meta.dir, "BaseSettingsPanel.tsx"), "utf8");
+    const sections = readFileSync(join(import.meta.dir, "BaseSettingsSections.tsx"), "utf8");
+    const opener = readFileSync(join(import.meta.dir, "../sidebar/BaseSettingsButton.island.tsx"), "utf8");
+
+    expect(opener).toContain('cancelBehavior: "ignore"');
+    expect(panel).toContain("navigationPending() || savePending()");
+    expect(panel).toContain("confirmDiscardIfDirty(hasUnsavedChanges)");
+    expect(panel).toContain("confirmDiscardIfDirty(hasUnsavedChanges)) || savePending()");
+    expect(panel).toContain("restoreActiveTabFocus");
+    expect(sections).toContain("mutation.abort()");
+    expect(sections).toContain("deleteMut.abort()");
+    expect(sections).toContain("{ abortSignal }");
+  });
+});

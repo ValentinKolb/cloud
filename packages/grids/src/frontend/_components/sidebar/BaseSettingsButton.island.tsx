@@ -20,7 +20,7 @@ export default function BaseSettingsButton(props: { base: Base }) {
             <BaseSettingsPanel base={props.base} accessEntries={accessEntries} onClose={() => close()} />
           </div>
         ),
-        { surface: "bare", header: false, size: "large" },
+        { surface: "bare", header: false, size: "large", cancelBehavior: "ignore" },
       );
     } catch (error) {
       prompts.error(error instanceof Error ? error.message : "Could not open settings");

@@ -1,8 +1,20 @@
 import { navigateTo, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, Placeholder, prompts, TextInput } from "@k2b/ui";
+import {
+  Button,
+  Placeholder,
+  prompts,
+  SettingsCollection,
+  SettingsField,
+  SettingsGroup,
+  SettingsModal,
+  SettingsPanelFooter,
+  StatusBadge,
+  TextInput,
+  toast,
+} from "@k2b/ui";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
-import { createResource, For, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { DocumentProfile } from "../../../contracts";
 import type { Base, Field, Form, Table } from "../../../service";
@@ -42,105 +54,194 @@ const cleanDocumentProfile = (draft: DocumentProfileDraft): DocumentProfile => {
   return Object.fromEntries(entries) as DocumentProfile;
 };
 
-export function DocumentProfileForm(props: { base: { id: string; documentProfile: DocumentProfile } }) {
-  const draft = createDraft(normalizeDocumentProfile(props.base.documentProfile));
+export function DocumentProfileForm(props: {
+  base: { id: string; documentProfile: DocumentProfile };
+  onDirtyChange: (dirty: boolean) => void;
+  onSavingChange: (saving: boolean) => void;
+}) {
+  const initial = normalizeDocumentProfile(props.base.documentProfile);
+  const [saved, setSaved] = createSignal(initial);
+  const draft = createDraft(initial);
   const patch = (partial: Partial<DocumentProfileDraft>) => draft.patch(partial);
   const value =
     <K extends keyof DocumentProfileDraft>(key: K) =>
     () =>
       draft.draft()[key];
 
-  const mutation = mutations.create<Base, void>({
-    mutation: async () => {
-      const res = await apiClient.bases[":baseId"].$patch({
-        param: { baseId: props.base.id },
-        json: { documentProfile: cleanDocumentProfile(draft.draft()) },
-      });
+  const changeCount = createMemo(
+    () => (Object.keys(saved()) as Array<keyof DocumentProfileDraft>).filter((key) => draft.draft()[key] !== saved()[key]).length,
+  );
+  createEffect(() => props.onDirtyChange(changeCount() > 0));
+  onCleanup(() => props.onDirtyChange(false));
+
+  const mutation = mutations.create<Base, DocumentProfile>({
+    mutation: async (documentProfile, { abortSignal }) => {
+      const res = await apiClient.bases[":baseId"].$patch(
+        {
+          param: { baseId: props.base.id },
+          json: { documentProfile },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save document profile"));
       return res.json();
     },
     onSuccess: (next) => {
-      draft.markSaved(normalizeDocumentProfile(next.documentProfile));
+      const snapshot = normalizeDocumentProfile(next.documentProfile);
+      setSaved(snapshot);
+      draft.markSaved(snapshot);
+      toast.success("Document details saved");
       refreshCurrentPath();
     },
     onError: (e) => prompts.error(e.message),
   });
+  createEffect(() => props.onSavingChange(mutation.loading()));
+  onCleanup(() => {
+    mutation.abort();
+    props.onSavingChange(false);
+  });
 
   return (
-    <form
-      class="grid grid-cols-1 gap-3 lg:grid-cols-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        mutation.mutate(undefined);
-      }}
-    >
-      <TextInput label="Legal name" icon="ti ti-building" value={value("legalName")} onValueChange={(v) => patch({ legalName: v })} />
-      <TextInput label="Department" icon="ti ti-users" value={value("department")} onValueChange={(v) => patch({ department: v })} />
-      <div class="lg:col-span-2">
-        <TextInput
-          label="Sender line"
-          description="Shown above recipient address blocks."
-          icon="ti ti-mail-forward"
-          value={value("senderLine")}
-          onValueChange={(v) => patch({ senderLine: v })}
+    <>
+      <SettingsGroup title="Business identity" description="Names and address shown on generated documents.">
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <TextInput
+            label="Legal name"
+            icon="ti ti-building"
+            value={value("legalName")}
+            onValueChange={(v) => patch({ legalName: v })}
+            disabled={mutation.loading()}
+          />
+          <TextInput
+            label="Department"
+            icon="ti ti-users"
+            value={value("department")}
+            onValueChange={(v) => patch({ department: v })}
+            disabled={mutation.loading()}
+          />
+          <div class="lg:col-span-2">
+            <TextInput
+              label="Sender line"
+              description="Shown above recipient address blocks."
+              icon="ti ti-mail-forward"
+              value={value("senderLine")}
+              onValueChange={(v) => patch({ senderLine: v })}
+              disabled={mutation.loading()}
+            />
+          </div>
+          <div class="lg:col-span-2">
+            <TextInput
+              label="Address"
+              icon="ti ti-map-pin"
+              value={value("address")}
+              onValueChange={(v) => patch({ address: v })}
+              multiline
+              lines={3}
+              disabled={mutation.loading()}
+            />
+          </div>
+        </div>
+      </SettingsGroup>
+
+      <SettingsGroup title="Contact" description="Contact details available to templates.">
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <TextInput
+            label="Contact email"
+            icon="ti ti-mail"
+            value={value("contactEmail")}
+            onValueChange={(v) => patch({ contactEmail: v })}
+            disabled={mutation.loading()}
+          />
+          <TextInput
+            label="Phone"
+            icon="ti ti-phone"
+            value={value("phone")}
+            onValueChange={(v) => patch({ phone: v })}
+            disabled={mutation.loading()}
+          />
+          <div class="lg:col-span-2">
+            <TextInput
+              label="Website"
+              icon="ti ti-link"
+              value={value("url")}
+              onValueChange={(v) => patch({ url: v })}
+              disabled={mutation.loading()}
+            />
+          </div>
+        </div>
+      </SettingsGroup>
+
+      <SettingsGroup title="Billing and footer" description="Payment, registration, and closing details for documents.">
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <TextInput
+            label="Tax ID / VAT"
+            icon="ti ti-receipt-tax"
+            value={value("taxId")}
+            onValueChange={(v) => patch({ taxId: v })}
+            disabled={mutation.loading()}
+          />
+          <TextInput
+            label="Registration"
+            icon="ti ti-certificate"
+            value={value("registration")}
+            onValueChange={(v) => patch({ registration: v })}
+            disabled={mutation.loading()}
+          />
+          <TextInput
+            label="Bank"
+            icon="ti ti-building-bank"
+            value={value("bankName")}
+            onValueChange={(v) => patch({ bankName: v })}
+            disabled={mutation.loading()}
+          />
+          <TextInput
+            label="IBAN"
+            icon="ti ti-credit-card"
+            value={value("iban")}
+            onValueChange={(v) => patch({ iban: v })}
+            disabled={mutation.loading()}
+          />
+          <TextInput
+            label="BIC"
+            icon="ti ti-credit-card"
+            value={value("bic")}
+            onValueChange={(v) => patch({ bic: v })}
+            disabled={mutation.loading()}
+          />
+          <div class="lg:col-span-2">
+            <TextInput
+              label="Payment terms"
+              icon="ti ti-calendar-dollar"
+              value={value("paymentTerms")}
+              onValueChange={(v) => patch({ paymentTerms: v })}
+              multiline
+              lines={2}
+              disabled={mutation.loading()}
+            />
+          </div>
+          <div class="lg:col-span-2">
+            <TextInput
+              label="Footer text"
+              icon="ti ti-text-caption"
+              value={value("footerText")}
+              onValueChange={(v) => patch({ footerText: v })}
+              multiline
+              lines={2}
+              disabled={mutation.loading()}
+            />
+          </div>
+        </div>
+      </SettingsGroup>
+
+      <SettingsModal.Footer>
+        <SettingsPanelFooter
+          changeCount={changeCount}
+          loading={mutation.loading}
+          onDiscard={draft.reset}
+          onSave={() => mutation.mutate(cleanDocumentProfile(draft.draft()))}
         />
-      </div>
-      <div class="lg:col-span-2">
-        <TextInput
-          label="Address"
-          icon="ti ti-map-pin"
-          value={value("address")}
-          onValueChange={(v) => patch({ address: v })}
-          multiline
-          lines={3}
-        />
-      </div>
-      <TextInput label="Contact email" icon="ti ti-mail" value={value("contactEmail")} onValueChange={(v) => patch({ contactEmail: v })} />
-      <TextInput label="Phone" icon="ti ti-phone" value={value("phone")} onValueChange={(v) => patch({ phone: v })} />
-      <TextInput label="Website" icon="ti ti-link" value={value("url")} onValueChange={(v) => patch({ url: v })} />
-      <TextInput label="Tax ID / VAT" icon="ti ti-receipt-tax" value={value("taxId")} onValueChange={(v) => patch({ taxId: v })} />
-      <TextInput
-        label="Registration"
-        icon="ti ti-certificate"
-        value={value("registration")}
-        onValueChange={(v) => patch({ registration: v })}
-      />
-      <TextInput label="Bank" icon="ti ti-building-bank" value={value("bankName")} onValueChange={(v) => patch({ bankName: v })} />
-      <TextInput label="IBAN" icon="ti ti-credit-card" value={value("iban")} onValueChange={(v) => patch({ iban: v })} />
-      <TextInput label="BIC" icon="ti ti-credit-card" value={value("bic")} onValueChange={(v) => patch({ bic: v })} />
-      <div class="lg:col-span-2">
-        <TextInput
-          label="Payment terms"
-          icon="ti ti-calendar-dollar"
-          value={value("paymentTerms")}
-          onValueChange={(v) => patch({ paymentTerms: v })}
-          multiline
-          lines={2}
-        />
-      </div>
-      <div class="lg:col-span-2">
-        <TextInput
-          label="Footer text"
-          icon="ti ti-text-caption"
-          value={value("footerText")}
-          onValueChange={(v) => patch({ footerText: v })}
-          multiline
-          lines={2}
-        />
-      </div>
-      <Show when={draft.dirty()}>
-        <Button
-          variant="primary"
-          size="sm"
-          type="submit"
-          loading={mutation.loading()}
-          loadingLabel="Saving document profile"
-          class="self-start lg:col-span-2"
-        >
-          Save document profile
-        </Button>
-      </Show>
-    </form>
+      </SettingsModal.Footer>
+    </>
   );
 }
 
@@ -152,33 +253,38 @@ export function TrashSection(props: { baseId: string }) {
     if (!res.ok) throw new Error(await errorMessage(res, "Failed to load trash"));
     return res.json();
   });
+  const [restoringId, setRestoringId] = createSignal<string | null>(null);
+  const items = createMemo(() => {
+    const current = trash();
+    if (!current) return [];
+    return [
+      ...current.tables.map((item) => ({ ...item, kind: "Table" as const, icon: "ti-table" })),
+      ...current.fields.map((item) => ({ ...item, kind: "Field" as const, icon: "ti-columns" })),
+      ...current.forms.map((item) => ({ ...item, kind: "Form" as const, icon: "ti-forms" })),
+    ].sort((left, right) => (right.deletedAt ?? "").localeCompare(left.deletedAt ?? ""));
+  });
+  type TrashItem = ReturnType<typeof items>[number];
 
-  const restoreTable = async (id: string) => {
-    const res = await apiClient.tables[":tableId"].restore.$post({ param: { tableId: id } });
-    if (!res.ok) {
-      prompts.error(await errorMessage(res, "Failed to restore table"));
-      return;
+  const restore = async (item: TrashItem) => {
+    if (restoringId()) return;
+    setRestoringId(item.id);
+    try {
+      const response =
+        item.kind === "Table"
+          ? await apiClient.tables[":tableId"].restore.$post({ param: { tableId: item.id } })
+          : item.kind === "Field"
+            ? await apiClient.fields[":fieldId"].restore.$post({ param: { fieldId: item.id } })
+            : await apiClient.forms[":formId"].restore.$post({ param: { formId: item.id } });
+      if (!response.ok) throw new Error(await errorMessage(response, `Failed to restore ${item.kind.toLowerCase()}`));
+      toast.success(`${item.kind} restored`);
+      await refetch();
+      if (trash.error) prompts.error(`${item.kind} was restored, but the trash list could not be refreshed.`);
+      if (item.kind === "Table") refreshCurrentPath();
+    } catch (error) {
+      prompts.error(error instanceof Error ? error.message : `Failed to restore ${item.kind.toLowerCase()}`);
+    } finally {
+      setRestoringId(null);
     }
-    refetch();
-    refreshCurrentPath();
-  };
-
-  const restoreField = async (id: string) => {
-    const res = await apiClient.fields[":fieldId"].restore.$post({ param: { fieldId: id } });
-    if (!res.ok) {
-      prompts.error(await errorMessage(res, "Failed to restore field"));
-      return;
-    }
-    refetch();
-  };
-
-  const restoreForm = async (id: string) => {
-    const res = await apiClient.forms[":formId"].restore.$post({ param: { formId: id } });
-    if (!res.ok) {
-      prompts.error(await errorMessage(res, "Failed to restore form"));
-      return;
-    }
-    refetch();
   };
 
   const formatDeletedAt = (iso: string | null) => {
@@ -188,141 +294,167 @@ export function TrashSection(props: { baseId: string }) {
   };
 
   return (
-    <Show when={!trash.loading} fallback={<Placeholder state="loading" align="left" title="Loading…" />}>
+    <Show when={!trash.loading} fallback={<Placeholder state="loading" variant="compact" title="Loading trash" />}>
       <Show
-        when={
-          trash() &&
-          (trash()!.tables.length > 0 || trash()!.fields.length > 0 || trash()!.forms.length > 0)
+        when={!trash.error}
+        fallback={
+          <Placeholder
+            state="error"
+            variant="compact"
+            title="Trash is unavailable"
+            description={trash.error instanceof Error ? trash.error.message : "Failed to load trash"}
+            action={
+              <Button variant="secondary" size="sm" type="button" onClick={() => void refetch()}>
+                Retry
+              </Button>
+            }
+          />
         }
-        fallback={<Placeholder align="left" class="px-0 py-1" description={<>Trash is empty.</>} />}
       >
-        <div class="flex flex-col gap-4">
-          <Show when={trash()!.tables.length > 0}>
-            <div class="flex flex-col gap-1">
-              <p class="text-xs font-medium text-secondary">Tables</p>
-              <For each={trash()!.tables}>
-                {(t) => (
-                  <TrashRow icon="ti-table" name={t.name} deletedAt={formatDeletedAt(t.deletedAt)} onRestore={() => restoreTable(t.id)} />
-                )}
-              </For>
-            </div>
-          </Show>
-          <Show when={trash()!.fields.length > 0}>
-            <div class="flex flex-col gap-1">
-              <p class="text-xs font-medium text-secondary">Fields</p>
-              <For each={trash()!.fields}>
-                {(f) => (
-                  <TrashRow icon="ti-columns" name={f.name} deletedAt={formatDeletedAt(f.deletedAt)} onRestore={() => restoreField(f.id)} />
-                )}
-              </For>
-            </div>
-          </Show>
-          <Show when={trash()!.forms.length > 0}>
-            <div class="flex flex-col gap-1">
-              <p class="text-xs font-medium text-secondary">Forms</p>
-              <For each={trash()!.forms}>
-                {(form) => (
-                  <TrashRow
-                    icon="ti-forms"
-                    name={form.name}
-                    deletedAt={formatDeletedAt(form.deletedAt)}
-                    onRestore={() => restoreForm(form.id)}
-                  />
-                )}
-              </For>
-            </div>
-          </Show>
-        </div>
+        <SettingsCollection title="Recently deleted" description="Restore tables, fields, and forms to this Base." empty="Trash is empty.">
+          <For each={items()}>
+            {(item) => (
+              <SettingsCollection.Item
+                title={item.name}
+                description={item.deletedAt ? `Deleted ${formatDeletedAt(item.deletedAt)}` : "Deletion time unavailable"}
+                icon={<i class={`ti ${item.icon}`} aria-hidden="true" />}
+              >
+                <SettingsCollection.Item.Status>
+                  <StatusBadge tone="neutral" label={item.kind} icon={null} />
+                </SettingsCollection.Item.Status>
+                <SettingsCollection.Item.Actions>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    loading={restoringId() === item.id}
+                    loadingLabel={`Restoring ${item.name}`}
+                    disabled={restoringId() !== null}
+                    onClick={() => void restore(item)}
+                  >
+                    <i class="ti ti-arrow-back-up" aria-hidden="true" /> Restore
+                  </Button>
+                </SettingsCollection.Item.Actions>
+              </SettingsCollection.Item>
+            )}
+          </For>
+        </SettingsCollection>
       </Show>
     </Show>
   );
 }
 
-function TrashRow(props: { icon: string; name: string; deletedAt: string; onRestore: () => void }) {
-  return (
-    <div class="flex items-center gap-2 py-1.5">
-      <i class={`ti ${props.icon} text-dimmed shrink-0`} />
-      <span class="flex-1 min-w-0 truncate text-sm">{props.name}</span>
-      <Show when={props.deletedAt}>
-        <span class="text-[11px] text-dimmed">deleted {props.deletedAt}</span>
-      </Show>
-      <Button variant="ghost" size="sm" type="button" class="shrink-0" onClick={props.onRestore}>
-        <i class="ti ti-arrow-back-up" /> Restore
-      </Button>
-    </div>
-  );
-}
-
-export function GeneralForm(props: { base: { id: string; name: string; description: string | null } }) {
-  const draft = createDraft({
+export function GeneralForm(props: {
+  base: { id: string; name: string; description: string | null };
+  onDirtyChange: (dirty: boolean) => void;
+  onSavingChange: (saving: boolean) => void;
+}) {
+  const initial = {
     name: props.base.name,
     description: props.base.description ?? "",
-  });
+  };
+  const [saved, setSaved] = createSignal(initial);
+  const draft = createDraft(initial);
   const patch = (partial: Partial<ReturnType<typeof draft.draft>>) => {
     draft.patch(partial);
   };
   const name = () => draft.draft().name;
   const description = () => draft.draft().description;
+  const changeCount = () => Number(name() !== saved().name) + Number(description() !== saved().description);
+  createEffect(() => props.onDirtyChange(draft.dirty()));
+  onCleanup(() => props.onDirtyChange(false));
 
-  const mutation = mutations.create<Base, void>({
-    mutation: async () => {
-      const res = await apiClient.bases[":baseId"].$patch({
-        param: { baseId: props.base.id },
-        json: { name: name().trim(), description: description().trim() || null },
-      });
+  const mutation = mutations.create<Base, { name: string; description: string }>({
+    mutation: async (intent, { abortSignal }) => {
+      const res = await apiClient.bases[":baseId"].$patch(
+        {
+          param: { baseId: props.base.id },
+          json: { name: intent.name, description: intent.description || null },
+        },
+        { init: { signal: abortSignal } },
+      );
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to save"));
       return res.json();
     },
     onSuccess: (next) => {
-      draft.markSaved({
+      const snapshot = {
         name: next.name,
         description: next.description ?? "",
-      });
+      };
+      setSaved(snapshot);
+      draft.markSaved(snapshot);
+      toast.success("Base details saved");
       refreshCurrentPath();
     },
     onError: (e) => prompts.error(e.message),
   });
+  createEffect(() => props.onSavingChange(mutation.loading()));
+  onCleanup(() => {
+    mutation.abort();
+    props.onSavingChange(false);
+  });
 
-  const handleSubmit = (e: Event) => {
-    e.preventDefault();
-    if (!name().trim()) {
-      prompts.error("Name is required");
-      return;
-    }
-    mutation.mutate(undefined);
+  const save = () => {
+    const intent = { name: name().trim(), description: description().trim() };
+    if (!intent.name || mutation.loading()) return;
+    mutation.mutate(intent);
   };
 
   return (
-    <form onSubmit={handleSubmit} class="flex flex-col gap-3">
-      <TextInput
-        label="Name"
-        placeholder="My Base"
-        icon="ti ti-typography"
-        value={name}
-        onValueChange={(v) => patch({ name: v })}
-        required
-      />
-      <TextInput
-        label="Description"
-        placeholder="Optional description..."
-        icon="ti ti-align-left"
-        value={description}
-        onValueChange={(v) => patch({ description: v })}
-        multiline
-      />
-      <Show when={draft.dirty()}>
-        <Button
-          variant="primary"
-          size="sm"
-          type="submit"
-          loading={mutation.loading()}
-          loadingLabel="Saving view defaults"
-          class="self-start mt-2"
+    <>
+      <SettingsGroup title="Identity" description="Describe this Base wherever it appears in Grids.">
+        <SettingsField
+          label="Name"
+          description="Shown in navigation, the overview, and Base selectors."
+          error={() => (!name().trim() ? "Name is required" : undefined)}
+          changed={() => name() !== saved().name}
         >
-          Save
-        </Button>
-      </Show>
-    </form>
+          {(control) => (
+            <TextInput
+              aria-label="Name"
+              aria-describedby={control.describedBy()}
+              placeholder="My Base"
+              icon="ti ti-typography"
+              value={name}
+              onValueChange={(v) => patch({ name: v })}
+              onSubmit={save}
+              required
+              disabled={mutation.loading()}
+            />
+          )}
+        </SettingsField>
+        <SettingsField
+          label="Description"
+          description="Optional context for people who can access this Base."
+          error={() => undefined}
+          changed={() => description() !== saved().description}
+        >
+          {(control) => (
+            <TextInput
+              aria-label="Description"
+              aria-describedby={control.describedBy()}
+              placeholder="What is this Base for?"
+              icon="ti ti-align-left"
+              value={description}
+              onValueChange={(v) => patch({ description: v })}
+              multiline
+              lines={3}
+              disabled={mutation.loading()}
+            />
+          )}
+        </SettingsField>
+      </SettingsGroup>
+
+      <SettingsModal.Footer>
+        <SettingsPanelFooter
+          changeCount={changeCount}
+          loading={mutation.loading}
+          saveDisabled={() => !name().trim()}
+          onDiscard={draft.reset}
+          onSave={save}
+        />
+      </SettingsModal.Footer>
+    </>
   );
 }
 
@@ -330,20 +462,25 @@ export function PermissionsSection(props: { baseId: string; initialEntries: Acce
   return <ScopedPermissionEditor scope={{ type: "base", id: props.baseId }} initialEntries={props.initialEntries} canEdit />;
 }
 
-export function DangerZone(props: { baseId: string; baseName: string }) {
+export function DangerZone(props: { baseId: string; baseName: string; onSavingChange: (saving: boolean) => void }) {
   const deleteMut = mutations.create<void, void>({
-    mutation: async () => {
-      const res = await apiClient.bases[":baseId"].$delete({ param: { baseId: props.baseId } });
+    mutation: async (_, { abortSignal }) => {
+      const res = await apiClient.bases[":baseId"].$delete({ param: { baseId: props.baseId } }, { init: { signal: abortSignal } });
       // hono-openapi typed client only declares non-204 statuses; check range manually.
-      if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to delete base"));
+      if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to move Base to trash"));
     },
     onSuccess: () => navigateTo("/app/grids"),
     onError: (e) => prompts.error(e.message),
   });
+  createEffect(() => props.onSavingChange(deleteMut.loading()));
+  onCleanup(() => {
+    deleteMut.abort();
+    props.onSavingChange(false);
+  });
 
   const handleDelete = async () => {
-    const confirmed = await prompts.confirm(`Move "${props.baseName}" and its tables out of the active app? The grid remains restorable.`, {
-      title: "Move grid to trash?",
+    const confirmed = await prompts.confirm(`Move "${props.baseName}" and its tables out of the active app? The Base remains restorable.`, {
+      title: "Move Base to trash?",
       variant: "danger",
       confirmText: "Move to trash",
     });
@@ -358,11 +495,10 @@ export function DangerZone(props: { baseId: string; baseName: string }) {
       type="button"
       onClick={handleDelete}
       loading={deleteMut.loading()}
-      loadingLabel="Deleting base"
-      class="self-start"
+      loadingLabel="Moving Base to trash"
     >
-      <i class="ti ti-trash mr-1" />
-      Delete base
+      <i class="ti ti-trash mr-1" aria-hidden="true" />
+      Move to trash
     </Button>
   );
 }

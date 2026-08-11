@@ -40,12 +40,12 @@ Do not add a Custom App merely to repeat the table, or a workflow for a process 
 Open **Base settings** in Edit mode for settings that apply across the base:
 
 - **General** keeps the base name and description understandable in the Grids overview.
-- **Default Custom App** chooses the first working page people open when they enter the base.
 - **Documents** stores the business identity, address, contact, payment, and footer values available to PDF and email templates.
-- **Permissions** controls who can use the complete raw Base workspace. Use a Custom App for a narrower audience.
-- **Trash** lists deleted tables, fields, forms, and Custom Apps that can still be restored.
+- **Access** controls who can use the complete raw Base workspace. Use a Custom App for a narrower audience.
+- **Trash** lists deleted tables, fields, and forms that can still be restored.
+- **Danger zone** moves the complete Base out of active use while keeping it restorable by an administrator.
 
-Choose a default Custom App only after it is useful to the base's normal readers. A broken or highly specialized Custom App is a poor entrance even when its individual widgets are correct.
+Use a Custom App when readers need a narrower operating surface than direct access to the complete Base.
 
 ## Example: equipment loans {icon="point"}
 
