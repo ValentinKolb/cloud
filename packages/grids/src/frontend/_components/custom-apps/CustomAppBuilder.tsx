@@ -7,12 +7,14 @@ import {
   DetailPanel,
   Dropdown,
   type DropdownItem,
+  dialogCore,
   IconButton,
   IconInput,
+  InlineGuidance,
   MultiSelectInput,
   NoticeCard,
   NumberInput,
-  Placeholder,
+  panelDialogWorkspaceOptions,
   prompts,
   Select,
   StatusBadge,
@@ -38,6 +40,7 @@ import { type CustomAppBlockDragMeta, type CustomAppBlockDropMeta, CustomAppPage
 import { isRecordInputField } from "../fields/field-render";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
+import { WorkflowEditor } from "../workflows/WorkflowEditor";
 import type { WorkspaceCatalog } from "../workspace/workspace-state-model";
 import CustomAppBlockPreview from "./CustomAppBlockPreview";
 import { CustomAppAvailabilitySection, CustomAppGqlField } from "./CustomAppGqlField";
@@ -234,6 +237,27 @@ function PageIdInput(props: { id: string; existingIds: readonly string[]; onRena
       onBlur={commit}
       required
     />
+  );
+}
+
+function WorkflowPrerequisiteGuidance(props: {
+  hasWorkflows: boolean;
+  kind: "action" | "row";
+  rowTableName?: string | null;
+  onOpen: () => void;
+}) {
+  const subject = () => (props.kind === "row" ? "Row actions" : "Workflow actions");
+  return (
+    <InlineGuidance tone="danger">
+      {props.hasWorkflows
+        ? `${subject()} need an enabled App run option. Open a workflow and add or enable one.`
+        : props.kind === "row" && props.rowTableName
+          ? `${subject()} need a workflow with a ${props.rowTableName} record input and an App run option.`
+          : `${subject()} need a workflow with an App run option.`}{" "}
+      <Button variant="text" size="xs" onClick={props.onOpen}>
+        {props.hasWorkflows ? "Open workflows" : "Create workflow"}
+      </Button>
+    </InlineGuidance>
   );
 }
 
@@ -481,6 +505,9 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
   const [inspectorOpen, setInspectorOpen] = createSignal(true);
   const [inspectorMode, setInspectorMode] = createSignal<"app" | "page" | "block" | "action">(props.initialInspectorMode ?? "page");
   const selectedPage = createMemo(() => draft.draft().pages.find((page) => page.id === selectedPageId()) ?? draft.draft().pages[0]!);
+  const alternateStartPage = createMemo(() =>
+    draft.draft().pages.find((page) => page.id !== selectedPage().id && Object.keys(page.parameters).length === 0),
+  );
   const selectedBlock = createMemo<SelectedBlock | null>(() => {
     const blockId = selectedBlockId();
     if (!blockId) return null;
@@ -597,7 +624,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     workflowLaunchers().map((launcher) => ({
       value: launcher.id,
       label: launcher.config.label || launcher.name,
-      description: workflowsById().get(launcher.workflowId)?.name ?? "Workflow launcher",
+      description: workflowsById().get(launcher.workflowId)?.name ?? "App run option",
       icon: "ti ti-player-play",
     })),
   );
@@ -639,6 +666,25 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     if (!preview?.ok) return null;
     return preview.columns.find((column) => column.tableId)?.tableId ?? preview.rows.find((row) => row.tableId)?.tableId ?? null;
   });
+  const selectedSourceRecordFields = createMemo(() => {
+    const tableId = selectedSourceTableId();
+    return tableId ? (props.catalog.fieldsByTable[tableId] ?? []).filter((field) => field.deletedAt === null).slice(0, 30) : [];
+  });
+  const rowInputForLauncher = (launcher: CustomAppWorkflowLauncher) => {
+    if (launcher.config.inputMode !== "prompt") return null;
+    const tableId = selectedSourceTableId();
+    const workflow = workflowsById().get(launcher.workflowId);
+    if (!tableId || !workflow) return null;
+    return (
+      workflow.plan.inputs.find((input) => input.type === "record" && workflow.plan.bindings[`inputs.${input.name}.table`] === tableId) ??
+      null
+    );
+  };
+  const preferredRowWorkflowLauncher = () => workflowLaunchers().find(rowInputForLauncher) ?? workflowLaunchers()[0] ?? null;
+  const defaultRowWorkflowInputs = (launcher: CustomAppWorkflowLauncher): CustomAppRowAction["inputs"] => {
+    const input = rowInputForLauncher(launcher);
+    return input ? { [input.name]: { source: "ROW", path: "id" } } : {};
+  };
   const recordsNavigationPageOptions = createMemo(() => {
     const tableId = selectedSourceTableId();
     if (!tableId) return [];
@@ -1086,6 +1132,37 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     return persistQueuedDrafts();
   };
 
+  const openWorkflowConfiguration = async (workflowId?: string) => {
+    if (!(await flushAutosave())) {
+      await prompts.error("Save the current App draft before leaving the builder.");
+      return;
+    }
+    const workflow = (workflowId ? workflowsById().get(workflowId) : null) ?? props.catalog.workflows[0];
+    if (workflow) {
+      window.location.assign(
+        `/app/grids/${encodeURIComponent(props.baseShortId)}/workflows/${encodeURIComponent(workflow.shortId)}?edit=true`,
+      );
+      return;
+    }
+    await dialogCore.open<void>(
+      (close) => (
+        <WorkflowEditor
+          baseId={draft.draft().baseId}
+          baseShortId={props.baseShortId}
+          tables={props.catalog.tables}
+          onChanged={(created) => {
+            if (!created) return;
+            window.location.assign(
+              `/app/grids/${encodeURIComponent(props.baseShortId)}/workflows/${encodeURIComponent(created.shortId)}?edit=true`,
+            );
+          }}
+          onClose={close}
+        />
+      ),
+      { ...panelDialogWorkspaceOptions, cancelBehavior: "ignore" },
+    );
+  };
+
   const stopAutosave = async () => {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = undefined;
@@ -1117,6 +1194,81 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     const page = newPage(draft.draft());
     setDefinition((definition) => ({ ...definition, pages: [...definition.pages, page] }));
     selectPage(page.id);
+  };
+
+  const moveStartPageAwayFromSelected = () => {
+    const existing = alternateStartPage();
+    if (existing) {
+      setDefinition((definition) => ({ ...definition, startPageId: existing.id }));
+      return;
+    }
+    const page = { ...newPage(draft.draft()), title: "Home" };
+    setDefinition((definition) => ({ ...definition, startPageId: page.id, pages: [...definition.pages, page] }));
+  };
+
+  const addRecordPageForSelectedSource = () => {
+    const tableId = selectedSourceTableId();
+    const sourceBlock = selectedRecordsBlock();
+    const table = tableId ? tablesById().get(tableId) : null;
+    const fields = selectedSourceRecordFields();
+    if (!tableId || !sourceBlock || !table || fields.length === 0) return;
+
+    const page = newPage(draft.draft());
+    const recordBlock: Extract<CustomAppBlock, { type: "record" }> = {
+      id: localId("record"),
+      type: "record",
+      fieldIds: fields.map((field) => field.id),
+      editableFieldIds: [],
+    };
+    const recordPage: CustomAppPage = {
+      ...page,
+      title: `${table.name} details`,
+      navigation: { ...page.navigation, visible: false },
+      parameters: { record_id: { type: "record", tableId, required: true } },
+      record: { tableId, id: { source: "PARAMS", path: "record_id" } },
+      rows: page.rows.map((row, rowIndex) => ({
+        ...row,
+        columns: row.columns.map((column, columnIndex) => ({
+          ...column,
+          blocks: rowIndex === 0 && columnIndex === 0 ? [recordBlock] : column.blocks,
+        })),
+      })),
+    };
+    const sourcePageId = selectedPage().id;
+    setDefinition((definition) => ({
+      ...definition,
+      pages: [
+        ...definition.pages.map((candidate) =>
+          candidate.id !== sourcePageId
+            ? candidate
+            : {
+                ...candidate,
+                rows: candidate.rows.map((row) => ({
+                  ...row,
+                  columns: row.columns.map((column) => ({
+                    ...column,
+                    blocks: column.blocks.map((block) =>
+                      block.id === sourceBlock.id && block.type === "records"
+                        ? {
+                            ...block,
+                            rowNavigate: {
+                              kind: "navigate" as const,
+                              pageId: recordPage.id,
+                              history: "push" as const,
+                              params: { record_id: { source: "ROW" as const, path: "id" as const } },
+                            },
+                          }
+                        : block,
+                    ),
+                  })),
+                })),
+              },
+        ),
+        recordPage,
+      ],
+    }));
+    selectPage(recordPage.id);
+    selectBlock(recordBlock.id);
   };
 
   const moveSelectedPage = (direction: -1 | 1) =>
@@ -1270,7 +1422,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
   };
 
   const addRowWorkflowAction = () => {
-    const launcher = workflowLaunchers()[0];
+    const launcher = preferredRowWorkflowLauncher();
     if (!launcher) return;
     const action: CustomAppRowAction = {
       id: localId("row-action"),
@@ -1278,7 +1430,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       showLabel: true,
       kind: "workflow",
       launcherId: launcher.id,
-      inputs: {},
+      inputs: defaultRowWorkflowInputs(launcher),
     };
     updateSelectedBlock((block) => (block.type === "records" ? { ...block, rowActions: [...(block.rowActions ?? []), action] } : block));
     selectAction(action.id);
@@ -1443,6 +1595,9 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
               >
                 <AppWorkspace.SidebarItemIcon icon="ti ti-plus" />
                 <AppWorkspace.SidebarItemLabel>New page</AppWorkspace.SidebarItemLabel>
+                <Show when={draft.draft().pages.length >= 12}>
+                  <AppWorkspace.SidebarItemMeta>12 / 12</AppWorkspace.SidebarItemMeta>
+                </Show>
               </AppWorkspace.SidebarItem>
             </AppWorkspace.SidebarSection>
           </AppWorkspace.SidebarBody>
@@ -1629,9 +1784,9 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                   defaultOpen={false}
                 >
                   <div class="flex flex-col gap-3">
-                    <p class="text-xs text-dimmed">
+                    <InlineGuidance>
                       App grants are independent from Base access. Public allows anonymous visitors to open the published app.
-                    </p>
+                    </InlineGuidance>
                     <ScopedPermissionEditor scope={{ type: "customApp", id: app().id }} canEdit />
                   </div>
                 </DetailPanel.Section>
@@ -1671,14 +1826,22 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                   <Show
                     when={draft.draft().startPageId === selectedPage().id}
                     fallback={
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={Object.keys(selectedPage().parameters).length > 0}
-                        onClick={() => setDefinition((definition) => ({ ...definition, startPageId: selectedPage().id }))}
+                      <Show
+                        when={Object.keys(selectedPage().parameters).length === 0}
+                        fallback={
+                          <InlineGuidance tone="warning">
+                            This page requires a record, so it cannot be the start page. Remove its route parameters first.
+                          </InlineGuidance>
+                        }
                       >
-                        Set as start page
-                      </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setDefinition((definition) => ({ ...definition, startPageId: selectedPage().id }))}
+                        >
+                          Set as start page
+                        </Button>
+                      </Show>
                     }
                   >
                     <StatusBadge tone="ok" label="Start page" variant="text" />
@@ -1737,13 +1900,15 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                             >
                               <i class="ti ti-x" aria-hidden="true" /> Remove record parameter
                             </Button>
+                            <Show when={blockingUsage().length > 0}>
+                              <InlineGuidance tone="warning">
+                                This parameter is still used by {blockingUsage().join(", ")}. Remove those references before deleting it.
+                              </InlineGuidance>
+                            </Show>
                           </div>
                         );
                       }}
                     </For>
-                    <Show when={Object.keys(selectedPage().parameters).length === 0}>
-                      <p class="text-sm text-dimmed">This page has no required route values.</p>
-                    </Show>
                     <Button
                       size="sm"
                       variant="secondary"
@@ -1759,6 +1924,19 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                     >
                       <i class="ti ti-plus" aria-hidden="true" /> Add record parameter
                     </Button>
+                    <Show when={props.catalog.tables.length === 0}>
+                      <InlineGuidance tone="danger">
+                        A record parameter needs a table. Create one from the left sidebar first.
+                      </InlineGuidance>
+                    </Show>
+                    <Show when={props.catalog.tables.length > 0 && selectedPage().id === draft.draft().startPageId}>
+                      <InlineGuidance tone="warning">
+                        Start pages open without a required record.{" "}
+                        <Button variant="text" size="xs" onClick={moveStartPageAwayFromSelected}>
+                          {alternateStartPage() ? `Make “${alternateStartPage()!.title}” the start page` : "Create a new start page"}
+                        </Button>
+                      </InlineGuidance>
+                    </Show>
                   </div>
                 </DetailPanel.Section>
                 <CustomAppAvailabilitySection
@@ -1887,7 +2065,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                       <DetailPanel.Section
                         title="Actions"
                         icon="ti ti-bolt"
-                        description="Open another page or run a published workflow launcher."
+                        description="Open another page or run an available App workflow."
                         collapsible
                         defaultOpen
                       >
@@ -1933,7 +2111,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                               disabled={workflowLaunchers().length === 0 || (selectedActionsBlock()?.actions.length ?? 0) >= 12}
                               title={
                                 workflowLaunchers().length === 0
-                                  ? "Create an active App workflow launcher first."
+                                  ? "Add an enabled App run option first."
                                   : (selectedActionsBlock()?.actions.length ?? 0) >= 12
                                     ? "Actions blocks support up to 12 actions."
                                     : undefined
@@ -1942,8 +2120,19 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                               <i class="ti ti-player-play" aria-hidden="true" /> Add workflow
                             </Button>
                           </div>
-                          <Show when={workflowLaunchers().length === 0}>
-                            <p class="text-xs text-dimmed">Create an active App workflow launcher to add workflow actions.</p>
+                          <Show
+                            when={(selectedActionsBlock()?.actions.length ?? 0) >= 12}
+                            fallback={
+                              <Show when={workflowLaunchers().length === 0}>
+                                <WorkflowPrerequisiteGuidance
+                                  hasWorkflows={props.catalog.workflows.length > 0}
+                                  kind="action"
+                                  onOpen={() => void openWorkflowConfiguration()}
+                                />
+                              </Show>
+                            }
+                          >
+                            <InlineGuidance>This Actions block already has the maximum of 12 actions.</InlineGuidance>
                           </Show>
                         </div>
                       </DetailPanel.Section>
@@ -2193,17 +2382,22 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                             <Show
                               when={recordsNavigationPageOptions().length > 0}
                               fallback={
-                                <Placeholder
-                                  state="empty"
-                                  variant="compact"
-                                  align="left"
-                                  title="Row navigation is not configured"
-                                  description={
-                                    selectedSourceTableId()
-                                      ? `Add a record parameter for ${tablesById().get(selectedSourceTableId()!)?.name ?? "this table"} to another page first.`
-                                      : "Use a valid row query or saved view so Grids can match rows to a record page."
-                                  }
-                                />
+                                <InlineGuidance tone={selectedSourceTableId() ? "info" : "warning"}>
+                                  <Show
+                                    when={selectedSourceTableId()}
+                                    fallback="Use a valid row query or saved view before configuring row navigation."
+                                  >
+                                    Rows need a record page for {tablesById().get(selectedSourceTableId()!)?.name ?? "this table"}.{" "}
+                                    <Show
+                                      when={selectedSourceRecordFields().length > 0}
+                                      fallback="Add at least one field to the table before creating its record page."
+                                    >
+                                      <Button variant="text" size="xs" onClick={addRecordPageForSelectedSource}>
+                                        Create and connect record page
+                                      </Button>
+                                    </Show>
+                                  </Show>
+                                </InlineGuidance>
                               }
                             >
                               <Select
@@ -2283,7 +2477,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                               disabled={workflowLaunchers().length === 0 || (selectedRecordsBlock()?.rowActions?.length ?? 0) >= 6}
                               title={
                                 workflowLaunchers().length === 0
-                                  ? "Create an active App workflow launcher first."
+                                  ? "Add an enabled App run option first."
                                   : (selectedRecordsBlock()?.rowActions?.length ?? 0) >= 6
                                     ? "Records tables support up to 6 row actions."
                                     : undefined
@@ -2291,6 +2485,23 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                             >
                               <i class="ti ti-player-play" aria-hidden="true" /> Add row action
                             </Button>
+                            <Show
+                              when={(selectedRecordsBlock()?.rowActions?.length ?? 0) >= 6}
+                              fallback={
+                                <Show when={workflowLaunchers().length === 0}>
+                                  <WorkflowPrerequisiteGuidance
+                                    hasWorkflows={props.catalog.workflows.length > 0}
+                                    kind="row"
+                                    rowTableName={
+                                      selectedSourceTableId() ? (tablesById().get(selectedSourceTableId()!)?.name ?? "matching") : null
+                                    }
+                                    onOpen={() => void openWorkflowConfiguration()}
+                                  />
+                                </Show>
+                              }
+                            >
+                              <InlineGuidance>This Records table already has the maximum of 6 row actions.</InlineGuidance>
+                            </Show>
                           </div>
                         </DetailPanel.Section>
                       </Show>
@@ -2328,92 +2539,91 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                         />
                       </DetailPanel.Section>
                       <Show when={selectedForm()}>
-                        <DetailPanel.Section
-                          title="Values supplied by this page"
-                          icon="ti ti-input-check"
-                          description="Hide Form inputs and provide trusted values from this page."
-                          collapsible
-                          defaultOpen={Object.keys(selectedFormBlock()?.fixedValues ?? {}).length > 0}
-                        >
-                          <div class="flex flex-col gap-3">
-                            <p class="text-xs text-dimmed">
-                              Supplied values are hidden from the Form and injected again by the server when it is submitted.
-                            </p>
-                            <For each={selectedFormBindingOptions()}>
-                              {(binding) => {
-                                const current = () => selectedFormBlock()?.fixedValues[binding.field.id];
-                                const literal = () => {
-                                  const value = current();
-                                  return value?.source === "LITERAL" ? value : null;
-                                };
-                                const sourceOptions = () => [
-                                  { id: "LITERAL", label: "Fixed value" },
-                                  ...(binding.targetTableId && selectedPage().record?.tableId === binding.targetTableId
-                                    ? [{ id: "RECORD", label: "Current page record" }]
-                                    : []),
-                                  ...(binding.targetTableId
-                                    ? Object.entries(selectedPage().parameters)
-                                        .filter(([, parameter]) => parameter.tableId === binding.targetTableId)
-                                        .map(([parameterId]) => ({ id: `PARAMS:${parameterId}`, label: `@params.${parameterId}` }))
-                                    : []),
-                                ];
-                                return (
-                                  <div class="flex flex-col gap-2">
-                                    <Select
-                                      label={binding.label}
-                                      placeholder="Ask in Form"
-                                      clearable
-                                      value={() => {
-                                        const value = current();
-                                        return value?.source === "PARAMS" ? `PARAMS:${value.path}` : (value?.source ?? null);
-                                      }}
-                                      options={sourceOptions()}
-                                      onValueChange={(source) =>
-                                        updateSelectedBlock((block) => {
-                                          if (block.type !== "form") return block;
-                                          const fixedValues = { ...block.fixedValues };
-                                          if (!source) delete fixedValues[binding.field.id];
-                                          else if (source === "RECORD") fixedValues[binding.field.id] = { source: "RECORD", path: "id" };
-                                          else if (source.startsWith("PARAMS:")) {
-                                            fixedValues[binding.field.id] = {
-                                              source: "PARAMS",
-                                              path: source.slice("PARAMS:".length),
-                                            };
-                                          } else fixedValues[binding.field.id] = { source: "LITERAL", value: null };
-                                          return { ...block, fixedValues };
-                                        })
-                                      }
-                                    />
-                                    <Show when={literal()}>
-                                      {(value) => (
-                                        <JsonValueInput
-                                          label={`${binding.label} value`}
-                                          value={value().value}
-                                          onValueChange={(next) =>
-                                            updateSelectedBlock((block) =>
-                                              block.type === "form"
-                                                ? {
-                                                    ...block,
-                                                    fixedValues: {
-                                                      ...block.fixedValues,
-                                                      [binding.field.id]: { source: "LITERAL", value: next },
-                                                    },
-                                                  }
-                                                : block,
-                                            )
-                                          }
-                                        />
-                                      )}
-                                    </Show>
-                                  </div>
-                                );
-                              }}
-                            </For>
-                            <Show when={selectedFormBindingOptions().length === 0}>
-                              <p class="text-sm text-dimmed">This Form has no user-input fields that can be supplied.</p>
-                            </Show>
-                          </div>
-                        </DetailPanel.Section>
+                        <Show when={selectedFormBindingOptions().length > 0}>
+                          <DetailPanel.Section
+                            title="Values supplied by this page"
+                            icon="ti ti-input-check"
+                            description="Hide Form inputs and provide trusted values from this page."
+                            collapsible
+                            defaultOpen={Object.keys(selectedFormBlock()?.fixedValues ?? {}).length > 0}
+                          >
+                            <div class="flex flex-col gap-3">
+                              <InlineGuidance>
+                                Supplied values are hidden from the Form and injected again by the server when it is submitted.
+                              </InlineGuidance>
+                              <For each={selectedFormBindingOptions()}>
+                                {(binding) => {
+                                  const current = () => selectedFormBlock()?.fixedValues[binding.field.id];
+                                  const literal = () => {
+                                    const value = current();
+                                    return value?.source === "LITERAL" ? value : null;
+                                  };
+                                  const sourceOptions = () => [
+                                    { id: "LITERAL", label: "Fixed value" },
+                                    ...(binding.targetTableId && selectedPage().record?.tableId === binding.targetTableId
+                                      ? [{ id: "RECORD", label: "Current page record" }]
+                                      : []),
+                                    ...(binding.targetTableId
+                                      ? Object.entries(selectedPage().parameters)
+                                          .filter(([, parameter]) => parameter.tableId === binding.targetTableId)
+                                          .map(([parameterId]) => ({ id: `PARAMS:${parameterId}`, label: `@params.${parameterId}` }))
+                                      : []),
+                                  ];
+                                  return (
+                                    <div class="flex flex-col gap-2">
+                                      <Select
+                                        label={binding.label}
+                                        placeholder="Ask in Form"
+                                        clearable
+                                        value={() => {
+                                          const value = current();
+                                          return value?.source === "PARAMS" ? `PARAMS:${value.path}` : (value?.source ?? null);
+                                        }}
+                                        options={sourceOptions()}
+                                        onValueChange={(source) =>
+                                          updateSelectedBlock((block) => {
+                                            if (block.type !== "form") return block;
+                                            const fixedValues = { ...block.fixedValues };
+                                            if (!source) delete fixedValues[binding.field.id];
+                                            else if (source === "RECORD") fixedValues[binding.field.id] = { source: "RECORD", path: "id" };
+                                            else if (source.startsWith("PARAMS:")) {
+                                              fixedValues[binding.field.id] = {
+                                                source: "PARAMS",
+                                                path: source.slice("PARAMS:".length),
+                                              };
+                                            } else fixedValues[binding.field.id] = { source: "LITERAL", value: null };
+                                            return { ...block, fixedValues };
+                                          })
+                                        }
+                                      />
+                                      <Show when={literal()}>
+                                        {(value) => (
+                                          <JsonValueInput
+                                            label={`${binding.label} value`}
+                                            value={value().value}
+                                            onValueChange={(next) =>
+                                              updateSelectedBlock((block) =>
+                                                block.type === "form"
+                                                  ? {
+                                                      ...block,
+                                                      fixedValues: {
+                                                        ...block.fixedValues,
+                                                        [binding.field.id]: { source: "LITERAL", value: next },
+                                                      },
+                                                    }
+                                                  : block,
+                                              )
+                                            }
+                                          />
+                                        )}
+                                      </Show>
+                                    </div>
+                                  );
+                                }}
+                              </For>
+                            </div>
+                          </DetailPanel.Section>
+                        </Show>
                         <DetailPanel.Section
                           title="After submission"
                           icon="ti ti-arrow-forward-up"
@@ -2570,13 +2780,13 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                         <Show
                           when={documentTemplateOptions().length > 0}
                           fallback={
-                            <Placeholder
-                              state="empty"
-                              variant="compact"
-                              align="left"
-                              title="No document templates"
-                              description="Enable a document template for this record table first."
-                            />
+                            <InlineGuidance tone="info">
+                              This block shows documents already generated for the page record. Create and enable a document template for
+                              this table, then generate documents from a workflow.{" "}
+                              <ButtonLink variant="text" size="xs" href="/app/grids/help/grids-documents-pdfs">
+                                Read the document guide
+                              </ButtonLink>
+                            </InlineGuidance>
                           }
                         >
                           <MultiSelectInput
@@ -2803,14 +3013,9 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                       collapsible
                       defaultOpen={false}
                     >
-                      <div class="flex flex-col items-start gap-2">
-                        <Button size="sm" variant="danger" disabled={blockCount() === 1} onClick={() => void removeSelectedBlock()}>
-                          <i class="ti ti-trash" aria-hidden="true" /> Remove block
-                        </Button>
-                        <Show when={blockCount() === 1}>
-                          <p class="text-xs text-dimmed">A page needs at least one block.</p>
-                        </Show>
-                      </div>
+                      <Button size="sm" variant="danger" disabled={blockCount() === 1} onClick={() => void removeSelectedBlock()}>
+                        <i class="ti ti-trash" aria-hidden="true" /> Remove block
+                      </Button>
                     </DetailPanel.Section>
                   </DetailPanel.Group>
                 </>
@@ -2887,8 +3092,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                                   id: "workflow",
                                   label: "Run workflow",
                                   icon: "ti ti-player-play",
-                                  description:
-                                    workflowLaunchers().length === 0 ? "No active App workflow launcher is available." : undefined,
+                                  description: workflowLaunchers().length === 0 ? "No enabled App run option is available." : undefined,
                                   disabled: workflowLaunchers().length === 0,
                                 },
                               ]}
@@ -2924,6 +3128,13 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                                 }
                               }}
                             />
+                            <Show when={workflowLaunchers().length === 0}>
+                              <WorkflowPrerequisiteGuidance
+                                hasWorkflows={props.catalog.workflows.length > 0}
+                                kind="action"
+                                onOpen={() => void openWorkflowConfiguration()}
+                              />
+                            </Show>
                           </Show>
                         </div>
                       </DetailPanel.Section>
@@ -3013,19 +3224,42 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                           >
                             <div class="flex flex-col gap-3">
                               <Select
-                                label="Launcher"
+                                label="App run option"
                                 searchable
                                 value={() => workflowAction().launcherId}
                                 options={workflowLauncherOptions()}
                                 onValueChange={(launcherId) =>
                                   launcherId &&
-                                  updateSelectedAction((action) =>
-                                    action.kind === "workflow" ? { ...action, launcherId, inputs: {} } : action,
-                                  )
+                                  updateSelectedAction((action) => {
+                                    if (action.kind !== "workflow") return action;
+                                    const launcher = workflowLaunchers().find((candidate) => candidate.id === launcherId);
+                                    if ("showLabel" in action) {
+                                      return {
+                                        ...action,
+                                        launcherId,
+                                        inputs: launcher ? defaultRowWorkflowInputs(launcher) : {},
+                                      };
+                                    }
+                                    return { ...action, launcherId, inputs: {} };
+                                  })
                                 }
                               />
                               <Show when={selectedLauncher()?.config.inputMode === "fixed"}>
-                                <p class="text-sm text-dimmed">This launcher supplies its own fixed workflow inputs.</p>
+                                <InlineGuidance>This App run option supplies its own fixed workflow inputs.</InlineGuidance>
+                              </Show>
+                              <Show when={selected().owner === "rows" && selectedLauncher() && !rowInputForLauncher(selectedLauncher()!)}>
+                                <InlineGuidance tone="warning">
+                                  This run option does not accept the selected{" "}
+                                  {selectedSourceTableId() ? (tablesById().get(selectedSourceTableId()!)?.name ?? "table") : "table"} row.
+                                  Use a prompt run option with a matching record input if the workflow should act on that row.{" "}
+                                  <Button
+                                    variant="text"
+                                    size="xs"
+                                    onClick={() => void openWorkflowConfiguration(selectedLauncher()?.workflowId)}
+                                  >
+                                    Open workflow
+                                  </Button>
+                                </InlineGuidance>
                               </Show>
                               <Show when={selectedLauncher()?.config.inputMode === "prompt"}>
                                 <For each={selectedWorkflow()?.plan.inputs ?? []}>
@@ -3069,6 +3303,11 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                                             return value.source === "PARAMS" ? `PARAMS:${value.path}` : value.source;
                                           }}
                                           options={sourceOptions()}
+                                          error={() =>
+                                            !inputValue() && input.config.required
+                                              ? "Choose where this required workflow input comes from."
+                                              : diagnosticFor(selected().action.id, input.name)
+                                          }
                                           onValueChange={(source) =>
                                             updateSelectedAction((action) => {
                                               if (action.kind !== "workflow") return action;

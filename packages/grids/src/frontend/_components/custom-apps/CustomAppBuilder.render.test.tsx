@@ -577,6 +577,12 @@ describe("CustomAppBuilder", () => {
     expect(source).toContain("disabled={!selected().action.icon}");
     expect(source).toContain("view and download existing documents");
     expect(source).toContain("available only to signed-in app readers");
+    expect(source).toContain("WorkflowPrerequisiteGuidance");
+    expect(source).toContain("Create and connect record page");
+    expect(source).toContain("Start pages open without a required record");
+    expect(source).toContain("Supplied values are hidden from the Form and injected again by the server");
+    expect(source).toContain("openWorkflowConfiguration(selectedLauncher()?.workflowId)");
+    expect(source).not.toContain("<Placeholder");
     expect(source).not.toContain("Resolved fields appear after the GQL preview succeeds.");
     expect(source).toContain('<DetailPanel.Group label="Form settings">');
     expect(source).toContain('title="Values supplied by this page"');
