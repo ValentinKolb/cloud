@@ -13,7 +13,7 @@ import {
 } from "@valentinkolb/cloud/contracts";
 import { type AuditActor, audit, weatherService } from "@valentinkolb/cloud/services";
 import { z } from "zod";
-import { CurrentWeatherSchema, WeatherDataSchema, WeatherIconSchema } from "./contracts";
+import { CurrentWeatherSchema, WeatherDataSchema, WeatherIconSchema, WeatherLocationIdSchema } from "./contracts";
 
 const MAX_CURSOR_OFFSET = 10_000;
 
@@ -33,7 +33,7 @@ const citySearchUnavailable = <T>(): CapabilityInvocationResult<T> =>
 
 const LocationSchema = z
   .object({
-    id: z.uuid(),
+    id: WeatherLocationIdSchema,
     name: z.string().trim().min(1).max(120),
     state: z.string().trim().min(1).max(120).nullable(),
     lat: z.number().finite().min(-90).max(90),
@@ -51,13 +51,13 @@ const LocationListInputSchema = z
 
 const LocationReadInputSchema = z
   .object({
-    id: z.uuid().describe("Stable UUID of the saved weather location."),
+    id: WeatherLocationIdSchema.describe("Stable readable ID of the saved weather location."),
   })
   .strict();
 
 const LocationTargetInputSchema = z
   .object({
-    locationId: z.uuid().describe("Stable UUID of the saved weather location."),
+    locationId: WeatherLocationIdSchema.describe("Stable readable ID of the saved weather location."),
   })
   .strict();
 
@@ -65,7 +65,7 @@ const ForecastSourceSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("saved").describe("Use a saved location owned by the current user."),
-      locationId: z.uuid().describe("Stable UUID of the saved weather location."),
+      locationId: WeatherLocationIdSchema.describe("Stable readable ID of the saved weather location."),
     })
     .strict(),
   z
@@ -115,7 +115,7 @@ const LocationCreateInputSchema = z
 
 const LocationDeleteDataSchema = z
   .object({
-    locationId: z.uuid(),
+    locationId: WeatherLocationIdSchema,
     deleted: z.literal(true),
   })
   .strict();
@@ -455,7 +455,7 @@ export const weatherCapabilities = defineCapabilities({
     },
     "location.read": {
       title: "Read saved weather location",
-      description: "Read one saved weather location owned by the current user by stable UUID.",
+      description: "Read one saved weather location owned by the current user by stable readable ID.",
       input: LocationReadInputSchema,
       data: LocationSchema,
       openWorld: false,

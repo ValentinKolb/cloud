@@ -1,6 +1,7 @@
 import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { logger } from "../logging";
+import { withWeatherLocationShortId } from "./short-id";
 
 const log = logger("weather");
 
@@ -25,12 +26,19 @@ const create = async (config: {
   };
 }): Promise<Result<Location>> => {
   try {
-    const [location] = await sql`
-      INSERT INTO weather_locations (user_id, name, state, lat, lon)
-      VALUES (${config.userId}, ${config.data.name}, ${config.data.state ?? null}, ${config.data.lat}, ${config.data.lon})
-      RETURNING id, name, state, lat, lon
-    `;
-    return ok(location as Location);
+    const location = await sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext('cloud.weather.location-short-id-backfill'))`;
+      return withWeatherLocationShortId(async (shortId) => {
+        const [row] = await tx`
+          INSERT INTO weather_locations (short_id, user_id, name, state, lat, lon)
+          VALUES (${shortId}, ${config.userId}, ${config.data.name}, ${config.data.state ?? null}, ${config.data.lat}, ${config.data.lon})
+          ON CONFLICT (short_id) DO NOTHING
+          RETURNING short_id AS id, name, state, lat, lon
+        `;
+        return (row as Location | undefined) ?? null;
+      });
+    });
+    return ok(location);
   } catch (error) {
     log.error("Failed to create location", {
       error: error instanceof Error ? error.message : String(error),
@@ -46,8 +54,8 @@ const remove = async (config: { id: string; userId: string }): Promise<Result<vo
   try {
     const result = await sql`
       DELETE FROM weather_locations
-      WHERE id = ${config.id}::uuid AND user_id = ${config.userId}
-      RETURNING id
+      WHERE short_id = ${config.id} AND user_id = ${config.userId}
+      RETURNING short_id
     `;
 
     if (result.length === 0) {
@@ -85,7 +93,7 @@ const list = async (config: { userId: string; pagination?: PageParams; filter?: 
   `;
 
   const items = (await sql`
-    SELECT id, name, state, lat, lon
+    SELECT short_id AS id, name, state, lat, lon
     FROM weather_locations
     WHERE user_id = ${config.userId}
       AND ${queryMatch}
@@ -110,9 +118,9 @@ const list = async (config: { userId: string; pagination?: PageParams; filter?: 
  */
 const get = async (config: { id: string; userId: string }): Promise<Location | null> => {
   const [location] = await sql`
-    SELECT id, name, state, lat, lon
+    SELECT short_id AS id, name, state, lat, lon
     FROM weather_locations
-    WHERE id = ${config.id}::uuid AND user_id = ${config.userId}
+    WHERE short_id = ${config.id} AND user_id = ${config.userId}
   `;
   return (location as Location) ?? null;
 };

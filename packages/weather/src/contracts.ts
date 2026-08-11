@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const WeatherLocationIdSchema = z.string().regex(/^[0-9A-Za-z]{6}$/);
+
 export const WeatherIconSchema = z.enum([
   "clear-day",
   "clear-night",

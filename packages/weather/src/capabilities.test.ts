@@ -6,7 +6,8 @@ import { decodeWeatherCapabilityCursor, weatherCapabilities } from "./capabiliti
 import { CurrentWeatherSchema } from "./contracts";
 
 const userId = "11111111-1111-4111-8111-111111111111";
-const locationId = "22222222-2222-4222-8222-222222222222";
+const locationId = "Wthr01";
+const legacyLocationUuid = "22222222-2222-4222-8222-222222222222";
 
 test("keeps permanent location deletion on fresh approval", () => {
   const rememberable = (Object.values(weatherCapabilities.actions) as CapabilityActionDefinition[]).filter(
@@ -53,7 +54,7 @@ const serviceAccountContext = {
       delegatedUserId: null,
       appId: "weather",
       resourceType: "location",
-      resourceId: locationId,
+      resourceId: legacyLocationUuid,
       createdBy: null,
       createdAt: "2026-08-01T00:00:00.000Z",
     },
@@ -135,6 +136,8 @@ describe("weather capabilities", () => {
         source: { kind: "saved", locationId },
       }).success,
     ).toBeTrue();
+    expect(weatherCapabilities.queries["location.read"].input.safeParse({ id: legacyLocationUuid }).success).toBeFalse();
+    expect(weatherCapabilities.actions["location.delete"].input.safeParse({ locationId: legacyLocationUuid }).success).toBeFalse();
     expect(
       weatherCapabilities.actions["location.create"].input.safeParse({
         name: location.name,

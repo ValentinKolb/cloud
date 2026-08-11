@@ -4,7 +4,7 @@ import { weatherService } from "@valentinkolb/cloud/services";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { CurrentWeatherSchema, WeatherDataSchema } from "../contracts";
+import { CurrentWeatherSchema, WeatherDataSchema, WeatherLocationIdSchema } from "../contracts";
 import { weatherSettingsRouter } from "./settings";
 import widgetRoutes from "./widgets";
 
@@ -30,7 +30,7 @@ const MessageResponseSchema = z.object({
 });
 
 const LocationSchema = z.object({
-  id: z.uuid(),
+  id: WeatherLocationIdSchema,
   name: z.string(),
   state: z.string().nullable(),
   lat: z.number(),
@@ -50,7 +50,7 @@ const CreateLocationSchema = z.object({
 });
 
 const LocationParamSchema = z.object({
-  id: z.uuid(),
+  id: WeatherLocationIdSchema,
 });
 
 const GeoResultSchema = z.object({
