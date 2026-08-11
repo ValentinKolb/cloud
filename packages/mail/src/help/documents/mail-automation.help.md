@@ -61,7 +61,7 @@ The platform workflow model is used automatically; Mail does not expose a separa
 ## Configure an automatic reply {icon="send"}
 
 :::steps
-1. Ask a mailbox admin to verify an identity and enable **Automatic replies** for it under **Settings > Delivery > Sending identities**.
+1. Ask a mailbox admin to verify an identity and enable **Automatic replies** for it under **Settings > Accounts & identities > Sending identities**.
 2. Open **Automations > Automatic replies**.
 3. Select **Add automatic reply**.
 4. Choose **Out of office**, **Office-hours acknowledgement**, **Reference acknowledgement**, or **Custom automatic reply**.

@@ -153,11 +153,23 @@ export type SettingsFieldProps = {
   description: string;
   error: MaybeAccessor<string | undefined>;
   changed?: MaybeAccessor<boolean>;
-  children: JSX.Element;
+  children: JSX.Element | ((control: SettingsFieldControlProps) => JSX.Element);
   class?: string;
 };
 
+export type SettingsFieldControlProps = {
+  describedBy: () => string;
+};
+
 export function SettingsField(props: SettingsFieldProps): JSX.Element {
+  const id = createUniqueId();
+  const descriptionId = `k2b-settings-field-${id}-description`;
+  const errorId = `k2b-settings-field-${id}-error`;
+  const describedBy = () => (read(props.error) ? `${descriptionId} ${errorId}` : descriptionId);
+  const control = () =>
+    typeof props.children === "function"
+      ? (props.children as (control: SettingsFieldControlProps) => JSX.Element)({ describedBy })
+      : props.children;
   return (
     <div class={`k2b-settings-field ${props.class ?? ""}`}>
       <div class="k2b-settings-field__copy">
@@ -167,12 +179,12 @@ export function SettingsField(props: SettingsFieldProps): JSX.Element {
             <span>Unsaved</span>
           </Show>
         </div>
-        <p>{props.description}</p>
+        <p id={descriptionId}>{props.description}</p>
       </div>
-      {props.children}
+      {control()}
       <Show when={read(props.error)}>
         {(error) => (
-          <p class="k2b-settings-field__error" role="alert">
+          <p id={errorId} class="k2b-settings-field__error" role="alert">
             <i class="ti ti-alert-circle" aria-hidden="true" /> {error()}
           </p>
         )}
@@ -184,6 +196,7 @@ export function SettingsField(props: SettingsFieldProps): JSX.Element {
 export type SettingsSaveBarProps = {
   changeCount: MaybeAccessor<number>;
   loading: MaybeAccessor<boolean>;
+  saveDisabled?: MaybeAccessor<boolean>;
   onDiscard: () => void;
   onSave: () => void;
   saveLabel?: string;
@@ -199,6 +212,7 @@ const SettingsActions = (
   const changeCount = () => read(props.changeCount);
   const loading = () => read(props.loading);
   const disabled = () => loading() || Boolean(props.disableWithoutChanges && changeCount() === 0);
+  const saveDisabled = () => disabled() || Boolean(props.saveDisabled !== undefined && read(props.saveDisabled));
   return (
     <div class="k2b-settings-actions">
       <Button variant="secondary" disabled={disabled()} onClick={props.onDiscard}>
@@ -208,7 +222,7 @@ const SettingsActions = (
         variant={props.saveVariant ?? "primary"}
         loading={loading()}
         loadingLabel="Saving"
-        disabled={disabled()}
+        disabled={saveDisabled()}
         onClick={props.onSave}
       >
         <i class="ti ti-device-floppy" aria-hidden="true" />
@@ -223,7 +237,7 @@ export function SettingsSaveBar(props: SettingsSaveBarProps): JSX.Element {
   return (
     <Show when={changeCount() > 0}>
       <div class={`k2b-settings-save-bar ${props.class ?? ""}`}>
-        <p>
+        <p role="status" aria-live="polite">
           <strong>{changeCount()}</strong> unsaved change{changeCount() === 1 ? "" : "s"}
         </p>
         <SettingsActions {...props} />
@@ -238,7 +252,7 @@ export function SettingsPanelFooter(props: SettingsPanelFooterProps): JSX.Elemen
   const changeCount = () => read(props.changeCount);
   return (
     <>
-      <p class="k2b-settings-panel-footer__status">
+      <p class="k2b-settings-panel-footer__status" role="status" aria-live="polite">
         <Show when={changeCount() > 0} fallback="No unsaved changes">
           <strong>{changeCount()}</strong> unsaved change{changeCount() === 1 ? "" : "s"}
         </Show>

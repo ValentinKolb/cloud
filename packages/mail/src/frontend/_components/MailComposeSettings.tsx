@@ -6,11 +6,12 @@ import {
   IconButton,
   MarkdownEditor,
   PanelDialog,
-  Placeholder,
   panelDialogFixedOptions,
   panelDialogOptions,
   prompts,
   Select,
+  SettingsCollection,
+  SettingsGroup,
   TextInput,
   toast,
 } from "@k2b/ui";
@@ -490,65 +491,44 @@ export default function MailComposeSettings(props: {
 
   return (
     <div class="flex flex-col gap-6">
-      <section>
-        <div class="mb-2 flex items-start justify-between gap-3">
-          <div>
-            <h3 class="text-sm font-semibold text-primary">Signatures and snippets</h3>
-            <p class="mt-0.5 text-xs text-dimmed">
-              Use slash commands while writing. Mailbox templates are shared; private templates remain yours.
-            </p>
-          </div>
+      <SettingsCollection
+        title="Signatures and snippets"
+        description="Use slash commands while writing. Mailbox templates are shared; private templates remain yours."
+        empty="No signatures or snippets yet."
+      >
+        <SettingsCollection.Action>
           <Button variant="secondary" size="sm" type="button" class="shrink-0" onClick={() => void openTemplate()}>
             <i class="ti ti-plus" aria-hidden="true" /> Add template
           </Button>
-        </div>
-        <Show
-          when={templates().length > 0}
-          fallback={
-            <Placeholder
-              title="No compose templates"
-              description="Add a signature or snippet to make recurring mail faster."
-              icon="ti ti-template"
-            />
-          }
-        >
-          <div class="flex flex-col gap-1">
-            <For each={templates()}>
-              {(template) => (
-                <div class="group flex min-h-12 items-center gap-3 rounded-[var(--ui-radius-control)] px-2 py-2 hover:bg-[var(--ui-hover)]">
-                  <i class={`ti ${template.kind === "signature" ? "ti-signature" : "ti-bolt"} text-dimmed`} aria-hidden="true" />
-                  <div class="min-w-0 flex-1">
-                    <div class="flex min-w-0 items-center gap-2">
-                      <span class="truncate text-sm font-medium text-primary">{template.name}</span>
-                      <span class="chip text-xs">{template.kind === "signature" ? "Signature" : "Snippet"}</span>
-                      <span class="chip text-xs">{template.scope === "mailbox" ? "Mailbox" : "Private"}</span>
-                    </div>
-                    <p class="truncate text-xs text-dimmed">/{template.shortcut}</p>
-                  </div>
-                  <Show when={template.scope === "private" || props.permission === "admin"}>
-                    <IconButton
-                      type="button"
-                      class="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
-                      label={`Edit ${template.name}`}
-                      onClick={() => void openTemplate(template)}
-                    >
-                      <i class="ti ti-pencil" aria-hidden="true" />
-                    </IconButton>
-                  </Show>
-                </div>
-              )}
-            </For>
-          </div>
-        </Show>
-      </section>
+        </SettingsCollection.Action>
+        <For each={templates()}>
+          {(template) => (
+            <SettingsCollection.Item
+              title={template.name}
+              description={`/${template.shortcut}`}
+              icon={<i class={`ti ${template.kind === "signature" ? "ti-signature" : "ti-bolt"}`} aria-hidden="true" />}
+            >
+              <SettingsCollection.Item.Status>
+                <span class="chip text-xs">{template.kind === "signature" ? "Signature" : "Snippet"}</span>
+                <span class="chip text-xs">{template.scope === "mailbox" ? "Mailbox" : "Private"}</span>
+              </SettingsCollection.Item.Status>
+              <Show when={template.scope === "private" || props.permission === "admin"}>
+                <SettingsCollection.Item.Actions>
+                  <IconButton type="button" label={`Edit ${template.name}`} onClick={() => void openTemplate(template)}>
+                    <i class="ti ti-pencil" aria-hidden="true" />
+                  </IconButton>
+                </SettingsCollection.Item.Actions>
+              </Show>
+            </SettingsCollection.Item>
+          )}
+        </For>
+      </SettingsCollection>
 
       <Show when={signatures().length > 0 && props.identities.length > 0}>
-        <section>
-          <h3 class="text-sm font-semibold text-primary">Personal signature overrides</h3>
-          <p class="mb-2 mt-0.5 text-xs text-dimmed">
-            Override an identity's mailbox signature only for yourself. Changes apply immediately. Identity defaults are managed under
-            Delivery.
-          </p>
+        <SettingsGroup
+          title="My signature overrides"
+          description="Override an identity's mailbox signature only for yourself. Changes apply immediately."
+        >
           <div class="flex flex-col gap-3">
             <For each={props.identities.filter((identity) => identity.status === "verified")}>
               {(identity) => {
@@ -572,22 +552,18 @@ export default function MailComposeSettings(props: {
               }}
             </For>
           </div>
-        </section>
+        </SettingsGroup>
       </Show>
 
       <Show when={props.permission === "admin"}>
-        <section>
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <h3 class="text-sm font-semibold text-primary">Email design</h3>
-              <p class="mt-0.5 text-xs text-dimmed">Preview and adjust mailbox branding for Markdown messages.</p>
-            </div>
+        <SettingsGroup title="Email design" description="Preview and adjust mailbox branding for Markdown messages.">
+          <SettingsGroup.Action>
             <Button variant="secondary" size="sm" type="button" class="shrink-0" onClick={() => void openEmailDesign()}>
               <i class="ti ti-palette" aria-hidden="true" />
               Edit design
             </Button>
-          </div>
-        </section>
+          </SettingsGroup.Action>
+        </SettingsGroup>
       </Show>
     </div>
   );

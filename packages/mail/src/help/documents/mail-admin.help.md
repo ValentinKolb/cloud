@@ -14,11 +14,11 @@ Settings are grouped by intent:
 
 - **Reading** is available to every mailbox reader and controls whether this browser shows safe HTML, plain text, or adapts to the current theme.
 - **Organization** is available to readers for private saved views. Writers can also create shared views and mailbox tags.
-- **Mailbox** is the first category for administrators and controls the shared name and description.
+- **General** is the first administrator category and controls the shared identity and sending safeguards.
 - **Writing** is available to writers and administrators. It contains personal writing preferences, templates, signature defaults, and the email-design editor. Mailbox-wide content and design require Admin access.
-- **Mailbox**, **Delivery**, **Folders**, **Access**, and **Danger zone** are available only to mailbox administrators.
+- **General**, **Accounts & identities**, **Calendar invitations**, **Folders**, **Access**, and **Danger zone** are available only to mailbox administrators.
 
-Under **Settings > Mailbox**, **Calendar invitations** can suggest one writable Space when you import invitations. Mail stores this mailbox-wide preference and Spaces returns only destinations the current user may write. It does not import mail automatically, and every invitation can target another writable Space. Clearing the selection is safe. If the Space is deleted or access is revoked, Mail treats the default as unset.
+Under **Settings > Calendar invitations**, choose one writable Space as the suggested destination when you import invitations. Mail stores this mailbox-wide preference and Spaces returns only destinations the current user may write. It does not import mail automatically, and every invitation can target another writable Space. Clearing the selection is safe. If the Space is deleted or access is revoked, Mail treats the default as unset.
 
 Operational status and public attachment links are separate from configuration. Open them from **Mailbox tools** in the mailbox navigation.
 
@@ -46,7 +46,7 @@ Cloud administrators can review the same redacted aggregate under **Administrati
 
 ## Manage the provider connection {icon="user-cog"}
 
-**Settings > Delivery > Connected account** contains the current incoming- and outgoing-mail credential. Mail verifies both protocols before storing a new or replacement credential.
+**Settings > Accounts & identities > Connected account** contains the current incoming- and outgoing-mail credential. Mail verifies both protocols before storing a new or replacement credential.
 
 Use **Find settings** as the normal starting point. Open **Manual server settings** only when discovery is unavailable or incorrect. When the deployment has a matching Google or Microsoft OAuth client, continue in the provider's browser authorization screen. Access and refresh tokens are encrypted and never displayed. Use **Reconnect** after consent is revoked; use **Replace** for manual passwords, app passwords, or tokens.
 
@@ -56,7 +56,7 @@ Removing the connection disconnects transport. It does not delete provider mail 
 
 ## Manage sending identities {icon="send"}
 
-**Settings > Delivery > Sending identities** controls the sending contexts available to collaborators. Use separate identities when the same address needs different defaults for roles such as private mail, university work, or a business.
+**Settings > Accounts & identities > Sending identities** controls the sending contexts available to collaborators. Use separate identities when the same address needs different defaults for roles such as private mail, university work, or a business.
 
 The **Identity label** is visible only inside the mailbox. Recipients see the **Display name** and **From address**. Each identity can also define Reply-to, default Cc and Bcc recipients, message format, priority, receipt requests, a default signature, a contact card, Sent and Drafts folders, and whether it is the default.
 
@@ -64,7 +64,7 @@ The **Identity label** is visible only inside the mailbox. Recipients see the **
 
 Default Cc and Bcc recipients are added when a person starts a new message, reply, or forward with that identity. Duplicates and addresses already present in To, Cc, or Bcc are removed. These defaults are not added to automatic replies or workflow messages, and the writer can remove them before sending. A mailbox signature is inserted into new messages, replies, and forwards; changing the identity later does not rewrite an edited draft. A personal signature override takes precedence.
 
-Under **Settings > Mailbox**, administrators can list trusted internal email domains and choose when Mail warns about a large recipient set. External-recipient warnings appear only when at least one internal domain is configured. These settings guide the final send review; they do not block legitimate delivery or change recipients automatically.
+Under **Settings > General**, administrators can list trusted internal email domains and choose when Mail warns about a large recipient set. External-recipient warnings appear only when at least one internal domain is configured. These settings guide the final send review; they do not block legitimate delivery or change recipients automatically.
 
 Priority and receipt requests are suggestions to other mail systems:
 
@@ -123,8 +123,8 @@ Agents can change provider subscriptions with `cld mail folder subscribe` and `c
 
 **Who can manage automatic replies?** is a mailbox policy above the permission list:
 
-- **Mailbox writers and admins** lets writers create and change guided out-of-office replies and acknowledgements.
-- **Mailbox admins only** is the secure default for new and existing mailboxes.
+- **Writers and administrators** lets writers create and change guided out-of-office replies and acknowledgements.
+- **Administrators only** is the secure default for new and existing mailboxes.
 
 This policy does not let writers configure identities, reference-number settings, or YAML workflows. Those remain mailbox-admin operations.
 
@@ -159,7 +159,7 @@ The CLI exposes the same recovery surface:
 
 ## Configure signatures and email design {icon="pencil"}
 
-Under **Settings > Writing**, create private or mailbox signatures and snippets. Assign the mailbox default signature under **Delivery > Sending identities**. A collaborator's personal default under **Writing** takes precedence.
+Under **Settings > Writing**, create private or mailbox signatures and snippets. Assign the mailbox default signature under **Accounts & identities > Sending identities**. A collaborator's personal default under **Writing** takes precedence.
 
 Markdown messages always receive the built-in readable email design. **Email design** adds validated mailbox CSS overrides for company branding; it does not replace the safe base design. Use the composer Preview to verify the rendered result before relying on a CSS change.
 
@@ -196,6 +196,6 @@ See [Mail workflow YAML reference](/app/mail/help/mail-workflows) for all suppor
 
 ## Delete and restore a mailbox {icon="point"}
 
-**Danger zone > Delete mailbox** moves the mailbox into a recoverable deleted state. Provider mail and retained Cloud data are not purged.
+**Danger zone > Move to recently deleted** moves the mailbox into a recoverable deleted state. Provider mail and retained Cloud data are not purged.
 
 Deleted mailboxes appear under **Recently deleted** on the Mail overview for administrators who can restore them. A restored mailbox starts paused. Verify the connection, folder discovery, and health under **Mailbox tools > Mailbox health** before selecting **Resume mailbox**.

@@ -22,6 +22,7 @@ const {
   SettingsPanelFooter,
   SettingsSaveBar,
   SettingsSection,
+  TextInput,
 } = await import("../index");
 
 describe("@k2b/ui complete settings surfaces", () => {
@@ -262,7 +263,7 @@ describe("@k2b/ui complete settings surfaces", () => {
         description: "Public service URL",
         changed: () => true,
         error: () => "Invalid URL",
-        children: "control",
+        children: (control) => createComponent(TextInput, { "aria-label": "Endpoint", "aria-describedby": control.describedBy() }),
       }),
     );
     const bar = renderToString(() =>
@@ -270,8 +271,9 @@ describe("@k2b/ui complete settings surfaces", () => {
     );
     const footer = renderToString(() =>
       createComponent(SettingsPanelFooter, {
-        changeCount: 0,
+        changeCount: 1,
         loading: () => false,
+        saveDisabled: () => true,
         onDiscard: () => {},
         onSave: () => {},
         saveVariant: "ai",
@@ -280,10 +282,17 @@ describe("@k2b/ui complete settings surfaces", () => {
 
     expect(field).toContain("Unsaved");
     expect(field).toContain('role="alert"');
+    const describedBy = field.match(/aria-describedby="([^"]+)"/)?.[1]?.split(" ") ?? [];
+    expect(describedBy).toHaveLength(2);
+    for (const id of describedBy) expect(field).toContain(`id="${id}"`);
     expect(bar).toContain("2</strong> unsaved changes");
-    expect(footer).toContain("No unsaved changes");
+    expect(footer).toContain("1</strong> unsaved change");
+    expect(bar).toContain('role="status"');
+    expect(bar).toContain('aria-live="polite"');
+    expect(footer).toContain('role="status"');
+    expect(footer).toContain('aria-live="polite"');
     expect(footer).toContain('data-variant="ai"');
-    expect(footer.match(/disabled/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(footer.match(/disabled/g)?.length).toBe(1);
 
     // Cloud labels the save action with a floppy glyph on both surfaces; the
     // port rendered a bare text button.

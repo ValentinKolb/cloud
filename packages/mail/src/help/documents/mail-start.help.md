@@ -23,7 +23,7 @@ The email provider remains the source for portable mail state. Moving a message,
 :::steps
 1. Select **New mailbox**.
 2. Enter a **Name** that collaborators will recognize. The description is optional.
-3. In the settings dialog, open **Delivery** and connect the account.
+3. In the settings dialog, open **Accounts & identities** and connect the account.
 4. Enter the email address and select **Find settings**, or enter the IMAP and SMTP hosts, ports, and TLS modes yourself.
 5. For a configured Google or Microsoft account, select the browser OAuth button and approve access. Otherwise enter the password, app password, or OAuth2 access token supplied by the provider.
 6. Leave **Create the default identity for this address** enabled for a normal mailbox.
@@ -36,7 +36,7 @@ After setup, Mail discovers the provider's folders and begins synchronization. I
 
 ## Check that sending is ready {icon="send"}
 
-Open **Settings > Delivery > Sending identities**. An identity groups everything Mail should use for one sending context:
+Open **Settings > Accounts & identities > Sending identities**. An identity groups everything Mail should use for one sending context:
 
 - **Identity label** is private to the mailbox and helps collaborators choose the right context, such as “University” or “Private”.
 - **Display name** and **From address** are visible to recipients.

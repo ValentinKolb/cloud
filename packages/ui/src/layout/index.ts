@@ -140,6 +140,7 @@ export {
   PANES_VALUE_VERSION,
 } from "./panes-state";
 export type {
+  SettingsFieldControlProps,
   SettingsFieldProps,
   SettingsGroupActionProps,
   SettingsGroupProps,

@@ -68,11 +68,11 @@ or create a public download link and send that link instead. A mailbox
 administrator can inspect and refresh the observed values under **Mailbox tools
 > Mailbox health > Provider limits**.
 
-If the provider credential changed, use **Settings > Delivery > Connected account > Replace**. The existing secret cannot be displayed or partially edited.
+If the provider credential changed, use **Settings > Accounts & identities > Connected account > Replace**. The existing secret cannot be displayed or partially edited.
 
 ## Automatic replies say that no identity is available {icon="send"}
 
-Open **Settings > Delivery > Sending identities** and check both conditions on one identity:
+Open **Settings > Accounts & identities > Sending identities** and check both conditions on one identity:
 
 :::steps
 1. The identity status is **verified**.

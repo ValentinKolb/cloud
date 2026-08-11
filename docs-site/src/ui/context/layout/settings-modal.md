@@ -109,16 +109,19 @@ composes into the named slots. Use a specialized editor such as `TagEditor` or
 ## Compose form state
 
 `SettingsField` groups a label, required description, reactive error accessor,
-optional reactive dirty accessor, and a control.
+optional reactive dirty accessor, and a control. Use its render-function child
+and pass `describedBy` to the control's `aria-describedby` so screen readers
+announce the visible description and current validation error.
 
 `SettingsSaveBar` uses reactive `changeCount` and `loading` accessors. It
 appears only while the count is greater than zero and disables its actions
-while loading.
+while loading. Use reactive `saveDisabled` when validation should disable Save
+without preventing Discard.
 
 `SettingsPanelFooter` provides the same status and actions for a surrounding
 panel footer. It remains visible with `No unsaved changes`, disables both
 actions until a change exists, and accepts `saveVariant` for the shared button
-hierarchy.
+hierarchy. It also accepts `saveDisabled` for field validation.
 
 `sameSettingValue` performs the JSON-based, order-sensitive comparison used by
 settings forms. `readSettingsError(response, fallback)` reads the shared

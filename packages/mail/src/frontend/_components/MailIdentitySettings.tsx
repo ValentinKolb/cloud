@@ -1,21 +1,21 @@
+import { mutation } from "@k2b/stdlib/solid";
 import {
-  NoticeCard,
+  Button,
   CheckboxCard,
   confirmDiscardIfDirty,
   FileDropzone,
+  IconButton,
+  NoticeCard,
   NumberInput,
-  Placeholder,
   prompts,
   Select,
+  SettingsCollection,
   StatusBadge,
   type StatusTone,
   Switch,
   TextInput,
   toast,
-  Button,
-  IconButton,
 } from "@k2b/ui";
-import { mutation } from "@k2b/stdlib/solid";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ComposeTemplate, MailComposeFormat, MailPriority, SenderIdentity, SenderIdentityTransport } from "../../contracts";
@@ -413,65 +413,56 @@ export function MailIdentitySettings(props: ProviderSettingsProps & { mailboxSig
     <Show
       when={editor()}
       fallback={
-        <div class="flex flex-col gap-2">
-          <Button variant="secondary" size="sm" type="button" class="self-end" disabled={props.reloading} onClick={openCreate}>
-            <i class="ti ti-plus" aria-hidden="true" /> Add identity
-          </Button>
-          <Show
-            when={identities().length > 0}
-            fallback={
-              <Placeholder
-                title="No identities"
-                description="Add an identity for new messages, replies, and forwards."
-                icon="ti ti-at-off"
-              />
-            }
-          >
-            <div class="flex flex-col gap-1">
-              <For each={identities()}>
-                {(identity) => (
-                  <div class="group flex min-h-12 items-center gap-3 rounded-[var(--ui-radius-control)] px-2 py-2 hover:bg-[var(--ui-hover)]">
-                    <i class="ti ti-at shrink-0 text-secondary" aria-hidden="true" />
-                    <span class="min-w-0 flex-1">
-                      <span class="block truncate text-sm font-medium text-primary">{identity.label}</span>
-                      <span class="block truncate text-xs text-dimmed">{identity.fromAddress}</span>
-                    </span>
-                    <Show when={identity.isDefault}>
-                      <StatusBadge tone="neutral" label="Default" icon={null} />
-                    </Show>
-                    <StatusBadge
-                      class="capitalize"
-                      tone={identityStatusTone(identity.status)}
-                      label={identity.status === "verified" ? "Ready" : identity.status.replaceAll("_", " ")}
-                    />
-                    <Show when={identity.authenticationPolicy.automation === "mailbox"}>
-                      <StatusBadge tone="neutral" label="Automatic replies" icon={null} />
-                    </Show>
-                    <Show when={identity.status === "unverified" || identity.status === "rejected"}>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        type="button"
-                        disabled={activeBindings().length === 0 || props.reloading}
-                        onClick={() => openVerify(identity)}
-                      >
-                        Verify
-                      </Button>
-                    </Show>
-                    <IconButton
+        <SettingsCollection
+          title="Sending identities"
+          description="Names, addresses, defaults, and signatures available while writing."
+          empty="No sending identities yet."
+        >
+          <SettingsCollection.Action>
+            <Button variant="secondary" size="sm" type="button" disabled={props.reloading} onClick={openCreate}>
+              <i class="ti ti-plus" aria-hidden="true" /> Add identity
+            </Button>
+          </SettingsCollection.Action>
+          <For each={identities()}>
+            {(identity) => (
+              <SettingsCollection.Item
+                title={identity.label}
+                description={identity.fromAddress}
+                icon={<i class="ti ti-at" aria-hidden="true" />}
+              >
+                <SettingsCollection.Item.Status>
+                  <Show when={identity.isDefault}>
+                    <StatusBadge tone="neutral" label="Default" icon={null} />
+                  </Show>
+                  <StatusBadge
+                    class="capitalize"
+                    tone={identityStatusTone(identity.status)}
+                    label={identity.status === "verified" ? "Ready" : identity.status.replaceAll("_", " ")}
+                  />
+                  <Show when={identity.authenticationPolicy.automation === "mailbox"}>
+                    <StatusBadge tone="neutral" label="Automatic replies" icon={null} />
+                  </Show>
+                </SettingsCollection.Item.Status>
+                <SettingsCollection.Item.Actions>
+                  <Show when={identity.status === "unverified" || identity.status === "rejected"}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       type="button"
-                      class="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
-                      label={`Edit ${identity.label}`}
-                      onClick={() => openEdit(identity)}
+                      disabled={activeBindings().length === 0 || props.reloading}
+                      onClick={() => openVerify(identity)}
                     >
-                      <i class="ti ti-edit" aria-hidden="true" />
-                    </IconButton>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Show>
-        </div>
+                      Verify
+                    </Button>
+                  </Show>
+                  <IconButton type="button" label={`Edit ${identity.label}`} onClick={() => openEdit(identity)}>
+                    <i class="ti ti-edit" aria-hidden="true" />
+                  </IconButton>
+                </SettingsCollection.Item.Actions>
+              </SettingsCollection.Item>
+            )}
+          </For>
+        </SettingsCollection>
       }
     >
       {(currentEditor) => (

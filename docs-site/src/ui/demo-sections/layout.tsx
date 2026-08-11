@@ -334,8 +334,8 @@ const SettingsDemo = () => {
   <SettingsModal.Group title="Personal">
     <SettingsModal.Tab id="preferences" title="Preferences" icon="ti ti-adjustments" description="Defaults for this browser.">
       <SettingsGroup title="Reading" description="Choose how messages are displayed.">
-        <SettingsField label="Message format" description="Choose the preferred representation for incoming messages." error={() => undefined} changed={() => readingFormat() !== savedPreferences().readingFormat}>
-          <Select aria-label="Message format" value={readingFormat()} onValueChange={(value) => value && setReadingFormat(value)} options={[{ value: "automatic", label: "Automatic — Recommended" }, { value: "html", label: "HTML" }, { value: "plain", label: "Plain text" }]} />
+        <SettingsField label="Message format" description="Choose the preferred representation for incoming messages." error={() => readingFormat() ? undefined : "Choose a message format."} changed={() => readingFormat() !== savedPreferences().readingFormat}>
+          {(control) => <Select aria-label="Message format" aria-describedby={control.describedBy()} value={readingFormat()} onValueChange={(value) => setReadingFormat(value ?? "")} clearable options={[{ value: "automatic", label: "Automatic — Recommended" }, { value: "html", label: "HTML" }, { value: "plain", label: "Plain text" }]} />}
         </SettingsField>
       </SettingsGroup>
       <SettingsGroup title="Writing" description="Defaults for new messages and replies.">
@@ -347,7 +347,7 @@ const SettingsDemo = () => {
         </SettingsField>
       </SettingsGroup>
       <SettingsModal.Footer>
-        <SettingsPanelFooter changeCount={changeCount} loading={loading} onDiscard={discard} onSave={save} />
+        <SettingsPanelFooter changeCount={changeCount} loading={loading} saveDisabled={() => !readingFormat()} onDiscard={discard} onSave={save} />
       </SettingsModal.Footer>
     </SettingsModal.Tab>
   </SettingsModal.Group>
@@ -400,19 +400,23 @@ const SettingsDemo = () => {
                 <SettingsField
                   label="Message format"
                   description="Choose the preferred representation for incoming messages."
-                  error={() => undefined}
+                  error={() => (readingFormat() ? undefined : "Choose a message format.")}
                   changed={() => readingFormat() !== savedPreferences().readingFormat}
                 >
-                  <Select
-                    aria-label="Message format"
-                    value={readingFormat()}
-                    onValueChange={(value) => value && setReadingFormat(value)}
-                    options={[
-                      { value: "automatic", label: "Automatic — Recommended" },
-                      { value: "html", label: "HTML" },
-                      { value: "plain", label: "Plain text" },
-                    ]}
-                  />
+                  {(control) => (
+                    <Select
+                      aria-label="Message format"
+                      aria-describedby={control.describedBy()}
+                      value={readingFormat()}
+                      onValueChange={(value) => setReadingFormat(value ?? "")}
+                      clearable
+                      options={[
+                        { value: "automatic", label: "Automatic — Recommended" },
+                        { value: "html", label: "HTML" },
+                        { value: "plain", label: "Plain text" },
+                      ]}
+                    />
+                  )}
                 </SettingsField>
               </SettingsGroup>
               <SettingsGroup title="Writing" description="Defaults for new messages and replies.">
@@ -422,15 +426,18 @@ const SettingsDemo = () => {
                   error={() => undefined}
                   changed={() => composeFormat() !== savedPreferences().composeFormat}
                 >
-                  <Select
-                    aria-label="Compose format"
-                    value={composeFormat()}
-                    onValueChange={(value) => value && setComposeFormat(value)}
-                    options={[
-                      { value: "rich", label: "Rich text" },
-                      { value: "plain", label: "Plain text" },
-                    ]}
-                  />
+                  {(control) => (
+                    <Select
+                      aria-label="Compose format"
+                      aria-describedby={control.describedBy()}
+                      value={composeFormat()}
+                      onValueChange={(value) => value && setComposeFormat(value)}
+                      options={[
+                        { value: "rich", label: "Rich text" },
+                        { value: "plain", label: "Plain text" },
+                      ]}
+                    />
+                  )}
                 </SettingsField>
                 <SettingsField
                   label="Undo send"
@@ -438,21 +445,30 @@ const SettingsDemo = () => {
                   error={() => undefined}
                   changed={() => undoSend() !== savedPreferences().undoSend}
                 >
-                  <Select
-                    aria-label="Undo send"
-                    value={undoSend()}
-                    onValueChange={(value) => value && setUndoSend(value)}
-                    options={[
-                      { value: "0", label: "Off" },
-                      { value: "5", label: "5 seconds" },
-                      { value: "10", label: "10 seconds" },
-                      { value: "30", label: "30 seconds" },
-                    ]}
-                  />
+                  {(control) => (
+                    <Select
+                      aria-label="Undo send"
+                      aria-describedby={control.describedBy()}
+                      value={undoSend()}
+                      onValueChange={(value) => value && setUndoSend(value)}
+                      options={[
+                        { value: "0", label: "Off" },
+                        { value: "5", label: "5 seconds" },
+                        { value: "10", label: "10 seconds" },
+                        { value: "30", label: "30 seconds" },
+                      ]}
+                    />
+                  )}
                 </SettingsField>
               </SettingsGroup>
               <SettingsModal.Footer>
-                <SettingsPanelFooter changeCount={changeCount} loading={loading} onDiscard={discard} onSave={save} />
+                <SettingsPanelFooter
+                  changeCount={changeCount}
+                  loading={loading}
+                  saveDisabled={() => !readingFormat()}
+                  onDiscard={discard}
+                  onSave={save}
+                />
               </SettingsModal.Footer>
             </SettingsModal.Tab>
           </SettingsModal.Group>
@@ -560,7 +576,7 @@ const SettingsPageDemo = () => {
 >
   <SettingsSection title="Identity" subtitle="Public service details" icon="ti ti-id">
     <SettingsField label="Endpoint" description="Public service URL" error={() => undefined} changed={changed}>
-      <TextInput value={endpoint()} onValueChange={setEndpoint} />
+      {(control) => <TextInput aria-label="Endpoint" aria-describedby={control.describedBy()} value={endpoint()} onValueChange={setEndpoint} />}
     </SettingsField>
   </SettingsSection>
 </SettingsPage>`}
@@ -586,7 +602,9 @@ const SettingsPageDemo = () => {
         >
           <SettingsSection title="Identity" subtitle="Public service details" icon="ti ti-id">
             <SettingsField label="Endpoint" description="Public service URL" error={() => undefined} changed={changed}>
-              <TextInput value={endpoint()} onValueChange={setEndpoint} />
+              {(control) => (
+                <TextInput aria-label="Endpoint" aria-describedby={control.describedBy()} value={endpoint()} onValueChange={setEndpoint} />
+              )}
             </SettingsField>
           </SettingsSection>
         </SettingsPage>

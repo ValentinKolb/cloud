@@ -1,5 +1,18 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button, confirmDiscardIfDirty, NoticeCard, NumberInput, prompts, Select, SettingsModal, TextInput, toast } from "@k2b/ui";
+import {
+  Button,
+  confirmDiscardIfDirty,
+  NoticeCard,
+  NumberInput,
+  prompts,
+  Select,
+  SettingsField,
+  SettingsGroup,
+  SettingsModal,
+  SettingsPanelFooter,
+  TextInput,
+  toast,
+} from "@k2b/ui";
 import { PermissionEditor } from "@valentinkolb/cloud/access/ui";
 import { createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
@@ -15,7 +28,7 @@ import MailOrganizationSettings from "./MailOrganizationSettings";
 import { readMailUserPreferences, writeMailUserPreferences } from "./MailSettingsStore";
 import { mailboxHealthPresentation } from "./mail-health-presentation";
 
-const normalizeInitialTab = (tab: string | undefined, canWrite: boolean, canAdmin: boolean): string => {
+const normalizeInitialTab = (tab: string | undefined, canWrite: boolean, canAdmin: boolean, hasCalendar: boolean): string => {
   const aliases: Record<string, string> = {
     preferences: "writing",
     compose: "writing",
@@ -28,7 +41,7 @@ const normalizeInitialTab = (tab: string | undefined, canWrite: boolean, canAdmi
     "reading",
     "organization",
     ...(canWrite ? ["writing"] : []),
-    ...(canAdmin ? ["mailbox", "delivery", "folders", "access", "danger"] : []),
+    ...(canAdmin ? ["mailbox", "delivery", "folders", "access", "danger", ...(hasCalendar ? ["calendar"] : [])] : []),
   ]);
   if (requested && allowed.has(requested)) return requested;
   return canAdmin ? "mailbox" : canWrite ? "writing" : "reading";
@@ -62,7 +75,9 @@ export default function MailboxSettings(props: {
   const [automaticReplyManagementPermission, setAutomaticReplyManagementPermission] = createSignal<
     Mailbox["automaticReplyManagementPermission"]
   >(props.context.mailbox.automaticReplyManagementPermission);
-  const [activeTab, setActiveTab] = createSignal(normalizeInitialTab(props.initialTab, canWrite(), canAdmin()));
+  const [activeTab, setActiveTab] = createSignal(
+    normalizeInitialTab(props.initialTab, canWrite(), canAdmin(), props.context.integrations.spacesCalendar),
+  );
   const [childDirtyStates, setChildDirtyStates] = createSignal<Record<string, boolean>>({});
   const [navigationPending, setNavigationPending] = createSignal(false);
   const healthPresentation = createMemo(() => mailboxHealthPresentation(props.context.mailbox));
@@ -74,6 +89,15 @@ export default function MailboxSettings(props: {
       internalDomains() !== props.context.mailbox.composeSafety.internalDomains.join(", ") ||
       largeRecipientThreshold() !== props.context.mailbox.composeSafety.largeRecipientThreshold,
   );
+  const readingChangeCount = () => (readingFormat() === savedReadingFormat() ? 0 : 1);
+  const writingChangeCount = () => Number(composeFormat() !== savedComposeFormat()) + Number(undoSeconds() !== savedUndoSeconds());
+  const mailboxChangeCount = () =>
+    Number(name().trim() !== props.context.mailbox.name) +
+    Number(description().trim() !== (props.context.mailbox.description ?? "")) +
+    Number(internalDomains() !== props.context.mailbox.composeSafety.internalDomains.join(", ")) +
+    Number(largeRecipientThreshold() !== props.context.mailbox.composeSafety.largeRecipientThreshold);
+  const accessChangeCount = () =>
+    automaticReplyManagementPermission() === props.context.mailbox.automaticReplyManagementPermission ? 0 : 1;
 
   const ownDirty = createMemo(() => {
     if (activeTab() === "reading") {
@@ -164,7 +188,7 @@ export default function MailboxSettings(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const saveMailboxDetails = mutation.create<Mailbox, void>({
+  const saveMailboxSettings = mutation.create<Mailbox, void>({
     mutation: async (_input, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"].$patch(
         {
@@ -172,29 +196,6 @@ export default function MailboxSettings(props: {
           json: {
             name: name().trim(),
             description: description().trim() || null,
-          },
-        },
-        { init: { signal: abortSignal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to update mailbox"));
-      return response.json();
-    },
-    onSuccess: (mailbox) => {
-      setName(mailbox.name);
-      setDescription(mailbox.description ?? "");
-      props.onContextChange((context) => ({ ...context, mailbox }));
-      toast.success("Mailbox details saved");
-      props.onWorkspaceChange();
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
-  const saveSendingSafeguards = mutation.create<Mailbox, void>({
-    mutation: async (_input, { abortSignal }) => {
-      const response = await apiClient.mailboxes[":mailboxId"].$patch(
-        {
-          param: { mailboxId: props.context.mailbox.id },
-          json: {
             composeSafety: {
               internalDomains: [
                 ...new Set(
@@ -210,14 +211,17 @@ export default function MailboxSettings(props: {
         },
         { init: { signal: abortSignal } },
       );
-      if (!response.ok) throw new Error(await readApiError(response, "Failed to update sending safeguards"));
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to update mailbox settings"));
       return response.json();
     },
     onSuccess: (mailbox) => {
+      setName(mailbox.name);
+      setDescription(mailbox.description ?? "");
       setInternalDomains(mailbox.composeSafety.internalDomains.join(", "));
       setLargeRecipientThreshold(mailbox.composeSafety.largeRecipientThreshold);
       props.onContextChange((context) => ({ ...context, mailbox }));
-      toast.success("Sending safeguards saved");
+      toast.success("Mailbox settings saved");
+      props.onWorkspaceChange();
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -315,8 +319,7 @@ export default function MailboxSettings(props: {
   onCleanup(() => {
     saveReadingPreferences.abort();
     saveWritingPreferences.abort();
-    saveMailboxDetails.abort();
-    saveSendingSafeguards.abort();
+    saveMailboxSettings.abort();
     updateFolderRole.abort();
     saveAutomaticReplyAccess.abort();
     deleteMailbox.abort();
@@ -330,185 +333,98 @@ export default function MailboxSettings(props: {
       onClose={() => void requestClose()}
       closeLabel="Close settings"
     >
-      <SettingsModal.Tab
-        id="reading"
-        title="Reading"
-        icon="ti ti-mail-opened"
-        description="Personal message display preferences for this browser."
-      >
-        <div class="flex flex-col gap-2">
-          <Select
-            label="Default message format"
-            description="Choose how message bodies are displayed in this browser."
-            value={readingFormat}
-            onValueChange={(value) => setReadingFormat(value === "html" || value === "plain" ? value : "automatic")}
-            options={[
-              {
-                id: "automatic",
-                label: "Automatic — Recommended",
-                description: "Show HTML in light mode and plain text in dark mode when available.",
-                icon: "ti ti-adjustments-horizontal",
-              },
-              {
-                id: "html",
-                label: "HTML",
-                description: "Preserve safe email layout and styling in every theme.",
-                icon: "ti ti-code",
-              },
-              {
-                id: "plain",
-                label: "Plain text",
-                description: "Show only the text alternative in every theme.",
-                icon: "ti ti-align-left",
-              },
-            ]}
-          />
-          <p class="text-xs text-dimmed">
-            Scripts and active content are always removed. Remote images remain blocked until you choose to load them.
-          </p>
-          <div class="flex justify-end pt-1">
-            <Button
-              size="sm"
-              type="button"
-              disabled={saveReadingPreferences.loading() || !ownDirty()}
-              onClick={() => saveReadingPreferences.mutate()}
+      <SettingsModal.Group title="Personal">
+        <SettingsModal.Tab id="reading" title="Reading" icon="ti ti-mail-opened" description="How messages appear in this browser.">
+          <SettingsGroup title="Message display" description="Choose the default representation used when you open a message.">
+            <SettingsField
+              label="Default message format"
+              description="This preference applies only to this browser."
+              error={() => undefined}
+              changed={() => readingChangeCount() > 0}
             >
-              <i class={`ti ${saveReadingPreferences.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
-              Save preference
-            </Button>
-          </div>
-        </div>
-      </SettingsModal.Tab>
-
-      <Show when={canAdmin() && props.context.admin}>
-        <SettingsModal.Tab id="mailbox" title="Mailbox" icon="ti ti-id" description="The name and context collaborators see.">
-          <div class="flex flex-col gap-6">
-            <section class="flex flex-col gap-2">
-              <div>
-                <h3 class="text-sm font-semibold text-primary">Mailbox details</h3>
-                <p class="text-xs text-dimmed">Set the name and context collaborators see.</p>
-              </div>
-              <TextInput label="Name" description="The label collaborators see." value={name} onValueChange={setName} required />
-              <TextInput
-                label="Description"
-                description="Optional context for this mailbox."
-                value={description}
-                onValueChange={setDescription}
-                multiline
-                lines={3}
-              />
-              <div class="flex justify-end pt-1">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  type="button"
-                  onClick={() => saveMailboxDetails.mutate()}
-                  disabled={
-                    saveMailboxDetails.loading() ||
-                    saveSendingSafeguards.loading() ||
-                    props.reloading ||
-                    !name().trim() ||
-                    !mailboxDetailsDirty()
-                  }
-                >
-                  <i class={`ti ${saveMailboxDetails.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
-                  Save details
-                </Button>
-              </div>
-            </section>
-            <section class="flex flex-col gap-2">
-              <div>
-                <h3 class="text-sm font-semibold text-primary">Sending safeguards</h3>
-                <p class="text-xs text-dimmed">Warn collaborators before messages leave expected boundaries or reach many people.</p>
-              </div>
-              <TextInput
-                label="Internal email domains"
-                description="Comma-separated domains. Recipients outside these domains trigger a review."
-                value={internalDomains}
-                onValueChange={setInternalDomains}
-                placeholder="example.org, subsidiary.example"
-              />
-              <NumberInput
-                label="Large recipient warning"
-                description="Show a review when a message reaches at least this many unique recipients."
-                value={largeRecipientThreshold}
-                onValueChange={(value) => setLargeRecipientThreshold(value ?? 20)}
-                min={5}
-                max={200}
-                allowNegative={false}
-                suffix="recipients"
-              />
-              <div class="flex justify-end pt-1">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  type="button"
-                  onClick={() => saveSendingSafeguards.mutate()}
-                  disabled={saveMailboxDetails.loading() || saveSendingSafeguards.loading() || props.reloading || !sendingSafeguardsDirty()}
-                >
-                  <i class={`ti ${saveSendingSafeguards.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`} aria-hidden="true" />
-                  Save safeguards
-                </Button>
-              </div>
-            </section>
-            <Show when={props.context.integrations.spacesCalendar}>
-              <MailCalendarSettings mailboxId={props.context.mailbox.id} onDirtyChange={(dirty) => setChildDirty("calendar", dirty)} />
-            </Show>
-          </div>
+              {(control) => (
+                <Select
+                  aria-label="Default message format"
+                  aria-describedby={control.describedBy()}
+                  value={readingFormat}
+                  onValueChange={(value) => setReadingFormat(value === "html" || value === "plain" ? value : "automatic")}
+                  options={[
+                    {
+                      id: "automatic",
+                      label: "Automatic — Recommended",
+                      description: "Use the safest readable format for the current theme.",
+                      icon: "ti ti-adjustments-horizontal",
+                    },
+                    { id: "html", label: "HTML", description: "Preserve safe email layout and styling.", icon: "ti ti-code" },
+                    { id: "plain", label: "Plain text", description: "Show only the text alternative.", icon: "ti ti-align-left" },
+                  ]}
+                />
+              )}
+            </SettingsField>
+            <p class="text-xs text-dimmed">
+              Scripts and active content are always removed. Remote images stay blocked until you choose to load them.
+            </p>
+          </SettingsGroup>
+          <SettingsModal.Footer>
+            <SettingsPanelFooter
+              changeCount={readingChangeCount}
+              loading={saveReadingPreferences.loading}
+              onDiscard={() => setReadingFormat(savedReadingFormat())}
+              onSave={() => saveReadingPreferences.mutate()}
+            />
+          </SettingsModal.Footer>
         </SettingsModal.Tab>
-      </Show>
+      </SettingsModal.Group>
 
       <Show when={canWrite() && props.context.compose}>
         {(compose) => (
-          <SettingsModal.Tab
-            id="writing"
-            title="Writing"
-            icon="ti ti-pencil"
-            description="Personal writing defaults, reusable content, signatures, and mailbox email design."
-          >
-            <div class="flex flex-col gap-8">
-              <section class="flex flex-col gap-2">
-                <div>
-                  <h3 class="text-sm font-semibold text-primary">My writing preferences</h3>
-                  <p class="text-xs text-dimmed">These preferences apply only to this browser.</p>
-                </div>
-                <div class="flex flex-col gap-2">
-                  <Select
-                    label="Compose format"
-                    description="Used when you open a new message, reply, or forward."
-                    value={composeFormat}
-                    onValueChange={(value) => setComposeFormat(value === "plain" ? "plain" : "markdown")}
-                    options={[
-                      { id: "markdown", label: "Markdown", icon: "ti ti-markdown" },
-                      { id: "plain", label: "Plain text", icon: "ti ti-align-left" },
-                    ]}
-                  />
-                  <NumberInput
-                    label="Undo send window"
-                    description="Delay delivery so you can cancel a queued message."
-                    value={undoSeconds}
-                    onValueChange={(value) => setUndoSeconds(value ?? 0)}
-                    min={0}
-                    max={60}
-                    allowNegative={false}
-                    suffix="seconds"
-                  />
-                </div>
-                <div class="flex justify-end pt-1">
-                  <Button
-                    size="sm"
-                    type="button"
-                    disabled={saveWritingPreferences.loading() || !ownDirty()}
-                    onClick={() => saveWritingPreferences.mutate()}
-                  >
-                    <i
-                      class={`ti ${saveWritingPreferences.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`}
-                      aria-hidden="true"
+          <SettingsModal.Group title="Compose">
+            <SettingsModal.Tab
+              id="writing"
+              title="Writing"
+              icon="ti ti-pencil"
+              description="Personal defaults and reusable mailbox content."
+            >
+              <SettingsGroup title="My writing defaults" description="These defaults apply only to this browser.">
+                <SettingsField
+                  label="Compose format"
+                  description="Used for new messages, replies, and forwards."
+                  error={() => undefined}
+                  changed={() => composeFormat() !== savedComposeFormat()}
+                >
+                  {(control) => (
+                    <Select
+                      aria-label="Compose format"
+                      aria-describedby={control.describedBy()}
+                      value={composeFormat}
+                      onValueChange={(value) => setComposeFormat(value === "plain" ? "plain" : "markdown")}
+                      options={[
+                        { id: "markdown", label: "Markdown", icon: "ti ti-markdown" },
+                        { id: "plain", label: "Plain text", icon: "ti ti-align-left" },
+                      ]}
                     />
-                    Save preferences
-                  </Button>
-                </div>
-              </section>
+                  )}
+                </SettingsField>
+                <SettingsField
+                  label="Undo send window"
+                  description="Delay delivery so you can cancel a queued message."
+                  error={() => undefined}
+                  changed={() => undoSeconds() !== savedUndoSeconds()}
+                >
+                  {(control) => (
+                    <NumberInput
+                      aria-label="Undo send window"
+                      aria-describedby={control.describedBy()}
+                      value={undoSeconds}
+                      onValueChange={(value) => setUndoSeconds(value ?? 0)}
+                      min={0}
+                      max={60}
+                      allowNegative={false}
+                      suffix="seconds"
+                    />
+                  )}
+                </SettingsField>
+              </SettingsGroup>
               <MailComposeSettings
                 mailboxId={props.context.mailbox.id}
                 permission={props.context.permission === "admin" ? "admin" : "write"}
@@ -522,209 +438,308 @@ export default function MailboxSettings(props: {
                   )
                 }
               />
-            </div>
-          </SettingsModal.Tab>
+              <SettingsModal.Footer>
+                <SettingsPanelFooter
+                  changeCount={writingChangeCount}
+                  loading={saveWritingPreferences.loading}
+                  onDiscard={() => {
+                    setComposeFormat(savedComposeFormat());
+                    setUndoSeconds(savedUndoSeconds());
+                  }}
+                  onSave={() => saveWritingPreferences.mutate()}
+                />
+              </SettingsModal.Footer>
+            </SettingsModal.Tab>
+          </SettingsModal.Group>
         )}
       </Show>
 
-      <SettingsModal.Tab
-        id="organization"
-        title="Organization"
-        icon="ti ti-tags"
-        description="Saved views and conversation tags shared through this mailbox."
-      >
-        <MailOrganizationSettings
-          mailboxId={props.context.mailbox.id}
-          permission={props.context.permission}
-          initial={props.context.organization}
-          onDirtyChange={(dirty) => setChildDirty("organization", dirty)}
-          onWorkspaceChange={props.onWorkspaceChange}
-        />
-      </SettingsModal.Tab>
+      <SettingsModal.Group title="Mailbox">
+        <Show when={canAdmin() && props.context.admin}>
+          <SettingsModal.Tab id="mailbox" title="General" icon="ti ti-id" description="Shared identity and sending safeguards.">
+            <SettingsGroup title="Identity" description="Set the name and context collaborators see.">
+              <SettingsField
+                label="Name"
+                description="Shown in navigation and mailbox selectors."
+                error={() => (!name().trim() ? "Name is required" : undefined)}
+                changed={() => name().trim() !== props.context.mailbox.name}
+              >
+                {(control) => (
+                  <TextInput
+                    aria-label="Name"
+                    aria-describedby={control.describedBy()}
+                    value={name}
+                    onValueChange={setName}
+                    required
+                    disabled={saveMailboxSettings.loading() || props.reloading}
+                  />
+                )}
+              </SettingsField>
+              <SettingsField
+                label="Description"
+                description="Optional context for collaborators."
+                error={() => undefined}
+                changed={() => description().trim() !== (props.context.mailbox.description ?? "")}
+              >
+                {(control) => (
+                  <TextInput
+                    aria-label="Description"
+                    aria-describedby={control.describedBy()}
+                    value={description}
+                    onValueChange={setDescription}
+                    multiline
+                    lines={3}
+                    disabled={saveMailboxSettings.loading() || props.reloading}
+                  />
+                )}
+              </SettingsField>
+            </SettingsGroup>
+            <SettingsGroup
+              title="Sending safeguards"
+              description="Warn collaborators before messages leave expected boundaries or reach many people."
+            >
+              <SettingsField
+                label="Internal email domains"
+                description="Recipients outside these comma-separated domains trigger a review."
+                error={() => undefined}
+                changed={() => internalDomains() !== props.context.mailbox.composeSafety.internalDomains.join(", ")}
+              >
+                {(control) => (
+                  <TextInput
+                    aria-label="Internal email domains"
+                    aria-describedby={control.describedBy()}
+                    value={internalDomains}
+                    onValueChange={setInternalDomains}
+                    placeholder="example.org, subsidiary.example"
+                    disabled={saveMailboxSettings.loading() || props.reloading}
+                  />
+                )}
+              </SettingsField>
+              <SettingsField
+                label="Large recipient warning"
+                description="Show a review at this number of unique recipients."
+                error={() => undefined}
+                changed={() => largeRecipientThreshold() !== props.context.mailbox.composeSafety.largeRecipientThreshold}
+              >
+                {(control) => (
+                  <NumberInput
+                    aria-label="Large recipient warning"
+                    aria-describedby={control.describedBy()}
+                    value={largeRecipientThreshold}
+                    onValueChange={(value) => setLargeRecipientThreshold(value ?? 20)}
+                    min={5}
+                    max={200}
+                    allowNegative={false}
+                    suffix="recipients"
+                    disabled={saveMailboxSettings.loading() || props.reloading}
+                  />
+                )}
+              </SettingsField>
+            </SettingsGroup>
+            <SettingsModal.Footer>
+              <SettingsPanelFooter
+                changeCount={mailboxChangeCount}
+                loading={() => saveMailboxSettings.loading() || props.reloading}
+                saveDisabled={() => !name().trim()}
+                onDiscard={() => {
+                  setName(props.context.mailbox.name);
+                  setDescription(props.context.mailbox.description ?? "");
+                  setInternalDomains(props.context.mailbox.composeSafety.internalDomains.join(", "));
+                  setLargeRecipientThreshold(props.context.mailbox.composeSafety.largeRecipientThreshold);
+                }}
+                onSave={() => saveMailboxSettings.mutate()}
+              />
+            </SettingsModal.Footer>
+          </SettingsModal.Tab>
+        </Show>
+
+        <SettingsModal.Tab id="organization" title="Organization" icon="ti ti-tags" description="Saved views and conversation tags.">
+          <MailOrganizationSettings
+            mailboxId={props.context.mailbox.id}
+            permission={props.context.permission}
+            initial={props.context.organization}
+            onDirtyChange={(dirty) => setChildDirty("organization", dirty)}
+            onWorkspaceChange={props.onWorkspaceChange}
+          />
+        </SettingsModal.Tab>
+      </SettingsModal.Group>
 
       <Show when={canAdmin() && props.context.admin}>
-        <>
+        <SettingsModal.Group title="Delivery">
           <SettingsModal.Tab
             id="delivery"
-            title="Delivery"
+            title="Accounts & identities"
             icon="ti ti-send"
-            description="Connect the mail provider and manage the sending identities collaborators can choose."
+            description="Provider connection and selectable sender identities."
           >
-            <div class="flex flex-col gap-8">
-              <Show when={healthPresentation()}>
-                {(health) => (
-                  <NoticeCard tone={health().tone} icon={false} bodyClass="flex items-start gap-2" role="status">
-                    <i
-                      class={`ti ${health().tone === "warning" ? "ti-alert-triangle" : "ti-info-circle"} mt-0.5 shrink-0`}
-                      aria-hidden="true"
-                    />
-                    <span>
-                      <strong class="font-semibold text-primary">{health().title}.</strong> {health().message}
-                    </span>
-                  </NoticeCard>
-                )}
-              </Show>
-              <section class="flex flex-col gap-2">
-                <div>
-                  <h3 class="text-sm font-semibold text-primary">Connected account</h3>
-                  <p class="text-xs text-dimmed">The encrypted IMAP and SMTP credential used by this mailbox.</p>
-                </div>
-                <MailConnectionSettings
-                  mailbox={props.context.mailbox}
-                  admin={admin()}
-                  currentUserEmail={props.currentUserEmail}
-                  reloading={props.reloading}
-                  onReload={props.onReload}
-                  onWorkspaceChange={props.onWorkspaceChange}
-                />
-              </section>
-              <section class="flex flex-col gap-2">
-                <div>
-                  <h3 class="text-sm font-semibold text-primary">Sending identities</h3>
-                  <p class="text-xs text-dimmed">Names, addresses, defaults, and signatures available while writing.</p>
-                </div>
-                <MailIdentitySettings
-                  mailbox={props.context.mailbox}
-                  admin={admin()}
-                  mailboxSignatures={
-                    props.context.compose?.templates.filter((template) => template.kind === "signature" && template.scope === "mailbox") ??
-                    []
-                  }
-                  currentUserEmail={props.currentUserEmail}
-                  reloading={props.reloading}
-                  onDirtyChange={(dirty) => setChildDirty("identity", dirty)}
-                  onReload={props.onReload}
-                  onWorkspaceChange={props.onWorkspaceChange}
-                />
-              </section>
-            </div>
+            <Show when={healthPresentation()}>
+              {(health) => (
+                <NoticeCard tone={health().tone} icon={false} bodyClass="flex items-start gap-2" role="status">
+                  <i
+                    class={`ti ${health().tone === "warning" ? "ti-alert-triangle" : "ti-info-circle"} mt-0.5 shrink-0`}
+                    aria-hidden="true"
+                  />
+                  <span>
+                    <strong class="font-semibold text-primary">{health().title}.</strong> {health().message}
+                  </span>
+                </NoticeCard>
+              )}
+            </Show>
+            <SettingsGroup title="Connected account" description="The encrypted IMAP and SMTP credential used by this mailbox.">
+              <MailConnectionSettings
+                mailbox={props.context.mailbox}
+                admin={admin()}
+                currentUserEmail={props.currentUserEmail}
+                reloading={props.reloading}
+                onReload={props.onReload}
+                onWorkspaceChange={props.onWorkspaceChange}
+              />
+            </SettingsGroup>
+            <MailIdentitySettings
+              mailbox={props.context.mailbox}
+              admin={admin()}
+              mailboxSignatures={
+                props.context.compose?.templates.filter((template) => template.kind === "signature" && template.scope === "mailbox") ?? []
+              }
+              currentUserEmail={props.currentUserEmail}
+              reloading={props.reloading}
+              onDirtyChange={(dirty) => setChildDirty("identity", dirty)}
+              onReload={props.onReload}
+              onWorkspaceChange={props.onWorkspaceChange}
+            />
           </SettingsModal.Tab>
+          <Show when={props.context.integrations.spacesCalendar}>
+            <SettingsModal.Tab
+              id="calendar"
+              title="Calendar invitations"
+              icon="ti ti-calendar-event"
+              description="Default destination for imported invitations."
+            >
+              <MailCalendarSettings mailboxId={props.context.mailbox.id} onDirtyChange={(dirty) => setChildDirty("calendar", dirty)} />
+            </SettingsModal.Tab>
+          </Show>
 
           <SettingsModal.Tab
             id="folders"
             title="Folders"
             icon="ti ti-folders"
-            description="Create provider folders and control which ones appear in Mail."
+            description="Provider folders, mappings, and mailbox visibility."
           >
-            <MailFolderSettings
-              mailboxId={props.context.mailbox.id}
-              folders={admin().folders}
-              reloading={props.reloading}
-              onReload={props.onReload}
-              onWorkspaceChange={props.onWorkspaceChange}
-              onFolderVisibilityChange={setFolderVisibility}
-              onFolderRoleChange={(role, folderId) => updateFolderRole.mutate({ role, folderId })}
-              folderRolePending={updateFolderRole.loading()}
-            />
+            <SettingsGroup title="Mailbox folders" description="Changes to visibility and provider subscriptions apply immediately.">
+              <MailFolderSettings
+                mailboxId={props.context.mailbox.id}
+                folders={admin().folders}
+                reloading={props.reloading}
+                onReload={props.onReload}
+                onWorkspaceChange={props.onWorkspaceChange}
+                onFolderVisibilityChange={setFolderVisibility}
+                onFolderRoleChange={(role, folderId) => updateFolderRole.mutate({ role, folderId })}
+                folderRolePending={updateFolderRole.loading()}
+              />
+            </SettingsGroup>
           </SettingsModal.Tab>
+        </SettingsModal.Group>
 
+        <SettingsModal.Group title="Sharing">
           <SettingsModal.Tab
             id="access"
             title="Access"
             icon="ti ti-shield"
-            description="Read can view and comment; write can operate mail; admin configures the mailbox."
+            description="Mailbox permissions and delegated reply management."
           >
-            <div class="flex flex-col gap-6">
-              <section class="flex flex-col gap-2">
-                <Select
-                  label="Who can manage automatic replies?"
-                  description="Allow writers to manage absences and acknowledgements without giving them mailbox administration."
-                  icon="ti ti-message-cog"
-                  value={automaticReplyManagementPermission}
-                  onValueChange={(value) => setAutomaticReplyManagementPermission(value === "write" ? "write" : "admin")}
-                  options={[
-                    {
-                      id: "write",
-                      label: "Mailbox writers and admins",
-                      description: "Team members can manage their own out-of-office replies.",
-                      icon: "ti ti-pencil",
-                    },
-                    {
-                      id: "admin",
-                      label: "Mailbox admins only",
-                      description: "Only mailbox administrators can change automatic replies.",
-                      icon: "ti ti-shield",
-                    },
-                  ]}
-                />
-                <Button
-                  size="sm"
-                  type="button"
-                  class="self-end"
-                  disabled={saveAutomaticReplyAccess.loading() || !ownDirty()}
-                  onClick={() => saveAutomaticReplyAccess.mutate()}
-                >
-                  <i
-                    class={`ti ${saveAutomaticReplyAccess.loading() ? "ti-loader-2 animate-spin" : "ti-device-floppy"}`}
-                    aria-hidden="true"
+            <SettingsGroup title="Automatic replies" description="Choose who may manage absences and acknowledgements.">
+              <SettingsField
+                label="Management access"
+                description="This does not grant broader mailbox administration."
+                error={() => undefined}
+                changed={() => accessChangeCount() > 0}
+              >
+                {(control) => (
+                  <Select
+                    aria-label="Automatic reply management access"
+                    aria-describedby={control.describedBy()}
+                    icon="ti ti-message-cog"
+                    value={automaticReplyManagementPermission}
+                    onValueChange={(value) => setAutomaticReplyManagementPermission(value === "write" ? "write" : "admin")}
+                    options={[
+                      {
+                        id: "write",
+                        label: "Writers and administrators",
+                        description: "Writers can manage automatic replies.",
+                        icon: "ti ti-pencil",
+                      },
+                      {
+                        id: "admin",
+                        label: "Administrators only",
+                        description: "Only mailbox administrators can change automatic replies.",
+                        icon: "ti ti-shield",
+                      },
+                    ]}
                   />
-                  Save automatic reply access
-                </Button>
-              </section>
-              <section class="flex flex-col gap-2">
-                <div>
-                  <h3 class="text-sm font-semibold text-primary">Mailbox access</h3>
-                  <p class="text-xs text-dimmed">Permission changes are applied immediately.</p>
-                </div>
-                <PermissionEditor
-                  initialEntries={admin().accessEntries}
-                  allowAuthenticated={false}
-                  allowServiceAccounts
-                  canEdit
-                  grantAccess={async (principal, permission) => {
-                    const response = await apiClient.mailboxes[":mailboxId"].access.$post({
-                      param: { mailboxId: props.context.mailbox.id },
-                      json: { principal, permission },
-                    });
-                    if (!response.ok) throw new Error(await readApiError(response, "Failed to grant access"));
-                    return response.json();
-                  }}
-                  updateAccess={async (accessId, permission) => {
-                    const response = await apiClient.mailboxes[":mailboxId"].access[":accessId"].$patch({
-                      param: { mailboxId: props.context.mailbox.id, accessId },
-                      json: { permission },
-                    });
-                    if (!response.ok) throw new Error(await readApiError(response, "Failed to update access"));
-                  }}
-                  revokeAccess={async (accessId) => {
-                    const response = await apiClient.mailboxes[":mailboxId"].access[":accessId"].$delete({
-                      param: { mailboxId: props.context.mailbox.id, accessId },
-                    });
-                    if (!response.ok) throw new Error(await readApiError(response, "Failed to revoke access"));
-                  }}
-                />
-              </section>
-            </div>
+                )}
+              </SettingsField>
+            </SettingsGroup>
+            <SettingsGroup title="People and integrations" description="Permission changes apply immediately.">
+              <PermissionEditor
+                initialEntries={admin().accessEntries}
+                allowAuthenticated={false}
+                allowServiceAccounts
+                canEdit
+                grantAccess={async (principal, permission) => {
+                  const response = await apiClient.mailboxes[":mailboxId"].access.$post({
+                    param: { mailboxId: props.context.mailbox.id },
+                    json: { principal, permission },
+                  });
+                  if (!response.ok) throw new Error(await readApiError(response, "Failed to grant access"));
+                  return response.json();
+                }}
+                updateAccess={async (accessId, permission) => {
+                  const response = await apiClient.mailboxes[":mailboxId"].access[":accessId"].$patch({
+                    param: { mailboxId: props.context.mailbox.id, accessId },
+                    json: { permission },
+                  });
+                  if (!response.ok) throw new Error(await readApiError(response, "Failed to update access"));
+                }}
+                revokeAccess={async (accessId) => {
+                  const response = await apiClient.mailboxes[":mailboxId"].access[":accessId"].$delete({
+                    param: { mailboxId: props.context.mailbox.id, accessId },
+                  });
+                  if (!response.ok) throw new Error(await readApiError(response, "Failed to revoke access"));
+                }}
+              />
+            </SettingsGroup>
+            <SettingsModal.Footer>
+              <SettingsPanelFooter
+                changeCount={accessChangeCount}
+                loading={saveAutomaticReplyAccess.loading}
+                onDiscard={() => setAutomaticReplyManagementPermission(props.context.mailbox.automaticReplyManagementPermission)}
+                onSave={() => saveAutomaticReplyAccess.mutate()}
+              />
+            </SettingsModal.Footer>
           </SettingsModal.Tab>
+        </SettingsModal.Group>
 
+        <SettingsModal.Group title="Lifecycle">
           <SettingsModal.Tab
             id="danger"
             title="Danger zone"
             icon="ti ti-alert-triangle"
-            description="Remove this mailbox from normal use without deleting retained mail."
+            description="Remove this mailbox from normal use."
             tone="danger"
           >
-            <div class="flex items-start justify-between gap-4">
-              <div>
-                <p class="text-sm font-medium text-primary">Move to recently deleted</p>
-                <p class="mt-1 text-xs text-dimmed">
-                  The mailbox is paused and hidden. Provider mail and Cloud data remain retained for restoration.
-                </p>
-              </div>
-              <Button
-                variant="danger"
-                size="sm"
-                type="button"
-                class="shrink-0"
-                onClick={() => deleteMailbox.mutate()}
-                disabled={deleteMailbox.loading()}
-              >
-                <i class={`ti ${deleteMailbox.loading() ? "ti-loader-2 animate-spin" : "ti-trash"}`} aria-hidden="true" />
-                Move to recently deleted
-              </Button>
-            </div>
+            <SettingsGroup
+              title="Move to recently deleted"
+              description="Pause and hide the mailbox while retaining provider mail and Cloud data for restoration."
+            >
+              <SettingsGroup.Action>
+                <Button variant="danger" size="sm" type="button" onClick={() => deleteMailbox.mutate()} disabled={deleteMailbox.loading()}>
+                  <i class={`ti ${deleteMailbox.loading() ? "ti-loader-2 animate-spin" : "ti-trash"}`} aria-hidden="true" />
+                  Move to recently deleted
+                </Button>
+              </SettingsGroup.Action>
+            </SettingsGroup>
           </SettingsModal.Tab>
-        </>
+        </SettingsModal.Group>
       </Show>
     </SettingsModal>
   );

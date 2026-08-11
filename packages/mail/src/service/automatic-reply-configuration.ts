@@ -1,5 +1,5 @@
-import { audit } from "@valentinkolb/cloud/services";
 import { err, fail, isServiceError, ok, type Result, unwrap } from "@k2b/stdlib";
+import { audit } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { stringify } from "yaml";
 import {
@@ -343,7 +343,9 @@ const requireAutomationSender = async (db: SqlClient, mailboxId: string, senderI
   `;
   return identity
     ? ok()
-    : fail(err.badInput("Select a verified identity with Automatic replies enabled in Settings > Delivery > Sending identities"));
+    : fail(
+        err.badInput("Select a verified identity with Automatic replies enabled in Settings > Accounts & identities > Sending identities"),
+      );
 };
 
 const requireReferenceConfiguration = async (db: SqlClient, mailboxId: string): Promise<Result<void>> => {
