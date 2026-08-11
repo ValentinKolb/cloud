@@ -1,6 +1,6 @@
 # Assistant CLI
 
-Use `cld assistant` for interactive chat and Assistant automation. The root command starts or continues a chat; named management commands inspect chat state and files, resolve pending actions, edit preferences, and manage Projects.
+Use `cld assistant` for interactive chat and Assistant automation. The root command starts or continues a chat; named management commands inspect chat state and files, resolve pending actions, manage personalization, and manage Projects.
 
 ## Interactive and print modes
 
@@ -96,8 +96,32 @@ cld assistant prefs system-prompt
 ```
 
 `prefs system-prompt` previews the same composed prompt path used for a fresh
-Assistant chat. Personal facts and preferences are managed in the Assistant
-Personalization tab; the CLI does not expose personalization mutations yet.
+Assistant chat.
+
+## Personalization
+
+Personalization stores separate facts and preferences for the current user. Manually added entries start pinned. Use stable memory IDs returned by `list` for updates, pinning, and forgetting:
+
+```bash
+cld assistant personalization list
+cld assistant personalization list --search "language" --json
+cld assistant personalization add preference --content "Answer in concise German"
+cld assistant personalization update <memory-id> --content-file ./preference.txt
+cld assistant personalization pin <memory-id>
+cld assistant personalization unpin <memory-id>
+cld assistant personalization forget <memory-id> --yes
+```
+
+`--content` also accepts `--content-file` and `--stdin`. Forgetting an entry requires `--yes`.
+
+Personalization use and learning from private chats are separate settings:
+
+```bash
+cld assistant personalization status
+cld assistant personalization configure --use on
+cld assistant personalization configure --learning on
+cld assistant personalization configure --use off --learning off
+```
 
 ## Projects
 

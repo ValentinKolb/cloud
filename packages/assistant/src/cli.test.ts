@@ -11,13 +11,17 @@ const sse = (...events: unknown[]) =>
     headers: { "Content-Type": "text/event-stream" },
   });
 
-const createContext = (args: string[], fetcher: CloudCliContext["fetch"]): { ctx: CloudCliContext; stdout: string[]; stderr: string[] } => {
+const createContext = (
+  args: string[],
+  fetcher: CloudCliContext["fetch"],
+  output: CloudCliContext["options"]["output"] = "text",
+): { ctx: CloudCliContext; stdout: string[]; stderr: string[] } => {
   const stdout: string[] = [];
   const stderr: string[] = [];
   const ctx: CloudCliContext = {
     args,
     flags: {},
-    options: { profile: "test", server: "https://cloud.example", token: "test", output: "text" },
+    options: { profile: "test", server: "https://cloud.example", token: "test", output },
     getDefault: async () => undefined,
     setDefault: async () => undefined,
     createApiClient: () => {
@@ -47,10 +51,138 @@ describe("assistant CLI", () => {
     expect(help).toContain("chats");
     expect(help).toContain("actions");
     expect(help).toContain("files");
+    expect(help).toContain("personalization");
     expect(help).toContain("prefs");
     expect(help).toContain("Create, inspect, and manage Assistant chats");
     expect(help).toContain("Review and resolve pending turn actions");
+    expect(help).toContain("Manage personal facts, preferences, and learning");
     expect(help).not.toMatch(/^\s+\w+\s+Commands$/m);
+  });
+
+  test("lists and searches personalization with stable JSON output", async () => {
+    const memory = {
+      id: "11111111-1111-4111-8111-111111111111",
+      userId: "22222222-2222-4222-8222-222222222222",
+      kind: "preference",
+      content: "Answer in concise German",
+      priority: "pinned",
+      source: "user",
+      sourceConversationId: null,
+      sourceMessageId: null,
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+    };
+    const requests: string[] = [];
+    const { ctx, stdout } = createContext(
+      ["personalization", "list"],
+      async (path) => {
+        requests.push(String(path));
+        return json([memory]);
+      },
+      "json",
+    );
+    ctx.flags.search = "German";
+    ctx.flags.limit = "5";
+
+    expect(await assistantCli.run(ctx)).toBeUndefined();
+    expect(requests).toEqual(["/api/assistant/memories?q=German&limit=5"]);
+    expect(JSON.parse(stdout.join(""))).toEqual([memory]);
+  });
+
+  test("adds and updates personalization through input flags", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const requests: Array<{ path: string; method: string; body: unknown }> = [];
+    const fetcher: CloudCliContext["fetch"] = async (path, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      requests.push({ path: String(path), method: init?.method ?? "GET", body });
+      return json({
+        id,
+        kind: body && typeof body === "object" && "kind" in body ? body.kind : "preference",
+        content: body && typeof body === "object" && "content" in body ? body.content : "Answer in German",
+        priority: "pinned",
+        source: "user",
+        updatedAt: "2026-08-11T00:00:00.000Z",
+      });
+    };
+
+    const help = createContext(["personalization", "add", "help"], fetcher);
+    expect(await assistantCli.run(help.ctx)).toBe(0);
+    expect(help.stdout.join("")).toContain("--content-file");
+    expect(help.stdout.join("")).toContain("--stdin");
+
+    const add = createContext(["personalization", "add", "preference"], fetcher);
+    add.ctx.flags.content = "Answer in German";
+    expect(await assistantCli.run(add.ctx)).toBeUndefined();
+
+    const update = createContext(["personalization", "update", id], fetcher);
+    update.ctx.flags.kind = "fact";
+    update.ctx.flags.content = "Timezone is Europe/Berlin";
+    expect(await assistantCli.run(update.ctx)).toBeUndefined();
+
+    expect(requests).toEqual([
+      { path: "/api/assistant/memories", method: "POST", body: { kind: "preference", content: "Answer in German" } },
+      {
+        path: `/api/assistant/memories/${id}`,
+        method: "PATCH",
+        body: { kind: "fact", content: "Timezone is Europe/Berlin" },
+      },
+    ]);
+  });
+
+  test("pins, unpins, and explicitly confirms forgetting personalization", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const requests: Array<{ method: string; body: unknown }> = [];
+    const fetcher: CloudCliContext["fetch"] = async (_path, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      requests.push({ method: init?.method ?? "GET", body });
+      return json(init?.method === "DELETE" ? { deleted: true } : { id, content: "Answer in German" });
+    };
+
+    for (const action of ["pin", "unpin"] as const) {
+      const command = createContext(["personalization", action, id], fetcher);
+      expect(await assistantCli.run(command.ctx)).toBeUndefined();
+    }
+
+    const unconfirmed = createContext(["personalization", "forget", id], fetcher);
+    expect(assistantCli.run(unconfirmed.ctx)).rejects.toThrow("requires --yes");
+
+    const confirmed = createContext(["personalization", "forget", id], fetcher);
+    confirmed.ctx.flags.yes = true;
+    expect(await assistantCli.run(confirmed.ctx)).toBeUndefined();
+
+    expect(requests).toEqual([
+      { method: "PATCH", body: { priority: "pinned" } },
+      { method: "PATCH", body: { priority: "normal" } },
+      { method: "DELETE", body: null },
+    ]);
+  });
+
+  test("reads and configures personalization use and learning", async () => {
+    const requests: Array<{ method: string; body: unknown }> = [];
+    const fetcher: CloudCliContext["fetch"] = async (_path, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      requests.push({ method: init?.method ?? "GET", body });
+      return json({
+        userId: "22222222-2222-4222-8222-222222222222",
+        memoryEnabled: body && typeof body === "object" && "memoryEnabled" in body ? body.memoryEnabled : true,
+        memoryLearningEnabled: body && typeof body === "object" && "memoryLearningEnabled" in body ? body.memoryLearningEnabled : false,
+        lastModelId: "model-1",
+      });
+    };
+
+    const status = createContext(["personalization", "status"], fetcher, "json");
+    expect(await assistantCli.run(status.ctx)).toBeUndefined();
+    expect(JSON.parse(status.stdout.join(""))).toEqual({ memoryEnabled: true, memoryLearningEnabled: false });
+
+    const configure = createContext(["personalization", "configure"], fetcher, "json");
+    configure.ctx.flags.use = "off";
+    configure.ctx.flags.learning = "on";
+    expect(await assistantCli.run(configure.ctx)).toBeUndefined();
+    expect(JSON.parse(configure.stdout.join(""))).toEqual({ memoryEnabled: false, memoryLearningEnabled: true });
+    expect(requests).toEqual([
+      { method: "GET", body: null },
+      { method: "PUT", body: { memoryEnabled: false, memoryLearningEnabled: true } },
+    ]);
   });
 
   test("creates a chat and writes only streamed assistant text to stdout", async () => {
