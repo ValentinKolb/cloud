@@ -5,7 +5,7 @@ section: Platform services
 order: 580
 description: Declare app-owned Markdown once for the shared Help UI, full-page Help, Assistant, and MCP.
 tags: [help, markdown, product, agents]
-updated: 2026-08-04
+updated: 2026-08-12
 ---
 
 # In-product Help
@@ -14,8 +14,10 @@ Declare an application's product guidance once. Cloud can then expose the same
 Markdown through the shared Layout, full-page Help, Assistant search and reads,
 and the authenticated [Cloud MCP server](/en/docs/platform/mcp).
 
-All supported built-in applications that own Help use this contract. OAuth
-intentionally owns no Help surface.
+The single declaration keeps human and agent guidance aligned even when the
+application is developed and released outside the Cloud repository. It is a
+public application contract; no built-in package or repository integration is
+required.
 
 Help is for static product guidance: tasks, concepts, reference material, and
 troubleshooting. Use developer documentation for application APIs. Keep live,
@@ -289,24 +291,22 @@ routes in the same slice so one declaration remains the only source.
 
 ## Verify Help
 
-Run the shared corpus test after adding or changing application Help:
+`defineHelp()` validates document frontmatter and duplicate IDs when the module
+loads; `app.start()` compiles the bounded corpus and fails instead of publishing
+an invalid registration. Keep a small application-owned test that imports the
+declaration so those checks run in CI.
 
-```sh
-bun test packages/cloud/src/server/help-corpus.test.ts
-```
-
-The test checks that registered UI apps own Help, every article parses, every
-level-two heading has icon metadata, generated IDs are unique, and directives
-do not leak into rendered HTML. A provider convention check enforces the
-`src/help/index.ts` boundary and one `app.start({ help })` registration for
-supported built-in applications.
-
-Before shipping a registration, also verify:
+Before shipping, also verify:
 
 - the application package typecheck;
+- application startup with the complete Help declaration;
 - Layout Help in normal and focus modes;
 - the overview and one article deep link;
 - search and article reads;
 - one agent Help search and read;
 - any specialized embedded reader;
 - registry recovery after the ephemeral entry disappears.
+
+Cloud repository maintainers additionally run the repository-wide Help corpus
+checks for built-in applications. Third-party application CI does not depend on
+those private source paths.

@@ -5,7 +5,7 @@ section: Frontend
 order: 820
 description: Place application pages in the shared Cloud layout and navigation.
 tags: [layout, navigation, breadcrumbs]
-updated: 2026-07-27
+updated: 2026-08-12
 ---
 
 # Layout and navigation
@@ -14,6 +14,11 @@ Wrap every application page in `Layout` or `AdminLayout`.
 
 The shared layout provides the header, breadcrumbs, app navigation, mobile
 navigation, global search, theme control, and footer.
+
+Layout owns Cloud chrome; an [application shell](/en/docs/frontend/application-shells)
+owns the geometry inside it. Keeping those layers separate lets Cloud evolve
+global navigation without taking ownership of an independently deployed app's
+information architecture.
 
 ## Render the application layout
 

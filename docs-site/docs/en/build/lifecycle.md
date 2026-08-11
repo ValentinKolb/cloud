@@ -5,12 +5,14 @@ section: Build an app
 order: 130
 description: Start the service, prepare required state, run process work, and stop cleanly.
 tags: [applications, lifecycle, shutdown]
-updated: 2026-07-27
+updated: 2026-08-12
 ---
 
 # Start and stop an application
 
-`app.start()` registers the application. It returns the Bun-compatible server
+`app.start()` is the boundary between an application's declarations and its
+running process. It registers the live service, prepares shared runtime state,
+runs application lifecycle hooks, and returns the Bun-compatible server
 definition.
 
 Pass the Hono fetch handler:
@@ -34,9 +36,8 @@ export default await app.start({
     start,
     stop,
   },
-  capabilities: {
-    search: searchProvider,
-  },
+  capabilities: inventoryCapabilities,
+  help: inventoryHelp,
   port: 3000,
   skipSetup: false,
 });
@@ -47,12 +48,13 @@ export default await app.start({
 | `fetch` | Yes | — | Application request handler |
 | `openapi` | No | — | Bare router used to generate OpenAPI |
 | `lifecycle` | No | — | `setup`, `start`, and `stop` hooks |
-| `capabilities` | No | — | Executable platform integrations |
+| `capabilities` | No | — | Versioned Types, Queries, and Actions |
+| `help` | No | — | App-owned product Help registered with the live service |
 | `port` | No | `3000` | Internal Bun server port |
 | `skipSetup` | No | `false` | Skip the `setup` hook |
 
-Search is the supported start-time capability. See
-[Universal search](/en/docs/platform/search).
+See [App capabilities](/en/docs/platform/capabilities) for the executable
+contract and [In-product Help](/en/docs/platform/help) for the Help definition.
 
 OpenAPI also needs the document path declared in `defineApp()`. See
 [Typed HTTP APIs](/en/docs/server/http#publish-openapi).
@@ -61,7 +63,7 @@ OpenAPI also needs the document path declared in `defineApp()`. See
 
 | Hook | Use |
 | --- | --- |
-| `setup` | Prepare required state before the fetch handler is returned |
+| `setup` | Prepare required state before the server definition is returned |
 | `start` | Start workers, schedulers, and subscriptions |
 | `stop` | Release process resources |
 

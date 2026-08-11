@@ -5,7 +5,7 @@ section: AI
 order: 1030
 description: Run bounded chat sessions and stream model output to an application.
 tags: [ai, chat, streaming]
-updated: 2026-08-11
+updated: 2026-08-12
 ---
 
 # Chat runtime and streaming
@@ -15,6 +15,11 @@ updated: 2026-08-11
 Use it for a standalone chat. Use
 [`defineAiResource()`](/en/docs/ai/resources-and-access) when the chat belongs
 to a domain resource.
+
+The shared runtime is useful when conversation history, streaming, approvals,
+files, interruption, and crash recovery are product requirements. It does not
+own application context or authorization: the app resolves both for every
+turn and tool call.
 
 ## Create chat routes
 
@@ -122,79 +127,11 @@ language-dependent automatic retries.
 The router also supports message retry, forks, compaction, pending tool
 actions, conversation enrichment, and paged history.
 
-Chat search keeps the existing title, description, and keyword substring
-matches, then adds weighted native PostgreSQL full-text search over an internal
-rolling search summary and visible user and Assistant message text. Raw message
-matches remain eligible even when the summary omits a detail. When
-`pg_textsearch` and both exact conversation indexes are installed, BM25 ranks
-the same result set; known extension-capability failures fall back to native
-FTS. Ownership, app, status, resource, archive, count, and pagination filters
-apply before results are returned.
-
-The Assistant app publishes five closed-world conversation queries:
-
-- `chats.search` finds owned chats by visible text or exact structured Cloud
-  refs;
-- `chat.read` pages visible user and Assistant text from one explicit chat;
-- `chat.search` searches visible text inside one explicit chat, including
-  compacted history;
-- `chat.resources` lists refs observed in one explicit chat;
-- `chats.resources` lists ref occurrences across the user's active chats.
-
-Each query rechecks the current user at execution time. Message results omit
-tool results and model thinking. Resource discovery uses only schema-valid
-`CloudResourceRef` and `CloudResourceView` values observed in Project context
-or capability arguments and results; it never extracts identities from prose.
-The normalized index keeps an app-owned ID plus a display snapshot and source
-turn/call where available. The migration deliberately does not scrape or
-backfill prose from older messages. Before enabling the feature on an existing
-beta data set, run `bun run --cwd packages/cloud backfill:conversation-resources`
-to recover schema-valid refs from stored capability arguments/results and
-Project references. Upserts make an
-interrupted rollout safe to retry; the command is still a one-time rollout
-step, not a recurring maintenance job.
-
-Assistant also publishes the closed-world `chat.message` Action. It shows the
-exact target chat and text for fresh approval, derives the source chat and turn
-from AI Core's trusted capability-call record, then durably queues one
-idempotent message for another active chat owned by the same user. The target
-history renders this as an attributable Assistant-chat message, not as ordinary
-user-authored text. A message-triggered turn cannot forward another inter-chat
-message, preventing autonomous loops. Busy targets retain the pending message
-and retry delivery after a turn finishes or the Assistant service starts.
-
-Assistant scheduled tasks are owned by a user and attached to one private
-chat, never directly to a Project. A task stores an exact future prompt plus
-either one local wall-clock time or a five-field cron expression. Both are
-interpreted with the current `app.timezone` when the task is created; the
-effective IANA timezone is stored with the schedule. One-time input uses
-`YYYY-MM-DDTHH:mm` and rejects nonexistent or ambiguous local times instead of
-guessing.
-
-The Assistant API adds `/tasks`, `/tasks/status`, plus `/tasks/:taskId` update, delete, pause,
-resume, and run routes. The capability surface exposes `tasks.list` and the
-canonical `task.read` resource reader, together with reviewed `task.create`,
-`task.update`, `task.pause`, `task.resume`, `task.run`, and `task.delete`
-Actions. Agent-created changes use normal capability review. Creation and
-manual runs additionally require durable idempotency keys; replacement,
-state-change, and deletion Actions are explicitly non-retryable after an
-ambiguous transport failure.
-
-PostgreSQL is the source of truth for tasks and occurrence history. A Sync
-scheduler registers recurring tasks and runs one minutely recovery pass to
-reconcile those registrations and recover due one-time work or queued
-occurrences. Each schedule slot has an
-idempotency key, and a task can have at most one queued or running occurrence.
-The recovery pass also finalizes occurrences whose AI turn became terminal
-while the Assistant listener was unavailable, and submits at most one queued
-occurrence per currently idle chat so busy chats cannot starve unrelated work.
-At delivery, the runtime locks the chat, refuses overlap with an active turn,
-loads current Project access and context if the chat belongs to a Project, and
-queues an ordinary durable chat turn. Transient failures retry; terminal
-failures move the task to `needs_attention` and create a user notification.
-Recurring tasks can then be resumed; a failed one-time task must be updated
-with a new future schedule because its original slot remains immutable history.
-Deleting the chat cascades to all of its tasks and occurrences.
+Search applies ownership, application, resource, archive, status, and pagination
+filters before returning visible conversation text. Tool results and model
+thinking are not user-visible message search results. Structured Cloud resource
+discovery indexes only schema-valid refs observed in trusted structured values;
+it does not infer resource identity from prose.
 
 `allowConversationManagement` enables metadata editing, pinning, archiving,
 and restore for direct chats.

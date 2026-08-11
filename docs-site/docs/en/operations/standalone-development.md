@@ -5,7 +5,7 @@ section: Operations
 order: 1120
 description: Develop an independent application against the published Cloud package.
 tags: [development, standalone, npm]
-updated: 2026-07-27
+updated: 2026-08-12
 ---
 
 # Standalone development
@@ -14,6 +14,11 @@ A standalone application depends on `@valentinkolb/cloud` from npm.
 
 It owns its repository, version, image, and release cycle. It connects to a
 running Cloud deployment at runtime.
+
+This is the default development shape for third-party applications. Start with
+[Build your first application](/en/docs/build/getting-started) for the complete
+package, TypeScript, declaration, and route setup; this page explains how that
+same app joins a real Cloud environment.
 
 ## Run the application directly
 
@@ -43,6 +48,9 @@ Core serves the shared global stylesheet, fonts, icon font, and branding
 assets. The application serves its own files below `/public/<app-id>/`.
 
 Running the application process alone is not a complete browser environment.
+Direct startup is useful for health checks and application-owned route tests.
+Use a development Cloud deployment when testing gateway routing, login, shared
+styles, Settings, or another platform service.
 
 ## Use published dependencies only
 
@@ -67,6 +75,10 @@ bun test
 Build the same package version used in production. Test registration, login,
 one authenticated route, one mutation, and graceful shutdown against the target
 Cloud deployment.
+
+Treat the target Cloud release and the app's `@valentinkolb/cloud` dependency as
+one compatibility decision. Upgrade deliberately, rebuild the image, and repeat
+the boundary tests before changing production.
 
 See [Build and deploy](/en/docs/operations/build-and-deploy) for the production
 bundle.

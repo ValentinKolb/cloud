@@ -5,7 +5,7 @@ section: Frontend
 order: 890
 description: Apply Cloud's visual and interaction rules without forking shared primitives.
 tags: [css, accessibility, themes, design]
-updated: 2026-08-07
+updated: 2026-08-12
 ---
 
 # Styling and accessibility
@@ -78,8 +78,8 @@ normal navigation look destructive. Status color must not identify an app.
 ## Use shared components first
 
 Import `@k2b/ui/styles.css` once through the application build and render shared
-components below a `.k2b-ui` scope. Cloud's global application styles already
-provide this integration for built-in applications.
+components below a `.k2b-ui` scope. Do this in the third-party application's
+own browser bundle; do not depend on styles or source files from a built-in app.
 
 Choose the public component that owns the required appearance and behavior:
 

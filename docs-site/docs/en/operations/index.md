@@ -3,9 +3,9 @@ title: Operations
 navTitle: Overview
 section: Operations
 order: 1100
-description: Run Cloud applications from local development through production.
+description: Develop and operate an independent Cloud application through the shared gateway.
 tags: [operations, deployment, runtime]
-updated: 2026-07-27
+updated: 2026-08-12
 ---
 
 # Operations
@@ -15,12 +15,17 @@ Cloud runs each application as an independent Bun service.
 The gateway is the only public entry point. Applications, Postgres, Valkey, and
 supporting services share a private network.
 
+For a third-party app, the normal unit of ownership is its own repository,
+version, image, and release cycle. The public application contract is the same
+inside the Cloud monorepo, but repository scripts and workspace aliases are not
+part of that contract.
+
 ## Choose the development shape
 
 | Shape | Use it when |
 | --- | --- |
-| [Monorepo development](/en/docs/operations/monorepo-development) | You change Cloud itself or a built-in application |
 | [Standalone development](/en/docs/operations/standalone-development) | Your application consumes the published package |
+| [Monorepo development](/en/docs/operations/monorepo-development) | You maintain Cloud itself or a built-in application |
 
 Both shapes use the same application contract. They differ in dependency and
 container ownership.

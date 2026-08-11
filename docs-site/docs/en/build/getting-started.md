@@ -3,75 +3,76 @@ title: Create the first application
 navTitle: First application
 section: Build an app
 order: 110
-description: Add an API-only application to a Cloud source checkout and run it through the gateway.
-tags: [applications, getting-started, development]
-updated: 2026-07-27
+description: Build and verify a standalone API-only application with the published Cloud package.
+tags: [applications, getting-started, standalone]
+updated: 2026-08-12
 ---
 
 # Create the first application
 
-This guide adds an `inventory` service to a Cloud source checkout.
+Build Cloud applications in their own repositories. A standalone application
+owns its source, dependencies, image, version, and release cycle while Cloud
+supplies the gateway and shared platform services.
 
-The finished application registers one route and serves one endpoint:
+This guide creates an API-only `inventory` service with one endpoint:
 
 ```text
 GET /api/inventory/health
 ```
 
-Use this path for a built-in application. A standalone project uses the same
-application code but different deployment wiring. See
-[Choose the project shape](/en/docs/build#choose-the-project-shape).
+The first direct request proves the application package and process. A later
+request through the gateway proves that deployment networking, registration,
+and route discovery agree.
 
-## Prepare the checkout
+## Prepare a standalone project
 
-The guide requires Bun, Docker with Compose, and a local Cloud checkout.
-
-Install the workspace and start the shared infrastructure:
+Install [Bun](https://bun.sh/) and create a repository:
 
 ```bash
-bun install
-bun run infra
+mkdir cloud-inventory
+cd cloud-inventory
+bun init -y
+mkdir -p src
 ```
 
-## Create the package
-
-Create the package directory and copy the small application TypeScript config:
+Add the Cloud package and its public peer dependencies:
 
 ```bash
-mkdir -p packages/inventory/src
-cp packages/quotes/tsconfig.json packages/inventory/tsconfig.json
+bun add @valentinkolb/cloud hono solid-js zod
+bun add --dev @types/bun typescript
 ```
 
-Create `packages/inventory/package.json`:
+Pin `@valentinkolb/cloud` to the version used by the target Cloud deployment
+before committing the lockfile. An application and its platform must agree on
+their public runtime contracts.
+
+Create `tsconfig.json`:
 
 ```json
 {
-  "name": "@valentinkolb/cloud-app-inventory",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "module": "src/index.ts",
-  "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false"
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.AsyncIterable"],
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true
   },
-  "dependencies": {
-    "@valentinkolb/cloud": "workspace:*",
-    "hono": "^4.11.1"
-  },
-  "devDependencies": {
-    "@types/bun": "1.3.9",
-    "typescript": "^5.9.3"
-  },
-  "license": "AGPL-3.0-or-later"
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
 }
 ```
 
-Add `"packages/inventory"` to the root `workspaces` array. Run `bun install`
-again so the new workspace is linked.
+The application imports only published package entry points. It does not need
+the Cloud source repository, workspace aliases, or another application package.
 
-## Define one public route
+## Declare the service boundary
 
-Create `packages/inventory/src/config.ts`:
+Create `src/config.ts`:
 
 ```ts
 import { defineApp } from "@valentinkolb/cloud";
@@ -81,23 +82,24 @@ export const app = defineApp({
   name: "Inventory",
   icon: "ti ti-packages",
   description: "Track stock and warehouse movements.",
-  baseUrl: "http://app-inventory:3000",
+  baseUrl: "http://inventory:3000",
   routes: ["/api/inventory"],
 });
 ```
 
-The definition declares only the API prefix because this application does not
-serve pages or assets yet.
+The declaration is the service's public platform identity:
 
-The application ID is stable. `baseUrl` must resolve from the gateway
-container. The `routes` array controls which public paths reach the service.
+- `id` remains stable across releases;
+- `baseUrl` is the private address the gateway can reach;
+- `routes` contains only prefixes the service actually handles.
 
-See [Define an application](/en/docs/build/define-app) for the complete
-definition.
+This API-only application declares no page, asset, or administration prefix.
+See [Define an application](/en/docs/build/define-app) for every declaration
+option and [Routes and discovery](/en/docs/build/routing) for prefix ownership.
 
-## Serve the route
+## Handle one request
 
-Create `packages/inventory/src/index.ts`:
+Create `src/index.ts`:
 
 ```ts
 import { Hono } from "hono";
@@ -115,56 +117,29 @@ export default await app.start({
 });
 ```
 
-`app.start()` does not create Hono routes or add middleware. This endpoint does
-not need request context, so the router stays empty apart from the route.
+`defineApp()` does not create routes. Hono owns request matching and the
+application passes its final Fetch handler to `app.start()`.
 
-Add [request middleware](/en/docs/server/middleware) when the application needs
-identity, settings, logging, or rate limits.
+This public health endpoint needs no caller identity or platform settings. Add
+[request middleware](/en/docs/server/middleware) when a route needs request
+context, authentication, settings, logging, or rate limits.
 
-## Add the development service
+## Verify the process directly
 
-Add the package manifest to the install layer in `Dockerfile.dev`:
-
-```dockerfile
-COPY packages/inventory/package.json packages/inventory/
-```
-
-Add the service to `compose.dev.yml`:
-
-```yaml
-app-inventory:
-  <<: *app
-  container_name: app-inventory
-  environment: { <<: *env, APP_ID: inventory }
-  profiles: [extra]
-  volumes:
-    - ./packages/cloud/src:/app/packages/cloud/src
-    - ./packages/cloud/scripts:/app/packages/cloud/scripts
-    - ./packages/inventory/src:/app/packages/inventory/src
-    - ./styles.css:/app/styles.css
-  command: bun run --preload=/app/packages/cloud/scripts/preload.ts --watch packages/inventory/src/index.ts
-```
-
-The service name matches the hostname in `baseUrl`.
-
-## Run the application
-
-Start the main development stack in one terminal:
+Every application needs a Valkey connection for live registration and the same
+non-empty `APP_SECRET` as its Cloud deployment. For an isolated local smoke
+test, point both values at development-only infrastructure:
 
 ```bash
-bun run dev
+REDIS_URL=redis://127.0.0.1:6379 \
+APP_SECRET=local-development-only \
+bun src/index.ts
 ```
 
-Start the new optional service in another terminal:
+In another terminal, request the application directly:
 
 ```bash
-bun run dev:rebuild inventory
-```
-
-Call the route through the gateway:
-
-```bash
-curl http://localhost:3000/api/inventory/health
+curl http://127.0.0.1:3000/api/inventory/health
 ```
 
 The response is:
@@ -176,16 +151,39 @@ The response is:
 }
 ```
 
-If the gateway returns `502` because no application is registered for the
-path, follow
-[Diagnose an unreachable route](/en/docs/build/routing#diagnose-an-unreachable-route).
+This check proves the public package, application declaration, Hono router, and
+process startup. It does not prove gateway routing, shared identity, or other
+platform services.
 
-A `404` means the gateway reached the application, but its Hono router did not
-match the requested path.
+## Connect the application to Cloud
 
-## Organize the package as it grows
+Run the application on the same private network as the target Cloud deployment.
+The deployment must provide:
 
-The first version needs only two source files:
+- a gateway and Core;
+- Valkey through `REDIS_URL`;
+- the deployment-wide `APP_SECRET`;
+- Postgres through `DATABASE_URL` once the application stores domain data;
+- any optional platform service the application uses.
+
+The hostname and port in `baseUrl` must resolve from the gateway. After the
+application starts, call the same route through the public gateway origin:
+
+```bash
+curl https://cloud.example/api/inventory/health
+```
+
+A gateway `502` means no usable live service owns the prefix. A `404` means the
+gateway reached the application but Hono did not match the path. Follow the
+[route diagnosis](/en/docs/build/routing#diagnose-an-unreachable-route) before
+adding application logic.
+
+Do not expose the application container as a second public origin. The gateway
+is the public boundary for routing, identity, and platform-wide policy.
+
+## Grow by responsibility
+
+The first version needs only two files:
 
 ```text
 src/
@@ -193,7 +191,7 @@ src/
 └── index.ts
 ```
 
-Split code when a responsibility appears:
+Add a file or directory only when that responsibility exists:
 
 ```text
 src/
@@ -209,7 +207,7 @@ src/
 
 | Path | Responsibility |
 | --- | --- |
-| `config.ts` | `defineApp()` and declarative platform integrations |
+| `config.ts` | Application identity and declarative platform integrations |
 | `index.ts` | Middleware order, route mounting, and `app.start()` |
 | `contracts.ts` | Input and output schemas shared across boundaries |
 | `migrate.ts` | Idempotent application-schema changes |
@@ -218,10 +216,10 @@ src/
 | `service/` | Domain rules |
 | `frontend/` | SSR pages and interactive islands |
 
-Do not make route handlers own business rules or persistence. Pass explicit
-inputs into domain services instead of passing a Hono context.
+Keep business rules and persistence out of route handlers. Domain services
+receive explicit inputs instead of a Hono context.
 
-## Next capabilities
+## Continue by capability
 
 - [Protect routes and resources](/en/docs/identity).
 - [Define typed HTTP APIs](/en/docs/server/http).
@@ -229,3 +227,4 @@ inputs into domain services instead of passing a Hono context.
 - [Add SSR pages](/en/docs/frontend/ssr-pages-and-routing).
 - [Declare settings](/en/docs/platform/settings).
 - [Run setup and background work](/en/docs/build/lifecycle).
+- [Build and deploy the application](/en/docs/operations/build-and-deploy).

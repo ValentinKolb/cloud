@@ -5,10 +5,14 @@ section: Data
 order: 420
 description: Evolve application schemas safely and keep related writes atomic.
 tags: [data, postgres, migrations, transactions]
-updated: 2026-07-27
+updated: 2026-08-12
 ---
 
 # Migrations and transactions
+
+The application owns its schema, so its release also owns the schema change.
+Keep short, idempotent compatibility changes in lifecycle setup so every new
+instance verifies the state it requires before serving work.
 
 Run the application's migration during lifecycle setup:
 

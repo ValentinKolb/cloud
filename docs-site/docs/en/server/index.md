@@ -5,13 +5,18 @@ section: Server
 order: 200
 description: Follow one request from the gateway to a typed response.
 tags: [server, hono, requests]
-updated: 2026-07-27
+updated: 2026-08-12
 ---
 
 # Server requests
 
 The gateway forwards a request to the application. The application's Hono
 router then owns the request.
+
+Cloud supplies public middleware, identity types, validators, and response
+helpers, but it does not own the application's route tree or domain service.
+This keeps transport integration consistent without coupling domain behavior
+to the platform repository.
 
 ## Request path
 

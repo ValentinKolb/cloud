@@ -199,8 +199,9 @@ import { createWorkflowActionPort } from "@valentinkolb/cloud/workflows/store";
 const actions = createWorkflowActionPort(inventoryWorkflows);
 ```
 
-The built-in runtime port remains application-wired because authorization and
-text rendering belong to the application.
+The runtime port remains application-wired because authorization and text
+rendering belong to the application, including for independently deployed
+workflow providers.
 
 ## Publish one version
 

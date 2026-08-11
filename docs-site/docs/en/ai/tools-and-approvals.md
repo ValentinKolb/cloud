@@ -5,7 +5,7 @@ section: AI
 order: 1040
 description: Let models request application actions while keeping authorization and approval explicit.
 tags: [ai, tools, approvals]
-updated: 2026-08-11
+updated: 2026-08-12
 ---
 
 # Tools and approvals
@@ -119,16 +119,13 @@ in the tool description and schema; the hint does not replace either.
 
 ## Search product Help
 
-A user-backed direct chat on a tool-capable model exposes two small Help tools:
-
-- `search_help` searches the current static Help corpus and returns compact
-  article identifiers;
-- `read_help` reads one exact article returned by search.
-
-AI Core resolves these tools dynamically from app-owned Help registration.
-They do not require `toolSource.capabilities` because static product guidance
-is separate from executable app operations. A registry read failure stays
-local to Help and is retried on a later provider turn.
+A user-backed direct chat on a tool-capable model resolves `search_help` and
+`read_help` dynamically from app-owned Help registration. They do not require
+Capability discovery because static product guidance is separate from
+executable operations. A registry failure stays local to Help and may be tried
+again on a later model turn. See
+[In-product Help](/en/docs/platform/help) for the owning declaration and
+exposure rules.
 
 ## Discover Cloud app capabilities
 
@@ -139,7 +136,7 @@ source:
 toolSource: { kind: "default", capabilities: true }
 ```
 
-Capability-enabled chats expose four small discovery tools from the current
+Capability-enabled chats expose four bounded discovery tools from the current
 live registry snapshot:
 
 - `search_capabilities` includes a bounded directory of live app IDs and names,
@@ -151,29 +148,12 @@ live registry snapshot:
   and kind;
 - `load_capabilities` retains exact names returned by discovery.
 
-Capability search matches whole normalized task words, handles simple plural
-forms, and ranks operations by how many requested terms they cover. Callers do
-not need to reproduce one contiguous title or description phrase. Prefer a few
-concrete product terms, scope the exact `appId` when it is already known, and
-set `kind: "query"` for reads or `kind: "action"` for mutations. Use the
-paginated list only for browsing, not as a fallback dump after a
-natural-language search.
-
-Search and list results include the owning app description. A loaded capability
-becomes an ordinary named tool on the next model turn.
-Cloud sends the model a reduced input schema that keeps structure, required
-fields, descriptions, enums, and useful formats. Output schemas, schema hashes,
-icons, authorization metadata, and validation-only limits stay out of model
-context. The owning application still performs authoritative input validation.
-
-When a request names or clearly implies an app, discovery scopes the first
-search or list to that exact `appId`. If no relevant operation is found, the
-agent may try one broader search, then stops instead of cycling through
-synonyms. If a previously loaded operation is absent from the live catalog,
-AI Core tells the model that it is temporarily unavailable. The model must not
-turn that transient registry state into a permanent claim about product
-features or infer an available operation merely because another capability
-description mentions it.
+A loaded capability becomes an ordinary named tool on the next model turn.
+Cloud gives the model the operation's structure, required fields,
+descriptions, enums, and useful formats. The provider remains responsible for
+authoritative input validation and the complete result contract. If an
+operation disappears from the live catalog, AI Core treats it as temporarily
+unavailable rather than inferring a replacement.
 
 Discovery is not authorization. Every invocation resolves the conversation's
 current user, creates a short-lived request delegation, and lets the owning app
@@ -182,21 +162,18 @@ replays the user's browser cookie, bearer token, resource API key, or service
 account credential for this path. An unavailable app or denied resource fails
 that tool call without granting fallback access.
 
-The chat stores only ordered loaded capability names. Removed or temporarily
-unavailable operations are omitted from later snapshots. Capability calls save
-a small app presentation snapshot so live calls and history can show the owning
-app without exposing icon metadata to the model.
-
-When a capability returns a semantic Cloud `open` or `edit` link, the model
-renders that exact path as a Markdown link when directing the user to the
-resource. It does not infer routes from refs or IDs, and it prefers the Cloud
-resource link over secondary protocol actions such as `mailto:` or `tel:`.
+The chat stores loaded operation names, not provider credentials or private
+contracts. When a result contains a semantic `open` or `edit` link, clients use
+that exact path instead of inferring a route from a resource ref.
 
 Never retry `ACTION_OUTCOME_UNKNOWN`. `INVALID_APP_RESPONSE` and `INTERNAL`
 indicate a provider defect. Do not retry the same capability with unchanged
 arguments; report the failure so the app can be fixed. Input validation and
 schema mismatch errors may be corrected or refreshed according to their
 structured error code.
+
+The full provider declaration, schema, result, compatibility, and transport
+contract lives in [App capabilities](/en/docs/platform/capabilities).
 
 ### Approve Capability Actions
 
@@ -227,14 +204,6 @@ This approval confirms the user's intent for one model-requested call. It is
 not application authorization. After approval, the owning app validates the
 same arguments and checks current resource access and domain invariants before
 performing the Action.
-
-Assistant's `chat.message` follows this boundary. The review names the target
-chat and exact text. AI Core creates the idempotency key and records the source
-conversation, turn, and tool call before dispatch; the Assistant app does not
-accept model-supplied source identity. The Action then rechecks same-user
-ownership and stores a durable pending or delivered record. Action success
-means the message was accepted durably; the target agent may process it
-asynchronously.
 
 ### Show an optional Action review
 

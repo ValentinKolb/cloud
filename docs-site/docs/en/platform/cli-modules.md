@@ -5,7 +5,7 @@ section: Platform services
 order: 595
 description: Expose application operations through the shared cld command-line interface.
 tags: [cli, cld, automation]
-updated: 2026-07-27
+updated: 2026-08-12
 ---
 
 # Application CLI modules
@@ -326,12 +326,15 @@ principal resolution and output contracts.
 
 Export the module from the application package, usually from `src/cli.ts`.
 
-The `cld` distribution imports its modules explicitly. Add the application
-package as a dependency and add its module to the `modules` array in
-`packages/cloud-cli/src/index.ts`.
+The `cld` distribution imports its modules explicitly. A CLI build that should
+ship the application commands must depend on the application package and add
+the exported module to its `modules` array.
 
 This explicit list defines what ships in that CLI build. Creating a module does
-not register it automatically.
+not register it automatically. A third-party application can therefore publish
+the server independently and provide its own `cld` distribution or contribute
+the module to another distribution without importing Cloud repository source
+paths.
 
 ## Keep authorization on the server
 

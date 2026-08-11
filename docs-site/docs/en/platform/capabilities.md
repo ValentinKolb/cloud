@@ -5,7 +5,7 @@ section: Platform services
 order: 555
 description: Publish a small, versioned RPC surface for cross-app calls, agents, CLI, and MCP.
 tags: [capabilities, rpc, agents, mcp]
-updated: 2026-08-11
+updated: 2026-08-12
 ---
 
 # App capabilities
@@ -14,11 +14,15 @@ Capabilities are an application's small, versioned machine interface. An app
 publishes addressable resource **Types**, read-only **Queries**, and mutating
 **Actions** from one `defineCapabilities()` declaration.
 
-Use capabilities for stable operations that should work across applications,
-Cloud AI agents, the authenticated Cloud MCP server, or generic HTTP and CLI
-clients. Keep complete administrative APIs, bulk transfers, specialized
-transport behavior, and unstable internal operations in REST and app-specific
-CLI modules.
+The declaration exists so a separately deployed provider can describe a stable
+operation once while Cloud projects it into cross-app calls, AI tools, the
+authenticated Cloud MCP server, HTTP, and CLI. Consumers discover the current
+live contract; they do not import the provider's source code or private DTOs.
+
+Use capabilities only for stable operations that should work through several
+of those consumers. Keep complete administrative APIs, bulk transfers,
+specialized transport behavior, and unstable internal operations in REST and
+app-specific CLI modules.
 
 > A capability is discoverable, not authorized. The owning application must
 > authenticate the request and check current resource access for every call.

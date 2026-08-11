@@ -3,9 +3,9 @@ title: AI
 navTitle: Overview
 section: AI
 order: 1000
-description: Choose the Cloud AI services needed by an application.
+description: Choose the smallest model runtime while keeping application authority explicit.
 tags: [ai, models, tools]
-updated: 2026-07-27
+updated: 2026-08-12
 ---
 
 # AI
@@ -24,6 +24,10 @@ The application still owns the product behavior. It decides:
 - which model policy applies;
 - how the result changes application state.
 
+That ownership does not move into a prompt. Cloud can authenticate the caller,
+store a turn, validate schemas, and pause for approval, but only the application
+knows which domain data may be disclosed and which operation is allowed now.
+
 ## Choose the smallest API
 
 | Need | Start with |
@@ -35,7 +39,9 @@ The application still owns the product behavior. It decides:
 | Conversation files, Projects, or user memory | [Files, Projects, and personalization](/en/docs/ai/files-projects-and-personalization) |
 | Shared chat components | [Chat interface](/en/docs/ai/chat-interface) |
 
-Do not create a chat when one structured call is enough.
+Do not create a chat when one structured call is enough. Do not create a custom
+tool when a stable app operation should be published once as a
+[Capability](/en/docs/platform/capabilities) for several consumers.
 
 ## Keep the application boundary
 

@@ -3,20 +3,27 @@ title: Platform model
 navTitle: Platform model
 section: Start
 order: 20
-description: See what Cloud owns and what each application owns.
+description: Understand why Cloud applications are independent services and where the platform boundary ends.
 tags: [architecture, apps, runtime]
-updated: 2026-07-27
+updated: 2026-08-12
 ---
 
 # Platform model
 
-A Cloud application is an independently deployed HTTP service.
+A Cloud application is an independently deployed HTTP service. This boundary
+lets an application own its domain, data, version, image, and release cycle
+without becoming part of the Cloud platform process.
 
 It declares its public route prefixes and one stable service address. The
 gateway forwards matching requests to that address. The orchestrator
 distributes requests across replicas.
 
-## Separate platform and application code
+These developer docs assume the application lives in its own repository and
+uses published packages. Built-in applications follow the same runtime
+contract, but their source layout is maintainer guidance rather than the model
+for a third-party app.
+
+## Keep platform and domain ownership separate
 
 | Cloud owns | An app owns |
 | --- | --- |
@@ -27,8 +34,11 @@ distributes requests across replicas.
 | Platform schemas | An optional application-owned Postgres schema |
 | Settings, notifications, logging, and other shared services | Application-specific definitions and domain events |
 
-An application uses Cloud's identity model and shared services. Its domain
-behavior stays in the application.
+Cloud standardizes the parts that must agree across applications. The
+application keeps the rules that give its resources meaning. Moving domain
+behavior into platform services would couple unrelated release cycles; copying
+identity or permission models into an app would create incompatible security
+boundaries.
 
 ## Handle a request
 
@@ -44,7 +54,7 @@ The gateway chooses the application by URL prefix. The application chooses its
 middleware, validates input, checks resource access, and runs the domain
 operation.
 
-## Connect an application
+## Use three public seams
 
 An application connects to Cloud through three APIs:
 
@@ -54,7 +64,9 @@ An application connects to Cloud through three APIs:
 | Hono router | Handle requests and compose middleware |
 | `app.start()` | Register the service and run its lifecycle |
 
-These APIs do not generate or load application code into the gateway.
+These APIs connect a service to Cloud without loading application code into the
+gateway. The gateway learns a live route table from registration; it does not
+import, build, or release the application.
 
 ## Run application instances
 
@@ -62,8 +74,9 @@ Several instances of one application can run at the same time. Store durable
 state in Postgres or another explicit store. Do not store it in process memory
 or container files.
 
-Built-in and standalone applications use the same contract. Their repository
-and release ownership differ; their runtime model does not.
+Third-party and built-in applications use the same public runtime contract.
+The difference is who owns the repository and release, not how requests,
+identity, data, or registration work.
 
 Continue with [Build an application](/en/docs/build). Use
 [Building blocks](/en/docs/building-blocks) to find a platform API.

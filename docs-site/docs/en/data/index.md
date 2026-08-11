@@ -16,6 +16,10 @@ Most applications store that data in one Postgres schema named after the
 application. Cloud owns shared platform data such as accounts, access entries,
 settings, notifications, and logs.
 
+This boundary lets a third-party application evolve and release its schema
+without migrating Cloud-owned tables. Platform records may identify callers or
+hold grants, but the application remains authoritative for its resources.
+
 ## Choose the store
 
 | Data | Store |

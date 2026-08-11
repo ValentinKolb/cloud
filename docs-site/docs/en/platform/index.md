@@ -3,15 +3,22 @@ title: Platform services
 navTitle: Overview
 section: Platform services
 order: 500
-description: Choose a shared platform service.
+description: Choose the platform boundary that removes shared infrastructure from an application.
 tags: [platform, api, applications]
-updated: 2026-07-26
+updated: 2026-08-12
 ---
 
 # Platform services
 
-Platform services handle features shared by many applications. The application
-adds its domain-specific definition. Cloud runs the shared infrastructure.
+Platform services keep cross-cutting infrastructure out of independently
+deployed applications. Your application contributes the domain-specific
+contract; Cloud runs the shared infrastructure and presents one consistent
+surface to users, agents, and operators.
+
+Use a platform service when the behavior must integrate with the wider Cloud
+installation. Keep behavior in the application when it is meaningful only to
+that domain. These services are runtime boundaries, not code generators: they
+do not copy files into an application or take ownership of its data model.
 
 ## Choose a service
 
@@ -29,10 +36,8 @@ adds its domain-specific definition. Cloud runs the shared infrastructure.
 | Documents | HTML or Liquid templates and data | Shared Gotenberg configuration and PDF limits |
 | Command-line operations | A typed CLI module | Authentication, profiles, output modes, and dispatch |
 
-These are runtime services, not code generators. They do not copy files into an
-application or take ownership of its domain model.
-
-Open the page for the service you need from the navigation. Use
+Start from the need in this table, then open the linked page in the navigation
+for its complete declaration, lifecycle, failure, and verification contract. Use
 [Building blocks](/en/docs/building-blocks) when you know the task but not the
 service, or [API surface](/en/docs/reference/api-surface) to look up an import.
 

@@ -5,13 +5,14 @@ section: Build an app
 order: 140
 description: Publish route prefixes and make an application reachable through the gateway.
 tags: [applications, routing, gateway, registry]
-updated: 2026-07-27
+updated: 2026-08-12
 ---
 
 # Routes and service discovery
 
-An application declares its upstream address and public path prefixes. The
-gateway builds its route table from those declarations.
+An application declares its private upstream address and public path prefixes
+because the gateway must route without importing or statically configuring the
+application. The gateway builds its route table from live declarations.
 
 ## Declare only served prefixes
 
@@ -90,12 +91,9 @@ Check the path in this order:
 5. Confirm the same path is mounted in Hono.
 6. Check for a duplicate-prefix warning in gateway logs.
 
-For a local source checkout:
-
-```bash
-bun run dev:status
-bun run dev:logs inventory
-```
+Use the target deployment's application and gateway health or log commands for
+the first two checks. Repository-specific development commands are maintainer
+tools, not part of the standalone application contract.
 
 See [Operations troubleshooting](/en/docs/operations/troubleshooting) for
 registry and container failures.

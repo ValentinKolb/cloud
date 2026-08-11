@@ -3,26 +3,33 @@ title: Identity and access
 navTitle: Overview
 section: Identity and access
 order: 300
-description: Identify callers and protect application resources.
+description: Separate credential, route, and resource decisions in an application.
 tags: [identity, authentication, authorization]
-updated: 2026-07-27
+updated: 2026-08-12
 ---
 
 # Identity and access
 
 Cloud owns accounts, sessions, credentials, roles, groups, and permission
-primitives. Applications use that shared identity model.
+primitives so every installed application receives the same caller model. Your
+application remains the authority for its own resources and domain operations.
 
-Keep three decisions separate:
+That split matters most for independently deployed applications: they can
+trust Cloud to establish an identity without giving Cloud enough information
+to decide whether that identity may read or change an app-owned resource.
 
-| Question | Owner |
-| --- | --- |
-| Is the credential valid? | Cloud authentication |
-| May this caller enter the route? | Route middleware |
-| May this caller act on this resource? | The application service |
+Keep three boundaries separate on every request:
+
+| Boundary | Question | Owner |
+| --- | --- | --- |
+| Authentication | Is the credential valid, and who acted? | Cloud authentication |
+| Route policy | May this kind of caller enter the route? | Application middleware |
+| Resource authorization | May this caller perform this operation on this resource now? | Application service |
 
 A valid login does not grant access to every resource. A route role does not
-replace a resource permission check.
+replace a resource permission check. Every entry point that reaches the same
+domain operation—HTTP, SSR, capability, CLI, or background work—should converge
+on the same permission-aware application service.
 
 ## Continue by task
 
@@ -35,5 +42,6 @@ replace a resource permission check.
 | Integrate an OAuth client | [OAuth](/en/docs/identity/oauth) |
 | Allow a route without a session | [Public access](/en/docs/identity/public-and-anonymous-access) |
 
-Cloud owns identity and credentials. The application owns its domain resources
-and decides which permission each operation requires.
+OAuth and API keys change how Cloud establishes the actor; they do not create a
+second authorization model. Public access likewise opens only the route and
+resources the application explicitly makes public.

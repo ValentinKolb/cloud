@@ -5,12 +5,17 @@ section: Frontend
 order: 830
 description: Choose the shared shell that matches an application's information structure.
 tags: [shells, workspace, ui]
-updated: 2026-07-27
+updated: 2026-08-12
 ---
 
 # Application shells
 
-Choose a shared shell before arranging domain content.
+Choose a shared shell before arranging domain content. A shell gives the page
+stable responsive geometry and interaction behavior; it does not load data,
+authorize resources, or register the app in Cloud navigation.
+
+Wrap the shell in the shared [Layout](/en/docs/frontend/layout-and-navigation),
+then keep domain data and actions inside the application-owned content slots.
 
 ## Choose a shell
 

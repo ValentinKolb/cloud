@@ -3,35 +3,39 @@ title: Build an application
 navTitle: Overview
 section: Build an app
 order: 100
-description: Choose a built-in or standalone application.
+description: Build an independently released application against Cloud's public runtime contract.
 tags: [applications, architecture, deployment]
-updated: 2026-07-27
+updated: 2026-08-12
 ---
 
 # Build an application
 
-Start with [Platform model](/en/docs/overview) if you need the ownership and
-runtime boundary.
+The normal application is standalone: it has its own repository, version,
+image, and release cycle and connects to Cloud through published packages.
+
+Start with [Platform model](/en/docs/overview) for the ownership and runtime
+boundary, then create the [first standalone application](/en/docs/build/getting-started).
 
 ## Choose the project shape
 
-Choose the repository from release ownership. The application contract stays
-the same.
+Choose the repository from release ownership. The public application contract
+stays the same.
 
 | Project | Choose it when |
 | --- | --- |
-| Built-in | Cloud maintainers release the application with the platform |
-| Standalone | Another team owns the repository, image, and release |
+| Standalone | The application team owns the repository, image, compatibility decision, and release |
+| Built-in | Cloud maintainers intentionally release the application with the platform |
 
-See [Monorepo development](/en/docs/operations/monorepo-development) or
-[Standalone development](/en/docs/operations/standalone-development) for the
-different development workflows.
+Do not begin in the Cloud monorepo only to gain access to internal imports or
+workspace aliases. Use the monorepo path only when the application is intended
+to ship as part of Cloud itself; see
+[Monorepo development](/en/docs/operations/monorepo-development).
 
 ## Build tasks
 
 | Task | Page |
 | --- | --- |
-| Run a small service locally | [First application](/en/docs/build/getting-started) |
+| Create and verify a standalone service | [First application](/en/docs/build/getting-started) |
 | Look up every `defineApp()` option | [Define an application](/en/docs/build/define-app) |
 | Prepare data and manage process work | [Application lifecycle](/en/docs/build/lifecycle) |
 | Publish routes through the gateway | [Routes and discovery](/en/docs/build/routing) |

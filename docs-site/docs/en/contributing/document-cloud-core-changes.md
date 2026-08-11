@@ -5,13 +5,17 @@ section: Contributing
 order: 1300
 description: Keep developer docs, UI examples, and the Fibel-backed Cloud skill aligned with core changes.
 tags: [contributing, documentation, maintenance]
-updated: 2026-07-28
+updated: 2026-08-12
 ---
 
 # Document Cloud core changes
 
 Documentation is part of the public contract. A core change is complete when
 every affected developer-facing source describes the same behavior as the code.
+
+This page is for Cloud repository maintainers. Third-party application authors
+consume the resulting published package and documentation; they do not need the
+repository-local Fibel, UI catalog, or workspace checks below.
 
 ## Decide what the change affects
 

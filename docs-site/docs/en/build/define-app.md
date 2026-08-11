@@ -5,12 +5,14 @@ section: Build an app
 order: 120
 description: Declare application identity, routes, navigation, and platform integrations with defineApp().
 tags: [applications, define-app, configuration]
-updated: 2026-07-27
+updated: 2026-08-12
 ---
 
 # Define an application
 
-`defineApp()` declares how one HTTP service connects to Cloud.
+`defineApp()` declares the stable platform identity of one independently
+released HTTP service. Cloud can discover and present the service from this
+declaration without importing its source code.
 
 It creates the typed application APIs used by the entry point. It does not
 create Hono routes, add middleware, or start the service.
@@ -193,14 +195,16 @@ await app.start({
 Both values are required. Cloud generates the document, serves it without
 application middleware, and advertises it through the registry.
 
-Universal search is different because it needs executable code. Pass its
-provider to `app.start({ capabilities })`. See
+Capabilities are executable code rather than static application metadata. Pass
+the declaration to `app.start({ capabilities })`. Universal Search is an
+optional projection of a capability Query; see
+[App capabilities](/en/docs/platform/capabilities) and
 [Universal search](/en/docs/platform/search).
 
 ## Override the project root only when required
 
 `appRoot` controls where the SSR build looks for application files. It defaults
-to `process.cwd()`.
+to `process.cwd()`, which is the standalone project root in the normal setup.
 
 Set it only when the process starts from another directory:
 
