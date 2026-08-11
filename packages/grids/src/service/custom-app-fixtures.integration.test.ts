@@ -188,6 +188,7 @@ describe("Grids App Golden fixtures", () => {
           },
         ],
         workflowLaunchers: [],
+        scannerLaunchers: [],
       });
 
       const planned = await plan(definition);

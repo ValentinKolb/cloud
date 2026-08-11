@@ -3,6 +3,7 @@ import { sql } from "bun";
 import { migrate as migrateCoreWorkflows } from "../../../core/src/migrate/core/workflows";
 import { type CustomAppDefinition, CustomAppDefinitionSchema } from "../custom-apps/contracts";
 import { customAppViewSourceHash } from "../custom-apps/insight-source";
+import { customAppScannerConfigHash } from "../custom-apps/scanner-capability";
 import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { grantAccess } from "./access";
@@ -240,6 +241,13 @@ describe("Grids App lifecycle", () => {
       );
       if (!launcherResult.ok) throw new Error(launcherResult.error.message);
       const launcherId = launcherResult.data.id;
+      const scannerLauncherResult = await createLauncher(
+        workflow,
+        { name: "Scan request", config: { kind: "scanner", input: "request", resolve: { by: "scanCode" } }, enabled: true },
+        null,
+      );
+      if (!scannerLauncherResult.ok) throw new Error(scannerLauncherResult.error.message);
+      const scannerLauncherId = scannerLauncherResult.data.id;
 
       const definition: CustomAppDefinition = {
         schemaVersion: 2,
@@ -319,6 +327,7 @@ describe("Grids App lifecycle", () => {
                           params: { request_id: { source: "RESULT", path: "recordId" } },
                         },
                       },
+                      { id: "scan-request", type: "scanner", launcherId: scannerLauncherId },
                     ],
                   },
                 ],
@@ -488,6 +497,16 @@ describe("Grids App lifecycle", () => {
           { pageId: "home", blockId: "requests", actionId: "approve-row", launcherId, workflowId, revision: 1 },
           { pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 },
         ],
+        scannerLaunchers: [
+          {
+            pageId: "home",
+            blockId: "scan-request",
+            launcherId: scannerLauncherId,
+            workflowId,
+            revision: 1,
+            configHash: customAppScannerConfigHash({ kind: "scanner", input: "request", resolve: { by: "scanCode" } }),
+          },
+        ],
       });
       expect((await plan(definition)).action).toBe("noop");
 
@@ -537,6 +556,27 @@ describe("Grids App lifecycle", () => {
         launcherId,
       };
       expect(await canExecuteWorkflow(executionClaim)).toBe(true);
+      const scannerExecutionClaim = {
+        baseId,
+        workflowId,
+        principal: executionClaim.principal,
+        authorization: {
+          kind: "custom-app-scanner" as const,
+          customAppId: appId,
+          pageId: "home",
+          blockId: "scan-request",
+          revision: 1,
+          configHash: customAppScannerConfigHash({ kind: "scanner", input: "request", resolve: { by: "scanCode" } }),
+        },
+        launcherId: scannerLauncherId,
+      };
+      expect(await canExecuteWorkflow(scannerExecutionClaim)).toBe(true);
+      await sql`UPDATE grids.workflow_launchers SET config = ${JSON.stringify({
+        kind: "scanner",
+        input: "request",
+        resolve: { by: "field", field: "Title" },
+      })}::jsonb WHERE id = ${scannerLauncherId}::uuid`;
+      expect(await canExecuteWorkflow(scannerExecutionClaim)).toBe(false);
       await sql`UPDATE grids.workflow_launchers SET enabled = FALSE WHERE id = ${launcherId}::uuid`;
       expect(await canExecuteWorkflow(executionClaim)).toBe(false);
       await sql`UPDATE grids.workflow_launchers SET enabled = TRUE WHERE id = ${launcherId}::uuid`;

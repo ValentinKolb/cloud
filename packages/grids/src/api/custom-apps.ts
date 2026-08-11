@@ -10,12 +10,14 @@ import {
   customAppActionStatusUrl,
   customAppFormSuccessHref,
   customAppPageHref,
+  customAppScannerRunUrl,
   resolveCustomAppPage,
   resolveCustomAppPageParams,
 } from "../custom-apps/routing";
 import { buildCustomAppRuntimeContext } from "../custom-apps/runtime-context";
 import { resolveCustomAppValueBinding } from "../custom-apps/value-bindings";
 import { isRecordWritableFieldType } from "../field-types";
+import { toWorkflowRunEventSummary } from "../lib/workflow-run-events";
 import { gridsService } from "../service";
 import { executePublishedCustomAppRecords } from "../service/custom-app-records-query";
 import { publishedCustomAppAvailability } from "../service/custom-app-runtime-query";
@@ -32,6 +34,7 @@ import {
   gridsAccessContext,
 } from "./permissions";
 import { requireUuidParam } from "./route-params";
+import { ScannerLauncherRequestSchema } from "./workflow-api-shared";
 
 const DefinitionBaseSchema = z.object({ baseId: z.string().uuid() });
 const CustomAppCreateSchema = z.object({ name: z.string().trim().min(1).max(200) }).strict();
@@ -231,16 +234,31 @@ const submitPublishedCustomAppForm = async (c: Context<AuthContext>, submitted: 
   return c.json({ recordId: result.data.recordId, navigateTo }, 201);
 };
 
+const resolveRuntimeScanner = async (c: Context<AuthContext>) => {
+  const runtime = await resolvePublishedRuntime(c);
+  if (!runtime) return null;
+  const block = runtime.page.rows
+    .flatMap((row) => row.columns.flatMap((column) => column.blocks))
+    .find((candidate) => candidate.id === c.req.param("blockId"));
+  if (!block || block.type !== "scanner" || !(await runtime.available("block", block.availableWhen?.query, block.id))) return null;
+  const capability = runtime.capabilities.scannerLaunchers.find(
+    (candidate) => candidate.pageId === runtime.page.id && candidate.blockId === block.id && candidate.launcherId === block.launcherId,
+  );
+  return capability ? { runtime, block, capability } : null;
+};
+
 export const createCustomAppsApi = (
   deps: {
     requireAuthenticated?: MiddlewareHandler<AuthContext>;
     invokeCustomAppLauncher?: typeof gridsService.workflow.launcher.invokeCustomApp;
+    invokeScannerLauncher?: typeof gridsService.workflow.launcher.invokeScanner;
     renderDocumentRunPdf?: typeof gridsService.document.renderRunPdf;
     getWorkflowRunScope?: typeof getWorkflowRunScope;
     getWorkflowRun?: typeof gridsService.workflow.getRun;
   } = {},
 ) => {
   const invokeCustomAppLauncher = deps.invokeCustomAppLauncher ?? gridsService.workflow.launcher.invokeCustomApp;
+  const invokeScannerLauncher = deps.invokeScannerLauncher ?? gridsService.workflow.launcher.invokeScanner;
   const renderDocumentRunPdf = deps.renderDocumentRunPdf ?? gridsService.document.renderRunPdf;
   const loadWorkflowRunScope = deps.getWorkflowRunScope ?? getWorkflowRunScope;
   const getWorkflowRun = deps.getWorkflowRun ?? gridsService.workflow.getRun;
@@ -300,6 +318,59 @@ export const createCustomAppsApi = (
       },
     )
     .use(deps.requireAuthenticated ?? auth.requireRole("authenticated"))
+    .post("/runtime/:shortId/:pageId/:blockId/scanner", v("json", ScannerLauncherRequestSchema), async (c) => {
+      const resolved = await resolveRuntimeScanner(c);
+      if (!resolved) return c.json({ message: "Scanner not found" }, 404);
+      const { runtime, block, capability } = resolved;
+      const result = await invokeScannerLauncher({
+        ...c.req.valid("json"),
+        launcherId: block.launcherId,
+        expectedRevision: capability.revision,
+        principal: currentWorkflowPrincipal(c),
+        authorization: {
+          kind: "custom-app-scanner",
+          customAppId: runtime.app.id,
+          pageId: runtime.page.id,
+          blockId: block.id,
+          revision: capability.revision,
+          configHash: capability.configHash,
+        },
+      });
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json(
+        {
+          ...result.data,
+          statusUrl: customAppScannerRunUrl(runtime.app.shortId, runtime.page.id, block.id, result.data.runId, runtime.pageParams),
+        },
+        202,
+      );
+    })
+    .get("/runtime/:shortId/:pageId/:blockId/scanner/runs/:runId", requireUuidParam("runId", "Workflow run"), async (c) => {
+      const resolved = await resolveRuntimeScanner(c);
+      if (!resolved) return c.json({ message: "Workflow run not found" }, 404);
+      const { runtime, block, capability } = resolved;
+      const principal = currentWorkflowPrincipal(c);
+      const [scope, run] = await Promise.all([loadWorkflowRunScope(c.req.param("runId")!), getWorkflowRun(c.req.param("runId")!)]);
+      if (
+        !scope ||
+        !run ||
+        scope.principal.userId !== principal.userId ||
+        scope.principal.serviceAccountId !== principal.serviceAccountId ||
+        (scope.principal.actorServiceAccountId ?? null) !== (principal.actorServiceAccountId ?? null) ||
+        scope.launcherId !== capability.launcherId ||
+        scope.workflow.id !== capability.workflowId ||
+        run.workflowRevision !== capability.revision ||
+        scope.authorization.kind !== "custom-app-scanner" ||
+        scope.authorization.customAppId !== runtime.app.id ||
+        scope.authorization.pageId !== runtime.page.id ||
+        scope.authorization.blockId !== block.id ||
+        scope.authorization.revision !== capability.revision ||
+        scope.authorization.configHash !== capability.configHash
+      ) {
+        return c.json({ message: "Workflow run not found" }, 404);
+      }
+      return c.json(toWorkflowRunEventSummary(run));
+    })
     .get("/reference", (c) => c.json(CUSTOM_APP_REFERENCE))
     .get("/runtime/:shortId/:pageId/:blockId/comments", v("query", RecordCommentListQuerySchema), async (c) => {
       const resolved = await resolveRuntimeComments(c);

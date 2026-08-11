@@ -198,6 +198,13 @@ export default function CustomAppBlockPreview(props: {
         )}
       </For>
     </div>
+  ) : props.block.type === "scanner" ? (
+    <Placeholder
+      align="left"
+      icon="ti ti-scan"
+      title={props.block.title ?? "Scanner"}
+      description="Signed-in readers can scan codes here. Open the published app to use the camera."
+    />
   ) : (
     <Placeholder
       align="left"

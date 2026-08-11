@@ -23,6 +23,7 @@ import {
   type WorkflowCatalog,
   type WorkflowCatalogEntry,
   type WorkflowCatalogIndex,
+  type WorkflowFieldCatalogEntry,
 } from "../service/workflow-catalog";
 import { gridsWorkflows } from "./module";
 
@@ -135,13 +136,26 @@ const referenceSource = (value: string): string | null => {
   return parsed.kind === "literal" ? value : null;
 };
 
-const bindField = (context: BindingContext, tableId: string, reference: string, path: Array<string | number>): void => {
+const bindField = (
+  context: BindingContext,
+  tableId: string,
+  reference: string,
+  path: Array<string | number>,
+): WorkflowFieldCatalogEntry | null => {
   const fields = context.catalog.fieldsByTable.get(tableId);
   if (!fields) {
     addDiagnostic(context, "binding.unknown", `No accessible fields exist for the referenced table`, path);
-    return;
+    return null;
   }
-  resolveCatalogRef(context, fields, reference, "field", path);
+  return resolveCatalogRef(context, fields, reference, "field", path);
+};
+
+const relationValue = (field: WorkflowFieldCatalogEntry, path: Array<string | number>, context: BindingContext): ValueInfo | null => {
+  if (!field.relation) return null;
+  bindId(context, [...path, "$relationTarget"], field.relation.targetTableId);
+  context.bindings[workflowPathKey([...path, "$relationCardinality"])] = field.relation.cardinality;
+  const descriptor = valueDescriptor(field.relation.cardinality === "single" ? "grids.record" : "grids.recordList");
+  return { ...descriptor, tableId: field.relation.targetTableId };
 };
 
 const resolveReference = (
@@ -193,7 +207,10 @@ const resolveReference = (
   if (fieldParts.length === 0) return value;
   if (value.type === "grids.record") {
     if (fieldParts.length === 1 && fieldParts[0] === "recordId") return valueDescriptor("core.text");
-    if (value.tableId) bindField(context, value.tableId, fieldParts.join("."), path);
+    if (value.tableId) {
+      const field = bindField(context, value.tableId, fieldParts.join("."), path);
+      if (field) return relationValue(field, path, context) ?? valueDescriptor("core.value");
+    }
     return valueDescriptor("core.value");
   }
   const resolved = resolveWorkflowValuePathDescriptor(value, fieldParts);
@@ -393,14 +410,7 @@ const bindAction = (step: Extract<WorkflowIrStep, { kind: "action" }>, scope: Ma
         }
         if (change.updateRecord && typeof change.updateRecord === "object" && !Array.isArray(change.updateRecord)) {
           const update = change.updateRecord as Record<string, WorkflowJsonValue>;
-          const record = expectReference(
-            update.record,
-            "grids.record",
-            "record",
-            [...basePath, "updateRecord", "record"],
-            scope,
-            context,
-          );
+          const record = expectReference(update.record, "grids.record", "record", [...basePath, "updateRecord", "record"], scope, context);
           bindAtomicFieldMap(update.set, record?.tableId, [...basePath, "updateRecord", "set"], scope, context);
           if (update.ifVersion !== undefined) bindValue(update.ifVersion, [...basePath, "updateRecord", "ifVersion"], scope, context);
           if (update.audit !== undefined) bindValue(update.audit, [...basePath, "updateRecord", "audit"], scope, context);

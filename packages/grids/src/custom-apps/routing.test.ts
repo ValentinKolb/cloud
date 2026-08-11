@@ -12,6 +12,8 @@ import {
   customAppRecordUpdateUrl,
   customAppRowActionUrl,
   customAppRowHref,
+  customAppScannerRunUrl,
+  customAppScannerUrl,
   resolveCustomAppPage,
   resolveCustomAppPageParams,
   resolvePageRecordId,
@@ -145,6 +147,12 @@ describe("Grids App routing", () => {
     );
     expect(customAppDocumentDownloadUrl("abc12", "detail", "record", uuid(10), { request_id: uuid(9) })).toBe(
       `/api/grids/apps/runtime/abc12/detail/record/documents/${uuid(10)}/download?request_id=${uuid(9)}`,
+    );
+    expect(customAppScannerUrl("abc12", "detail", "returns", { request_id: uuid(9) })).toBe(
+      `/api/grids/apps/runtime/abc12/detail/returns/scanner?request_id=${uuid(9)}`,
+    );
+    expect(customAppScannerRunUrl("abc12", "detail", "returns", uuid(10), { request_id: uuid(9) })).toBe(
+      `/api/grids/apps/runtime/abc12/detail/returns/scanner/runs/${uuid(10)}?request_id=${uuid(9)}`,
     );
   });
 });

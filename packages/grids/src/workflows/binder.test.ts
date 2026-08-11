@@ -12,6 +12,8 @@ const ids = {
   archivedName: "55555555-5555-4555-8555-555555555555",
   document: "66666666-6666-4666-8666-666666666666",
   email: "77777777-7777-4777-8777-777777777777",
+  current: "88888888-8888-4888-8888-888888888888",
+  related: "99999999-9999-4999-8999-999999999999",
 } as const;
 
 const catalog = (): WorkflowCatalog =>
@@ -26,6 +28,18 @@ const catalog = (): WorkflowCatalog =>
         [
           { id: ids.name, shortId: "fld_name", name: "Name" },
           { id: ids.status, shortId: "fld_status", name: "Status" },
+          {
+            id: ids.current,
+            shortId: "current",
+            name: "Current archive",
+            relation: { targetTableId: ids.archive, cardinality: "single" },
+          },
+          {
+            id: ids.related,
+            shortId: "related",
+            name: "Related archives",
+            relation: { targetTableId: ids.archive, cardinality: "multiple" },
+          },
         ],
       ],
       [ids.archive, [{ id: ids.archivedName, shortId: "fld_archived_name", name: "Name" }]],
@@ -159,6 +173,41 @@ steps:
       "steps.0.atomicRecords.changes.1.createRecord.values.Name.$target": ids.archivedName,
       "steps.0.atomicRecords.checks.0.table": ids.items,
       "steps.0.atomicRecords.checks.0.where.0.field": ids.status,
+    });
+  });
+
+  test("types relation fields as record references in existing workflow slots", async () => {
+    const source = `inputs:
+  item:
+    type: record
+    table: Items
+    required: true
+steps:
+  - updateRecord:
+      record: inputs.item.Current archive
+      set:
+        Name: Current
+  - forEach: inputs.item.Related archives
+    as: archive
+    do:
+      - updateRecord:
+          record: archive
+          set:
+            Name: Related
+`;
+    const result = await bindGridsWorkflow(await compile(source), catalog());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.bindings).toEqual({
+      "inputs.item.table": ids.items,
+      "steps.0.updateRecord.record": ids.current,
+      "steps.0.updateRecord.record.$relationCardinality": "single",
+      "steps.0.updateRecord.record.$relationTarget": ids.archive,
+      "steps.0.updateRecord.set.Name": ids.archivedName,
+      "steps.1.do.0.updateRecord.set.Name": ids.archivedName,
+      "steps.1.forEach": ids.related,
+      "steps.1.forEach.$relationCardinality": "multiple",
+      "steps.1.forEach.$relationTarget": ids.archive,
     });
   });
 

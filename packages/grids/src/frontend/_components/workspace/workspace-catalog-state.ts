@@ -48,7 +48,7 @@ export const loadCatalog = async (baseId: string, user: AuthUser, includeCustomA
     workflows,
     workflowLaunchers: workflowLaunchers.filter(
       (launcher) =>
-        launcher.config.kind === "customApp" &&
+        (launcher.config.kind === "customApp" || launcher.config.kind === "scanner") &&
         launcher.enabled &&
         launcher.deletedAt === null &&
         launcher.diagnostics.length === 0 &&

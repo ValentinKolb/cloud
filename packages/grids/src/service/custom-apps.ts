@@ -19,11 +19,13 @@ import {
   customAppFormSecurityHash,
 } from "../custom-apps/form-capability";
 import { customAppViewSourceHash } from "../custom-apps/insight-source";
+import { customAppScannerConfigHash } from "../custom-apps/scanner-capability";
 import { customAppBindingRecordTableId } from "../custom-apps/value-bindings";
 import { getRecordWritableFieldType, isRecordWritableFieldType } from "../field-types";
 import type { DslQueryContextValues } from "../query-dsl/parameters";
 import { isDslAggregateOnlyPlan } from "../query-dsl/resolver";
 import { collectDslPlanTableIds } from "../query-dsl/source-plan";
+import { scannerLauncherInputSources } from "../workflows/contracts";
 import { logAudit, type SqlClient } from "./audit";
 import { compileCustomAppQuery } from "./custom-app-query";
 import { customAppRecordRelationSnapshot } from "./custom-app-record-relations";
@@ -195,6 +197,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const formBlocks = blocksByType(definition, "form");
   const commentBlocks = blocksByType(definition, "comments");
   const actionBlocks = blocksByType(definition, "actions");
+  const scannerBlocks = blocksByType(definition, "scanner");
   if (recordsBlocks.length > 4) {
     return { ok: false, diagnostics: [{ path: ["pages"], message: "A Grids App may contain at most 4 Records blocks" }] };
   }
@@ -203,6 +206,9 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   }
   if (insightBlocks.length > 24) {
     return { ok: false, diagnostics: [{ path: ["pages"], message: "A Grids App may contain at most 24 Metrics and Chart blocks" }] };
+  }
+  if (scannerBlocks.length > 24) {
+    return { ok: false, diagnostics: [{ path: ["pages"], message: "A Grids App may contain at most 24 Scanner blocks" }] };
   }
 
   const [base] = await client<Array<{ id: string; name: string }>>`
@@ -220,6 +226,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const comments: CustomAppCapabilities["comments"] = [];
   const documents: CustomAppCapabilities["documents"] = [];
   const workflowLaunchers: CustomAppCapabilities["workflowLaunchers"] = [];
+  const scannerLaunchers: CustomAppCapabilities["scannerLaunchers"] = [];
   const recordsPrimaryTableIds = new Map<string, string>();
   const tableBaseIds = new Map<string, string | null>();
   const fieldsByTableId = new Map<string, Field[]>();
@@ -891,6 +898,58 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       revision: workflow.revision,
     });
   }
+  for (const { page, block } of scannerBlocks) {
+    const launcher = await getLauncher(block.launcherId, client);
+    if (
+      !launcher ||
+      launcher.baseId !== definition.baseId ||
+      launcher.deletedAt !== null ||
+      !launcher.enabled ||
+      launcher.diagnostics.some((item) => item.severity === "error") ||
+      launcher.config.kind !== "scanner"
+    ) {
+      diagnostics.push({
+        path: ["pages", page.id, "blocks", block.id, "launcherId"],
+        message: "Scanner launcher is missing, disabled, invalid, unsupported, or belongs to another base",
+      });
+      continue;
+    }
+    const workflow = await getWorkflow(launcher.workflowId, false, client);
+    if (
+      !workflow ||
+      workflow.baseId !== definition.baseId ||
+      workflow.deletedAt !== null ||
+      !workflow.enabled ||
+      workflow.revision !== launcher.validatedRevision ||
+      workflow.diagnostics.some((item) => item.severity === "error")
+    ) {
+      diagnostics.push({
+        path: ["pages", page.id, "blocks", block.id, "launcherId"],
+        message: "Scanner launcher does not reference a ready workflow revision",
+      });
+      continue;
+    }
+    const sources = scannerLauncherInputSources(launcher.config);
+    const promptRecordInput = workflow.plan.inputs.find((input) => {
+      const source = sources[input.name];
+      return (source?.kind === "session" || source?.kind === "afterScan") && (input.type === "record" || input.type === "recordList");
+    });
+    if (promptRecordInput) {
+      diagnostics.push({
+        path: ["pages", page.id, "blocks", block.id, "launcherId"],
+        message: `Scanner Apps cannot prompt for record input "${promptRecordInput.name}"`,
+      });
+      continue;
+    }
+    scannerLaunchers.push({
+      pageId: page.id,
+      blockId: block.id,
+      launcherId: launcher.id,
+      workflowId: workflow.id,
+      revision: workflow.revision,
+      configHash: customAppScannerConfigHash(launcher.config),
+    });
+  }
   if (diagnostics.length > 0) return { ok: false, diagnostics };
 
   const capabilities = CustomAppCapabilitiesSchema.parse({
@@ -912,6 +971,9 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     workflowLaunchers: workflowLaunchers.sort(
       (left, right) =>
         left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId) || left.actionId.localeCompare(right.actionId),
+    ),
+    scannerLaunchers: scannerLaunchers.sort(
+      (left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId),
     ),
   });
   return { ok: true, compiled: { definition, capabilities } };

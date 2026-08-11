@@ -266,6 +266,23 @@ describe("workflow kernel scanner launchers", () => {
     expect(item.authorize).not.toHaveBeenCalled();
     expect(item.invokeWorkflow).not.toHaveBeenCalled();
   });
+
+  test("passes exact Grids App scanner provenance to authorization", async () => {
+    const item = setup(launcher({ kind: "scanner", input: "record", resolve: { by: "scanCode" } }), workflow());
+    const authorization = {
+      kind: "custom-app-scanner" as const,
+      customAppId: "90000000-0000-4000-8000-000000000009",
+      pageId: "returns",
+      blockId: "scanner",
+      revision: 3,
+      configHash: "a".repeat(64),
+    };
+
+    const result = await invokeScannerLauncher(scannerInput({ authorization }), item.deps);
+
+    expect(result.ok).toBe(true);
+    expect(item.authorize).toHaveBeenCalledWith({ launcherId, workflow: expect.anything(), principal, tableId, authorization });
+  });
 });
 
 describe("workflow kernel bulk launchers", () => {

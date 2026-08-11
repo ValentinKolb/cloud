@@ -852,6 +852,8 @@ no arithmetic, concatenation, or additional functions. Reference-only fields rem
 `forEach: inputs.items`, and `exists: inputs.item.Status`. Only `succeed.message` and `fail.message` may embed several expressions in text.
 Lists and objects may contain dynamic values recursively.
 
+A single relation field is a typed record reference in raw record slots, for example `record: inputs.asset.Current loan item`. A multiple relation field is a typed record list and may drive `forEach`, for example `forEach: inputs.loan.Items`. Resolution verifies the target table, current access, and every referenced record before the step runs.
+
 Saved document outputs expose `id`, `shortId`, `templateId`, `workflowRunId`, `snapshotId`, `baseId`, `tableId`, `recordId`,
 `documentNumber`, `filename`, `tags`, `generatedBy`, and `generatedAt`. Link outputs expose `kind`, `id`, `url`, `expiresAt`, and
 `documentRunId`. Email outputs expose `subject`, `templateId`, and `recipients`, whose entries include `id`, `deliveryId`, `kind`, `recipient`,
@@ -967,6 +969,8 @@ happened. Run commands are `workflow-runs list|get|cancel|steps|documents|downlo
 ### Run options and email templates
 
 Run options expose a workflow as a scanner, bulk, or Grids App interaction. The API and CLI call these resources launchers. A Grids App option uses `inputMode: "fixed"` with complete `inputBindings` for a one-click action, or `inputMode: "prompt"` to request the workflow's declared inputs when it runs. Fixed options reject runtime inputs; prompt options do not store fixed bindings. Their complete JSON shapes and invocation bodies are part of `workflows reference`.
+
+A Grids App definition may also embed an enabled Scanner run option as a `scanner` block. Embedded scanners require a signed-in App reader and pin the exact launcher configuration and workflow revision at publish time. They accept scalar session and after-scan prompts; use the full Workflow scanner when those prompts must select records.
 
 ```bash
 cld grids workflow-launchers create "Check in" --body-file scanner-launcher.json --json

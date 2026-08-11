@@ -338,6 +338,16 @@ export const CustomAppActionsBlockSchema = z
     }
   });
 
+export const CustomAppScannerBlockSchema = z
+  .object({
+    id: CustomAppLocalIdSchema,
+    type: z.literal("scanner"),
+    title: z.string().trim().min(1).max(160).optional(),
+    launcherId: z.string().uuid(),
+    ...CustomAppAvailabilityShape,
+  })
+  .strict();
+
 export const CustomAppBlockSchema = z.discriminatedUnion("type", [
   CustomAppMarkdownBlockSchema,
   CustomAppRecordsBlockSchema,
@@ -347,6 +357,7 @@ export const CustomAppBlockSchema = z.discriminatedUnion("type", [
   CustomAppCommentsBlockSchema,
   CustomAppFormBlockSchema,
   CustomAppActionsBlockSchema,
+  CustomAppScannerBlockSchema,
 ]);
 
 const CustomAppPageSchema = z
@@ -827,6 +838,21 @@ export const CustomAppCapabilitiesSchema = z
       )
       .max(288)
       .default([]),
+    scannerLaunchers: z
+      .array(
+        z
+          .object({
+            pageId: CustomAppLocalIdSchema,
+            blockId: CustomAppLocalIdSchema,
+            launcherId: z.string().uuid(),
+            workflowId: z.string().uuid(),
+            revision: z.number().int().positive(),
+            configHash: z.string().regex(/^[a-f0-9]{64}$/),
+          })
+          .strict(),
+      )
+      .max(24)
+      .default([]),
   })
   .strict();
 
@@ -841,6 +867,7 @@ export type CustomAppRecordsBlock = Extract<CustomAppBlock, { type: "records" }>
 export type CustomAppFormBlock = Extract<CustomAppBlock, { type: "form" }>;
 export type CustomAppCommentsBlock = Extract<CustomAppBlock, { type: "comments" }>;
 export type CustomAppActionsBlock = Extract<CustomAppBlock, { type: "actions" }>;
+export type CustomAppScannerBlock = Extract<CustomAppBlock, { type: "scanner" }>;
 export type CustomAppAction = CustomAppActionsBlock["actions"][number];
 export type CustomAppValueBinding = z.infer<typeof CustomAppValueBindingSchema>;
 export type CustomAppRowValueBinding = z.infer<typeof CustomAppRowValueBindingSchema>;
@@ -890,6 +917,7 @@ export const CUSTOM_APP_REFERENCE = {
     insightBlocks: 24,
     metricsPerBlock: 12,
     chartGroupsPerBlock: 100,
+    scannerBlocks: 24,
   },
   pages: {
     navigation: "Set visible to false for route-only parameterized pages",
@@ -936,6 +964,10 @@ export const CUSTOM_APP_REFERENCE = {
     actions: {
       required: ["id", "type", "actions"],
       note: "Navigate inside the app or invoke an exact published workflow launcher and follow its scoped result",
+    },
+    scanner: {
+      required: ["id", "type", "launcherId"],
+      note: "Signed-in readers scan through one exact published scanner launcher; record prompts are not exposed",
     },
   },
   example: {

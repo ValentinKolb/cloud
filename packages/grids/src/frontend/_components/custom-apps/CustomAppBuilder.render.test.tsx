@@ -69,6 +69,7 @@ const app = (): CustomApp => {
       comments: [],
       documents: [],
       workflowLaunchers: [],
+      scannerLaunchers: [],
     },
     publishedDefinition: null,
     publishedDefinitionRaw: null,
@@ -278,6 +279,26 @@ describe("CustomAppBuilder", () => {
 
     expect(html).toContain("Empty Markdown block");
     expect(html).toContain("Select this block to add text or context placeholders.");
+    expect(html).toContain("k2b-placeholder");
+  });
+
+  test("previews Scanner blocks without activating the camera", () => {
+    const html = renderToString(() =>
+      createComponent(CustomAppBlockPreview, {
+        block: {
+          id: "returns",
+          type: "scanner",
+          title: "Return items",
+          launcherId: "55555555-5555-4555-8555-555555555555",
+        },
+        baseId: app().baseId,
+        shortId: app().shortId,
+        catalog: catalog(),
+      }),
+    );
+
+    expect(html).toContain("Return items");
+    expect(html).toContain("Open the published app to use the camera");
     expect(html).toContain("k2b-placeholder");
   });
 
@@ -585,6 +606,7 @@ describe("CustomAppBuilder", () => {
     expect(source).not.toContain("<Placeholder");
     expect(source).not.toContain("Resolved fields appear after the GQL preview succeeds.");
     expect(source).toContain('<DetailPanel.Group label="Form settings">');
+    expect(source).toContain('<DetailPanel.Group label="Scanner settings">');
     expect(source).toContain('title="Values supplied by this page"');
     expect(source).not.toContain('title="Prefilled relations"');
     expect(source).toContain('<DetailPanel.Group label="Record settings">');

@@ -4,7 +4,7 @@ import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import { Hono, type MiddlewareHandler } from "hono";
-import type { CustomAppDefinition } from "../custom-apps/contracts";
+import { CustomAppCapabilitiesSchema, type CustomAppDefinition } from "../custom-apps/contracts";
 import { customAppViewSourceHash } from "../custom-apps/insight-source";
 import { buildCustomAppRuntimeContext } from "../custom-apps/runtime-context";
 import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
@@ -12,8 +12,9 @@ import { migrate } from "../migrate";
 import { grantAccess } from "../service/access";
 import { compileCustomAppQuery } from "../service/custom-app-query";
 import { executePublishedCustomAppQuery } from "../service/custom-app-runtime-query";
-import { apply, publish } from "../service/custom-apps";
-import type { CustomAppLauncherInvocation } from "../service/workflow-launcher-invocations";
+import { apply, getPublishedByShortId, publish } from "../service/custom-apps";
+import { parseJsonbRow } from "../service/jsonb";
+import type { CustomAppLauncherInvocation, ScannerLauncherInvocation } from "../service/workflow-launcher-invocations";
 import type { GridsWorkflowAuthorization, GridsWorkflowRunScope } from "../service/workflow-runs";
 import type { GridsWorkflowPrincipal, GridsWorkflowRun } from "../workflows/contracts";
 import { createCustomAppsApi } from "./custom-apps";
@@ -215,6 +216,7 @@ describe("Grids App Form runtime", () => {
       accessIds.push(appGrant.data.accessId);
 
       let actionInvocation: CustomAppLauncherInvocation | null = null;
+      let scannerInvocation: ScannerLauncherInvocation | null = null;
       const renderDocumentRunPdf = async () => ok({ pdf: new Uint8Array([37, 80, 68, 70]), contentType: "application/pdf" as const });
       const publicApi = new Hono<AuthContext>().route(
         "/apps",
@@ -235,6 +237,18 @@ describe("Grids App Form runtime", () => {
               revision: "1",
               mode: "execute",
               channel: "customApp",
+              created: true,
+              status: "queued",
+            });
+          },
+          invokeScannerLauncher: async (input) => {
+            scannerInvocation = input as ScannerLauncherInvocation;
+            return ok({
+              runId: testUuid(),
+              workflowId,
+              revision: "1",
+              mode: "execute",
+              channel: "scanner",
               created: true,
               status: "queued",
             });
@@ -524,6 +538,7 @@ describe("Grids App Form runtime", () => {
             })}::jsonb
         WHERE id = ${appId}::uuid
       `;
+      expect(await getPublishedByShortId(applied.data.shortId)).not.toBeNull();
       const anonymousAction = await publicApi.request(
         `/apps/runtime/${applied.data.shortId}/request/actions/actions/approve?request_id=${body.recordId}`,
         {
@@ -602,7 +617,12 @@ describe("Grids App Form runtime", () => {
 
       const statusRuns = new Map<
         string,
-        { principal: GridsWorkflowPrincipal; authorization: GridsWorkflowAuthorization; launcherId: string }
+        {
+          principal: GridsWorkflowPrincipal;
+          authorization: GridsWorkflowAuthorization;
+          launcherId: string;
+          channel: "customApp" | "scanner";
+        }
       >();
       const createStatusApi = (serviceAccountId: string) =>
         new Hono<AuthContext>().route(
@@ -617,6 +637,7 @@ describe("Grids App Form runtime", () => {
                 principal: invocation.principal,
                 authorization: invocation.authorization,
                 launcherId: invocation.launcherId,
+                channel: "customApp",
               });
               return ok({
                 runId,
@@ -624,6 +645,26 @@ describe("Grids App Form runtime", () => {
                 revision: "1",
                 mode: "execute",
                 channel: "customApp",
+                created: true,
+                status: "queued",
+              });
+            },
+            invokeScannerLauncher: async (input) => {
+              const invocation = input as ScannerLauncherInvocation;
+              const runId = testUuid();
+              if (!invocation.authorization) throw new Error("Grids App scanner authorization is missing");
+              statusRuns.set(runId, {
+                principal: invocation.principal,
+                authorization: invocation.authorization,
+                launcherId: invocation.launcherId,
+                channel: "scanner",
+              });
+              return ok({
+                runId,
+                workflowId,
+                revision: "1",
+                mode: "execute",
+                channel: "scanner",
                 created: true,
                 status: "queued",
               });
@@ -651,7 +692,7 @@ describe("Grids App Form runtime", () => {
                     baseId,
                     workflowRevision: 1,
                     mode: "execute",
-                    channel: "customApp",
+                    channel: accepted.channel,
                     actorUserId: accepted.principal.userId,
                     serviceAccountId: accepted.principal.serviceAccountId,
                     inputs: {},
@@ -698,6 +739,77 @@ describe("Grids App Form runtime", () => {
         authorization: { blockId: "requests", actionId: "approve-row" },
       });
       actionInvocation = null;
+
+      const scannerBlock = { id: "returns", type: "scanner" as const, launcherId };
+      actionDefinition.pages[0]!.rows[0]!.columns[0]!.blocks.push(scannerBlock);
+      const scannerConfigHash = "a".repeat(64);
+      const [scannerStored] = await sql<Array<{ published_capabilities: Record<string, unknown> }>>`
+        SELECT published_capabilities FROM grids.custom_apps WHERE id = ${appId}::uuid
+      `;
+      if (!scannerStored) throw new Error("Published Grids App is missing");
+      const scannerCapabilities = CustomAppCapabilitiesSchema.safeParse({
+        ...parseJsonbRow(scannerStored.published_capabilities, {}),
+        scannerLaunchers: [
+          {
+            pageId: "home",
+            blockId: scannerBlock.id,
+            launcherId,
+            workflowId,
+            revision: 1,
+            configHash: scannerConfigHash,
+          },
+        ],
+      });
+      expect(scannerCapabilities.success, scannerCapabilities.success ? undefined : scannerCapabilities.error.message).toBe(true);
+      if (!scannerCapabilities.success) throw new Error(scannerCapabilities.error.message);
+      await sql`
+        UPDATE grids.custom_apps
+        SET published_definition = ${JSON.stringify(actionDefinition)}::jsonb,
+            published_capabilities = ${JSON.stringify(scannerCapabilities.data)}::jsonb
+        WHERE id = ${appId}::uuid
+      `;
+      const scannerPublished = await getPublishedByShortId(applied.data.shortId);
+      expect(scannerPublished?.publishedDefinition).not.toBeNull();
+      expect(scannerPublished?.publishedCapabilities?.scannerLaunchers).toHaveLength(1);
+      const scannerPath = `/apps/runtime/${applied.data.shortId}/home/${scannerBlock.id}/scanner`;
+      expect(
+        (
+          await publicApi.request(scannerPath, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ operationId: testUuid(), expectedRevision: 1, scannedText: "ITEM-42", inputs: {} }),
+          })
+        ).status,
+      ).toBe(401);
+      const scannerResponse = await api.request(scannerPath, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ operationId: testUuid(), expectedRevision: 1, scannedText: "ITEM-42", inputs: {} }),
+      });
+      expect(scannerResponse.status).toBe(202);
+      expect(scannerInvocation).toMatchObject({
+        launcherId,
+        expectedRevision: 1,
+        scannedText: "ITEM-42",
+        authorization: {
+          kind: "custom-app-scanner",
+          customAppId: appId,
+          pageId: "home",
+          blockId: scannerBlock.id,
+          revision: 1,
+          configHash: scannerConfigHash,
+        },
+      });
+      const delegatedScannerResponse = await firstServiceAccountApi.request(scannerPath, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ operationId: testUuid(), expectedRevision: 1, scannedText: "ITEM-43", inputs: {} }),
+      });
+      expect(delegatedScannerResponse.status).toBe(202);
+      const delegatedScanner = (await delegatedScannerResponse.json()) as { statusUrl: string };
+      const scannerStatusPath = delegatedScanner.statusUrl.replace(/^\/api\/grids/, "");
+      expect((await firstServiceAccountApi.request(scannerStatusPath)).status).toBe(200);
+      expect((await secondServiceAccountApi.request(scannerStatusPath)).status).toBe(404);
       const forgedRowResponse = await api.request(rowActionUrl, {
         method: "POST",
         headers: { "content-type": "application/json" },

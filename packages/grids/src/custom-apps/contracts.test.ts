@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { CUSTOM_APP_REFERENCE, CustomAppCapabilitiesSchema, CustomAppDefinitionSchema, parseStoredCustomAppDefinition } from "./contracts";
+import { customAppScannerConfigHash } from "./scanner-capability";
 
 const uuid = (suffix: number) => `00000000-0000-4000-8000-${String(suffix).padStart(12, "0")}`;
 
@@ -128,6 +129,56 @@ describe("Grids App definition contract", () => {
         forms: [{ ...form, fieldHash: "a".repeat(64), formSecurityHash: "b".repeat(64) }],
       }).success,
     ).toBe(true);
+  });
+
+  test("accepts Scanner blocks and pins their exact launcher revision and configuration", () => {
+    const source = CustomAppDefinitionSchema.parse(definition());
+    source.pages[0]!.rows[0]!.columns[0]!.blocks.push({
+      id: "returns",
+      type: "scanner",
+      launcherId: uuid(30),
+    });
+    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
+    expect(
+      CustomAppCapabilitiesSchema.safeParse({
+        views: [],
+        scannerLaunchers: [
+          {
+            pageId: "home",
+            blockId: "returns",
+            launcherId: uuid(30),
+            workflowId: uuid(31),
+            revision: 2,
+            configHash: "a".repeat(64),
+          },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(
+      CustomAppCapabilitiesSchema.safeParse({
+        views: [],
+        scannerLaunchers: [
+          {
+            pageId: "home",
+            blockId: "returns",
+            launcherId: uuid(30),
+            workflowId: uuid(31),
+            revision: 2,
+            configHash: "mutable",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    const first = customAppScannerConfigHash({
+      kind: "scanner",
+      inputSources: { record: { kind: "scan", value: "record", resolve: { by: "scanCode" } }, note: { kind: "afterScan" } },
+    });
+    const reordered = customAppScannerConfigHash({
+      kind: "scanner",
+      inputSources: { note: { kind: "afterScan" }, record: { kind: "scan", value: "record", resolve: { by: "scanCode" } } },
+    });
+    expect(first).toBe(reordered);
+    expect(first).not.toBe(customAppScannerConfigHash({ kind: "scanner", inputSources: { record: { kind: "scan", value: "text" } } }));
   });
 
   test("rejects invalid spans and duplicate page or block ids", () => {

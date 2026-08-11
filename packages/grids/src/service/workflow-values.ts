@@ -162,6 +162,15 @@ const rootValue = (
 const valueResolution = (value: WorkflowJsonValue | undefined): WorkflowValueResolution =>
   value === undefined ? { state: "missing" } : { state: "resolved", value };
 
+const relationRecordIds = (value: WorkflowJsonValue, cardinality: "single" | "multiple"): string[] => {
+  const values = value === null ? [] : Array.isArray(value) ? value : [value];
+  if (values.some((item) => typeof item !== "string" || !uuid.safeParse(item).success)) {
+    throw new Error("workflow relation contains an invalid record ID");
+  }
+  if (cardinality === "single" && values.length > 1) throw new Error("single workflow relation contains multiple records");
+  return values as string[];
+};
+
 export class GridsWorkflowValueResolver implements WorkflowValueResolverPort {
   private readonly readableTables = new Map<string, Promise<boolean>>();
   private readonly records = new Map<string, Promise<GridRecord | null>>();
@@ -203,16 +212,34 @@ export class GridsWorkflowValueResolver implements WorkflowValueResolverPort {
     const fieldId = input.plan.bindings[workflowPathKey(input.path)];
     if (typeof fieldId !== "string") throw new Error(`workflow field binding is unavailable at "${workflowPathKey(input.path)}"`);
     if (!(await this.canReadTable(value.tableId))) throw new Error("workflow actor cannot read the referenced table");
+    let fieldValue: WorkflowJsonValue;
     const snapshots = input.invocation.context?.workflowRecordSnapshots;
     if (snapshots && typeof snapshots === "object" && !Array.isArray(snapshots)) {
       const snapshot = snapshots[`${value.tableId}:${value.recordId}`];
       if (snapshot && typeof snapshot === "object" && !Array.isArray(snapshot)) {
-        return { state: "resolved", value: snapshot[fieldId] ?? null };
+        fieldValue = snapshot[fieldId] ?? null;
+      } else {
+        const record = await this.readRecord(value.tableId, value.recordId);
+        if (!record) throw new Error("referenced workflow record no longer exists");
+        fieldValue = (record.data[fieldId] ?? null) as WorkflowJsonValue;
       }
+    } else {
+      const record = await this.readRecord(value.tableId, value.recordId);
+      if (!record) throw new Error("referenced workflow record no longer exists");
+      fieldValue = (record.data[fieldId] ?? null) as WorkflowJsonValue;
     }
-    const record = await this.readRecord(value.tableId, value.recordId);
-    if (!record) throw new Error("referenced workflow record no longer exists");
-    return { state: "resolved", value: (record.data[fieldId] ?? null) as WorkflowJsonValue };
+    const targetTableId = input.plan.bindings[workflowPathKey([...input.path, "$relationTarget"])];
+    const cardinality = input.plan.bindings[workflowPathKey([...input.path, "$relationCardinality"])];
+    if (typeof targetTableId !== "string" || (cardinality !== "single" && cardinality !== "multiple")) {
+      return { state: "resolved", value: fieldValue };
+    }
+    if (!(await this.canReadTable(targetTableId))) throw new Error("workflow actor cannot read the related table");
+    const recordIds = relationRecordIds(fieldValue, cardinality);
+    for (const recordId of recordIds) {
+      if (!(await this.readRecord(targetTableId, recordId))) throw new Error("related workflow record no longer exists");
+    }
+    const references = recordIds.map((recordId) => recordReference(targetTableId, recordId));
+    return { state: "resolved", value: cardinality === "single" ? (references[0] ?? null) : references };
   }
 }
 

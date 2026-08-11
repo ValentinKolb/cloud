@@ -22,7 +22,8 @@ A column may contain:
 - **Chart**, for grouped aggregate results rendered as a supported chart;
 - **Record**, for an explicit field allowlist from the current detail record;
 - **Comments**, for a signed-in app reader's discussion on the current detail record.
-- **Actions**, for internal navigation or an exact published workflow launcher.
+- **Actions**, for internal navigation or an exact published workflow launcher;
+- **Scanner**, for a signed-in camera or manual-code workflow surface backed by one exact Scanner run option.
 
 Record detail pages are route-only. They declare one required `record` parameter, bind it as the page record, and set `navigation.visible: false`. A Records block may map its row id to that parameter with `rowNavigate`. Grids then builds the URL and authorizes the record when the detail page opens.
 
@@ -161,7 +162,7 @@ On first apply, Grids assigns the app's stable five-character `shortId`. You may
 
 ## Build visually {icon="apps"}
 
-Base administrators can turn on **Edit mode** and create an app with **New app** under **Apps**. The Pages column creates and selects pages; each page and the active app have their own settings action. **Add block** supports Markdown, Records, Metrics, Charts, Forms, page Records, Comments, and Actions. Records, Metrics, and Charts can use an accessible saved View or inline GQL.
+Base administrators can turn on **Edit mode** and create an app with **New app** under **Apps**. The Pages column creates and selects pages; each page and the active app have their own settings action. **Add block** supports Markdown, Records, Metrics, Charts, Forms, page Records, Comments, Actions, and Scanner. Records, Metrics, and Charts can use an accessible saved View or inline GQL. Scanner appears after an enabled Scanner run option has a ready workflow revision.
 
 The inspector keeps the common path short. Required identity, page, source, and block fields stay visible. Access, availability, route parameters, appearance, ordering, documents, and danger controls use expandable sections. Optional availability shows **Always** until you add a server-enforced GQL rule. Inline GQL and Markdown can each be opened in a larger editor without creating a second draft or a separate Save step; autocomplete continues to offer only the selected page's valid `@auth`, `@params`, `@page`, `@app`, `@base`, and `@time` context.
 

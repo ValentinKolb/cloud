@@ -66,6 +66,14 @@ type ScanLogItem = {
 type Props = {
   state: WorkflowScannerState;
   mode: "page" | "dialog";
+  transport?: WorkflowScannerSurfaceTransport;
+};
+
+export type WorkflowScannerSurfaceTransport = {
+  invokeLauncher: WorkflowScannerTransport["invokeLauncher"];
+  getRun: (runId: string) => Promise<Response>;
+  getSteps?: (runId: string) => Promise<Response>;
+  live?: boolean;
 };
 
 type VideoBox = { x: number; y: number; width: number; height: number };
@@ -187,9 +195,10 @@ export default function WorkflowScannerSurface(props: Props) {
   const recentCodes = new Map<string, number>();
   const scanStatuses = new Map<string, ScanStatus>();
   let announcementId = 0;
-  const scannerTransport: WorkflowScannerTransport = {
+  const scannerTransport: WorkflowScannerTransport = props.transport ?? {
     invokeLauncher: (input) => apiClient.workflows.launchers[":launcherId"].invoke.scanner.$post(input),
   };
+  const getRun = (runId: string) => props.transport?.getRun(runId) ?? workflowRunsApi[":runId"].$get({ param: { runId } });
 
   const counts = () => ({ ...completedCounts(), active: activeScanIds().size });
   const promptContract = (kind: "session" | "afterScan") => {
@@ -303,7 +312,10 @@ export default function WorkflowScannerSurface(props: Props) {
   };
 
   const fetchSteps = async (runId: string): Promise<WorkflowRunStepSummary[]> => {
-    const res = await workflowRunsApi[":runId"].steps.$get({ param: { runId } });
+    if (props.transport && !props.transport.getSteps) return [];
+    const res = props.transport?.getSteps
+      ? await props.transport.getSteps(runId)
+      : await workflowRunsApi[":runId"].steps.$get({ param: { runId } });
     if (!res.ok) throw new Error(await errorMessage(res, "Request failed"));
     const payload = (await res.json()) as { items: WorkflowRunStepSummary[] };
     return payload.items;
@@ -330,7 +342,7 @@ export default function WorkflowScannerSurface(props: Props) {
   };
 
   const refreshRun = async (logId: string, runId: string) => {
-    const res = await workflowRunsApi[":runId"].$get({ param: { runId } });
+    const res = await getRun(runId);
     if (!res.ok) throw new Error(await errorMessage(res, "Request failed"));
     const run = (await res.json()) as WorkflowRunEventSummary;
     let steps: WorkflowRunStepSummary[] | undefined;
@@ -395,6 +407,11 @@ export default function WorkflowScannerSurface(props: Props) {
       streamReady = false;
       stopFallback();
       stopWatchdog();
+      return;
+    }
+    if (props.transport?.live === false) {
+      startFallback();
+      void refreshActiveRuns();
       return;
     }
     startWatchdog();
@@ -646,8 +663,11 @@ export default function WorkflowScannerSurface(props: Props) {
   onMount(() => {
     window.addEventListener("resize", updateVideoBox);
     document.addEventListener("visibilitychange", syncLiveVisibility);
-    runEvents.connect();
-    startWatchdog();
+    if (props.transport?.live === false) startFallback();
+    else {
+      runEvents.connect();
+      startWatchdog();
+    }
     void initializeScanner();
   });
 

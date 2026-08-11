@@ -18,10 +18,12 @@ import {
   customAppPageHref,
   customAppRecordUpdateUrl,
   customAppRowActionUrl,
+  customAppScannerUrl,
   resolveCustomAppPage,
   resolveCustomAppPageParams,
 } from "../../custom-apps/routing";
 import { buildCustomAppRuntimeContext, customAppDefinitionWithAvailableNavigation } from "../../custom-apps/runtime-context";
+import { customAppScannerConfigHash } from "../../custom-apps/scanner-capability";
 import type { DslQueryContextValues } from "../../query-dsl/parameters";
 import { gridsService } from "../../service";
 import {
@@ -39,13 +41,16 @@ import { executePublishedCustomAppRecords } from "../../service/custom-app-recor
 import { executePublishedCustomAppQuery, publishedCustomAppAvailability } from "../../service/custom-app-runtime-query";
 import type { PublicRenderableForm } from "../../service/forms";
 import { ALL_RECORD_ACCESS } from "../../service/record-access";
+import { scannerLauncherPromptInputSources } from "../../workflows/contracts";
 import FormSubmit from "../_components/forms/PublicFormSubmit.island";
 import RecordComments from "../_components/records/RecordComments.island";
+import type { WorkflowScannerState } from "../_components/workflows/WorkflowScannerSurface";
 import Actions, { type CustomAppRenderedAction } from "./Actions.island";
 import CustomAppChart from "./Chart";
 import { CustomAppPageLayout } from "./PageLayout";
 import RecordDetails from "./RecordDetails.island";
 import RecordsTable, { type CustomAppRenderedRowAction } from "./RecordsTable.island";
+import Scanner from "./Scanner.island";
 import { formatCustomAppValue } from "./value-format";
 
 type RecordsBlock = Extract<CustomAppBlock, { type: "records" }>;
@@ -56,6 +61,7 @@ type RecordBlock = Extract<CustomAppBlock, { type: "record" }>;
 type FormBlock = Extract<CustomAppBlock, { type: "form" }>;
 type CommentsBlock = Extract<CustomAppBlock, { type: "comments" }>;
 type ActionsBlock = Extract<CustomAppBlock, { type: "actions" }>;
+type ScannerBlock = Extract<CustomAppBlock, { type: "scanner" }>;
 type QuerySuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
 type BlockResult = { ok: true; result: QuerySuccess } | { ok: false; message: string };
 type MetricsBlockData = { ok: true; cells: CustomAppMetricCell[] } | { ok: false; message: string };
@@ -199,6 +205,8 @@ const CustomAppPage = (props: {
   pageRecord: PageRecord | null;
   dateConfig: ReturnType<typeof getDateConfig>;
   markdownContext: DslQueryContextValues;
+  scanners: Map<string, { state: WorkflowScannerState; endpoint: string }>;
+  signedIn: boolean;
 }) => {
   return (
     <CustomAppPageLayout
@@ -241,11 +249,20 @@ const CustomAppPage = (props: {
           />
         ) : block.type === "actions" ? (
           <Actions actions={props.actions.get(block.id) ?? []} />
-        ) : (
+        ) : block.type === "form" ? (
           <Form
             block={block}
             data={props.forms.get(block.id) ?? { ok: false, message: "This form is unavailable." }}
             dateConfig={props.dateConfig}
+          />
+        ) : props.scanners.has(block.id) ? (
+          <Scanner {...props.scanners.get(block.id)!} />
+        ) : (
+          <Placeholder
+            variant="compact"
+            align="left"
+            title={props.signedIn ? "Scanner unavailable" : "Sign in to scan"}
+            description={props.signedIn ? "This scanner changed after the app was published. Ask an app admin to republish it." : undefined}
           />
         )
       }
@@ -685,6 +702,55 @@ export default ssr<AuthContext>(async (c) => {
     }
     rowActions.set(block.id, rendered);
   }
+  const scanners = new Map<string, { state: WorkflowScannerState; endpoint: string }>();
+  if (accessActorUser(requestAccess)) {
+    const scannerBlocks = runtimePage.rows.flatMap((row) =>
+      row.columns.flatMap((column) => column.blocks.filter((block): block is ScannerBlock => block.type === "scanner")),
+    );
+    for (const block of scannerBlocks) {
+      const capability = capabilities.scannerLaunchers.find(
+        (candidate) => candidate.pageId === page.id && candidate.blockId === block.id && candidate.launcherId === block.launcherId,
+      );
+      if (!capability) continue;
+      const [launcher, workflow] = await Promise.all([
+        gridsService.workflow.launcher.get(block.launcherId),
+        gridsService.workflow.get(capability.workflowId),
+      ]);
+      if (
+        !launcher ||
+        launcher.config.kind !== "scanner" ||
+        !launcher.enabled ||
+        launcher.workflowId !== capability.workflowId ||
+        launcher.validatedRevision !== capability.revision ||
+        launcher.diagnostics.some((diagnostic) => diagnostic.severity === "error") ||
+        customAppScannerConfigHash(launcher.config) !== capability.configHash ||
+        !workflow ||
+        workflow.baseId !== app.baseId ||
+        workflow.revision !== capability.revision
+      ) {
+        continue;
+      }
+      scanners.set(block.id, {
+        endpoint: customAppScannerUrl(app.shortId, page.id, block.id, pageParams),
+        state: {
+          baseShortId: base.shortId,
+          launcherId: launcher.id,
+          expectedRevision: capability.revision,
+          workflowId: workflow.id,
+          workflowShortId: workflow.shortId,
+          workflowName: workflow.name,
+          workflowDescription: workflow.description,
+          initialCode: null,
+          returnHref: null,
+          inputContract: {
+            workflow: { id: workflow.id, name: workflow.name, plan: workflow.plan },
+            tables: [],
+            inputSources: scannerLauncherPromptInputSources(launcher.config),
+          },
+        },
+      });
+    }
+  }
   return () => (
     <Layout c={c} title={[{ title: definition.name, href: `/apps/${app.shortId}` }, { title: page.title }]}>
       <CustomAppPage
@@ -703,6 +769,8 @@ export default ssr<AuthContext>(async (c) => {
         pageRecord={pageRecord}
         dateConfig={dateConfig}
         markdownContext={runtimeContext.query}
+        scanners={scanners}
+        signedIn={Boolean(accessActorUser(requestAccess))}
       />
     </Layout>
   );

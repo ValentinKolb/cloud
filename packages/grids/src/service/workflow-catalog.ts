@@ -2,6 +2,9 @@ import { sql } from "bun";
 import { z } from "zod";
 
 export type WorkflowCatalogEntry = { id: string; name: string; shortId: string };
+export type WorkflowFieldCatalogEntry = WorkflowCatalogEntry & {
+  relation?: { targetTableId: string; cardinality: "single" | "multiple" };
+};
 
 export type WorkflowCatalogIndex<T extends WorkflowCatalogEntry> = {
   refs: Map<string, T>;
@@ -10,17 +13,20 @@ export type WorkflowCatalogIndex<T extends WorkflowCatalogEntry> = {
 
 export type WorkflowCatalog = {
   tables: WorkflowCatalogIndex<WorkflowCatalogEntry>;
-  fieldsByTable: Map<string, WorkflowCatalogIndex<WorkflowCatalogEntry>>;
+  fieldsByTable: Map<string, WorkflowCatalogIndex<WorkflowFieldCatalogEntry>>;
   templates: WorkflowCatalogIndex<WorkflowCatalogEntry & { tableId: string }>;
   emailTemplates: WorkflowCatalogIndex<WorkflowCatalogEntry>;
 };
 
 const WorkflowCatalogEntrySchema = z.object({ id: z.string().uuid(), name: z.string(), shortId: z.string().min(1) });
+const WorkflowFieldCatalogEntrySchema = WorkflowCatalogEntrySchema.extend({
+  relation: z.object({ targetTableId: z.string().uuid(), cardinality: z.enum(["single", "multiple"]) }).optional(),
+});
 const WorkflowTemplateCatalogEntrySchema = WorkflowCatalogEntrySchema.extend({ tableId: z.string().uuid() });
 
 export const WorkflowCatalogSnapshotSchema = z.object({
   tables: z.array(WorkflowCatalogEntrySchema),
-  fieldsByTable: z.record(z.string().uuid(), z.array(WorkflowCatalogEntrySchema)),
+  fieldsByTable: z.record(z.string().uuid(), z.array(WorkflowFieldCatalogEntrySchema)),
   templates: z.array(WorkflowTemplateCatalogEntrySchema),
   emailTemplates: z.array(WorkflowCatalogEntrySchema),
 });
@@ -29,7 +35,7 @@ export type WorkflowCatalogSnapshot = z.infer<typeof WorkflowCatalogSnapshotSche
 
 type WorkflowCatalogInput = {
   tables: WorkflowCatalogEntry[];
-  fieldsByTable?: Map<string, WorkflowCatalogEntry[]>;
+  fieldsByTable?: Map<string, WorkflowFieldCatalogEntry[]>;
   templates?: Array<WorkflowCatalogEntry & { tableId: string }>;
   emailTemplates?: WorkflowCatalogEntry[];
 };
@@ -57,9 +63,9 @@ const addRefAliases = <T extends WorkflowCatalogEntry>(index: WorkflowCatalogInd
 export const buildWorkflowCatalog = (input: WorkflowCatalogInput): WorkflowCatalog => {
   const tables = createCatalogIndex<WorkflowCatalogEntry>();
   for (const table of input.tables) addRefAliases(tables, table);
-  const fieldsByTable = new Map<string, WorkflowCatalogIndex<WorkflowCatalogEntry>>();
+  const fieldsByTable = new Map<string, WorkflowCatalogIndex<WorkflowFieldCatalogEntry>>();
   for (const [tableId, fields] of input.fieldsByTable ?? new Map()) {
-    const index = createCatalogIndex<WorkflowCatalogEntry>();
+    const index = createCatalogIndex<WorkflowFieldCatalogEntry>();
     for (const field of fields) addRefAliases(index, field);
     fieldsByTable.set(tableId, index);
   }
@@ -115,20 +121,29 @@ export const loadWorkflowCatalog = async (baseId: string): Promise<WorkflowCatal
   const tables = createCatalogIndex<WorkflowCatalogEntry>();
   for (const row of tableRows) addRefAliases(tables, { id: row.id, shortId: row.short_id, name: row.name });
 
-  const fieldRows = await sql<{ id: string; short_id: string; table_id: string; name: string }[]>`
-    SELECT f.id::text AS id, f.short_id, f.table_id::text AS table_id, f.name
+  const fieldRows = await sql<
+    Array<{ id: string; short_id: string; table_id: string; name: string; type: string; config: Record<string, unknown> }>
+  >`
+    SELECT f.id::text AS id, f.short_id, f.table_id::text AS table_id, f.name, f.type, f.config
     FROM grids.fields f
     JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
     WHERE t.base_id = ${baseId}::uuid AND f.deleted_at IS NULL
   `;
-  const fieldsByTable = new Map<string, WorkflowCatalogIndex<WorkflowCatalogEntry>>();
+  const fieldsByTable = new Map<string, WorkflowCatalogIndex<WorkflowFieldCatalogEntry>>();
   for (const row of fieldRows) {
     let fields = fieldsByTable.get(row.table_id);
     if (!fields) {
-      fields = createCatalogIndex<WorkflowCatalogEntry>();
+      fields = createCatalogIndex<WorkflowFieldCatalogEntry>();
       fieldsByTable.set(row.table_id, fields);
     }
-    addRefAliases(fields, { id: row.id, shortId: row.short_id, name: row.name });
+    const targetTableId = row.type === "relation" && typeof row.config.targetTableId === "string" ? row.config.targetTableId : null;
+    const cardinality = row.config.cardinality === "single" ? "single" : "multiple";
+    addRefAliases(fields, {
+      id: row.id,
+      shortId: row.short_id,
+      name: row.name,
+      ...(targetTableId ? { relation: { targetTableId, cardinality } } : {}),
+    });
   }
 
   const templateRows = await sql<{ id: string; short_id: string; table_id: string; name: string }[]>`
@@ -157,7 +172,7 @@ export const loadWorkflowCatalog = async (baseId: string): Promise<WorkflowCatal
 export const resolveWorkflowTableRef = (catalog: WorkflowCatalog, ref: string): WorkflowCatalogEntry | null =>
   getWorkflowCatalogRef(catalog.tables, ref);
 
-export const resolveWorkflowFieldRef = (catalog: WorkflowCatalog, tableId: string, ref: string): WorkflowCatalogEntry | null => {
+export const resolveWorkflowFieldRef = (catalog: WorkflowCatalog, tableId: string, ref: string): WorkflowFieldCatalogEntry | null => {
   const fields = catalog.fieldsByTable.get(tableId);
   return fields ? getWorkflowCatalogRef(fields, ref) : null;
 };

@@ -16,10 +16,12 @@ describe("published App page routes", () => {
     const download = source.indexOf('/documents/:runId/download"');
     const authenticated = source.indexOf('.use(deps.requireAuthenticated ?? auth.requireRole("authenticated"))');
     const rowAction = source.indexOf('/row-actions/:actionId"');
+    const scanner = source.indexOf('/:blockId/scanner"');
 
     expect(download).toBeGreaterThan(0);
     expect(download).toBeLessThan(authenticated);
     expect(rowAction).toBeGreaterThan(authenticated);
+    expect(scanner).toBeGreaterThan(authenticated);
     expect(source).toContain("executePublishedCustomAppRecords");
     expect(source).toContain("published.response.rows.some((row) => row.recordId === rowId)");
   });

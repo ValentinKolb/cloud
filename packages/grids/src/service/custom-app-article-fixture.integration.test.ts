@@ -235,6 +235,7 @@ describe("Article Grids App Golden fixture", () => {
         comments: [],
         documents: [],
         workflowLaunchers: [],
+        scannerLaunchers: [],
       });
 
       const planned = await plan(definition);

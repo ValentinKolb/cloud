@@ -16,6 +16,7 @@ import {
 } from "../workflows/contracts";
 import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
 import { list as listRecords } from "./records";
+import { canExecuteWorkflow, resolveWorkflowExecutionRecordAccess } from "./workflow-action-scope";
 import {
   authorizeWorkflowBase,
   resolveWorkflowBaseRecordAccess,
@@ -45,6 +46,16 @@ const launcherAuthorizationSchema = z.discriminatedUnion("kind", [
       blockId: z.string().min(1),
       actionId: z.string().min(1),
       revision: z.number().int().positive(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("custom-app-scanner"),
+      customAppId: z.string().uuid(),
+      pageId: z.string().min(1),
+      blockId: z.string().min(1),
+      revision: z.number().int().positive(),
+      configHash: z.string().regex(/^[a-f0-9]{64}$/),
     })
     .strict(),
 ]);
@@ -110,6 +121,7 @@ type LauncherContext = {
 };
 
 type LauncherAuthorizationInput = {
+  launcherId: string;
   workflow: GridsWorkflow;
   principal: GridsWorkflowPrincipal;
   tableId: string | null;
@@ -162,13 +174,23 @@ const normalizeScannedText = (value: string): string => {
   return trimmed;
 };
 
-const authorize: WorkflowLauncherInvocationDeps["authorize"] = async ({ workflow, principal, tableId, authorization }) => {
+const authorize: WorkflowLauncherInvocationDeps["authorize"] = async ({ launcherId, workflow, principal, tableId, authorization }) => {
   const principalState = await revalidateWorkflowPrincipal(principal, workflow.baseId);
   if (!principalState.ok || !workflowPermissionAllows(principalState.permissionCap, "write")) {
     return fail(err.forbidden("Workflow actor cannot run this workflow."));
   }
-  if (authorization?.kind !== "custom-app-action" && !(await authorizeWorkflowBase(principal, workflow.baseId, "write"))) {
-    return fail(err.forbidden("Workflow actor cannot run this workflow."));
+  if (!authorization || authorization.kind === "workflow") {
+    if (!(await authorizeWorkflowBase(principal, workflow.baseId, "write"))) {
+      return fail(err.forbidden("Workflow actor cannot run this workflow."));
+    }
+  }
+  if (authorization && authorization.kind !== "workflow") {
+    const claim = { baseId: workflow.baseId, workflowId: workflow.id, principal, authorization, launcherId };
+    if (tableId) {
+      const recordAccess = await resolveWorkflowExecutionRecordAccess(claim, tableId, "read");
+      return recordAccess ? ok(recordAccess) : fail(err.forbidden("Workflow actor cannot run this workflow."));
+    }
+    return (await canExecuteWorkflow(claim)) ? ok(null) : fail(err.forbidden("Workflow actor cannot run this workflow."));
   }
   if (tableId) {
     const recordAccess = await resolveWorkflowBaseRecordAccess(principal, { baseId: workflow.baseId, tableId }, "read");
@@ -419,6 +441,7 @@ export const invokeScannerLauncher = async (
     return fail(err.badInput(`workflow input "${suppliedInputName}" is not supplied by the scanner user`));
   }
   const authorized = await deps.authorize({
+    launcherId: ctx.launcher.id,
     workflow: ctx.workflow,
     principal: input.data.principal,
     tableId: ctx.tableId,
@@ -459,6 +482,7 @@ export const invokeBulkLauncher = async (
   const ctx = loaded.data;
   if (ctx.config.kind !== "bulk" || !ctx.tableId) return fail(err.internal("bulk launcher context is invalid"));
   const authorized = await deps.authorize({
+    launcherId: ctx.launcher.id,
     workflow: ctx.workflow,
     principal: input.data.principal,
     tableId: ctx.tableId,
@@ -486,6 +510,7 @@ export const invokeCustomAppLauncher = async (
   const ctx = loaded.data;
   if (ctx.config.kind !== "customApp") return fail(err.internal("Grids App launcher context is invalid"));
   const authorized = await deps.authorize({
+    launcherId: ctx.launcher.id,
     workflow: ctx.workflow,
     principal: input.data.principal,
     tableId: null,

@@ -12,6 +12,8 @@
  * storage, and moving the storage should not have reached the run list, the
  * CLI, or a browser.
  */
+
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import type { WorkflowInvocationMode, WorkflowInvocationReceipt, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import {
@@ -22,7 +24,6 @@ import {
   requestWorkflowRunCancel,
   type WorkflowStepSummary,
 } from "@valentinkolb/cloud/workflows/store";
-import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import type {
   GridsWorkflowChannel,
@@ -75,7 +76,15 @@ const pageSize = (limit: number | null | undefined): number => Math.min(Math.max
 /** How a run was accepted: directly or by a published Grids App action. */
 export type GridsWorkflowAuthorization =
   | { kind: "workflow" }
-  | { kind: "custom-app-action"; customAppId: string; pageId: string; blockId: string; actionId: string; revision: number };
+  | { kind: "custom-app-action"; customAppId: string; pageId: string; blockId: string; actionId: string; revision: number }
+  | {
+      kind: "custom-app-scanner";
+      customAppId: string;
+      pageId: string;
+      blockId: string;
+      revision: number;
+      configHash: string;
+    };
 
 /**
  * Everything about *who* a run acts as, frozen when it was accepted.

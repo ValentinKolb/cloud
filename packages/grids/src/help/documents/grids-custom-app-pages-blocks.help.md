@@ -114,6 +114,14 @@ Starting a workflow is asynchronous. The button follows its scoped run and repor
 
 The runtime revalidates the published app grant, exact page, block, action, launcher, workflow revision, page records, and `availableWhen` query. An action missing from the immutable publication capability set is omitted. Workflow actions require an authenticated account.
 
+### Scanner
+
+Scanner embeds one existing enabled Scanner run option. Signed-in app readers may scan with the camera or enter a code manually; public anonymous readers see a sign-in prompt instead. Session values are asked once when the scanner opens, and after-scan values are asked for each code.
+
+The app publishes the exact block, launcher, workflow revision, and scanner configuration hash. Every invocation and status read rechecks that snapshot and the reader's App grant. Changing the run option or workflow requires republishing the app. Scanner run results stay scoped to the reader who started them.
+
+Scanner blocks support scalar session and after-scan inputs. Record and record-list prompts remain available on the full Workflow scanner, but are rejected for an embedded App scanner because an App reader may not have direct Base access for a record picker. The scanned input itself may still resolve to a record through a generated scan code or configured unique field.
+
 ## Keep navigation explicit {icon="arrow-right"}
 
 Navigation has a target page ID, history behavior, and a mapping for every target parameter:

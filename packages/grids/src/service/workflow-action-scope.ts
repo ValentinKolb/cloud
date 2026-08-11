@@ -14,6 +14,7 @@
  * `grids.workflow_run_profile` instead. One query changes; nothing else does.
  */
 import type { WorkflowActionContext } from "@valentinkolb/cloud/workflows";
+import { customAppScannerConfigHash } from "../custom-apps/scanner-capability";
 import type { GridsWorkflowPrincipal } from "../workflows/contracts";
 import type { SqlClient } from "./audit";
 import { get as getCustomApp } from "./custom-apps";
@@ -151,6 +152,45 @@ export const canExecuteWorkflow = async (claim: GridsWorkflowExecutionClaim, cli
         capability.revision === authorization.revision,
     );
   }
+  if (authorization.kind === "custom-app-scanner") {
+    const [app, launcher] = await Promise.all([getCustomApp(authorization.customAppId, client), getLauncher(claim.launcherId, client)]);
+    if (
+      !app?.publishedDefinition ||
+      !app.publishedCapabilities ||
+      app.baseId !== claim.baseId ||
+      !launcher ||
+      launcher.baseId !== claim.baseId ||
+      launcher.workflowId !== claim.workflowId ||
+      launcher.config.kind !== "scanner" ||
+      !launcher.enabled ||
+      launcher.validatedRevision !== authorization.revision ||
+      launcher.diagnostics.some((diagnostic) => diagnostic.severity === "error") ||
+      customAppScannerConfigHash(launcher.config) !== authorization.configHash
+    ) {
+      return false;
+    }
+    const grants = await loadCustomAppGrantsForSubject({ subject: revalidated.subject, customAppId: app.id }, client);
+    if (
+      !hasGrantsForResource(grants, "customApp", app.id) ||
+      !hasAtLeast(resolveEffectivePermission(grants, { customAppId: app.id }), "read")
+    ) {
+      return false;
+    }
+    const page = app.publishedDefinition.pages.find((candidate) => candidate.id === authorization.pageId);
+    const block = page?.rows
+      .flatMap((row) => row.columns.flatMap((column) => column.blocks))
+      .find((candidate) => candidate.id === authorization.blockId);
+    if (!block || block.type !== "scanner" || block.launcherId !== claim.launcherId) return false;
+    return app.publishedCapabilities.scannerLaunchers.some(
+      (capability) =>
+        capability.pageId === page!.id &&
+        capability.blockId === block.id &&
+        capability.launcherId === claim.launcherId &&
+        capability.workflowId === claim.workflowId &&
+        capability.revision === authorization.revision &&
+        capability.configHash === authorization.configHash,
+    );
+  }
   return false;
 };
 
@@ -163,7 +203,7 @@ export const resolveWorkflowExecutionRecordAccess = async (
   required: PermissionLevel,
   client?: SqlClient,
 ): Promise<AuthorizedRecordAccess | null> => {
-  if (claim.authorization.kind !== "custom-app-action") {
+  if (claim.authorization.kind === "workflow") {
     return resolveWorkflowBaseRecordAccess(claim.principal, { baseId: claim.baseId, tableId }, required, client);
   }
   if (!(await workflowTableBelongsToBase(claim.baseId, tableId, client))) return null;
@@ -176,7 +216,7 @@ export const requireExecution = async (scope: GridsWorkflowActionScope, client?:
 
 export const requirePermission = async (scope: GridsWorkflowActionScope, required: PermissionLevel, client?: SqlClient): Promise<void> => {
   const allowed =
-    scope.authorization.kind === "custom-app-action"
+    scope.authorization.kind !== "workflow"
       ? await canExecuteRun(scope, client)
       : await authorizeWorkflowBase(scope.principal, scope.baseId, required, client);
   if (!allowed) throw forbidden();

@@ -51,6 +51,7 @@ const blockLabel: Record<CustomAppBlock["type"], string> = {
   metrics: "Metrics",
   record: "Record",
   records: "Records",
+  scanner: "Scanner",
 };
 
 const intentTargets = (intent: CustomAppBlockDropIntent | null, activeBlockId: string | null) => {

@@ -77,6 +77,9 @@ type CustomAppGqlSource = Extract<Extract<CustomAppBlock, { type: "records" }>["
 type CustomAppWorkflowLauncher = WorkspaceCatalog["workflowLaunchers"][number] & {
   config: Extract<WorkspaceCatalog["workflowLaunchers"][number]["config"], { kind: "customApp" }>;
 };
+type CustomAppScannerLauncher = WorkspaceCatalog["workflowLaunchers"][number] & {
+  config: Extract<WorkspaceCatalog["workflowLaunchers"][number]["config"], { kind: "scanner" }>;
+};
 
 const iconInputValue = (slug: string | undefined): string | null => (slug ? `ti ti-${slug}` : null);
 const iconSlug = (value: string | null): string | undefined => value?.replace(/^ti ti-/, "") || undefined;
@@ -146,6 +149,7 @@ const blockMeta: Record<CustomAppBlock["type"], { icon: string; label: string }>
   metrics: { icon: "ti ti-chart-dots", label: "Metrics" },
   record: { icon: "ti ti-id", label: "Record" },
   records: { icon: "ti ti-table", label: "Records" },
+  scanner: { icon: "ti ti-scan", label: "Scanner" },
 };
 
 export const isCustomAppBlockSourceDiagnostic = (diagnostic: CustomAppDiagnostic, blockId: string): boolean =>
@@ -628,6 +632,19 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       icon: "ti ti-player-play",
     })),
   );
+  const scannerLaunchers = createMemo(() =>
+    props.catalog.workflowLaunchers.filter(
+      (launcher): launcher is CustomAppScannerLauncher => launcher.config.kind === "scanner" && workflowsById().has(launcher.workflowId),
+    ),
+  );
+  const scannerLauncherOptions = createMemo(() =>
+    scannerLaunchers().map((launcher) => ({
+      value: launcher.id,
+      label: launcher.name,
+      description: workflowsById().get(launcher.workflowId)?.name ?? "Scanner workflow",
+      icon: "ti ti-scan",
+    })),
+  );
   const formOptions = createMemo(() =>
     forms().map((form) => ({
       value: form.id,
@@ -944,6 +961,10 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
         },
       ],
     });
+  const addScannerBlock = () => {
+    const launcher = scannerLaunchers()[0];
+    if (launcher) addBlock({ id: localId("scanner"), type: "scanner", launcherId: launcher.id });
+  };
   const addBlockItems = createMemo<readonly DropdownItem[]>(() => [
     {
       sectionLabel: "Content",
@@ -995,6 +1016,19 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
             }
           : { icon: "ti ti-chart-bar", label: "Chart", description: "Add a groupable field or grouped saved view first.", disabled: true },
         { icon: "ti ti-bolt", label: "Actions", description: "Open another page or run a workflow.", action: addActionsBlock },
+        scannerLaunchers().length > 0
+          ? {
+              icon: "ti ti-scan",
+              label: "Scanner",
+              description: "Scan QR codes or barcodes and run a workflow.",
+              action: addScannerBlock,
+            }
+          : {
+              icon: "ti ti-scan",
+              label: "Scanner",
+              description: "Create and enable a Scanner run option first.",
+              disabled: true,
+            },
       ],
     },
   ]);
@@ -2708,6 +2742,44 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                           </div>
                         </DetailPanel.Section>
                       </Show>
+                    </DetailPanel.Group>
+                  </Show>
+                  <Show when={selected().block.type === "scanner"}>
+                    <DetailPanel.Group label="Scanner settings">
+                      <DetailPanel.Section
+                        title="Scanner workflow"
+                        icon="ti ti-scan"
+                        description="Each scan resolves a code and starts this workflow. Readers must be signed in."
+                      >
+                        <div class="flex flex-col gap-3">
+                          <Select
+                            label="Scanner run option"
+                            description="Only enabled Scanner run options with a ready workflow revision are listed."
+                            value={() => {
+                              const block = selected().block;
+                              return block.type === "scanner" ? block.launcherId : null;
+                            }}
+                            options={scannerLauncherOptions()}
+                            error={() => {
+                              const block = selected().block;
+                              return block.type === "scanner" && !scannerLaunchers().some((launcher) => launcher.id === block.launcherId)
+                                ? "This Scanner run option is unavailable."
+                                : diagnosticFor(block.id, "launcherId");
+                            }}
+                            onValueChange={(launcherId) =>
+                              launcherId && updateSelectedBlock((block) => (block.type === "scanner" ? { ...block, launcherId } : block))
+                            }
+                          />
+                          <Show when={scannerLaunchers().length === 0}>
+                            <InlineGuidance>
+                              Add and enable a Scanner run option on a workflow before publishing this block.{" "}
+                              <Button variant="text" size="xs" onClick={() => void openWorkflowConfiguration()}>
+                                Configure workflows
+                              </Button>
+                            </InlineGuidance>
+                          </Show>
+                        </div>
+                      </DetailPanel.Section>
                     </DetailPanel.Group>
                   </Show>
                   <Show when={selected().block.type === "record"}>
