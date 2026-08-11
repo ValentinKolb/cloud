@@ -64,11 +64,22 @@ If it does not, start the documentation site from the current checkout:
 bun run dev:fibel
 ```
 
-It listens on port `4187` by default. If that port belongs to an older local
-instance, choose a free port and use the same port in `CLOUD_DOCS_SITE_URL`:
+This builds and starts one isolated Docker Compose service, then waits for its
+health endpoint. It uses the same Linux container on macOS and Linux and does
+not start the Cloud application stack. Re-run the command after changing
+Markdown so Fibel rebuilds its in-memory search and MCP index. Cached image
+layers are reused. Follow or stop it with:
 
 ```bash
-PORT=4199 CLOUD_DOCS_SITE_URL=http://localhost:4199 bun run dev:fibel
+bun run dev:fibel:logs
+bun run dev:fibel:down
+```
+
+It listens on port `4187` by default. If that port belongs to another local
+process, choose a free host port:
+
+```bash
+FIBEL_PORT=4199 bun run dev:fibel
 ```
 
 Add the active MCP endpoint with the stable local name `cloud-dev-mcp`.
@@ -93,7 +104,7 @@ For another code agent, configure a streamable HTTP MCP server named
 `cloud-dev-mcp` with the same endpoint. The **Agents** dialog in the Fibel
 footer provides additional client-specific setup.
 
-Replace `4187` when the current server uses another port.
+Replace `4187` in the MCP URL when `FIBEL_PORT` selects another host port.
 
 Refresh the agent session after adding the connection. The agent should confirm
 that `cloud-dev-mcp` is available by calling `list_collections`, then use

@@ -8,7 +8,8 @@ shared UI behavior.
 1. Inspect `git status` and preserve unrelated work.
 2. Install the workspace with `bun install --frozen-lockfile` after a fresh
    clone or lockfile change.
-3. Start the local documentation with `bun run dev:fibel`.
+3. Start the containerized local documentation with `bun run dev:fibel`. The
+   same Docker Compose command is used on macOS and Linux.
 4. Use the `cloud-dev-mcp` documentation tools: call `list_collections`, then
    `search_docs` and `read_doc` for the smallest relevant pages.
 

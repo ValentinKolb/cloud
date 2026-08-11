@@ -29,20 +29,33 @@ uncommitted documentation is visible. Look for `cloud-dev-mcp`, call
 `list_collections`, then search with `search_docs` and read the smallest
 relevant pages with `read_doc`.
 
-If the connection is missing, check or start the current site:
+Treat the HTTP endpoint, MCP configuration, and agent session separately, then probe the endpoint:
+
+```bash
+curl --fail --silent http://localhost:4187/health
+```
+
+If unavailable, start the repository-owned container yourself and verify it;
+do not wait for the human to run a normal local development action.
 
 ```bash
 bun run dev:fibel
-codex mcp add cloud-dev-mcp --url http://localhost:4187/_fibel/mcp
+curl --fail --silent http://localhost:4187/health
 ```
 
-Use the active port when `4187` is unavailable. Ask the human to add or refresh
-the MCP connection when the tools are not visible in the current agent session.
-Do not change their Codex configuration without permission.
+The command waits for health and works on macOS and Linux. On a port conflict,
+use `FIBEL_PORT=4199 bun run dev:fibel` and the same port in the MCP URL.
 
-If MCP cannot be enabled, state that the task is using reduced documentation
-mode and read `docs-site/docs/en`, public exports, types, and focused tests
-directly. Outside the monorepo, use the configured Cloud documentation MCP when
+Once the endpoint is healthy, check whether `cloud-dev-mcp` tools are visible.
+For missing or stale configuration, ask the human to update it; never run
+`codex mcp add` or `codex mcp remove` without permission. If configuration is
+correct but tools are absent, ask for an agent-session refresh: starting the
+server after session start does not inject tools into that session.
+
+Only after the endpoint, configuration, and session refresh paths cannot make
+the tools available, state that the task is using reduced documentation mode
+and read `docs-site/docs/en`, public exports, types, and focused tests directly.
+Outside the monorepo, use the configured Cloud documentation MCP when
 available.
 
 **Gate:** current documentation was read through MCP, or reduced mode is

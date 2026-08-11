@@ -121,14 +121,19 @@ Dev admin login: open `/auth/login?method=admin` and paste `dev-admin` into the 
 
 ## Agent-assisted development
 
-After a fresh clone, start the documentation and install its current developer
-skill:
+After a fresh clone, install the workspace, start the containerized
+documentation, and install its current developer skill. Docker with Compose v2
+is required on macOS and Linux.
 
 ```bash
 bun install --frozen-lockfile
 bun run dev:fibel
 bunx skills add http://localhost:4187
 ```
+
+`bun run dev:fibel` returns after the Fibel health endpoint is ready. Use
+`bun run dev:fibel:logs` to follow its output and `bun run dev:fibel:down` to
+stop only the documentation service.
 
 Connect the same local documentation as an MCP server. Use the command for
 your agent:
@@ -146,9 +151,10 @@ For another code agent, configure a streamable HTTP MCP server named
 The **Agents** dialog in the Fibel footer shows additional client-specific
 setup.
 
-If Fibel starts on another port, replace `4187` in both commands. Restart the
-agent session after adding the connection. The agent should see the Docs and
-UI collections through `list_collections`, `search_docs`, and `read_doc`.
+If port `4187` is occupied, start with `FIBEL_PORT=4199 bun run dev:fibel` and
+replace `4187` in the skill and MCP URLs. Restart the agent session after adding
+the connection. The agent should see the Apps, Docs, and UI collections through
+`list_collections`, `search_docs`, and `read_doc`.
 
 Repository-wide agent instructions live in [`AGENTS.md`](AGENTS.md). Claude
 Code loads the same instructions through [`CLAUDE.md`](CLAUDE.md). The
