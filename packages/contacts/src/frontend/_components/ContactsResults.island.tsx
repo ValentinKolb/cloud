@@ -118,10 +118,7 @@ const fetchContactsResults = async (props: Pick<Props, "bookId" | "perPage">, hr
         },
         { init: { signal } },
       )
-    : await apiClient.search.$get(
-        { query: { ...queryParams, includeSystem: options.favorites ? "true" : undefined } },
-        { init: { signal } },
-      );
+    : await apiClient.search.$get({ query: queryParams }, { init: { signal } });
   if (!response.ok) throw new Error(await readErrorMessage(response, "Could not update contacts"));
   return await response.json();
 };

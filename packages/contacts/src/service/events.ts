@@ -1,12 +1,15 @@
-import { logger } from "@valentinkolb/cloud/services";
 import { topic } from "@k2b/sync";
-import type { ContactServiceEvent, ContactServiceEventData } from "../live-events";
+import { logger } from "@valentinkolb/cloud/services";
+import type { ContactLiveEvent, ContactServiceEvent, ContactServiceEventData } from "../live-events";
+import { projectContactEventIds } from "./public-resources";
 
 const log = logger("contacts:events");
 const CONTACTS_EVENT_TENANT = "contacts";
 const TOPIC_OPERATION_TIMEOUT_MS = 1_500;
 
-const contactsTopic = topic<ContactServiceEvent>({
+export type ContactEventEnvelope = { internal: ContactServiceEvent; public: ContactLiveEvent };
+
+const contactsTopic = topic<ContactEventEnvelope>({
   id: "changes",
   prefix: "cloud:contacts:events",
   retentionMs: 24 * 60 * 60 * 1_000,
@@ -33,7 +36,7 @@ const withTopicTimeout = async <T>(operation: Promise<T>): Promise<T> => {
   }
 };
 
-export const publishContactEvent = async (event: ContactServiceEventData): Promise<void> => {
+export const publishContactEvent = async (event: ContactServiceEventData, knownPublicEvent?: ContactLiveEvent): Promise<void> => {
   const payload: ContactServiceEvent = { ...event, at: new Date().toISOString() };
   const resourceId = eventResourceId(event);
   try {
@@ -41,7 +44,10 @@ export const publishContactEvent = async (event: ContactServiceEventData): Promi
       contactsTopic.pub({
         tenantId: CONTACTS_EVENT_TENANT,
         orderingKey: resourceId,
-        data: payload,
+        data: {
+          internal: payload,
+          public: knownPublicEvent ? { ...knownPublicEvent, at: payload.at } : await projectContactEventIds(payload),
+        },
       }),
     );
   } catch (error) {

@@ -2,7 +2,6 @@ export type ContactBook = {
   id: string;
   name: string;
   description: string | null;
-  isSystem: boolean;
   createdAt: string | null;
   updatedAt: string | null;
 };

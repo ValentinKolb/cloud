@@ -2,16 +2,16 @@
 id: contacts-start
 title: Start
 icon: ti ti-address-book
-description: Contact books, records, tags, system contacts, and the detail workflow.
+description: Contact books, records, tags, and the detail workflow.
 order: 100
 ---
 
-Contacts keeps manual address books with structured contact records, tags, notes, hierarchy links, and book-level access. The overview immediately searches across every readable manual book, so you do not need to choose a book before looking someone up.
+Contacts keeps address books with structured contact records, tags, notes, hierarchy links, and book-level access. The overview immediately searches across every readable book, so you do not need to choose a book before looking someone up.
 
 ## Overview {icon="layout-grid"}
 
 :::reference
-- **Contact book:** A manual address book with its own tags, permissions, API keys, import, export, and deletion settings.
+- **Contact book:** An address book with its own tags, permissions, API keys, import, export, and deletion settings.
 - **Contact:** One person, company, supplier, customer, or other party with contact points, addresses, work data, personal data, and bank details.
 - **Tags:** Book-specific labels for filtering and grouping contacts.
 - **Detail panel:** The working view for reading details, editing a contact, adding notes, moving the contact, and managing members.
@@ -25,8 +25,4 @@ Contacts keeps manual address books with structured contact records, tags, notes
 - **Create the contact:** Start with the name and the contact points people use first: email, phone, website, or address.
 - **Add structure:** Add tags, work details, personal details, bank details, notes, or a parent contact when they help later lookup.
 - **Open details:** Select a contact to view the detail panel, edit the record, add notes, move it, or manage member links.
-:::
-
-:::info System contacts
-The system book projects IPA directory contacts and is read-only. All Contacts searches manual books; open the system book directly to browse system contacts.
 :::

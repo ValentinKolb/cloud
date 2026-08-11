@@ -11,10 +11,11 @@ import {
 const BOOK_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_BOOK_ID = "22222222-2222-4222-8222-222222222222";
 const CONTACT_ID = "33333333-3333-4333-8333-333333333333";
+const PUBLIC_BOOK_ID = "Book01";
 const AT = "2026-07-16T12:00:00.000Z";
 
 describe("Contacts live protocol", () => {
-  test("accepts all and manual-book subscriptions", () => {
+  test("accepts all and short-ID book subscriptions", () => {
     expect(
       ContactLiveClientMessageSchema.safeParse({
         type: CONTACTS_LIVE_WS_TYPE.subscribe,
@@ -24,7 +25,7 @@ describe("Contacts live protocol", () => {
     expect(
       ContactLiveClientMessageSchema.safeParse({
         type: CONTACTS_LIVE_WS_TYPE.subscribe,
-        payload: { scope: { kind: "book", bookId: BOOK_ID }, fromCursor: null },
+        payload: { scope: { kind: "book", bookId: PUBLIC_BOOK_ID }, fromCursor: null },
       }).success,
     ).toBe(true);
   });
@@ -33,7 +34,13 @@ describe("Contacts live protocol", () => {
     expect(
       ContactLiveClientMessageSchema.safeParse({
         type: CONTACTS_LIVE_WS_TYPE.subscribe,
-        payload: { scope: { kind: "book", bookId: "system" }, fromCursor: "latest" },
+        payload: { scope: { kind: "book", bookId: BOOK_ID }, fromCursor: null },
+      }).success,
+    ).toBe(false);
+    expect(
+      ContactLiveClientMessageSchema.safeParse({
+        type: CONTACTS_LIVE_WS_TYPE.subscribe,
+        payload: { scope: { kind: "book", bookId: PUBLIC_BOOK_ID }, fromCursor: "latest" },
       }).success,
     ).toBe(false);
   });
@@ -41,6 +48,22 @@ describe("Contacts live protocol", () => {
   test("rejects unknown server messages", () => {
     expect(parseContactLiveServerMessage(JSON.stringify({ type: "contacts.live.checkpoint", payload: { cursor: "8-1" } }))).toBeNull();
     expect(parseContactLiveServerMessage("not-json")).toBeNull();
+  });
+
+  test("accepts only short resource IDs on public events", () => {
+    const message = {
+      type: CONTACTS_LIVE_WS_TYPE.event,
+      payload: {
+        cursor: "8-1",
+        event: { type: "contact.updated", bookId: "Book01", contactId: "Cont01", at: AT },
+      },
+    } as const;
+    expect(parseContactLiveServerMessage(JSON.stringify(message))).toEqual(message);
+    expect(
+      parseContactLiveServerMessage(
+        JSON.stringify({ ...message, payload: { ...message.payload, event: { ...message.payload.event, contactId: CONTACT_ID } } }),
+      ),
+    ).toBeNull();
   });
 
   test("classifies scope changes without exposing book identifiers", () => {

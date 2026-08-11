@@ -4,6 +4,8 @@ import { z } from "zod";
 const timestampSchema = z.string().datetime({ offset: true });
 const nullableTextSchema = z.string().nullable();
 const spacesResourceIdSchema = z.string().regex(/^[0-9A-Za-z]{6}$/);
+const contactsResourceIdSchema = z.string().regex(/^[0-9A-Za-z]{6}$/);
+const contactHref = (bookId: string, contactId: string) => `/app/contacts/${bookId}?contact=${contactId}&contactBook=${bookId}`;
 
 export const normalizedContactEmailSchema = z.email().max(320);
 const contactPointEmailSchema = z.object({ label: nullableTextSchema, email: z.email() }).passthrough();
@@ -14,8 +16,8 @@ export const contactOpenHref = (links: readonly CapabilitySemanticLink[] | undef
   links?.find((link) => link.rel === "open")?.href ?? links?.find((link) => link.rel === "edit")?.href ?? null;
 
 const contactResolveMatchShape = {
-  contactId: z.uuid(),
-  bookId: z.string().min(1),
+  contactId: contactsResourceIdSchema,
+  bookId: contactsResourceIdSchema,
   bookName: z.string().min(1),
   displayName: z.string().min(1),
   companyName: nullableTextSchema,
@@ -31,6 +33,11 @@ const contactResolveCapabilityMatchSchema = z.object({ ...contactResolveMatchSha
 
 export const contactResolveMatchSchema = z
   .object({ ...contactResolveMatchShape, openHref: z.string().startsWith("/app/contacts/").nullable() })
+  .superRefine((value, ctx) => {
+    if (value.openHref !== null && value.openHref !== contactHref(value.bookId, value.contactId)) {
+      ctx.addIssue({ code: "custom", path: ["openHref"], message: "Contact link must use the canonical short-ID route" });
+    }
+  })
   .passthrough();
 
 export const contactResolveDataSchema = z
@@ -42,8 +49,8 @@ export const contactResolveDataSchema = z
 
 export const contactSuggestionSchema = z
   .object({
-    contactId: z.uuid(),
-    bookId: z.string().min(1),
+    contactId: contactsResourceIdSchema,
+    bookId: contactsResourceIdSchema,
     displayName: z.string().min(1),
     companyName: nullableTextSchema,
     jobTitle: nullableTextSchema,
@@ -58,7 +65,7 @@ export const contactSuggestionsSchema = z.array(contactSuggestionSchema).max(25)
 
 export const contactBookSchema = z
   .object({
-    id: z.uuid(),
+    id: contactsResourceIdSchema,
     name: z.string().min(1),
     description: nullableTextSchema,
     permission: z.enum(["read", "write", "admin"]),
@@ -70,8 +77,8 @@ export const contactBooksSchema = z.array(contactBookSchema).max(100);
 
 const contactDetailSchema = z
   .object({
-    id: z.uuid(),
-    bookId: z.string().min(1),
+    id: contactsResourceIdSchema,
+    bookId: contactsResourceIdSchema,
     displayName: z.string().min(1),
     companyName: nullableTextSchema,
     jobTitle: nullableTextSchema,

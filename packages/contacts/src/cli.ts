@@ -60,7 +60,7 @@ type ContactTree = {
 };
 
 const CONTACTS_BOOK_DEFAULT_KEY = "contacts.book";
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const RESOURCE_ID_PATTERN = /^[0-9A-Za-z]{6}$/;
 
 const stringFlag = (flags: CloudCliFlags, ...names: string[]): string | undefined => {
   for (const name of names) {
@@ -86,7 +86,13 @@ const requireArg = (args: string[], index: number, label: string): string => {
   return value;
 };
 
-const isUuid = (value: string): boolean => UUID_PATTERN.test(value);
+const requireResourceId = (value: string, label: string): string => {
+  if (!isResourceId(value)) throw new Error(`${label} must be a six-character Contacts ID.`);
+  return value;
+};
+
+const isResourceId = (value: string): boolean => RESOURCE_ID_PATTERN.test(value);
+const isHttpStatus = (error: unknown, status: number): boolean => error instanceof Error && error.message.startsWith(`${status} `);
 
 const apiPath = (path = "") => `/api/contacts${path === "/" ? "" : path}`;
 
@@ -181,7 +187,6 @@ const bookRows = (items: ContactBook[]) =>
   items.map((book) => ({
     id: book.id,
     name: book.name,
-    system: book.isSystem ? "yes" : "no",
     updatedAt: book.updatedAt ?? "",
   }));
 
@@ -220,7 +225,13 @@ const listBooks = async (ctx: CloudCliContext, query?: string): Promise<Page<Con
   );
 
 const resolveBookRef = async (ctx: CloudCliContext, ref: string): Promise<ContactBook> => {
-  if (isUuid(ref)) return readApi<ContactBook>(ctx, `/books/${ref}`);
+  if (isResourceId(ref)) {
+    try {
+      return await readApi<ContactBook>(ctx, `/books/${ref}`);
+    } catch (error) {
+      if (!isHttpStatus(error, 404)) throw error;
+    }
+  }
 
   const page = await listBooks(ctx, ref);
   const matches = page.data.filter((book) => book.name === ref);
@@ -252,7 +263,7 @@ const resolveBookArg = async (
 };
 
 const resolveTagRefFromList = (tags: ContactTag[], ref: string): ContactTag => {
-  if (isUuid(ref)) {
+  if (isResourceId(ref)) {
     const tag = tags.find((item) => item.id === ref);
     if (tag) return tag;
   }
@@ -275,7 +286,13 @@ const resolveTagIds = async (ctx: CloudCliContext, bookId: string, refs: string[
 };
 
 const resolveContactRef = async (ctx: CloudCliContext, bookId: string, ref: string): Promise<Contact> => {
-  if (isUuid(ref)) return readApi<Contact>(ctx, `/books/${bookId}/contacts/${ref}`);
+  if (isResourceId(ref)) {
+    try {
+      return await readApi<Contact>(ctx, `/books/${bookId}/contacts/${ref}`);
+    } catch (error) {
+      if (!isHttpStatus(error, 404)) throw error;
+    }
+  }
 
   const page = await readApi<Page<Contact>>(
     ctx,
@@ -364,7 +381,6 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
     const payload = await listBooks(ctx, stringFlag(ctx.flags, "q", "query"));
     printJsonOrTable(ctx, payload, bookRows(payload.data), [
       { key: "name", label: "NAME" },
-      { key: "system", label: "SYSTEM" },
       { key: "updatedAt", label: "UPDATED" },
       { key: "id", label: "ID" },
     ]);
@@ -392,7 +408,6 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
     if (!printStructured(ctx, book)) {
       ctx.print(`${book.name} (${book.id})`);
       if (book.description) ctx.print(book.description);
-      ctx.print(`system: ${book.isSystem ? "yes" : "no"}`);
     }
     return 0;
   }
@@ -473,7 +488,6 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
       `/search?${new URLSearchParams({
         ...paginationQuery(ctx),
         q: queryText,
-        ...(booleanFlag(ctx.flags, "include-system") ? { includeSystem: "true" } : {}),
       }).toString()}`,
     );
     printJsonOrTable(ctx, payload, contactRows(payload.data), [
@@ -559,7 +573,7 @@ const runContactsCommand = async (ctx: CloudCliContext, command: string, args: s
       return 0;
     }
 
-    const noteId = requireArg(rest, 0, "note");
+    const noteId = requireResourceId(requireArg(rest, 0, "note"), "Note");
     if (command === "update-note") {
       const content = await readInputContent(ctx);
       const data: UpdateContactNoteInput = { content: content ?? "" };
@@ -826,7 +840,6 @@ export default defineCliCommands({
       },
       flags: {
         q: flag.string({ aliases: ["query"], description: "Search query" }),
-        includeSystem: flag.boolean({ name: "include-system", description: "Include system contact books" }),
         ...paginationFlagSpecs,
       },
       run: ({ ctx, args }) => runContactsCommand(ctx, "search", args.query),

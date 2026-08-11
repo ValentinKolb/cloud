@@ -1,5 +1,6 @@
 import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
+import { withShortId } from "../lib/short-id";
 import { isUuid, type SqlExecutor, toPgUuidArray } from "./shared";
 import type { ContactTag, CreateContactTagInput, UpdateContactTagInput } from "./types";
 
@@ -96,11 +97,14 @@ export const create = async (config: { bookId: string; data: CreateContactTagInp
   if (!isUuid(config.bookId)) return fail(err.notFound("Book"));
 
   try {
-    const [row] = await sql<DbTag[]>`
-      INSERT INTO contacts.tags (book_id, name, color)
-      VALUES (${config.bookId}::uuid, ${config.data.name.trim()}, ${config.data.color})
-      RETURNING id, book_id, name, color, created_at, updated_at
-    `;
+    const row = await withShortId("tag", async (shortId) => {
+      const [created] = await sql<DbTag[]>`
+        INSERT INTO contacts.tags (short_id, book_id, name, color)
+        VALUES (${shortId}, ${config.bookId}::uuid, ${config.data.name.trim()}, ${config.data.color})
+        RETURNING id, book_id, name, color, created_at, updated_at
+      `;
+      return created;
+    });
     if (!row) return fail(err.internal("Failed to create tag"));
     return ok(mapTag(row));
   } catch (error) {

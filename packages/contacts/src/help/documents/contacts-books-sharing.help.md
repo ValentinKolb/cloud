@@ -6,7 +6,7 @@ description: Book settings, access, API keys, tags, import, export, and deletion
 order: 120
 ---
 
-Contact book settings control metadata, tags, access, API keys, import, export, and deletion for one manual book.
+Contact book settings control metadata, tags, access, API keys, import, export, and deletion for one book.
 Open them from the settings action beside a book in the Contacts sidebar. On mobile, the same action remains visible beside books you administer.
 
 ## Book settings {icon="settings"}

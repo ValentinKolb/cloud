@@ -5,6 +5,15 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
 import { contactsService } from "../../service";
 import { captureContactEventCursor } from "../../service/events";
+import {
+  projectBooks,
+  projectContacts,
+  projectFavoriteKeys,
+  projectNotes,
+  projectTags,
+  resolveBookPublicIds,
+  resolvePublicId,
+} from "../../service/public-resources";
 import ContactBookUnavailable from "../_components/ContactBookUnavailable";
 import ContactDetailPanel from "../_components/ContactDetailPanel.island";
 import ContactsLiveEvents from "../_components/ContactsLiveEvents.island";
@@ -23,7 +32,7 @@ import {
 
 export default ssr<AuthContext>(async (c) => {
   const user = expectUserBackedActor(c);
-  const bookId = c.req.param("bookId") ?? "";
+  const publicBookId = c.req.param("bookId") ?? "";
   const search = c.req.query("search") ?? "";
   const page = parseContactsPage(c.req.query("page"));
   const queryOptions = parseContactsQueryOptions((name) => c.req.query(name));
@@ -32,11 +41,18 @@ export default ssr<AuthContext>(async (c) => {
   const activeTagId = c.req.query("tag_id") ?? null;
   // The cursor must precede the snapshot reads or an event can fall between them.
   const initialLiveCursor = await captureContactEventCursor();
+  const bookId = await resolvePublicId("books", publicBookId);
+  if (!bookId) {
+    return () => (
+      <Layout c={c} title="Not Found">
+        <ContactBookUnavailable title="Contact book not found" description="This link is no longer valid." icon="ti ti-address-book-off" />
+      </Layout>
+    );
+  }
   const [book, booksResult] = await Promise.all([
     contactsService.book.get({ id: bookId }),
     contactsService.book.list({
       subject: { type: "user", userId: user.id },
-      includeSystem: true,
     }),
   ]);
   if (!book) {
@@ -66,17 +82,22 @@ export default ssr<AuthContext>(async (c) => {
       </Layout>
     );
   }
-  const books = booksResult.items;
-  const { entries: permissionEntries, adminBookIds, writableBooks } = await loadContactBookPermissions({ books, user });
+  const internalBooks = booksResult.items;
+  const {
+    entries: permissionEntries,
+    adminBookIds: internalAdminBookIds,
+    writableBooks: internalWritableBooks,
+  } = await loadContactBookPermissions({ books: internalBooks, user });
   const currentPermission = permissionForBook(permissionEntries, book.id);
   const canWrite = currentPermission === "write" || currentPermission === "admin";
-  const [contactsResult, bookTags] = await Promise.all([
+  const [activeTagInternalId] = activeTagId ? ((await resolveBookPublicIds("tags", bookId, [activeTagId])) ?? []) : [];
+  const [contactsResult, internalBookTags] = await Promise.all([
     contactsService.contact.list({
       bookId,
       pagination: { page, perPage },
       filter: {
         query: search.trim() || undefined,
-        tagIds: activeTagId ? [activeTagId] : undefined,
+        tagIds: activeTagInternalId ? [activeTagInternalId] : undefined,
         sort: queryOptions.sort,
         email: queryOptions.email,
         phone: queryOptions.phone,
@@ -85,52 +106,73 @@ export default ssr<AuthContext>(async (c) => {
     }),
     contactsService.tag.list({ bookId }),
   ]);
-  const contacts = contactsResult.items;
+  const internalContacts = contactsResult.items;
   const selectedContact = await resolveSelectedContact({
-    contacts,
+    contacts: internalContacts,
     contactId: selectedContactIdFromUrl,
-    bookId,
+    bookId: publicBookId,
     user,
   });
-  const [initialNotes, favoriteKeys] = await Promise.all([
+  const [internalNotes, internalFavoriteKeys] = await Promise.all([
     selectedContact ? contactsService.contact.notes.list({ bookId, contactId: selectedContact.id }) : Promise.resolve([]),
-    loadFavoriteKeysForContacts(user.id, selectedContact ? [...contacts, selectedContact] : contacts),
+    loadFavoriteKeysForContacts(user.id, selectedContact ? [...internalContacts, selectedContact] : internalContacts),
   ]);
+  const favoriteContacts = selectedContact ? [...internalContacts, selectedContact] : internalContacts;
+  const [books, publicBook, contacts, projectedSelected, initialNotes, favoriteKeys, bookTags] = await Promise.all([
+    projectBooks(internalBooks),
+    projectBooks([book]),
+    projectContacts(internalContacts),
+    selectedContact ? projectContacts([selectedContact]) : Promise.resolve([]),
+    projectNotes(internalNotes),
+    projectFavoriteKeys(favoriteContacts, internalFavoriteKeys),
+    projectTags(internalBookTags),
+  ]);
+  const selectedPublicContact = projectedSelected[0] ?? null;
+  const publicBookIds = new Map(internalBooks.map((entry, index) => [entry.id, books[index]!.id]));
+  const adminBookIds = internalAdminBookIds.map((id) => publicBookIds.get(id)!).filter(Boolean);
+  const writableBooks = internalWritableBooks
+    .map((entry) => ({ ...entry, id: publicBookIds.get(entry.id)! }))
+    .filter((entry) => Boolean(entry.id));
+  const currentBook = publicBook[0]!;
   const bookNames = Object.fromEntries(books.map((entry) => [entry.id, entry.name]));
   const totalPages = Math.max(1, Math.ceil(contactsResult.total / perPage));
   const requestUrl = new URL(c.req.raw.url);
   const resultHref = `${requestUrl.pathname}${requestUrl.search}`;
-  const initialSelectedContactId = selectedContact?.id ?? selectedContactIdFromUrl ?? null;
-  const initialSelectedBookId = selectedContact ? bookId : selectedContactIdFromUrl ? bookId : null;
-  const hasDesktopDetailSelection = Boolean(selectedContact);
+  const initialSelectedContactId = selectedPublicContact?.id ?? selectedContactIdFromUrl ?? null;
+  const initialSelectedBookId = selectedPublicContact ? publicBookId : selectedContactIdFromUrl ? publicBookId : null;
+  const hasDesktopDetailSelection = Boolean(selectedPublicContact);
   return () => (
-    <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts", href: "/app/contacts" }, { title: book.name }]}>
-      {!book.isSystem ? <ContactsLiveEvents scope={{ kind: "book", bookId }} initialCursor={initialLiveCursor} /> : null}
+    <Layout
+      c={c}
+      fullWidth
+      title={[{ title: "Start", href: "/" }, { title: "Contacts", href: "/app/contacts" }, { title: currentBook.name }]}
+    >
+      <ContactsLiveEvents scope={{ kind: "book", bookId: publicBookId }} initialCursor={initialLiveCursor} />
       <AppWorkspace>
-        <ContactsSidebar books={books} active={book.id} adminBookIds={adminBookIds} />
+        <ContactsSidebar books={books} active={currentBook.id} adminBookIds={adminBookIds} />
 
         <AppWorkspace.Content>
           <ContactsWorkspaceMain
-            title={book.name}
-            description={book.description ?? (book.isSystem ? "Company directory" : "Shared contact book")}
+            title={currentBook.name}
+            description={currentBook.description ?? "Shared contact book"}
             total={contactsResult.total}
             search={search}
             resultHref={resultHref}
-            bookId={bookId}
+            bookId={publicBookId}
             perPage={perPage}
-            searchPlaceholder={`Filter ${book.name}...`}
+            searchPlaceholder={`Filter ${currentBook.name}...`}
             contacts={contacts}
             bookNames={bookNames}
             initialSelectedContactId={initialSelectedContactId}
             initialSelectedBookId={initialSelectedBookId}
             writableBooks={writableBooks}
-            defaultCreateBookId={canWrite ? book.id : (writableBooks[0]?.id ?? null)}
+            defaultCreateBookId={canWrite ? currentBook.id : (writableBooks[0]?.id ?? null)}
             chooseBookOnCreate={!canWrite}
             currentPage={contactsResult.page}
             totalPages={totalPages}
             tags={bookTags}
             activeTagId={activeTagId}
-            filtersBasePath={`/app/contacts/${bookId}`}
+            filtersBasePath={`/app/contacts/${publicBookId}`}
             initialFavoriteKeys={favoriteKeys}
           />
 
@@ -141,7 +183,7 @@ export default ssr<AuthContext>(async (c) => {
             viewTransitionName="contacts-detail-panel-shell"
           >
             <ContactDetailPanel
-              initialContact={selectedContact}
+              initialContact={selectedPublicContact}
               initialContactId={initialSelectedContactId}
               initialBookId={initialSelectedBookId}
               initialNotes={initialNotes}

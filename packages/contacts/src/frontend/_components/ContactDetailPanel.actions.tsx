@@ -24,13 +24,13 @@ export const createContactDetailActions = (config: {
   let disposed = false;
   const canEdit = () => {
     const selectedBookId = config.bookId();
-    if (!selectedBookId || selectedBookId === "system") return false;
+    if (!selectedBookId) return false;
     return config.writableBooks.some((entry) => entry.id === selectedBookId);
   };
 
   const canMove = () => {
     const selectedBookId = config.bookId();
-    if (!selectedBookId || selectedBookId === "system") return false;
+    if (!selectedBookId) return false;
     return config.writableBooks.some((entry) => entry.id !== selectedBookId);
   };
 

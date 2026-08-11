@@ -19,7 +19,6 @@ const book: ContactBook = {
   id: "book-1",
   name: "Suppliers",
   description: "External suppliers",
-  isSystem: false,
   createdAt: "2026-08-10T10:00:00.000Z",
   updatedAt: "2026-08-10T10:00:00.000Z",
 };

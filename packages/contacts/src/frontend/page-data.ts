@@ -1,6 +1,7 @@
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { PermissionLevel } from "@valentinkolb/cloud/server";
 import { type Contact, type ContactBook, contactsService } from "../service";
+import { resolveBookPublicIds, resolvePublicId } from "../service/public-resources";
 
 export { parseContactsQueryOptions } from "./contacts-query";
 
@@ -16,9 +17,8 @@ export const loadFavoriteKeysForContacts = (userId: string, contacts: Contact[])
   contactsService.favorite.listKeysForContacts({ userId, contacts });
 
 export const loadContactBookPermissions = async (config: { books: ContactBook[]; user: User }) => {
-  const manualBooks = config.books.filter((book) => !book.isSystem);
   const entries = await Promise.all(
-    manualBooks.map(async (book) => ({
+    config.books.map(async (book) => ({
       book,
       permission: await contactsService.book.permission.get({
         bookId: book.id,
@@ -47,15 +47,20 @@ export const resolveSelectedContact = async (config: {
 }): Promise<Contact | null> => {
   if (!config.contactId || !config.bookId) return null;
 
-  const selectedFromPage = config.contacts.find((contact) => contact.id === config.contactId && contact.bookId === config.bookId) ?? null;
+  const internalBookId = await resolvePublicId("books", config.bookId);
+  if (!internalBookId) return null;
+  const [internalContactId] = (await resolveBookPublicIds("contacts", internalBookId, [config.contactId])) ?? [];
+  if (!internalContactId) return null;
+
+  const selectedFromPage = config.contacts.find((contact) => contact.id === internalContactId && contact.bookId === internalBookId) ?? null;
   if (selectedFromPage) return selectedFromPage;
 
   const hasReadAccess = await contactsService.book.permission.canAccess({
-    bookId: config.bookId,
+    bookId: internalBookId,
     subject: { type: "user", userId: config.user.id },
     requiredLevel: "read",
   });
   if (!hasReadAccess) return null;
 
-  return contactsService.contact.get({ bookId: config.bookId, id: config.contactId });
+  return contactsService.contact.get({ bookId: internalBookId, id: internalContactId });
 };

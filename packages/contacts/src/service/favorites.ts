@@ -1,6 +1,5 @@
 import { sql } from "bun";
 import { toPgUuidArray } from "./shared";
-import { SYSTEM_BOOK_ID } from "./system";
 import type { Contact, ContactFavorite } from "./types";
 
 type FavoriteRow = {
@@ -16,16 +15,10 @@ export const list = async (userId: string): Promise<ContactFavorite[]> => {
     SELECT favorite.book_id, favorite.contact_id, favorite.created_at
     FROM contacts.contact_favorites favorite
     WHERE user_id = ${userId}::uuid
-      AND (
-        (book_id = ${SYSTEM_BOOK_ID} AND EXISTS (
-          SELECT 1 FROM auth.users user_account WHERE user_account.id = favorite.contact_id
-        ))
-        OR
-        (book_id <> ${SYSTEM_BOOK_ID} AND EXISTS (
-          SELECT 1
-          FROM contacts.contacts contact
-          WHERE contact.id = favorite.contact_id AND contact.book_id::text = favorite.book_id
-        ))
+      AND EXISTS (
+        SELECT 1
+        FROM contacts.contacts contact
+        WHERE contact.id = favorite.contact_id AND contact.book_id::text = favorite.book_id
       )
     ORDER BY created_at DESC
   `;

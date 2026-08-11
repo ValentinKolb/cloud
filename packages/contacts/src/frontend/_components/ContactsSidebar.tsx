@@ -15,13 +15,10 @@ type Props = {
  */
 export default function ContactsSidebar(props: Props) {
   const adminBookIds = props.adminBookIds ?? [];
-  const manualBooks = props.books.filter((book) => !book.isSystem);
-  const systemBooks = props.books.filter((book) => book.isSystem);
   const vt = (key: string) => `contacts-sidebar-${key}`;
   const renderBookItem = (book: ContactBook, mode: "mobile" | "desktop") => {
     const href = `/app/contacts/${book.id}`;
     const isActive = props.active === book.id;
-    const icon = book.isSystem ? "ti ti-building-community" : "ti ti-address-book";
     const canManage = adminBookIds.includes(book.id);
 
     return (
@@ -40,7 +37,7 @@ export default function ContactsSidebar(props: Props) {
           ) : undefined
         }
       >
-        <AppWorkspace.SidebarItemIcon icon={icon} />
+        <AppWorkspace.SidebarItemIcon icon="ti ti-address-book" />
         <AppWorkspace.SidebarItemLabel>{book.name}</AppWorkspace.SidebarItemLabel>
       </AppWorkspace.SidebarItem>
     );
@@ -78,10 +75,7 @@ export default function ContactsSidebar(props: Props) {
             </AppWorkspace.SidebarItem>
           </AppWorkspace.SidebarSection>
           <AppWorkspace.SidebarSection title="Books">
-            {manualBooks.map((book) => renderBookItem(book, "mobile"))}
-          </AppWorkspace.SidebarSection>
-          <AppWorkspace.SidebarSection title="Directory">
-            {systemBooks.map((book) => renderBookItem(book, "mobile"))}
+            {props.books.map((book) => renderBookItem(book, "mobile"))}
           </AppWorkspace.SidebarSection>
         </AppWorkspace.SidebarMobileBody>
       </AppWorkspace.SidebarMobile>
@@ -120,11 +114,7 @@ export default function ContactsSidebar(props: Props) {
           </AppWorkspace.SidebarSection>
 
           <AppWorkspace.SidebarSection title="Books">
-            {manualBooks.map((book) => renderBookItem(book, "desktop"))}
-          </AppWorkspace.SidebarSection>
-
-          <AppWorkspace.SidebarSection title="Directory">
-            {systemBooks.map((book) => renderBookItem(book, "desktop"))}
+            {props.books.map((book) => renderBookItem(book, "desktop"))}
           </AppWorkspace.SidebarSection>
         </AppWorkspace.SidebarBody>
 

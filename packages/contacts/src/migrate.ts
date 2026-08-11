@@ -1,4 +1,5 @@
 import { sql } from "bun";
+import { backfillShortIds, finalizeShortIds, type ShortIdTable, shortIdsFinalized } from "./lib/short-id";
 
 export const migrate = async (): Promise<void> => {
   await sql`CREATE SCHEMA IF NOT EXISTS contacts`.simple();
@@ -13,6 +14,8 @@ export const migrate = async (): Promise<void> => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
+  await sql`ALTER TABLE contacts.books ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_books_short_id ON contacts.books(short_id)`.simple();
   console.log("  ✓ contacts.books table");
 
   await sql`
@@ -47,6 +50,8 @@ export const migrate = async (): Promise<void> => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
+  await sql`ALTER TABLE contacts.contacts ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_contacts_short_id ON contacts.contacts(short_id)`.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_contacts_contacts_book
     ON contacts.contacts(book_id)
@@ -163,6 +168,8 @@ export const migrate = async (): Promise<void> => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
+  await sql`ALTER TABLE contacts.contact_notes ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_notes_short_id ON contacts.contact_notes(short_id)`.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_contacts_contact_notes_contact_created
     ON contacts.contact_notes(contact_id, created_at DESC)
@@ -182,6 +189,8 @@ export const migrate = async (): Promise<void> => {
       UNIQUE (book_id, name)
     )
   `.simple();
+  await sql`ALTER TABLE contacts.tags ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_tags_short_id ON contacts.tags(short_id)`.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_contacts_tags_book
     ON contacts.tags(book_id)
@@ -243,10 +252,8 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   console.log("  ✓ contacts.contact_bank_accounts table");
 
-  // Favorites are personal UI state. `book_id` is text because the virtual
-  // system directory uses the stable `system` id instead of a database UUID.
-  // Reads always revalidate contact visibility, so stale virtual references
-  // never grant access or expose records.
+  // Favorites are personal UI state. `book_id` remains text for compatibility
+  // with the existing table shape, but Contacts now stores only book UUIDs.
   await sql`
     CREATE TABLE IF NOT EXISTS contacts.contact_favorites (
       user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -288,4 +295,16 @@ export const migrate = async (): Promise<void> => {
     ON contacts.capability_action_results(created_at)
   `.simple();
   console.log("  ✓ contacts.capability_action_results table");
+
+  // The former virtual IPA book was never durable Contacts data. Remove only
+  // its stale personal UI references; auth-owned users remain untouched.
+  await sql`DELETE FROM contacts.contact_favorites WHERE book_id = 'system'`.simple();
+
+  const shortIdTables: ShortIdTable[] = ["book", "contact", "tag", "note"];
+  for (const table of shortIdTables) {
+    const filled = await backfillShortIds(table);
+    if (filled > 0) console.log(`  ✓ contacts short_id backfill: ${filled} ${table}(s)`);
+  }
+
+  if (!(await shortIdsFinalized())) await finalizeShortIds();
 };

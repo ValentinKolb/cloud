@@ -53,7 +53,16 @@ import {
 } from "./capability-contracts";
 import { type Contact, type ContactBook, type ContactNote, type ContactTag, contactsService } from "./service";
 import { CONTACT_BOOK_RESOURCE_TYPE, CONTACTS_APP_ID } from "./service/access";
-import { SYSTEM_BOOK_ID } from "./service/system";
+import {
+  projectBooks,
+  projectContactReferences,
+  projectContacts,
+  projectNotes,
+  projectTags,
+  resolveBookPublicIds,
+  resolvePublicId,
+  resolvePublicIds,
+} from "./service/public-resources";
 import { resolveContactName, safeWebsiteHref } from "./shared";
 
 const CONTACT_CREATE_ACTION_ID = "contacts.contact.create";
@@ -290,7 +299,7 @@ const serviceAccountBindingValid = (context: CapabilityExecutionContext): boolea
   (resourceBoundBookId(context) !== null &&
     hasPermission(permissionFromScopes(context.actor.kind === "service_account" ? context.actor.scopes : []), "read"));
 
-const requireBookPermission = async (
+const requireBookPermissionInternal = async (
   bookId: string,
   context: CapabilityExecutionContext,
   required: PermissionLevel,
@@ -299,11 +308,7 @@ const requireBookPermission = async (
   if (!book) return fail(err.notFound("Book"));
 
   const user = userBacked(context);
-  if (book.isSystem && required !== "read") return fail(err.forbidden("System contacts are read-only"));
   if (user && hasRole(user, "admin")) return ok({ book, permission: "admin" });
-  if (book.isSystem) {
-    return user && required === "read" ? ok({ book, permission: "read" }) : fail(err.forbidden("System contacts are read-only"));
-  }
 
   if (context.accessSubject.type === "service_account") {
     const boundBookId = resourceBoundBookId(context);
@@ -319,17 +324,30 @@ const requireBookPermission = async (
     : fail(err.forbidden(`${required === "read" ? "Read" : "Write"} access to this address book is required`));
 };
 
+const requireBookPermission = async (
+  publicBookId: string,
+  context: CapabilityExecutionContext,
+  required: PermissionLevel,
+): Promise<Result<{ book: ContactBook; bookId: string; permission: PermissionLevel }>> => {
+  const bookId = await resolvePublicId("books", publicBookId);
+  if (!bookId) return fail(err.notFound("Book"));
+  const access = await requireBookPermissionInternal(bookId, context, required);
+  return access.ok ? ok({ ...access.data, bookId }) : access;
+};
+
 const resolveContact = async (
   contactId: string,
   context: CapabilityExecutionContext,
   required: PermissionLevel = "read",
-): Promise<Result<{ contact: Contact; bookId: string }>> => {
-  const manualBookId = await contactsService.contact.findBookId({ id: contactId });
-  const bookId = manualBookId ?? SYSTEM_BOOK_ID;
-  const access = await requireBookPermission(bookId, context, required);
+): Promise<Result<{ contact: Contact; bookId: string; contactId: string }>> => {
+  const internalContactId = await resolvePublicId("contacts", contactId);
+  if (!internalContactId) return fail(err.notFound("Contact"));
+  const bookId = await contactsService.contact.findBookId({ id: internalContactId });
+  if (!bookId) return fail(err.notFound("Contact"));
+  const access = await requireBookPermissionInternal(bookId, context, required);
   if (!access.ok) return access;
-  const contact = await contactsService.contact.get({ bookId, id: contactId });
-  return contact ? ok({ contact, bookId }) : fail(err.notFound("Contact"));
+  const contact = await contactsService.contact.get({ bookId, id: internalContactId });
+  return contact ? ok({ contact, bookId, contactId: internalContactId }) : fail(err.notFound("Contact"));
 };
 
 const capabilityAuditActor = (context: CapabilityExecutionContext): AuditActor =>
@@ -385,12 +403,12 @@ const runSearch = async (input: UniversalSearchInput, context: CapabilityExecuti
     pagination: { page: 1, perPage: input.limit },
     filter: {
       query: input.query,
-      includeSystem: Boolean(user),
       email: tags.has("email") ? "yes" : "all",
       phone: tags.has("phone") ? "yes" : "all",
     },
   });
-  const data = page.items.map(mapContactResourceView);
+  const contacts = await projectContacts(page.items);
+  const data = contacts.map(mapContactResourceView);
   return ok({ data });
 };
 
@@ -406,35 +424,37 @@ const runContactSuggest = async (input: z.infer<typeof ContactSuggestInputSchema
     pagination: { page: cursor.data, perPage: input.limit },
     filter: {
       query: input.query,
-      includeSystem: Boolean(user),
       email: "yes",
     },
   });
+  const contacts = await projectContacts(page.items);
   return pageResult(
     page,
-    page.items.map(mapContactSuggestion),
-    page.items.map((contact) => ({ type: "contacts.contact", id: contact.id })),
+    contacts.map(mapContactSuggestion),
+    contacts.map((contact) => ({ type: "contacts.contact", id: contact.id })),
   );
 };
 
 const runContactResolve = async (input: z.infer<typeof ContactResolveInputSchema>, context: CapabilityExecutionContext) => {
   if (!serviceAccountBindingValid(context)) return fail(err.forbidden("A readable Contacts credential is required"));
+  const internalContactIds = input.contactIds ? await resolvePublicIds("contacts", input.contactIds) : undefined;
+  if (input.contactIds && !internalContactIds) return fail(err.notFound("Contact"));
   const normalizedInput = {
     ...input,
     emails: [...new Set(input.emails.map((email) => email.trim().toLowerCase()))],
-    ...(input.contactIds ? { contactIds: [...new Set(input.contactIds)] } : {}),
+    ...(internalContactIds ? { contactIds: [...new Set(internalContactIds)] } : {}),
   };
   const result = await contactsService.lookup.resolveContactsByEmail({
     subject: context.accessSubject,
     boundBookId: resourceBoundBookId(context),
-    includeSystem: Boolean(userBacked(context)),
     input: normalizedInput,
   });
   if (!result.ok) return result;
   const { nextCursor, ...resolvedData } = result.data;
+  const publicItems = await projectContactReferences(resolvedData.items);
   const data = {
     ...resolvedData,
-    items: resolvedData.items.map((contact) => ({
+    items: publicItems.map((contact) => ({
       ...contact,
       openHref: contactHrefById(contact.bookId, contact.contactId),
       links: [{ rel: "open" as const, href: contactHrefById(contact.bookId, contact.contactId) }],
@@ -453,35 +473,41 @@ const runContactList = async (input: z.infer<typeof ContactListInputSchema>, con
   const access = await requireBookPermission(input.bookId, context, "read");
   if (!access.ok) return access;
   if (input.favoritesOnly && !userBacked(context)) return fail(err.forbidden("Favorites require a user-backed actor"));
+  const tagIds = input.tagIds ? await resolveBookPublicIds("tags", access.data.bookId, input.tagIds) : undefined;
+  if (input.tagIds && !tagIds) return fail(err.notFound("Tag"));
   const page = await contactsService.contact.list({
-    bookId: input.bookId,
+    bookId: access.data.bookId,
     pagination: { page: cursor.data, perPage: input.limit },
     filter: {
       query: input.query,
-      tagIds: input.tagIds,
+      tagIds: tagIds ?? undefined,
       sort: input.sort,
       email: input.email,
       phone: input.phone,
       ...(input.favoritesOnly && userBacked(context) ? { favoriteUserId: userBacked(context)?.id } : {}),
     },
   });
-  return pageResult(page, page.items.map(mapContactResourceView));
+  const contacts = await projectContacts(page.items);
+  return pageResult(page, contacts.map(mapContactResourceView));
 };
 
 const runContactRead = async (input: z.infer<typeof ContactReadInputSchema>, context: CapabilityExecutionContext) => {
   const resolved = await resolveContact(input.id, context);
   if (!resolved.ok) return resolved;
+  const [contact] = await projectContacts([resolved.data.contact]);
+  if (!contact) return fail(err.notFound("Contact"));
   return ok({
-    data: mapContactDetail(resolved.data.contact),
-    refs: [{ type: "contacts.contact", id: resolved.data.contact.id }],
-    links: [{ rel: "open" as const, href: contactHref(resolved.data.contact) }],
+    data: mapContactDetail(contact),
+    refs: [{ type: "contacts.contact", id: contact.id }],
+    links: [{ rel: "open" as const, href: contactHref(contact) }],
   });
 };
 
 const runBookRead = async (input: z.infer<typeof ContactBookReadInputSchema>, context: CapabilityExecutionContext) => {
   const access = await requireBookPermission(input.id, context, "read");
   if (!access.ok) return access;
-  const book = access.data.book;
+  const [book] = await projectBooks([access.data.book]);
+  if (!book) return fail(err.notFound("Book"));
   return ok({
     data: {
       id: book.id,
@@ -498,26 +524,39 @@ const runBookRead = async (input: z.infer<typeof ContactBookReadInputSchema>, co
 };
 
 const runTagRead = async (input: z.infer<typeof ContactTagReadInputSchema>, context: CapabilityExecutionContext) => {
-  const tag = await contactsService.tag.get({ id: input.id });
+  const tagId = await resolvePublicId("tags", input.id);
+  if (!tagId) return fail(err.notFound("Tag"));
+  const tag = await contactsService.tag.get({ id: tagId });
   if (!tag) return fail(err.notFound("Tag"));
-  const access = await requireBookPermission(tag.bookId, context, "read");
+  const access = await requireBookPermissionInternal(tag.bookId, context, "read");
   if (!access.ok) return access;
-  const data = mapTag(tag);
-  return ok({ data, refs: [{ type: "contacts.tag", id: tag.id }], links: data.links });
+  const [publicTag] = await projectTags([tag]);
+  if (!publicTag) return fail(err.notFound("Tag"));
+  const data = mapTag(publicTag);
+  return ok({ data, refs: [{ type: "contacts.tag", id: publicTag.id }], links: data.links });
 };
 
 const runNoteRead = async (input: z.infer<typeof ContactNoteReadInputSchema>, context: CapabilityExecutionContext) => {
-  const note = await contactsService.contact.notes.get({ id: input.id });
+  const noteId = await resolvePublicId("notes", input.id);
+  if (!noteId) return fail(err.notFound("Note"));
+  const note = await contactsService.contact.notes.get({ id: noteId });
   if (!note) return fail(err.notFound("Note"));
-  const resolved = await resolveContact(note.contactId, context);
-  if (!resolved.ok) return resolved;
+  const bookId = await contactsService.contact.findBookId({ id: note.contactId });
+  if (!bookId) return fail(err.notFound("Contact"));
+  const access = await requireBookPermissionInternal(bookId, context, "read");
+  if (!access.ok) return access;
+  const contact = await contactsService.contact.get({ bookId, id: note.contactId });
+  if (!contact) return fail(err.notFound("Contact"));
+  const [publicNote] = await projectNotes([note]);
+  const [publicContact] = await projectContacts([contact]);
+  if (!publicNote || !publicContact) return fail(err.notFound("Note"));
   return ok({
-    data: mapNote(note),
+    data: mapNote(publicNote),
     refs: [
-      { type: "contacts.note", id: note.id },
-      { type: "contacts.contact", id: note.contactId },
+      { type: "contacts.note", id: publicNote.id },
+      { type: "contacts.contact", id: publicNote.contactId },
     ],
-    links: [{ rel: "open" as const, href: contactHref(resolved.data.contact) }],
+    links: [{ rel: "open" as const, href: contactHref(publicContact) }],
   });
 };
 
@@ -538,9 +577,10 @@ const runBookList = async (input: z.infer<typeof ContactBookListInputSchema>, co
       pagination: { page: cursor.data, perPage: input.limit },
       filter: { query: input.query },
     });
+    const books = await projectBooks(page.items);
     return pageResult(
       page,
-      page.items.map((book) => ({
+      books.map((book) => ({
         id: book.id,
         name: book.name,
         description: book.description,
@@ -549,7 +589,7 @@ const runBookList = async (input: z.infer<typeof ContactBookListInputSchema>, co
         createdAt: book.createdAt,
         updatedAt: book.updatedAt,
       })),
-      page.items.map((book) => ({ type: "contacts.book", id: book.id })),
+      books.map((book) => ({ type: "contacts.book", id: book.id })),
     );
   }
   const page = await contactsService.book.listPage({
@@ -558,9 +598,10 @@ const runBookList = async (input: z.infer<typeof ContactBookListInputSchema>, co
     pagination: { page: cursor.data, perPage: input.limit },
     filter: { query: input.query, minimumPermission: input.minimumPermission },
   });
+  const books = await projectBooks(page.items);
   return pageResult(
     page,
-    page.items.map((book) => ({
+    books.map((book) => ({
       id: book.id,
       name: book.name,
       description: book.description,
@@ -569,7 +610,7 @@ const runBookList = async (input: z.infer<typeof ContactBookListInputSchema>, co
       createdAt: book.createdAt,
       updatedAt: book.updatedAt,
     })),
-    page.items.map((book) => ({ type: "contacts.book", id: book.id })),
+    books.map((book) => ({ type: "contacts.book", id: book.id })),
   );
 };
 
@@ -578,11 +619,12 @@ const runTagList = async (input: z.infer<typeof ContactTagListInputSchema>, cont
   if (!cursor.ok) return cursor;
   const access = await requireBookPermission(input.bookId, context, "read");
   if (!access.ok) return access;
-  const page = await contactsService.tag.listPage({ bookId: input.bookId, pagination: { page: cursor.data, perPage: input.limit } });
+  const page = await contactsService.tag.listPage({ bookId: access.data.bookId, pagination: { page: cursor.data, perPage: input.limit } });
+  const tags = await projectTags(page.items);
   return pageResult(
     page,
-    page.items.map(mapTag),
-    page.items.map((tag) => ({ type: "contacts.tag", id: tag.id })),
+    tags.map(mapTag),
+    tags.map((tag) => ({ type: "contacts.tag", id: tag.id })),
   );
 };
 
@@ -591,17 +633,19 @@ const runNoteList = async (input: z.infer<typeof ContactNoteListInputSchema>, co
   if (!cursor.ok) return cursor;
   const resolved = await resolveContact(input.contactId, context);
   if (!resolved.ok) return resolved;
-  if (resolved.data.bookId === SYSTEM_BOOK_ID) return fail(err.badInput("System contacts do not have notes"));
   const page = await contactsService.contact.notes.listPage({
     bookId: resolved.data.bookId,
-    contactId: input.contactId,
+    contactId: resolved.data.contactId,
     pagination: { page: cursor.data, perPage: input.limit },
   });
+  const notes = await projectNotes(page.items);
+  const [contact] = await projectContacts([resolved.data.contact]);
+  if (!contact) return fail(err.notFound("Contact"));
   return pageResult(
     page,
-    page.items.map(mapNote),
-    page.items.map((note) => ({ type: "contacts.note", id: note.id })),
-    [{ rel: "open" as const, href: contactHref(resolved.data.contact) }],
+    notes.map(mapNote),
+    notes.map((note) => ({ type: "contacts.note", id: note.id })),
+    [{ rel: "open" as const, href: contactHref(contact) }],
   );
 };
 
@@ -613,7 +657,21 @@ const reviewContactAction = async (
 ) => {
   const resolved = await resolveContact(contactId, context, required);
   if (!resolved.ok) return resolved;
-  return ok({ ...(await describe(resolved.data.contact)), links: [{ rel: "open" as const, href: contactHref(resolved.data.contact) }] });
+  const [contact] = await projectContacts([resolved.data.contact]);
+  if (!contact) return fail(err.notFound("Contact"));
+  return ok({ ...(await describe(contact)), links: [{ rel: "open" as const, href: contactHref(contact) }] });
+};
+
+const resolveWriteRelations = async <T extends { parentContactId?: string | null; tagIds?: string[] }>(bookId: string, data: T) => {
+  const parentIds = data.parentContactId ? await resolveBookPublicIds("contacts", bookId, [data.parentContactId]) : [];
+  if (data.parentContactId && !parentIds) return fail(err.notFound("Parent contact"));
+  const tagIds = data.tagIds ? await resolveBookPublicIds("tags", bookId, data.tagIds) : undefined;
+  if (data.tagIds && !tagIds) return fail(err.notFound("Tag"));
+  return ok({
+    ...data,
+    ...(data.parentContactId !== undefined ? { parentContactId: data.parentContactId === null ? null : parentIds?.[0] } : {}),
+    ...(data.tagIds !== undefined ? { tagIds } : {}),
+  });
 };
 
 const runContactCreate = async (input: z.infer<typeof ContactCreateInputSchema>, context: CapabilityExecutionContext) => {
@@ -626,9 +684,11 @@ const runContactCreate = async (input: z.infer<typeof ContactCreateInputSchema>,
       const access = await requireBookPermission(input.bookId, context, "write");
       if (!access.ok) return access;
       const { bookId, ...data } = input;
+      const internalData = await resolveWriteRelations(access.data.bookId, data);
+      if (!internalData.ok) return internalData;
       const result = await contactsService.contact.createIdempotent({
-        bookId,
-        data: { ...data, source: "capability" },
+        bookId: access.data.bookId,
+        data: { ...internalData.data, source: "capability" },
         actorKey: actorKey(context),
         actionId: CONTACT_CREATE_ACTION_ID,
         idempotencyKeyHash: sha256(context.idempotencyKey),
@@ -636,12 +696,13 @@ const runContactCreate = async (input: z.infer<typeof ContactCreateInputSchema>,
       });
       if (!result.ok) return result;
       replayed = result.data.replayed;
-      const contact = await contactsService.contact.get({ bookId, id: result.data.id });
-      return contact
+      const contact = await contactsService.contact.get({ bookId: access.data.bookId, id: result.data.id });
+      const [publicContact] = contact ? await projectContacts([contact]) : [];
+      return publicContact
         ? ok({
-            data: { contact: mapContactDetail(contact) },
-            refs: [{ type: "contacts.contact", id: contact.id }],
-            links: [{ rel: "edit", href: contactHref(contact) }],
+            data: { contact: mapContactDetail(publicContact) },
+            refs: [{ type: "contacts.contact", id: publicContact.id }],
+            links: [{ rel: "edit", href: contactHref(publicContact) }],
           })
         : fail(err.conflict("The contact created by this idempotency key no longer exists"));
     },
@@ -655,17 +716,20 @@ const runContactUpdate = async (input: z.infer<typeof ContactUpdateInputSchema>,
     const resolved = await resolveContact(input.contactId, context, "write");
     if (!resolved.ok) return resolved;
     const { contactId, expectedUpdatedAt, ...data } = input;
+    const internalData = await resolveWriteRelations(resolved.data.bookId, data);
+    if (!internalData.ok) return internalData;
     const result = await contactsService.contact.update({
       bookId: resolved.data.bookId,
-      id: contactId,
+      id: resolved.data.contactId,
       expectedUpdatedAt,
-      data,
+      data: internalData.data,
     });
+    const [contact] = result.ok ? await projectContacts([result.data]) : [];
     return result.ok
       ? ok({
-          data: { contact: mapContactDetail(result.data) },
-          refs: [{ type: "contacts.contact", id: result.data.id }],
-          links: [{ rel: "edit", href: contactHref(result.data) }],
+          data: { contact: mapContactDetail(contact!) },
+          refs: [{ type: "contacts.contact", id: contact!.id }],
+          links: [{ rel: "edit", href: contactHref(contact!) }],
         })
       : result;
   });
@@ -680,15 +744,16 @@ const runContactMove = async (input: z.infer<typeof ContactMoveInputSchema>, con
     if (!target.ok) return target;
     const result = await contactsService.contact.move({
       sourceBookId: source.data.bookId,
-      targetBookId: input.targetBookId,
-      id: input.contactId,
+      targetBookId: target.data.bookId,
+      id: source.data.contactId,
       expectedUpdatedAt: input.expectedUpdatedAt,
     });
+    const [contact] = result.ok ? await projectContacts([result.data]) : [];
     return result.ok
       ? ok({
-          data: { contact: mapContactDetail(result.data) },
-          refs: [{ type: "contacts.contact", id: result.data.id }],
-          links: [{ rel: "edit", href: contactHref(result.data) }],
+          data: { contact: mapContactDetail(contact!) },
+          refs: [{ type: "contacts.contact", id: contact!.id }],
+          links: [{ rel: "edit", href: contactHref(contact!) }],
         })
       : result;
   });
@@ -701,7 +766,7 @@ const runContactDelete = async (input: z.infer<typeof ContactDeleteInputSchema>,
     if (!resolved.ok) return resolved;
     const result = await contactsService.contact.remove({
       bookId: resolved.data.bookId,
-      id: input.contactId,
+      id: resolved.data.contactId,
       expectedUpdatedAt: input.expectedUpdatedAt,
     });
     return result.ok ? ok({ data: { contactId: input.contactId, deleted: true as const } }) : result;
@@ -718,13 +783,13 @@ const runFavoriteSet = async (input: z.infer<typeof FavoriteSetInputSchema>, con
     await contactsService.favorite.set({
       userId: user.id,
       bookId: resolved.data.bookId,
-      contactId: input.contactId,
+      contactId: resolved.data.contactId,
       favorite: input.favorite,
     });
     return ok({
       data: { contactId: input.contactId, favorite: input.favorite },
       refs: [{ type: "contacts.contact", id: input.contactId }],
-      links: [{ rel: "open" as const, href: contactHref(resolved.data.contact) }],
+      links: [{ rel: "open" as const, href: contactHref((await projectContacts([resolved.data.contact]))[0]!) }],
     });
   });
 };
@@ -734,21 +799,26 @@ const runTagChange = async (input: z.infer<typeof ContactTagChangeInputSchema>, 
   return audited(auditParams, async () => {
     const resolved = await resolveContact(input.contactId, context, "write");
     if (!resolved.ok) return resolved;
+    const addTagIds = await resolveBookPublicIds("tags", resolved.data.bookId, input.addTagIds);
+    const removeTagIds = await resolveBookPublicIds("tags", resolved.data.bookId, input.removeTagIds);
+    if (!addTagIds || !removeTagIds) return fail(err.notFound("Tag"));
     const result = await contactsService.tag.changeAssignments({
       bookId: resolved.data.bookId,
-      contactId: input.contactId,
-      addTagIds: input.addTagIds,
-      removeTagIds: input.removeTagIds,
+      contactId: resolved.data.contactId,
+      addTagIds,
+      removeTagIds,
     });
+    const tags = result.ok ? await projectTags(result.data) : [];
+    const [contact] = await projectContacts([resolved.data.contact]);
     return result.ok
       ? ok({
           data: {
             contactId: input.contactId,
-            tags: result.data.slice(0, CONTACT_TAG_LIMIT).map(mapTag),
+            tags: tags.slice(0, CONTACT_TAG_LIMIT).map(mapTag),
             tagsTruncated: result.data.length > CONTACT_TAG_LIMIT,
           },
           refs: [{ type: "contacts.contact", id: input.contactId }],
-          links: [{ rel: "open" as const, href: contactHref(resolved.data.contact) }],
+          links: [{ rel: "open" as const, href: contactHref(contact!) }],
         })
       : result;
   });
@@ -767,7 +837,7 @@ const runNoteCreate = async (input: z.infer<typeof ContactNoteCreateInputSchema>
       if (!resolved.ok) return resolved;
       const created = await contactsService.contact.notes.createIdempotent({
         bookId: resolved.data.bookId,
-        contactId: input.contactId,
+        contactId: resolved.data.contactId,
         authorUserId: user.id,
         authorDisplayName: user.displayName,
         data: { content: input.content },
@@ -778,13 +848,15 @@ const runNoteCreate = async (input: z.infer<typeof ContactNoteCreateInputSchema>
       });
       if (!created.ok) return created;
       replayed = created.data.replayed;
+      const [note] = await projectNotes([created.data.note]);
+      const [contact] = await projectContacts([resolved.data.contact]);
       return ok({
-        data: { note: mapNote(created.data.note) },
+        data: { note: mapNote(note!) },
         refs: [
-          { type: "contacts.note", id: created.data.note.id },
+          { type: "contacts.note", id: note!.id },
           { type: "contacts.contact", id: input.contactId },
         ],
-        links: [{ rel: "open" as const, href: contactHref(resolved.data.contact) }],
+        links: [{ rel: "open" as const, href: contactHref(contact!) }],
       });
     },
     () => replayed,
@@ -855,7 +927,7 @@ export const contactsCapabilities = defineCapabilities({
     },
     "contact.read": {
       title: "Read contact",
-      description: "Read one contact by stable UUID after resolving and checking its owning address book.",
+      description: "Read one contact by its stable public ID after checking its owning address book.",
       input: ContactReadInputSchema,
       data: ContactDetailDataSchema,
       openWorld: false,
@@ -886,8 +958,8 @@ export const contactsCapabilities = defineCapabilities({
       run: runNoteRead,
     },
     "book.list": {
-      title: "List manual address books",
-      description: "List manual address books the current actor may read, including effective permissions for choosing action targets.",
+      title: "List address books",
+      description: "List address books the current actor may read, including effective permissions for choosing action targets.",
       input: ContactBookListInputSchema,
       data: ContactBookListDataSchema,
       openWorld: false,
@@ -980,7 +1052,7 @@ export const contactsCapabilities = defineCapabilities({
     },
     "contact.delete": {
       title: "Delete contact",
-      description: "Permanently delete one manual contact after an optimistic version check.",
+      description: "Permanently delete one contact after an optimistic version check.",
       input: ContactDeleteInputSchema,
       data: ContactDeleteDataSchema,
       destructive: true,

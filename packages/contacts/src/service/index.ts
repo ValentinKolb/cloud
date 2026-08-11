@@ -10,7 +10,7 @@ import { publishContactEvent } from "./events";
 import * as favorites from "./favorites";
 import * as imports from "./imports";
 import * as notes from "./notes";
-import { getSystemBook, isSystemBookId, SYSTEM_BOOK_ID } from "./system";
+import { projectContactEventIds } from "./public-resources";
 import * as tags from "./tags";
 import type {
   ContactBook,
@@ -40,7 +40,6 @@ const withEvent = async <T>(
  * Main Contacts app service facade.
  *
  * The service is stateless and grouped by domain (`book`, `contact`).
- * `system` exposes virtual read-only helpers for the IPA-projected book.
  */
 export const contactsService = {
   lookup: contactLookup,
@@ -51,16 +50,15 @@ export const contactsService = {
     list: async (config: {
       subject: AccessSubject;
       boundBookId?: string | null;
-      includeSystem?: boolean;
       pagination?: PageParams;
       filter?: { query?: string };
     }): Promise<Paginated<ContactBook>> => {
-      const manualBooks = await books.list({
+      const booksForSubject = await books.list({
         subject: config.subject,
         boundBookId: config.boundBookId,
       });
 
-      const allBooks = config.includeSystem && config.subject.type === "user" ? [getSystemBook(), ...manualBooks] : manualBooks;
+      const allBooks = booksForSubject;
       const query = config.filter?.query?.trim().toLowerCase();
       const filtered =
         query && query.length > 0
@@ -74,14 +72,17 @@ export const contactsService = {
       return paginateItems(filtered, config.pagination);
     },
     listPage: books.listPage,
-    get: async (config: { id: string }): Promise<ContactBook | null> => {
-      if (isSystemBookId(config.id)) return getSystemBook();
-      return books.get({ id: config.id });
-    },
+    get: (config: { id: string }): Promise<ContactBook | null> => books.get({ id: config.id }),
     create: (config: { data: CreateBookInput; creatorId: string }) =>
       withEvent(books.create(config), (book) => ({ type: "book.created", bookId: book.id })),
     update: (config: { id: string; data: UpdateBookInput }) => withEvent(books.update(config), { type: "book.updated", bookId: config.id }),
-    remove: (config: { id: string }) => withEvent(books.remove(config), { type: "book.deleted", bookId: config.id }),
+    remove: async (config: { id: string }) => {
+      const event = { type: "book.deleted" as const, bookId: config.id };
+      const publicEvent = await projectContactEventIds({ ...event, at: new Date().toISOString() });
+      const result = await books.remove(config);
+      if (result.ok) await publishContactEvent(event, publicEvent);
+      return result;
+    },
     admin: {
       list: async (config: { pagination?: PageParams; filter?: { query?: string } }): Promise<Paginated<ContactBookAdminListItem>> => {
         const { page, perPage, offset } = paginate(config.pagination);
@@ -100,17 +101,9 @@ export const contactsService = {
       summary: async (config: { filter?: { query?: string } }) => books.adminSummary({ search: config.filter?.query }),
     },
     permission: {
-      get: async (config: { bookId: string; subject: AccessSubject }): Promise<PermissionLevel> => {
-        if (isSystemBookId(config.bookId)) return config.subject.type === "user" ? "read" : "none";
-        return books.getPermission(config);
-      },
-      canAccess: async (config: { bookId: string; subject: AccessSubject; requiredLevel?: PermissionLevel }): Promise<boolean> => {
-        if (isSystemBookId(config.bookId)) {
-          const requiredLevel = config.requiredLevel ?? "read";
-          return config.subject.type === "user" && requiredLevel === "read";
-        }
-        return books.canAccess(config);
-      },
+      get: (config: { bookId: string; subject: AccessSubject }): Promise<PermissionLevel> => books.getPermission(config),
+      canAccess: (config: { bookId: string; subject: AccessSubject; requiredLevel?: PermissionLevel }): Promise<boolean> =>
+        books.canAccess(config),
     },
     access: {
       list: async (config: {
@@ -176,8 +169,13 @@ export const contactsService = {
         targetBookId: config.targetBookId,
         contactId: config.id,
       }),
-    remove: (config: { bookId: string; id: string; expectedUpdatedAt?: string }) =>
-      withEvent(contacts.remove(config), { type: "contact.deleted", bookId: config.bookId, contactId: config.id }),
+    remove: async (config: { bookId: string; id: string; expectedUpdatedAt?: string }) => {
+      const event = { type: "contact.deleted" as const, bookId: config.bookId, contactId: config.id };
+      const publicEvent = await projectContactEventIds({ ...event, at: new Date().toISOString() });
+      const result = await contacts.remove(config);
+      if (result.ok) await publishContactEvent(event, publicEvent);
+      return result;
+    },
     bulk: {
       addTags: (config: { bookId: string; ids: string[]; tagIds: string[] }) =>
         withEvent(contacts.addTags(config), { type: "contacts.changed", bookId: config.bookId }),
@@ -204,7 +202,7 @@ export const contactsService = {
       boundBookId?: string | null;
       bypassAccess?: boolean;
       pagination?: PageParams;
-      filter?: import("./types").ContactListFilter & { includeSystem?: boolean };
+      filter?: import("./types").ContactListFilter;
     }) => contacts.search(config),
     notes: {
       list: (config: { bookId: string; contactId: string }) => notes.list(config),
@@ -229,10 +227,6 @@ export const contactsService = {
       remove: (config: { bookId: string; contactId: string; noteId: string; authorUserId: string; isBookAdmin: boolean }) =>
         withEvent(notes.remove(config), { type: "notes.changed", bookId: config.bookId, contactId: config.contactId }),
     },
-  },
-  system: {
-    bookId: SYSTEM_BOOK_ID,
-    isBookId: isSystemBookId,
   },
   import: {
     ...imports,

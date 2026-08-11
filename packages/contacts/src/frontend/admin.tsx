@@ -4,6 +4,7 @@ import { AdminLayout } from "@valentinkolb/cloud/ssr";
 import { SearchBar } from "@valentinkolb/cloud/ssr/islands";
 import { ssr } from "../config";
 import { contactsService } from "../service";
+import { projectBooks } from "../service/public-resources";
 import AdminBookActions from "./_components/AdminBookActions.island";
 
 const PER_PAGE = 100;
@@ -20,6 +21,7 @@ export default ssr<AuthContext>(async (c) => {
     }),
     contactsService.book.admin.summary({ filter: { query: search || undefined } }),
   ]);
+  const publicBooks = await projectBooks(books.items);
 
   const totalPages = Math.ceil(books.total / books.perPage);
   const baseUrl = search ? `/admin/contacts?search=${encodeURIComponent(search)}&page=` : "/admin/contacts?page=";
@@ -48,7 +50,7 @@ export default ssr<AuthContext>(async (c) => {
           <StatCell
             label="Books"
             value={summary.total}
-            sub={search ? "filtered" : "manual books"}
+            sub={search ? "filtered" : "contact books"}
             accent={{ tone: "blue", icon: "ti ti-cube" }}
           />
           <StatCell
@@ -59,7 +61,7 @@ export default ssr<AuthContext>(async (c) => {
             accent={summary.orphaned > 0 ? { tone: "red", icon: "ti ti-alert-circle" } : undefined}
           />
           <StatCell label="Access entries" value={summary.totalPermissions} sub={search ? "in search" : "across all books"} />
-          <StatCell label="Contacts" value={summary.totalContacts} sub={search ? "in search" : "manual contacts"} />
+          <StatCell label="Contacts" value={summary.totalContacts} sub={search ? "in search" : "all contacts"} />
         </StatGrid>
 
         <section class="paper overflow-hidden" style="view-transition-name: admin-contacts-table">
@@ -67,7 +69,7 @@ export default ssr<AuthContext>(async (c) => {
             <div>
               <h2 class="text-xs font-semibold text-primary">Books</h2>
               <p class="text-[10px] text-dimmed">
-                {books.items.length} of {books.total} contact books
+                {publicBooks.length} of {books.total} contact books
               </p>
             </div>
             <SearchBar
@@ -78,7 +80,7 @@ export default ssr<AuthContext>(async (c) => {
             />
           </div>
           <DataTable
-            rows={books.items}
+            rows={publicBooks}
             columns={columns}
             getRowId={(book) => book.id}
             hoverRows

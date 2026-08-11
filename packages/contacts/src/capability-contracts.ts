@@ -7,7 +7,7 @@ const CursorSchema = z.string().min(1).max(256).optional().describe("Opaque curs
 const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maximum number of results to return.");
 const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
 const ContactOpenHrefSchema = z.string().regex(/^\/app\/contacts\/.*/);
-const ReadableContactBookIdSchema = z.union([z.uuid(), z.literal("system")]);
+export const ResourceShortIdSchema = z.string().regex(/^[0-9A-Za-z]{6}$/);
 export const CONTACT_COLLECTION_LIMIT = 20;
 export const CONTACT_TAG_LIMIT = 100;
 
@@ -20,8 +20,8 @@ export const NormalizedContactEmailSchema = z.email().max(320);
 
 export const ContactTagDataSchema = z
   .object({
-    id: z.uuid(),
-    bookId: z.uuid(),
+    id: ResourceShortIdSchema,
+    bookId: ResourceShortIdSchema,
     name: z.string().min(1),
     color: z.string().regex(/^#[0-9a-f]{6}$/i),
     links: ResourceLinksSchema,
@@ -59,8 +59,8 @@ const ContactBankAccountDataSchema = z
 
 const ContactSummaryDataSchema = z
   .object({
-    id: z.uuid(),
-    bookId: z.string().min(1),
+    id: ResourceShortIdSchema,
+    bookId: ResourceShortIdSchema,
     displayName: z.string().min(1),
     companyName: NullableTextSchema,
     jobTitle: NullableTextSchema,
@@ -89,8 +89,8 @@ export const ContactSuggestInputSchema = z
 
 export const ContactSuggestionDataSchema = z
   .object({
-    contactId: z.uuid(),
-    bookId: z.string().min(1),
+    contactId: ResourceShortIdSchema,
+    bookId: ResourceShortIdSchema,
     displayName: z.string().min(1),
     companyName: NullableTextSchema,
     jobTitle: NullableTextSchema,
@@ -112,7 +112,11 @@ export const ContactResolveInputSchema = z
       .min(1)
       .max(100)
       .describe("Normalized email addresses to resolve to every readable matching contact."),
-    contactIds: z.array(z.uuid()).max(20).optional().describe("Optional contact UUIDs that further restrict the matches."),
+    contactIds: z
+      .array(ResourceShortIdSchema)
+      .max(20)
+      .optional()
+      .describe("Optional public contact IDs that further restrict the matches."),
     cursor: CursorSchema,
     limit: z.number().int().min(1).max(50).default(25).describe("Maximum number of exact contact matches to return."),
   })
@@ -120,8 +124,8 @@ export const ContactResolveInputSchema = z
 
 export const ContactResolveMatchDataSchema = z
   .object({
-    contactId: z.uuid(),
-    bookId: z.string().min(1),
+    contactId: ResourceShortIdSchema,
+    bookId: ResourceShortIdSchema,
     bookName: z.string().min(1),
     displayName: z.string().min(1),
     companyName: NullableTextSchema,
@@ -153,7 +157,7 @@ export const ContactDetailDataSchema = ContactSummaryDataSchema.extend({
   salutation: NullableTextSchema,
   pronouns: NullableTextSchema,
   preferredLanguage: NullableTextSchema,
-  parentContactId: z.uuid().nullable(),
+  parentContactId: ResourceShortIdSchema.nullable(),
   emails: z.array(ContactEmailDataSchema).max(CONTACT_COLLECTION_LIMIT),
   phones: z.array(ContactPhoneDataSchema).max(CONTACT_COLLECTION_LIMIT),
   addresses: z.array(ContactAddressDataSchema).max(CONTACT_COLLECTION_LIMIT),
@@ -165,9 +169,9 @@ export const ContactDetailDataSchema = ContactSummaryDataSchema.extend({
 
 export const ContactListInputSchema = z
   .object({
-    bookId: ReadableContactBookIdSchema.describe('Address-book UUID, or "system" for the read-only system address book.'),
+    bookId: ResourceShortIdSchema.describe("Public address-book ID."),
     query: z.string().trim().max(500).optional().describe("Optional text matched against contact fields."),
-    tagIds: z.array(z.uuid()).max(100).optional().describe("Only contacts having at least one of these book-scoped tags."),
+    tagIds: z.array(ResourceShortIdSchema).max(100).optional().describe("Only contacts having at least one of these book-scoped tags."),
     sort: z.enum(["name", "updated", "created", "company"]).default("name").describe("Contact sort order."),
     email: z.enum(["all", "yes", "no"]).default("all").describe("Filter by email-address presence."),
     phone: z.enum(["all", "yes", "no"]).default("all").describe("Filter by phone-number presence."),
@@ -176,14 +180,12 @@ export const ContactListInputSchema = z
   })
   .strict();
 
-export const ContactReadInputSchema = z.object({ id: z.uuid().describe("Stable contact UUID.") }).strict();
+export const ContactReadInputSchema = z.object({ id: ResourceShortIdSchema.describe("Stable public contact ID.") }).strict();
 
-export const ContactBookReadInputSchema = z
-  .object({ id: ReadableContactBookIdSchema.describe("Stable address-book identifier.") })
-  .strict();
+export const ContactBookReadInputSchema = z.object({ id: ResourceShortIdSchema.describe("Stable public address-book ID.") }).strict();
 export const ContactBookDataSchema = z
   .object({
-    id: ReadableContactBookIdSchema,
+    id: ResourceShortIdSchema,
     name: z.string().min(1),
     description: NullableTextSchema,
     permission: z.enum(["read", "write", "admin"]),
@@ -204,17 +206,17 @@ export const ContactBookListInputSchema = z
   })
   .strict();
 
-export const ContactTagReadInputSchema = z.object({ id: z.uuid().describe("Stable contact-tag UUID.") }).strict();
+export const ContactTagReadInputSchema = z.object({ id: ResourceShortIdSchema.describe("Stable public contact-tag ID.") }).strict();
 export const ContactTagListDataSchema = z.array(ContactTagDataSchema).max(100);
 export const ContactTagListInputSchema = z
-  .object({ bookId: z.uuid().describe("Address-book UUID whose tags should be listed."), ...CapabilityPageInputShape })
+  .object({ bookId: ResourceShortIdSchema.describe("Public address-book ID whose tags should be listed."), ...CapabilityPageInputShape })
   .strict();
 
-export const ContactNoteReadInputSchema = z.object({ id: z.uuid().describe("Stable contact-note UUID.") }).strict();
+export const ContactNoteReadInputSchema = z.object({ id: ResourceShortIdSchema.describe("Stable public contact-note ID.") }).strict();
 export const ContactNoteDataSchema = z
   .object({
-    id: z.uuid(),
-    contactId: z.uuid(),
+    id: ResourceShortIdSchema,
+    contactId: ResourceShortIdSchema,
     authorUserId: z.uuid().nullable(),
     authorDisplayName: z.string().min(1),
     content: z.string().min(1),
@@ -224,7 +226,7 @@ export const ContactNoteDataSchema = z
   .strict();
 export const ContactNoteListDataSchema = z.array(ContactNoteDataSchema).max(100);
 export const ContactNoteListInputSchema = z
-  .object({ contactId: z.uuid().describe("Contact whose notes should be listed."), ...CapabilityPageInputShape })
+  .object({ contactId: ResourceShortIdSchema.describe("Public contact ID whose notes should be listed."), ...CapabilityPageInputShape })
   .strict();
 
 const EmailInputSchema = z
@@ -281,8 +283,12 @@ const ContactFieldsShape = {
   salutation: z.string().trim().max(100).nullable().optional().describe("Preferred salutation."),
   pronouns: z.string().trim().max(100).nullable().optional().describe("Preferred pronouns."),
   preferredLanguage: z.string().trim().max(40).nullable().optional().describe("Preferred language code."),
-  parentContactId: z.uuid().nullable().optional().describe("Optional parent contact in the same book."),
-  tagIds: z.array(z.uuid()).max(CONTACT_TAG_LIMIT).optional().describe("Complete replacement set of book-scoped tag UUIDs."),
+  parentContactId: ResourceShortIdSchema.nullable().optional().describe("Optional public parent contact ID in the same book."),
+  tagIds: z
+    .array(ResourceShortIdSchema)
+    .max(CONTACT_TAG_LIMIT)
+    .optional()
+    .describe("Complete replacement set of public book-scoped tag IDs."),
   emails: z.array(EmailInputSchema).max(CONTACT_COLLECTION_LIMIT).optional().describe("Complete replacement set of email addresses."),
   phones: z.array(PhoneInputSchema).max(CONTACT_COLLECTION_LIMIT).optional().describe("Complete replacement set of phone numbers."),
   addresses: z.array(AddressInputSchema).max(CONTACT_COLLECTION_LIMIT).optional().describe("Complete replacement set of postal addresses."),
@@ -296,7 +302,7 @@ const ContactFieldsShape = {
 
 export const ContactCreateInputSchema = z
   .object({
-    bookId: z.uuid().describe("Address-book UUID that will own the contact."),
+    bookId: ResourceShortIdSchema.describe("Public address-book ID that will own the contact."),
     ...ContactFieldsShape,
   })
   .strict()
@@ -307,7 +313,7 @@ export const ContactCreateInputSchema = z
 
 export const ContactUpdateInputSchema = z
   .object({
-    contactId: z.uuid().describe("Stable contact UUID to update."),
+    contactId: ResourceShortIdSchema.describe("Stable public contact ID to update."),
     expectedUpdatedAt: TimestampSchema.describe("updatedAt value returned by the last read; prevents lost updates."),
     ...ContactFieldsShape,
   })
@@ -319,46 +325,46 @@ export const ContactUpdateInputSchema = z
 
 export const ContactMoveInputSchema = z
   .object({
-    contactId: z.uuid().describe("Stable contact UUID to move."),
-    targetBookId: z.uuid().describe("Writable destination address-book UUID."),
+    contactId: ResourceShortIdSchema.describe("Stable public contact ID to move."),
+    targetBookId: ResourceShortIdSchema.describe("Public writable destination address-book ID."),
     expectedUpdatedAt: TimestampSchema.describe("updatedAt value returned by the last read; prevents stale moves."),
   })
   .strict();
 
 export const ContactDeleteInputSchema = z
   .object({
-    contactId: z.uuid().describe("Stable contact UUID to delete."),
+    contactId: ResourceShortIdSchema.describe("Stable public contact ID to delete."),
     expectedUpdatedAt: TimestampSchema.describe("updatedAt value returned by the last read; prevents stale deletion."),
   })
   .strict();
 
 export const FavoriteSetInputSchema = z
   .object({
-    contactId: z.uuid().describe("Stable contact UUID."),
+    contactId: ResourceShortIdSchema.describe("Stable public contact ID."),
     favorite: z.boolean().describe("Desired favorite state for the current user."),
   })
   .strict();
 
 export const ContactTagChangeInputSchema = z
   .object({
-    contactId: z.uuid().describe("Stable contact UUID whose tags should change."),
-    addTagIds: z.array(z.uuid()).max(100).default([]).describe("Book-scoped tag UUIDs to add."),
-    removeTagIds: z.array(z.uuid()).max(100).default([]).describe("Book-scoped tag UUIDs to remove."),
+    contactId: ResourceShortIdSchema.describe("Stable public contact ID whose tags should change."),
+    addTagIds: z.array(ResourceShortIdSchema).max(100).default([]).describe("Public book-scoped tag IDs to add."),
+    removeTagIds: z.array(ResourceShortIdSchema).max(100).default([]).describe("Public book-scoped tag IDs to remove."),
   })
   .strict()
   .refine((value) => value.addTagIds.length > 0 || value.removeTagIds.length > 0, "Choose at least one tag to add or remove.");
 
 export const ContactNoteCreateInputSchema = z
   .object({
-    contactId: z.uuid().describe("Stable contact UUID that will own the note."),
+    contactId: ResourceShortIdSchema.describe("Stable public contact ID that will own the note."),
     content: z.string().trim().min(1).max(10_000).describe("Plain-text note content."),
   })
   .strict();
 
 export const ContactMutationDataSchema = z.object({ contact: ContactDetailDataSchema }).strict();
-export const ContactDeleteDataSchema = z.object({ contactId: z.uuid(), deleted: z.literal(true) }).strict();
-export const FavoriteSetDataSchema = z.object({ contactId: z.uuid(), favorite: z.boolean() }).strict();
+export const ContactDeleteDataSchema = z.object({ contactId: ResourceShortIdSchema, deleted: z.literal(true) }).strict();
+export const FavoriteSetDataSchema = z.object({ contactId: ResourceShortIdSchema, favorite: z.boolean() }).strict();
 export const ContactTagChangeDataSchema = z
-  .object({ contactId: z.uuid(), tags: z.array(ContactTagDataSchema).max(CONTACT_TAG_LIMIT), tagsTruncated: z.boolean() })
+  .object({ contactId: ResourceShortIdSchema, tags: z.array(ContactTagDataSchema).max(CONTACT_TAG_LIMIT), tagsTruncated: z.boolean() })
   .strict();
 export const ContactNoteCreateDataSchema = z.object({ note: ContactNoteDataSchema }).strict();

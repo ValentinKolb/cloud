@@ -2,12 +2,57 @@ import { describe, expect, test } from "bun:test";
 import {
   calendarEventSchema,
   calendarInvitationImportResultSchema,
+  contactBookSchema,
+  contactResolveMatchSchema,
+  contactSuggestionSchema,
   eventInvitationCommitDataSchema,
   spacesMailDestinationContextSchema,
 } from "../app-integration-contracts";
 import { projectAppCapabilityError } from "./app-integrations";
 
 const legacyUuid = "11111111-1111-4111-8111-111111111111";
+
+describe("Mail Contacts integration resource IDs", () => {
+  const suggestion = {
+    contactId: "Cont01",
+    bookId: "Book01",
+    displayName: "Ada Example",
+    companyName: null,
+    jobTitle: null,
+    emails: [{ label: "work", email: "ada@example.test" }],
+    phones: [],
+    contactPointsTruncated: false,
+    updatedAt: "2026-08-11T08:00:00.000Z",
+  };
+
+  test("accepts only short Contact resource IDs", () => {
+    expect(contactSuggestionSchema.safeParse(suggestion).success).toBeTrue();
+    expect(contactSuggestionSchema.safeParse({ ...suggestion, contactId: legacyUuid }).success).toBeFalse();
+    expect(
+      contactBookSchema.safeParse({
+        id: "Book01",
+        name: "Customers",
+        description: null,
+        permission: "read",
+        createdAt: "2026-08-11T08:00:00.000Z",
+        updatedAt: "2026-08-11T08:00:00.000Z",
+      }).success,
+    ).toBeTrue();
+  });
+
+  test("requires the canonical short-ID Contact link", () => {
+    const match = {
+      ...suggestion,
+      bookName: "Customers",
+      matchedEmails: ["ada@example.test"],
+      openHref: "/app/contacts/Book01?contact=Cont01&contactBook=Book01",
+    };
+    expect(contactResolveMatchSchema.safeParse(match).success).toBeTrue();
+    expect(
+      contactResolveMatchSchema.safeParse({ ...match, openHref: `/app/contacts/${legacyUuid}?contact=${legacyUuid}` }).success,
+    ).toBeFalse();
+  });
+});
 
 describe("Mail Spaces integration resource IDs", () => {
   test("accepts short Space resource IDs and rejects UUIDs", () => {

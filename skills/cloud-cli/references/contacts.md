@@ -2,7 +2,7 @@
 
 ## What Contacts is
 
-Contacts manages manual address books with structured contact records, tags, notes, hierarchy links, and book-level access.
+Contacts manages address books with structured contact records, tags, notes, hierarchy links, and book-level access.
 
 Use `cld contacts` for contact books and their contacts, tags, notes, exports, imports, and access grants. It requires a signed-in Cloud profile.
 
@@ -17,6 +17,10 @@ cld contacts current
 ```
 
 Most resource commands accept a contact book ID or exact name as the first argument, or accept `--book <id-or-exact-name>`. Prefer IDs from `--json` output when a name is ambiguous.
+
+Public IDs for contact books, contacts, tags, and notes are stable six-character IDs. UUIDs are internal storage details and are not accepted by Contacts commands or resource URLs.
+
+Cloud app maintainers can read the [public resource identifier convention](/en/docs/data/public-resource-identifiers) for the platform-wide rationale.
 
 ## Read before changing
 

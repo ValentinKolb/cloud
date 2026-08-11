@@ -4,7 +4,7 @@ export const app = defineApp({
   id: "contacts",
   name: "Contacts",
   icon: "ti ti-address-book",
-  description: "Business contact books with structured emails, phones, postal addresses, and IPA system directory projection.",
+  description: "Business contact books with structured emails, phones, and postal addresses.",
   appearance: {
     accent: "#4f46e5",
     background: {

@@ -20,7 +20,7 @@ export const openContactCreateFlow = async (options: {
   initialValues?: ContactUpsertInitialValues;
 }): Promise<ContactCreateFlowResult | null> => {
   if (options.writableBooks.length === 0) {
-    await prompts.alert("You need write access to at least one manual book before you can create a contact.", {
+    await prompts.alert("You need write access to at least one contact book before you can create a contact.", {
       title: "No writable contact book",
       icon: "ti ti-lock",
     });

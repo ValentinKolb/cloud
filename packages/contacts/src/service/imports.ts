@@ -19,7 +19,7 @@ type ImportMatchIndex = {
 const loadMatchIndex = async (bookId: string): Promise<ImportMatchIndex> => {
   const rows = await sql<{ id: string; first_name: string | null; last_name: string | null; label: string | null; emails: string[] }[]>`
     SELECT
-      c.id,
+      c.short_id AS id,
       c.first_name,
       c.last_name,
       c.label,

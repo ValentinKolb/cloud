@@ -1,10 +1,10 @@
 import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@k2b/stdlib";
-import { type AccessSubject, buildAccessPrincipalCondition } from "@valentinkolb/cloud/server";
 import { capabilityIdempotencyConflict } from "@valentinkolb/cloud/contracts";
+import { type AccessSubject, buildAccessPrincipalCondition } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
+import { newShortId, withShortIdRetry } from "../lib/short-id";
 import { resolveContactName, resolveStoredContactLabel } from "../shared";
 import { emptyToNull, isUuid, type SqlExecutor, toDateOnly, toPgUuidArray } from "./shared";
-import { getSystemContact, getSystemContactsByIds, isSystemBookId, listSystemContacts, SYSTEM_BOOK_ID } from "./system";
 import * as tags from "./tags";
 import { buildContactTree, type ContactTreeRow } from "./tree";
 import type {
@@ -131,7 +131,6 @@ type DbBankAccount = {
 type SearchRow = {
   contact_id: string;
   book_id: string;
-  source_kind: "manual" | "system";
 };
 
 type ContactCollectionInput = {
@@ -667,23 +666,6 @@ const mapManualReadableAccessCondition = (subject: AccessSubject) => {
 `;
 };
 
-const mapSystemSearchCondition = (searchPattern: string | null) => sql`
-  (
-    ${searchPattern}::text IS NULL
-    OR LOWER(u.uid) LIKE ${searchPattern}
-    OR LOWER(u.display_name) LIKE ${searchPattern}
-    OR LOWER(u.given_name) LIKE ${searchPattern}
-    OR LOWER(u.sn) LIKE ${searchPattern}
-    OR LOWER(COALESCE(u.mail, '')) LIKE ${searchPattern}
-    OR LOWER(COALESCE(d.phone, '')) LIKE ${searchPattern}
-    OR LOWER(COALESCE(d.mobile, '')) LIKE ${searchPattern}
-    OR LOWER(COALESCE(d.employee_type, '')) LIKE ${searchPattern}
-    OR LOWER(COALESCE(d.addr_street, '')) LIKE ${searchPattern}
-    OR LOWER(COALESCE(d.addr_postal_code, '')) LIKE ${searchPattern}
-    OR LOWER(COALESCE(d.addr_city, '')) LIKE ${searchPattern}
-  )
-`;
-
 const validateContactTagIds = async (bookId: string, tagIds: string[] | undefined): Promise<Result<string[] | null>> => {
   if (tagIds === undefined) return ok(null);
   const tagResult = await tags.validateTagsInBook({ bookId, tagIds });
@@ -847,20 +829,13 @@ const resolveParentContactId = async (config: {
 };
 
 /**
- * Lists contacts for one book. System and manual books are resolved transparently.
+ * Lists contacts for one persisted book.
  */
 export const list = async (config: {
   bookId: string;
   pagination?: PageParams;
   filter?: ContactListFilter;
 }): Promise<Paginated<Contact>> => {
-  if (isSystemBookId(config.bookId)) {
-    return listSystemContacts({
-      pagination: config.pagination,
-      filter: config.filter,
-    });
-  }
-
   if (!isUuid(config.bookId)) {
     return {
       items: [],
@@ -990,10 +965,6 @@ export const list = async (config: {
  * Returns one contact from one specific book.
  */
 export const get = async (config: { bookId: string; id: string }): Promise<Contact | null> => {
-  if (isSystemBookId(config.bookId)) {
-    return getSystemContact({ id: config.id });
-  }
-
   if (!isUuid(config.bookId) || !isUuid(config.id)) return null;
 
   const mapped = await getManualContactsByIds([config.id]);
@@ -1019,7 +990,6 @@ export const findBookId = async (config: { id: string }): Promise<string | null>
  * the currently paginated contact list.
  */
 export const tree = async (config: { bookId: string; id: string }): Promise<ContactTree | null> => {
-  if (isSystemBookId(config.bookId)) return null;
   if (!isUuid(config.bookId) || !isUuid(config.id)) return null;
 
   const rows = await sql<ContactTreeRow[]>`
@@ -1093,10 +1063,6 @@ export const tree = async (config: { bookId: string; id: string }): Promise<Cont
  * Creates one manual contact and all optional child entries.
  */
 export const create = async (config: { bookId: string; data: CreateContactInput }): Promise<Result<Contact>> => {
-  if (isSystemBookId(config.bookId)) {
-    return fail(err.forbidden("System contacts are read-only"));
-  }
-
   if (!isUuid(config.bookId)) return fail(err.notFound("Book"));
 
   const fields = buildCreateFields(config.data);
@@ -1107,9 +1073,12 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
   const prepared = await prepareContactCreate({ bookId: config.bookId, data: config.data });
   if (!prepared.ok) return prepared;
 
-  const row = await sql.begin(async (tx): Promise<{ id: string } | null> => {
-    const [inserted] = await tx<{ id: string }[]>`
+  const row = await withShortIdRetry(["contact"], () =>
+    sql.begin(async (tx): Promise<{ id: string } | null> => {
+      const shortId = newShortId();
+      const [inserted] = await tx<{ id: string }[]>`
       INSERT INTO contacts.contacts (
+        short_id,
         book_id,
         label,
         first_name,
@@ -1125,6 +1094,7 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
         preferred_language,
         parent_contact_id
       ) VALUES (
+        ${shortId},
         ${config.bookId}::uuid,
         ${fields.label},
         ${fields.firstName},
@@ -1143,24 +1113,25 @@ export const create = async (config: { bookId: string; data: CreateContactInput 
       RETURNING id
     `;
 
-    if (!inserted) return null;
+      if (!inserted) return null;
 
-    await replaceContactCollections(
-      inserted.id,
-      {
-        emails: config.data.emails ?? [],
-        phones: config.data.phones ?? [],
-        addresses: config.data.addresses ?? [],
-        websites: config.data.websites ?? [],
-        bankAccounts: config.data.bankAccounts ?? [],
-      },
-      tx,
-    );
-    if (prepared.data.tagIds !== null) {
-      await tags.replaceAssignments({ contactId: inserted.id, tagIds: prepared.data.tagIds, db: tx });
-    }
-    return inserted;
-  });
+      await replaceContactCollections(
+        inserted.id,
+        {
+          emails: config.data.emails ?? [],
+          phones: config.data.phones ?? [],
+          addresses: config.data.addresses ?? [],
+          websites: config.data.websites ?? [],
+          bankAccounts: config.data.bankAccounts ?? [],
+        },
+        tx,
+      );
+      if (prepared.data.tagIds !== null) {
+        await tags.replaceAssignments({ contactId: inserted.id, tagIds: prepared.data.tagIds, db: tx });
+      }
+      return inserted;
+    }),
+  );
 
   if (!row) return fail(err.internal("Failed to create contact"));
 
@@ -1180,7 +1151,6 @@ export const createIdempotent = async (config: {
   idempotencyKeyHash: string;
   requestHash: string;
 }): Promise<Result<{ id: string; bookId: string; label: string; replayed: boolean }>> => {
-  if (isSystemBookId(config.bookId)) return fail(err.forbidden("System contacts are read-only"));
   if (!isUuid(config.bookId)) return fail(err.notFound("Book"));
 
   const fields = buildCreateFields(config.data);
@@ -1188,11 +1158,13 @@ export const createIdempotent = async (config: {
   const prepared = await prepareContactCreate({ bookId: config.bookId, data: config.data });
   if (!prepared.ok) return prepared;
 
-  const outcome = await sql.begin(async (tx): Promise<Result<{ contactId: string; resultLabel: string; replayed: boolean }>> => {
-    const [allocated] = await tx<{ id: string }[]>`SELECT gen_random_uuid() AS id`;
-    if (!allocated) return fail(err.internal("Failed to allocate contact id"));
+  const outcome = await withShortIdRetry(["contact"], () =>
+    sql.begin(async (tx): Promise<Result<{ contactId: string; resultLabel: string; replayed: boolean }>> => {
+      const shortId = newShortId();
+      const [allocated] = await tx<{ id: string }[]>`SELECT gen_random_uuid() AS id`;
+      if (!allocated) return fail(err.internal("Failed to allocate contact id"));
 
-    const [claim] = await tx<{ contact_id: string }[]>`
+      const [claim] = await tx<{ contact_id: string }[]>`
       INSERT INTO contacts.capability_action_results (
         actor_key, action_id, idempotency_key_hash, request_hash, contact_id, result_label
       ) VALUES (
@@ -1202,28 +1174,28 @@ export const createIdempotent = async (config: {
       ON CONFLICT (actor_key, action_id, idempotency_key_hash) DO NOTHING
       RETURNING contact_id
     `;
-    if (!claim) {
-      const [existing] = await tx<{ request_hash: string; contact_id: string; result_label: string | null }[]>`
+      if (!claim) {
+        const [existing] = await tx<{ request_hash: string; contact_id: string; result_label: string | null }[]>`
         SELECT request_hash, contact_id, result_label
         FROM contacts.capability_action_results
         WHERE actor_key = ${config.actorKey}
           AND action_id = ${config.actionId}
           AND idempotency_key_hash = ${config.idempotencyKeyHash}
       `;
-      if (!existing) return fail(err.internal("Idempotency replay lookup failed"));
-      if (existing.request_hash !== config.requestHash) {
-        return fail(capabilityIdempotencyConflict("Idempotency-Key was already used with different input"));
+        if (!existing) return fail(err.internal("Idempotency replay lookup failed"));
+        if (existing.request_hash !== config.requestHash) {
+          return fail(capabilityIdempotencyConflict("Idempotency-Key was already used with different input"));
+        }
+        return ok({ contactId: existing.contact_id, resultLabel: existing.result_label ?? resultLabel, replayed: true });
       }
-      return ok({ contactId: existing.contact_id, resultLabel: existing.result_label ?? resultLabel, replayed: true });
-    }
 
-    const [inserted] = await tx<{ id: string }[]>`
+      const [inserted] = await tx<{ id: string }[]>`
       INSERT INTO contacts.contacts (
-        id, book_id, label, first_name, last_name, company_name, department,
+        id, short_id, book_id, label, first_name, last_name, company_name, department,
         job_title, vat_id, birthday, source, salutation, pronouns,
         preferred_language, parent_contact_id
       ) VALUES (
-        ${allocated.id}::uuid, ${config.bookId}::uuid, ${fields.label},
+        ${allocated.id}::uuid, ${shortId}, ${config.bookId}::uuid, ${fields.label},
         ${fields.firstName}, ${fields.lastName}, ${fields.companyName},
         ${fields.department}, ${fields.jobTitle}, ${fields.vatId},
         ${fields.birthday}, ${fields.source}, ${fields.salutation},
@@ -1231,24 +1203,25 @@ export const createIdempotent = async (config: {
       )
       RETURNING id
     `;
-    if (!inserted) throw new Error("Failed to create claimed contact");
+      if (!inserted) throw new Error("Failed to create claimed contact");
 
-    await replaceContactCollections(
-      inserted.id,
-      {
-        emails: config.data.emails ?? [],
-        phones: config.data.phones ?? [],
-        addresses: config.data.addresses ?? [],
-        websites: config.data.websites ?? [],
-        bankAccounts: config.data.bankAccounts ?? [],
-      },
-      tx,
-    );
-    if (prepared.data.tagIds !== null) {
-      await tags.replaceAssignments({ contactId: inserted.id, tagIds: prepared.data.tagIds, db: tx });
-    }
-    return ok({ contactId: inserted.id, resultLabel, replayed: false });
-  });
+      await replaceContactCollections(
+        inserted.id,
+        {
+          emails: config.data.emails ?? [],
+          phones: config.data.phones ?? [],
+          addresses: config.data.addresses ?? [],
+          websites: config.data.websites ?? [],
+          bankAccounts: config.data.bankAccounts ?? [],
+        },
+        tx,
+      );
+      if (prepared.data.tagIds !== null) {
+        await tags.replaceAssignments({ contactId: inserted.id, tagIds: prepared.data.tagIds, db: tx });
+      }
+      return ok({ contactId: inserted.id, resultLabel, replayed: false });
+    }),
+  );
 
   if (!outcome.ok) return outcome;
   return ok({
@@ -1268,10 +1241,6 @@ export const update = async (config: {
   data: UpdateContactInput;
   expectedUpdatedAt?: string;
 }): Promise<Result<Contact>> => {
-  if (isSystemBookId(config.bookId)) {
-    return fail(err.forbidden("System contacts are read-only"));
-  }
-
   if (!isUuid(config.bookId) || !isUuid(config.id)) {
     return fail(err.notFound("Contact"));
   }
@@ -1365,10 +1334,6 @@ export const move = async (config: {
   id: string;
   expectedUpdatedAt?: string;
 }): Promise<Result<Contact>> => {
-  if (isSystemBookId(config.sourceBookId) || isSystemBookId(config.targetBookId)) {
-    return fail(err.forbidden("System contacts are read-only"));
-  }
-
   if (!isUuid(config.sourceBookId) || !isUuid(config.targetBookId) || !isUuid(config.id)) {
     return fail(err.notFound("Contact"));
   }
@@ -1444,10 +1409,6 @@ export const move = async (config: {
  * Deletes one contact from one manual book.
  */
 export const remove = async (config: { bookId: string; id: string; expectedUpdatedAt?: string }): Promise<Result<void>> => {
-  if (isSystemBookId(config.bookId)) {
-    return fail(err.forbidden("System contacts are read-only"));
-  }
-
   if (!isUuid(config.bookId) || !isUuid(config.id)) {
     return fail(err.notFound("Contact"));
   }
@@ -1866,31 +1827,13 @@ export const mergeDuplicate = async (config: {
   return contact ? ok(contact) : fail(err.internal("Failed to load merged contact"));
 };
 
-const hydrateSearchRows = async (rows: SearchRow[]): Promise<Contact[]> => {
-  const manualIds = rows.filter((row) => row.source_kind === "manual").map((row) => row.contact_id);
-  const systemIds = rows.filter((row) => row.source_kind === "system").map((row) => row.contact_id);
-
-  const [manualContactsById, systemContactsById] = await Promise.all([
-    getManualContactsByIds(manualIds),
-    getSystemContactsByIds(systemIds),
-  ]);
-
-  return rows
-    .map((row) =>
-      row.source_kind === "manual" ? (manualContactsById.get(row.contact_id) ?? null) : (systemContactsById.get(row.contact_id) ?? null),
-    )
-    .filter((row): row is Contact => row !== null);
-};
-
-/**
- * Global search across all readable manual books plus the virtual system book.
- */
+/** Global search across all readable persisted contact books. */
 export const search = async (config: {
   subject: AccessSubject;
   boundBookId?: string | null;
   bypassAccess?: boolean;
   pagination?: PageParams;
-  filter?: ContactListFilter & { includeSystem?: boolean };
+  filter?: ContactListFilter;
 }): Promise<Paginated<Contact>> => {
   const { page, perPage, offset } = paginate(config.pagination);
   if (config.subject.type === "service_account" && !isUuid(config.boundBookId ?? "")) {
@@ -1906,7 +1849,6 @@ export const search = async (config: {
   }
 
   const searchPattern = buildSearchPattern(config.filter?.query);
-  const includeSystem = config.subject.type === "user" && (config.filter?.includeSystem ?? false);
   const tagIdsArray = requestedTagIds.length > 0 ? toPgUuidArray(requestedTagIds) : null;
   const emailPresence = config.filter?.email ?? "all";
   const phonePresence = config.filter?.phone ?? "all";
@@ -1915,69 +1857,37 @@ export const search = async (config: {
   const bindingMatch = config.subject.type === "service_account" ? sql`c.book_id = ${config.boundBookId}::uuid` : sql`true`;
 
   const [countRow] = await sql<{ count: number }[]>`
-    WITH manual_matches AS (
-      SELECT DISTINCT
-        c.id AS contact_id,
-        c.book_id::text AS book_id,
-        'manual'::text AS source_kind
-      FROM contacts.contacts c
-      LEFT JOIN contacts.book_access ba ON ba.book_id = c.book_id
-      LEFT JOIN auth.access a ON a.id = ba.access_id
-      LEFT JOIN contacts.contact_emails ce ON ce.contact_id = c.id
-      LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
-      LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
-      LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
-      WHERE (${config.bypassAccess ?? false}::boolean OR ${mapManualReadableAccessCondition(config.subject)})
-        AND ${bindingMatch}
-        AND ${mapManualSearchCondition(searchPattern)}
-        AND (${tagIdsArray}::uuid[] IS NULL OR EXISTS (
-          SELECT 1 FROM contacts.contact_tag_assignments cta
-          WHERE cta.contact_id = c.id AND cta.tag_id = ANY(${tagIdsArray}::uuid[])
-        ))
-        AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
-          SELECT 1 FROM contacts.contact_favorites favorite
-          WHERE favorite.user_id = ${favoriteUserId}::uuid
-            AND favorite.book_id = c.book_id::text
-            AND favorite.contact_id = c.id
-        ))
-        AND (${emailPresence} = 'all' OR (${emailPresence} = 'yes' AND ce.id IS NOT NULL) OR (${emailPresence} = 'no' AND NOT EXISTS (
-          SELECT 1 FROM contacts.contact_emails email_filter WHERE email_filter.contact_id = c.id
-        )))
-        AND (${phonePresence} = 'all' OR (${phonePresence} = 'yes' AND cp.id IS NOT NULL) OR (${phonePresence} = 'no' AND NOT EXISTS (
-          SELECT 1 FROM contacts.contact_phones phone_filter WHERE phone_filter.contact_id = c.id
-        )))
-    ),
-    system_matches AS (
-      SELECT
-        u.id AS contact_id,
-        ${SYSTEM_BOOK_ID}::text AS book_id,
-        'system'::text AS source_kind
-      FROM auth.users u
-      LEFT JOIN auth.user_ipa_data d ON d.user_id = u.id
-      WHERE ${includeSystem}::boolean
-        AND u.provider = 'ipa'
-        AND ${mapSystemSearchCondition(searchPattern)}
-        AND ${tagIdsArray}::uuid[] IS NULL
-        AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
-          SELECT 1 FROM contacts.contact_favorites favorite
-          WHERE favorite.user_id = ${favoriteUserId}::uuid
-            AND favorite.book_id = ${SYSTEM_BOOK_ID}
-            AND favorite.contact_id = u.id
-        ))
-        AND (${emailPresence} = 'all' OR (${emailPresence} = 'yes' AND NULLIF(u.mail, '') IS NOT NULL) OR (${emailPresence} = 'no' AND NULLIF(u.mail, '') IS NULL))
-        AND (${phonePresence} = 'all' OR (${phonePresence} = 'yes' AND (NULLIF(d.phone, '') IS NOT NULL OR NULLIF(d.mobile, '') IS NOT NULL)) OR (${phonePresence} = 'no' AND NULLIF(d.phone, '') IS NULL AND NULLIF(d.mobile, '') IS NULL))
-    ),
-    combined AS (
-      SELECT * FROM manual_matches
-      UNION ALL
-      SELECT * FROM system_matches
-    )
-    SELECT COUNT(*)::int AS count
-    FROM combined
+    SELECT COUNT(DISTINCT c.id)::int AS count
+    FROM contacts.contacts c
+    LEFT JOIN contacts.book_access ba ON ba.book_id = c.book_id
+    LEFT JOIN auth.access a ON a.id = ba.access_id
+    LEFT JOIN contacts.contact_emails ce ON ce.contact_id = c.id
+    LEFT JOIN contacts.contact_phones cp ON cp.contact_id = c.id
+    LEFT JOIN contacts.contact_addresses ca ON ca.contact_id = c.id
+    LEFT JOIN contacts.contact_bank_accounts cba ON cba.contact_id = c.id
+    WHERE (${config.bypassAccess ?? false}::boolean OR ${mapManualReadableAccessCondition(config.subject)})
+      AND ${bindingMatch}
+      AND ${mapManualSearchCondition(searchPattern)}
+      AND (${tagIdsArray}::uuid[] IS NULL OR EXISTS (
+        SELECT 1 FROM contacts.contact_tag_assignments cta
+        WHERE cta.contact_id = c.id AND cta.tag_id = ANY(${tagIdsArray}::uuid[])
+      ))
+      AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM contacts.contact_favorites favorite
+        WHERE favorite.user_id = ${favoriteUserId}::uuid
+          AND favorite.book_id = c.book_id::text
+          AND favorite.contact_id = c.id
+      ))
+      AND (${emailPresence} = 'all' OR (${emailPresence} = 'yes' AND ce.id IS NOT NULL) OR (${emailPresence} = 'no' AND NOT EXISTS (
+        SELECT 1 FROM contacts.contact_emails email_filter WHERE email_filter.contact_id = c.id
+      )))
+      AND (${phonePresence} = 'all' OR (${phonePresence} = 'yes' AND cp.id IS NOT NULL) OR (${phonePresence} = 'no' AND NOT EXISTS (
+        SELECT 1 FROM contacts.contact_phones phone_filter WHERE phone_filter.contact_id = c.id
+      )))
   `;
 
   const rows = await sql<SearchRow[]>`
-    WITH manual_matches AS (
+    WITH matches AS (
       SELECT DISTINCT
         c.id AS contact_id,
         c.book_id::text AS book_id,
@@ -1988,8 +1898,7 @@ export const search = async (config: {
         ) AS sort_name,
         LOWER(NULLIF(TRIM(c.company_name), '')) AS sort_company,
         c.created_at AS created_at,
-        c.updated_at AS updated_at,
-        'manual'::text AS source_kind
+        c.updated_at AS updated_at
       FROM contacts.contacts c
       LEFT JOIN contacts.book_access ba ON ba.book_id = c.book_id
       LEFT JOIN auth.access a ON a.id = ba.access_id
@@ -2016,50 +1925,21 @@ export const search = async (config: {
         AND (${phonePresence} = 'all' OR (${phonePresence} = 'yes' AND cp.id IS NOT NULL) OR (${phonePresence} = 'no' AND NOT EXISTS (
           SELECT 1 FROM contacts.contact_phones phone_filter WHERE phone_filter.contact_id = c.id
         )))
-    ),
-    system_matches AS (
-      SELECT
-        u.id AS contact_id,
-        ${SYSTEM_BOOK_ID}::text AS book_id,
-        COALESCE(NULLIF(u.display_name, ''), u.uid) AS sort_name,
-        NULL::text AS sort_company,
-        u.created_at AS created_at,
-        COALESCE(d.synced_at, u.created_at) AS updated_at,
-        'system'::text AS source_kind
-      FROM auth.users u
-      LEFT JOIN auth.user_ipa_data d ON d.user_id = u.id
-      WHERE ${includeSystem}::boolean
-        AND u.provider = 'ipa'
-        AND ${mapSystemSearchCondition(searchPattern)}
-        AND ${tagIdsArray}::uuid[] IS NULL
-        AND (${favoriteUserId}::uuid IS NULL OR EXISTS (
-          SELECT 1 FROM contacts.contact_favorites favorite
-          WHERE favorite.user_id = ${favoriteUserId}::uuid
-            AND favorite.book_id = ${SYSTEM_BOOK_ID}
-            AND favorite.contact_id = u.id
-        ))
-        AND (${emailPresence} = 'all' OR (${emailPresence} = 'yes' AND NULLIF(u.mail, '') IS NOT NULL) OR (${emailPresence} = 'no' AND NULLIF(u.mail, '') IS NULL))
-        AND (${phonePresence} = 'all' OR (${phonePresence} = 'yes' AND (NULLIF(d.phone, '') IS NOT NULL OR NULLIF(d.mobile, '') IS NOT NULL)) OR (${phonePresence} = 'no' AND NULLIF(d.phone, '') IS NULL AND NULLIF(d.mobile, '') IS NULL))
-    ),
-    combined AS (
-      SELECT * FROM manual_matches
-      UNION ALL
-      SELECT * FROM system_matches
     )
-    SELECT contact_id, book_id, source_kind
-    FROM combined
+    SELECT contact_id, book_id
+    FROM matches
     ORDER BY
       CASE WHEN ${sort} = 'updated' THEN updated_at END DESC,
       CASE WHEN ${sort} = 'created' THEN created_at END DESC,
       CASE WHEN ${sort} = 'company' THEN sort_company END ASC NULLS LAST,
       LOWER(sort_name) ASC,
-      source_kind ASC,
       contact_id ASC
     LIMIT ${perPage}
     OFFSET ${offset}
   `;
 
-  const items = await hydrateSearchRows(rows);
+  const byId = await getManualContactsByIds(rows.map((row) => row.contact_id));
+  const items = rows.map((row) => byId.get(row.contact_id) ?? null).filter((item): item is Contact => item !== null);
 
   const total = countRow?.count ?? 0;
   return {

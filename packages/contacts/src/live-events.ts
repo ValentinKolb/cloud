@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ResourceShortIdSchema } from "./capability-contracts";
 
 export const CONTACTS_LIVE_WS_TYPE = {
   subscribe: "contacts.live.subscribe",
@@ -9,43 +10,47 @@ export const CONTACTS_LIVE_WS_TYPE = {
   error: "contacts.live.error",
 } as const;
 
-const ContactBookIdSchema = z.uuid();
-const ContactIdSchema = z.uuid();
+const InternalIdSchema = z.uuid();
 const StreamCursorSchema = z.string().regex(/^\d+-\d+$/);
 
-export const ContactServiceEventSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.enum(["book.created", "book.updated", "book.deleted", "access.changed", "tags.changed"]),
-    bookId: ContactBookIdSchema,
-    at: z.string().datetime(),
-  }),
-  z.object({
-    type: z.enum(["contact.created", "contact.updated", "contact.deleted"]),
-    bookId: ContactBookIdSchema,
-    contactId: ContactIdSchema,
-    at: z.string().datetime(),
-  }),
-  z.object({
-    type: z.enum(["contacts.imported", "contacts.changed"]),
-    bookId: ContactBookIdSchema,
-    at: z.string().datetime(),
-  }),
-  z.object({
-    type: z.literal("contact.moved"),
-    sourceBookId: ContactBookIdSchema,
-    targetBookId: ContactBookIdSchema,
-    contactId: ContactIdSchema,
-    at: z.string().datetime(),
-  }),
-  z.object({
-    type: z.literal("notes.changed"),
-    bookId: ContactBookIdSchema,
-    contactId: ContactIdSchema,
-    at: z.string().datetime(),
-  }),
-]);
+const contactEventSchema = (bookId: z.ZodType<string>, contactId: z.ZodType<string>) =>
+  z.discriminatedUnion("type", [
+    z.object({
+      type: z.enum(["book.created", "book.updated", "book.deleted", "access.changed", "tags.changed"]),
+      bookId,
+      at: z.string().datetime(),
+    }),
+    z.object({
+      type: z.enum(["contact.created", "contact.updated", "contact.deleted"]),
+      bookId,
+      contactId,
+      at: z.string().datetime(),
+    }),
+    z.object({
+      type: z.enum(["contacts.imported", "contacts.changed"]),
+      bookId,
+      at: z.string().datetime(),
+    }),
+    z.object({
+      type: z.literal("contact.moved"),
+      sourceBookId: bookId,
+      targetBookId: bookId,
+      contactId,
+      at: z.string().datetime(),
+    }),
+    z.object({
+      type: z.literal("notes.changed"),
+      bookId,
+      contactId,
+      at: z.string().datetime(),
+    }),
+  ]);
+
+export const ContactServiceEventSchema = contactEventSchema(InternalIdSchema, InternalIdSchema);
+export const ContactLiveEventSchema = contactEventSchema(ResourceShortIdSchema, ResourceShortIdSchema);
 
 export type ContactServiceEvent = z.infer<typeof ContactServiceEventSchema>;
+export type ContactLiveEvent = z.infer<typeof ContactLiveEventSchema>;
 export type ContactServiceEventData = ContactServiceEvent extends infer Event
   ? Event extends { at: string }
     ? Omit<Event, "at">
@@ -54,7 +59,7 @@ export type ContactServiceEventData = ContactServiceEvent extends infer Event
 
 const ContactLiveScopeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("all") }),
-  z.object({ kind: z.literal("book"), bookId: ContactBookIdSchema }),
+  z.object({ kind: z.literal("book"), bookId: ResourceShortIdSchema }),
 ]);
 
 export type ContactLiveScope = z.infer<typeof ContactLiveScopeSchema>;
@@ -76,7 +81,7 @@ const ContactLiveServerMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal(CONTACTS_LIVE_WS_TYPE.event),
-    payload: z.object({ cursor: StreamCursorSchema, event: ContactServiceEventSchema }),
+    payload: z.object({ cursor: StreamCursorSchema, event: ContactLiveEventSchema }),
   }),
   z.object({
     type: z.literal(CONTACTS_LIVE_WS_TYPE.scopeChanged),

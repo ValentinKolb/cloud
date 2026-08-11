@@ -5,6 +5,14 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
 import { contactsService } from "../service";
 import { captureContactEventCursor } from "../service/events";
+import {
+  projectBooks,
+  projectContacts,
+  projectFavoriteKeys,
+  projectNotes,
+  projectTags,
+  resolvePublicId,
+} from "../service/public-resources";
 import ContactCreateLauncher from "./_components/ContactCreateLauncher.island";
 import ContactDetailPanel from "./_components/ContactDetailPanel.island";
 import ContactsLiveEvents from "./_components/ContactsLiveEvents.island";
@@ -31,18 +39,17 @@ export default ssr<AuthContext>(async (c) => {
   const selectedBookIdFromUrl = c.req.query("contactBook") ?? null;
   // The cursor must precede the snapshot reads or an event can fall between them.
   const initialLiveCursor = await captureContactEventCursor();
+  const activeTagInternalId = activeTagId ? await resolvePublicId("tags", activeTagId) : null;
   const [booksResult, contactsResult] = await Promise.all([
     contactsService.book.list({
       subject: { type: "user", userId: user.id },
-      includeSystem: true,
     }),
     contactsService.contact.search({
       subject: { type: "user", userId: user.id },
       pagination: { page, perPage },
       filter: {
         query: search.trim() || undefined,
-        tagIds: activeTagId ? [activeTagId] : undefined,
-        includeSystem: queryOptions.favorites,
+        tagIds: activeTagInternalId ? [activeTagInternalId] : undefined,
         sort: queryOptions.sort,
         email: queryOptions.email,
         phone: queryOptions.phone,
@@ -50,29 +57,44 @@ export default ssr<AuthContext>(async (c) => {
       },
     }),
   ]);
-  const books = booksResult.items;
-  const contacts = contactsResult.items;
+  const internalBooks = booksResult.items;
+  const internalContacts = contactsResult.items;
   const selectedContact = await resolveSelectedContact({
-    contacts,
+    contacts: internalContacts,
     contactId: selectedContactIdFromUrl,
     bookId: selectedBookIdFromUrl,
     user,
   });
-  const [{ adminBookIds, writableBooks }, initialNotes, favoriteKeys, globalTags] = await Promise.all([
-    loadContactBookPermissions({ books, user }),
+  const [permissions, internalNotes, internalFavoriteKeys, internalGlobalTags] = await Promise.all([
+    loadContactBookPermissions({ books: internalBooks, user }),
     selectedContact
       ? contactsService.contact.notes.list({ bookId: selectedContact.bookId, contactId: selectedContact.id })
       : Promise.resolve([]),
-    loadFavoriteKeysForContacts(user.id, selectedContact ? [...contacts, selectedContact] : contacts),
-    contactsService.tag.listForBooks({ bookIds: books.filter((book) => !book.isSystem).map((book) => book.id) }),
+    loadFavoriteKeysForContacts(user.id, selectedContact ? [...internalContacts, selectedContact] : internalContacts),
+    contactsService.tag.listForBooks({ bookIds: internalBooks.map((book) => book.id) }),
   ]);
+  const favoriteContacts = selectedContact ? [...internalContacts, selectedContact] : internalContacts;
+  const [books, contacts, projectedSelected, initialNotes, favoriteKeys, globalTags] = await Promise.all([
+    projectBooks(internalBooks),
+    projectContacts(internalContacts),
+    selectedContact ? projectContacts([selectedContact]) : Promise.resolve([]),
+    projectNotes(internalNotes),
+    projectFavoriteKeys(favoriteContacts, internalFavoriteKeys),
+    projectTags(internalGlobalTags),
+  ]);
+  const selectedPublicContact = projectedSelected[0] ?? null;
+  const bookIds = new Map(internalBooks.map((book, index) => [book.id, books[index]!.id]));
+  const adminBookIds = permissions.adminBookIds.map((id) => bookIds.get(id)!).filter(Boolean);
+  const writableBooks = permissions.writableBooks
+    .map((book) => ({ ...book, id: bookIds.get(book.id)! }))
+    .filter((book) => Boolean(book.id));
   const bookNames = Object.fromEntries(books.map((book) => [book.id, book.name]));
   const totalPages = Math.max(1, Math.ceil(contactsResult.total / perPage));
   const requestUrl = new URL(c.req.raw.url);
   const resultHref = `${requestUrl.pathname}${requestUrl.search}`;
-  const initialSelectedContactId = selectedContact?.id ?? selectedContactIdFromUrl;
-  const initialSelectedBookId = selectedContact?.bookId ?? selectedBookIdFromUrl;
-  const hasDesktopDetailSelection = Boolean(selectedContact);
+  const initialSelectedContactId = selectedPublicContact?.id ?? selectedContactIdFromUrl;
+  const initialSelectedBookId = selectedPublicContact?.bookId ?? selectedBookIdFromUrl;
+  const hasDesktopDetailSelection = Boolean(selectedPublicContact);
   return () => (
     <Layout c={c} fullWidth title={[{ title: "Start", href: "/" }, { title: "Contacts" }]}>
       <ContactsLiveEvents scope={{ kind: "all" }} initialCursor={initialLiveCursor} />
@@ -83,7 +105,7 @@ export default ssr<AuthContext>(async (c) => {
         <AppWorkspace.Content>
           <ContactsWorkspaceMain
             title={queryOptions.favorites ? "Favorites" : "All contacts"}
-            description={queryOptions.favorites ? "Your favorite contacts" : "Across your manual contact books"}
+            description={queryOptions.favorites ? "Your favorite contacts" : "Across your contact books"}
             total={contactsResult.total}
             search={search}
             resultHref={resultHref}
@@ -112,7 +134,7 @@ export default ssr<AuthContext>(async (c) => {
             viewTransitionName="contacts-detail-panel-shell"
           >
             <ContactDetailPanel
-              initialContact={selectedContact}
+              initialContact={selectedPublicContact}
               initialContactId={initialSelectedContactId}
               initialBookId={initialSelectedBookId}
               initialNotes={initialNotes}

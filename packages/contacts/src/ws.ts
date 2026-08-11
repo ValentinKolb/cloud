@@ -7,6 +7,8 @@ import { upgradeWebSocket } from "hono/bun";
 import {
   CONTACTS_LIVE_WS_TYPE,
   ContactLiveClientMessageSchema,
+  type ContactLiveEvent,
+  ContactLiveEventSchema,
   type ContactLiveScope,
   type ContactLiveServerMessage,
   type ContactServiceEvent,
@@ -17,6 +19,7 @@ import {
 } from "./live-events";
 import { contactsService } from "./service";
 import { latestContactEventCursor, liveContactEvents } from "./service/events";
+import { resolvePublicId } from "./service/public-resources";
 
 const log = logger("contacts:websocket");
 const ACCESS_REFRESH_INTERVAL_MS = 8_000;
@@ -29,12 +32,13 @@ type AccessFailure = {
   message: string;
 };
 type AccessResult = { ok: true; userId: string; readableBookIds: Set<string> } | AccessFailure;
+type InternalLiveScope = { kind: "all" } | { kind: "book"; bookId: string };
 type WsPhase = "open" | "subscribed" | "closing";
 type WsContext = {
   socket: ServerWebSocket<unknown>;
   sessionToken: string | null;
   phase: WsPhase;
-  scope: ContactLiveScope | null;
+  scope: InternalLiveScope | null;
   userId: string | null;
   readableBookIds: Set<string>;
   streamAbort: AbortController | null;
@@ -93,7 +97,7 @@ const revoke = (ctx: WsContext, access: AccessFailure) => {
 
 const sameIds = (left: Set<string>, right: Set<string>): boolean => left.size === right.size && [...left].every((id) => right.has(id));
 
-const evaluateAccess = async (sessionToken: string | null, scope: ContactLiveScope): Promise<AccessResult> => {
+const evaluateAccess = async (sessionToken: string | null, scope: InternalLiveScope): Promise<AccessResult> => {
   if (!sessionToken) return { ok: false, code: "login_required", message: "Login required" };
   const session = await auth.session.getData(sessionToken);
   if (!session) return { ok: false, code: "login_required", message: "Login required" };
@@ -102,9 +106,6 @@ const evaluateAccess = async (sessionToken: string | null, scope: ContactLiveSco
 
   const subject = { type: "user" as const, userId: user.id };
   if (scope.kind === "book") {
-    if (contactsService.system.isBookId(scope.bookId)) {
-      return { ok: false, code: "not_found", message: "Contact book not found" };
-    }
     const book = await contactsService.book.get({ id: scope.bookId });
     if (!book) return { ok: false, code: "not_found", message: "Contact book not found" };
     const canRead = await contactsService.book.permission.canAccess({ bookId: scope.bookId, subject, requiredLevel: "read" });
@@ -116,7 +117,7 @@ const evaluateAccess = async (sessionToken: string | null, scope: ContactLiveSco
   return { ok: true, userId: user.id, readableBookIds };
 };
 
-const updateAccess = async (ctx: WsContext, scope: ContactLiveScope): Promise<boolean> => {
+const updateAccess = async (ctx: WsContext, scope: InternalLiveScope): Promise<boolean> => {
   const access = await evaluateAccess(ctx.sessionToken, scope);
   if (ctx.phase !== "subscribed" || ctx.scope !== scope) return false;
   if (!access.ok) {
@@ -174,16 +175,20 @@ const refreshAllEventAccess = async (ctx: WsContext, event: ContactServiceEvent)
 
 const refreshEventAccess = async (
   ctx: WsContext,
-  scope: ContactLiveScope,
+  scope: InternalLiveScope,
   event: ContactServiceEvent,
 ): Promise<ContactServiceEvent | null> => {
+  if (event.type === "book.deleted") {
+    const wasReadable = ctx.readableBookIds.delete(event.bookId);
+    return wasReadable && (scope.kind === "all" || scope.bookId === event.bookId) ? event : null;
+  }
   if (scope.kind === "all") return refreshAllEventAccess(ctx, event);
   if (!contactEventBookIds(event).includes(scope.bookId)) return null;
   if (!(await updateAccess(ctx, scope))) return null;
   return projectContactEvent(event, ctx.readableBookIds);
 };
 
-const startAccessRefresh = (ctx: WsContext, scope: ContactLiveScope) => {
+const startAccessRefresh = (ctx: WsContext, scope: InternalLiveScope) => {
   if (ctx.accessRefreshTimer) clearTimeout(ctx.accessRefreshTimer);
   ctx.accessRefreshTimer = setTimeout(async () => {
     if (ctx.phase !== "subscribed" || ctx.scope !== scope) return;
@@ -199,7 +204,19 @@ const startAccessRefresh = (ctx: WsContext, scope: ContactLiveScope) => {
   }, ACCESS_REFRESH_INTERVAL_MS);
 };
 
-const startStream = (ctx: WsContext, scope: ContactLiveScope, after: string) => {
+const toVisiblePublicEvent = (
+  original: ContactServiceEvent,
+  publicEvent: ContactLiveEvent,
+  visible: ContactServiceEvent,
+): ContactLiveEvent => {
+  if (original.type !== "contact.moved" || publicEvent.type !== "contact.moved" || visible.type === "contact.moved") return publicEvent;
+  if (visible.type === "contact.deleted") {
+    return { type: "contact.deleted", bookId: publicEvent.sourceBookId, contactId: publicEvent.contactId, at: publicEvent.at };
+  }
+  return { type: "contact.created", bookId: publicEvent.targetBookId, contactId: publicEvent.contactId, at: publicEvent.at };
+};
+
+const startStream = (ctx: WsContext, scope: InternalLiveScope, after: string) => {
   ctx.streamAbort?.abort();
   const abort = new AbortController();
   ctx.streamAbort = abort;
@@ -208,11 +225,13 @@ const startStream = (ctx: WsContext, scope: ContactLiveScope, after: string) => 
     try {
       for await (const envelope of liveContactEvents({ after, signal: abort.signal })) {
         if (abort.signal.aborted || ctx.phase !== "subscribed" || ctx.scope !== scope) break;
-        const parsed = ContactServiceEventSchema.safeParse(envelope.data);
-        if (!parsed.success) continue;
+        const parsed = ContactServiceEventSchema.safeParse(envelope.data.internal);
+        const parsedPublic = ContactLiveEventSchema.safeParse(envelope.data.public);
+        if (!parsed.success || !parsedPublic.success) continue;
         const event = await refreshEventAccess(ctx, scope, parsed.data);
         if (!event || ctx.phase !== "subscribed") continue;
-        if (!send(ctx.socket, { type: CONTACTS_LIVE_WS_TYPE.event, payload: { cursor: envelope.cursor, event } })) {
+        const publicEvent = toVisiblePublicEvent(parsed.data, parsedPublic.data, event);
+        if (!send(ctx.socket, { type: CONTACTS_LIVE_WS_TYPE.event, payload: { cursor: envelope.cursor, event: publicEvent } })) {
           closeWithError(ctx, "backpressure", "Live updates exceeded the connection capacity", 1013);
           break;
         }
@@ -229,10 +248,16 @@ const startStream = (ctx: WsContext, scope: ContactLiveScope, after: string) => 
   })();
 };
 
-const handleSubscribe = async (ctx: WsContext, scope: ContactLiveScope, fromCursor: string | null) => {
+const handleSubscribe = async (ctx: WsContext, publicScope: ContactLiveScope, fromCursor: string | null) => {
   if (isClosing(ctx)) return;
   if (ctx.phase === "subscribed") {
     closeWithError(ctx, "already_subscribed", "A live subscription is already active", 1008);
+    return;
+  }
+  const scope: InternalLiveScope =
+    publicScope.kind === "all" ? publicScope : { kind: "book", bookId: (await resolvePublicId("books", publicScope.bookId)) ?? "" };
+  if (scope.kind === "book" && !scope.bookId) {
+    revoke(ctx, { ok: false, code: "not_found", message: "Contact book not found" });
     return;
   }
   const access = await evaluateAccess(ctx.sessionToken, scope);

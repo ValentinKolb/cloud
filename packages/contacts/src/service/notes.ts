@@ -1,6 +1,7 @@
 import { err, fail, ok, type PageParams, type Paginated, paginate, type Result } from "@k2b/stdlib";
 import { capabilityIdempotencyConflict } from "@valentinkolb/cloud/contracts";
 import { sql } from "bun";
+import { newShortId, withShortId, withShortIdRetry } from "../lib/short-id";
 import { isUuid, type SqlExecutor } from "./shared";
 import type { ContactNote, CreateContactNoteInput, UpdateContactNoteInput } from "./types";
 
@@ -119,25 +120,30 @@ export const create = async (config: {
   }
   if (!(await verifyContactInBook(config))) return fail(err.notFound("Contact"));
 
-  const [row] = await sql<DbContactNote[]>`
-    WITH inserted AS (
-      INSERT INTO contacts.contact_notes (
-        contact_id,
-        author_user_id,
-        author_display_name,
-        content
-      ) VALUES (
-        ${config.contactId}::uuid,
-        ${config.authorUserId}::uuid,
-        ${config.authorDisplayName},
-        ${trimmed}
+  const row = await withShortId("note", async (shortId) => {
+    const [created] = await sql<DbContactNote[]>`
+      WITH inserted AS (
+        INSERT INTO contacts.contact_notes (
+          short_id,
+          contact_id,
+          author_user_id,
+          author_display_name,
+          content
+        ) VALUES (
+          ${shortId},
+          ${config.contactId}::uuid,
+          ${config.authorUserId}::uuid,
+          ${config.authorDisplayName},
+          ${trimmed}
+        )
+        RETURNING id, contact_id, author_user_id, author_display_name, content, created_at, updated_at
       )
-      RETURNING id, contact_id, author_user_id, author_display_name, content, created_at, updated_at
-    )
-    SELECT i.id, i.contact_id, i.author_user_id, i.author_display_name, u.avatar_hash AS author_avatar_hash, i.content, i.created_at, i.updated_at
-    FROM inserted i
-    LEFT JOIN auth.users u ON u.id = i.author_user_id
-  `;
+      SELECT i.id, i.contact_id, i.author_user_id, i.author_display_name, u.avatar_hash AS author_avatar_hash, i.content, i.created_at, i.updated_at
+      FROM inserted i
+      LEFT JOIN auth.users u ON u.id = i.author_user_id
+    `;
+    return created;
+  });
   if (!row) return fail(err.internal("Failed to create note"));
   return ok(mapNote(row));
 };
@@ -159,12 +165,14 @@ export const createIdempotent = async (config: {
   if (trimmed.length > MAX_CONTENT_LENGTH) return fail(err.badInput(`Note must be ${MAX_CONTENT_LENGTH} characters or fewer`));
   if (!isUuid(config.authorUserId)) return fail(err.forbidden("A user identity is required to create notes"));
 
-  return sql.begin(async (tx): Promise<Result<{ note: ContactNote; replayed: boolean }>> => {
-    if (!(await verifyContactInBook({ ...config, db: tx }))) return fail(err.notFound("Contact"));
-    const [allocated] = await tx<{ id: string }[]>`SELECT gen_random_uuid() AS id`;
-    if (!allocated) return fail(err.internal("Failed to allocate note id"));
+  return withShortIdRetry(["note"], () =>
+    sql.begin(async (tx): Promise<Result<{ note: ContactNote; replayed: boolean }>> => {
+      const shortId = newShortId();
+      if (!(await verifyContactInBook({ ...config, db: tx }))) return fail(err.notFound("Contact"));
+      const [allocated] = await tx<{ id: string }[]>`SELECT gen_random_uuid() AS id`;
+      if (!allocated) return fail(err.internal("Failed to allocate note id"));
 
-    const [claim] = await tx<{ contact_id: string }[]>`
+      const [claim] = await tx<{ contact_id: string }[]>`
       INSERT INTO contacts.capability_action_results (
         actor_key, action_id, idempotency_key_hash, request_hash, contact_id, result_label
       ) VALUES (
@@ -174,32 +182,33 @@ export const createIdempotent = async (config: {
       ON CONFLICT (actor_key, action_id, idempotency_key_hash) DO NOTHING
       RETURNING contact_id
     `;
-    if (!claim) {
-      const [existing] = await tx<{ request_hash: string; contact_id: string; result_label: string }[]>`
+      if (!claim) {
+        const [existing] = await tx<{ request_hash: string; contact_id: string; result_label: string }[]>`
         SELECT request_hash, contact_id, result_label
         FROM contacts.capability_action_results
         WHERE actor_key = ${config.actorKey}
           AND action_id = ${config.actionId}
           AND idempotency_key_hash = ${config.idempotencyKeyHash}
       `;
-      if (!existing) return fail(err.internal("Idempotency replay lookup failed"));
-      if (existing.request_hash !== config.requestHash) {
-        return fail(capabilityIdempotencyConflict("Idempotency-Key was already used with different input"));
+        if (!existing) return fail(err.internal("Idempotency replay lookup failed"));
+        if (existing.request_hash !== config.requestHash) {
+          return fail(capabilityIdempotencyConflict("Idempotency-Key was already used with different input"));
+        }
+        if (!isUuid(existing.result_label) || existing.contact_id !== config.contactId) {
+          return fail(err.internal("Stored idempotency result is invalid"));
+        }
+        const note = await loadNote({ noteId: existing.result_label, contactId: config.contactId, db: tx });
+        return note ? ok({ note, replayed: true }) : fail(err.conflict("The note created by this idempotency key no longer exists"));
       }
-      if (!isUuid(existing.result_label) || existing.contact_id !== config.contactId) {
-        return fail(err.internal("Stored idempotency result is invalid"));
-      }
-      const note = await loadNote({ noteId: existing.result_label, contactId: config.contactId, db: tx });
-      return note ? ok({ note, replayed: true }) : fail(err.conflict("The note created by this idempotency key no longer exists"));
-    }
 
-    await tx`
-      INSERT INTO contacts.contact_notes (id, contact_id, author_user_id, author_display_name, content)
-      VALUES (${allocated.id}::uuid, ${config.contactId}::uuid, ${config.authorUserId}::uuid, ${config.authorDisplayName}, ${trimmed})
+      await tx`
+      INSERT INTO contacts.contact_notes (id, short_id, contact_id, author_user_id, author_display_name, content)
+      VALUES (${allocated.id}::uuid, ${shortId}, ${config.contactId}::uuid, ${config.authorUserId}::uuid, ${config.authorDisplayName}, ${trimmed})
     `;
-    const note = await loadNote({ noteId: allocated.id, contactId: config.contactId, db: tx });
-    return note ? ok({ note, replayed: false }) : fail(err.internal("Failed to load created note"));
-  });
+      const note = await loadNote({ noteId: allocated.id, contactId: config.contactId, db: tx });
+      return note ? ok({ note, replayed: false }) : fail(err.internal("Failed to load created note"));
+    }),
+  );
 };
 
 /**

@@ -2,6 +2,7 @@ import { err, fail, ok, type PageParams, type Paginated, paginate, type Result }
 import { type AccessSubject, buildAccessPrincipalCondition, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { serviceAccounts } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { withShortId } from "../lib/short-id";
 import {
   addBookAccess,
   CONTACT_BOOK_RESOURCE_TYPE,
@@ -47,7 +48,6 @@ const mapBook = (row: DbBook): ContactBook => ({
   id: row.id,
   name: row.name,
   description: row.description,
-  isSystem: false,
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
 });
@@ -296,11 +296,14 @@ export const get = async (config: { id: string }): Promise<ContactBook | null> =
  * Creates a manual book and grants admin access to the creator.
  */
 export const create = async (config: { data: CreateBookInput; creatorId: string }): Promise<Result<ContactBook>> => {
-  const [row] = await sql<DbBook[]>`
-    INSERT INTO contacts.books (name, description)
-    VALUES (${config.data.name}, ${config.data.description ?? null})
-    RETURNING id, name, description, created_at, updated_at
-  `;
+  const row = await withShortId("book", async (shortId) => {
+    const [created] = await sql<DbBook[]>`
+      INSERT INTO contacts.books (short_id, name, description)
+      VALUES (${shortId}, ${config.data.name}, ${config.data.description ?? null})
+      RETURNING id, name, description, created_at, updated_at
+    `;
+    return created;
+  });
 
   if (!row) return fail(err.internal("Failed to create book"));
 
