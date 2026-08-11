@@ -33,7 +33,9 @@ function MailboxSettingsDialog(props: MailboxSettingsDialogProps) {
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to load mailbox settings"));
-      return response.json();
+      const loaded = await response.json();
+      if (!loaded) throw new Error("The server returned no mailbox settings");
+      return loaded;
     },
   });
 
@@ -41,69 +43,64 @@ function MailboxSettingsDialog(props: MailboxSettingsDialogProps) {
     const current = settings.data();
     if (current) setContext(current);
   });
+  const currentContext = () => context() ?? settings.data();
 
   return (
     <Show
-      when={Boolean(context())}
+      when={currentContext()}
       fallback={
         <div class={`paper relative ${settingsDialogFrameClass} rounded-[var(--ui-radius-frame)] [box-shadow:var(--ui-shadow-float)]`}>
           <IconButton type="button" class="absolute right-4 top-4 z-10" label="Close settings" onClick={() => props.close()}>
             <i class="ti ti-x" aria-hidden="true" />
           </IconButton>
           <Show
-            when={settings.error()}
+            when={!settings.loading()}
             fallback={<Placeholder state="loading" variant="panel" title="Loading mailbox settings" class="flex-1 justify-center" />}
           >
-            {(error) => (
-              <Placeholder
-                state="error"
-                variant="panel"
-                title="Could not load mailbox settings"
-                description={error().message}
-                class="flex-1"
-                action={
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    type="button"
-                    disabled={settings.refreshing()}
-                    onClick={() => void settings.refresh()}
-                  >
-                    <i class={settings.refreshing() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} aria-hidden="true" />
-                    Retry
-                  </Button>
-                }
-              />
-            )}
+            <Placeholder
+              state="error"
+              variant="panel"
+              title="Could not load mailbox settings"
+              description={settings.error()?.message ?? "The server returned no mailbox settings"}
+              class="flex-1"
+              action={
+                <Button variant="secondary" size="sm" type="button" onClick={() => void settings.refresh()}>
+                  <i class="ti ti-refresh" aria-hidden="true" />
+                  Retry
+                </Button>
+              }
+            />
           </Show>
         </div>
       }
     >
-      <div class={settingsDialogFrameClass}>
-        <Show when={settings.error()}>
-          {(error) => (
-            <div class="px-4 pt-3">
-              <p class="text-xs text-danger">
-                {error().message}{" "}
-                <button type="button" class="underline" onClick={() => void settings.refresh()}>
-                  Retry
-                </button>
-              </p>
-            </div>
-          )}
-        </Show>
-        <MailboxSettings
-          context={context()!}
-          initialTab={props.initialTab}
-          currentUserEmail={props.currentUserEmail}
-          reloading={settings.refreshing() || Boolean(settings.error())}
-          onReload={settings.refresh}
-          onContextChange={(update) => setContext((current) => (current ? update(current) : current))}
-          onWorkspaceChange={props.onWorkspaceChange}
-          onClose={() => props.close()}
-          onDeleted={() => props.close({ deleted: true })}
-        />
-      </div>
+      {(current) => (
+        <div class={settingsDialogFrameClass}>
+          <Show when={settings.error()}>
+            {(error) => (
+              <div class="px-4 pt-3">
+                <p class="text-xs text-danger">
+                  {error().message}{" "}
+                  <button type="button" class="underline" onClick={() => void settings.refresh()}>
+                    Retry
+                  </button>
+                </p>
+              </div>
+            )}
+          </Show>
+          <MailboxSettings
+            context={current()}
+            initialTab={props.initialTab}
+            currentUserEmail={props.currentUserEmail}
+            reloading={settings.refreshing() || Boolean(settings.error())}
+            onReload={settings.refresh}
+            onContextChange={(update) => setContext(update(current()))}
+            onWorkspaceChange={props.onWorkspaceChange}
+            onClose={() => props.close()}
+            onDeleted={() => props.close({ deleted: true })}
+          />
+        </div>
+      )}
     </Show>
   );
 }

@@ -54,6 +54,7 @@ import {
   runMailWorkspaceAction,
 } from "./_components/mail-workspace-action-runner";
 import { type MailWorkspacePreferences, writeMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
+import { assertCursorProgress } from "./pagination";
 
 const rank = (permission: string): number => (permission === "admin" ? 3 : permission === "write" ? 2 : permission === "read" ? 1 : 0);
 const mailListScope = (href: string): string => {
@@ -194,11 +195,11 @@ export default function MailWorkspace(props: {
     loadPage: async (source, { cursor, abortSignal }) => {
       const target = decodeRouteSource(source);
       const url = new URL(target.href, window.location.origin);
-      if (cursor) url.searchParams.set("cursor", cursor);
+      if (cursor !== undefined) url.searchParams.set("cursor", cursor);
       const snapshot = await fetchWorkspaceRoute(url.toString(), abortSignal, target.listMode);
       if (!snapshot) throw new Error("Could not load mailbox view");
       const nextCursor = snapshot.scheduledMode ? snapshot.scheduledPage?.nextCursor : snapshot.nextListCursor;
-      if (cursor && nextCursor === cursor) throw new Error("The mailbox returned the same page twice");
+      assertCursorProgress(cursor, nextCursor, "mailbox");
       return { source, snapshot };
     },
     getNextCursor: (page) => (page.snapshot.scheduledMode ? page.snapshot.scheduledPage?.nextCursor : page.snapshot.nextListCursor),

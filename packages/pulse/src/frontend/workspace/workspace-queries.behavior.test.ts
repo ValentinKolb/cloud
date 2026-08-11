@@ -31,6 +31,8 @@ const flush = async () => {
   await Promise.resolve();
 };
 
+const pendingFetch = (): typeof fetch => Object.assign(() => new Promise<Response>(() => {}), { preconnect: globalThis.fetch.preconnect });
+
 const fullCoverage: PulseWorkspaceQueryCoverage = {
   activity: true,
   baseData: true,
@@ -180,6 +182,130 @@ describe("Pulse workspace queries", () => {
     }
   });
 
+  test("hides base data as soon as the selected base changes", async () => {
+    const dom = createDomTestHarness();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = pendingFetch();
+    const [baseId, setBaseId] = createSignal("base-1");
+    let controls!: ReturnType<typeof createPulseWorkspaceQueries>;
+    const dispose = render(() => {
+      controls = createPulseWorkspaceQueries(queryProps(), queryDeps("resources", { selectedBaseId: baseId }));
+      return dom.document.createTextNode("");
+    }, dom.root);
+
+    try {
+      expect(controls.queries.baseData.data()).toBeDefined();
+      setBaseId("base-2");
+      await flush();
+      expect(controls.queries.baseData.data()).toBeUndefined();
+      expect(controls.baseData()).toBeUndefined();
+    } finally {
+      dispose();
+      dom.cleanup();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("hides activity and series data under changed filters", async () => {
+    const dom = createDomTestHarness();
+    const originalFetch = globalThis.fetch;
+    const requests: Array<ReturnType<typeof deferred<Response>>> = [];
+    globalThis.fetch = Object.assign(
+      () => {
+        const response = deferred<Response>();
+        requests.push(response);
+        return response.promise;
+      },
+      { preconnect: globalThis.fetch.preconnect },
+    );
+    const [activitySearch, setActivitySearch] = createSignal("");
+    const [selectedMetric, setSelectedMetric] = createSignal("requests");
+    let controls!: ReturnType<typeof createPulseWorkspaceQueries>;
+    const dispose = render(() => {
+      controls = createPulseWorkspaceQueries(
+        queryProps({ initialRouteState: { view: "explorer", dashboardId: "", sourceId: "", signalId: "" } }),
+        queryDeps("explorer", { activitySearch, selectedMetric }),
+      );
+      return dom.document.createTextNode("");
+    }, dom.root);
+
+    try {
+      await flush();
+      requests[0]!.resolve(Response.json([row("old")]));
+      for (let attempt = 0; attempt < 10 && !controls.queries.series.data(); attempt++) await flush();
+      expect(controls.queries.activity.data()).toBeDefined();
+      expect(controls.series().map((item) => item.id)).toEqual(["old"]);
+
+      setActivitySearch("errors");
+      setSelectedMetric("latency");
+      await flush();
+      expect(controls.queries.activity.data()).toBeUndefined();
+      expect(controls.queries.series.data()).toBeUndefined();
+      expect(controls.series()).toEqual([]);
+    } finally {
+      dispose();
+      dom.cleanup();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("hides resource data as soon as the selected resource changes", async () => {
+    const dom = createDomTestHarness();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = pendingFetch();
+    const [resourceKey, setResourceKey] = createSignal("");
+    let controls!: ReturnType<typeof createPulseWorkspaceQueries>;
+    const dispose = render(() => {
+      controls = createPulseWorkspaceQueries(queryProps(), queryDeps("resources", { selectedResourceKey: resourceKey }));
+      return dom.document.createTextNode("");
+    }, dom.root);
+
+    try {
+      expect(controls.queries.resources.data()).toBeDefined();
+      expect(controls.queries.resourceSignals.data()).toBeDefined();
+      setResourceKey("resource-2");
+      await flush();
+      expect(controls.queries.resources.data()).toBeUndefined();
+      expect(controls.queries.resourceSignals.data()).toBeUndefined();
+    } finally {
+      dispose();
+      dom.cleanup();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("hides focused pages as soon as their source changes", async () => {
+    const dom = createDomTestHarness();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = pendingFetch();
+    const [focusedSearch, setFocusedSearch] = createSignal("");
+    let controls!: ReturnType<typeof createPulseWorkspaceQueries>;
+    const dispose = render(() => {
+      controls = createPulseWorkspaceQueries(
+        queryProps({
+          initialRouteState: { view: "metric-detail", dashboardId: "", sourceId: "", signalId: "requests" },
+          initialFocusedMetricSeries: [row("old")],
+          initialFocusedHasMore: true,
+        }),
+        queryDeps("metric-detail", { focusedSearch, focusedSignalId: () => "requests" }),
+      );
+      return dom.document.createTextNode("");
+    }, dom.root);
+
+    try {
+      expect(controls.focusedMetricSeries().map((item) => item.id)).toEqual(["old"]);
+      setFocusedSearch("errors");
+      await flush();
+      expect(controls.queries.focused.pages()).toEqual([]);
+      expect(controls.focusedMetricSeries()).toEqual([]);
+      expect(controls.focusedHasMore()).toBe(false);
+    } finally {
+      dispose();
+      dom.cleanup();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("keeps a failed dashboard widget local while healthy widgets refresh", async () => {
     const dom = createDomTestHarness();
     const originalFetch = globalThis.fetch;
@@ -323,6 +449,8 @@ describe("Pulse workspace queries", () => {
       const stale = controls.queries.dashboard.refresh();
       await flush();
       setControlValues({ "dashboard-1": { range: "new" } });
+      expect(controls.queries.dashboard.data()).toBeUndefined();
+      expect(controls.metricWidgetPoints()).toEqual({});
       const fresh = controls.queries.dashboard.refresh();
       await flush();
       expect(requests).toHaveLength(2);

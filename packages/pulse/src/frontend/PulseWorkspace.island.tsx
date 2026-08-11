@@ -83,7 +83,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
   );
   createEffect(
     on(
-      queryState.queries.baseData.data,
+      queryState.baseData,
       (data) => {
         if (!data) return;
         untrack(() => {

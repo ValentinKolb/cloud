@@ -25,6 +25,7 @@ import type {
   RedactedOperatorCommand,
 } from "../../contracts";
 import { PROVIDER_LIMIT_MAX_AGE_MS } from "../../contracts";
+import { assertCursorProgress } from "../pagination";
 import { readApiError } from "./api-response";
 import { formatHealthEventAge, mailboxHealthPresentation, mailboxOperationalHealthSummary } from "./mail-health-presentation";
 
@@ -143,7 +144,9 @@ export default function MailOperationalSettings(props: {
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to load mailbox operator status"));
-      return response.json();
+      const page = await response.json();
+      assertCursorProgress(cursor, page.nextAttentionCursor, "mailbox operations");
+      return page;
     },
     getNextCursor: (page) => page.nextAttentionCursor,
   });

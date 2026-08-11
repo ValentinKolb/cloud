@@ -26,6 +26,7 @@ import type {
   UnsubscribeMailingListResult,
 } from "../../contracts";
 import { MAIL_LIVE_WS_TYPE, type MailLiveClientMessage, type MailLiveServerMessage, parseMailLiveServerMessage } from "../../live-events";
+import { assertCursorProgress } from "../pagination";
 import { readApiError } from "./api-response";
 import { createMailLiveInvalidationHub, type MailLiveInvalidation } from "./mail-live-invalidation-hub";
 
@@ -87,12 +88,14 @@ function MailSubscriptionDialog(props: { mailboxId: string; canWrite: boolean; i
       const response = await apiClient.mailboxes[":mailboxId"].subscriptions.$get(
         {
           param: { mailboxId: props.mailboxId },
-          query: { limit: "50", cursor, listKey: cursor ? undefined : (props.initialListKey ?? undefined) },
+          query: { limit: "50", cursor, listKey: cursor === undefined ? (props.initialListKey ?? undefined) : undefined },
         },
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not load mailing lists"));
-      return response.json();
+      const page = await response.json();
+      assertCursorProgress(cursor, page.nextCursor, "mailing lists");
+      return page;
     },
     getNextCursor: (page) => page.nextCursor,
     subscribe: ({ invalidate }) => liveHub.register({ matches: () => true, invalidate }),

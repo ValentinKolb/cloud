@@ -73,6 +73,50 @@ describe("Webhook tester owner-local queries", () => {
     }
   });
 
+  test("does not project last-good logs under a new query source", async () => {
+    const dom = createDomTestHarness();
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ url: string; response: ReturnType<typeof deferred<Response>> }> = [];
+    globalThis.fetch = ((input: string | URL | Request) => {
+      const request = input instanceof Request ? input : null;
+      const response = deferred<Response>();
+      requests.push({ url: request?.url ?? String(input), response });
+      return response.promise;
+    }) as typeof fetch;
+
+    let dispose: (() => void) | undefined;
+    try {
+      let setSource!: (source: WebhookQuerySource) => void;
+      let controls!: ReturnType<typeof createWebhookQueries>;
+      dispose = render(() => {
+        const [source, updateSource] = createSignal<WebhookQuerySource>({
+          mode: "receive",
+          endpointId: null,
+          method: null,
+          query: "",
+          requestId: null,
+        });
+        setSource = updateSource;
+        controls = createWebhookQueries(source);
+        return dom.document.createTextNode("");
+      }, dom.root);
+      await flush();
+      requests.find((request) => request.url.includes("/endpoints"))!.response.resolve(Response.json({ items: [] }));
+      requests.find((request) => request.url.includes("/incoming-logs"))!.response.resolve(Response.json({ items: [{ id: "old" }] }));
+      for (let attempt = 0; attempt < 10 && !controls.logs.data(); attempt++) await flush();
+      expect(controls.logs.data()?.map((log) => log.id)).toEqual(["old"]);
+
+      setSource({ mode: "send", endpointId: null, method: null, query: "", requestId: null });
+      await flush();
+      expect(controls.logs.refreshing()).toBe(true);
+      expect(controls.logs.data()).toBeUndefined();
+    } finally {
+      dispose?.();
+      dom.cleanup();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("keeps a newer popstate route when a sent request completes", async () => {
     const dom = createDomTestHarness();
     const { default: WebhookTester } = await import("./WebhookTester.island");

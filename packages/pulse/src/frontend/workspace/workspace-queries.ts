@@ -55,6 +55,14 @@ type WorkspaceQueryDeps = {
 
 const same = <T extends Record<string, unknown>>(left: T, right: T) => Object.keys(left).every((key) => left[key] === right[key]);
 
+type QuerySnapshot<TSource, TData> = { source: TSource; data: TData };
+
+const currentQueryData = <TSource, TData>(
+  source: TSource,
+  loaded: QuerySnapshot<TSource, TData> | undefined,
+  isSameSource: (left: TSource, right: TSource) => boolean = Object.is,
+) => (loaded && isSameSource(loaded.source, source) ? loaded.data : undefined);
+
 const emptyInventory = (): PulseInventory => ({ resources: [], metrics: [], events: [], states: [], fields: [] });
 
 const dashboardRuntimeValues = (config: PulseDashboardConfig | null, values?: Record<string, string>) => ({
@@ -63,8 +71,8 @@ const dashboardRuntimeValues = (config: PulseDashboardConfig | null, values?: Re
 });
 
 type SourceDetail = { sourceId: string; scrapes: PulseSourceScrape[]; apiKeys: ResourceApiKey[] };
-type FocusedPage = { result: FocusedRowsPage; nextOffset: number };
 type FocusedSource = { baseId: string; view: FocusedRowsView; signalId: string; search: string };
+type FocusedPage = { result: FocusedRowsPage; nextOffset: number };
 type DashboardData = {
   points: Record<string, MetricQueryPoint[]>;
   events: Record<string, PulseRecordedEvent[]>;
@@ -89,44 +97,56 @@ export const createPulseWorkspaceQueries = (props: PulseWorkspaceProps, deps: Wo
       ? {
           source: initialBaseId,
           data: {
-            sources: props.initialSources ?? [],
-            metrics: props.initialMetrics ?? [],
-            inventory: props.initialInventory ?? emptyInventory(),
-            dashboards: props.initialDashboards ?? [],
-            savedQueries: props.initialSavedQueries ?? [],
+            source: initialBaseId,
+            data: {
+              sources: props.initialSources ?? [],
+              metrics: props.initialMetrics ?? [],
+              inventory: props.initialInventory ?? emptyInventory(),
+              dashboards: props.initialDashboards ?? [],
+              savedQueries: props.initialSavedQueries ?? [],
+            },
           },
         }
       : undefined,
     enabled: () => Boolean(deps.selectedBaseId()),
-    load: (baseId, { abortSignal }) => fetchPulseBaseData(baseId, abortSignal),
+    load: async (baseId, { abortSignal }) => ({ source: baseId, data: await fetchPulseBaseData(baseId, abortSignal) }),
   });
+  const currentBaseData = () => currentQueryData(deps.selectedBaseId(), baseDataQuery.data());
 
   const activitySource = createMemo(
     () => ({ baseId: deps.selectedBaseId(), q: deps.activitySearch().trim(), type: deps.metricTypeFilter() }),
     undefined,
     { equals: same },
   );
+  const initialActivitySource = {
+    baseId: initialBaseId,
+    q: props.initialActivityQuery?.q ?? "",
+    type: props.initialActivityQuery?.type ?? "",
+  };
   const activityQuery = query.create({
     source: activitySource,
     initial: props.initialQueryCoverage.activity
       ? {
-          source: {
-            baseId: initialBaseId,
-            q: props.initialActivityQuery?.q ?? "",
-            type: props.initialActivityQuery?.type ?? "",
-          },
+          source: initialActivitySource,
           data: {
-            events: props.initialRecentEvents ?? [],
-            metrics: props.initialActivityMetrics ?? [],
-            states: props.initialCurrentStates ?? [],
+            source: initialActivitySource,
+            data: {
+              events: props.initialRecentEvents ?? [],
+              metrics: props.initialActivityMetrics ?? [],
+              states: props.initialCurrentStates ?? [],
+            },
           },
         }
       : undefined,
     enabled: () =>
       Boolean(deps.selectedBaseId()) && ["explorer", "activity-events", "activity-states", "activity-metrics"].includes(deps.activeView()),
     isSameSource: same,
-    load: ({ baseId, ...source }, { abortSignal }) => fetchPulseActivityData(baseId, source, abortSignal),
+    load: async (source, { abortSignal }) => ({
+      source,
+      data: await fetchPulseActivityData(source.baseId, { q: source.q, type: source.type }, abortSignal),
+    }),
   });
+  const currentActivity = () => currentQueryData(activitySource(), activityQuery.data(), same);
 
   const resourceListSource = createMemo(
     () => ({
@@ -140,55 +160,67 @@ export const createPulseWorkspaceQueries = (props: PulseWorkspaceProps, deps: Wo
     undefined,
     { equals: same },
   );
+  const initialResourceListSource = {
+    baseId: initialBaseId,
+    view: initialView,
+    q: initialResourceQuery.q,
+    sourceId: initialResourceQuery.sourceId,
+    type: initialResourceQuery.type,
+    ref: initialView === "resource-detail" ? (props.initialRouteState?.signalId ?? "") : (props.initialInventory?.resources[0]?.key ?? ""),
+  };
   const resourceListQuery = query.create({
     source: resourceListSource,
     initial: props.initialQueryCoverage.resources
       ? {
-          source: {
-            baseId: initialBaseId,
-            view: initialView,
-            q: initialResourceQuery.q,
-            sourceId: initialResourceQuery.sourceId,
-            type: initialResourceQuery.type,
-            ref:
-              initialView === "resource-detail"
-                ? (props.initialRouteState?.signalId ?? "")
-                : (props.initialInventory?.resources[0]?.key ?? ""),
+          source: initialResourceListSource,
+          data: {
+            source: initialResourceListSource,
+            data: props.initialInventory?.resources ?? [],
           },
-          data: props.initialInventory?.resources ?? [],
         }
       : undefined,
     enabled: () => Boolean(deps.selectedBaseId()) && ["resources", "resource-detail"].includes(deps.activeView()),
     isSameSource: same,
-    load: (source, { abortSignal }) =>
-      fetchPulseResources(
+    load: async (source, { abortSignal }) => ({
+      source,
+      data: await fetchPulseResources(
         source.baseId,
         source.view === "resource-detail"
           ? { ref: source.ref, limit: 20 }
           : { q: source.q, sourceId: source.sourceId, type: source.type, limit: 500 },
         abortSignal,
       ),
+    }),
   });
+  const currentResources = () => currentQueryData(resourceListSource(), resourceListQuery.data(), same);
 
   const resourceSignalsSource = createMemo(() => ({ baseId: deps.selectedBaseId(), resourceKey: deps.selectedResourceKey() }), undefined, {
     equals: same,
   });
+  const initialResourceSignalsSource = { baseId: initialBaseId, resourceKey: props.initialRouteState?.signalId ?? "" };
   const resourceSignalsQuery = query.create({
     source: resourceSignalsSource,
     initial: props.initialQueryCoverage.resourceSignals
       ? {
-          source: { baseId: initialBaseId, resourceKey: props.initialRouteState?.signalId ?? "" },
+          source: initialResourceSignalsSource,
           data: {
-            metrics: props.initialInventory?.metrics ?? [],
-            states: props.initialInventory?.states ?? [],
-            events: props.initialInventory?.events ?? [],
+            source: initialResourceSignalsSource,
+            data: {
+              metrics: props.initialInventory?.metrics ?? [],
+              states: props.initialInventory?.states ?? [],
+              events: props.initialInventory?.events ?? [],
+            },
           },
         }
       : undefined,
     enabled: () => deps.activeView() === "resource-detail" && Boolean(deps.selectedBaseId() && deps.selectedResourceKey()),
     isSameSource: same,
-    load: ({ baseId, resourceKey }, { abortSignal }) => fetchPulseResourceSignals(baseId, resourceKey, abortSignal),
+    load: async (source, { abortSignal }) => ({
+      source,
+      data: await fetchPulseResourceSignals(source.baseId, source.resourceKey, abortSignal),
+    }),
   });
+  const currentResourceSignals = () => currentQueryData(resourceSignalsSource(), resourceSignalsQuery.data(), same);
 
   const seriesSource = createMemo(
     () => ({ baseId: deps.selectedBaseId(), metric: deps.selectedMetric(), sourceId: deps.selectedQuerySourceId() }),
@@ -199,8 +231,12 @@ export const createPulseWorkspaceQueries = (props: PulseWorkspaceProps, deps: Wo
     source: seriesSource,
     enabled: () => deps.activeView() === "explorer" && Boolean(deps.selectedBaseId() && deps.selectedMetric()),
     isSameSource: same,
-    load: ({ baseId, metric, sourceId }, { abortSignal }) => fetchPulseMetricSeries(baseId, metric, sourceId, abortSignal),
+    load: async (source, { abortSignal }) => ({
+      source,
+      data: await fetchPulseMetricSeries(source.baseId, source.metric, source.sourceId, abortSignal),
+    }),
   });
+  const currentSeries = () => currentQueryData(seriesSource(), seriesQuery.data(), same);
 
   const sourceDetailSource = createMemo(
     () => ({ baseId: deps.selectedBaseId(), sourceId: deps.selectedSourceId(), kind: deps.selectedSourceKind() }),
@@ -237,10 +273,8 @@ export const createPulseWorkspaceQueries = (props: PulseWorkspaceProps, deps: Wo
   });
 
   const dashboardSource = createMemo(() => {
-    const dashboard =
-      baseDataQuery.data()?.dashboards.find((item) => item.id === deps.selectedDashboardId()) ??
-      baseDataQuery.data()?.dashboards[0] ??
-      null;
+    const baseData = currentBaseData();
+    const dashboard = baseData?.dashboards.find((item) => item.id === deps.selectedDashboardId()) ?? baseData?.dashboards[0] ?? null;
     const config = deps.activeView() === "dashboard-edit" ? (deps.dashboardPreviewConfig() ?? dashboard?.config) : dashboard?.config;
     const controlValues = dashboard ? dashboardRuntimeValues(config ?? null, deps.dashboardControlValues()[dashboard.id]) : undefined;
     return {
@@ -276,11 +310,14 @@ export const createPulseWorkspaceQueries = (props: PulseWorkspaceProps, deps: Wo
   };
   const dashboardQuery = query.create({
     source: dashboardSource,
-    initial: props.initialQueryCoverage.dashboard ? { source: initialDashboardSource, data: lastDashboardData } : undefined,
+    initial: props.initialQueryCoverage.dashboard
+      ? { source: initialDashboardSource, data: { source: initialDashboardSource, data: lastDashboardData } }
+      : undefined,
     enabled: () => ["dashboard", "dashboard-edit"].includes(deps.activeView()) && Boolean(dashboardSource().dashboard),
     isSameSource: (left, right) => left.fingerprint === right.fingerprint,
-    load: async ({ baseId, dashboard, config, controlValues, fingerprint }, { abortSignal }): Promise<DashboardData> => {
-      if (!dashboard || !config) return { points: {}, events: {}, states: {}, maps: {} };
+    load: async (source, { abortSignal }) => {
+      const { baseId, dashboard, config, controlValues, fingerprint } = source;
+      if (!dashboard || !config) return { source, data: { points: {}, events: {}, states: {}, maps: {} } };
       const previous = lastDashboardSource === fingerprint ? lastDashboardData : { points: {}, events: {}, states: {}, maps: {} };
       const points = Object.fromEntries(
         await Promise.all(
@@ -343,9 +380,11 @@ export const createPulseWorkspaceQueries = (props: PulseWorkspaceProps, deps: Wo
         lastDashboardSource = fingerprint;
         lastDashboardData = next;
       }
-      return next;
+      return { source, data: next };
     },
   });
+  const currentDashboard = () =>
+    currentQueryData(dashboardSource(), dashboardQuery.data(), (left, right) => left.fingerprint === right.fingerprint);
 
   const focusedSource = createMemo(
     () => ({
@@ -365,21 +404,31 @@ export const createPulseWorkspaceQueries = (props: PulseWorkspaceProps, deps: Wo
         ? (props.initialFocusedStates ?? [])
         : (props.initialFocusedEvents ?? []);
   const initialFocusedSearch = new URLSearchParams(props.initialSearch ?? "").get("q")?.trim() ?? "";
-  const focusedQuery = query.createInfinite<FocusedSource, FocusedPage, number>({
+  const initialFocusedSource = focusedView
+    ? {
+        baseId: initialBaseId,
+        view: focusedView,
+        signalId: props.initialRouteState?.signalId ?? "",
+        search: initialFocusedSearch,
+      }
+    : null;
+  const focusedQuery = query.createInfinite<FocusedSource, QuerySnapshot<FocusedSource, FocusedPage>, number>({
     source: focusedSource,
     initial:
-      focusedView && props.initialQueryCoverage.focused
+      initialFocusedSource && props.initialQueryCoverage.focused
         ? {
-            source: {
-              baseId: initialBaseId,
-              view: focusedView,
-              signalId: props.initialRouteState?.signalId ?? "",
-              search: initialFocusedSearch,
-            },
+            source: initialFocusedSource,
             pages: [
               {
-                result: { view: focusedView, rows: initialFocusedRows, hasMore: props.initialFocusedHasMore ?? false } as FocusedRowsPage,
-                nextOffset: initialFocusedRows.length,
+                source: initialFocusedSource,
+                data: {
+                  result: {
+                    view: initialFocusedSource.view,
+                    rows: initialFocusedRows,
+                    hasMore: props.initialFocusedHasMore ?? false,
+                  } as FocusedRowsPage,
+                  nextOffset: initialFocusedRows.length,
+                },
               },
             ],
           }
@@ -388,7 +437,7 @@ export const createPulseWorkspaceQueries = (props: PulseWorkspaceProps, deps: Wo
       ["metric-detail", "state-detail", "event-detail"].includes(deps.activeView()) &&
       Boolean(deps.selectedBaseId() && deps.focusedSignalId()),
     isSameSource: same,
-    loadPage: async (source, { cursor, abortSignal }): Promise<FocusedPage> => {
+    loadPage: async (source, { cursor, abortSignal }) => {
       const offset = cursor ?? 0;
       const result = await fetchFocusedRowsPage({
         baseId: source.baseId,
@@ -399,57 +448,65 @@ export const createPulseWorkspaceQueries = (props: PulseWorkspaceProps, deps: Wo
         signalId: source.signalId,
         view: source.view,
       });
-      return { result, nextOffset: offset + result.rows.length };
+      return { source, data: { result, nextOffset: offset + result.rows.length } };
     },
-    getNextCursor: (page) => (page.result.hasMore ? page.nextOffset : null),
+    getNextCursor: (page) => (page.data.result.hasMore ? page.data.nextOffset : null),
   });
+  const currentFocusedPages = () =>
+    focusedQuery
+      .pages()
+      .filter((page) => same(page.source, focusedSource()))
+      .map((page) => page.data);
 
   const focusedMetricSeries = createMemo(() =>
     deps.activeView() === "metric-detail"
-      ? focusedQuery.pages().flatMap((page) => (page.result.view === "metric-detail" ? page.result.rows : []))
+      ? currentFocusedPages().flatMap((page) => (page.result.view === "metric-detail" ? page.result.rows : []))
       : [],
   );
   const focusedStates = createMemo(() =>
     deps.activeView() === "state-detail"
-      ? focusedQuery.pages().flatMap((page) => (page.result.view === "state-detail" ? page.result.rows : []))
+      ? currentFocusedPages().flatMap((page) => (page.result.view === "state-detail" ? page.result.rows : []))
       : [],
   );
   const focusedEvents = createMemo(() =>
     deps.activeView() === "event-detail"
-      ? focusedQuery.pages().flatMap((page) => (page.result.view === "event-detail" ? page.result.rows : []))
+      ? currentFocusedPages().flatMap((page) => (page.result.view === "event-detail" ? page.result.rows : []))
       : [],
   );
   const inventory = createMemo<PulseInventory>(() => {
-    const base = baseDataQuery.data()?.inventory ?? emptyInventory();
-    const signals = resourceSignalsQuery.data();
+    const base = currentBaseData()?.inventory ?? emptyInventory();
+    const signals = currentResourceSignals();
+    const resourceChanged = Boolean(resourceListQuery.data() && !currentResources());
+    const resourceSignalsChanged = Boolean(resourceSignalsQuery.data() && !signals);
     return {
       ...base,
-      resources: resourceListQuery.data() ?? base.resources,
-      metrics: deps.activeView() === "resource-detail" && signals ? signals.metrics : base.metrics,
-      states: deps.activeView() === "resource-detail" && signals ? signals.states : base.states,
-      events: deps.activeView() === "resource-detail" && signals ? signals.events : base.events,
+      resources: currentResources() ?? (resourceChanged ? [] : base.resources),
+      metrics: deps.activeView() === "resource-detail" ? (signals?.metrics ?? (resourceSignalsChanged ? [] : base.metrics)) : base.metrics,
+      states: deps.activeView() === "resource-detail" ? (signals?.states ?? (resourceSignalsChanged ? [] : base.states)) : base.states,
+      events: deps.activeView() === "resource-detail" ? (signals?.events ?? (resourceSignalsChanged ? [] : base.events)) : base.events,
     };
   });
 
   return {
-    activityMetrics: () => activityQuery.data()?.metrics ?? [],
+    activityMetrics: () => currentActivity()?.metrics ?? [],
+    baseData: currentBaseData,
     bases: () => basesQuery.data() ?? [],
-    currentStates: () => activityQuery.data()?.states ?? [],
-    dashboardEvents: () => dashboardQuery.data()?.events ?? {},
-    dashboardMaps: () => dashboardQuery.data()?.maps ?? {},
-    dashboards: () => baseDataQuery.data()?.dashboards ?? [],
-    dashboardStates: () => dashboardQuery.data()?.states ?? {},
+    currentStates: () => currentActivity()?.states ?? [],
+    dashboardEvents: () => currentDashboard()?.events ?? {},
+    dashboardMaps: () => currentDashboard()?.maps ?? {},
+    dashboards: () => currentBaseData()?.dashboards ?? [],
+    dashboardStates: () => currentDashboard()?.states ?? {},
     focusedEvents,
-    focusedHasMore: focusedQuery.hasMore,
+    focusedHasMore: () => currentFocusedPages().length > 0 && focusedQuery.hasMore(),
     focusedLoadingMore: focusedQuery.loadingMore,
     focusedMetricSeries,
     focusedStates,
     inventory,
-    metrics: () => baseDataQuery.data()?.metrics ?? [],
-    metricWidgetPoints: () => dashboardQuery.data()?.points ?? {},
-    recentEvents: () => activityQuery.data()?.events ?? [],
-    savedQueries: () => baseDataQuery.data()?.savedQueries ?? [],
-    series: () => seriesQuery.data() ?? [],
+    metrics: () => currentBaseData()?.metrics ?? [],
+    metricWidgetPoints: () => currentDashboard()?.points ?? {},
+    recentEvents: () => currentActivity()?.events ?? [],
+    savedQueries: () => currentBaseData()?.savedQueries ?? [],
+    series: () => currentSeries() ?? [],
     sourceApiKeys: () => {
       const detail = sourceDetailQuery.data();
       return detail ? { [detail.sourceId]: detail.apiKeys } : {};
@@ -458,16 +515,20 @@ export const createPulseWorkspaceQueries = (props: PulseWorkspaceProps, deps: Wo
       const detail = sourceDetailQuery.data();
       return detail ? { [detail.sourceId]: detail.scrapes } : {};
     },
-    sources: () => baseDataQuery.data()?.sources ?? [],
+    sources: () => currentBaseData()?.sources ?? [],
     queries: {
-      activity: activityQuery,
-      baseData: baseDataQuery,
+      activity: { ...activityQuery, data: currentActivity },
+      baseData: { ...baseDataQuery, data: currentBaseData },
       bases: basesQuery,
-      dashboard: dashboardQuery,
-      focused: focusedQuery,
-      resources: resourceListQuery,
-      resourceSignals: resourceSignalsQuery,
-      series: seriesQuery,
+      dashboard: { ...dashboardQuery, data: currentDashboard },
+      focused: {
+        ...focusedQuery,
+        pages: currentFocusedPages,
+        hasMore: () => currentFocusedPages().length > 0 && focusedQuery.hasMore(),
+      },
+      resources: { ...resourceListQuery, data: currentResources },
+      resourceSignals: { ...resourceSignalsQuery, data: currentResourceSignals },
+      series: { ...seriesQuery, data: currentSeries },
       sourceDetail: sourceDetailQuery,
     },
   };

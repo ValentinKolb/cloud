@@ -59,6 +59,13 @@ const buildLogQuery = (state: WebhookQuerySource) => {
   return result;
 };
 
+const sameWebhookSource = (left: WebhookQuerySource, right: WebhookQuerySource) =>
+  left.mode === right.mode &&
+  left.endpointId === right.endpointId &&
+  left.method === right.method &&
+  left.query === right.query &&
+  left.requestId === right.requestId;
+
 export const createWebhookQueries = (source: Accessor<WebhookQuerySource>) => {
   const endpoints = query.create({
     source: () => "endpoints",
@@ -70,6 +77,7 @@ export const createWebhookQueries = (source: Accessor<WebhookQuerySource>) => {
   });
   const logs = query.create({
     source,
+    isSameSource: sameWebhookSource,
     load: async (state, { abortSignal }) => {
       const logQuery = buildLogQuery(state);
       const response =
@@ -77,8 +85,12 @@ export const createWebhookQueries = (source: Accessor<WebhookQuerySource>) => {
           ? await apiClient.webhooks["incoming-logs"].$get({ query: logQuery }, { init: { signal: abortSignal } })
           : await apiClient.webhooks["outgoing-logs"].$get({ query: logQuery }, { init: { signal: abortSignal } });
       await assertOk(response);
-      return ((await response.json()) as { items: WebhookLog[] }).items;
+      return { source: state, items: ((await response.json()) as { items: WebhookLog[] }).items };
     },
   });
-  return { endpoints, logs };
+  const currentLogs = () => {
+    const loaded = logs.data();
+    return loaded && sameWebhookSource(loaded.source, source()) ? loaded.items : undefined;
+  };
+  return { endpoints, logs: { ...logs, data: currentLogs } };
 };

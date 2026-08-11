@@ -8,6 +8,7 @@ import { readApiError } from "./_components/api-response";
 import { openMailboxHealthDialog } from "./_components/MailboxHealthDialog";
 import { openMailboxSettingsDialog } from "./_components/MailboxSettingsDialog";
 import { mailboxOverviewSubtitle } from "./_components/mail-overview-presentation";
+import { assertCursorProgress } from "./pagination";
 
 type MailboxWithPermission = Mailbox & {
   permission: "read" | "write" | "admin";
@@ -61,7 +62,7 @@ export default function MailOverview(props: {
       const response = await apiClient.mailboxes.deleted.$get({ query: { limit: "100", cursor } }, { init: { signal: abortSignal } });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to load deleted mailboxes"));
       const page = await response.json();
-      if (cursor && page.nextCursor === cursor) throw new Error("The server returned the same deleted-mailbox page twice");
+      assertCursorProgress(cursor, page.nextCursor, "deleted-mailbox");
       return page;
     },
     getNextCursor: (page) => page.nextCursor,

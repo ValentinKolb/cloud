@@ -3,6 +3,7 @@ import { Button, DetailPanel, Disclosure, Placeholder, prompts } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { MailConversationContext, RelatedMailPage } from "../../contracts";
+import { assertCursorProgress } from "../pagination";
 import { readApiError } from "./api-response";
 import { createContact, listWritableContactBooks } from "./contact-capabilities";
 import { buildMailContactParticipantRows } from "./mail-contact-context";
@@ -42,7 +43,9 @@ function RelatedMail(props: {
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not load related Mail"));
-      return response.json();
+      const page = await response.json();
+      assertCursorProgress(cursor, page.nextCursor, "related Mail");
+      return page;
     },
     getNextCursor: (page) => page.nextCursor,
   });
@@ -131,7 +134,9 @@ export default function MailConversationContext(props: {
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not load Contacts"));
-      return response.json();
+      const page = await response.json();
+      if (page.contacts.status === "ready") assertCursorProgress(cursor, page.contacts.nextCursor, "Contacts");
+      return page;
     },
     getNextCursor: (page) => (page.contacts.status === "ready" ? page.contacts.nextCursor : null),
   });

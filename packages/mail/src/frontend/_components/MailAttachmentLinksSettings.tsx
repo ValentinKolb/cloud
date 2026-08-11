@@ -4,6 +4,7 @@ import { Button, Placeholder, prompts, StatusBadge, toast } from "@k2b/ui";
 import { createMemo, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { AttachmentLink, AttachmentLinkPage } from "../../contracts";
+import { assertCursorProgress } from "../pagination";
 import { readApiError } from "./api-response";
 
 const linkStatus = (link: AttachmentLink): "active" | "expired" | "exhausted" | "revoked" => {
@@ -25,7 +26,9 @@ export default function MailAttachmentLinksSettings(props: { mailboxId: string; 
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not load attachment links"));
-      return response.json();
+      const page = await response.json();
+      assertCursorProgress(cursor, page.nextCursor, "attachment links");
+      return page;
     },
     getNextCursor: (page) => page.nextCursor,
   });

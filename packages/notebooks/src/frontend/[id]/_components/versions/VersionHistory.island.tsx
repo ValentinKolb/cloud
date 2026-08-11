@@ -100,7 +100,9 @@ export default function VersionHistory(props: Props) {
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(`Failed to load versions (${response.status})`);
-      return (await response.json()) as VersionPage;
+      const result = (await response.json()) as VersionPage;
+      if (result.pagination.page !== page) throw new Error("The server returned an invalid version page");
+      return result;
     },
     getNextCursor: (page) => (page.pagination.has_next ? page.pagination.page + 1 : undefined),
   });
