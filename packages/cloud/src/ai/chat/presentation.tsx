@@ -49,6 +49,43 @@ const storedItems = (messages: readonly AiStoredMessage[], actions: AiChatAction
   buildAiMessageTimeline([...messages]).map((item): ChatTimelineItem => {
     if (item.type === "user") {
       const text = aiUserMessageText(item.entry);
+      const agentMessage = item.entry.meta?.agentMessage;
+      if (agentMessage) {
+        const separator = text.indexOf("\n\n");
+        const forwardedText = separator >= 0 ? text.slice(separator + 2) : text;
+        return {
+          kind: "message",
+          id: item.id,
+          role: "system",
+          label: `Message from Assistant chat ${agentMessage.sourceTitle}`,
+          createdAt: item.entry.createdAt,
+          content: (
+            <div class="flex flex-col gap-1">
+              <p class="text-xs font-medium text-dimmed">
+                <i class="ti ti-message-forward mr-1" aria-hidden="true" />
+                From{" "}
+                <Show
+                  when={agentMessage.sourceHref}
+                  fallback={
+                    <span>
+                      {agentMessage.sourceTitle} ({agentMessage.sourceChatId})
+                    </span>
+                  }
+                >
+                  {(href) => (
+                    <a class="text-link hover:underline" href={href()}>
+                      {agentMessage.sourceTitle} ({agentMessage.sourceChatId})
+                    </a>
+                  )}
+                </Show>
+                <span class="font-normal"> · turn {agentMessage.sourceTurnId}</span>
+              </p>
+              {forwardedText ? <p class="whitespace-pre-wrap">{forwardedText}</p> : undefined}
+            </div>
+          ),
+          anchorId: item.entry.seq,
+        };
+      }
       return {
         kind: "message",
         id: item.id,

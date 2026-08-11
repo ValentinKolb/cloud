@@ -12,6 +12,7 @@ import type {
 } from "@k2b/nessi";
 import type { Usage } from "@k2b/nessi/ai";
 import type { z } from "zod";
+import type { CloudResourceRef } from "../contracts/capabilities";
 import type { RequestActor } from "../server";
 import type { AiTurnBlock } from "./protocol";
 
@@ -243,6 +244,13 @@ export type AiStoredMessage = {
   meta: {
     compactedCount?: number;
     steerId?: string;
+    agentMessage?: {
+      id: string;
+      sourceChatId: string;
+      sourceTurnId: string;
+      sourceTitle: string;
+      sourceHref?: string;
+    };
     toolPresentations?: Record<string, AiToolPresentation>;
   } | null;
   createdAt: string;
@@ -300,6 +308,29 @@ export type AiTurn = {
   createdAt: string;
   completedAt: string | null;
   error: string | null;
+};
+
+export type AiInterChatMessage = {
+  id: string;
+  shortId: string;
+  sourceConversationId: string;
+  sourceChatId: string;
+  sourceTitle: string;
+  sourceTurnId: string;
+  sourceTurnShortId: string;
+  sourceCallId: string;
+  targetConversationId: string;
+  targetChatId: string;
+  targetTitle: string;
+  actorUserId: string;
+  text: string;
+  status: "pending" | "delivered" | "failed";
+  targetTurnId: string | null;
+  targetTurnShortId: string | null;
+  targetMessageId: string | null;
+  error: string | null;
+  createdAt: string;
+  deliveredAt: string | null;
 };
 
 export type AiPendingTurnAction =
@@ -361,7 +392,32 @@ export type AiProjectPromptSnapshot = {
   revision: number;
   instructions: string;
   context: string;
+  references: CloudResourceRef[];
   defaultModelProfileId: string | null;
+};
+
+export type AiConversationResourceRef = {
+  ref: CloudResourceRef;
+  title: string | null;
+  preview: string | null;
+  icon: string | null;
+  href: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  sourceTurnId: string | null;
+  sourceCallId: string | null;
+};
+
+export type AiConversationResourceObservation = {
+  ref: CloudResourceRef;
+  title?: string;
+  preview?: string;
+  icon?: string;
+  href?: string;
+};
+
+export type AiConversationResourceOccurrence = AiConversationResourceRef & {
+  chat: Pick<AiConversation, "shortId" | "title" | "icon" | "updatedAt">;
 };
 
 export type AiChatTurnRunConfig = {
@@ -428,6 +484,7 @@ export type AiConversationStore = {
     ownerUserId: string;
     resource?: AiConversationResource;
     search?: string;
+    refs?: CloudResourceRef[];
     archived?: boolean;
     status?: AiConversationStatusFilter;
     limit?: number;
@@ -461,6 +518,53 @@ export type AiConversationStore = {
     names: string[];
     maxLoadedCapabilities?: number;
   }): Promise<{ loaded: string[]; alreadyLoaded: string[]; evicted: string[] }>;
+  indexConversationResources(input: {
+    conversationId: string;
+    turnId?: string;
+    callId?: string;
+    resources: AiConversationResourceObservation[];
+  }): Promise<void>;
+  listConversationResources(input: {
+    conversationId: string;
+    search?: string;
+    before?: string;
+    limit?: number;
+  }): Promise<{ resources: AiConversationResourceRef[]; nextCursor?: string }>;
+  listUserConversationResources(input: {
+    appId: string;
+    ownerUserId: string;
+    search?: string;
+    before?: string;
+    limit?: number;
+  }): Promise<{ resources: AiConversationResourceOccurrence[]; nextCursor?: string }>;
+  getCapabilityInvocationOrigin(input: { idempotencyKey: string; toolName: string }): Promise<{
+    conversationId: string;
+    conversationShortId: string;
+    turnId: string;
+    turnShortId: string;
+    callId: string;
+  } | null>;
+  createInterChatMessage(input: {
+    appId: string;
+    sourceConversationId: string;
+    sourceTurnId: string;
+    sourceCallId: string;
+    targetChatId: string;
+    actorUserId: string;
+    text: string;
+    idempotencyKey: string;
+  }): Promise<{ ok: true; message: AiInterChatMessage } | { ok: false; reason: "not_found" | "same_chat" | "recursive" }>;
+  listPendingInterChatMessages(input?: { targetConversationId?: string; limit?: number }): Promise<AiInterChatMessage[]>;
+  failInterChatMessage(input: { messageId: string; error: string }): Promise<boolean>;
+  deliverInterChatMessage(input: {
+    messageId: string;
+    modelProfileId: string;
+    runConfig: AiChatTurnRunConfig;
+    userMessage: Message;
+    sourceHref?: string;
+  }): Promise<
+    { delivered: false; reason: "not_found" | "busy" | "failed" } | { delivered: true; message: AiInterChatMessage; turn: AiTurn }
+  >;
   updateConversationMetadata(input: {
     conversationId: string;
     appId?: string;
@@ -530,6 +634,12 @@ export type AiConversationStore = {
     messages: AiStoredMessage[];
     hasMore: boolean;
   }>;
+  searchConversationMessages(input: {
+    conversationId: string;
+    query: string;
+    beforeSeq?: number;
+    limit?: number;
+  }): Promise<{ messages: AiStoredMessage[]; nextCursor?: string }>;
   /** Compact full-conversation index used by the long-chat turn navigator. */
   listConversationTimeline(input: { conversationId: string }): Promise<AiConversationTimelineEntry[]>;
   /** Model context: only active (non-compacted) messages — what the LLM sees. */

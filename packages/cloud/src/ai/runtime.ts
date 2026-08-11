@@ -14,6 +14,7 @@ import type {
   AiChatTurnRunConfig,
   AiClientToolId,
   AiCompactionTurnRunConfig,
+  AiInterChatMessage,
   AiModelPolicy,
   AiPendingTurnAction,
   AiStoredMessage,
@@ -106,6 +107,43 @@ export const submitAiChatTurn = async (input: SubmitAiChatTurnInput): Promise<{ 
 
   await enqueueAiTurn({ conversationId: input.conversationId, turnId: submitted.turn.id });
   return submitted;
+};
+
+export const deliverAiInterChatMessage = async (input: {
+  message: AiInterChatMessage;
+  actor: RequestActor;
+  modelPolicy?: AiModelPolicy;
+  systemPrompt?: string;
+  project?: AiChatTurnRunConfig["project"];
+  sourceHref?: string;
+  toolSource?: AiTurnToolSource;
+  toolApprovalContext?: AiToolApprovalContext;
+}): Promise<
+  { delivered: false; reason: "not_found" | "busy" | "failed" } | { delivered: true; message: AiInterChatMessage; turn: AiTurn }
+> => {
+  const text = [`Assistant message from chat ${input.message.sourceChatId} (${input.message.sourceTitle}):`, input.message.text].join(
+    "\n\n",
+  );
+  const { resolved } = await validateAiTurnRequest({ input: text, modelPolicy: input.modelPolicy });
+  const runConfig: AiChatTurnRunConfig = {
+    kind: "chat",
+    input: text,
+    actor: input.actor,
+    modelPolicy: input.modelPolicy,
+    systemPrompt: input.systemPrompt,
+    project: input.project,
+    toolSource: input.toolSource ?? { kind: "none" },
+    toolApprovalContext: input.toolApprovalContext,
+  };
+  const delivered = await aiConversationStore.deliverInterChatMessage({
+    messageId: input.message.id,
+    modelProfileId: resolved.profile.id,
+    runConfig,
+    userMessage: { role: "user", content: [{ type: "text", text }] },
+    sourceHref: input.sourceHref,
+  });
+  if (delivered.delivered) await enqueueAiTurn({ conversationId: delivered.message.targetConversationId, turnId: delivered.turn.id });
+  return delivered;
 };
 
 export type SubmitAiCompactionInput = {
@@ -326,13 +364,23 @@ const publishSweepFinished = async (turn: AiTurnFinalizedAction & { error?: stri
   }).catch(() => undefined);
 };
 
-export const sweepAiRuntime = async (): Promise<void> => {
+export const sweepAiRuntime = async (onTurnFinalized?: (event: AiTurnFinalizedEvent) => Promise<void>): Promise<void> => {
   const sweep = await aiConversationStore.sweepTurns({ maxAttempts: AI_TURN_MAX_ATTEMPTS });
   await Promise.all([
     ...sweep.requeued.map((job) => enqueueAiTurn(job).catch(() => undefined)),
     ...sweep.failed.map((turn) => publishSweepFinished(turn, "failed")),
     ...sweep.aborted.map((turn) => publishSweepFinished(turn, "aborted")),
   ]);
+  if (onTurnFinalized) {
+    await Promise.all([
+      ...sweep.failed.map((turn) =>
+        onTurnFinalized({ conversationId: turn.conversationId, turnId: turn.turnId, status: "failed", kind: null }),
+      ),
+      ...sweep.aborted.map((turn) =>
+        onTurnFinalized({ conversationId: turn.conversationId, turnId: turn.turnId, status: "aborted", kind: null }),
+      ),
+    ]);
+  }
   if (sweep.requeued.length || sweep.failed.length || sweep.aborted.length) {
     log.info("AI runtime sweep", { requeued: sweep.requeued.length, failed: sweep.failed.length, aborted: sweep.aborted.length });
   }
@@ -393,7 +441,7 @@ export const startAiRuntime = (
   }
 
   const runSweep = () =>
-    void sweepAiRuntime().catch((error) =>
+    void sweepAiRuntime(dispatchTurnFinalized).catch((error) =>
       log.warn("AI runtime sweep failed", { error: error instanceof Error ? error.message : "sweep failed" }),
     );
   runSweep();

@@ -5,7 +5,7 @@ section: AI
 order: 1030
 description: Run bounded chat sessions and stream model output to an application.
 tags: [ai, chat, streaming]
-updated: 2026-08-04
+updated: 2026-08-11
 ---
 
 # Chat runtime and streaming
@@ -112,6 +112,9 @@ language-dependent automatic retries.
 | `/memories`, `/memories/:id` | Search and manage structured personal facts and preferences |
 | `/conversations` | List and create conversations |
 | `/conversations/:id` | Read or manage one conversation |
+| `/conversations/:id/messages/search` | Search visible text inside one owned conversation |
+| `/conversations/:id/resources` | List or filter structured Cloud refs observed in one conversation |
+| `/resources` | List or filter structured Cloud refs across the user's active conversations |
 | `/conversations/:id/turns` | Start, steer, or stop work |
 | `/conversations/:id/stream` | Receive Server-Sent Events |
 | `/conversations/:id/files` | Manage conversation files |
@@ -128,12 +131,37 @@ the same result set; known extension-capability failures fall back to native
 FTS. Ownership, app, status, resource, archive, count, and pagination filters
 apply before results are returned.
 
-The Assistant app publishes closed-world `chat.search` and `chat.read`
-capabilities so an agent can find and read the current user's previous
-Assistant chats. Both queries recheck the current user at execution time,
-return only visible user and assistant text, omit tool results and model
-thinking, and include a same-origin link back to the chat. They do not expose
-another user's chats or introduce a service-agent identity.
+The Assistant app publishes five closed-world conversation queries:
+
+- `chats.search` finds owned chats by visible text or exact structured Cloud
+  refs;
+- `chat.read` pages visible user and Assistant text from one explicit chat;
+- `chat.search` searches visible text inside one explicit chat, including
+  compacted history;
+- `chat.resources` lists refs observed in one explicit chat;
+- `chats.resources` lists ref occurrences across the user's active chats.
+
+Each query rechecks the current user at execution time. Message results omit
+tool results and model thinking. Resource discovery uses only schema-valid
+`CloudResourceRef` and `CloudResourceView` values observed in Project context
+or capability arguments and results; it never extracts identities from prose.
+The normalized index keeps an app-owned ID plus a display snapshot and source
+turn/call where available. The migration deliberately does not scrape or
+backfill prose from older messages. Before enabling the feature on an existing
+beta data set, run `bun run --cwd packages/cloud backfill:conversation-resources`
+to recover schema-valid refs from stored capability arguments/results and
+Project references. Upserts make an
+interrupted rollout safe to retry; the command is still a one-time rollout
+step, not a recurring maintenance job.
+
+Assistant also publishes the closed-world `chat.message` Action. It shows the
+exact target chat and text for fresh approval, derives the source chat and turn
+from AI Core's trusted capability-call record, then durably queues one
+idempotent message for another active chat owned by the same user. The target
+history renders this as an attributable Assistant-chat message, not as ordinary
+user-authored text. A message-triggered turn cannot forward another inter-chat
+message, preventing autonomous loops. Busy targets retain the pending message
+and retry delivery after a turn finishes or the Assistant service starts.
 
 `allowConversationManagement` enables metadata editing, pinning, archiving,
 and restore for direct chats.

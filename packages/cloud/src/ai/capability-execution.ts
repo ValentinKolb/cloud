@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 import type { ToolContext } from "@k2b/nessi";
 import { type CapabilityDispatchDependencies, dispatchCapability } from "../api/capabilities";
-import { CapabilityActionReviewSchema, type CapabilityActionManifest, type CapabilityActionReview } from "../contracts/capabilities";
+import { type CapabilityActionManifest, type CapabilityActionReview, CapabilityActionReviewSchema } from "../contracts/capabilities";
 import type { RequestActor } from "../server";
 import type { AccessSubject } from "../server/services/access";
 import { isAccountExpired } from "../services/account-model";
 import { accounts } from "../services/accounts";
 import { session } from "../services/session";
 import type { AiCapabilityCatalogEntry } from "./capabilities";
+import { aiToolAudit } from "./tool-audit";
 import type { AiConversationStore } from "./types";
 
 type CapabilityActor = Extract<RequestActor, { kind: "user" }>;
@@ -53,6 +54,7 @@ const parseCapabilityResponse = async (response: Response): Promise<unknown> => 
 
 type AiCapabilityCall = {
   conversationId: string;
+  turnId?: string;
   authority: { actor: CapabilityActor; accessSubject: AccessSubject };
   entry: AiCapabilityCatalogEntry;
   args: unknown;
@@ -76,7 +78,17 @@ const dispatchAiCapability = async (input: AiCapabilityCall, review: boolean): P
     const headers = new Headers({ authorization: `Bearer ${token}` });
     const action = input.entry.kind === "action" ? (input.entry.operation as CapabilityActionManifest) : null;
     if (!review && action?.idempotency === "required" && input.context.callId) {
-      headers.set("idempotency-key", idempotencyKey(input.conversationId, input.context.callId));
+      const key = idempotencyKey(input.conversationId, input.context.callId);
+      if (input.turnId) {
+        await aiToolAudit.noteCapabilityDispatch({
+          conversationId: input.conversationId,
+          turnId: input.turnId,
+          callId: input.context.callId,
+          toolName: input.entry.name,
+          idempotencyKey: key,
+        });
+      }
+      headers.set("idempotency-key", key);
     }
     const request = new Request("http://cloud.internal/api/ai/capability", {
       method: "POST",

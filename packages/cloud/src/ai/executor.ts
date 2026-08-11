@@ -25,6 +25,7 @@ import {
   streamBlockId,
   toolBlockId,
 } from "./protocol";
+import { collectConversationResourceObservations } from "./resource-refs";
 import { resolveAiResourceRunContext } from "./resource-runner";
 import type { resolveAiModel } from "./settings";
 import { aiConversationStore } from "./store";
@@ -53,6 +54,18 @@ const AI_COALESCE_MS = 25;
 const AI_COALESCE_MAX_CHARS = 512;
 const AI_SNAPSHOT_INTERVAL_MS = 1_000;
 const AI_ACTION_BUDGET_MS = 24 * 60 * 60_000;
+
+const indexConversationResources = async (input: Parameters<typeof aiConversationStore.indexConversationResources>[0]): Promise<void> => {
+  try {
+    await aiConversationStore.indexConversationResources(input);
+  } catch (error) {
+    log.warn("Failed to index AI conversation resources", {
+      conversationId: input.conversationId,
+      turnId: input.turnId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
 
 const memoryQueryFromInput = (input: unknown): string => {
   if (typeof input === "string") return input;
@@ -456,6 +469,14 @@ export class AiTurnExecutor {
     const memoryToolEnabled = activeTools.some((tool) => tool.def.name === "memory");
     const projectToolEnabled = activeTools.some((tool) => tool.def.name === "project_context");
 
+    if (config.project?.references.length) {
+      await indexConversationResources({
+        conversationId,
+        turnId,
+        resources: config.project.references.map((ref) => ({ ref })),
+      });
+    }
+
     const prepared = prepareAiTools({ tools: activeTools, actor: material.actor, conversationId });
     const rememberableCapabilityApprovals = new Map<string, string>();
     pipeline.setFrontendModes(prepared.frontendModes);
@@ -509,14 +530,29 @@ export class AiTurnExecutor {
               args,
               context,
             }),
-          execute: (entry, args, context) =>
-            executeAiCapability({
-              conversationId,
-              authority: capabilityAuthority!,
-              entry,
-              args,
-              context,
-            }),
+          execute: async (entry, args, context) => {
+            try {
+              const result = await executeAiCapability({
+                conversationId,
+                turnId,
+                authority: capabilityAuthority!,
+                entry,
+                args,
+                context,
+              });
+              const resources = collectConversationResourceObservations(args, result);
+              if (resources.length) {
+                await indexConversationResources({ conversationId, turnId, callId: context.callId, resources });
+              }
+              return result;
+            } catch (error) {
+              const resources = collectConversationResourceObservations(args);
+              if (resources.length) {
+                await indexConversationResources({ conversationId, turnId, callId: context.callId, resources });
+              }
+              throw error;
+            }
+          },
           onPrepared: ({ prepared: snapshot, presentations, rememberableApprovals }) => {
             prepared.approvalPolicies.clear();
             prepared.frontendModes.clear();

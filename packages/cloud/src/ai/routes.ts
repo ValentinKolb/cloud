@@ -21,6 +21,7 @@ import { AI_MEMORY_CONTENT_MAX_CHARS, aiMemories } from "./memories";
 import { createCloudAiMemoryTool } from "./memory-tool";
 import { aiActorUser, aiPrefsUserId, aiUserPrefs } from "./prefs";
 import { aiProjects } from "./projects";
+import { isConversationResourceCursor } from "./resource-refs";
 import {
   AiTurnActionSchema,
   abortAiTurn,
@@ -58,6 +59,8 @@ export type AiChatRoutesConfig = {
     | ((c: Context<AuthContext>) => AiModelPolicy | ApiErrorResponse | Promise<AiModelPolicy | ApiErrorResponse>);
   /** System prompt mutation for retry modes (details/concise). */
   retryInstruction?: (mode: "retry" | "details" | "concise") => string | null;
+  /** Per-conversation app context added after the conversation is authorized. */
+  conversationSystemPrompt?: (conversation: AiConversation) => string | undefined;
   /** Authorize the request and produce its run context, or return a typed API error. */
   resolveContext: (c: Context<AuthContext>) => Promise<AiChatRequestContext | ApiErrorResponse>;
   /** Enable conversation metadata editing + archiving (direct chats). */
@@ -90,6 +93,21 @@ const MessagesPageQuerySchema = z.object({
   before: z.coerce.number().int().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
 });
+
+const MessagesSearchQuerySchema = MessagesPageQuerySchema.extend({ q: z.string().trim().min(1).max(500) });
+const resourcesQuerySchema = (scope: "conversation" | "user") =>
+  z.object({
+    q: z.string().trim().max(500).optional(),
+    cursor: z
+      .string()
+      .min(1)
+      .max(2_048)
+      .refine((value) => isConversationResourceCursor(value, scope), "Invalid resource cursor")
+      .optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  });
+const ConversationResourcesQuerySchema = resourcesQuerySchema("conversation");
+const UserResourcesQuerySchema = resourcesQuerySchema("user");
 
 const FilesListQuerySchema = z.object({ prefix: z.string().optional() });
 const FilePathQuerySchema = z.object({ path: z.string().min(1) });
@@ -281,6 +299,23 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         });
         return respond(c, ok({ prompt, renderedAt: new Date().toISOString() }));
       })
+      .get("/resources", v("query", UserResourcesQuerySchema), async (c) => {
+        const ctx = await config.resolveContext(c);
+        if (ctx instanceof Response) return ctx;
+        const query = c.req.valid("query");
+        return respond(
+          c,
+          ok(
+            await aiConversationStore.listUserConversationResources({
+              appId: config.appId,
+              ownerUserId: ctx.ownerUserId,
+              search: query.q,
+              before: query.cursor,
+              limit: query.limit,
+            }),
+          ),
+        );
+      })
       .get("/conversations", v("query", ConversationListQuerySchema), async (c) => {
         const ctx = await config.resolveContext(c);
         if (ctx instanceof Response) return ctx;
@@ -359,6 +394,37 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
           limit: query.limit ?? 50,
         });
         return respond(c, ok({ ...page, messages: page.messages.map((message) => publicStoredMessage(message, conversation.shortId)) }));
+      })
+      .get("/conversations/:conversationId/messages/search", v("query", MessagesSearchQuerySchema), async (c) => {
+        const ctx = await config.resolveContext(c);
+        if (ctx instanceof Response) return ctx;
+        const conversation = await loadConversation(c, ctx);
+        if (!conversation) return notFound(c);
+        const query = c.req.valid("query");
+        const page = await aiConversationStore.searchConversationMessages({
+          conversationId: conversation.id,
+          query: query.q,
+          beforeSeq: query.before,
+          limit: query.limit ?? 50,
+        });
+        return respond(c, ok({ ...page, messages: page.messages.map((message) => publicStoredMessage(message, conversation.shortId)) }));
+      })
+      .get("/conversations/:conversationId/resources", v("query", ConversationResourcesQuerySchema), async (c) => {
+        const ctx = await config.resolveContext(c);
+        if (ctx instanceof Response) return ctx;
+        const conversation = await loadConversation(c, ctx);
+        if (!conversation) return notFound(c);
+        return respond(
+          c,
+          ok(
+            await aiConversationStore.listConversationResources({
+              conversationId: conversation.id,
+              search: c.req.valid("query").q,
+              before: c.req.valid("query").cursor,
+              limit: c.req.valid("query").limit,
+            }),
+          ),
+        );
       })
       .get("/conversations/:conversationId/timeline", async (c) => {
         const ctx = await config.resolveContext(c);
@@ -466,6 +532,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         const { input, message } = aiInputToUserMessage(aiTurnInputToContent(body));
         const project = conversation.projectId ? await aiProjects.snapshot(conversation.projectId, c.get("accessSubject")) : null;
         if (conversation.projectId && !project) return respond(c, fail(err.notFound("Project")));
+        const systemPrompt = [ctx.systemPrompt, config.conversationSystemPrompt?.(conversation)].filter(Boolean).join("\n\n") || undefined;
         try {
           const result = await submitAiChatTurn({
             conversationId: conversation.id,
@@ -474,7 +541,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
             actor: ctx.actor,
             requestedModelId: body.modelProfileId ?? project?.defaultModelProfileId ?? undefined,
             modelPolicy: ctx.modelPolicy,
-            systemPrompt: ctx.systemPrompt,
+            systemPrompt,
             project: project ?? undefined,
             clientToolIds: body.clientToolIds,
             toolSource: ctx.toolSource,
@@ -534,7 +601,8 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         const content = body.content?.length ? aiTurnInputToContent({ content: body.content }) : target.message.content;
         const { input, message } = aiInputToUserMessage(content as never);
         const instruction = config.retryInstruction?.(body.mode) ?? null;
-        const systemPrompt = [ctx.systemPrompt, instruction].filter(Boolean).join("\n\n") || undefined;
+        const systemPrompt =
+          [ctx.systemPrompt, config.conversationSystemPrompt?.(conversation), instruction].filter(Boolean).join("\n\n") || undefined;
         const project = conversation.projectId ? await aiProjects.snapshot(conversation.projectId, c.get("accessSubject")) : null;
         if (conversation.projectId && !project) return respond(c, fail(err.notFound("Project")));
 

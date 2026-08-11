@@ -51,7 +51,7 @@ const insertMessage = async (input: {
   content?: unknown[];
 }) => {
   await sql`
-    INSERT INTO ai.messages (short_id, conversation_id, seq, kind, role, message, loop_id, meta, compacted_at)
+    INSERT INTO ai.messages (short_id, conversation_id, seq, kind, role, message, search_text, loop_id, meta, compacted_at)
     VALUES (
       ${createAiShortId()},
       ${input.conversationId},
@@ -59,6 +59,7 @@ const insertMessage = async (input: {
       ${input.kind ?? "message"},
       ${input.role},
       ${JSON.stringify({ role: input.role, content: input.content ?? [{ type: "text", text: input.text }] })}::jsonb,
+      ${input.text},
       ${input.loopId ?? null},
       ${input.meta ? JSON.stringify(input.meta) : null}::jsonb,
       ${input.compacted ? new Date().toISOString() : null}
@@ -128,6 +129,48 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
       const full = await aiConversationStore.listMessages({ conversationId: conversation.id });
       const paged = await aiConversationStore.listMessagesPage({ conversationId: conversation.id, limit: 100 });
       expect(paged.messages.map((message) => message.id)).toEqual(full.map((message) => message.id));
+    } finally {
+      await cleanupFixture({ userId, conversationIds });
+    }
+  });
+
+  test("searches visible seq groups losslessly and keeps forked history searchable", async () => {
+    const userId = await insertUser();
+    const conversationIds: string[] = [];
+    try {
+      const source = await aiConversationStore.createConversation({ appId: "ai-page-test", ownerUserId: userId });
+      const target = await aiConversationStore.createConversation({ appId: "ai-page-test", ownerUserId: userId });
+      conversationIds.push(source.id, target.id);
+
+      await insertMessage({ conversationId: source.id, seq: 1, role: "user", text: "needle old" });
+      await insertMessage({ conversationId: source.id, seq: 2, role: "assistant", text: "needle detail", compacted: true });
+      await insertMessage({
+        conversationId: source.id,
+        seq: 2,
+        role: "assistant",
+        text: "needle hidden",
+        kind: "summary",
+        compacted: true,
+      });
+      await insertMessage({ conversationId: source.id, seq: 2, role: "assistant", text: "needle current", kind: "summary" });
+      await insertMessage({ conversationId: source.id, seq: 3, role: "assistant", text: "needle newest" });
+
+      const first = await aiConversationStore.searchConversationMessages({ conversationId: source.id, query: "needle", limit: 1 });
+      expect(first.messages.map((message) => `${message.seq}:${message.kind}`)).toEqual(["3:message"]);
+      expect(first.nextCursor).toBe("3");
+
+      const second = await aiConversationStore.searchConversationMessages({
+        conversationId: source.id,
+        query: "needle",
+        beforeSeq: 3,
+        limit: 1,
+      });
+      expect(second.messages.map((message) => `${message.seq}:${message.kind}`)).toEqual(["2:message", "2:summary"]);
+      expect(JSON.stringify(second.messages.map((message) => message.message))).not.toContain("hidden");
+
+      await aiConversationStore.copyMessages({ sourceConversationId: source.id, targetConversationId: target.id, throughSeq: 3 });
+      const forked = await aiConversationStore.searchConversationMessages({ conversationId: target.id, query: "newest" });
+      expect(forked.messages.map((message) => message.seq)).toEqual([3]);
     } finally {
       await cleanupFixture({ userId, conversationIds });
     }

@@ -73,12 +73,24 @@ cld assistant chats list
 cld assistant chats list --status needs_attention --json
 cld assistant chats get <chat-id>
 cld assistant messages list <chat-id>
+cld assistant messages search <chat-id> "release date"
+cld assistant resources list <chat-id>
+cld assistant resources list <chat-id> --search nT1234
+cld assistant resources search "release notes"
 cld assistant chats timeline <chat-id>
 cld assistant turns steer <chat-id> <turn-id> "Focus on the migration risk"
 cld assistant turns stop <chat-id> <turn-id>
 ```
 
-Chat management includes `chats create`, `update`, `pin`, `unpin`, `archive`, `restore`, `mark-read`, `compact`, `reindex`, and `index-status`. Message operations include `messages retry` and `messages fork`. Archiving requires `--yes`.
+Chat management includes `chats create`, `update`, `pin`, `unpin`, `archive`, `restore`, `mark-read`, `compact`, `reindex`, and `index-status`. Message operations include `messages search`, `messages retry`, and `messages fork`. `resources list` inspects structured refs in one chat; `resources search` finds their occurrences across active owned chats. Resource results are based on schema-valid refs observed in Project context and capability calls, not IDs guessed from prose. Archiving requires `--yes`.
+
+Assistant agents can discover previous conversations through the closed-world
+`chats.search`, `chat.read`, and `chat.search` Queries. They can inspect
+structured refs through `chat.resources` and `chats.resources`. When the user
+explicitly asks to send exact text to another owned chat, the agent may request
+the reviewed `chat.message` Action. The approval names the target and text;
+delivery is durable, attributable to the source chat, same-user only, and
+asynchronous when the target is busy.
 
 ## Conversation files
 

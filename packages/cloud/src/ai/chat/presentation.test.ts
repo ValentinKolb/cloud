@@ -23,6 +23,15 @@ test("uses the full message width while an approval is pending", () => {
   expect(cloudStyles).toMatch(/\.k2b-chat-message\.ai-chat-message-wide\s*\{\s*width:\s*100%;/);
 });
 
+test("renders attributable inter-chat input as a system message", () => {
+  const presentationSource = readFileSync(resolve(import.meta.dir, "presentation.tsx"), "utf8");
+
+  expect(presentationSource).toContain("item.entry.meta?.agentMessage");
+  expect(presentationSource).toContain('role: "system"');
+  expect(presentationSource).toContain("agentMessage.sourceHref");
+  expect(presentationSource).toContain("turn {agentMessage.sourceTurnId}");
+});
+
 describe("active turn message segmentation", () => {
   test("keeps the optimistic steer bubble between pre-steer work and the applied marker", () => {
     const blocks: AiTurnBlock[] = [

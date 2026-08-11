@@ -332,6 +332,34 @@ export const migrateCloudAi = async (): Promise<void> => {
   `.simple();
 
   await sql`
+    CREATE TABLE IF NOT EXISTS ai.conversation_resource_refs (
+      conversation_id UUID NOT NULL REFERENCES ai.conversations(id) ON DELETE CASCADE,
+      resource_type TEXT NOT NULL,
+      resource_id TEXT NOT NULL,
+      title TEXT,
+      preview TEXT,
+      icon TEXT,
+      href TEXT,
+      source_turn_id UUID REFERENCES ai.turns(id) ON DELETE SET NULL,
+      source_call_id TEXT,
+      first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (conversation_id, resource_type, resource_id)
+    )
+  `.simple();
+  await sql`ALTER TABLE ai.conversation_resource_refs DROP COLUMN IF EXISTS occurrences`.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_conversation_resource_refs_recent
+    ON ai.conversation_resource_refs(conversation_id, last_seen_at DESC, resource_type, resource_id)
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_conversation_resource_refs_resource
+    ON ai.conversation_resource_refs(resource_type, resource_id, conversation_id)
+  `.simple();
+
+  await sql`
     CREATE TABLE IF NOT EXISTS ai.turn_steers (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       conversation_id UUID NOT NULL REFERENCES ai.conversations(id) ON DELETE CASCADE,
@@ -460,6 +488,43 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_ai_tool_calls_conversation_created
     ON ai.tool_calls(conversation_id, created_at DESC)
+  `.simple();
+
+  await sql`ALTER TABLE ai.tool_calls ADD COLUMN IF NOT EXISTS idempotency_key TEXT`.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_tool_calls_idempotency_key
+    ON ai.tool_calls(idempotency_key)
+    WHERE idempotency_key IS NOT NULL
+  `.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.inter_chat_messages (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
+      source_conversation_id UUID NOT NULL REFERENCES ai.conversations(id) ON DELETE CASCADE,
+      source_turn_id UUID NOT NULL REFERENCES ai.turns(id) ON DELETE CASCADE,
+      source_call_id TEXT NOT NULL,
+      target_conversation_id UUID NOT NULL REFERENCES ai.conversations(id) ON DELETE CASCADE,
+      actor_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      text TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      target_turn_id UUID REFERENCES ai.turns(id) ON DELETE SET NULL,
+      target_message_id UUID REFERENCES ai.messages(id) ON DELETE SET NULL,
+      error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      delivered_at TIMESTAMPTZ,
+      CONSTRAINT ai_inter_chat_messages_short_id_unique UNIQUE (short_id),
+      CONSTRAINT ai_inter_chat_messages_status_check CHECK (status IN ('pending', 'delivered', 'failed')),
+      CONSTRAINT ai_inter_chat_messages_text_check CHECK (length(btrim(text)) BETWEEN 1 AND 20000),
+      CONSTRAINT ai_inter_chat_messages_distinct_chats_check CHECK (source_conversation_id <> target_conversation_id)
+    )
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_inter_chat_messages_pending_target
+    ON ai.inter_chat_messages(target_conversation_id, created_at ASC, id ASC)
+    WHERE status = 'pending'
   `.simple();
 
   await sql`

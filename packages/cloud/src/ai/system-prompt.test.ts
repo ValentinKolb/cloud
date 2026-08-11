@@ -137,6 +137,7 @@ describe("composeAiSystemPrompt", () => {
         instructions: "List decisions first.",
         revision: 3,
         context: "Project: Meeting summary\nKnowledge entries:\n- Team glossary [knowledge-1]",
+        references: [],
         defaultModelProfileId: null,
       },
       user,

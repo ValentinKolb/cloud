@@ -2,6 +2,7 @@ import { createAiChatRoutes } from "@valentinkolb/cloud/ai";
 import { type AuthContext, auth, err, fail, type RequestActor, rateLimit, respond } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
 import { Hono } from "hono";
+import { assistantChatPrompt } from "../prompt";
 
 const ASSISTANT_APP_ID = "assistant";
 
@@ -19,6 +20,7 @@ const retryInstruction = (mode: "retry" | "details" | "concise"): string | null 
 const chatRoutes = createAiChatRoutes({
   appId: ASSISTANT_APP_ID,
   allowConversationManagement: true,
+  conversationSystemPrompt: (conversation) => `Current Assistant chat ID: ${conversation.shortId}.`,
   retryInstruction,
   resolveContext: async (c: Context<AuthContext>) => {
     const actor = c.get("actor") as RequestActor;
@@ -27,6 +29,7 @@ const chatRoutes = createAiChatRoutes({
     return {
       actor,
       ownerUserId: user.id,
+      systemPrompt: assistantChatPrompt(),
       toolSource: { kind: "default", capabilities: true },
       modelPolicy: { kind: "selectable", requiredCapabilities: ["streaming"] },
       toolApprovalContext: { actorUserId: user.id, appId: ASSISTANT_APP_ID, resource: { kind: "direct" } },

@@ -25,6 +25,7 @@ Assistant is a personal AI workspace for writing, rewriting, summarizing, explai
 - **Choose a model when needed:** Pick a model in the composer when more than one selectable streaming model is available.
 - **Send the request:** Write the task clearly, attach files if the composer offers attachments, then send.
 - **Keep the useful thread:** Rename the chat or add a description when the conversation should be easy to find later.
+- **Search inside a chat:** Use `/search` to find visible messages or inspect the structured Cloud resources used in this chat or across your active chats.
 :::
 
 :::info When Assistant is unavailable

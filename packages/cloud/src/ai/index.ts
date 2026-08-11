@@ -12,6 +12,7 @@ export {
   revokeAiToolApprovalPreference,
 } from "./approvals";
 export { type AiAttachmentRef, aiAttachmentMarker, formatAiFileSize, parseAiAttachmentMarkers } from "./attachments";
+export { aiCapabilityToolName } from "./capabilities";
 export { parseAiSse } from "./client/transport";
 export { listAiCredentialProfileIds } from "./credentials";
 export {
@@ -167,11 +168,13 @@ export {
 } from "./protocol";
 export { createAiProvider } from "./provider";
 export { type DefineAiResourceConfig, type DefinedAiResource, defineAiResource, requireAiResourceAccess } from "./resource";
+export { isConversationResourceCursor } from "./resource-refs";
 export { type AiChatRequestContext, type AiChatRoutes, type AiChatRoutesConfig, createAiChatRoutes } from "./routes";
 export {
   type AiTurnActionInput,
   AiTurnActionSchema,
   abortAiTurn,
+  deliverAiInterChatMessage,
   isAiSettingsError,
   listPendingAiTurnActions,
   type SubmitAiChatTurnInput,
@@ -222,6 +225,8 @@ export type {
   AiConversation,
   AiConversationPage,
   AiConversationResource,
+  AiConversationResourceOccurrence,
+  AiConversationResourceRef,
   AiConversationRunStatus,
   AiConversationStatusFilter,
   AiConversationStore,
@@ -236,6 +241,7 @@ export type {
   AiEnrichmentStatus,
   AiEnrichmentTrigger,
   AiFrontendToolMode,
+  AiInterChatMessage,
   AiModelCapability,
   AiModelPolicy,
   AiModelProfile,

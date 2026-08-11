@@ -6,6 +6,7 @@ import { assistantCapabilities } from "./capabilities";
 import { app } from "./config";
 import pageRoutes from "./frontend";
 import { assistantHelp } from "./help";
+import { deliverPendingAssistantMessages } from "./inter-chat-messages";
 import { createAssistantNotificationService } from "./notifications";
 
 const router = new Hono<AuthContext>()
@@ -32,9 +33,11 @@ export default await app.start({
         stopAiRuntime = startAiRuntime({
           onTurnFinalized: async ({ turnId, status, kind }) => {
             if (status === "completed" && kind === "chat") await assistantNotifications.notifyTurnCompleted(turnId);
+            await deliverPendingAssistantMessages();
           },
         });
         await aiMaintenanceJobs.start();
+        await deliverPendingAssistantMessages();
       } catch (error) {
         stopAiRuntime?.();
         stopAiRuntime = undefined;

@@ -65,6 +65,7 @@
     "./styles/global.css": "./src/styles/global.css"
   },
   "scripts": {
+    "backfill:conversation-resources": "bun scripts/backfill-ai-conversation-resources.ts",
     "test": "bun test",
     "typecheck": "tsc -p tsconfig.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')"
   },

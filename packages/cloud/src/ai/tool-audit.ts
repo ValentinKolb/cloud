@@ -27,6 +27,25 @@ const valueMeta = (value: unknown): AuditValueMeta => {
 };
 
 export const aiToolAudit = {
+  noteCapabilityDispatch: async (input: {
+    conversationId: string;
+    turnId: string;
+    callId: string;
+    toolName: string;
+    idempotencyKey: string;
+  }): Promise<void> => {
+    await sql`
+      INSERT INTO ai.tool_calls (
+        turn_id, conversation_id, call_id, tool_name, location, status, approval_state, idempotency_key, started_at
+      ) VALUES (
+        ${input.turnId}, ${input.conversationId}, ${input.callId}, ${input.toolName}, 'server', 'running', 'approved_once',
+        ${input.idempotencyKey}, now()
+      )
+      ON CONFLICT (turn_id, call_id)
+      DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key, started_at = COALESCE(ai.tool_calls.started_at, now())
+    `;
+  },
+
   noteToolCall: async (input: {
     conversationId: string;
     turnId: string;

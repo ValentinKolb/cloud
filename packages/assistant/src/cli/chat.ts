@@ -1,6 +1,8 @@
 import { basename } from "node:path";
 import {
   type AiConversation,
+  type AiConversationResourceOccurrence,
+  type AiConversationResourceRef,
   type AiConversationTimelineEntry,
   type AiFileStat,
   type AiPendingTurnAction,
@@ -230,6 +232,86 @@ export const assistantManagementCommands = [
         })),
         [{ key: "seq" }, { key: "id" }, { key: "role" }, { key: "loop" }, { key: "compacted" }, { key: "content" }],
       );
+    },
+  }),
+  command("messages search", {
+    summary: "Search visible messages in one chat",
+    args: {
+      chat: arg.required({ valueLabel: "chat-id" }),
+      query: arg.required({ valueLabel: "query" }),
+    },
+    flags: { before: flag.int({ min: 1 }), limit: flag.int({ default: 50, min: 1, max: 200 }) },
+    async run({ ctx, args, flags }) {
+      const page = await readApi<{ messages: AiStoredMessage[]; nextCursor?: string }>(
+        ctx,
+        `${conversationPath(args.chat, "/messages/search")}${queryString({ q: args.query, before: flags.before, limit: flags.limit })}`,
+      );
+      printRows(
+        ctx,
+        page,
+        page.messages.map((message) => ({
+          seq: message.seq,
+          id: message.id,
+          role: message.kind === "summary" ? "summary" : message.message.role,
+          content: messagePreview(message),
+        })),
+        [{ key: "seq" }, { key: "id" }, { key: "role" }, { key: "content" }],
+      );
+      if (ctx.options.output === "text" && page.nextCursor) ctx.print(`Continue with --before ${page.nextCursor}`);
+    },
+  }),
+  command("resources list", {
+    summary: "List structured Cloud resources used in one chat",
+    args: { chat: arg.required({ valueLabel: "chat-id" }) },
+    flags: {
+      search: flag.string({ aliases: ["q"], description: "Filter title, type, or resource ID" }),
+      cursor: flag.string({ description: "Continue from an opaque resource cursor" }),
+      limit: flag.int({ default: 50, min: 1, max: 100 }),
+    },
+    async run({ ctx, args, flags }) {
+      const page = await readApi<{ resources: AiConversationResourceRef[]; nextCursor?: string }>(
+        ctx,
+        `${conversationPath(args.chat, "/resources")}${queryString({ q: flags.search, cursor: flags.cursor, limit: flags.limit })}`,
+      );
+      printRows(
+        ctx,
+        page,
+        page.resources.map((resource) => ({
+          type: resource.ref.type,
+          id: resource.ref.id,
+          title: resource.title ?? "",
+          lastSeen: resource.lastSeenAt,
+        })),
+        [{ key: "type" }, { key: "id" }, { key: "title" }, { key: "lastSeen" }],
+      );
+      if (ctx.options.output === "text" && page.nextCursor) ctx.print(`Continue with --cursor ${page.nextCursor}`);
+    },
+  }),
+  command("resources search", {
+    summary: "Search structured Cloud resources across owned chats",
+    args: { query: arg.required({ valueLabel: "query" }) },
+    flags: {
+      cursor: flag.string({ description: "Continue from an opaque resource cursor" }),
+      limit: flag.int({ default: 50, min: 1, max: 100 }),
+    },
+    async run({ ctx, args, flags }) {
+      const page = await readApi<{ resources: AiConversationResourceOccurrence[]; nextCursor?: string }>(
+        ctx,
+        `/resources${queryString({ q: args.query, cursor: flags.cursor, limit: flags.limit })}`,
+      );
+      printRows(
+        ctx,
+        page,
+        page.resources.map((resource) => ({
+          chat: resource.chat.shortId,
+          type: resource.ref.type,
+          id: resource.ref.id,
+          title: resource.title ?? "",
+          lastSeen: resource.lastSeenAt,
+        })),
+        [{ key: "chat" }, { key: "type" }, { key: "id" }, { key: "title" }, { key: "lastSeen" }],
+      );
+      if (ctx.options.output === "text" && page.nextCursor) ctx.print(`Continue with --cursor ${page.nextCursor}`);
     },
   }),
   command("messages retry", {

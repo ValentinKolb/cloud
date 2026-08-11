@@ -343,6 +343,7 @@ export const aiProjects = {
       revision: project.revision,
       instructions: project.instructions,
       context: lines.join("\n").slice(0, AI_PROJECT_PROMPT_MANIFEST_MAX_CHARS),
+      references: references.map((reference) => reference.ref),
       defaultModelProfileId: project.defaultModelProfileId,
     };
   },

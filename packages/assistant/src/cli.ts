@@ -12,6 +12,7 @@ const module = defineCliCommands({
     chats: "Create, inspect, and manage Assistant chats",
     files: "Manage files in Assistant chats",
     messages: "Inspect, retry, and fork Assistant messages",
+    resources: "Find structured Cloud resources used in Assistant chats",
     personalization: "Manage personal facts, preferences, and learning",
     prefs: "View and update Assistant preferences",
     projects: "Manage shared Assistant Projects",

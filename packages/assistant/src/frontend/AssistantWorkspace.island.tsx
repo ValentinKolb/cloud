@@ -26,6 +26,7 @@ import {
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { openAssistantFilesDialog } from "./AssistantArtifactDetail";
+import { openAssistantChatDiscoveryDialog } from "./AssistantChatDiscoveryDialog";
 import { openAssistantConversationEditor } from "./AssistantConversationEditor";
 import { openAssistantProjectsDialog } from "./AssistantProjectsDialog";
 import AssistantSidebar from "./AssistantSidebar";
@@ -292,6 +293,19 @@ export default function AssistantWorkspace(props: Props) {
       },
     },
     {
+      name: "search",
+      description: "Search this chat's messages and resources",
+      icon: "ti ti-search",
+      action: () => {
+        const conversation = activeConversation();
+        if (!conversation) {
+          chat.setError("Open a chat first.");
+          return;
+        }
+        void openAssistantChatDiscoveryDialog(conversation.id, conversation.title);
+      },
+    },
+    {
       name: "fork",
       description: "Fork this conversation into a new chat",
       icon: "ti ti-git-fork",
@@ -540,6 +554,16 @@ export default function AssistantWorkspace(props: Props) {
                       disabled: newConversation.loading(),
                       onSelect: async () => {
                         await createAndFocusConversation();
+                      },
+                    },
+                    {
+                      id: "search-chat",
+                      label: "Search messages and resources",
+                      icon: "ti ti-search",
+                      disabled: !activeConversation(),
+                      onSelect: async () => {
+                        const conversation = activeConversation();
+                        if (conversation) await openAssistantChatDiscoveryDialog(conversation.id, conversation.title);
                       },
                     },
                   ]}

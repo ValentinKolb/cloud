@@ -53,10 +53,51 @@ describe("assistant CLI", () => {
     expect(help).toContain("files");
     expect(help).toContain("personalization");
     expect(help).toContain("prefs");
+    expect(help).toContain("resources");
     expect(help).toContain("Create, inspect, and manage Assistant chats");
     expect(help).toContain("Review and resolve pending turn actions");
     expect(help).toContain("Manage personal facts, preferences, and learning");
+    expect(help).toContain("Find structured Cloud resources used in Assistant chats");
     expect(help).not.toMatch(/^\s+\w+\s+Commands$/m);
+  });
+
+  test("searches chat messages and structured resources with readable IDs", async () => {
+    const requests: string[] = [];
+    const fetcher: CloudCliContext["fetch"] = async (path) => {
+      requests.push(String(path));
+      if (String(path).includes("messages/search")) return json({ messages: [], nextCursor: "12" });
+      if (String(path).startsWith("/api/assistant/resources")) return json({ resources: [] });
+      return json({ resources: [] });
+    };
+
+    const messages = createContext(["messages", "search", "cHt234", "release date"], fetcher, "json");
+    messages.ctx.flags.limit = "10";
+    expect(await assistantCli.run(messages.ctx)).toBeUndefined();
+
+    const local = createContext(["resources", "list", "cHt234"], fetcher, "json");
+    local.ctx.flags.search = "nT1234";
+    local.ctx.flags.limit = "20";
+    expect(await assistantCli.run(local.ctx)).toBeUndefined();
+
+    const across = createContext(["resources", "search", "release notes"], fetcher, "json");
+    across.ctx.flags.limit = "20";
+    expect(await assistantCli.run(across.ctx)).toBeUndefined();
+
+    expect(requests).toEqual([
+      "/api/assistant/conversations/cHt234/messages/search?q=release+date&limit=10",
+      "/api/assistant/conversations/cHt234/resources?q=nT1234&limit=20",
+      "/api/assistant/resources?q=release+notes&limit=20",
+    ]);
+  });
+
+  test("prints continuation cursors in text mode", async () => {
+    const messages = createContext(["messages", "search", "cHt234", "release"], async () => json({ messages: [], nextCursor: "12" }));
+    await assistantCli.run(messages.ctx);
+    expect(messages.stdout.join("")).toContain("Continue with --before 12");
+
+    const resources = createContext(["resources", "search", "release"], async () => json({ resources: [], nextCursor: "opaque" }));
+    await assistantCli.run(resources.ctx);
+    expect(resources.stdout.join("")).toContain("Continue with --cursor opaque");
   });
 
   test("lists and searches personalization with stable JSON output", async () => {

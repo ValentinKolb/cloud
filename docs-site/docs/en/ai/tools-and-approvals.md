@@ -5,7 +5,7 @@ section: AI
 order: 1040
 description: Let models request application actions while keeping authorization and approval explicit.
 tags: [ai, tools, approvals]
-updated: 2026-08-05
+updated: 2026-08-11
 ---
 
 # Tools and approvals
@@ -227,6 +227,14 @@ This approval confirms the user's intent for one model-requested call. It is
 not application authorization. After approval, the owning app validates the
 same arguments and checks current resource access and domain invariants before
 performing the Action.
+
+Assistant's `chat.message` follows this boundary. The review names the target
+chat and exact text. AI Core creates the idempotency key and records the source
+conversation, turn, and tool call before dispatch; the Assistant app does not
+accept model-supplied source identity. The Action then rechecks same-user
+ownership and stores a durable pending or delivered record. Action success
+means the message was accepted durably; the target agent may process it
+asynchronously.
 
 ### Show an optional Action review
 

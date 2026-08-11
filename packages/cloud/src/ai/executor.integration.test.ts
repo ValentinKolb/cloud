@@ -440,6 +440,7 @@ suite("AI executor integration", () => {
             instructions: "List decisions before action items.",
             revision: 4,
             context: "Project: Meeting summary",
+            references: [],
             defaultModelProfileId: null,
           },
           toolSource: { kind: "none" },
