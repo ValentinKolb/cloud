@@ -5,6 +5,7 @@ import {
   DataTable,
   type DataTableColumn,
   dialogCore,
+  NoticeCard,
   NumberInput,
   PanelDialog,
   Placeholder,
@@ -15,69 +16,17 @@ import {
   toast,
 } from "@k2b/ui";
 import { formatDateTime as fmtDateTime } from "@valentinkolb/cloud/shared";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-
-type SettingEntry = { key: string; value: unknown; default: unknown; description: string };
-
-type HealthApp = {
-  id: string;
-  name: string;
-  icon: string;
-  status: "ok" | "warn" | "error";
-  online: boolean;
-  signals: string[];
-};
-type HealthWebhook = {
-  id: string;
-  name: string;
-  url: string;
-  method: "GET" | "POST";
-  enabled: boolean;
-  scopeKind: "all" | "include" | "exclude";
-  scopeAppIds: string[];
-  sendOn: ("ok" | "warn" | "error" | "recovery" | "every_check")[];
-  minStatus: "ok" | "warn" | "error";
-  repeatIntervalMs: number;
-  timeoutMs: number;
-  lastStatus: "ok" | "warn" | "error" | null;
-  lastSentAt: string | null;
-  lastError: string | null;
-};
-
-type HealthWebhookInput = Omit<HealthWebhook, "id" | "lastStatus" | "lastSentAt" | "lastError">;
-
-const errorMessage = async (response: Response, fallback: string): Promise<string> => {
-  const data = (await response.json().catch(() => null)) as { message?: string } | null;
-  return data?.message ?? fallback;
-};
-
-const isHealthWebhook = (value: unknown): value is HealthWebhook =>
-  Boolean(value && typeof value === "object" && "id" in value && typeof value.id === "string");
-
-const readHealthWebhook = async (response: Response): Promise<HealthWebhook> => {
-  const body = await response.json();
-  if (isHealthWebhook(body)) return body;
-  throw new Error("Unexpected webhook response.");
-};
-
-const loadWebhooks = async (): Promise<HealthWebhook[]> => {
-  const response = await apiClient.health.webhooks.$get();
-  if (!response.ok) throw new Error(await errorMessage(response, "Failed to load health webhooks"));
-  return response.json();
-};
-
-const loadSettings = async (): Promise<SettingEntry[]> => {
-  const response = await apiClient.settings.$get();
-  if (!response.ok) throw new Error(await errorMessage(response, "Failed to load gateway settings"));
-  return response.json();
-};
-
-const loadHealth = async (): Promise<{ apps: HealthApp[] }> => {
-  const response = await apiClient.health.$get();
-  if (!response.ok) throw new Error(await errorMessage(response, "Failed to load gateway health"));
-  return response.json();
-};
+import {
+  createHealthWebhookQueries,
+  type HealthApp,
+  type HealthWebhook,
+  type HealthWebhookInput,
+  readHealthWebhookResponse,
+  responseErrorMessage,
+  type SettingEntry,
+} from "./health-webhook-queries";
 
 const defaultWebhook = (): HealthWebhookInput => ({
   name: "",
@@ -152,26 +101,64 @@ const sendOptions = [
   { id: "every_check", label: "Every check", description: "Send on every scheduled evaluation.", icon: "ti ti-clock" },
 ] as const;
 
-const WebhookEditor = (props: { webhook?: HealthWebhook; apps: HealthApp[]; close: () => void; onSaved: () => void }) => {
+export const WebhookEditor = (props: { webhook?: HealthWebhook; apps: HealthApp[]; close: () => void; onSaved: () => Promise<void> }) => {
   const webhook = props.webhook;
   const initial = toInput(webhook);
   const [data, setData] = createSignal<HealthWebhookInput>(initial);
+  const [persisted, setPersisted] = createSignal(false);
+  const [reconciling, setReconciling] = createSignal(false);
+  const [reconcileError, setReconcileError] = createSignal<Error | null>(null);
+  let disposed = false;
 
-  const save = mutation.create<HealthWebhook, void>({
-    mutation: async () => {
-      const input = data();
+  const save = mutation.create<HealthWebhook, HealthWebhookInput>({
+    mutation: async (input, { abortSignal }) => {
       const response = webhook
-        ? await apiClient.health.webhooks[":id"].$put({ param: { id: webhook.id }, json: input })
-        : await apiClient.health.webhooks.$post({ json: input });
-      if (!response.ok) throw new Error(await errorMessage(response, "Failed to save webhook"));
-      return readHealthWebhook(response);
+        ? await apiClient.health.webhooks[":id"].$put({ param: { id: webhook.id }, json: input }, { init: { signal: abortSignal } })
+        : await apiClient.health.webhooks.$post({ json: input }, { init: { signal: abortSignal } });
+      if (!response.ok) throw new Error(await responseErrorMessage(response, "Failed to save webhook"));
+      return readHealthWebhookResponse(response);
     },
-    onSuccess: () => {
-      toast.success("Webhook saved");
-      props.onSaved();
-      props.close();
-    },
-    onError: (error) => prompts.error(error.message),
+  });
+  const busy = () => save.loading() || reconciling();
+  const requestClose = () => {
+    if (!busy()) props.close();
+  };
+  const reconcile = async () => {
+    if (reconciling()) return;
+    setReconciling(true);
+    setReconcileError(null);
+    try {
+      await props.onSaved();
+    } catch (error) {
+      if (!disposed) setReconcileError(error instanceof Error ? error : new Error(String(error)));
+      if (!disposed) setReconciling(false);
+      return;
+    }
+    if (disposed) return;
+    setReconciling(false);
+    props.close();
+    toast.success("Webhook saved");
+  };
+  const submit = async () => {
+    if (busy() || persisted()) return;
+    const current = data();
+    const input: HealthWebhookInput = {
+      ...current,
+      scopeAppIds: [...current.scopeAppIds],
+      sendOn: [...current.sendOn],
+    };
+    await save.mutate(input);
+    if (disposed) return;
+    if (save.error()) {
+      void prompts.error(save.error()!.message);
+      return;
+    }
+    setPersisted(true);
+    await reconcile();
+  };
+  onCleanup(() => {
+    disposed = true;
+    save.abort();
   });
 
   return (
@@ -179,7 +166,7 @@ const WebhookEditor = (props: { webhook?: HealthWebhook; apps: HealthApp[]; clos
       class="contents"
       onSubmit={(event) => {
         event.preventDefault();
-        void save.mutate();
+        void submit();
       }}
     >
       <PanelDialog>
@@ -187,7 +174,7 @@ const WebhookEditor = (props: { webhook?: HealthWebhook; apps: HealthApp[]; clos
           title={webhook ? "Edit Webhook" : "Add Webhook"}
           subtitle="Deliver gateway health alerts to an HTTP endpoint."
           icon="ti ti-heartbeat"
-          close={props.close}
+          close={requestClose}
         />
         <PanelDialog.Body>
           <CheckboxCard
@@ -285,13 +272,22 @@ const WebhookEditor = (props: { webhook?: HealthWebhook; apps: HealthApp[]; clos
               </div>
             </Show>
           </PanelDialog.Section>
+          <Show when={reconcileError()}>
+            {(error) => (
+              <NoticeCard tone="danger" title="Webhook saved, but the list could not be refreshed" detail={error().message}>
+                <Button type="button" size="sm" onClick={() => void reconcile()} disabled={reconciling()}>
+                  Retry refresh
+                </Button>
+              </NoticeCard>
+            )}
+          </Show>
         </PanelDialog.Body>
         <PanelDialog.Footer>
-          <Button type="button" variant="secondary" size="sm" onClick={props.close} disabled={save.loading()}>
+          <Button type="button" variant="secondary" size="sm" onClick={requestClose} disabled={busy()}>
             Cancel
           </Button>
-          <Button type="submit" size="sm" disabled={save.loading()}>
-            <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
+          <Button type="submit" size="sm" disabled={busy() || persisted()}>
+            <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
             Save
           </Button>
         </PanelDialog.Footer>
@@ -300,31 +296,67 @@ const WebhookEditor = (props: { webhook?: HealthWebhook; apps: HealthApp[]; clos
   );
 };
 
-const openWebhookEditor = (webhook: HealthWebhook | undefined, apps: HealthApp[], onSaved: () => void) =>
-  dialogCore.open<void>(
-    (close) => <WebhookEditor webhook={webhook} apps={apps} close={() => close()} onSaved={onSaved} />,
-    panelDialogOptions,
-  );
+const openWebhookEditor = (webhook: HealthWebhook | undefined, apps: HealthApp[], onSaved: () => Promise<void>) =>
+  dialogCore.open<void>((close) => <WebhookEditor webhook={webhook} apps={apps} close={() => close()} onSaved={onSaved} />, {
+    ...panelDialogOptions,
+    cancelBehavior: "ignore",
+  });
 
-const ScheduleEditor = (props: { schedule: SettingEntry | undefined; close: () => void; onSaved: () => void }) => {
+const ScheduleEditor = (props: { schedule: SettingEntry | undefined; close: () => void; onSaved: () => Promise<void> }) => {
   const initial = String(props.schedule?.value ?? props.schedule?.default ?? "*/5 * * * *");
   const [scheduleValue, setScheduleValue] = createSignal(initial);
+  const [persisted, setPersisted] = createSignal(false);
+  const [reconciling, setReconciling] = createSignal(false);
+  const [reconcileError, setReconcileError] = createSignal<Error | null>(null);
+  let disposed = false;
 
-  const save = mutation.create<void, void>({
-    mutation: async () => {
-      const value = scheduleValue().trim() || initial;
-      const response = await apiClient.settings[":key{.+}"].$put({
-        param: { key: "gateway.health_check_schedule" },
-        json: { value },
-      });
-      if (!response.ok) throw new Error(await errorMessage(response, "Failed to save schedule"));
+  const save = mutation.create<void, string>({
+    mutation: async (value, { abortSignal }) => {
+      const response = await apiClient.settings[":key{.+}"].$put(
+        {
+          param: { key: "gateway.health_check_schedule" },
+          json: { value },
+        },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await responseErrorMessage(response, "Failed to save schedule"));
     },
-    onSuccess: () => {
-      toast.success("Schedule saved");
-      props.onSaved();
-      props.close();
-    },
-    onError: (error) => prompts.error(error.message),
+  });
+  const busy = () => save.loading() || reconciling();
+  const requestClose = () => {
+    if (!busy()) props.close();
+  };
+  const reconcile = async () => {
+    if (reconciling()) return;
+    setReconciling(true);
+    setReconcileError(null);
+    try {
+      await props.onSaved();
+    } catch (error) {
+      if (!disposed) setReconcileError(error instanceof Error ? error : new Error(String(error)));
+      if (!disposed) setReconciling(false);
+      return;
+    }
+    if (disposed) return;
+    setReconciling(false);
+    props.close();
+    toast.success("Schedule saved");
+  };
+  const submit = async () => {
+    if (busy() || persisted()) return;
+    const value = scheduleValue().trim() || initial;
+    await save.mutate(value);
+    if (disposed) return;
+    if (save.error()) {
+      void prompts.error(save.error()!.message);
+      return;
+    }
+    setPersisted(true);
+    await reconcile();
+  };
+  onCleanup(() => {
+    disposed = true;
+    save.abort();
   });
 
   return (
@@ -332,7 +364,7 @@ const ScheduleEditor = (props: { schedule: SettingEntry | undefined; close: () =
       class="flex flex-col gap-4"
       onSubmit={(event) => {
         event.preventDefault();
-        void save.mutate();
+        void submit();
       }}
     >
       <TextInput
@@ -343,12 +375,21 @@ const ScheduleEditor = (props: { schedule: SettingEntry | undefined; close: () =
         onValueChange={setScheduleValue}
         required
       />
+      <Show when={reconcileError()}>
+        {(error) => (
+          <NoticeCard tone="danger" title="Schedule saved, but the settings could not be refreshed" detail={error().message}>
+            <Button type="button" size="sm" onClick={() => void reconcile()} disabled={reconciling()}>
+              Retry refresh
+            </Button>
+          </NoticeCard>
+        )}
+      </Show>
       <div class="flex justify-end gap-2">
-        <Button type="button" variant="secondary" size="sm" onClick={props.close} disabled={save.loading()}>
+        <Button type="button" variant="secondary" size="sm" onClick={requestClose} disabled={busy()}>
           Cancel
         </Button>
-        <Button type="submit" size="sm" disabled={save.loading()}>
-          <i class={`ti ${save.loading() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
+        <Button type="submit" size="sm" disabled={busy() || persisted()}>
+          <i class={`ti ${busy() ? "ti-loader-2 animate-spin" : "ti-check"} text-sm`} />
           Save
         </Button>
       </div>
@@ -356,46 +397,83 @@ const ScheduleEditor = (props: { schedule: SettingEntry | undefined; close: () =
   );
 };
 
-const openScheduleEditor = (schedule: SettingEntry | undefined, onSaved: () => void) =>
+const openScheduleEditor = (schedule: SettingEntry | undefined, onSaved: () => Promise<void>) =>
   prompts.dialog<void>((close) => <ScheduleEditor schedule={schedule} close={() => close()} onSaved={onSaved} />, {
     title: "Check Schedule",
     icon: "ti ti-calendar-time",
     size: "small",
+    cancelBehavior: "ignore",
   });
 
 export default function HealthWebhooksPanel() {
-  const [webhooks, { refetch }] = createResource(loadWebhooks);
-  const [settings, { refetch: refetchSettings }] = createResource(loadSettings);
-  const [health] = createResource(loadHealth);
-  const schedule = () => settings()?.find((entry) => entry.key === "gateway.health_check_schedule");
+  const { health, settings, webhooks } = createHealthWebhookQueries();
+  const [confirming, setConfirming] = createSignal(false);
+  let disposed = false;
+  const schedule = () => settings.data()?.find((entry) => entry.key === "gateway.health_check_schedule");
+  const queryBlocksWrite = (owner: {
+    error: () => Error | null;
+    loading: () => boolean;
+    refreshing: () => boolean;
+    stale: () => boolean;
+  }) => owner.loading() || owner.refreshing() || owner.stale() || owner.error() !== null;
+  const webhooksBlocked = () => queryBlocksWrite(webhooks);
+  const scheduleBlocked = () => queryBlocksWrite(settings);
+  const editorBlocked = () => webhooksBlocked() || queryBlocksWrite(health);
 
-  const remove = mutation.create<void, HealthWebhook>({
-    mutation: async (webhook) => {
-      const confirmed = await prompts.confirm(`Delete "${webhook.name}"?`, { title: "Delete webhook", variant: "danger" });
-      if (!confirmed) return;
-      const response = await apiClient.health.webhooks[":id"].$delete({ param: { id: webhook.id } });
-      if (!response.ok) throw new Error(await errorMessage(response, "Failed to delete webhook"));
+  const remove = mutation.create<void, { id: string; name: string }>({
+    mutation: async (target, { abortSignal }) => {
+      const response = await apiClient.health.webhooks[":id"].$delete({ param: { id: target.id } }, { init: { signal: abortSignal } });
+      if (!response.ok) throw new Error(await responseErrorMessage(response, "Failed to delete webhook"));
     },
-    onSuccess: () => {
-      toast.success("Webhook deleted");
-      void refetch();
-    },
-    onError: (error) => prompts.error(error.message),
   });
 
-  const test = mutation.create<void, HealthWebhook>({
-    mutation: async (webhook) => {
-      const response = await apiClient.health.webhooks[":id"].test.$post({ param: { id: webhook.id } });
-      if (!response.ok) throw new Error(await errorMessage(response, "Failed to test webhook"));
+  const test = mutation.create<void, { id: string }>({
+    mutation: async (target, { abortSignal }) => {
+      const response = await apiClient.health.webhooks[":id"].test.$post({ param: { id: target.id } }, { init: { signal: abortSignal } });
+      if (!response.ok) throw new Error(await responseErrorMessage(response, "Failed to test webhook"));
     },
-    onSuccess: () => toast.success("Webhook test submitted"),
-    onError: (error) => prompts.error(error.message),
   });
 
-  const openEditor = (webhook?: HealthWebhook) =>
-    openWebhookEditor(webhook, health()?.apps ?? [], () => {
-      void refetch();
-    });
+  const removeWebhook = async (webhook: HealthWebhook) => {
+    if (confirming() || remove.loading() || webhooksBlocked()) return;
+    const target = { id: webhook.id, name: webhook.name };
+    setConfirming(true);
+    let confirmed = false;
+    try {
+      confirmed = (await prompts.confirm(`Delete "${target.name}"?`, { title: "Delete webhook", variant: "danger" })) === true;
+    } finally {
+      if (!disposed) setConfirming(false);
+    }
+    if (!confirmed || disposed || webhooksBlocked()) return;
+    await remove.mutate(target);
+    if (disposed) return;
+    if (remove.error()) {
+      void prompts.error(remove.error()!.message);
+      return;
+    }
+    try {
+      await webhooks.invalidate();
+      if (!disposed) toast.success("Webhook deleted");
+    } catch {
+      if (!disposed) toast.error("Webhook deleted, but the list could not be refreshed.");
+    }
+  };
+  const testWebhook = async (webhook: HealthWebhook) => {
+    if (test.loading() || webhooksBlocked()) return;
+    await test.mutate({ id: webhook.id });
+    if (disposed) return;
+    if (test.error()) void prompts.error(test.error()!.message);
+    else toast.success("Webhook test submitted");
+  };
+  const openEditor = (webhook?: HealthWebhook) => {
+    if (editorBlocked()) return;
+    void openWebhookEditor(webhook, health.data()?.apps ?? [], () => webhooks.invalidate());
+  };
+  onCleanup(() => {
+    disposed = true;
+    remove.abort();
+    test.abort();
+  });
 
   const columns: DataTableColumn<HealthWebhook>[] = [
     { id: "name", header: "Webhook", value: (webhook) => webhook.name },
@@ -423,88 +501,122 @@ export default function HealthWebhooksPanel() {
           </p>
         </div>
         <div class="flex shrink-0 items-center gap-2">
-          <Button type="button" variant="secondary" size="sm" onClick={() => openScheduleEditor(schedule(), () => void refetchSettings())}>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => void openScheduleEditor(schedule(), () => settings.invalidate())}
+            disabled={scheduleBlocked()}
+          >
             <i class="ti ti-calendar-time" aria-hidden="true" />
             Schedule
           </Button>
-          <Button type="button" variant="secondary" size="sm" onClick={() => void openEditor()}>
+          <Button type="button" variant="secondary" size="sm" onClick={() => void openEditor()} disabled={editorBlocked()}>
             <i class="ti ti-plus" aria-hidden="true" />
             Add
           </Button>
         </div>
       </div>
 
-      {/* A failed load must not read as "nothing configured" — that is the
-          difference between "alerting is off" and "I cannot tell". */}
-      <Show when={webhooks.error} keyed>
-        {(error: unknown) => (
-          <Placeholder
-            state="error"
-            icon="ti ti-plug-connected-x"
-            title="Could not load health webhooks"
-            description={error instanceof Error ? error.message : String(error)}
-            surface="paper"
-          />
+      <Show when={settings.error()}>
+        {(error) => (
+          <NoticeCard tone="danger" title="Could not load the health-check schedule" detail={error().message}>
+            <Button type="button" size="sm" onClick={() => void settings.refresh()} disabled={settings.refreshing()}>
+              Retry
+            </Button>
+          </NoticeCard>
+        )}
+      </Show>
+      <Show when={health.error()}>
+        {(error) => (
+          <NoticeCard tone="danger" title="Could not load registered app health" detail={error().message}>
+            <Button type="button" size="sm" onClick={() => void health.refresh()} disabled={health.refreshing()}>
+              Retry
+            </Button>
+          </NoticeCard>
+        )}
+      </Show>
+      <Show when={webhooks.error()}>
+        {(error) => (
+          <NoticeCard tone="danger" title="Could not load health webhooks" detail={error().message}>
+            <Button type="button" size="sm" onClick={() => void webhooks.refresh()} disabled={webhooks.refreshing()}>
+              Retry
+            </Button>
+          </NoticeCard>
         )}
       </Show>
 
       <Show
-        when={!webhooks.loading && !webhooks.error}
-        fallback={webhooks.error ? null : <Placeholder state="loading" surface="paper" title="Loading webhooks..." />}
+        when={webhooks.data()}
+        fallback={webhooks.error() ? null : <Placeholder state="loading" surface="paper" title="Loading webhooks..." />}
       >
-        <DataTable
-          rows={webhooks() ?? []}
-          columns={columns}
-          getRowId={(webhook) => webhook.id}
-          hoverRows
-          highlightColumns={false}
-          class="paper overflow-x-auto"
-          tableClass="w-full text-sm"
-          empty="No health webhooks configured."
-          renderCell={({ row: webhook, col }) => {
-            if (col.id === "name") {
-              return (
-                <div class="min-w-0">
-                  <div class="flex items-center gap-2">
-                    <span class={`status-dot ${webhook.enabled ? "bg-emerald-500" : "bg-zinc-400"}`} />
-                    <span class="truncate text-xs font-medium text-primary">{webhook.name || "Untitled webhook"}</span>
-                    <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[9px] text-dimmed dark:bg-zinc-800">
-                      {webhook.enabled ? "enabled" : "disabled"}
-                    </span>
+        {(rows) => (
+          <DataTable
+            rows={rows()}
+            columns={columns}
+            getRowId={(webhook) => webhook.id}
+            hoverRows
+            highlightColumns={false}
+            class="paper overflow-x-auto"
+            tableClass="w-full text-sm"
+            empty="No health webhooks configured."
+            renderCell={({ row: webhook, col }) => {
+              if (col.id === "name") {
+                return (
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-2">
+                      <span class={`status-dot ${webhook.enabled ? "bg-emerald-500" : "bg-zinc-400"}`} />
+                      <span class="truncate text-xs font-medium text-primary">{webhook.name || "Untitled webhook"}</span>
+                      <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[9px] text-dimmed dark:bg-zinc-800">
+                        {webhook.enabled ? "enabled" : "disabled"}
+                      </span>
+                    </div>
+                    <p class="mt-0.5 truncate text-[10px] text-dimmed">{webhook.url}</p>
+                    <Show when={webhook.lastError}>
+                      {(lastError) => <p class="mt-0.5 truncate text-[10px] text-red-500">{lastError()}</p>}
+                    </Show>
                   </div>
-                  <p class="mt-0.5 truncate text-[10px] text-dimmed">{webhook.url}</p>
-                  <Show when={webhook.lastError}>
-                    {(lastError) => <p class="mt-0.5 truncate text-[10px] text-red-500">{lastError()}</p>}
-                  </Show>
-                </div>
-              );
-            }
-            if (col.id === "status") {
-              const status = webhook.lastStatus ?? "new";
-              return <span class={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium ${statusClasses[status]}`}>{status}</span>;
-            }
-            if (col.id === "method") return <span class="text-xs font-medium text-secondary">{webhook.method}</span>;
-            if (col.id === "minimum") return <span class="text-xs capitalize text-dimmed">{webhook.minStatus}</span>;
-            if (col.id === "repeat") return <span class="text-xs tabular-nums text-dimmed">{fmtMinutes(webhook.repeatIntervalMs)}</span>;
-            if (col.id === "lastSent") return <span class="text-xs tabular-nums text-dimmed">{fmtDateTime(webhook.lastSentAt)}</span>;
-            if (col.id === "actions") {
-              return (
-                <div class="flex justify-end gap-1">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => void test.mutate(webhook)} disabled={test.loading()}>
-                    Test
-                  </Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => void openEditor(webhook)}>
-                    Edit
-                  </Button>
-                  <Button type="button" variant="danger" size="sm" onClick={() => void remove.mutate(webhook)} disabled={remove.loading()}>
-                    Delete
-                  </Button>
-                </div>
-              );
-            }
-            return "";
-          }}
-        />
+                );
+              }
+              if (col.id === "status") {
+                const status = webhook.lastStatus ?? "new";
+                return <span class={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium ${statusClasses[status]}`}>{status}</span>;
+              }
+              if (col.id === "method") return <span class="text-xs font-medium text-secondary">{webhook.method}</span>;
+              if (col.id === "minimum") return <span class="text-xs capitalize text-dimmed">{webhook.minStatus}</span>;
+              if (col.id === "repeat") return <span class="text-xs tabular-nums text-dimmed">{fmtMinutes(webhook.repeatIntervalMs)}</span>;
+              if (col.id === "lastSent") return <span class="text-xs tabular-nums text-dimmed">{fmtDateTime(webhook.lastSentAt)}</span>;
+              if (col.id === "actions") {
+                return (
+                  <div class="flex justify-end gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void testWebhook(webhook)}
+                      disabled={test.loading() || webhooksBlocked()}
+                    >
+                      Test
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => void openEditor(webhook)} disabled={editorBlocked()}>
+                      Edit
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="danger"
+                      size="sm"
+                      onClick={() => void removeWebhook(webhook)}
+                      disabled={remove.loading() || confirming() || webhooksBlocked()}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                );
+              }
+              return "";
+            }}
+          />
+        )}
       </Show>
     </section>
   );
