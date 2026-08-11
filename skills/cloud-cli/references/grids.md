@@ -1,6 +1,6 @@
 # Grids CLI
 
-Grids stores structured operational data in bases made of tables, fields, records, views, forms, Custom Apps, documents, and workflows. Use `cld grids` to inspect and change the Grids resources available to the signed-in user through the same permission-checked HTTP API used by the app.
+Grids stores structured operational data in bases made of tables, fields, records, views, forms, Grids Apps, documents, and workflows. Use `cld grids` to inspect and change the Grids resources available to the signed-in user through the same permission-checked HTTP API used by the app.
 
 ## Contents
 
@@ -11,7 +11,7 @@ Grids stores structured operational data in bases made of tables, fields, record
 - [Publish Combined tables](#publish-combined-tables)
 - [Query data with GQL](#query-data-with-gql)
 - [Create views and forms](#create-views-and-forms)
-- [Publish a Custom App](#publish-a-custom-app)
+- [Publish a Grids App](#publish-a-grids-app)
 - [Generate documents](#generate-documents)
 - [Manage access](#manage-access)
 - [Build and operate workflows](#build-and-operate-workflows)
@@ -26,13 +26,13 @@ Grids stores structured operational data in bases made of tables, fields, record
 - A **record** is a versioned row. Relations store target record UUIDs. Computed and system fields are read-only.
 - A **view** is a saved GQL query plus display settings. Views can be shared or personal.
 - A **form** writes records through a configured set of fields. A table also has a virtual default form.
-- A **Custom App** is an independently shared, Base-owned published capability surface. Its readers do not need raw Base access, and it may be public.
+- A **Grids App** is an independently shared, Base-owned published capability surface. Its readers do not need raw Base access, and it may be public.
 - A **document template** renders GQL data through Liquid HTML and Gotenberg. A generated document keeps a recursive record snapshot.
-- A **workflow** is validated YAML with inputs, optional triggers, and steps. Launchers adapt workflows to scanner, bulk, and Custom App
+- A **workflow** is validated YAML with inputs, optional triggers, and steps. Launchers adapt workflows to scanner, bulk, and Grids App
   interactions. Grids contributes the actions and the events; the runs themselves live in Cloud's shared workflow kernel, so
   `cld grids workflow-runs` reads one base while `cld admin workflows` reads every app.
 
-Permissions are enforced by the backend on every command. Raw Grids commands require the owning Base permission. Only Base and Custom Apps have Cloud access grants; listing or resolving either resource does not grant access to it.
+Permissions are enforced by the backend on every command. Raw Grids commands require the owning Base permission. Only Base and Grids Apps have Cloud access grants; listing or resolving either resource does not grant access to it.
 
 ## Agent workflow
 
@@ -87,7 +87,7 @@ cld grids use Bookshop
 cld grids tables list --json
 ```
 
-A base reference can be a UUID, short id, or exact name. Table, field, view, form, Custom App, document-template, workflow, and launcher commands likewise resolve documented id, short-id, or exact-name references inside their parent scope. Prefer UUIDs from JSON output in unattended automation.
+A base reference can be a UUID, short id, or exact name. Table, field, view, form, Grids App, document-template, workflow, and launcher commands likewise resolve documented id, short-id, or exact-name references inside their parent scope. Prefer UUIDs from JSON output in unattended automation.
 
 ### Structured input
 
@@ -105,7 +105,7 @@ Use `--json` whenever another command or agent will consume the result. Normal t
 
 CLI requests use the Cloud instance's `app.timezone` for date grouping, relative date filters, generated date sequences, and document
 dates. Browser requests may use the user's timezone cookie instead. Workflow schedules use the IANA timezone declared in their YAML and
-default to UTC. Grids uses the platform English locale for server-rendered number and date output; Custom App `valueFormat` controls
+default to UTC. Grids uses the platform English locale for server-rendered number and date output; Grids App `valueFormat` controls
 numeric style and precision, not locale or query values.
 
 ## Build schema and records
@@ -120,7 +120,7 @@ cld grids tables create --name Authors --description "People who wrote books" --
 cld grids tables get Authors --json
 ```
 
-Built-in templates create complete example bases with schema, views, Custom Apps, documents, workflows, and optional sample records. Sample
+Built-in templates create complete example bases with schema, views, Grids Apps, documents, workflows, and optional sample records. Sample
 records are included by default; pass `--empty` to keep the complete configuration without those records. Commands are
 `templates list|instantiate`.
 
@@ -225,7 +225,7 @@ cld grids snapshots list Assets <record-uuid> --json
 
 A Combined table exposes one canonical, read-only table over stored source tables from one or more bases. Readers need permission only on
 the Combined target. They do not gain source-base navigation, raw source schema, non-published field history, or mutation rights. Queries,
-saved views, Custom Apps, documents, workflow reads, exports, and the canonical Combined audit trail use normal Grids behavior.
+saved views, Grids Apps, documents, workflow reads, exports, and the canonical Combined audit trail use normal Grids behavior.
 
 Publication is fail-closed. Revocation, source deletion, or incompatible schema drift makes the complete published revision unavailable;
 Grids does not return a silently smaller partial union. One Combined table supports at most 50 stored sources and 200 canonical fields.
@@ -411,7 +411,7 @@ Conditions use `=`, `!=`, `<`, `<=`, `>`, `>=`, `and`, `or`, `not`, and parenthe
 `field = null` means empty and `field != null` means not empty. Other comparisons with `null` are invalid. A true/false formula may compare
 fields and calculated expressions. Use operators in GQL conditions, not function-style `AND(...)`, `OR(...)`, or `NOT(...)`.
 
-Custom App GQL receives typed request context automatically:
+Grids App GQL receives typed request context automatically:
 
 - `@auth.id`: current account UUID or `null` for anonymous visitors;
 - `@auth.name`: current account display name or `null`;
@@ -423,7 +423,7 @@ Custom App GQL receives typed request context automatically:
 - `@base.id`, `@base.name`;
 - `@time.now`, `@time.today`, `@time.timeZone`.
 
-Use `@auth.id != null` for authenticated-only data and `@auth.id = null` for anonymous data. Unknown namespaces and undeclared parameters fail compilation. Context values are bound separately from query text; Custom App GQL has no `inputs` map or `param()` helper. Custom App Markdown may insert the same names as safe text placeholders, such as `Hello @auth.name`; it does not support Liquid control flow or executable templates.
+Use `@auth.id != null` for authenticated-only data and `@auth.id = null` for anonymous data. Unknown namespaces and undeclared parameters fail compilation. Context values are bound separately from query text; Grids App GQL has no `inputs` map or `param()` helper. Grids App Markdown may insert the same names as safe text placeholders, such as `Hello @auth.name`; it does not support Liquid control flow or executable templates.
 
 Record metadata filters are `record.id`, `record.createdBy`, `record.updatedBy`, and `record.deletedBy`; they accept `=` or `oneof(...)` with
 record or user UUIDs and may be combined only with `and`. Metadata sorts are `record.createdAt`, `record.updatedAt`, and `record.deletedAt`.
@@ -559,21 +559,23 @@ cld grids forms submit Orders Checkout --body-file submission.json --json
 
 Commands are `forms list|default|get|create|update|delete|restore|submit`. `--public` creates or retains a public submit token; `--private` removes it. Public form links allow form submission, not unrestricted table access.
 
-## Publish a Custom App
+## Publish a Grids App
 
-Custom Apps are strict YAML definitions owned by one base. The current contract supports up to 12 pages containing responsive rows and
+Grids Apps are strict YAML definitions owned by one base. The current contract supports up to 12 pages containing responsive rows and
 columns plus Markdown, Records, Metric, Chart, Record, Form, Comments, and Actions blocks. Records and insight blocks can use a saved view
 or bounded GQL. A Records block can navigate its row id into one required
 record parameter on a detail page. Record and Comments blocks use that page record; Record renders only its explicit field allowlist and
-Comments inherits the record's existing access. Form blocks submit existing Grids forms and may carry trusted fixed values from declared
-page parameters. Run the live reference before authoring a definition:
+Comments inherits the record's existing access. Form blocks submit existing Grids forms and may carry trusted typed `LITERAL`, `PARAMS`,
+or page `RECORD` values. Records blocks may declare up to six workflow `rowActions`; compatible record inputs can receive `ROW.id`, and
+the runtime rechecks the selected id against the exact published query result. Run the live reference before authoring a definition:
 
-Saved-view Records blocks require explicit `display.columnIds`. GQL Records blocks display the query's selected result columns, including aliases and aggregate outputs; use an empty `columnIds` list because no second column selection is applied.
+Saved-view Records blocks require explicit `display.columnIds`. GQL Records blocks display the query's selected ordinary-record columns, including aliases; use an empty `columnIds` list because no second column selection is applied. Use Metrics or Chart for aggregate output.
 
 Pages, blocks, Forms, and actions may use one `availableWhen.query`. At least one returned row means available. An empty result, invalid query, missing context, timeout, or cancellation means unavailable. The server rechecks Forms and actions before execution.
 
 ```bash
 cld grids apps reference
+cld grids apps create Bookshop --name "Request overview" --json
 cld grids apps validate Bookshop --source-file app.yaml
 cld grids apps plan Bookshop --source-file app.yaml
 cld grids apps apply Bookshop --source-file app.yaml --json
@@ -583,15 +585,26 @@ The definition chooses a stable UUID. Omit `shortId` on creation; Grids assigns 
 apply again. `apply` changes the draft only. Grant explicit read access to the app, then publish the current validated draft:
 
 ```bash
-cld grids access grant custom-app Bookshop "Request overview" --group "Request team" --permission read
-cld grids access grant custom-app Bookshop "Public catalog" --public --permission read
+cld grids access grant app Bookshop "Request overview" --group "Request team" --permission read
+cld grids access grant app Bookshop "Public catalog" --public --permission read
 cld grids apps publish Bookshop "Request overview" --yes
 ```
 
 The standalone app is available to authenticated or public readers at `/apps/<shortId>`; named pages use `/apps/<shortId>/<pageId>` and record parameters
-stay in the query string. Readers need only the Custom App grant; the immutable publication capability supplies its declared data and operations without granting raw Base access. Applying a later draft does not affect the published snapshot until the next publish. Commands are
-`apps reference|list|get|validate|plan|apply|export|publish|unpublish|delete`; `export --out <path>` writes normalized deterministic YAML.
-`unpublish --yes` removes only the live snapshot, while `delete --yes` removes the app and its route.
+stay in the query string. Readers need only the Grids App grant; the immutable publication capability supplies its declared data and operations without granting raw Base access. Applying a later draft does not affect the published snapshot until the next publish. Commands are
+`apps reference|list|create|get|validate|plan|apply|export|publish|unpublish|restore|delete`; `export --out <path>` writes normalized deterministic YAML and `export --published` selects the live definition.
+`restore --yes` replaces the draft with the live definition. `unpublish --yes` removes only the live snapshot, while `delete --yes` removes the app and its route.
+
+For context-aware query suggestions, select an existing draft and page. The CLI then sends the same fixed and declared page keys as the visual editor; raw `gql run` and `gql preview` still do not bind App context:
+
+```bash
+cld grids gql autocomplete Bookshop \
+  --app "Request overview" \
+  --page request \
+  --query 'where @' \
+  --caret 7 \
+  --json
+```
 
 ## Generate documents
 
@@ -639,7 +652,7 @@ Supported lifetimes are `1d`, `7d`, `30d`, and `90d`; the default is `30d`.
 
 ## Manage access
 
-Grids grants access to one complete raw Base or one published Custom App. Tables, Views, Forms, document templates, and Workflows have no separate Cloud grants.
+Grids grants access to one complete raw Base or one published Grids App. Tables, Views, Forms, document templates, and Workflows have no separate Cloud grants.
 
 ```bash
 cld grids access reference
@@ -649,15 +662,15 @@ cld grids access set base Bookshop \
   --user ada@example.test \
   --permission write \
   --json
-cld grids access grant custom-app Bookshop "Public catalog" --public --permission read
+cld grids access grant app Bookshop "Public catalog" --public --permission read
 ```
 
 Supported resource references are:
 
 - `base <base>`: `read`, `write`, `admin`, or `none`; applies to the complete raw Base and every record.
-- `custom-app <base> <app>`: `read` or `none`; supports users, groups, authenticated, and public principals. Delegated credentials act as their user.
+- `app <base> <app>`: `read` or `none`; supports users, groups, authenticated, and public principals. Delegated credentials act as their user.
 
-Choose exactly one principal with `--user`, `--group`, `--service-account`, `--authenticated`, or `--public`. `--service-account` is accepted only for a Base; `--public` is accepted only for a Custom App. Existing Custom App service-account entries can be inspected with `access list --include-service-accounts` and removed with `access revoke --access-id <id> --yes`, but they do not authorize app runtime. `access grant` creates a direct grant. `access set` updates or creates it. `access revoke` requires `--yes` and either a principal or `--access-id`.
+Choose exactly one principal with `--user`, `--group`, `--service-account`, `--authenticated`, or `--public`. `--service-account` is accepted only for a Base; `--public` is accepted only for a Grids App. Existing Grids App service-account entries can be inspected with `access list --include-service-accounts` and removed with `access revoke --access-id <id> --yes`, but they do not authorize app runtime. `access grant` creates a direct grant. `access set` updates or creates it. `access revoke` requires `--yes` and either a principal or `--access-id`.
 
 ## Build and operate workflows
 
@@ -896,7 +909,7 @@ Restore copies the selected definition into a new current revision. It uses the 
 
 ### Invoke and inspect runs
 
-Everything that starts a run is an event. A direct invocation records `grids.invoked`; a scanner, bulk, or Custom App launcher records
+Everything that starts a run is an event. A direct invocation records `grids.invoked`; a scanner, bulk, or Grids App launcher records
 `grids.launcherPressed`, a schedule slot records `grids.scheduleTick`, and a watched row records `grids.recordChanged`. The kernel matches
 the event against the workflow's activations and materializes the run, so a run has an inspectable cause rather than only a channel label.
 A dry run is deliberately not an event: nothing happened, somebody is asking what would, so it is created directly against the workflow's
@@ -953,7 +966,7 @@ happened. Run commands are `workflow-runs list|get|cancel|steps|documents|downlo
 
 ### Run options and email templates
 
-Run options expose a workflow as a scanner, bulk, or Custom App interaction. The API and CLI call these resources launchers. A Custom App option uses `inputMode: "fixed"` with complete `inputBindings` for a one-click action, or `inputMode: "prompt"` to request the workflow's declared inputs when it runs. Fixed options reject runtime inputs; prompt options do not store fixed bindings. Their complete JSON shapes and invocation bodies are part of `workflows reference`.
+Run options expose a workflow as a scanner, bulk, or Grids App interaction. The API and CLI call these resources launchers. A Grids App option uses `inputMode: "fixed"` with complete `inputBindings` for a one-click action, or `inputMode: "prompt"` to request the workflow's declared inputs when it runs. Fixed options reject runtime inputs; prompt options do not store fixed bindings. Their complete JSON shapes and invocation bodies are part of `workflows reference`.
 
 ```bash
 cld grids workflow-launchers create "Check in" --body-file scanner-launcher.json --json
@@ -993,7 +1006,7 @@ gql reference|run|preview|compile-view|autocomplete|skill|context
 formulas reference|check
 views list|get|create|update|delete|restore
 forms list|default|get|create|update|delete|restore|submit
-apps reference|list|get|validate|plan|apply|export|publish
+apps reference|list|create|get|validate|plan|apply|export|publish|unpublish|restore|delete
 document-templates reference|list|get|create|update|delete
 document-templates preview-data|preview-pdf|preview-draft-data|preview-draft-pdf
 documents list|browse|by-record|generate|update|download

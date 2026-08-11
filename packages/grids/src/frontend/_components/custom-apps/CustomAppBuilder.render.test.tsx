@@ -9,10 +9,12 @@ import "../ssr-test-plugin";
 const {
   default: CustomAppBuilder,
   blankCustomAppDefinition,
-  customAppContextKeys,
+  customAppStarterGqlSources,
   isCustomAppAvailabilityDiagnostic,
   isCustomAppBlockSourceDiagnostic,
 } = await import("./CustomAppBuilder");
+const { customAppContextKeys } = await import("../../../custom-apps/context-keys");
+const { default: CustomAppBlockPreview } = await import("./CustomAppBlockPreview");
 const { CustomAppAvailabilitySection } = await import("./CustomAppGqlField");
 const { CustomAppMarkdownField } = await import("./CustomAppMarkdownField");
 
@@ -230,11 +232,141 @@ describe("CustomAppBuilder", () => {
     ]);
   });
 
-  test("renders independent Custom App access in app settings", () => {
-    const html = renderToString(() => createComponent(CustomAppBuilder, { app: app(), catalog: catalog(), initialInspectorMode: "app" }));
+  test("creates valid GQL starters without requiring a saved view", () => {
+    const authoringCatalog = catalogWithAuthoringResources();
+    authoringCatalog.viewsByTable = {};
 
-    expect(html).toContain("Custom App grants are independent from Base access");
+    expect(customAppStarterGqlSources(authoringCatalog)).toEqual({
+      records: {
+        kind: "gql",
+        query: "from table {11111111-1111-4111-8111-111111111112}",
+        maxRows: 100,
+      },
+      metrics: {
+        kind: "gql",
+        query: "from table {11111111-1111-4111-8111-111111111112}\naggregate count(*) as total",
+        maxRows: 1,
+      },
+      chart: {
+        kind: "gql",
+        query:
+          "from table {11111111-1111-4111-8111-111111111112}\ngroup by {22222222-2222-4222-8222-222222222222}\naggregate count(*) as total",
+        maxRows: 100,
+      },
+    });
+  });
+
+  test("explains why the start page cannot require a record", () => {
+    const html = renderToString(() =>
+      createComponent(CustomAppBuilder, { app: app(), baseShortId: "BASE1", catalog: catalogWithAuthoringResources() }),
+    );
+
+    expect(html).toContain("Start pages open without a record");
+    expect(html).toContain('title="Make another page the start page first."');
+    expect(html).toMatch(/title="Make another page the start page first\."[\s\S]{0,180}disabled[\s\S]{0,180}Add record parameter/);
+  });
+
+  test("shows an actionable placeholder for empty Markdown", () => {
+    const html = renderToString(() =>
+      createComponent(CustomAppBlockPreview, {
+        block: { id: "intro", type: "markdown", markdown: "" },
+        baseId: app().baseId,
+        shortId: app().shortId,
+        catalog: catalog(),
+      }),
+    );
+
+    expect(html).toContain("Empty Markdown block");
+    expect(html).toContain("Select this block to add text or context placeholders.");
+    expect(html).toContain("k2b-placeholder");
+  });
+
+  test("previews configured Records row actions without enabling them", () => {
+    const tableId = "11111111-1111-4111-8111-111111111112";
+    const fieldId = "22222222-2222-4222-8222-222222222222";
+    const rowId = "44444444-4444-4444-8444-444444444444";
+    const launcherId = "55555555-5555-4555-8555-555555555555";
+    const html = renderToString(() =>
+      createComponent(CustomAppBlockPreview, {
+        block: {
+          id: "items",
+          type: "records",
+          source: { kind: "gql", query: `from table {${tableId}}`, maxRows: 100 },
+          display: { kind: "table", columnIds: [] },
+          rowActions: [
+            {
+              id: "reserve",
+              label: "Reserve",
+              icon: "bolt",
+              showLabel: true,
+              kind: "workflow",
+              launcherId,
+              inputs: {},
+            },
+            {
+              id: "inspect",
+              label: "Inspect",
+              icon: "eye",
+              showLabel: false,
+              kind: "workflow",
+              launcherId,
+              inputs: {},
+            },
+          ],
+        },
+        baseId: app().baseId,
+        shortId: app().shortId,
+        catalog: catalogWithAuthoringResources(),
+        initialResult: {
+          ok: true,
+          mode: "rows",
+          columns: [{ key: "name", label: "Name", tableId, fieldId, type: "text", sqlType: "text" }],
+          rows: [{ recordId: rowId, tableId, values: { name: "Camera" } }],
+          limit: 100,
+        },
+      }),
+    );
+
+    expect(html).toContain("Reserve");
+    expect(html).toContain('aria-label="Inspect"');
+    expect(html).toContain("ti-eye");
+    expect(html.match(/disabled/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("renders independent App access in app settings", () => {
+    const html = renderToString(() =>
+      createComponent(CustomAppBuilder, { app: app(), baseShortId: "BASE1", catalog: catalog(), initialInspectorMode: "app" }),
+    );
+
+    expect(html).toContain("App grants are independent from Base access");
     expect(html).toContain("Loading access");
+    expect(html).toContain("Delete app");
+    expect(html).not.toContain("Unpublish app");
+  });
+
+  test("renders confirmed lifecycle actions for a published App", async () => {
+    const published = app();
+    published.publishedAt = "2026-08-11T10:00:00.000Z";
+    published.publishedDefinition = published.draftDefinition;
+    published.publishedDefinitionRaw = published.draftDefinitionRaw;
+    published.publishedCapabilities = published.draftCapabilities;
+    published.publishedValid = true;
+    const html = renderToString(() =>
+      createComponent(CustomAppBuilder, {
+        app: published,
+        baseShortId: "BASE1",
+        catalog: catalog(),
+        initialInspectorMode: "app",
+      }),
+    );
+    const source = await Bun.file(resolve(import.meta.dir, "CustomAppBuilder.tsx")).text();
+
+    expect(html).toContain("Unpublish app");
+    expect(html).toContain("Delete app");
+    expect(source).toContain('apiClient.apps[":appId"].unpublish.$post');
+    expect(source).toContain('apiClient.apps[":appId"].$delete');
+    expect(source).toContain("Base tables and records are not affected");
+    expect(source).toContain("window.location.assign(`/app/grids/");
   });
 
   test("recognizes source diagnostics for one selected block", () => {
@@ -290,7 +422,7 @@ describe("CustomAppBuilder", () => {
     expect(custom).toContain('class="k2b-detail-panel__section" open');
   });
 
-  test("offers exact Custom App placeholders in the shared Markdown editor", () => {
+  test("offers exact App placeholders in the shared Markdown editor", () => {
     const html = renderToString(() =>
       createComponent(CustomAppMarkdownField, {
         contextKeys: ["auth.name", "auth.email", "params.record_id"],
@@ -314,7 +446,7 @@ describe("CustomAppBuilder", () => {
     legacy.draftDiagnostics = [
       {
         path: ["draft", "schemaVersion"],
-        message: "Stored draft uses unsupported Custom App schemaVersion 1.",
+        message: "Stored draft uses unsupported App schemaVersion 1.",
       },
     ];
     legacy.draftValid = false;
@@ -324,21 +456,23 @@ describe("CustomAppBuilder", () => {
     legacy.publishedAt = "2026-08-07T00:00:00.000Z";
     legacy.publishedValid = true;
 
-    const html = renderToString(() => createComponent(CustomAppBuilder, { app: legacy, catalog: catalog() }));
+    const html = renderToString(() => createComponent(CustomAppBuilder, { app: legacy, baseShortId: "BASE1", catalog: catalog() }));
 
     expect(html).toContain("This draft cannot be opened");
     expect(html).toContain("schemaVersion 1");
     expect(html).toContain("Download stored JSON");
     expect(html).toContain("Restore live version");
     expect(html).toContain("Replace with blank schema v2 draft");
-    expect(html).not.toContain("Custom App canvas");
+    expect(html).toContain("Unpublish app");
+    expect(html).toContain("Delete app");
+    expect(html).not.toContain("App canvas");
   });
 
   test("renders pages, canvas, toolbar, and inspector from the canonical draft", () => {
-    const html = renderToString(() => createComponent(CustomAppBuilder, { app: app(), catalog: catalog() }));
+    const html = renderToString(() => createComponent(CustomAppBuilder, { app: app(), baseShortId: "BASE1", catalog: catalog() }));
 
     expect(html).toContain("k2b-app-workspace__main-pane");
-    expect(html).toContain("Custom App builder");
+    expect(html).toContain("App builder");
     expect(html).toContain("Overview");
     expect(html).toContain("Welcome");
     expect(html).toContain("Choose a request.");
@@ -367,7 +501,8 @@ describe("CustomAppBuilder", () => {
     expect(html).toContain("k2b-detail-panel__body");
     expect(html).toContain('class="k2b-detail-panel__summary"');
     expect(html).toContain("Route parameters");
-    expect(html).toContain('class="k2b-detail-panel__group" role="group" aria-label="Page rules and structure"');
+    expect(html).toContain('class="k2b-detail-panel__group" role="group" aria-label="Page behavior"');
+    expect(html).toContain('class="k2b-detail-panel__group" role="group" aria-label="Page management"');
     expect(html).not.toContain('role="group" aria-label="Page settings"');
     expect(html).toContain("Show in app navigation");
     expect(html).toContain("Availability");
@@ -383,10 +518,27 @@ describe("CustomAppBuilder", () => {
     expect(html).not.toContain("border-t border-subtle");
   });
 
+  test("distinguishes live state from unpublished draft changes", () => {
+    const published = app();
+    published.publishedAt = "2026-08-11T10:00:00.000Z";
+    published.publishedDefinition = published.draftDefinition;
+    published.publishedDefinitionRaw = published.draftDefinitionRaw;
+    published.publishedCapabilities = published.draftCapabilities;
+    published.publishedValid = true;
+    published.hasUnpublishedChanges = true;
+
+    const html = renderToString(() => createComponent(CustomAppBuilder, { app: published, baseShortId: "BASE1", catalog: catalog() }));
+
+    expect(html).toContain("Unpublished changes");
+    expect(html).toContain("Changes are in a draft");
+    expect(html).not.toContain('label="Published"');
+  });
+
   test("uses shared large editors and documented DetailPanel groups", async () => {
     const source = await Bun.file(resolve(import.meta.dir, "CustomAppBuilder.tsx")).text();
     const gqlFieldSource = await Bun.file(resolve(import.meta.dir, "CustomAppGqlField.tsx")).text();
     const markdownFieldSource = await Bun.file(resolve(import.meta.dir, "CustomAppMarkdownField.tsx")).text();
+    const createAppSource = await Bun.file(resolve(import.meta.dir, "../sidebar/CreateCustomAppButton.island.tsx")).text();
     const gqlSettings = source.slice(source.indexOf('<Show when={selectedSourceBlock()?.source.kind === "gql"}>'));
 
     expect(gqlSettings).toContain("<CustomAppGqlField");
@@ -405,23 +557,50 @@ describe("CustomAppBuilder", () => {
     expect(markdownFieldSource).toContain("Add placeholder");
     expect(markdownFieldSource).toContain("<PanelDialog.Body");
     expect(markdownFieldSource).not.toContain("<PanelDialog.Section");
+    expect(createAppSource).toContain('subtitle="Start with one editable Home page."');
+    expect(createAppSource).not.toContain("<PanelDialog.Section");
     expect(source).toContain('<DetailPanel.Group label="App settings">');
     expect(source).toContain('<DetailPanel.Summary title="Page">');
     expect(source).toContain('title="Route parameters"');
-    expect(source).toContain('<DetailPanel.Group label="Page rules and structure">');
+    expect(source).toContain('<DetailPanel.Group label="Page behavior">');
+    expect(source).toContain('<DetailPanel.Group label="Page management">');
     expect(source).toContain('<DetailPanel.Summary title="Block">');
     expect(source).toContain('<DetailPanel.Group label="Block behavior">');
     expect(source).toContain('<DetailPanel.Group label="Data settings">');
     expect(source).toContain('title="Data source"');
     expect(source).toContain('title="Records table"');
+    expect(source).toContain('title="Row actions"');
+    expect(source).toContain("addRowWorkflowAction");
+    expect(source).toContain('label="Show label in table"');
+    expect(source).toContain("app().draftCapabilities?.recordQueries.find");
+    expect(source).toContain('"showLabel" in action && !icon ? { ...action, icon, showLabel: true }');
+    expect(source).toContain("disabled={!selected().action.icon}");
+    expect(source).toContain("view and download existing documents");
+    expect(source).toContain("available only to signed-in app readers");
     expect(source).not.toContain("Resolved fields appear after the GQL preview succeeds.");
     expect(source).toContain('<DetailPanel.Group label="Form settings">');
+    expect(source).toContain('title="Values supplied by this page"');
+    expect(source).not.toContain('title="Prefilled relations"');
     expect(source).toContain('<DetailPanel.Group label="Record settings">');
     expect(source).toContain('<DetailPanel.Group label="Chart settings">');
+    expect(source).toContain('<DetailPanel.Group label="Block management">');
     expect(source).not.toContain('<DetailPanel.Group label="Page settings">');
     expect(source).not.toContain('<DetailPanel.Group label="Block settings">');
     expect(source).not.toContain("<Disclosure");
     expect(source).toContain('<DetailPanel.Group label="Action settings">');
+
+    let groupDepth = 0;
+    for (const match of source.matchAll(/<\/?DetailPanel\.(?:Group|Section)\b[^>]*>/g)) {
+      const token = match[0];
+      if (token.startsWith("</DetailPanel.Group")) {
+        groupDepth -= 1;
+      } else if (token.startsWith("<DetailPanel.Group")) {
+        groupDepth += 1;
+      } else if (token.startsWith("<DetailPanel.Section")) {
+        expect(groupDepth).toBeGreaterThan(0);
+      }
+    }
+    expect(groupDepth).toBe(0);
   });
 
   test("uses the workspace edit accent for selected and focused blocks", async () => {
@@ -469,7 +648,7 @@ describe("CustomAppBuilder", () => {
       actions: [],
     });
 
-    const html = renderToString(() => createComponent(CustomAppBuilder, { app: pairApp, catalog: catalog() }));
+    const html = renderToString(() => createComponent(CustomAppBuilder, { app: pairApp, baseShortId: "BASE1", catalog: catalog() }));
 
     expect(html).toContain('data-zone="pair-left"');
     expect(html).toContain('data-zone="pair-right"');
@@ -492,7 +671,7 @@ describe("CustomAppBuilder", () => {
       blocks: [{ id, type: "markdown" as const, markdown: id }],
     }));
 
-    const html = renderToString(() => createComponent(CustomAppBuilder, { app: columnApp, catalog: catalog() }));
+    const html = renderToString(() => createComponent(CustomAppBuilder, { app: columnApp, baseShortId: "BASE1", catalog: catalog() }));
 
     expect(html.match(/data-zone="column-left"/g)).toHaveLength(3);
     expect(html.match(/data-zone="column-right"/g)).toHaveLength(1);
@@ -506,12 +685,14 @@ describe("CustomAppBuilder", () => {
   });
 
   test("enables typed Records and Form blocks when authorized resources exist", () => {
-    const html = renderToString(() => createComponent(CustomAppBuilder, { app: app(), catalog: catalogWithAuthoringResources() }));
+    const html = renderToString(() =>
+      createComponent(CustomAppBuilder, { app: app(), baseShortId: "BASE1", catalog: catalogWithAuthoringResources() }),
+    );
 
-    expect(html).toContain("Show records from a saved view.");
-    expect(html).toContain("Embed an active form.");
-    expect(html).not.toContain("Create a saved view with visible fields first.");
-    expect(html).not.toContain("Create and activate a form first.");
+    expect(html).toContain("Show records from a saved view or GQL query.");
+    expect(html).toContain("Embed an active Form.");
+    expect(html).not.toContain("Create a table with fields first.");
+    expect(html).not.toContain("Create and activate a Form first.");
   });
 
   test("renders the complete shared Form UI without enabling submission", () => {
@@ -525,7 +706,9 @@ describe("CustomAppBuilder", () => {
       },
     ];
 
-    const html = renderToString(() => createComponent(CustomAppBuilder, { app: formApp, catalog: catalogWithAuthoringResources() }));
+    const html = renderToString(() =>
+      createComponent(CustomAppBuilder, { app: formApp, baseShortId: "BASE1", catalog: catalogWithAuthoringResources() }),
+    );
 
     expect(html).toContain('aria-label="Select and move Form"');
     expect(html).toContain("Request item");

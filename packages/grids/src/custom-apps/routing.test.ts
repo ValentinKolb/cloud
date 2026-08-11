@@ -2,12 +2,15 @@ import { describe, expect, test } from "bun:test";
 import type { CustomAppDefinition } from "./contracts";
 import {
   customAppActionHref,
+  customAppActionStatusUrl,
   customAppActionUrl,
   customAppCommentsUrl,
+  customAppDocumentDownloadUrl,
   customAppFormSubmitUrl,
   customAppFormSuccessHref,
   customAppPageHref,
   customAppRecordUpdateUrl,
+  customAppRowActionUrl,
   customAppRowHref,
   resolveCustomAppPage,
   resolveCustomAppPageParams,
@@ -47,7 +50,7 @@ const definition: CustomAppDefinition = {
   ],
 };
 
-describe("Custom App routing", () => {
+describe("Grids App routing", () => {
   test("uses the start page and resolves an explicit route-only page", () => {
     expect(resolveCustomAppPage(definition)?.id).toBe("home");
     expect(resolveCustomAppPage(definition, "detail")?.id).toBe("detail");
@@ -134,5 +137,14 @@ describe("Custom App routing", () => {
         {},
       ),
     ).toBeNull();
+    expect(customAppRowActionUrl("abc12", "detail", "items", "reserve", { request_id: uuid(9) })).toBe(
+      `/api/grids/apps/runtime/abc12/detail/items/row-actions/reserve?request_id=${uuid(9)}`,
+    );
+    expect(customAppActionStatusUrl("abc12", "detail", "items", "reserve", uuid(10), { request_id: uuid(9) })).toBe(
+      `/api/grids/apps/runtime/abc12/detail/items/actions/reserve/runs/${uuid(10)}?request_id=${uuid(9)}`,
+    );
+    expect(customAppDocumentDownloadUrl("abc12", "detail", "record", uuid(10), { request_id: uuid(9) })).toBe(
+      `/api/grids/apps/runtime/abc12/detail/record/documents/${uuid(10)}/download?request_id=${uuid(9)}`,
+    );
   });
 });

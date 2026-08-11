@@ -146,7 +146,7 @@ describe("Grids admin API", () => {
     expect(baseGetCalls).toBe(0);
   });
 
-  test("lists base and Custom App ACL entries for platform admins", async () => {
+  test("lists base and Grids App ACL entries for platform admins", async () => {
     const response = await app().request(`/bases/${baseId}/access`);
     const body = await response.json();
 
@@ -174,19 +174,19 @@ describe("Grids admin API", () => {
     ]);
   });
 
-  test("can update Custom App ACLs inside the requested base", async () => {
+  test("can update Grids App ACLs inside the requested base", async () => {
     const response = await app().request(`/bases/${baseId}/access/${tableAccessId}`, jsonRequest("PATCH", { permission: "read" }));
 
     expect(response.status).toBe(204);
     expect(updateCalls).toEqual([[tableAccessId, "read", user.id]]);
   });
 
-  test("rejects invalid Custom App ACL levels in the admin repair route", async () => {
+  test("rejects invalid Grids App ACL levels in the admin repair route", async () => {
     const response = await app().request(`/bases/${baseId}/access/${tableAccessId}`, jsonRequest("PATCH", { permission: "admin" }));
     const body = await response.json();
 
     expect(response.status).toBe(400);
-    expect(body).toEqual({ message: "Custom App grants only accept 'read' or 'none'" });
+    expect(body).toEqual({ message: "Grids App grants only accept 'read' or 'none'" });
     expect(updateCalls).toEqual([]);
   });
 
@@ -200,7 +200,7 @@ describe("Grids admin API", () => {
     expect(updateCalls).toEqual([]);
   });
 
-  test("can revoke Custom App ACLs inside the requested base", async () => {
+  test("can revoke Grids App ACLs inside the requested base", async () => {
     const response = await app().request(`/bases/${baseId}/access/${tableAccessId}`, { method: "DELETE" });
 
     expect(response.status).toBe(204);

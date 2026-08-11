@@ -155,7 +155,7 @@ export const createWorkflowTriggerRoutes = () =>
       "/launchers/:launcherId/invoke/custom-app",
       describeRoute({
         tags: ["Grids:Workflow"],
-        summary: "Invoke a Custom App workflow launcher",
+        summary: "Invoke a Grids App workflow launcher",
         responses: {
           200: jsonResponse(WorkflowInvocationReceiptSchema, "Invocation accepted"),
           400: jsonResponse(ErrorResponseSchema, "Invalid invocation"),

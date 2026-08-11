@@ -5,7 +5,7 @@ icon: ti ti-code
 description: Find, combine, and summarize Grids data with the Grids Query Language.
 order: 125
 ---
-GQL is the Grids Query Language. It describes which saved data you want and how Grids should shape the result. The query explorer, saved views, Custom App blocks, document sources, exports, and CLI use the same language.
+GQL is the Grids Query Language. It describes which saved data you want and how Grids should shape the result. The query explorer, saved views, Grids App blocks, document sources, exports, and CLI use the same language.
 
 You do not need GQL for ordinary table work. Start with Search, Filter, Sort, and Computed controls. Use GQL when text makes a precise query easier to understand, reuse, or review.
 
@@ -90,7 +90,7 @@ having revenue > 0
 sort "Ordered at" asc
 ```
 
-Grouping returns summary rows rather than editable records. Use it for reports, charts, Custom Apps, documents, and exports. `where` filters source records before grouping; `having` filters the calculated groups.
+Grouping returns summary rows rather than editable records. Use it for reports, charts, Grids Apps, documents, and exports. `where` filters source records before grouping; `having` filters the calculated groups.
 
 **Follow a relation**
 
@@ -198,16 +198,16 @@ select Name, Price, "Purchase price"
 
 Open **Formulas** for expression syntax and the complete function catalog.
 
-## Use Custom App context {icon="app-window"}
+## Use Grids App context {icon="app-window"}
 
-Custom App queries receive typed request context automatically. Values are bound separately from the query text.
+Grids App queries receive typed request context automatically. Values are bound separately from the query text.
 
 | Reference | Value |
 | --- | --- |
 | `@auth.id` | Current account UUID, or `null` for an anonymous visitor |
 | `@params.<name>` | A declared and validated page parameter |
 | `@page.id`, `@page.title`, `@page.url` | Current page identity and canonical relative URL |
-| `@app.id`, `@app.shortId`, `@app.name` | Published Custom App identity |
+| `@app.id`, `@app.shortId`, `@app.name` | Published Grids App identity |
 | `@base.id`, `@base.name` | Owning Base identity |
 | `@time.now`, `@time.today`, `@time.timeZone` | One request timestamp, local date, and IANA timezone |
 
@@ -304,17 +304,17 @@ For automated reads, the CLI can request one bounded page with `--page-size` or 
 
 ## Permissions and supported queries {icon="shield-lock"}
 
-Raw Grids queries require Base Read and can read the complete Base. Published Custom App queries instead run through the app's immutable capability snapshot and cannot escape to undeclared sources or fields.
+Raw Grids queries require Base Read and can read the complete Base. Published Grids App queries instead run through the app's immutable capability snapshot and cannot escape to undeclared sources or fields.
 
-Autocomplete follows the same boundary: the raw editor uses the current Base schema, while a Custom App editor uses a schema-only catalog for that app definition. It does not execute queries or reveal another Base.
+Autocomplete follows the same boundary: the raw editor uses the current Base schema, while a Grids App editor uses a schema-only catalog for that app definition. It does not execute queries or reveal another Base.
 
 GQL deliberately does not support arbitrary join conditions, subqueries, common table expressions, window functions, or unrestricted expressions. An unsupported query fails with a diagnostic instead of being guessed or partially applied.
 
 ## Views and query results {icon="search"}
 
-Row-shaped table and view results can be displayed and paged like records. Grouped and aggregate-only results use a summary table and are not editable. Compatible query results can be saved as views and reused by Custom Apps, documents, and exports.
+Row-shaped table and view results can be displayed and paged like records. Grouped and aggregate-only results use a summary table and are not editable. Compatible query results can be saved as views and reused by Grids Apps, documents, and exports.
 
-Use a saved View when people revisit the result in the raw Base workspace. Keep GQL local to a Custom App block or document when the query exists only for that resource.
+Use a saved View when people revisit the result in the raw Base workspace. Keep GQL local to a Grids App block or document when the query exists only for that resource.
 
 ## Troubleshoot a query {icon="lifebuoy"}
 

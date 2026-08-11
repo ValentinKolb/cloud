@@ -1,6 +1,6 @@
 ---
 id: grids-build-custom-app
-title: Build your first Custom App
+title: Build your first Grids App
 icon: ti ti-certificate
 description: Build a request app with progress, comments, and a generated certificate.
 order: 133
@@ -29,20 +29,20 @@ Choose the audience boundaries before composing pages:
 
 | Audience | Boundary | Result |
 | --- | --- | --- |
-| Requesters | Custom App Read | Use only the published pages, personal GQL result, included Form, comments, and documents. |
-| Responsible group | Base Write, or a separate staff Custom App | Process all requests without widening the requester app. |
+| Requesters | Grids App Read | Use only the published pages, personal GQL result, included Form, comments, and documents. |
+| Responsible group | Base Write, or a separate staff Grids App | Process all requests without widening the requester app. |
 
-Custom App access does not grant raw Base access. The immutable publication lists the exact data and operations available to requesters. Preview the requester app and the staff surface separately before publishing.
+Grids App access does not grant raw Base access. The immutable publication lists the exact data and operations available to requesters. Preview the requester app and the staff surface separately before publishing.
 
 **Checkpoint:** a requester can submit the Form and the app's Records query returns only `record.createdBy = @auth.id`; the responsible group can process all requests through its separate boundary. If this fails, correct the query or split the audience before building more pages.
 
 ## Open the builder {icon="apps"}
 
-Turn on **Edit mode**, open the base, and choose **New app** under **Custom Apps**. The builder creates one Home page that you can rename or extend. You can also create or replace the same canonical definition with [YAML & CLI](/app/grids/help/grids-custom-app-yaml-cli). Only base administrators see these controls.
+Turn on **Edit mode**, open the base, and choose **New app** under **Apps**. The builder creates one Home page that you can rename or extend. You can also create or replace the same canonical definition with [YAML & CLI](/app/grids/help/grids-custom-app-yaml-cli). Only base administrators see these controls.
 
-The builder edits the same canonical draft used by YAML and CLI. Every structurally complete change is saved automatically; semantic diagnostics remain attached to the draft and block publishing instead of discarding your work. The Pages notice shows saving failures, publishes the latest saved draft, and can restore the draft to the current live version. Its external-link icon opens that live version.
+The builder edits the same canonical draft used by YAML and CLI. Every structurally complete change is saved automatically; semantic diagnostics remain attached to the draft and block publishing instead of discarding your work. The status beside the app name distinguishes **Live**, **Unpublished changes**, **Draft only**, and a draft that needs attention. The Pages notice shows saving failures, publishes the latest saved draft, and can restore the draft to the current live version after confirming that all draft changes will be discarded. Its external-link icon opens that live version.
 
-The canvas is the current draft page: saved View and parameter-free GQL results for its draft pages are resolved on the server, Records use the shared Data Table, Metrics and Charts render aggregate results, and Forms use the complete shared Form UI with submission disabled while authoring. Hover or focus a block to reveal its compact move handle. Drag to a horizontal edge to stack it before or after another block, or to a vertical edge to place it beside one block, a neighboring pair, or the complete stack. Pointer, touch, and keyboard use the same named targets and announcements. Rows, columns, empty layout containers, and balanced widths are created or removed automatically; only blocks are selected and edited. Use **Add block** for Markdown, Records, Metrics, Charts, Forms, page Records, Comments, or Actions. Data blocks can use an accessible saved View or inline GQL. Unavailable resources remain explicit until you choose a replacement.
+The canvas is the current draft page: saved View and parameter-free GQL results for its draft pages are resolved on the server, Records use the shared Data Table, Metrics and Charts render aggregate results, and Forms use the complete shared Form UI with submission disabled while authoring. Hover or focus a block to reveal its compact move handle. Drag to a horizontal edge to stack it before or after another block, or to a vertical edge to place it beside one block, a neighboring pair, or the complete stack. Pointer, touch, and keyboard use the same named targets and announcements. Rows, columns, empty layout containers, and balanced widths are created or removed automatically; only blocks are selected and edited. **Add block** groups ordinary content, page-record blocks, and advanced insights/actions. Data blocks prefer an accessible saved View when one exists and otherwise start with a bounded GQL source from an available table. Unavailable prerequisites stay visible in the menu instead of creating an unusable block.
 
 Set:
 
@@ -89,7 +89,7 @@ Set the row target to page `request` and bind:
 request_id = ROW.id
 ```
 
-Search, filters, sort, and pagination use URL state owned by this Records block. They can be reloaded or shared without becoming access controls. The published GQL must keep `record.createdBy = @auth.id` in the server-executed source.
+The published GQL must keep `record.createdBy = @auth.id` in the server-executed source. The rows shown by the table are presentation, never an access control.
 
 **Checkpoint:** selecting any visible row opens its detail page, while changing the URL to another request does not reveal that record. Fix row navigation separately from row authorization.
 
@@ -116,7 +116,7 @@ When no certificate exists, the Record block shows the configured empty text: â€
 
 ## Keep processing outside the layout {icon="route"}
 
-The responsible group can process requests in the Grids workspace or a second ordinary Custom App. No special admin-app type is needed.
+The responsible group can process requests in the Grids workspace or a second ordinary Grids App. No special admin-app type is needed.
 
 The workflow must re-read and validate the request before changing it. Related record changes use the workflow's atomic record-change boundary; external effects begin only after those changes commit. This keeps concurrent reviewers from silently applying a stale transition.
 
@@ -134,6 +134,10 @@ Use **Preview as** to verify:
 :::
 
 The app is ready when the requester journey is understandable without the Grids workspace or knowledge of the underlying table.
+
+## Take an app offline or delete it {icon="alert-triangle"}
+
+Open **App settings**, then expand **Danger zone**. **Unpublish app** removes the live snapshot immediately while preserving the draft and access grants, so you can edit and publish it again later. **Delete app** removes the app and its live URL but does not delete Base tables or records. Both actions show a destructive confirmation before anything changes; deletion cannot be undone in the builder.
 
 ## Publish and verify {icon="rocket"}
 

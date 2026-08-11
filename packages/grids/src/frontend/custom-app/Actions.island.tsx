@@ -1,5 +1,6 @@
 import { Button, ButtonLink } from "@k2b/ui";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
+import { invokeCustomAppWorkflow } from "./workflow-action-client";
 
 export type CustomAppRenderedAction =
   | {
@@ -19,32 +20,34 @@ export type CustomAppRenderedAction =
       confirm?: string;
     };
 
-const responseError = async (response: Response): Promise<string> => {
-  const payload = await response.json().catch(() => null);
-  return payload && typeof payload === "object" && "message" in payload && typeof payload.message === "string"
-    ? payload.message
-    : "The workflow could not be started.";
-};
-
 export default function Actions(props: { actions: CustomAppRenderedAction[] }) {
   const [pendingId, setPendingId] = createSignal<string | null>(null);
-  const [status, setStatus] = createSignal<{ kind: "success" | "error"; message: string } | null>(null);
+  const [status, setStatus] = createSignal<{ kind: "running" | "success" | "error"; message: string } | null>(null);
+  let controller: AbortController | null = null;
+  let reloadTimer: number | null = null;
+  onCleanup(() => {
+    controller?.abort();
+    if (reloadTimer !== null) window.clearTimeout(reloadTimer);
+  });
 
   const invoke = async (action: Extract<CustomAppRenderedAction, { kind: "workflow" }>) => {
     if (pendingId() || (action.confirm && !window.confirm(action.confirm))) return;
     setPendingId(action.id);
     setStatus(null);
+    controller = new AbortController();
     try {
-      const response = await fetch(action.endpoint, {
-        method: "POST",
-        headers: { Accept: "application/json", "Content-Type": "application/json" },
-        body: JSON.stringify({ operationId: crypto.randomUUID() }),
+      const outcome = await invokeCustomAppWorkflow({
+        endpoint: action.endpoint,
+        signal: controller.signal,
+        onRunning: () => setStatus({ kind: "running", message: "Workflow is running…" }),
       });
-      if (!response.ok) throw new Error(await responseError(response));
-      setStatus({ kind: "success", message: "Workflow started." });
+      setStatus(outcome);
+      if (outcome.kind === "success") reloadTimer = window.setTimeout(() => window.location.reload(), 600);
     } catch (cause) {
+      if (controller.signal.aborted) return;
       setStatus({ kind: "error", message: cause instanceof Error ? cause.message : "The workflow could not be started." });
     } finally {
+      controller = null;
       setPendingId(null);
     }
   };
@@ -108,7 +111,7 @@ export default function Actions(props: { actions: CustomAppRenderedAction[] }) {
         {(current) => (
           <p
             role={current().kind === "error" ? "alert" : "status"}
-            class={`text-sm ${current().kind === "error" ? "text-danger" : "text-success"}`}
+            class={`text-sm ${current().kind === "error" ? "text-danger" : current().kind === "success" ? "text-success" : "text-secondary"}`}
           >
             {current().message}
           </p>

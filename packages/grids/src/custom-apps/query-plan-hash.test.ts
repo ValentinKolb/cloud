@@ -55,7 +55,7 @@ const fields = (overrides: { relationTargetId?: string; labelFieldId?: string } 
   ],
 });
 
-describe("Custom App query plan capabilities", () => {
+describe("Grids App query plan capabilities", () => {
   test("hashes a resolved plan deterministically", () => {
     expect(customAppQueryPlanHash(plan(), fields())).toBe(customAppQueryPlanHash(structuredClone(plan()), structuredClone(fields())));
   });

@@ -53,7 +53,7 @@ describe("recursive Grids permission loading", () => {
     }
   });
 
-  postgresTest("keeps public grants effective only for Custom Apps", async () => {
+  postgresTest("keeps public grants effective only for Grids Apps", async () => {
     await migrate();
     const baseId = Bun.randomUUIDv7();
     const customAppId = Bun.randomUUIDv7();

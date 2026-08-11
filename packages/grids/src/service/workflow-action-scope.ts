@@ -133,8 +133,13 @@ export const canExecuteWorkflow = async (claim: GridsWorkflowExecutionClaim, cli
     const page = app.publishedDefinition.pages.find((candidate) => candidate.id === authorization.pageId);
     const block = page?.rows
       .flatMap((row) => row.columns.flatMap((column) => column.blocks))
-      .find((candidate) => candidate.id === authorization.blockId && candidate.type === "actions");
-    const action = block?.type === "actions" ? block.actions.find((candidate) => candidate.id === authorization.actionId) : null;
+      .find((candidate) => candidate.id === authorization.blockId && (candidate.type === "actions" || candidate.type === "records"));
+    const action =
+      block?.type === "actions"
+        ? block.actions.find((candidate) => candidate.id === authorization.actionId)
+        : block?.type === "records"
+          ? block.rowActions?.find((candidate) => candidate.id === authorization.actionId)
+          : null;
     if (!action || action.kind !== "workflow" || action.launcherId !== claim.launcherId) return false;
     return app.publishedCapabilities.workflowLaunchers.some(
       (capability) =>

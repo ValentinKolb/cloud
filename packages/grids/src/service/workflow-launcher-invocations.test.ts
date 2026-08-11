@@ -336,7 +336,7 @@ describe("workflow kernel bulk launchers", () => {
   });
 });
 
-describe("workflow kernel Custom App launchers", () => {
+describe("workflow kernel Grids App launchers", () => {
   test("uses only stored bindings for fixed launchers", async () => {
     const configuredWorkflow = workflow("message", "text");
     configuredWorkflow.plan.inputs.push({ name: "count", type: "number", config: {} });
@@ -370,7 +370,7 @@ describe("workflow kernel Custom App launchers", () => {
     );
   });
 
-  test("passes server-trusted Custom App action authorization to the runtime", async () => {
+  test("passes server-trusted Grids App action authorization to the runtime", async () => {
     const item = setup(launcher({ kind: "customApp", inputMode: "prompt" }), workflow("message", "text"));
     const authorization = {
       kind: "custom-app-action" as const,

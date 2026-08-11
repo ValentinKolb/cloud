@@ -41,6 +41,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
     return (
       <CustomAppBuilder
         app={route.app}
+        baseShortId={state.base.shortId}
         catalog={state.catalog}
         dateConfig={state.dateConfig}
         initialPreviewResults={route.initialPreviewResults}

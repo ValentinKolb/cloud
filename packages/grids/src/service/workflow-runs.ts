@@ -72,7 +72,7 @@ const pageSize = (limit: number | null | undefined): number => Math.min(Math.max
 
 // ─── Authorization snapshot ──────────────────────────────────────────────────
 
-/** How a run was accepted: directly or by a published Custom App action. */
+/** How a run was accepted: directly or by a published Grids App action. */
 export type GridsWorkflowAuthorization =
   | { kind: "workflow" }
   | { kind: "custom-app-action"; customAppId: string; pageId: string; blockId: string; actionId: string; revision: number };

@@ -5,14 +5,14 @@ import type { DocumentRunSummary, RecordMutationAudit, TableAuditPolicy } from "
 import type { CustomAppBlock } from "../../custom-apps/contracts";
 import { recordAuditRequirementFor } from "../../record-audit-policy";
 import type { Field, GridRecord } from "../../service";
-import { FieldValue } from "../_components/table/FieldValue";
+import { downloadPdfResponse } from "../_components/documents/document-download";
 import { openRecordAuditDialog } from "../_components/records/RecordAuditDialog";
 import { formatRecordRelativeTime } from "../_components/records/RecordHistorySection";
 import { openRecordUpsertDialog } from "../_components/records/RecordUpsertDialog";
-import { downloadPdfResponse } from "../_components/documents/document-download";
-import { requestDocumentRunDownload } from "../_components/documents/document-transfer-client";
+import { FieldValue } from "../_components/table/FieldValue";
 
 type RecordBlock = Extract<CustomAppBlock, { type: "record" }>;
+type CustomAppDocumentRun = DocumentRunSummary & { downloadUrl: string };
 
 const responseMessage = async (response: Response, fallback: string): Promise<string> => {
   const body = (await response.json().catch(() => null)) as { message?: string } | null;
@@ -28,7 +28,7 @@ export default function RecordDetails(props: {
   fields: Field[];
   relationLabels: Record<string, string>;
   updateEndpoint?: string;
-  documentRuns: DocumentRunSummary[];
+  documentRuns: CustomAppDocumentRun[];
   dateConfig: DateContext;
 }) {
   const [record, setRecord] = createSignal(props.record);
@@ -86,11 +86,11 @@ export default function RecordDetails(props: {
     }
   };
 
-  const download = async (run: DocumentRunSummary) => {
+  const download = async (run: CustomAppDocumentRun) => {
     if (downloadingId()) return;
     setDownloadingId(run.id);
     try {
-      await downloadPdfResponse(await requestDocumentRunDownload(run.id), run.filename);
+      await downloadPdfResponse(await fetch(run.downloadUrl, { headers: { Accept: "application/pdf" } }), run.filename);
     } catch (error) {
       prompts.error(error instanceof Error ? error.message : "Failed to download document");
     } finally {

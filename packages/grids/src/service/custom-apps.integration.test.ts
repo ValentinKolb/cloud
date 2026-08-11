@@ -32,7 +32,7 @@ beforeAll(async () => {
   }
 });
 
-describe("Custom App lifecycle", () => {
+describe("Grids App lifecycle", () => {
   postgresTest("keeps legacy definitions stored without rewriting and fails published lookup closed", async () => {
     const baseId = testUuid();
     const appId = testUuid();
@@ -88,7 +88,7 @@ describe("Custom App lifecycle", () => {
       const created = await createBlank(baseId, "Draft app");
       expect(created.ok).toBe(true);
       if (!created.ok) return;
-      if (!created.data.draftDefinition) throw new Error("New Custom App draft must be valid");
+      if (!created.data.draftDefinition) throw new Error("New Grids App draft must be valid");
       const published = await publish(created.data.id);
       expect(published.ok).toBe(true);
 
@@ -150,7 +150,7 @@ describe("Custom App lifecycle", () => {
     const workflowId = testUuid();
     const accessIds: string[] = [];
     try {
-      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${testShortId("B")}, 'Custom Apps')`;
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${testShortId("B")}, 'Grids Apps')`;
       await sql`
         INSERT INTO grids.tables (id, short_id, base_id, name)
         VALUES (${tableId}::uuid, ${testShortId("T")}, ${baseId}::uuid, 'Requests')
@@ -232,7 +232,7 @@ describe("Custom App lifecycle", () => {
         },
       });
       const workflow = await getWorkflow(workflowId);
-      if (!workflow) throw new Error("Custom App workflow fixture is missing");
+      if (!workflow) throw new Error("Grids App workflow fixture is missing");
       const launcherResult = await createLauncher(
         workflow,
         { name: "Approve request", config: { kind: "customApp", inputMode: "prompt" }, enabled: true },
@@ -296,6 +296,17 @@ describe("Custom App lifecycle", () => {
                           history: "push",
                           params: { request_id: { source: "ROW", path: "id" } },
                         },
+                        rowActions: [
+                          {
+                            id: "approve-row",
+                            label: "Approve row",
+                            icon: "check",
+                            showLabel: false,
+                            kind: "workflow",
+                            launcherId,
+                            inputs: { request: { source: "ROW", path: "id" } },
+                          },
+                        ],
                       },
                       {
                         id: "apply",
@@ -368,11 +379,11 @@ describe("Custom App lifecycle", () => {
       const created = await apply(definition);
       expect(created.ok, created.ok ? undefined : created.error.message).toBe(true);
       if (!created.ok) throw new Error(created.error.message);
-      if (!created.data.draftDefinition) throw new Error("Applied Custom App draft must be valid");
+      if (!created.data.draftDefinition) throw new Error("Applied Grids App draft must be valid");
       expect(created.data.shortId).toHaveLength(5);
       expect(created.data.publishedDefinition).toBeNull();
       const capabilities = created.data.draftCapabilities;
-      if (!capabilities) throw new Error("Applied Custom App capabilities must be valid");
+      if (!capabilities) throw new Error("Applied Grids App capabilities must be valid");
       const planHashes = [
         ...capabilities.availability.map((capability) => capability.planHash),
         ...capabilities.views.map((capability) => capability.planHash),
@@ -473,7 +484,10 @@ describe("Custom App lifecycle", () => {
             fixedFieldIds: [relationFieldId],
           },
         ],
-        workflowLaunchers: [{ pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 }],
+        workflowLaunchers: [
+          { pageId: "home", blockId: "requests", actionId: "approve-row", launcherId, workflowId, revision: 1 },
+          { pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 },
+        ],
       });
       expect((await plan(definition)).action).toBe("noop");
 
@@ -498,7 +512,7 @@ describe("Custom App lifecycle", () => {
       expect((await listSummariesByBase(baseId)).find((app) => app.id === appId)?.publishedValid).toBe(true);
 
       const [authUser] = await sql<Array<{ id: string }>>`SELECT id::text FROM auth.users ORDER BY id LIMIT 1`;
-      if (!authUser) throw new Error("Custom App lifecycle test needs one auth user");
+      if (!authUser) throw new Error("Grids App lifecycle test needs one auth user");
       const appGrant = await grantAccess({
         resourceType: "customApp",
         resourceId: appId,

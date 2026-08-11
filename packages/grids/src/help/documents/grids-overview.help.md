@@ -17,8 +17,8 @@ Once the records are useful, the same saved data can support different jobs:
 
 - **Views** show the records people need for a task, such as available items or overdue loans.
 - **Forms** give people a focused way to add records without opening the full table.
-- **Custom Apps** combine numbers, charts, record lists, forms, instructions, links, and workflow actions.
-- **Custom Apps** publish focused, server-enforced pages for authenticated or public audiences without opening the raw Base workspace.
+- **Grids Apps** combine numbers, charts, record lists, forms, instructions, links, and workflow actions.
+- **Grids Apps** publish focused, server-enforced pages for authenticated or public audiences without opening the raw Base workspace.
 - **Documents** turn records into PDFs such as invoices, labels, agreements, and reports.
 - **Workflows** carry out repeatable steps manually, from a scanner or selection, on a schedule, or after a record changes.
 - **Combined tables** publish one governed, read-only dataset from tables in several bases.
@@ -34,7 +34,7 @@ Choose a small process that already has clear items, such as equipment loans or 
 2. Add only the fields needed to recognize and work with each record.
 3. Enter a few real records and correct unclear names or field types.
 4. Create a view for one repeated task.
-5. Add a form, Custom App, document, or workflow only when it removes a real manual step.
+5. Add a form, Grids App, document, or workflow only when it removes a real manual step.
 :::
 
 This order keeps mistakes inexpensive. A clear table and a few representative records make every later choice easier.

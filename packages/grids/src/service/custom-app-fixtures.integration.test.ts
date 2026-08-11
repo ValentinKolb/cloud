@@ -106,7 +106,7 @@ beforeAll(async () => {
   if (process.env.GRIDS_DB_TEST === "1") await migrate();
 });
 
-describe("Custom App Golden fixtures", () => {
+describe("Grids App Golden fixtures", () => {
   test("keeps the certificate request fixture structurally valid", async () => {
     const definition = await loadCertificateDefinition();
     expect(definition.id).toBe(CERTIFICATE.appId);

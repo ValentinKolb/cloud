@@ -108,7 +108,7 @@ beforeAll(async () => {
   if (process.env.GRIDS_DB_TEST === "1") await migrate();
 });
 
-describe("Article Custom App Golden fixture", () => {
+describe("Article Grids App Golden fixture", () => {
   test("keeps the article entry fixture structurally valid", async () => {
     const definition = await loadArticleDefinition();
     expect(definition.id).toBe(ARTICLE.appId);

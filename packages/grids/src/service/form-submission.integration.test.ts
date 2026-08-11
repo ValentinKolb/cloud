@@ -121,6 +121,29 @@ describe("form submission integration", () => {
       expect(tampered.ok).toBe(false);
       if (!tampered.ok) expect(tampered.error.message).toContain("is fixed by this form context");
 
+      const inlineTampered = await submitForm({
+        form: formFor(item),
+        actorId: null,
+        dateConfig: { timeZone: "UTC" },
+        fixedValues: { [item.relationFieldId]: contact.data.recordId },
+        submission: {
+          data: { [item.sourceNameFieldId]: "ORDER-INLINE-TAMPER" },
+          inlineCreates: {
+            [item.relationFieldId]: [{ tempId: "tmp_contact", data: { [item.targetNameFieldId]: "Injected" } }],
+          },
+        },
+      });
+      expect(inlineTampered.ok).toBe(false);
+      if (!inlineTampered.ok) expect(inlineTampered.error.message).toContain("is fixed by this form context");
+
+      const [{ recordsBeforeCreate } = { recordsBeforeCreate: 0 }] = await sql<Array<{ recordsBeforeCreate: number }>>`
+        SELECT count(*)::int AS "recordsBeforeCreate"
+        FROM grids.records r
+        JOIN grids.tables t ON t.id = r.table_id
+        WHERE t.base_id = ${item.baseId}::uuid AND r.deleted_at IS NULL
+      `;
+      expect(recordsBeforeCreate).toBe(1);
+
       const created = await submitForm({
         form: formFor(item),
         actorId: null,

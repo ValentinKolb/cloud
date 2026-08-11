@@ -18,7 +18,7 @@ const ACCESS_RESOURCES = {
     junctionResourceColumn: "custom_app_id",
     resourceTable: "grids.custom_apps",
     allowedPermissions: ["read", "none"],
-    invalidPermissionMessage: "Custom App grants only accept 'read' or 'none'",
+    invalidPermissionMessage: "Grids App grants only accept 'read' or 'none'",
   },
 } as const;
 
@@ -95,9 +95,9 @@ export const validateAccessPermission = (resourceType: AccessResourceType, permi
 };
 
 export const validateAccessPrincipal = (resourceType: AccessResourceType, principal: Principal): string | null => {
-  if (resourceType === "base" && principal.type === "public") return "Public access is only supported for Custom Apps.";
+  if (resourceType === "base" && principal.type === "public") return "Public access is only supported for Grids Apps.";
   if (resourceType === "customApp" && principal.type === "service_account") {
-    return "Custom App access does not support service accounts; grant access to the delegated user instead.";
+    return "Grids App access does not support service accounts; grant access to the delegated user instead.";
   }
   return null;
 };

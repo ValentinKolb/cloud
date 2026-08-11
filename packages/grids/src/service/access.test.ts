@@ -5,7 +5,7 @@ const USER_ID = "11111111-1111-4111-8111-111111111111";
 const ACCESS_ID = "22222222-2222-4222-8222-222222222222";
 
 describe("access audit diff", () => {
-  test("captures a new Custom App grant with stable resource and principal data", () => {
+  test("captures a new Grids App grant with stable resource and principal data", () => {
     const binding: AccessBinding = {
       resourceType: "customApp",
       baseId: "33333333-3333-4333-8333-333333333333",
@@ -116,10 +116,10 @@ describe("access audit diff", () => {
 });
 
 test("validates principals per resource boundary", () => {
-  expect(validateAccessPrincipal("base", { type: "public" })).toBe("Public access is only supported for Custom Apps.");
+  expect(validateAccessPrincipal("base", { type: "public" })).toBe("Public access is only supported for Grids Apps.");
   expect(validateAccessPrincipal("customApp", { type: "public" })).toBeNull();
   expect(validateAccessPrincipal("base", { type: "service_account", serviceAccountId: ACCESS_ID })).toBeNull();
   expect(validateAccessPrincipal("customApp", { type: "service_account", serviceAccountId: ACCESS_ID })).toBe(
-    "Custom App access does not support service accounts; grant access to the delegated user instead.",
+    "Grids App access does not support service accounts; grant access to the delegated user instead.",
   );
 });

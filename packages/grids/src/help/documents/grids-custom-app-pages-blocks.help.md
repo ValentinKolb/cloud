@@ -1,11 +1,11 @@
 ---
 id: grids-custom-app-pages-blocks
-title: Custom App pages & blocks
+title: Grids App pages & blocks
 icon: ti ti-layout-grid
 description: Compose responsive pages from typed, resource-backed blocks.
 order: 134
 ---
-A Custom App is a small composition of existing Grids resources. Its page tree controls layout and navigation; its blocks control which resources appear and which already-defined operations a person may start.
+A Grids App is a small composition of existing Grids resources. Its page tree controls layout and navigation; its blocks control which resources appear and which already-defined operations a person may start.
 
 ## Use stable definition IDs {icon="id"}
 
@@ -26,7 +26,7 @@ A page declares every URL parameter before a block can use it. This release supp
 
 A page may load one **page record** from a Record parameter. In the visual builder, add the parameter ID and Record table under **Route parameters**, then add a Record block; Grids binds that same parameter automatically instead of exposing a second Page Record control. The load is permission-checked and fail-closed. An invalid, missing, deleted, or inaccessible record shows the page's standard unavailable state without disclosing which case occurred.
 
-A route-only page may instead keep the declared Record parameter as context without rendering that record. Records GQL and Form fixed values can then reuse the same authorized parent ID. Pages with required parameters never appear in navigation and cannot be the app's start page.
+A route-only page may instead keep the declared Record parameter as context without rendering that record. Records GQL and Form fixed values can then reuse the same authorized parent ID. Pages with required parameters never appear in navigation and cannot be the app's start page. The visual builder therefore disables **Add record parameter** on the current start page and explains that another parameter-free page must become the start page first.
 
 Implemented blocks bind contextual record values through a typed reference:
 
@@ -39,7 +39,7 @@ path: request_id
 | --- | --- | --- |
 | `PARAMS` | Current page | `request_id` |
 | `RECORD` | Current page record | `id` |
-| `ROW` | One Records row link | `id` |
+| `ROW` | One Records row link or row action | `id` |
 | `RESULT` | Form success navigation | `recordId` |
 
 The builder shows only references valid in the current location. YAML validation applies the same scope and type rules. References cannot read arbitrary URL values, another block's internal state, or undeclared data.
@@ -65,13 +65,13 @@ Markdown renders headings, lists, links, and safe images. It does not run HTML, 
 
 ### Records
 
-Records reads either an existing saved view or a bounded inline GQL query. A saved View uses an explicit displayed-field selection. Inline GQL displays exactly its selected result columns, including aliases and aggregates, so it has no second Columns selector. Both sources support empty copy and optional row navigation.
+Records reads either an existing saved view or a bounded inline GQL query. A saved View uses an explicit displayed-field selection. Inline GQL displays exactly its selected ordinary-record columns, including aliases, so it has no second Columns selector. Use Metrics or Chart for aggregate results. Both Records sources support empty copy and optional row navigation. If no saved View exists, the visual builder can start the block with a bounded table GQL query; row navigation appears only after a compatible record-parameter page exists.
 
-Inline GQL has a required maximum row count. The runtime also applies shared query budgets. Search, filter, sort, and pagination state is namespaced by the block ID in the URL, so two Records blocks cannot overwrite each other's state.
+Inline GQL has a required maximum row count. The runtime also applies shared query budgets.
 
 An inline query receives typed `@auth.id`, `@auth.name`, `@auth.username`, `@auth.email`, `@params`, `@page`, `@app`, `@base`, and `@time` context automatically. Values are bound separately from query text. Unknown namespaces and undeclared page parameters fail publication.
 
-Use `ROW.id` only while defining that block's row link. Put workflow buttons in an Actions block on the target record page.
+Use `ROW.id` only for that Records block's row link or workflow row actions. A row action is rechecked against the exact published query result before its workflow starts. Configure up to six actions with a required accessible label and an optional icon; the table may show the label, the icon, or both.
 
 ### Metrics and Chart
 
@@ -85,11 +85,11 @@ The published capability records the exact tables and fields behind the block. A
 
 Form references one existing Grids form. The form owns visible fields, validation, required inputs, defaults, and record creation.
 
-The block may supply **fixed values** from a declared Record `PARAMS` value. The target must be a user-input relation field for the same table. A fixed value is resolved by the server, omitted from the rendered inputs, and cannot be overridden by the browser. This supports flows such as “add another article to this list” without asking for the same relation again.
+The block may supply trusted values to any user-input field. Use `LITERAL` for a validated fixed value. Compatible relation fields may use a declared Record `PARAMS` value or the current page `RECORD.id`. Supplied inputs are omitted from the rendered Form, resolved again by the server, and cannot be overridden by the browser. This supports flows such as “add another article to this list” without asking for the same relation again.
 
 After success, the block may stay on the page or replace-navigate inside the same app. Navigation parameters may preserve declared `PARAMS` values or use the created Form record's `RESULT.recordId`.
 
-One app may publish up to 24 Form blocks. Each referenced Form may expose up to 100 inputs, of which up to 30 may be fixed by page parameters.
+One app may publish up to 24 Form blocks. Each referenced Form may expose up to 100 inputs, of which up to 30 may be supplied by the page.
 
 ### Record
 
@@ -107,10 +107,10 @@ Comments inherit record visibility. They do not introduce a separate audience or
 
 ### Actions
 
-Actions contains buttons that either navigate inside the same Custom App or start an existing enabled Custom App workflow launcher. A workflow action may bind JSON `LITERAL` values, declared Record `PARAMS`, or the current page `RECORD.id` to compatible workflow inputs. Fixed launchers use their stored bindings and do not accept action inputs.
+Actions contains buttons that either navigate inside the same Grids App or start an existing enabled Grids App workflow launcher. A workflow action may bind JSON `LITERAL` values, declared Record `PARAMS`, or the current page `RECORD.id` to compatible workflow inputs. Fixed launchers use their stored bindings and do not accept action inputs.
 
 The block cannot call arbitrary URLs, update records directly, or invoke a workflow that was not included in the published capability set.
-Starting a workflow is asynchronous: the button reports whether the run was accepted, while the workflow owns its effects and their observable run state. Navigation after a workflow belongs in the workflow or a later page-state transition; Actions does not bind arbitrary workflow results.
+Starting a workflow is asynchronous. The button follows its scoped run and reports the sanitized workflow result message when it succeeds or fails. It never exposes generic workflow history or raw errors. Navigation after a workflow belongs in the workflow or a later page-state transition; Actions does not bind arbitrary workflow results.
 
 The runtime revalidates the published app grant, exact page, block, action, launcher, workflow revision, page records, and `availableWhen` query. An action missing from the immutable publication capability set is omitted. Workflow actions require an authenticated account.
 
@@ -150,7 +150,7 @@ availableWhen:
 
 An empty result, invalid query, missing context, timeout, or cancellation means unavailable. The runtime omits the resource, does not execute its data source, and rechecks the guard before every Form submission or action invocation. Browser visibility is never the enforcement boundary.
 
-In the visual builder, optional availability stays collapsed until you add a rule. Its summary says **Always**, **Custom rule**, or **Needs attention**. Edit short queries in the inspector or choose **Open large editor** for the same automatically saved draft value. Both editors use only the implicit context available on the selected page; the raw GQL console deliberately does not offer Custom App `@…` context.
+In the visual builder, optional availability stays collapsed until you add a rule. Its summary says **Always**, **Custom rule**, or **Needs attention**. Edit short queries in the inspector or choose **Open large editor** for the same automatically saved draft value. Both editors use only the implicit context available on the selected page; the raw GQL console deliberately does not offer Grids App `@…` context.
 
 ## Design local states {icon="info-circle"}
 

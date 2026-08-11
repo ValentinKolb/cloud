@@ -26,7 +26,7 @@ const field = (input: Partial<Field> & Pick<Field, "id" | "tableId" | "type">): 
   updatedAt: "2026-08-10T00:00:00.000Z",
 });
 
-describe("Custom App Record relation capability", () => {
+describe("Grids App Record relation capability", () => {
   test("pins each selected relation target and the exact presentable label fields", () => {
     const sourceTableId = uuid(1);
     const targetTableId = uuid(2);

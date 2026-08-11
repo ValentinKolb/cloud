@@ -68,7 +68,7 @@ function SourcePreview(props: {
   return (
     <Show
       when={!preview.loading}
-      fallback={<Placeholder state="loading" align="left" title="Loading records" description="Running the saved data source." />}
+      fallback={<Placeholder state="loading" align="left" title="Loading preview" description="Running this block's data source." />}
     >
       <Show
         when={preview()}
@@ -91,6 +91,14 @@ function SourcePreview(props: {
               shortId={props.shortId}
               selectedColumnIds={props.block.source.kind === "view" ? props.block.display.columnIds : undefined}
               result={resolved}
+              rowActions={(props.block.rowActions ?? []).map((action) => ({
+                id: action.id,
+                label: action.label,
+                icon: action.icon,
+                showLabel: action.showLabel,
+                endpoint: "",
+              }))}
+              preview
             />
           ) : props.block.type === "metrics" ? (
             <StatGrid columns={3}>
@@ -143,7 +151,20 @@ export default function CustomAppBlockPreview(props: {
   });
 
   return props.block.type === "markdown" ? (
-    <MarkdownView markdown={props.block.markdown} smallHeadings />
+    <Show
+      when={props.block.markdown.trim()}
+      fallback={
+        <Placeholder
+          state="empty"
+          variant="compact"
+          align="left"
+          title="Empty Markdown block"
+          description="Select this block to add text or context placeholders."
+        />
+      }
+    >
+      <MarkdownView markdown={props.block.markdown} smallHeadings />
+    </Show>
   ) : props.block.type === "records" || props.block.type === "metrics" || props.block.type === "chart" ? (
     <SourcePreview
       baseId={props.baseId}

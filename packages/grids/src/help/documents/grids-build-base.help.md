@@ -24,13 +24,13 @@ Each kind of item usually becomes a table. Each fact needed to answer those ques
 6. **Set access before inviting users.** Give people only the resources and actions they need.
 :::
 
-Do not add a Custom App merely to repeat the table, or a workflow for a process people do not yet understand. Add the next resource when its purpose is concrete:
+Do not add a Grids App merely to repeat the table, or a workflow for a process people do not yet understand. Add the next resource when its purpose is concrete:
 
 | Need | Add |
 | --- | --- |
 | Focused data entry | A form |
 | A reusable subset, report, card board, or calendar | A view |
-| A role-specific operating page | A Custom App |
+| A role-specific operating page | A Grids App |
 | A printable or shareable PDF | A document template |
 | A repeatable multi-step action | A workflow |
 | One governed read-only table across bases | A Combined table |
@@ -41,11 +41,11 @@ Open **Base settings** in Edit mode for settings that apply across the base:
 
 - **General** keeps the base name and description understandable in the Grids overview.
 - **Documents** stores the business identity, address, contact, payment, and footer values available to PDF and email templates.
-- **Access** controls who can use the complete raw Base workspace. Use a Custom App for a narrower audience.
+- **Access** controls who can use the complete raw Base workspace. Use a Grids App for a narrower audience.
 - **Trash** lists deleted tables, fields, and forms that can still be restored.
 - **Danger zone** moves the complete Base out of active use while keeping it restorable by an administrator.
 
-Use a Custom App when readers need a narrower operating surface than direct access to the complete Base.
+Use a Grids App when readers need a narrower operating surface than direct access to the complete Base.
 
 ## Example: equipment loans {icon="point"}
 
@@ -56,7 +56,7 @@ Then create:
 - an **Available items** view for daily lookup;
 - an **Open loans** view sorted by due date;
 - a **Request loan** form for guided input;
-- an **Inventory overview** Custom App for staff;
+- an **Inventory overview** Grids App for staff;
 - a **Loan agreement** document template;
 - a **Return item** scanner workflow after the return rules are stable.
 

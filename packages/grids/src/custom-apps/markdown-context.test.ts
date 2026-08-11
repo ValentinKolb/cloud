@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderCustomAppMarkdown } from "./markdown-context";
 
-describe("Custom App Markdown context", () => {
+describe("Grids App Markdown context", () => {
   test("renders fixed and route context without treating unknown @ text as a placeholder", () => {
     expect(
       renderCustomAppMarkdown("Hello @auth.name (@auth.email), open @params.record_id or mail support@example.test.", {

@@ -13,9 +13,11 @@ import {
   customAppActionHref,
   customAppActionUrl,
   customAppCommentsUrl,
+  customAppDocumentDownloadUrl,
   customAppFormSubmitUrl,
   customAppPageHref,
   customAppRecordUpdateUrl,
+  customAppRowActionUrl,
   resolveCustomAppPage,
   resolveCustomAppPageParams,
 } from "../../custom-apps/routing";
@@ -33,6 +35,7 @@ import {
   customAppRelationLabelFieldIdsByTableId,
   sameCustomAppRecordRelationSnapshot,
 } from "../../service/custom-app-record-relations";
+import { executePublishedCustomAppRecords } from "../../service/custom-app-records-query";
 import { executePublishedCustomAppQuery, publishedCustomAppAvailability } from "../../service/custom-app-runtime-query";
 import type { PublicRenderableForm } from "../../service/forms";
 import { ALL_RECORD_ACCESS } from "../../service/record-access";
@@ -42,7 +45,7 @@ import Actions, { type CustomAppRenderedAction } from "./Actions.island";
 import CustomAppChart from "./Chart";
 import { CustomAppPageLayout } from "./PageLayout";
 import RecordDetails from "./RecordDetails.island";
-import RecordsTable from "./RecordsTable.island";
+import RecordsTable, { type CustomAppRenderedRowAction } from "./RecordsTable.island";
 import { formatCustomAppValue } from "./value-format";
 
 type RecordsBlock = Extract<CustomAppBlock, { type: "records" }>;
@@ -73,6 +76,7 @@ type FormBlockData =
       submitUrl: string;
     }
   | { ok: false; message: string };
+type CustomAppDocumentRun = DocumentRunSummary & { downloadUrl: string };
 
 const availableIdsInBatches = async <T extends { id: string }>(
   items: readonly T[],
@@ -87,7 +91,7 @@ const availableIdsInBatches = async <T extends { id: string }>(
   return available;
 };
 
-const Records = (props: { block: RecordsBlock; data: BlockResult; shortId: string }) => {
+const Records = (props: { block: RecordsBlock; data: BlockResult; shortId: string; rowActions: CustomAppRenderedRowAction[] }) => {
   if (!props.data.ok) {
     return <Placeholder variant="compact" align="left" title="Records unavailable" description={props.data.message} />;
   }
@@ -99,6 +103,7 @@ const Records = (props: { block: RecordsBlock; data: BlockResult; shortId: strin
       selectedColumnIds={props.block.source.kind === "view" ? props.block.display.columnIds : undefined}
       result={props.data.result}
       rowNavigate={props.block.rowNavigate}
+      rowActions={props.rowActions}
     />
   );
 };
@@ -140,7 +145,7 @@ const Record = (props: {
   pageRecord: PageRecord | null;
   baseId: string;
   updateEndpoint?: string;
-  documentRuns: DocumentRunSummary[];
+  documentRuns: CustomAppDocumentRun[];
   dateConfig: ReturnType<typeof getDateConfig>;
 }) => {
   if (!props.pageRecord) {
@@ -188,8 +193,9 @@ const CustomAppPage = (props: {
   forms: Map<string, FormBlockData>;
   commentEndpoints: Map<string, string>;
   actions: Map<string, CustomAppRenderedAction[]>;
+  rowActions: Map<string, CustomAppRenderedRowAction[]>;
   recordUpdateEndpoints: Map<string, string>;
-  documentRuns: Map<string, DocumentRunSummary[]>;
+  documentRuns: Map<string, CustomAppDocumentRun[]>;
   pageRecord: PageRecord | null;
   dateConfig: ReturnType<typeof getDateConfig>;
   markdownContext: DslQueryContextValues;
@@ -207,6 +213,7 @@ const CustomAppPage = (props: {
             block={block}
             data={props.results.get(block.id) ?? { ok: false, message: "Records are unavailable." }}
             shortId={props.shortId}
+            rowActions={props.rowActions.get(block.id) ?? []}
           />
         ) : block.type === "metrics" ? (
           <Metrics data={props.metrics.get(block.id) ?? { ok: false, message: "Metrics are unavailable." }} dateConfig={props.dateConfig} />
@@ -359,7 +366,7 @@ export default ssr<AuthContext>(async (c) => {
 
   let pageRecord: PageRecord | null = null;
   const recordUpdateEndpoints = new Map<string, string>();
-  const documentRuns = new Map<string, DocumentRunSummary[]>();
+  const documentRuns = new Map<string, CustomAppDocumentRun[]>();
   if (page.record) {
     const capability = capabilities.records.find((candidate) => candidate.pageId === page.id && candidate.tableId === page.record!.tableId);
     const expectedFieldIds = customAppPageRecordFieldIds(page);
@@ -440,7 +447,12 @@ export default ssr<AuthContext>(async (c) => {
       const allowed = new Set(block.documents?.templateIds ?? []);
       documentRuns.set(
         block.id,
-        runs.filter((run) => run.templateId && allowed.has(run.templateId)),
+        runs
+          .filter((run) => run.templateId && allowed.has(run.templateId))
+          .map((run) => ({
+            ...run,
+            downloadUrl: customAppDocumentDownloadUrl(app.shortId, page.id, block.id, run.id, pageParams),
+          })),
       );
     }
   }
@@ -450,30 +462,22 @@ export default ssr<AuthContext>(async (c) => {
   );
   const entries = await Promise.all(
     blocks.map(async (block): Promise<[string, BlockResult]> => {
-      const maxRows = block.source.kind === "gql" ? block.source.maxRows : 100;
       try {
-        const source = block.source;
-        const view = source.kind === "view" ? await gridsService.view.get(source.viewId) : null;
-        const published =
-          source.kind === "view"
-            ? capabilities.views.find((candidate) => candidate.viewId === source.viewId && candidate.tableId === view?.tableId)
-            : capabilities.recordQueries.find((candidate) => candidate.pageId === page.id && candidate.blockId === block.id);
-        if (!published) return [block.id, { ok: false, message: "This data source is not part of the published app." }];
-        const result = await executePublishedCustomAppQuery({
+        const published = await executePublishedCustomAppRecords({
           baseId: app.baseId,
-          source: view?.source ?? (source.kind === "gql" ? source.query : ""),
-          capability: published,
+          page,
+          block,
+          capabilities,
           context: runtimeContext.query,
           signal: c.req.raw.signal,
           timeZone: runtimeContext.query["time.timeZone"],
           viewer,
-          ...(view ? { currentTableId: view.tableId, sourceHashScope: view.tableId } : {}),
-          maxRows,
-          maxResultBytes: 512_000,
-          labelRelationValues: true,
         });
-        if (!result.ok) return [block.id, { ok: false, message: result.diagnostics[0]?.message ?? "This data source is unavailable." }];
-        return [block.id, { ok: true, result }];
+        if (!published) return [block.id, { ok: false, message: "This data source is not part of the published app." }];
+        if (!published.response.ok) {
+          return [block.id, { ok: false, message: published.response.diagnostics[0]?.message ?? "This data source is unavailable." }];
+        }
+        return [block.id, { ok: true, result: published.response }];
       } catch {
         return [block.id, { ok: false, message: "This data source is temporarily unavailable." }];
       }
@@ -655,6 +659,32 @@ export default ssr<AuthContext>(async (c) => {
     }
     actions.set(block.id, rendered);
   }
+  const rowActions = new Map<string, CustomAppRenderedRowAction[]>();
+  for (const block of blocks) {
+    const rendered: CustomAppRenderedRowAction[] = [];
+    if (accessActorUser(requestAccess)) {
+      for (const action of block.rowActions ?? []) {
+        if (!(await available("action", action.availableWhen?.query, block.id, action.id))) continue;
+        const capability = capabilities.workflowLaunchers.find(
+          (candidate) =>
+            candidate.pageId === page.id &&
+            candidate.blockId === block.id &&
+            candidate.actionId === action.id &&
+            candidate.launcherId === action.launcherId,
+        );
+        if (!capability) continue;
+        rendered.push({
+          id: action.id,
+          label: action.label,
+          icon: action.icon,
+          showLabel: action.showLabel,
+          endpoint: customAppRowActionUrl(app.shortId, page.id, block.id, action.id, pageParams),
+          confirm: action.confirm,
+        });
+      }
+    }
+    rowActions.set(block.id, rendered);
+  }
   return () => (
     <Layout c={c} title={[{ title: definition.name, href: `/apps/${app.shortId}` }, { title: page.title }]}>
       <CustomAppPage
@@ -667,6 +697,7 @@ export default ssr<AuthContext>(async (c) => {
         forms={forms}
         commentEndpoints={commentEndpoints}
         actions={actions}
+        rowActions={rowActions}
         recordUpdateEndpoints={recordUpdateEndpoints}
         documentRuns={documentRuns}
         pageRecord={pageRecord}

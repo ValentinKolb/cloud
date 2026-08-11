@@ -40,7 +40,7 @@ export const publicRoutes = new Hono<AuthContext>()
     });
   });
 
-/** Standalone published Custom Apps mounted at `/apps`. */
+/** Standalone published Apps mounted at `/apps`. */
 export const customAppRoutes = new Hono<AuthContext>()
   .use(rateLimit({ keyBy: "ip", limitPerSecond: 10, windowSecs: 60 }))
   .get("/:shortId/:pageId", auth.requireRole("*"), ...customAppPage)

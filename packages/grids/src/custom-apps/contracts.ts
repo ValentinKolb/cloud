@@ -70,6 +70,7 @@ const CustomAppGqlSourceSchema = z
   .strict();
 
 const CustomAppRecordIdValueSchema = z.object({ source: z.literal("RECORD"), path: z.literal("id") }).strict();
+const CustomAppRowIdValueSchema = z.object({ source: z.literal("ROW"), path: z.literal("id") }).strict();
 
 export const CustomAppAvailabilitySchema = z.object({ query: z.string().trim().min(1).max(20_000) }).strict();
 export type CustomAppAvailability = z.infer<typeof CustomAppAvailabilitySchema>;
@@ -78,10 +79,17 @@ const CustomAppAvailabilityShape = {
   availableWhen: CustomAppAvailabilitySchema.optional(),
 };
 
-export const CustomAppActionValueSchema = z.discriminatedUnion("source", [
+export const CustomAppValueBindingSchema = z.discriminatedUnion("source", [
   z.object({ source: z.literal("LITERAL"), value: z.json() }).strict(),
   CustomAppParamValueSchema,
   CustomAppRecordIdValueSchema,
+]);
+
+export const CustomAppRowValueBindingSchema = z.discriminatedUnion("source", [
+  z.object({ source: z.literal("LITERAL"), value: z.json() }).strict(),
+  CustomAppParamValueSchema,
+  CustomAppRecordIdValueSchema,
+  CustomAppRowIdValueSchema,
 ]);
 
 const CustomAppActionSchema = z.discriminatedUnion("kind", [
@@ -116,12 +124,37 @@ const CustomAppActionSchema = z.discriminatedUnion("kind", [
         .optional(),
       kind: z.literal("workflow"),
       launcherId: z.string().uuid(),
-      inputs: z.record(z.string().trim().min(1).max(120), CustomAppActionValueSchema).default({}),
+      inputs: z.record(z.string().trim().min(1).max(120), CustomAppValueBindingSchema).default({}),
       confirm: z.string().trim().min(1).max(240).optional(),
       ...CustomAppAvailabilityShape,
     })
     .strict(),
 ]);
+
+export const CustomAppRowActionSchema = z
+  .object({
+    id: CustomAppLocalIdSchema,
+    label: z.string().trim().min(1).max(120),
+    icon: z
+      .string()
+      .trim()
+      .min(1)
+      .max(120)
+      .regex(/^[a-z0-9-]+$/, "Use a Tabler icon slug")
+      .optional(),
+    showLabel: z.boolean().default(true),
+    kind: z.literal("workflow"),
+    launcherId: z.string().uuid(),
+    inputs: z.record(z.string().trim().min(1).max(120), CustomAppRowValueBindingSchema).default({}),
+    confirm: z.string().trim().min(1).max(240).optional(),
+    ...CustomAppAvailabilityShape,
+  })
+  .strict()
+  .superRefine((action, ctx) => {
+    if (!action.showLabel && !action.icon) {
+      ctx.addIssue({ code: "custom", message: "Icon-only row actions require an icon", path: ["icon"] });
+    }
+  });
 
 const CustomAppFormSuccessValueSchema = z.discriminatedUnion("source", [
   CustomAppParamValueSchema,
@@ -163,6 +196,7 @@ export const CustomAppRecordsBlockSchema = z
       })
       .strict(),
     rowNavigate: CustomAppRowNavigationSchema.optional(),
+    rowActions: z.array(CustomAppRowActionSchema).max(6).optional(),
     ...CustomAppAvailabilityShape,
   })
   .strict()
@@ -173,6 +207,13 @@ export const CustomAppRecordsBlockSchema = z
         message: "Saved-view Records blocks require at least one displayed column",
         path: ["display", "columnIds"],
       });
+    }
+    const actionIds = new Set<string>();
+    for (const [index, action] of (block.rowActions ?? []).entries()) {
+      if (actionIds.has(action.id)) {
+        ctx.addIssue({ code: "custom", message: `Duplicate row action id "${action.id}"`, path: ["rowActions", index, "id"] });
+      }
+      actionIds.add(action.id);
     }
   });
 
@@ -273,7 +314,7 @@ export const CustomAppFormBlockSchema = z
     type: z.literal("form"),
     title: z.string().trim().min(1).max(160).optional(),
     formId: z.string().uuid(),
-    fixedValues: z.record(z.string().uuid(), CustomAppParamValueSchema).default({}),
+    fixedValues: z.record(z.string().uuid(), CustomAppValueBindingSchema).default({}),
     onSuccessNavigate: CustomAppFormSuccessNavigationSchema.optional(),
     ...CustomAppAvailabilityShape,
   })
@@ -419,31 +460,40 @@ export const CustomAppDefinitionSchema = z
             }
             if (block.type === "form") {
               for (const [fieldId, value] of Object.entries(block.fixedValues)) {
-                if (!page.parameters[value.path]) {
+                if (value.source === "PARAMS" && !page.parameters[value.path]) {
                   ctx.addIssue({
                     code: "custom",
                     message: "Form fixed values must reference a parameter declared by the current page",
                     path: [...blockPath, "fixedValues", fieldId, "path"],
                   });
                 }
+                if (value.source === "RECORD" && !page.record) {
+                  ctx.addIssue({
+                    code: "custom",
+                    message: "RECORD Form fixed values require a page record",
+                    path: [...blockPath, "fixedValues", fieldId],
+                  });
+                }
               }
             }
-            if (block.type === "actions") {
-              for (const [actionIndex, action] of block.actions.entries()) {
-                if (action.kind !== "workflow") continue;
+            if (block.type === "actions" || block.type === "records") {
+              const actions =
+                block.type === "actions" ? block.actions.filter((action) => action.kind === "workflow") : (block.rowActions ?? []);
+              const segment = block.type === "actions" ? "actions" : "rowActions";
+              for (const [actionIndex, action] of actions.entries()) {
                 for (const [inputName, value] of Object.entries(action.inputs)) {
                   if (value.source === "PARAMS" && !page.parameters[value.path]) {
                     ctx.addIssue({
                       code: "custom",
                       message: "Workflow inputs must reference a parameter declared by the current page",
-                      path: [...blockPath, "actions", actionIndex, "inputs", inputName, "path"],
+                      path: [...blockPath, segment, actionIndex, "inputs", inputName, "path"],
                     });
                   }
                   if (value.source === "RECORD" && !page.record) {
                     ctx.addIssue({
                       code: "custom",
                       message: "RECORD workflow inputs require a page record",
-                      path: [...blockPath, "actions", actionIndex, "inputs", inputName],
+                      path: [...blockPath, segment, actionIndex, "inputs", inputName],
                     });
                   }
                 }
@@ -787,11 +837,14 @@ export type CustomAppCapabilities = z.infer<typeof CustomAppCapabilitiesSchema>;
 export type CustomAppBlock = z.infer<typeof CustomAppBlockSchema>;
 export type CustomAppPage = CustomAppDefinition["pages"][number];
 export type CustomAppRowNavigation = NonNullable<Extract<CustomAppBlock, { type: "records" }>["rowNavigate"]>;
+export type CustomAppRecordsBlock = Extract<CustomAppBlock, { type: "records" }>;
 export type CustomAppFormBlock = Extract<CustomAppBlock, { type: "form" }>;
 export type CustomAppCommentsBlock = Extract<CustomAppBlock, { type: "comments" }>;
 export type CustomAppActionsBlock = Extract<CustomAppBlock, { type: "actions" }>;
 export type CustomAppAction = CustomAppActionsBlock["actions"][number];
-export type CustomAppActionValue = z.infer<typeof CustomAppActionValueSchema>;
+export type CustomAppValueBinding = z.infer<typeof CustomAppValueBindingSchema>;
+export type CustomAppRowValueBinding = z.infer<typeof CustomAppRowValueBindingSchema>;
+export type CustomAppRowAction = z.infer<typeof CustomAppRowActionSchema>;
 
 export type CustomAppDiagnostic = { path: Array<string | number>; message: string };
 
@@ -801,10 +854,10 @@ export const parseStoredCustomAppDefinition = (raw: unknown, version: "draft" | 
   const schemaVersion = raw && typeof raw === "object" && "schemaVersion" in raw ? raw.schemaVersion : undefined;
   const recovery =
     schemaVersion === 1
-      ? `Stored ${version} uses unsupported Custom App schemaVersion 1; replace it with a schemaVersion 2 definition${
+      ? `Stored ${version} uses unsupported Grids App schemaVersion 1; replace it with a schemaVersion 2 definition${
           version === "draft" ? " or restore a valid published version" : ""
         }.`
-      : `Stored ${version} is not a valid Custom App schemaVersion 2 definition; replace it with a valid definition${
+      : `Stored ${version} is not a valid Grids App schemaVersion 2 definition; replace it with a valid definition${
           version === "draft" ? " or restore a valid published version" : ""
         }.`;
   const diagnostics: CustomAppDiagnostic[] = [
@@ -833,6 +886,7 @@ export const CUSTOM_APP_REFERENCE = {
     blocksPerColumn: 24,
     recordsBlocks: 4,
     recordsPerBlock: 100,
+    rowActionsPerRecordsBlock: 6,
     insightBlocks: 24,
     metricsPerBlock: 12,
     chartGroupsPerBlock: 100,
@@ -854,6 +908,7 @@ export const CUSTOM_APP_REFERENCE = {
       source: "Saved view or bounded inline GQL with implicit typed request context",
       display: "Saved views require explicit field UUIDs; GQL displays its selected result columns",
       rowNavigate: "Optionally navigate a row id into a target page record parameter",
+      rowActions: "Optionally invoke plural workflow actions with ROW.id and accessible label/icon presentation",
     },
     metrics: {
       required: ["id", "type", "source"],
@@ -875,12 +930,12 @@ export const CUSTOM_APP_REFERENCE = {
     comments: { required: ["id", "type"], note: "Shows the bounded comment thread for the current page record" },
     form: {
       required: ["id", "type", "formId"],
-      fixedValues: "Optionally bind compatible relation fields from declared PARAMS",
+      fixedValues: "Optionally supply trusted typed LITERAL values or compatible PARAMS and page RECORD relations",
       onSuccessNavigate: "Optionally replace-navigate using PARAMS and RESULT.recordId",
     },
     actions: {
       required: ["id", "type", "actions"],
-      note: "Navigate inside the app or invoke an exact published workflow launcher",
+      note: "Navigate inside the app or invoke an exact published workflow launcher and follow its scoped result",
     },
   },
   example: {

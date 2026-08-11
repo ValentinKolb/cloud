@@ -12,7 +12,7 @@ const common = {
   now: new Date("2026-08-10T22:30:00.000Z"),
 };
 
-describe("Custom App runtime context", () => {
+describe("Grids App runtime context", () => {
   test("captures the complete implicit context and local date once", () => {
     const context = buildCustomAppRuntimeContext({
       ...common,

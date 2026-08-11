@@ -5,15 +5,15 @@ icon: ti ti-bolt
 description: Diagnose common problems without guessing or losing work.
 order: 150
 ---
-When Grids behaves differently than expected, identify the surface first: table, view, form, Custom App, document, workflow, or Combined table. Then check its current query, state, and access before changing the underlying data.
+When Grids behaves differently than expected, identify the surface first: table, view, form, Grids App, document, workflow, or Combined table. Then check its current query, state, and access before changing the underlying data.
 
 Grids rejects ambiguous queries, stale writes, invalid automation, and unauthorized access rather than silently choosing a different result.
 
 ## A resource is missing or will not open {icon="lifebuoy"}
 
-Check that it is not in trash or disabled, then identify the boundary. Raw tables, Views, Forms, documents, and Workflows require the owning Base permission. A published Custom App requires its own Read grant. Cloud administrator status does not bypass Grids access on normal app pages.
+Check that it is not in trash or disabled, then identify the boundary. Raw tables, Views, Forms, documents, and Workflows require the owning Base permission. A published Grids App requires its own Read grant. Cloud administrator status does not bypass Grids access on normal app pages.
 
-For a Custom App, confirm that the requested page or block is part of the published snapshot and that its `availableWhen` query returns a row. An unavailable resource deliberately returns **Not Found** and executes no data source or action.
+For a Grids App, confirm that the requested page or block is part of the published snapshot and that its `availableWhen` query returns a row. An unavailable resource deliberately returns **Not Found** and executes no data source or action.
 
 ## Records are missing, duplicated, or out of order {icon="lifebuoy"}
 
@@ -29,7 +29,7 @@ Another user or tab may have saved a newer version. Reload the record, compare t
 
 If the message asks for change context, answer the questions configured under **Table settings → Data integrity**. Protected updates, trash actions, and restores cannot proceed without the required answers.
 
-## A view or Custom App result is wrong {icon="layout"}
+## A view or Grids App result is wrong {icon="layout"}
 
 Open the source query and verify it before changing presentation:
 
@@ -42,7 +42,7 @@ An empty result is different from a failed result. Query diagnostics explain syn
 
 ## A form will not submit {icon="forms"}
 
-Confirm that the Form is active. A raw Base user needs Base Write. A Custom App submission must use an included available Form block. A public Form must still be enabled for token access and opened through its current public URL.
+Confirm that the Form is active. A raw Base user needs Base Write. A Grids App submission must use an included available Form block. A public Form must still be enabled for token access and opened through its current public URL.
 
 Check required fields, relation inline-create rules, and hidden values. People submitting the form cannot override its hidden values.
 
@@ -68,7 +68,7 @@ Open the run detail rather than immediately retrying. Check its revision, mode, 
 
 A `dryRun` records predicted effects but does not perform writes or external requests. An `execute` retry should use a deliberate idempotency key; external HTTP receivers should also handle duplicate requests safely.
 
-For scanner, bulk, and Custom App actions, inspect the saved run option's diagnostics after changing workflow inputs.
+For scanner, bulk, and Grids App actions, inspect the saved run option's diagnostics after changing workflow inputs.
 
 ## A workflow run never appeared {icon="route"}
 
@@ -109,7 +109,7 @@ Open **Combined data**, inspect the affected source and field diagnostics, repai
 
 ## Files, exports, and large results {icon="paperclip"}
 
-Files follow the owning Base or the exact published Custom App capability. Store facts people need to search or filter in normal fields rather than only in a filename.
+Files follow the owning Base or the exact published Grids App capability. Store facts people need to search or filter in normal fields rather than only in a filename.
 
 Exports and result pages load in pages. A query without `limit` can continue through all matching rows; a `limit` intentionally caps the complete result. Use bounded exports and CLI `--max-rows` options when an automated process must enforce its own maximum.
 

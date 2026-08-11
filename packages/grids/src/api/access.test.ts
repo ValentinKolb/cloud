@@ -8,9 +8,9 @@ describe("validateAccessLevelForResource", () => {
     }
   });
 
-  test("Custom Apps only accept read and none", () => {
+  test("Grids Apps only accept read and none", () => {
     expect(validateAccessLevelForResource("customApp", "read")).toBeNull();
     expect(validateAccessLevelForResource("customApp", "none")).toBeNull();
-    expect(validateAccessLevelForResource("customApp", "write")).toBe("Custom App grants only accept 'read' or 'none'");
+    expect(validateAccessLevelForResource("customApp", "write")).toBe("Grids App grants only accept 'read' or 'none'");
   });
 });

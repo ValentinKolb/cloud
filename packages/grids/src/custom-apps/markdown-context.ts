@@ -10,7 +10,7 @@ export const escapeCustomAppMarkdownValue = (value: string): string =>
     .replace(/>/g, "&gt;")
     .replace(/[\\`*_[\]{}()#+!|>~:/@.-]/g, (character) => `&#${character.codePointAt(0)};`);
 
-/** Replace only official Custom App context references. Unknown @ text remains ordinary Markdown. */
+/** Replace only official Grids App context references. Unknown @ text remains ordinary Markdown. */
 export const renderCustomAppMarkdown = (source: string, context: DslQueryContextInput): string =>
   source.replace(CONTEXT_REFERENCE, (reference, path: string) => {
     if (!isDslQueryContextKey(path) || !Object.hasOwn(context, path)) return reference;

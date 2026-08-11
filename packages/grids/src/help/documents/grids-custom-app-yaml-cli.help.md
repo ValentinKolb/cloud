@@ -1,27 +1,27 @@
 ---
 id: grids-custom-app-yaml-cli
-title: Custom App YAML & CLI
+title: Grids App YAML & CLI
 icon: ti ti-terminal-2
 description: Validate, plan, apply, export, and publish the canonical app definition.
 order: 136
 ---
-The visual builder and CLI read and write the same typed Custom App definition. YAML is its lossless human-readable serialization. It composes existing Grids resources and the capabilities exposed by one publication; it does not duplicate Base data or define child-resource permissions.
+The visual builder and CLI read and write the same typed Grids App definition. YAML is its lossless human-readable serialization. It composes existing Grids resources and the capabilities exposed by one publication; it does not duplicate Base data or define child-resource permissions.
 
 ## Build resources before the app {icon="building-factory-2"}
 
-A complete solution still has one owner for each concern. Use the existing `cld grids` commands to create or update the base, tables, fields, views, forms, document templates, workflow launchers, and access bindings. Read those resources back with `--json` and use their canonical IDs in the Custom App definition.
+A complete solution still has one owner for each concern. Use the existing `cld grids` commands to create or update the base, tables, fields, views, forms, document templates, workflow launchers, and access bindings. Read those resources back with `--json` and use their canonical IDs in the Grids App definition.
 
 The deterministic agent sequence is:
 
 1. inspect the current base and the installed Grids references;
 2. create or update the required resources through their existing commands;
-3. configure Base access for administrators and Custom App access for its audience;
+3. configure Base access for administrators and Grids App access for its audience;
 4. write the app-only YAML with the returned canonical IDs;
 5. validate, plan, and apply the app draft;
 6. preview the complete journey as its intended audiences;
 7. publish only after the plan and preview pass.
 
-Custom App YAML is deliberately not a whole-base bundle. A second table, workflow, or permission schema would duplicate existing APIs, create conflicting owners, and make partial updates harder to reason about. An agent may keep several ordinary input files beside the app YAML, but it applies each file through the command that owns that resource.
+Grids App YAML is deliberately not a whole-base bundle. A second table, workflow, or permission schema would duplicate existing APIs, create conflicting owners, and make partial updates harder to reason about. An agent may keep several ordinary input files beside the app YAML, but it applies each file through the command that owns that resource.
 
 ## Start from the machine reference {icon="book-2"}
 
@@ -33,6 +33,13 @@ cld grids apps reference --json
 
 Agents should read this reference before generating a definition. The server remains authoritative for the installed schema version, accessible resources, field types, and launcher inputs.
 
+For a guided start, create the same blank Home draft as the visual **New app** action, then export and edit it. Advanced authors can skip this and apply a complete definition directly:
+
+```bash
+cld grids apps create MyBase --name "Certificate requests" --json
+cld grids apps export MyBase "Certificate requests" --out certificate-app.yaml
+```
+
 ## Use one strict root document {icon="file-code"}
 
 Every definition has this shape:
@@ -42,11 +49,24 @@ schemaVersion: 2
 kind: grids.custom-app
 id: 10000000-0000-4000-8000-000000000101
 baseId: 10000000-0000-4000-8000-000000000001
-shortId: a1b2c3
+shortId: a1b2c
 name: Certificate requests
 icon: certificate
-startPageId: apply
-pages: []
+startPageId: home
+pages:
+  - id: home
+    title: Home
+    navigation: { visible: true, order: 0 }
+    parameters: {}
+    rows:
+      - id: content
+        columns:
+          - id: main
+            span: 12
+            blocks:
+              - id: intro
+                type: markdown
+                markdown: "# Certificate requests"
 ```
 
 | Key | Contract |
@@ -144,6 +164,15 @@ All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `
     history: push
     params:
       request_id: { source: ROW, path: id }
+  rowActions:
+    - id: approve-row
+      label: Approve request
+      icon: check
+      showLabel: true
+      kind: workflow
+      launcherId: 10000000-0000-4000-8000-000000000701
+      inputs:
+        request_id: { source: ROW, path: id }
 
 # Bounded inline query
 - id: totals
@@ -214,7 +243,18 @@ Metrics and Chart read a saved view or bounded inline GQL. Metrics requires ungr
 
 Inline GQL automatically receives `@auth`, declared `@params`, `@page`, `@app`, `@base`, and `@time` context. Unknown namespaces and undeclared page parameters fail validation. Values are bound separately from query text and are never interpolated into it.
 
-Use a standalone Actions block for navigation and workflow launchers. Records row links remain the compact per-row interaction in the first release. Form validation and submission behavior remain owned by the referenced Form.
+Autocomplete can derive those exact keys from a saved draft page without enabling them in the raw query console:
+
+```bash
+cld grids gql autocomplete MyBase \
+  --app "Certificate requests" \
+  --page request \
+  --query 'where @' \
+  --caret 7 \
+  --json
+```
+
+Use a standalone Actions block for page-level navigation and workflows. Use `rowActions` for up to six workflows that act on one Records result row. Every row action has a required accessible label, may hide that label only when it has an icon, and may bind `ROW.id` to a compatible record input. Form validation and submission behavior remain owned by the referenced Form.
 
 Pages, blocks, Forms, and actions may declare one server-enforced availability query:
 
@@ -254,13 +294,16 @@ cld grids apps apply --source-file certificate-app.yaml --json
 
 Use `plan` or `apply --dry-run` to observe the `noop` result explicitly. A subsequent ordinary `apply` of that definition leaves the stored app and its update timestamp unchanged.
 
-The command runs as the signed-in Cloud account and requires Base Admin. It cannot grant itself Base or Custom App access.
+The command runs as the signed-in Cloud account and requires Base Admin. It cannot grant itself Base or Grids App access.
 
 ## Export and review {icon="file-export"}
 
 ```bash
 cld grids apps export 10000000-0000-4000-8000-000000000101 \
   --out certificate-app.yaml
+cld grids apps export 10000000-0000-4000-8000-000000000101 \
+  --published \
+  --out certificate-app-live.yaml
 ```
 
 Export emits canonical key ordering, canonical resource IDs, the assigned `shortId`, and no secrets. A visual-builder edit followed by export must retain the same semantics as a CLI edit followed by apply.
@@ -273,17 +316,18 @@ cld grids apps publish 10000000-0000-4000-8000-000000000101 --yes --json
 
 Publish reruns preflight and replaces the published snapshot only when it succeeds. It is an explicit state change and requires `--yes` in non-interactive use.
 
-Unpublish removes only the live snapshot and keeps the draft. Delete moves the app out of normal listings and removes its live route. Both destructive commands require `--yes`:
+Restore discards pending draft changes and copies the live definition back into the draft. Unpublish removes only the live snapshot and keeps the draft. Delete moves the app out of normal listings and removes its live route. These destructive commands require `--yes`:
 
 ```bash
+cld grids apps restore 10000000-0000-4000-8000-000000000101 --yes --json
 cld grids apps unpublish 10000000-0000-4000-8000-000000000101 --yes --json
 cld grids apps delete 10000000-0000-4000-8000-000000000101 --yes --json
 ```
 
-The first-release command surface is:
+The command surface is:
 
 ```text
-apps reference|list|get|validate|plan|apply|export|publish|unpublish|delete
+apps reference|list|create|get|validate|plan|apply|export|publish|unpublish|restore|delete
 ```
 
 Use [Publish & permissions](/app/grids/help/grids-publish-custom-app) to review the access boundary before an agent publishes an app.

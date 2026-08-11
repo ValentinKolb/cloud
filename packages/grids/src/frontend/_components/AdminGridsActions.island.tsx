@@ -57,12 +57,12 @@ const openPermissionDialog = async (props: AdminGridsActionsProps, entries: Scop
         const response = await apiClient.admin.bases[":baseId"].access[":accessId"].$delete({
           param: { baseId: props.baseId, accessId: entry.id },
         });
-        if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to revoke Custom App access."));
+        if (!response.ok) throw new Error(await readErrorMessage(response, "Failed to revoke App access."));
         return entry;
       },
       onSuccess: (entry) => {
         setScopedEntries((current) => current.filter((item) => item.id !== entry.id));
-        toast.success("Custom App access revoked");
+        toast.success("App access revoked");
       },
       onError: (err) => prompts.error(err.message),
     });
@@ -119,8 +119,8 @@ const openPermissionDialog = async (props: AdminGridsActionsProps, entries: Scop
         <Show when={customAppEntries().length > 0}>
           <div class="flex flex-col gap-2 pt-1">
             <div>
-              <h3 class="text-xs font-semibold uppercase tracking-wide text-dimmed">Custom App access</h3>
-              <p class="text-xs text-dimmed">Custom Apps have independent grants and never inherit access from the Base.</p>
+              <h3 class="text-xs font-semibold uppercase tracking-wide text-dimmed">App access</h3>
+              <p class="text-xs text-dimmed">Apps have independent grants and never inherit access from the Base.</p>
             </div>
             <div class="flex flex-col">
               <For each={customAppEntries()}>
@@ -136,7 +136,7 @@ const openPermissionDialog = async (props: AdminGridsActionsProps, entries: Scop
                       variant="ghost"
                       size="xs"
                       class="text-dimmed hover:text-default"
-                      label={`Revoke Custom App access for ${entryLabel(entry)}`}
+                      label={`Revoke App access for ${entryLabel(entry)}`}
                       disabled={revokeCustomAppEntryMutation.loading()}
                       onClick={() => revokeCustomAppEntryMutation.mutate(entry)}
                     >

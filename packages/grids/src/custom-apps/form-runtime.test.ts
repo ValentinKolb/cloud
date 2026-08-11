@@ -61,9 +61,56 @@ const fields = [
 capability.fieldHash = customAppFormFieldHash([relationFieldId, textFieldId], fields);
 capability.formSecurityHash = customAppFormSecurityHash({ tableId, config: form.config, fields });
 
-describe("Custom App Form runtime capability", () => {
+describe("Grids App Form runtime capability", () => {
   test("accepts the exact published Form and relation binding", () => {
     expect(customAppFormMatchesPublishedCapability({ block, page, form, fields, inlineTargetFields: [], capability })).toBe(true);
+  });
+
+  test("accepts typed literals and the compatible page record as trusted values", () => {
+    const literalBlock: CustomAppFormBlock = {
+      ...block,
+      fixedValues: { [textFieldId]: { source: "LITERAL", value: "Prepared" } },
+    };
+    const literalCapability = { ...capability, fixedFieldIds: [textFieldId] };
+    expect(
+      customAppFormMatchesPublishedCapability({
+        block: literalBlock,
+        page,
+        form,
+        fields,
+        inlineTargetFields: [],
+        capability: literalCapability,
+      }),
+    ).toBe(true);
+    expect(
+      customAppFormMatchesPublishedCapability({
+        block: { ...literalBlock, fixedValues: { [textFieldId]: { source: "LITERAL", value: { invalid: true } } } },
+        page,
+        form,
+        fields,
+        inlineTargetFields: [],
+        capability: literalCapability,
+      }),
+    ).toBe(false);
+
+    const recordPage: CustomAppPage = {
+      ...page,
+      record: { tableId: parentTableId, id: { source: "PARAMS", path: "parent_id" } },
+    };
+    const recordBlock: CustomAppFormBlock = {
+      ...block,
+      fixedValues: { [relationFieldId]: { source: "RECORD", path: "id" } },
+    };
+    expect(
+      customAppFormMatchesPublishedCapability({
+        block: recordBlock,
+        page: recordPage,
+        form,
+        fields,
+        inlineTargetFields: [],
+        capability,
+      }),
+    ).toBe(true);
   });
 
   test("fails closed when fields or relation targets drift after publish", () => {

@@ -5,7 +5,7 @@ const MIGRATION_LOCK_NAME = "grids:migrate";
 
 /**
  * Schema for the Grids app: bases → tables → fields, records, views, forms,
- * document templates, Custom Apps, workflows, and generated artifacts.
+ * document templates, Grids Apps, workflows, and generated artifacts.
  *
  * Storage strategy: records use JSONB keyed by stable field IDs. Per-field
  * expression indexes are opt-in (`fields.indexed=true`). No GIN on `data` by
@@ -13,7 +13,7 @@ const MIGRATION_LOCK_NAME = "grids:migrate";
  * indexing per field.
  *
  * Permission model: raw Grids resources inherit one base grant. Published
- * Custom Apps have an independent read grant and execute only their compiled
+ * Grids Apps have an independent read grant and execute only their compiled
  * capabilities.
  */
 const migrateSchema = async (sql: SQL): Promise<void> => {

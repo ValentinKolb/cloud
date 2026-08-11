@@ -651,11 +651,11 @@ describe("built-in grid templates", () => {
       );
       assertUnique(
         (template.customApps ?? []).map((app) => app.key),
-        `${template.id} Custom App keys`,
+        `${template.id} Grids App keys`,
       );
       assertUnique(
         (template.customApps ?? []).map((app) => app.name),
-        `${template.id} Custom App names`,
+        `${template.id} Grids App names`,
       );
       assertUnique(
         (template.documentTemplates ?? []).map((documentTemplate) => documentTemplate.key),
@@ -764,11 +764,11 @@ describe("built-in grid templates", () => {
     }
   });
 
-  test("each template has meaningful Custom App charts", () => {
+  test("each template has meaningful Grids App charts", () => {
     for (const template of templates) {
       const viewsByKey = new Map((template.views ?? []).map((view) => [view.key, view]));
       const charts = customAppBlocks(template).filter((block) => block.type === "chart");
-      expect(charts.length, `${template.id} Custom App charts`).toBeGreaterThan(0);
+      expect(charts.length, `${template.id} Grids App charts`).toBeGreaterThan(0);
 
       for (const chart of charts) {
         const source = chart.source;
@@ -905,10 +905,10 @@ describe("built-in grid templates", () => {
       }
 
       for (const app of template.customApps ?? []) {
-        assertUnique(app.rows.map((row) => row.id), `${template.id}.${app.key} Custom App row ids`);
+        assertUnique(app.rows.map((row) => row.id), `${template.id}.${app.key} Grids App row ids`);
         assertUnique(
           app.rows.flatMap((row) => row.columns.map((column) => column.id)),
-          `${template.id}.${app.key} Custom App block ids`,
+          `${template.id}.${app.key} Grids App block ids`,
         );
         for (const row of app.rows) {
           expect(row.columns.reduce((total, column) => total + column.span, 0), `${template.id}.${app.key}.${row.id} spans`).toBeLessThanOrEqual(12);
@@ -922,10 +922,10 @@ describe("built-in grid templates", () => {
                 (column.source as { query?: unknown }).query,
                 templateNamesForGql(template),
               );
-              expect(typeof gql, `${template.id}.${app.key}.${column.id} Custom App GQL`).toBe("string");
+              expect(typeof gql, `${template.id}.${app.key}.${column.id} Grids App GQL`).toBe("string");
               if (typeof gql !== "string") continue;
               const parsed = parseGridsQueryDsl(gql);
-              expect(parsed.ok, `${template.id}.${app.key}.${column.id} Custom App GQL parses`).toBe(true);
+              expect(parsed.ok, `${template.id}.${app.key}.${column.id} Grids App GQL parses`).toBe(true);
               if (!parsed.ok) continue;
               const resolved = resolveDslQueryToQueryPlan(
                 parsed.ast,
@@ -933,7 +933,7 @@ describe("built-in grid templates", () => {
               );
               expect(
                 resolved.ok,
-                `${template.id}.${app.key}.${column.id} Custom App GQL resolves: ${
+                `${template.id}.${app.key}.${column.id} Grids App GQL resolves: ${
                   resolved.ok ? "" : resolved.diagnostics.map((diagnostic) => diagnostic.message).join("; ")
                 }`,
               ).toBe(true);

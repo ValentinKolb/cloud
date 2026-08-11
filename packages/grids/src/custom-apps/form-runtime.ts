@@ -1,7 +1,9 @@
 import type { Field } from "../contracts";
+import { getRecordWritableFieldType } from "../field-types";
 import type { Form } from "../service/forms";
 import type { CustomAppCapabilities, CustomAppFormBlock, CustomAppPage } from "./contracts";
 import { customAppFormFieldHash, customAppFormSecurityHash } from "./form-capability";
+import { customAppBindingRecordTableId } from "./value-bindings";
 
 type FormCapability = CustomAppCapabilities["forms"][number];
 
@@ -39,8 +41,12 @@ export const customAppFormMatchesPublishedCapability = (input: {
 
   return Object.entries(block.fixedValues).every(([fieldId, value]) => {
     const field = fieldsById.get(fieldId);
-    const parameter = page.parameters[value.path];
+    if (!field) return false;
+    if (value.source === "LITERAL") {
+      const validated = getRecordWritableFieldType(field.type)?.validate(value.value, field.config, field.required);
+      return validated?.ok === true && validated.value !== undefined;
+    }
     const targetTableId = field?.type === "relation" ? (field.config as { targetTableId?: unknown }).targetTableId : null;
-    return typeof targetTableId === "string" && targetTableId === parameter?.tableId;
+    return typeof targetTableId === "string" && targetTableId === customAppBindingRecordTableId(value, page);
   });
 };

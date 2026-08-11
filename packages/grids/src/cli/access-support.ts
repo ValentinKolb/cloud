@@ -7,7 +7,7 @@ import { requireRestArg } from "./runtime";
 
 export const PERMISSION_LEVELS = ["none", "read", "write", "admin"] as const satisfies readonly PermissionLevel[];
 
-export const ACCESS_RESOURCE_TYPES = ["base", "custom-app"] as const;
+export const ACCESS_RESOURCE_TYPES = ["base", "app"] as const;
 
 type AccessResourceType = (typeof ACCESS_RESOURCE_TYPES)[number];
 
@@ -24,7 +24,7 @@ export const accessPermissionsForResource = (type: AccessResourceType): readonly
   switch (type) {
     case "base":
       return ["read", "write", "admin", "none"];
-    case "custom-app":
+    case "app":
       return ["read", "none"];
   }
 };
@@ -46,11 +46,14 @@ export const resolveAccessResource = async (ctx: CloudCliContext, args: string[]
     return { type, id: base.id, label: `${base.name} (${base.shortId})`, allowed: accessPermissionsForResource(type) };
   }
   const { base, rest: appRest } = await resolveBaseFromCommand(ctx, rest, 1);
-  const app = await resolveCustomApp(ctx, base.id, requireRestArg(appRest, 0, "Custom App"));
+  const app = await resolveCustomApp(ctx, base.id, requireRestArg(appRest, 0, "App"));
   return { type, id: app.id, label: `${app.name} (${app.shortId})`, allowed: accessPermissionsForResource(type) };
 };
 
-export const accessResourcePath = (resource: AccessResource): string => `/access/by-${resource.type}/${encodeURIComponent(resource.id)}`;
+export const accessResourcePath = (resource: AccessResource): string =>
+  resource.type === "base"
+    ? `/access/by-base/${encodeURIComponent(resource.id)}`
+    : `/access/by-custom-app/${encodeURIComponent(resource.id)}`;
 
 export const principalKey = (principal: Principal): string => {
   switch (principal.type) {
@@ -69,10 +72,10 @@ export const principalKey = (principal: Principal): string => {
 
 export const assertAccessPrincipal = (resource: AccessResource, principal: Principal): void => {
   if (resource.type === "base" && principal.type === "public") {
-    throw new Error("Public access is only supported for Custom Apps.");
+    throw new Error("Public access is only supported for Grids Apps.");
   }
-  if (resource.type === "custom-app" && principal.type === "service_account") {
-    throw new Error("Custom App access does not support service accounts; grant access to the delegated user instead.");
+  if (resource.type === "app" && principal.type === "service_account") {
+    throw new Error("Grids App access does not support service accounts; grant access to the delegated user instead.");
   }
 };
 

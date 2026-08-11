@@ -1,13 +1,13 @@
 ---
 id: grids-publish-custom-app
-title: Publish a Custom App
+title: Publish a Grids App
 icon: ti ti-rocket
 description: Preview access, review capabilities, and publish a fail-closed app snapshot.
 order: 135
 ---
-Publishing makes one reviewed Custom App snapshot available at its stable URL. A public app grant makes only that compiled snapshot public; it never opens the raw Base.
+Publishing makes one reviewed Grids App snapshot available at its stable URL. A public app grant makes only that compiled snapshot public; it never opens the raw Base.
 
-Only a base administrator can edit, preview, or publish a Custom App.
+Only a base administrator can edit, preview, or publish a Grids App.
 
 ## Understand the published boundary {icon="shield-lock"}
 
@@ -22,7 +22,7 @@ A caller can use a resource only when every applicable boundary allows it:
 
 A broader permission at one boundary never overrides a denial or narrower boundary elsewhere. Base access is not required for an app reader and does not replace the app grant.
 
-Custom App grants do not support service accounts. Delegated credentials access the app through their user identity.
+Grids App grants do not support service accounts. Delegated credentials access the app through their user identity.
 
 The app exposes only resources named by its published blocks and actions. It does not expose the base workspace, schema, sibling apps, or unrelated resources. Denied blocks and actions fail without revealing their labels, configuration, or whether a referenced record exists.
 

@@ -1,12 +1,12 @@
-# Custom Apps contract fixtures
+# Grids Apps contract fixtures
 
-These files are the implementation-driving examples for the first Custom Apps
+These files are the implementation-driving examples for the first Grids Apps
 vertical slice. The product does not load them at runtime.
 
-Each YAML file defines one Custom App and references existing resources in one
+Each YAML file defines one Grids App and references existing resources in one
 base by canonical UUID. Tables, fields, views, forms, document templates,
 workflow launchers, and access bindings remain owned by their existing Grids
-APIs and CLI commands. Custom App YAML intentionally does not duplicate them.
+APIs and CLI commands. Grids App YAML intentionally does not duplicate them.
 The corresponding audience and row-scope setup is recorded in
 `access-fixtures.md`.
 
@@ -40,5 +40,5 @@ resources and access bindings before they become executable Golden App tests:
    immutable `shortId`.
 6. Publish preflight derives the expected least-privilege capabilities.
 
-The current end-user Help registry must not include the Custom Apps articles
+The current end-user Help registry must not include the Grids Apps articles
 until that complete loop and the documented permission behavior ship together.

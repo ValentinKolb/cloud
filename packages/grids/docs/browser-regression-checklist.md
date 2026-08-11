@@ -15,8 +15,8 @@ browser assertions.
 - Export CSV and JSON from a filtered view.
 - Create a form, submit it authenticated, enable public link, submit it
   anonymously.
-- Publish a Custom App with Markdown, Records, Metric, Chart, Form, Record,
+- Publish a Grids App with Markdown, Records, Metric, Chart, Form, Record,
   Comments, and Actions blocks, then verify its declared page navigation.
 - Delete and restore a record, view, form, table, and base.
 - Check desktop, tablet, and mobile widths for table, detail panel, public form,
-  and Custom App pages.
+  and Grids App pages.

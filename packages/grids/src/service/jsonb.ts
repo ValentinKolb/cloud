@@ -4,7 +4,7 @@
  * paths) return the raw JSON text. parseJsonbRow papers over the
  * difference for the call sites that pass JSONB documents back to
  * consumers (record.data, fields.config, views.ui, forms.config,
- * Custom App definitions and audit.diff).
+ * Grids App definitions and audit.diff).
  *
  * Strategy:
  *   - null / undefined → fallback.

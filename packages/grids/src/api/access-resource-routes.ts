@@ -55,7 +55,7 @@ const CONFIGS = {
     resourceType: "customApp",
     path: "/by-custom-app/:customAppId",
     param: "customAppId",
-    label: "Custom App",
+    label: "Grids App",
     resolveBaseId: async (customAppId) =>
       (await resolveResourceBinding("customApp", customAppId, { includeDeleted: false }))?.baseId ?? null,
     list: listCustomAppAccess,

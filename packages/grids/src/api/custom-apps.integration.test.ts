@@ -14,6 +14,8 @@ import { compileCustomAppQuery } from "../service/custom-app-query";
 import { executePublishedCustomAppQuery } from "../service/custom-app-runtime-query";
 import { apply, publish } from "../service/custom-apps";
 import type { CustomAppLauncherInvocation } from "../service/workflow-launcher-invocations";
+import type { GridsWorkflowAuthorization, GridsWorkflowRunScope } from "../service/workflow-runs";
+import type { GridsWorkflowPrincipal, GridsWorkflowRun } from "../workflows/contracts";
 import { createCustomAppsApi } from "./custom-apps";
 
 const authenticateAs =
@@ -25,6 +27,33 @@ const authenticateAs =
     await next();
   };
 
+const authenticateAsDelegatedServiceAccount = (user: User, serviceAccountId: string): MiddlewareHandler<AuthContext> => {
+  const credentialId = testUuid();
+  return async (c, next) => {
+    c.set("actor", {
+      kind: "service_account",
+      serviceAccount: {
+        id: serviceAccountId,
+        name: "Grids App API",
+        kind: "user_delegated",
+        status: "active",
+        delegatedUserId: user.id,
+        appId: null,
+        resourceType: null,
+        resourceId: null,
+        createdBy: user.id,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      delegatedUser: user,
+      scopes: ["grids:write"],
+      credentialId,
+    });
+    c.set("accessSubject", { type: "user", userId: user.id, delegatedByServiceAccountId: serviceAccountId });
+    c.set("user", user);
+    await next();
+  };
+};
+
 const userFor = (id: string): User => ({
   id,
   uid: `custom-app-${id}`,
@@ -33,7 +62,7 @@ const userFor = (id: string): User => ({
   profile: "user",
   givenname: "Custom",
   sn: "App",
-  displayName: "Custom App",
+  displayName: "Grids App",
   mail: `custom-app-${id}@example.test`,
   avatarHash: null,
   accountExpires: null,
@@ -49,21 +78,24 @@ beforeAll(async () => {
   if (process.env.GRIDS_DB_TEST === "1") await migrate();
 });
 
-describe("Custom App Form runtime", () => {
+describe("Grids App Form runtime", () => {
   postgresTest("submits through the published Form capability and replace-navigates to the created record", async () => {
     const baseId = testUuid();
     const tableId = testUuid();
     const fieldId = testUuid();
     const hiddenFieldId = testUuid();
+    const suppliedFieldId = testUuid();
     const formId = testUuid();
+    const documentTemplateId = testUuid();
+    const otherDocumentTemplateId = testUuid();
     const appId = testUuid();
     const launcherId = testUuid();
     const workflowId = testUuid();
     const [authUser] = await sql<Array<{ id: string }>>`SELECT id::text FROM auth.users ORDER BY id LIMIT 1`;
-    if (!authUser) throw new Error("Custom App API integration test needs one auth user");
+    if (!authUser) throw new Error("Grids App API integration test needs one auth user");
     const accessIds: string[] = [];
     try {
-      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${testShortId("B")}, 'Custom App API')`;
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${testShortId("B")}, 'Grids App API')`;
       await sql`
         INSERT INTO grids.tables (id, short_id, base_id, name)
         VALUES (${tableId}::uuid, ${testShortId("T")}, ${baseId}::uuid, 'Requests')
@@ -71,7 +103,8 @@ describe("Custom App Form runtime", () => {
       await sql`
         INSERT INTO grids.fields (id, short_id, table_id, name, type, config, required, position) VALUES
           (${fieldId}::uuid, ${testShortId("F")}, ${tableId}::uuid, 'Subject', 'text', '{}'::jsonb, TRUE, 0),
-          (${hiddenFieldId}::uuid, ${testShortId("H")}, ${tableId}::uuid, 'Internal source', 'text', '{}'::jsonb, FALSE, 1)
+          (${hiddenFieldId}::uuid, ${testShortId("H")}, ${tableId}::uuid, 'Internal source', 'text', '{}'::jsonb, FALSE, 1),
+          (${suppliedFieldId}::uuid, ${testShortId("S")}, ${tableId}::uuid, 'Channel', 'text', '{}'::jsonb, FALSE, 2)
       `;
       await sql`
         INSERT INTO grids.forms (id, short_id, table_id, name, config, is_active, position)
@@ -80,10 +113,21 @@ describe("Custom App Form runtime", () => {
           ${testShortId("M")},
           ${tableId}::uuid,
           'Apply',
-          ${{ fields: [{ kind: "user_input", fieldId, required: true }] }}::jsonb,
+          ${{
+            fields: [
+              { kind: "user_input", fieldId, required: true },
+              { kind: "user_input", fieldId: suppliedFieldId },
+            ],
+          }}::jsonb,
           TRUE,
           0
         )
+      `;
+      await sql`
+        INSERT INTO grids.document_templates (id, short_id, table_id, name, source, html)
+        VALUES
+          (${documentTemplateId}::uuid, ${testShortId("D")}, ${tableId}::uuid, 'Certificate', 'from table Requests', '<p>Certificate</p>'),
+          (${otherDocumentTemplateId}::uuid, ${testShortId("E")}, ${tableId}::uuid, 'Internal certificate', 'from table Requests', '<p>Internal</p>')
       `;
 
       const definition: CustomAppDefinition = {
@@ -111,7 +155,7 @@ describe("Custom App Form runtime", () => {
                         id: "apply",
                         type: "form",
                         formId,
-                        fixedValues: {},
+                        fixedValues: { [suppliedFieldId]: { source: "LITERAL", value: "App portal" } },
                         onSuccessNavigate: {
                           kind: "navigate",
                           pageId: "request",
@@ -138,7 +182,13 @@ describe("Custom App Form runtime", () => {
                     id: "content",
                     span: 12,
                     blocks: [
-                      { id: "record", type: "record", fieldIds: [fieldId], editableFieldIds: [fieldId] },
+                      {
+                        id: "record",
+                        type: "record",
+                        fieldIds: [fieldId],
+                        editableFieldIds: [fieldId],
+                        documents: { templateIds: [documentTemplateId] },
+                      },
                       { id: "discussion", type: "comments" },
                     ],
                   },
@@ -165,10 +215,12 @@ describe("Custom App Form runtime", () => {
       accessIds.push(appGrant.data.accessId);
 
       let actionInvocation: CustomAppLauncherInvocation | null = null;
+      const renderDocumentRunPdf = async () => ok({ pdf: new Uint8Array([37, 80, 68, 70]), contentType: "application/pdf" as const });
       const publicApi = new Hono<AuthContext>().route(
         "/apps",
         createCustomAppsApi({
           requireAuthenticated: async (c) => c.json({ message: "Authentication required" }, 401),
+          renderDocumentRunPdf,
         }),
       );
       const api = new Hono<AuthContext>().route(
@@ -187,6 +239,7 @@ describe("Custom App Form runtime", () => {
               status: "queued",
             });
           },
+          renderDocumentRunPdf,
         }),
       );
       const response = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
@@ -199,16 +252,112 @@ describe("Custom App Form runtime", () => {
       const body = (await response.json()) as { recordId: string; navigateTo: string };
       expect(body.navigateTo).toBe(`/apps/${applied.data.shortId}/request?request_id=${body.recordId}`);
 
-      const [record] = await sql<Array<{ value: string }>>`
-        SELECT data ->> ${fieldId} AS value FROM grids.records WHERE id = ${body.recordId}::uuid
+      const [record] = await sql<Array<{ value: string; supplied: string }>>`
+        SELECT data ->> ${fieldId} AS value, data ->> ${suppliedFieldId} AS supplied
+        FROM grids.records WHERE id = ${body.recordId}::uuid
       `;
       expect(record?.value).toBe("Certificate request");
+      expect(record?.supplied).toBe("App portal");
+
+      const snapshotId = testUuid();
+      const documentRunId = testUuid();
+      const otherDocumentRunId = testUuid();
+      const otherRecordId = testUuid();
+      await sql`
+        INSERT INTO grids.records (id, table_id, data, created_by, updated_by)
+        VALUES (
+          ${otherRecordId}::uuid,
+          ${tableId}::uuid,
+          ${{ [fieldId]: "Another request", [suppliedFieldId]: "App portal" }}::jsonb,
+          ${authUser.id}::uuid,
+          ${authUser.id}::uuid
+        )
+      `;
+      await sql`
+        INSERT INTO grids.record_snapshots (id, base_id, table_id, record_id, root, graph)
+        VALUES (
+          ${snapshotId}::uuid,
+          ${baseId}::uuid,
+          ${tableId}::uuid,
+          ${body.recordId}::uuid,
+          '{}'::jsonb,
+          '{}'::jsonb
+        )
+      `;
+      await sql`
+        INSERT INTO grids.document_runs (
+          id, short_id, template_id, snapshot_id, base_id, table_id, record_id,
+          document_number, filename, template_snapshot, render_data
+        ) VALUES (
+          ${documentRunId}::uuid,
+          ${testShortId("R")},
+          ${documentTemplateId}::uuid,
+          ${snapshotId}::uuid,
+          ${baseId}::uuid,
+          ${tableId}::uuid,
+          ${body.recordId}::uuid,
+          'CERT-1',
+          'certificate.pdf',
+          '{}'::jsonb,
+          '{}'::jsonb
+        )
+      `;
+      await sql`
+        INSERT INTO grids.document_runs (
+          id, short_id, template_id, snapshot_id, base_id, table_id, record_id,
+          document_number, filename, template_snapshot, render_data
+        ) VALUES (
+          ${otherDocumentRunId}::uuid,
+          ${testShortId("Q")},
+          ${otherDocumentTemplateId}::uuid,
+          ${snapshotId}::uuid,
+          ${baseId}::uuid,
+          ${tableId}::uuid,
+          ${body.recordId}::uuid,
+          'INTERNAL-1',
+          'internal-certificate.pdf',
+          '{}'::jsonb,
+          '{}'::jsonb
+        )
+      `;
+      const documentResponse = await publicApi.request(
+        `/apps/runtime/${applied.data.shortId}/request/record/documents/${documentRunId}/download?request_id=${body.recordId}`,
+        { headers: { "x-forwarded-for": `custom-app-document-${baseId}` } },
+      );
+      expect(documentResponse.status).toBe(200);
+      expect(documentResponse.headers.get("content-type")).toBe("application/pdf");
+      expect(documentResponse.headers.get("X-Grids-Document-Run-Id")).toBe(documentRunId);
+      expect(new Uint8Array(await documentResponse.arrayBuffer())).toEqual(new Uint8Array([37, 80, 68, 70]));
+      expect(
+        (
+          await publicApi.request(
+            `/apps/runtime/${applied.data.shortId}/request/record/documents/${documentRunId}/download?request_id=${otherRecordId}`,
+            { headers: { "x-forwarded-for": `custom-app-document-record-${baseId}` } },
+          )
+        ).status,
+      ).toBe(404);
+      expect(
+        (
+          await publicApi.request(
+            `/apps/runtime/${applied.data.shortId}/request/record/documents/${otherDocumentRunId}/download?request_id=${body.recordId}`,
+            { headers: { "x-forwarded-for": `custom-app-document-template-${baseId}` } },
+          )
+        ).status,
+      ).toBe(404);
+
+      const fixedOverride = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-override-${baseId}` },
+        body: JSON.stringify({ [fieldId]: "Override", [suppliedFieldId]: "Browser value" }),
+      });
+      expect(fixedOverride.status).toBe(400);
 
       await sql`
         UPDATE grids.forms
         SET config = ${{
           fields: [
             { kind: "user_input", fieldId, required: true },
+            { kind: "user_input", fieldId: suppliedFieldId },
             { kind: "form_value", fieldId: hiddenFieldId, value: "injected-after-publish" },
           ],
         }}::jsonb
@@ -227,10 +376,15 @@ describe("Custom App Form runtime", () => {
         FROM grids.records
         WHERE table_id = ${tableId}::uuid AND deleted_at IS NULL
       `;
-      expect(afterDrift).toEqual({ count: 1, hidden_count: 0 });
+      expect(afterDrift).toEqual({ count: 2, hidden_count: 0 });
       await sql`
         UPDATE grids.forms
-        SET config = ${{ fields: [{ kind: "user_input", fieldId, required: true }] }}::jsonb
+        SET config = ${{
+          fields: [
+            { kind: "user_input", fieldId, required: true },
+            { kind: "user_input", fieldId: suppliedFieldId },
+          ],
+        }}::jsonb
         WHERE id = ${formId}::uuid
       `;
 
@@ -299,11 +453,28 @@ describe("Custom App Form runtime", () => {
           },
         ],
       });
+      const rowSource = `from table {${tableId}}`;
+      actionDefinition.pages[1]!.rows[0]!.columns[0]!.blocks.push({
+        id: "requests",
+        type: "records",
+        source: { kind: "gql", query: rowSource, maxRows: 100 },
+        display: { kind: "table", columnIds: [] },
+        rowActions: [
+          {
+            id: "approve-row",
+            label: "Approve row",
+            showLabel: true,
+            kind: "workflow",
+            launcherId,
+            inputs: { request: { source: "ROW", path: "id" } },
+          },
+        ],
+      });
       const authenticatedUser = userFor(authUser.id);
       const actionContext = buildCustomAppRuntimeContext({
         access: { actor: { kind: "user", user: authenticatedUser }, accessSubject: { type: "user", userId: authUser.id } },
         app: { id: appId, shortId: applied.data.shortId, name: definition.name },
-        base: { id: baseId, name: "Custom App API" },
+        base: { id: baseId, name: "Grids App API" },
         page: actionDefinition.pages[1]!,
         pageUrl: `/apps/${applied.data.shortId}/request?request_id=${body.recordId}`,
         pageParams: { request_id: body.recordId },
@@ -315,6 +486,8 @@ describe("Custom App Form runtime", () => {
         context: actionContext.query,
       });
       if (!compiledActionAvailability.ok) throw new Error(compiledActionAvailability.error);
+      const compiledRowSource = await compileCustomAppQuery({ baseId, source: rowSource, context: actionContext.query });
+      if (!compiledRowSource.ok) throw new Error(compiledRowSource.error);
       const actionCapability = {
         target: "action" as const,
         pageId: "request",
@@ -327,14 +500,27 @@ describe("Custom App Form runtime", () => {
       const [stored] = await sql<Array<{ published_capabilities: Record<string, unknown> }>>`
         SELECT published_capabilities FROM grids.custom_apps WHERE id = ${appId}::uuid
       `;
-      if (!stored) throw new Error("Published Custom App is missing");
+      if (!stored) throw new Error("Published Grids App is missing");
       await sql`
         UPDATE grids.custom_apps
         SET published_definition = ${JSON.stringify(actionDefinition)}::jsonb,
             published_capabilities = ${JSON.stringify({
               ...stored.published_capabilities,
               availability: [...((stored.published_capabilities.availability as unknown[]) ?? []), actionCapability],
-              workflowLaunchers: [{ pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 }],
+              recordQueries: [
+                ...((stored.published_capabilities.recordQueries as unknown[]) ?? []),
+                {
+                  pageId: "request",
+                  blockId: "requests",
+                  primaryTableId: tableId,
+                  planHash: compiledRowSource.data.planHash,
+                  tableIds: [tableId],
+                },
+              ],
+              workflowLaunchers: [
+                { pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 },
+                { pageId: "request", blockId: "requests", actionId: "approve-row", launcherId, workflowId, revision: 1 },
+              ],
             })}::jsonb
         WHERE id = ${appId}::uuid
       `;
@@ -414,6 +600,112 @@ describe("Custom App Form runtime", () => {
         },
       });
 
+      const statusRuns = new Map<
+        string,
+        { principal: GridsWorkflowPrincipal; authorization: GridsWorkflowAuthorization; launcherId: string }
+      >();
+      const createStatusApi = (serviceAccountId: string) =>
+        new Hono<AuthContext>().route(
+          "/apps",
+          createCustomAppsApi({
+            requireAuthenticated: authenticateAsDelegatedServiceAccount(authenticatedUser, serviceAccountId),
+            invokeCustomAppLauncher: async (input) => {
+              const invocation = input as CustomAppLauncherInvocation;
+              const runId = testUuid();
+              if (!invocation.authorization) throw new Error("Grids App action authorization is missing");
+              statusRuns.set(runId, {
+                principal: invocation.principal,
+                authorization: invocation.authorization,
+                launcherId: invocation.launcherId,
+              });
+              return ok({
+                runId,
+                workflowId,
+                revision: "1",
+                mode: "execute",
+                channel: "customApp",
+                created: true,
+                status: "queued",
+              });
+            },
+            getWorkflowRunScope: async (runId): Promise<GridsWorkflowRunScope | null> => {
+              const accepted = statusRuns.get(runId);
+              return accepted
+                ? {
+                    runId,
+                    baseId,
+                    workflow: { id: workflowId, shortId: testShortId("W"), name: "Approve request" },
+                    principal: accepted.principal,
+                    authorization: accepted.authorization,
+                    launcherId: accepted.launcherId,
+                  }
+                : null;
+            },
+            getWorkflowRun: async (runId): Promise<GridsWorkflowRun | null> => {
+              const accepted = statusRuns.get(runId);
+              return accepted
+                ? {
+                    id: runId,
+                    workflowId,
+                    launcherId: accepted.launcherId,
+                    baseId,
+                    workflowRevision: 1,
+                    mode: "execute",
+                    channel: "customApp",
+                    actorUserId: accepted.principal.userId,
+                    serviceAccountId: accepted.principal.serviceAccountId,
+                    inputs: {},
+                    status: "succeeded",
+                    result: null,
+                    error: null,
+                    resultMessage: "Approved",
+                    createdAt: "2026-01-01T00:00:00.000Z",
+                    startedAt: "2026-01-01T00:00:00.000Z",
+                    finishedAt: "2026-01-01T00:00:01.000Z",
+                  }
+                : null;
+            },
+          }),
+        );
+      const firstServiceAccountApi = createStatusApi(testUuid());
+      const secondServiceAccountApi = createStatusApi(testUuid());
+      const delegatedActionResponse = await firstServiceAccountApi.request(
+        `/apps/runtime/${applied.data.shortId}/request/actions/actions/approve?request_id=${body.recordId}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ operationId: testUuid() }),
+        },
+      );
+      expect(delegatedActionResponse.status).toBe(202);
+      const delegatedAction = (await delegatedActionResponse.json()) as { statusUrl: string };
+      const statusPath = delegatedAction.statusUrl.replace(/^\/api\/grids/, "");
+      const ownStatus = await firstServiceAccountApi.request(statusPath);
+      expect(ownStatus.status).toBe(200);
+      expect(await ownStatus.json()).toEqual({ status: "succeeded", message: "Approved" });
+      expect((await secondServiceAccountApi.request(statusPath)).status).toBe(404);
+
+      actionInvocation = null;
+      const rowActionUrl = `/apps/runtime/${applied.data.shortId}/request/requests/row-actions/approve-row?request_id=${body.recordId}`;
+      const rowActionResponse = await api.request(rowActionUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ operationId: testUuid(), rowId: body.recordId }),
+      });
+      expect(rowActionResponse.status).toBe(202);
+      expect(actionInvocation).toMatchObject({
+        inputs: { request: body.recordId },
+        authorization: { blockId: "requests", actionId: "approve-row" },
+      });
+      actionInvocation = null;
+      const forgedRowResponse = await api.request(rowActionUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ operationId: testUuid(), rowId: testUuid() }),
+      });
+      expect(forgedRowResponse.status).toBe(404);
+      expect(actionInvocation).toBeNull();
+
       const hiddenRecord = await api.request(recordUrl, {
         method: "PATCH",
         headers: { "content-type": "application/json", "If-Match": "2" },
@@ -445,7 +737,7 @@ describe("Custom App Form runtime", () => {
       const [actionCapabilities] = await sql<Array<{ published_capabilities: Record<string, unknown> }>>`
         SELECT published_capabilities FROM grids.custom_apps WHERE id = ${appId}::uuid
       `;
-      if (!actionCapabilities) throw new Error("Published Custom App capabilities are missing");
+      if (!actionCapabilities) throw new Error("Published Grids App capabilities are missing");
       const unavailableFormCapabilities = {
         ...actionCapabilities.published_capabilities,
         availability: [
@@ -521,6 +813,8 @@ describe("Custom App Form runtime", () => {
     } finally {
       await sql`DELETE FROM grids.audit_log WHERE base_id = ${baseId}::uuid`;
       await sql`DELETE FROM grids.record_event_outbox WHERE base_id = ${baseId}::uuid`;
+      await sql`DELETE FROM grids.document_runs WHERE base_id = ${baseId}::uuid`;
+      await sql`DELETE FROM grids.record_snapshots WHERE base_id = ${baseId}::uuid`;
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
       for (const accessId of accessIds) await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;
     }

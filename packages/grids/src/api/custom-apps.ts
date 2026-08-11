@@ -6,12 +6,22 @@ import { customAppPageRecordFieldIds } from "../custom-apps/conditions";
 import { CUSTOM_APP_REFERENCE, CustomAppDefinitionInputSchema } from "../custom-apps/contracts";
 import { customAppFormInlineTargetTableIds } from "../custom-apps/form-capability";
 import { customAppFormMatchesPublishedCapability } from "../custom-apps/form-runtime";
-import { customAppFormSuccessHref, customAppPageHref, resolveCustomAppPage, resolveCustomAppPageParams } from "../custom-apps/routing";
+import {
+  customAppActionStatusUrl,
+  customAppFormSuccessHref,
+  customAppPageHref,
+  resolveCustomAppPage,
+  resolveCustomAppPageParams,
+} from "../custom-apps/routing";
 import { buildCustomAppRuntimeContext } from "../custom-apps/runtime-context";
+import { resolveCustomAppValueBinding } from "../custom-apps/value-bindings";
 import { isRecordWritableFieldType } from "../field-types";
 import { gridsService } from "../service";
+import { executePublishedCustomAppRecords } from "../service/custom-app-records-query";
 import { publishedCustomAppAvailability } from "../service/custom-app-runtime-query";
 import { ALL_RECORD_ACCESS } from "../service/record-access";
+import { getWorkflowRunScope } from "../service/workflow-runs";
+import { encodeHeaderValue, pdfResponse } from "./download-response";
 import { FormSubmitSchema, parseFormSubmission } from "./form-api-shared";
 import {
   actorViewerFor,
@@ -27,6 +37,7 @@ const DefinitionBaseSchema = z.object({ baseId: z.string().uuid() });
 const CustomAppCreateSchema = z.object({ name: z.string().trim().min(1).max(200) }).strict();
 const RecordCommentBodySchema = z.object({ body: z.string().max(10_000) }).strict();
 const CustomAppActionInvocationSchema = z.object({ operationId: z.string().uuid() }).strict();
+const CustomAppRowActionInvocationSchema = CustomAppActionInvocationSchema.extend({ rowId: z.string().uuid() }).strict();
 const RecordCommentListQuerySchema = z
   .object({
     cursor: z.string().max(2_000).optional(),
@@ -87,6 +98,24 @@ const resolvePublishedRuntime = async (c: Context<AuthContext>) => {
   };
   if (!(await available("page", page.availableWhen?.query))) return null;
   return { app, capabilities, access, page, pageParams, dateConfig, runtimeContext, viewer, available };
+};
+
+type PublishedRuntime = NonNullable<Awaited<ReturnType<typeof resolvePublishedRuntime>>>;
+
+const loadRuntimeBindingContext = async (runtime: PublishedRuntime) => {
+  const parameterRecords = new Map<string, GridRecord>();
+  for (const [parameterId, parameter] of Object.entries(runtime.page.parameters)) {
+    const record = await gridsService.record.get(parameter.tableId, runtime.pageParams[parameterId]!, {
+      viewer: runtime.viewer,
+      recordAccess: ALL_RECORD_ACCESS,
+      dateConfig: runtime.dateConfig,
+    });
+    if (!record) return null;
+    parameterRecords.set(parameterId, record);
+  }
+  const pageRecord = runtime.page.record ? parameterRecords.get(runtime.page.record.id.path) : undefined;
+  if (runtime.page.record && !pageRecord) return null;
+  return { parameterRecords, pageRecord };
 };
 
 const resolveRuntimeComments = async (c: Context<AuthContext>) => {
@@ -175,18 +204,17 @@ const submitPublishedCustomAppForm = async (c: Context<AuthContext>, submitted: 
     return c.json({ message: "Form not found" }, 404);
   }
 
-  for (const [parameterId, parameter] of Object.entries(page.parameters)) {
-    const sourceRecord = await gridsService.record.get(parameter.tableId, pageParams[parameterId]!, {
-      viewer,
-      recordAccess: ALL_RECORD_ACCESS,
-      dateConfig,
-    });
-    if (!sourceRecord) return c.json({ message: "Form not found" }, 404);
-  }
+  const bindingContext = await loadRuntimeBindingContext(runtime);
+  if (!bindingContext) return c.json({ message: "Form not found" }, 404);
 
   const submission = parseFormSubmission(submitted);
   if (!submission) return c.json({ message: "Invalid form submission" }, 400);
-  const fixedValues = Object.fromEntries(Object.entries(block.fixedValues).map(([fieldId, value]) => [fieldId, pageParams[value.path]!]));
+  const fixedValues: Record<string, unknown> = {};
+  for (const [fieldId, binding] of Object.entries(block.fixedValues)) {
+    const resolved = resolveCustomAppValueBinding(binding, bindingContext);
+    if (!resolved.ok) return c.json({ message: "Form not found" }, 404);
+    fixedValues[fieldId] = resolved.value;
+  }
   const result = await gridsService.form.submit({
     form,
     submission,
@@ -207,15 +235,69 @@ export const createCustomAppsApi = (
   deps: {
     requireAuthenticated?: MiddlewareHandler<AuthContext>;
     invokeCustomAppLauncher?: typeof gridsService.workflow.launcher.invokeCustomApp;
+    renderDocumentRunPdf?: typeof gridsService.document.renderRunPdf;
+    getWorkflowRunScope?: typeof getWorkflowRunScope;
+    getWorkflowRun?: typeof gridsService.workflow.getRun;
   } = {},
 ) => {
   const invokeCustomAppLauncher = deps.invokeCustomAppLauncher ?? gridsService.workflow.launcher.invokeCustomApp;
+  const renderDocumentRunPdf = deps.renderDocumentRunPdf ?? gridsService.document.renderRunPdf;
+  const loadWorkflowRunScope = deps.getWorkflowRunScope ?? getWorkflowRunScope;
+  const getWorkflowRun = deps.getWorkflowRun ?? gridsService.workflow.getRun;
   return new Hono<AuthContext>()
     .post(
       "/runtime/:shortId/:pageId/:blockId/submit",
       rateLimit({ keyBy: "ip", limitPerSecond: 3, windowSecs: 60 }),
       v("json", FormSubmitSchema),
       (c) => submitPublishedCustomAppForm(c, c.req.valid("json")),
+    )
+    .get(
+      "/runtime/:shortId/:pageId/:blockId/documents/:runId/download",
+      rateLimit({ keyBy: "ip", limitPerSecond: 8, windowSecs: 60 }),
+      requireUuidParam("runId", "Document run"),
+      async (c) => {
+        const runtime = await resolvePublishedRuntime(c);
+        if (!runtime) return c.json({ message: "Document not found" }, 404);
+        const block = runtime.page.rows
+          .flatMap((row) => row.columns.flatMap((column) => column.blocks))
+          .find((candidate) => candidate.id === c.req.param("blockId") && candidate.type === "record");
+        if (!runtime.page.record || !block || block.type !== "record" || !block.documents) {
+          return c.json({ message: "Document not found" }, 404);
+        }
+        if (!(await runtime.available("block", block.availableWhen?.query, block.id))) {
+          return c.json({ message: "Document not found" }, 404);
+        }
+        const templateIds = [...block.documents.templateIds].sort();
+        const capability = runtime.capabilities.documents.find(
+          (candidate) =>
+            candidate.pageId === runtime.page.id &&
+            candidate.blockId === block.id &&
+            candidate.tableId === runtime.page.record!.tableId &&
+            candidate.templateIds.join("\0") === templateIds.join("\0"),
+        );
+        const bindingContext = capability ? await loadRuntimeBindingContext(runtime) : null;
+        const record = bindingContext?.pageRecord;
+        const run = record ? await gridsService.document.getRun(c.req.param("runId")!) : null;
+        if (
+          !capability ||
+          !record ||
+          !run ||
+          run.baseId !== runtime.app.baseId ||
+          run.tableId !== runtime.page.record.tableId ||
+          run.recordId !== record.id ||
+          !run.templateId ||
+          !templateIds.includes(run.templateId)
+        ) {
+          return c.json({ message: "Document not found" }, 404);
+        }
+        const pdf = await renderDocumentRunPdf(run);
+        if (!pdf.ok) return c.json({ message: pdf.error.message }, pdf.error.status);
+        return pdfResponse(pdf.data.pdf, run.filename, {
+          "X-Grids-Document-Run-Id": run.id,
+          "X-Grids-Document-Number": run.documentNumber,
+          "X-Grids-Document-Filename": encodeHeaderValue(run.filename),
+        });
+      },
     )
     .use(deps.requireAuthenticated ?? auth.requireRole("authenticated"))
     .get("/reference", (c) => c.json(CUSTOM_APP_REFERENCE))
@@ -325,7 +407,7 @@ export const createCustomAppsApi = (
     .post("/runtime/:shortId/:pageId/:blockId/actions/:actionId", v("json", CustomAppActionInvocationSchema), async (c) => {
       const runtime = await resolvePublishedRuntime(c);
       if (!runtime) return c.json({ message: "Action not found" }, 404);
-      const { app, capabilities, page, pageParams, viewer } = runtime;
+      const { app, capabilities, page, pageParams } = runtime;
       const block = page?.rows
         .flatMap((row) => row.columns.flatMap((column) => column.blocks))
         .find((candidate) => candidate.id === c.req.param("blockId") && candidate.type === "actions");
@@ -349,24 +431,13 @@ export const createCustomAppsApi = (
       );
       if (!capability) return c.json({ message: "Action not found" }, 404);
 
-      const records = new Map<string, GridRecord>();
-      for (const [parameterId, parameter] of Object.entries(page.parameters)) {
-        const recordId = pageParams[parameterId]!;
-        const record = await gridsService.record.get(parameter.tableId, recordId, {
-          viewer,
-          recordAccess: ALL_RECORD_ACCESS,
-        });
-        if (!record) return c.json({ message: "Action not found" }, 404);
-        records.set(parameterId, record);
-      }
-      const pageRecord = page.record ? records.get(page.record.id.path) : undefined;
-      if (page.record && !pageRecord) return c.json({ message: "Action not found" }, 404);
+      const bindingContext = await loadRuntimeBindingContext(runtime);
+      if (!bindingContext) return c.json({ message: "Action not found" }, 404);
       const inputs: Record<string, unknown> = {};
       for (const [name, value] of Object.entries(action.inputs)) {
-        const resolved =
-          value.source === "LITERAL" ? value.value : value.source === "PARAMS" ? records.get(value.path)?.id : pageRecord?.id;
-        if (resolved === undefined) return c.json({ message: "Action not found" }, 404);
-        inputs[name] = resolved;
+        const resolved = resolveCustomAppValueBinding(value, bindingContext);
+        if (!resolved.ok) return c.json({ message: "Action not found" }, 404);
+        inputs[name] = resolved.value;
       }
       const result = await invokeCustomAppLauncher({
         launcherId: action.launcherId,
@@ -385,7 +456,140 @@ export const createCustomAppsApi = (
         },
       });
       if (!result.ok) return respond(c, () => Promise.resolve(result));
-      return c.json({ runId: result.data.runId, workflowId: result.data.workflowId, status: result.data.status }, 202);
+      return c.json(
+        {
+          runId: result.data.runId,
+          workflowId: result.data.workflowId,
+          status: result.data.status,
+          statusUrl: customAppActionStatusUrl(app.shortId, page.id, block.id, action.id, result.data.runId, pageParams),
+        },
+        202,
+      );
+    })
+    .post("/runtime/:shortId/:pageId/:blockId/row-actions/:actionId", v("json", CustomAppRowActionInvocationSchema), async (c) => {
+      const runtime = await resolvePublishedRuntime(c);
+      if (!runtime) return c.json({ message: "Action not found" }, 404);
+      const { app, capabilities, page, pageParams } = runtime;
+      const block = page.rows
+        .flatMap((row) => row.columns.flatMap((column) => column.blocks))
+        .find((candidate) => candidate.id === c.req.param("blockId") && candidate.type === "records");
+      const action = block?.type === "records" ? block.rowActions?.find((candidate) => candidate.id === c.req.param("actionId")) : null;
+      if (!block || block.type !== "records" || !action) return c.json({ message: "Action not found" }, 404);
+      if (
+        !(await runtime.available("block", block.availableWhen?.query, block.id)) ||
+        !(await runtime.available("action", action.availableWhen?.query, block.id, action.id))
+      ) {
+        return c.json({ message: "Action not found" }, 404);
+      }
+      const capability = capabilities.workflowLaunchers.find(
+        (candidate) =>
+          candidate.pageId === page.id &&
+          candidate.blockId === block.id &&
+          candidate.actionId === action.id &&
+          candidate.launcherId === action.launcherId,
+      );
+      if (!capability) return c.json({ message: "Action not found" }, 404);
+
+      const published = await executePublishedCustomAppRecords({
+        baseId: app.baseId,
+        page,
+        block,
+        capabilities,
+        context: runtime.runtimeContext.query,
+        signal: c.req.raw.signal,
+        timeZone: runtime.runtimeContext.query["time.timeZone"],
+        viewer: runtime.viewer,
+      }).catch(() => null);
+      const rowId = c.req.valid("json").rowId;
+      if (!published?.response.ok || !published.response.rows.some((row) => row.recordId === rowId)) {
+        return c.json({ message: "Action not found" }, 404);
+      }
+
+      const bindingContext = await loadRuntimeBindingContext(runtime);
+      if (!bindingContext) return c.json({ message: "Action not found" }, 404);
+      const inputs: Record<string, unknown> = {};
+      for (const [name, binding] of Object.entries(action.inputs)) {
+        const resolved = resolveCustomAppValueBinding(binding, { ...bindingContext, rowRecordId: rowId });
+        if (!resolved.ok) return c.json({ message: "Action not found" }, 404);
+        inputs[name] = resolved.value;
+      }
+      const result = await invokeCustomAppLauncher({
+        launcherId: action.launcherId,
+        operationId: c.req.valid("json").operationId,
+        mode: "execute",
+        expectedRevision: capability.revision,
+        principal: currentWorkflowPrincipal(c),
+        inputs,
+        authorization: {
+          kind: "custom-app-action",
+          customAppId: app.id,
+          pageId: page.id,
+          blockId: block.id,
+          actionId: action.id,
+          revision: capability.revision,
+        },
+      });
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json(
+        {
+          runId: result.data.runId,
+          workflowId: result.data.workflowId,
+          status: result.data.status,
+          statusUrl: customAppActionStatusUrl(app.shortId, page.id, block.id, action.id, result.data.runId, pageParams),
+        },
+        202,
+      );
+    })
+    .get("/runtime/:shortId/:pageId/:blockId/actions/:actionId/runs/:runId", requireUuidParam("runId", "Workflow run"), async (c) => {
+      const runtime = await resolvePublishedRuntime(c);
+      if (!runtime) return c.json({ message: "Workflow run not found" }, 404);
+      const block = runtime.page.rows
+        .flatMap((row) => row.columns.flatMap((column) => column.blocks))
+        .find((candidate) => candidate.id === c.req.param("blockId") && (candidate.type === "actions" || candidate.type === "records"));
+      const action =
+        block?.type === "actions"
+          ? block.actions.find((candidate) => candidate.id === c.req.param("actionId") && candidate.kind === "workflow")
+          : block?.type === "records"
+            ? block.rowActions?.find((candidate) => candidate.id === c.req.param("actionId"))
+            : null;
+      const workflowAction = action?.kind === "workflow" ? action : null;
+      const capability = workflowAction
+        ? runtime.capabilities.workflowLaunchers.find(
+            (candidate) =>
+              candidate.pageId === runtime.page.id &&
+              candidate.blockId === block!.id &&
+              candidate.actionId === workflowAction.id &&
+              candidate.launcherId === workflowAction.launcherId,
+          )
+        : null;
+      const principal = currentWorkflowPrincipal(c);
+      const [scope, run] = capability
+        ? await Promise.all([loadWorkflowRunScope(c.req.param("runId")!), getWorkflowRun(c.req.param("runId")!)])
+        : [null, null];
+      if (
+        !block ||
+        !workflowAction ||
+        !capability ||
+        !scope ||
+        !run ||
+        scope.principal.userId !== principal.userId ||
+        scope.principal.serviceAccountId !== principal.serviceAccountId ||
+        (scope.principal.actorServiceAccountId ?? null) !== (principal.actorServiceAccountId ?? null) ||
+        scope.launcherId !== capability.launcherId ||
+        scope.workflow.id !== capability.workflowId ||
+        run.workflowRevision !== capability.revision ||
+        scope.authorization.kind !== "custom-app-action" ||
+        scope.authorization.customAppId !== runtime.app.id ||
+        scope.authorization.pageId !== runtime.page.id ||
+        scope.authorization.blockId !== block.id ||
+        scope.authorization.actionId !== workflowAction.id ||
+        scope.authorization.revision !== capability.revision
+      ) {
+        return c.json({ message: "Workflow run not found" }, 404);
+      }
+      const status =
+        run.status === "succeeded" ? "succeeded" : ["failed", "canceled", "needs_attention"].includes(run.status) ? "failed" : "running";
+      return c.json({ status, message: run.resultMessage });
     })
     .get("/by-base/:baseId", requireUuidParam("baseId", "Base"), async (c) => {
       const baseId = c.req.param("baseId")!;
@@ -422,51 +626,51 @@ export const createCustomAppsApi = (
       if (denied) return denied;
       return respond(c, () => gridsService.customApp.apply(input, currentActorUserId(c)));
     })
-    .get("/:appId", requireUuidParam("appId", "Custom App"), async (c) => {
+    .get("/:appId", requireUuidParam("appId", "Grids App"), async (c) => {
       const app = await gridsService.customApp.get(c.req.param("appId")!);
-      if (!app) return c.json({ message: "Custom App not found" }, 404);
+      if (!app) return c.json({ message: "Grids App not found" }, 404);
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return c.json(app);
     })
-    .put("/:appId/draft", requireUuidParam("appId", "Custom App"), v("json", CustomAppDefinitionInputSchema), async (c) => {
+    .put("/:appId/draft", requireUuidParam("appId", "Grids App"), v("json", CustomAppDefinitionInputSchema), async (c) => {
       const app = await gridsService.customApp.get(c.req.param("appId")!);
-      if (!app) return c.json({ message: "Custom App not found" }, 404);
+      if (!app) return c.json({ message: "Grids App not found" }, 404);
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(c, () => gridsService.customApp.saveDraft(app.id, c.req.valid("json").definition));
     })
-    .post("/:appId/restore", requireUuidParam("appId", "Custom App"), async (c) => {
+    .post("/:appId/restore", requireUuidParam("appId", "Grids App"), async (c) => {
       const app = await gridsService.customApp.get(c.req.param("appId")!);
-      if (!app) return c.json({ message: "Custom App not found" }, 404);
+      if (!app) return c.json({ message: "Grids App not found" }, 404);
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(c, () => gridsService.customApp.restoreDraft(app.id, currentActorUserId(c)));
     })
-    .get("/:appId/export", requireUuidParam("appId", "Custom App"), async (c) => {
+    .get("/:appId/export", requireUuidParam("appId", "Grids App"), async (c) => {
       const app = await gridsService.customApp.get(c.req.param("appId")!);
-      if (!app) return c.json({ message: "Custom App not found" }, 404);
+      if (!app) return c.json({ message: "Grids App not found" }, 404);
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return c.json(app.draftDefinition);
     })
-    .post("/:appId/publish", requireUuidParam("appId", "Custom App"), async (c) => {
+    .post("/:appId/publish", requireUuidParam("appId", "Grids App"), async (c) => {
       const app = await gridsService.customApp.get(c.req.param("appId")!);
-      if (!app) return c.json({ message: "Custom App not found" }, 404);
+      if (!app) return c.json({ message: "Grids App not found" }, 404);
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(c, () => gridsService.customApp.publish(app.id, currentActorUserId(c)));
     })
-    .post("/:appId/unpublish", requireUuidParam("appId", "Custom App"), async (c) => {
+    .post("/:appId/unpublish", requireUuidParam("appId", "Grids App"), async (c) => {
       const app = await gridsService.customApp.get(c.req.param("appId")!);
-      if (!app) return c.json({ message: "Custom App not found" }, 404);
+      if (!app) return c.json({ message: "Grids App not found" }, 404);
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return respond(c, () => gridsService.customApp.unpublish(app.id, currentActorUserId(c)));
     })
-    .delete("/:appId", requireUuidParam("appId", "Custom App"), async (c) => {
+    .delete("/:appId", requireUuidParam("appId", "Grids App"), async (c) => {
       const app = await gridsService.customApp.get(c.req.param("appId")!);
-      if (!app) return c.json({ message: "Custom App not found" }, 404);
+      if (!app) return c.json({ message: "Grids App not found" }, 404);
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const result = await gridsService.customApp.remove(app.id, currentActorUserId(c));

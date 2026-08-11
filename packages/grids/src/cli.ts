@@ -12,11 +12,10 @@ import { emailTemplateCommands, workflowCommands, workflowEmailCommands, workflo
 
 export default defineCliCommands({
   name: "grids",
-  summary:
-    "Manage Grids bases, schema, records, forms, Custom Apps, views, GQL, documents, templates, and workflows through the Grids HTTP API.",
+  summary: "Manage Grids bases, schema, records, forms, Apps, views, GQL, documents, templates, and workflows through the Grids HTTP API.",
   groupSummaries: {
     access: "Manage direct access to Grids resources",
-    apps: "Plan, validate, and publish Grids Custom Apps",
+    apps: "Create, validate, and publish Grids Apps",
     bases: "Create, inspect, and manage Grids bases",
     "document-templates": "Create, preview, and manage document templates",
     documents: "Generate, browse, and manage stored documents",

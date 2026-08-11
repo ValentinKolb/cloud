@@ -7,7 +7,7 @@ order: 130
 ---
 Forms simplify how people add records to a base. They keep labels, guidance, required inputs, defaults, and relation handling in one reusable entry flow.
 
-Forms do not replace tables. They validate and write records into one table. Use a Custom App when a task needs several pages, data, instructions, and actions around one or more Forms.
+Forms do not replace tables. They validate and write records into one table. Use a Grids App when a task needs several pages, data, instructions, and actions around one or more Forms.
 
 ## Create a focused form {icon="forms"}
 
@@ -22,16 +22,16 @@ In a custom form you can:
 - redirect after a successful submission;
 - pause submissions without deleting the form.
 
-A signed-in Base user can submit with Base Write. A narrower authenticated audience submits only through a Custom App that explicitly includes the Form. The public token remains the standalone anonymous submission path.
+A signed-in Base user can submit with Base Write. A narrower authenticated audience submits only through a Grids App that explicitly includes the Form. The public token remains the standalone anonymous submission path.
 
 Turn on **Public form** only when anonymous submissions are intended. The unique public URL accepts only the form's configured fields and always applies its hidden values. Turning public access off invalidates the existing link; enabling it again creates a new one.
 
 Test a form with incomplete and invalid input before sharing it. Confirm that required fields, relation creation, success text, and redirect behavior are understandable without knowledge of the table.
 
-## Reuse a Form in a Custom App {icon="app-window"}
+## Reuse a Form in a Grids App {icon="app-window"}
 
-A Custom App may render an existing active Form as one block. The Form keeps ownership of its inputs and validation. The app may add fixed relation values from declared page parameters and navigate to another page after a successful submission.
+A Grids App may render an existing active Form as one block. The Form keeps ownership of its inputs and validation. The app may add fixed relation values from declared page parameters and navigate to another page after a successful submission.
 
-Use this composition when people need context before entering data, a repeated “add another” flow, or a detail page after creation. Keep the Form useful on its own and put multi-page navigation in the Custom App.
+Use this composition when people need context before entering data, a repeated “add another” flow, or a detail page after creation. Keep the Form useful on its own and put multi-page navigation in the Grids App.
 
 The published capability and the Form block's optional `availableWhen` query are checked when the app renders and again when it submits. App access does not turn an inactive or undeclared Form into a writable endpoint.

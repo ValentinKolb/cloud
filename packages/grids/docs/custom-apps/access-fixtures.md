@@ -1,6 +1,6 @@
 # Access fixtures for the Golden apps
 
-Custom App definitions reference resources but do not own access bindings.
+Grids App definitions reference resources but do not own access bindings.
 These matrices are the required authorization fixtures for the proving apps.
 Every subject is an ordinary Cloud account or group.
 

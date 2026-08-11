@@ -116,7 +116,7 @@ describe("access routes integration", () => {
     }
   });
 
-  postgresTest("keeps Custom App grants exact and separate from Base grants", async () => {
+  postgresTest("keeps Grids App grants exact and separate from Base grants", async () => {
     const fixture = await insertFixture();
     const app = appFor(fixture);
     try {

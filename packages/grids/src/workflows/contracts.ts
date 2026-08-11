@@ -417,7 +417,7 @@ const CustomAppLauncherConfigSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["inputBindings"],
-        message: "prompt Custom App launchers do not accept fixed input bindings",
+        message: "prompt Grids App launchers do not accept fixed input bindings",
       });
     }
   });

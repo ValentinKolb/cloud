@@ -52,7 +52,7 @@ const printGridsAccessEntries = (
 export const accessCommands = [
   command("access reference", {
     summary: "Show Grids resource access levels",
-    description: "Raw Grids access is granted on a base. Published Custom Apps have their own read access.",
+    description: "Raw Grids access is granted on a base. Published Grids Apps have their own read access.",
     examples: ["cld grids access reference", "cld grids access reference --json"],
     async run({ ctx }) {
       const reference = {
@@ -67,13 +67,13 @@ export const accessCommands = [
           "--group <id|name>",
           "--service-account <id|name> (Base only)",
           "--authenticated",
-          "--public (Custom App only)",
+          "--public (Grids App only)",
         ],
         examples: [
           "cld grids access list base Bookshop",
           "cld grids access set base Bookshop --group 'Bookshop staff' --permission write",
-          "cld grids access grant custom-app Bookshop Catalog --public --permission read",
-          "cld grids access revoke custom-app Bookshop Catalog --public --yes",
+          "cld grids access grant app Bookshop Catalog --public --permission read",
+          "cld grids access revoke app Bookshop Catalog --public --yes",
         ],
       };
       printReference(
@@ -82,7 +82,7 @@ export const accessCommands = [
         [
           "Grids access",
           "",
-          "Base access controls the complete raw Grids workspace. Custom App access controls one published app without granting raw base access.",
+          "Base access controls the complete raw Grids workspace. Grids App access controls one published app without granting raw base access.",
           "",
           "Resources:",
           ...reference.resourceTypes.map(
@@ -103,7 +103,7 @@ export const accessCommands = [
     args: {
       args: arg.rest({
         valueLabel: "resource-type refs",
-        description: "Resource type followed by refs, e.g. base Bookshop or custom-app Bookshop Catalog.",
+        description: "Resource type followed by refs, e.g. base Bookshop or app Bookshop Catalog.",
       }),
     },
     flags: {

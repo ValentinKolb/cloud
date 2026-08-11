@@ -179,7 +179,7 @@ describe("built-in template instantiation", () => {
           }
           expect(
             blocks.some((block) => "source" in block && block.source?.kind === "gql"),
-            `${expected.templateId} direct Custom App GQL block`,
+            `${expected.templateId} direct Grids App GQL block`,
           ).toBe(true);
           expect(
             blocks.some((block) => block.type === "actions"),

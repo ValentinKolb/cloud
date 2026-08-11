@@ -1,13 +1,13 @@
 ---
 id: grids-custom-apps
-title: Custom Apps
+title: Grids Apps
 icon: ti ti-app-window
 description: Publish focused apps from Forms, bounded records, and record details.
 order: 137
 ---
-Custom Apps give authenticated or public audiences a focused app at `/apps/<shortId>` without exposing the full Grids workspace. Each app belongs to one Base and uses selected records, Views, Forms, documents, and actions from that Base. Definitions are portable YAML that you can validate, review, and publish with the Cloud CLI.
+Grids Apps give authenticated or public audiences a focused app at `/apps/<shortId>` without exposing the full Grids workspace. Each app belongs to one Base and uses selected records, Views, Forms, documents, and actions from that Base. Definitions are portable YAML that you can validate, review, and publish with the Cloud CLI.
 
-Custom Apps do not copy data. A publication stores an immutable definition and a compiled capability snapshot containing the exact resources it may use. Every request checks the app grant, published capability, and server-enforced availability rules. App readers do not need Base access, and app access never grants raw Grids or arbitrary GQL access.
+Grids Apps do not copy data. A publication stores an immutable definition and a compiled capability snapshot containing the exact resources it may use. Every request checks the app grant, published capability, and server-enforced availability rules. App readers do not need Base access, and app access never grants raw Grids or arbitrary GQL access.
 
 ## Pages and blocks {icon="layout"}
 
@@ -124,7 +124,7 @@ The Form, saved view, and `request_id` parameter must use the same records table
 
 The Record block may also list existing PDFs generated for that record by exact template ID. Generation remains a Workflow responsibility; the block offers downloads only when the published app capability includes that template and the current app grant is valid.
 
-A Form block may hide one of the Form's relation inputs and set it from a Record parameter declared by the current page. The server resolves this value and rejects browser attempts to override it:
+A Form block may hide user inputs and supply them with the same typed binding model as workflow inputs. `LITERAL` values are validated against the live field type. Compatible relation inputs may use a declared Record parameter or the current page record. The server resolves every value again and rejects browser attempts to override it:
 
 ```yaml
 fixedValues:
@@ -133,11 +133,11 @@ fixedValues:
     path: parent_id
 ```
 
-The fixed field must be a user-input relation field targeting the parameter's table. `fixedValues` accepts `PARAMS` only. Success navigation accepts declared `PARAMS` plus the submitted Form's `RESULT.recordId`; it always stays inside the same Custom App and uses replace navigation.
+`fixedValues` accepts `LITERAL`, compatible `PARAMS`, and compatible `RECORD.id` bindings. Success navigation accepts declared `PARAMS` plus the submitted Form's `RESULT.recordId`; it always stays inside the same Grids App and uses replace navigation.
 
 Pages, blocks, and actions may use one optional `availableWhen.query`. The server runs this bounded GQL with the same implicit context as the page. At least one returned row means available; an empty result, invalid query, missing context, timeout, or cancellation means unavailable. Unavailable resources are omitted and cannot be called directly.
 
-Custom App GQL receives `@auth.id`, `@auth.name`, `@auth.username`, `@auth.email`, declared `@params.<name>`, `@page.*`, `@app.*`, `@base.*`, and `@time.*` automatically. Anonymous visitors receive `null` for every `@auth.*` value. Values are bound separately from query text; there is no per-source inputs map or `param()` helper.
+Grids App GQL receives `@auth.id`, `@auth.name`, `@auth.username`, `@auth.email`, declared `@params.<name>`, `@page.*`, `@app.*`, `@base.*`, and `@time.*` automatically. Anonymous visitors receive `null` for every `@auth.*` value. Values are bound separately from query text; there is no per-source inputs map or `param()` helper.
 
 Markdown blocks use the same context names as safe text placeholders. Type `@` or choose **Add placeholder**, for example `Hello @auth.name`. Grids replaces known placeholders on the server before rendering the sanitized Markdown; anonymous `@auth.*` values become empty text. Markdown placeholders do not add Liquid conditions, loops, or executable template code.
 
@@ -149,6 +149,8 @@ cld grids apps validate MyBase --source-file requests.yaml
 cld grids apps plan MyBase --source-file requests.yaml
 ```
 
+For a blank Home draft equivalent to the visual starter, run `cld grids apps create MyBase --name "Request overview"`. Advanced authors can apply a complete definition directly.
+
 Apply the definition. This updates only the draft:
 
 ```bash
@@ -159,28 +161,30 @@ On first apply, Grids assigns the app's stable five-character `shortId`. You may
 
 ## Build visually {icon="apps"}
 
-Base administrators can turn on **Edit mode** and create an app with **New app** under **Custom Apps**. The Pages column creates and selects pages; each page and the active app have their own settings action. **Add block** supports Markdown, Records, Metrics, Charts, Forms, page Records, Comments, and Actions. Records, Metrics, and Charts can use an accessible saved View or inline GQL.
+Base administrators can turn on **Edit mode** and create an app with **New app** under **Apps**. The Pages column creates and selects pages; each page and the active app have their own settings action. **Add block** supports Markdown, Records, Metrics, Charts, Forms, page Records, Comments, and Actions. Records, Metrics, and Charts can use an accessible saved View or inline GQL.
 
 The inspector keeps the common path short. Required identity, page, source, and block fields stay visible. Access, availability, route parameters, appearance, ordering, documents, and danger controls use expandable sections. Optional availability shows **Always** until you add a server-enforced GQL rule. Inline GQL and Markdown can each be opened in a larger editor without creating a second draft or a separate Save step; autocomplete continues to offer only the selected page's valid `@auth`, `@params`, `@page`, `@app`, `@base`, and `@time` context.
 
-Route parameters are required Record IDs, each with one parameter ID and Record table. Adding a Record block binds the page to its single compatible route parameter, hides the page from navigation, and makes that same record available to Record and Comments blocks; there is no second Page Record setting. Renaming a parameter updates its typed Form, navigation, workflow, and exact `@params.<name>` GQL references. Page IDs are editable and their navigation references update with them. Records rows can link to compatible route pages; Forms can prefill compatible relation inputs and navigate after creation; Record blocks can choose writable fields and document templates.
+Route parameters are required Record IDs, each with one parameter ID and Record table. Adding a Record block binds the page to its single compatible route parameter, hides the page from navigation, and makes that same record available to Record and Comments blocks; there is no second Page Record setting. Renaming a parameter updates its typed Form, navigation, workflow, row-action, and exact `@params.<name>` GQL references. Page IDs are editable and their navigation references update with them. Records rows can link to compatible route pages or run plural row workflows; Forms can receive typed server-trusted values and navigate after creation; Record blocks can choose writable fields and document templates.
 
-For a Records block, choose displayed fields only when the source is a saved View. A GQL Records source displays exactly the columns returned by its query, so aliases and aggregate result columns need no second Columns selection.
+For a Records block, choose displayed fields only when the source is a saved View. A GQL Records source displays exactly the ordinary-record columns returned by its query, including aliases, so it needs no second Columns selection. Use Metrics or Chart for aggregate results.
 
-An Actions block shows a compact list. Open one action to edit its icon, target, history, typed parameter mappings, workflow launcher, input sources, confirmation, availability, and order. Workflow actions list only active Custom App launchers whose validated workflow revision is available in the current Base.
+An Actions block shows a compact list. Open one action to edit its icon, target, history, typed parameter mappings, workflow launcher, input sources, confirmation, availability, and order. Workflow actions list only active Grids App launchers whose validated workflow revision is available in the current Base.
 
-The builder saves every structurally complete change automatically. A notice appears while the draft differs from the live version or still needs attention. **Publish changes** validates and publishes the latest saved draft; **Restore live version** discards the pending draft and copies the current live snapshot back into it. The external-link icon opens the live snapshot. Saved View and parameter-free GQL previews are resolved on the server, and the canvas keeps unchanged blocks mounted while a neighboring block is edited.
+A Records block has a separate **Row actions** section. Each action selects its launcher, label, optional icon, label visibility, typed inputs, confirmation, availability, and order. `ROW.id` appears only here and only for a compatible record input. The runtime verifies the selected ID is still present in the exact published Records query before invoking the workflow.
+
+The builder saves every structurally complete change automatically. A notice appears while the draft differs from the live version or still needs attention. **Publish changes** validates and publishes the latest saved draft; **Restore live version** discards the pending draft and copies the current live snapshot back into it. The external-link icon opens the live snapshot. Saved View and parameter-free GQL previews are resolved on the server, and the canvas keeps unchanged blocks mounted while a neighboring block is edited. Under **App settings**, the collapsed **Danger zone** can unpublish the live snapshot while keeping the draft and grants, or delete the app without deleting Base data. Both actions require a destructive confirmation.
 
 ## Grant access and publish {icon="lock"}
 
 Grant the intended principal access to the app. The published capability snapshot supplies its data and operations; do not grant the audience raw Base access unless they also need the full Grids workspace.
 
 ```bash
-cld grids access grant custom-app MyBase "Request overview" --group "Request team" --permission read
-cld grids access grant custom-app MyBase "Public catalog" --public --permission read
+cld grids access grant app MyBase "Request overview" --group "Request team" --permission read
+cld grids access grant app MyBase "Public catalog" --public --permission read
 ```
 
-Custom App grants support users, groups, all authenticated accounts, and the public. They do not support service accounts; delegated credentials use their user identity. A public grant includes anonymous visitors. The detail page returns **Not Found** for a missing, deleted, invalid, unavailable, or unauthorized record id. Arbitrary Workflow actions require an authenticated account even when the app itself is public.
+Grids App grants support users, groups, all authenticated accounts, and the public. They do not support service accounts; delegated credentials use their user identity. A public grant includes anonymous visitors. The detail page returns **Not Found** for a missing, deleted, invalid, unavailable, or unauthorized record id. Arbitrary Workflow actions require an authenticated account even when the app itself is public.
 
 Publish the validated draft:
 
@@ -190,9 +194,10 @@ cld grids apps publish MyBase "Request overview" --yes
 
 Applying another draft does not change the live app until you publish again.
 
-Unpublish removes only the live snapshot and keeps the draft. Delete removes the app and its route. Both commands require an explicit confirmation:
+Restore replaces pending draft changes with the live definition. Unpublish removes only the live snapshot and keeps the draft. Delete removes the app and its route. These commands require an explicit confirmation:
 
 ```bash
+cld grids apps restore MyBase "Request overview" --yes
 cld grids apps unpublish MyBase "Request overview" --yes
 cld grids apps delete MyBase "Request overview" --yes
 ```
@@ -205,6 +210,7 @@ cld grids apps delete MyBase "Request overview" --yes
 cld grids apps list MyBase
 cld grids apps get MyBase "Request overview"
 cld grids apps export MyBase "Request overview" --out requests.yaml
+cld grids apps export MyBase "Request overview" --published --out requests-live.yaml
 ```
 
 :::note Only the active page is resolved

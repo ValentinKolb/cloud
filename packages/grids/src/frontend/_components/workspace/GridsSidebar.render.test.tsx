@@ -75,7 +75,7 @@ describe("GridsSidebar workflows", () => {
   });
 });
 
-describe("GridsSidebar Custom Apps", () => {
+describe("GridsSidebar Apps", () => {
   test("links base-admin builders and marks drafts", () => {
     const state = workflowState();
     state.canManageBase = true;
@@ -97,7 +97,7 @@ describe("GridsSidebar Custom Apps", () => {
 
     const html = renderToString(() => createComponent(GridsSidebar, { state }));
 
-    expect(html).toContain("Custom Apps");
+    expect(html).toContain("Apps");
     expect(html).toContain("Loan desk");
     expect(html).toContain("/app/grids/BASE1/apps/APP1?edit=true");
     expect(html).toContain("settings=app");
@@ -113,7 +113,7 @@ describe("GridsSidebar Custom Apps", () => {
 
     const html = renderToString(() => createComponent(GridsSidebar, { state }));
 
-    expect(html).toContain("Custom Apps");
+    expect(html).toContain("Apps");
     expect(html).toContain("New app");
   });
 });

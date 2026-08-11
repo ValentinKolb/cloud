@@ -89,7 +89,7 @@ describe("workflow launcher validation", () => {
     );
   });
 
-  test("requires complete type-safe Custom App input bindings", () => {
+  test("requires complete type-safe Grids App input bindings", () => {
     expect(validateLauncherConfig(workflow, { kind: "customApp", inputMode: "fixed", inputBindings: { count: "many" } })).toEqual([
       expect.objectContaining({ code: "launcher.input.invalid", message: 'Workflow input "message" is required' }),
       expect.objectContaining({ code: "launcher.input.invalid", message: 'Workflow input "count" must be a finite number' }),

@@ -77,7 +77,7 @@ describe("Grids API permissions", () => {
     expect(lastAppLoad).toBeNull();
   });
 
-  test("loads Custom App grants independently from base grants", async () => {
+  test("loads Grids App grants independently from base grants", async () => {
     resolvedLevel = "read";
     const resolved = await resolveCustomAppWithGrantsForAccess(gridsAccessContext(userContext as never), customAppId);
     expect(resolved.level).toBe("read");
@@ -85,7 +85,7 @@ describe("Grids API permissions", () => {
     expect(lastBaseLoad).toBeNull();
   });
 
-  test("resource-bound credentials are capped and cannot cross bases or enter Custom Apps", async () => {
+  test("resource-bound credentials are capped and cannot cross bases or enter Grids Apps", async () => {
     resolvedLevel = "admin";
     expect(currentResourceBoundBaseId(serviceAccountContext as never)).toBe(baseId);
     expect((await gateAt(serviceAccountContext as never, { baseId }, "read")).ok).toBe(true);

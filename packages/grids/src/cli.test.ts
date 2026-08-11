@@ -409,7 +409,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(141);
+    expect(commands).toHaveLength(143);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {
@@ -436,7 +436,7 @@ describe("grids CLI", () => {
       id: "inventory",
       name: "Inventory",
       description: "Track equipment and loans.",
-      highlights: ["Structured inventory", "Operational workflows", "Documents and Custom Apps"],
+      highlights: ["Structured inventory", "Operational workflows", "Documents and Grids Apps"],
       icon: "ti ti-packages",
     };
     const { ctx, calls, tables } = createContext(["templates", "list"], {}, [jsonResponse([template])]);
@@ -454,7 +454,7 @@ describe("grids CLI", () => {
       id: "inventory",
       name: "Inventory",
       description: "Track equipment and loans.",
-      highlights: ["Structured inventory", "Operational workflows", "Documents and Custom Apps"],
+      highlights: ["Structured inventory", "Operational workflows", "Documents and Grids Apps"],
       icon: "ti ti-packages",
     };
     const { ctx, calls, defaults, lines } = createContext(
@@ -1205,7 +1205,7 @@ describe("grids CLI", () => {
     expect(lines).toEqual(["Created view Recent authors (view1)."]);
   });
 
-  test("exposes forms and Custom Apps in top-level help", async () => {
+  test("exposes forms and Apps in top-level help", async () => {
     const { ctx, lines } = createContext(["help"]);
 
     await gridsCli.run(ctx);
@@ -1238,9 +1238,9 @@ describe("grids CLI", () => {
     expect(lines).toEqual([`Updated ${accessId} to write.`]);
   });
 
-  test("grants public read access to a Custom App", async () => {
+  test("grants public read access to a Grids App", async () => {
     const { ctx, calls, lines } = createContext(
-      ["access", "grant", "custom-app", baseId, "Public catalog"],
+      ["access", "grant", "app", baseId, "Public catalog"],
       { public: true, permission: "read" },
       [jsonResponse(base), jsonResponse([customApp]), jsonResponse({ accessId }, 201)],
     );
@@ -1268,7 +1268,7 @@ describe("grids CLI", () => {
     expect(jsonValues[0]).toMatchObject({
       resourceTypes: [
         { type: "base", principals: ["user", "group", "service_account", "authenticated"] },
-        { type: "custom-app", principals: ["user", "group", "authenticated", "public"] },
+        { type: "app", principals: ["user", "group", "authenticated", "public"] },
       ],
     });
   });

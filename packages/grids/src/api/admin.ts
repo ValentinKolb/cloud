@@ -27,7 +27,7 @@ export const createAdminApi = (deps: { requireAdmin?: MiddlewareHandler<AuthCont
       "/bases/:baseId/access",
       describeRoute({
         tags: ["Grids:Admin"],
-        summary: "List base and Custom App ACL entries as platform admin",
+        summary: "List base and Grids App ACL entries as platform admin",
         responses: {
           200: jsonResponse(ScopedAccessListSchema, "Entries"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),

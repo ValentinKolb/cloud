@@ -26,7 +26,7 @@ export const loadWorkspaceRequest = async (
   if (!hasBaseRead) return { kind: "accessDenied", title: "Access denied", message: "No access to this base" };
   const catalog = await loadCatalog(base.id, params.user, canManageBase);
   if (params.activeCustomAppSlug && !canManageBase) {
-    return { kind: "accessDenied", title: "Access denied", message: "Base admin access is required to edit Custom Apps" };
+    return { kind: "accessDenied", title: "Access denied", message: "Base admin access is required to edit Apps" };
   }
   const requestedCustomApp = params.activeCustomAppSlug
     ? await gridsService.customApp.getByIdOrShortId(base.id, params.activeCustomAppSlug)

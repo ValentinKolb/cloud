@@ -117,7 +117,7 @@ export default function BasesOverview(props: Props) {
           withSampleData: {
             type: "boolean",
             label: "Include sample data",
-            description: "Recommended. Adds realistic records so the Custom App, views, and workflow are ready to explore.",
+            description: "Recommended. Adds realistic records so the App, views, and workflow are ready to explore.",
             default: true,
           },
         },
@@ -163,12 +163,12 @@ export default function BasesOverview(props: Props) {
     query().trim()
       ? `${total()} match${total() === 1 ? "" : "es"}`
       : total() === 0
-        ? "Create a base to start storing records, views, forms, and Custom Apps."
+        ? "Create a base to start storing records, views, forms, and Apps."
         : `${bases().length} of ${total()} base${total() === 1 ? "" : "s"} shown`,
   );
 
   return (
-    <AppOverview title="Grids" subtitle="Structured bases for records, views, forms, and Custom Apps." icon="ti ti-table">
+    <AppOverview title="Grids" subtitle="Structured bases for records, views, forms, and Apps." icon="ti ti-table">
       <AppOverview.Main
         title="Your bases"
         description={overviewDescription()}

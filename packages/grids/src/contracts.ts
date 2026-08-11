@@ -651,7 +651,7 @@ export type ColumnSpec = z.infer<typeof ColumnSpecSchema>;
 
 /**
  * Group-by dimension. Stored in RecordQuery so saved views, URL state,
- * Custom App charts and exports use the same query contract.
+ * Grids App charts and exports use the same query contract.
  */
 const GroupBySpecSchema = z.object({
   fieldId: z.string().uuid(),

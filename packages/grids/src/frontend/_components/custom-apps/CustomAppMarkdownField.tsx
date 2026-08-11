@@ -29,7 +29,7 @@ const contextCompletion = (keys: readonly DslQueryContextKey[]): MarkdownComplet
     const normalized = query.toLowerCase();
     return keys
       .filter((key) => key.toLowerCase().startsWith(normalized))
-      .map((key) => ({ text: contextLabel(key), label: contextLabel(key), hint: "Custom App context" }));
+      .map((key) => ({ text: contextLabel(key), label: contextLabel(key), hint: "App context" }));
   },
 });
 
@@ -50,7 +50,7 @@ export function CustomAppMarkdownField(props: CustomAppMarkdownFieldProps) {
     props.contextKeys.map((key) => ({
       icon: "ti ti-at",
       label: contextLabel(key),
-      description: key.startsWith("auth.") ? "Signed-in reader" : "Custom App request context",
+      description: key.startsWith("auth.") ? "Signed-in reader" : "App request context",
       action: () => insertPlaceholder(key, textarea()),
     }));
 

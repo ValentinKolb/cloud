@@ -62,7 +62,7 @@ describe("grids schema migration", () => {
         `;
         // workflow_profile and workflow_run_profile arrived; grids.workflows,
         // workflow_revisions, workflow_runs and workflow_step_runs moved into
-        // the kernel, taking workflow_effect_intents with them. Custom Apps add
+        // the kernel, taking workflow_effect_intents with them. Grids Apps add
         // custom_apps and custom_app_access to the current Grids schema.
         expect(row?.tableCount).toBe(30);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
@@ -125,7 +125,7 @@ describe("grids schema migration", () => {
   );
 
   postgresTest(
-    "drops obsolete access metadata without changing domain rows or base and Custom App grants",
+    "drops obsolete access metadata without changing domain rows or base and Grids App grants",
     async () => {
       await withIsolatedDatabase(async (database) => {
         await migrateCoreWorkflows(database);
@@ -280,7 +280,7 @@ describe("grids schema migration", () => {
             ${customAppId}::uuid,
             ${shortId("C")},
             ${baseId}::uuid,
-            'Preserved Custom App',
+            'Preserved Grids App',
             'app-window',
             ${draftDefinition}::jsonb,
             ${draftCapabilities}::jsonb,

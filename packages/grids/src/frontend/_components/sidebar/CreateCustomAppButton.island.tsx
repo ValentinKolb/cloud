@@ -13,7 +13,7 @@ export default function CreateCustomAppButton(props: { baseId: string; baseShort
         param: { baseId: props.baseId },
         json: { name },
       });
-      if (!response.ok) throw new Error(await errorMessage(response, "Could not create the Custom App."));
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not create the App."));
       return response.json();
     },
     onSuccess: (app) => navigateTo(`/app/grids/${props.baseShortId}/apps/${app.shortId}?edit=true&settings=app`),
@@ -25,11 +25,14 @@ export default function CreateCustomAppButton(props: { baseId: string; baseShort
       const [value, setValue] = createSignal("");
       return (
         <PanelDialog>
-          <PanelDialog.Header title="New Custom App" icon="ti ti-app-window" close={() => close(null)} />
+          <PanelDialog.Header
+            title="New App"
+            subtitle="Start with one editable Home page."
+            icon="ti ti-app-window"
+            close={() => close(null)}
+          />
           <PanelDialog.Body>
-            <PanelDialog.Section title="App" subtitle="Start with one editable Home page." icon="ti ti-app-window">
-              <TextInput label="Name" value={value} onValueChange={setValue} placeholder="e.g. Sales dashboard" required />
-            </PanelDialog.Section>
+            <TextInput label="Name" value={value} onValueChange={setValue} placeholder="e.g. Sales dashboard" required />
           </PanelDialog.Body>
           <PanelDialog.Footer>
             <span />

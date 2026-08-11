@@ -99,8 +99,8 @@ export default function BaseSettingsPanel(props: Props) {
               <NoticeCard tone="info" icon={false} bodyClass="flex items-start gap-2">
                 <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" aria-hidden="true" />
                 <span>
-                  A Base grant applies to every table, view, form, document template, and workflow. Custom Apps use independent grants for
-                  narrower audiences.
+                  A Base grant applies to every table, view, form, document template, and workflow. Apps use independent grants for narrower
+                  audiences.
                 </span>
               </NoticeCard>
               <PermissionsSection baseId={props.base.id} initialEntries={props.accessEntries} />

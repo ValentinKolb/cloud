@@ -168,7 +168,7 @@ export const bucketsToSparklineData = (buckets: ChartBucket[], primaryAgg: Aggre
  *
  * For numeric groupBys (e.g. a "year" field), the index-as-x makes
  * the line evenly spaced regardless of source spacing — semantically
- * "trend over ordered buckets", which is what Custom App line charts
+ * "trend over ordered buckets", which is what App line charts
  * almost always mean. True numeric x-axes (continuous quantities)
  * can come later with an explicit `xField` knob if a use case shows up.
  */

@@ -168,7 +168,7 @@ export type TestWorkflowRunInput = {
   id?: string;
   mode?: "execute" | "dryRun";
   /** Grids' own label for how the run was started. */
-  channel?: "api" | "Custom App" | "scanner" | "bulk" | "schedule" | "recordEvent";
+  channel?: "api" | "Grids App" | "scanner" | "bulk" | "schedule" | "recordEvent";
   state?: "queued" | "running" | "waiting" | "succeeded" | "failed" | "canceled" | "needs_attention";
   launcherId?: string | null;
   actorUserId?: string | null;

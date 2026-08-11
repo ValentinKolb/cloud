@@ -4,7 +4,7 @@ import { customAppPageRecordFieldIds } from "./conditions";
 
 const fieldId = "11111111-1111-4111-8111-111111111111";
 
-describe("Custom App page record fields", () => {
+describe("Grids App page record fields", () => {
   test("collects the explicit Record block allowlist", () => {
     const page = {
       id: "request",

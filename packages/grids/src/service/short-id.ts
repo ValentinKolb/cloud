@@ -10,7 +10,7 @@ export const SHORT_ID_REGEX = /^[A-Za-z0-9]{5}$/;
 
 /**
  * Insert-with-random-short_id helper. Each grids resource (base / table /
- * field / form / view / Custom App) carries a 5-char readable `short_id`
+ * field / form / view / Grids App) carries a 5-char readable `short_id`
  * alongside its UUID — used in URLs and formula references.
  *
  * Unlike a check-then-insert pattern, this helper trusts the DB partial

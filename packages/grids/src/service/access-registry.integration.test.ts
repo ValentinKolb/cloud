@@ -37,11 +37,11 @@ beforeAll(async () => {
 });
 
 describe("access resource registry integration", () => {
-  postgresTest("rejects new Custom App service-account grants without hiding stored rows", async () => {
+  postgresTest("rejects new Grids App service-account grants without hiding stored rows", async () => {
     const item = await insertFixture();
     const [serviceAccount] = await sql<{ id: string }[]>`
       INSERT INTO auth.service_accounts (name, kind, app_id, resource_type, resource_id)
-      VALUES ('Legacy Custom App access', 'resource_bound', 'grids', 'base', ${item.baseId})
+      VALUES ('Legacy Grids App access', 'resource_bound', 'grids', 'base', ${item.baseId})
       RETURNING id::text AS id
     `;
     if (!serviceAccount) throw new Error("Failed to create service account fixture");
@@ -67,7 +67,7 @@ describe("access resource registry integration", () => {
       expect(rejected.ok).toBe(false);
       if (!rejected.ok) {
         expect(rejected.error.message).toBe(
-          "Custom App access does not support service accounts; grant access to the delegated user instead.",
+          "Grids App access does not support service accounts; grant access to the delegated user instead.",
         );
       }
       expect(await listCustomAppAccess(item.customAppId)).toEqual([
@@ -124,7 +124,7 @@ describe("access resource registry integration", () => {
     }
   });
 
-  postgresTest("grants, lists, resolves, and projects only base and Custom App access", async () => {
+  postgresTest("grants, lists, resolves, and projects only base and Grids App access", async () => {
     const item = await insertFixture();
     const accessIds: string[] = [];
     try {

@@ -33,7 +33,7 @@ const AGG_LABELS: Record<string, string> = {
  * surrounding screen and are wired up there.
  *
  * This is the canonical records table renderer for Grids. It is kept
- * presentational so records pages, Custom App blocks, and view pages
+ * presentational so records pages, App blocks, and view pages
  * can share relation links, formatting, and aggregate footers without
  * dragging in page-specific toolbar or detail-panel state.
  *

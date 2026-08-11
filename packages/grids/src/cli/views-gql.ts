@@ -1,6 +1,8 @@
 import { arg, command, confirmFlag, flag, printStructured } from "@valentinkolb/cloud/cli";
 import type { DslQueryAutocompleteResponse, DslQueryCompileViewResponse, DslQueryExecuteResponse, View } from "../contracts";
+import { customAppContextKeys } from "../custom-apps/context-keys";
 import { GRID_FORMULA_FUNCTIONS } from "../formula/function-catalog";
+import { resolveCustomApp } from "./custom-apps";
 import {
   baseArgs,
   baseFlag,
@@ -13,6 +15,7 @@ import {
 } from "./resources";
 import {
   applyDefined,
+  exactMatch,
   JSON_BODY_INPUT,
   jsonRequest,
   type MessageResponse,
@@ -175,6 +178,8 @@ export const gqlCommands = [
       ...baseFlag,
       ...tableFlag,
       ...viewFlag,
+      app: flag.string({ description: "App UUID, short id, or exact name for page-context suggestions" }),
+      page: flag.string({ description: "App page ID or exact title for page-context suggestions" }),
       query: GQL_INPUT,
       caret: flag.int({ min: 0, max: 20_000, description: "UTF-16 caret offset" }),
     },
@@ -182,11 +187,26 @@ export const gqlCommands = [
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
       const table = await resolveTableFromFlags(ctx, base, flags.table);
       const view = await resolveOptionalView(ctx, table, flags.view);
+      if (Boolean(flags.app) !== Boolean(flags.page)) throw new Error("--app and --page must be used together.");
+      let contextKeys: ReturnType<typeof customAppContextKeys> | undefined;
+      if (flags.app && flags.page) {
+        const app = await resolveCustomApp(ctx, base.id, flags.app);
+        if (!app.draftDefinition) throw new Error("App has no valid draft definition.");
+        const page = exactMatch(
+          app.draftDefinition.pages,
+          flags.page,
+          [(candidate) => candidate.id, (candidate) => candidate.title],
+          "App page",
+          (candidate) => `${candidate.title} (${candidate.id})`,
+        );
+        contextKeys = customAppContextKeys(page);
+      }
       const body = {
         query: await readGql(flags.query),
         ...(flags.caret !== undefined ? { caret: flags.caret } : {}),
         ...(table ? { currentTableId: table.id, currentSource: { kind: "table", tableId: table.id } } : {}),
         ...(view ? { currentTableId: view.tableId, currentSource: { kind: "view", viewId: view.id } } : {}),
+        ...(contextKeys ? { contextKeys } : {}),
       };
       printAutocomplete(
         ctx,

@@ -10,7 +10,7 @@ const grant = (input: Partial<Grant> & Pick<Grant, "resourceType" | "resourceId"
 });
 
 describe("resolveEffectivePermission", () => {
-  test("resolves an exact base without considering Custom App grants", () => {
+  test("resolves an exact base without considering Grids App grants", () => {
     const grants: Grant[] = [
       grant({ resourceType: "base", resourceId: baseId, level: "write" }),
       grant({ resourceType: "customApp", resourceId: customAppId, level: "read" }),
@@ -18,7 +18,7 @@ describe("resolveEffectivePermission", () => {
     expect(resolveEffectivePermission(grants, { baseId })).toBe("write");
   });
 
-  test("resolves an exact Custom App without falling back to its base", () => {
+  test("resolves an exact Grids App without falling back to its base", () => {
     const grants: Grant[] = [grant({ resourceType: "base", resourceId: baseId, level: "admin" })];
     expect(resolveEffectivePermission(grants, { customAppId })).toBe("none");
   });
@@ -32,7 +32,7 @@ describe("resolveEffectivePermission", () => {
     expect(resolveEffectivePermission(grants, { baseId })).toBe("none");
   });
 
-  test("supports public Custom App grants", () => {
+  test("supports public Grids App grants", () => {
     const grants: Grant[] = [
       grant({ resourceType: "customApp", resourceId: customAppId, level: "read", principalTier: "public" }),
     ];

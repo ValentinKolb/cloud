@@ -353,7 +353,7 @@ const loadLauncherContext = async (
   } else {
     const inputNames = new Set(workflow.plan.inputs.map((input) => input.name));
     const unknownBinding = Object.keys(config.data.inputBindings ?? {}).find((name) => !inputNames.has(name));
-    if (unknownBinding) return fail(err.badInput(`Custom App launcher binds unknown workflow input "${unknownBinding}"`));
+    if (unknownBinding) return fail(err.badInput(`Grids App launcher binds unknown workflow input "${unknownBinding}"`));
   }
   return ok({ launcher, workflow, config: config.data, tableId });
 };
@@ -480,11 +480,11 @@ export const invokeCustomAppLauncher = async (
   deps: WorkflowLauncherInvocationDeps = defaultDeps,
 ): Promise<Result<WorkflowInvocationReceipt>> => {
   const input = CustomAppLauncherInvocationSchema.safeParse(rawInput);
-  if (!input.success) return fail(err.badInput(`invalid Custom App launcher invocation: ${formatZodError(input.error)}`));
+  if (!input.success) return fail(err.badInput(`invalid Grids App launcher invocation: ${formatZodError(input.error)}`));
   const loaded = await loadLauncherContext(input.data.launcherId, "customApp", input.data.expectedRevision, deps);
   if (!loaded.ok) return loaded;
   const ctx = loaded.data;
-  if (ctx.config.kind !== "customApp") return fail(err.internal("Custom App launcher context is invalid"));
+  if (ctx.config.kind !== "customApp") return fail(err.internal("Grids App launcher context is invalid"));
   const authorized = await deps.authorize({
     workflow: ctx.workflow,
     principal: input.data.principal,
@@ -494,7 +494,7 @@ export const invokeCustomAppLauncher = async (
   if (!authorized.ok) return authorized;
   const suppliedInputs = input.data.inputs;
   if (ctx.config.inputMode === "fixed" && Object.keys(suppliedInputs).length > 0) {
-    return fail(err.badInput("fixed Custom App launchers do not accept runtime inputs"));
+    return fail(err.badInput("fixed Grids App launchers do not accept runtime inputs"));
   }
   const inputs = ctx.config.inputMode === "fixed" ? (ctx.config.inputBindings ?? {}) : suppliedInputs;
   return invoke(ctx, { ...input.data, inputs }, deps);

@@ -43,7 +43,7 @@ export function CustomAppGqlField(props: CustomAppGqlFieldProps) {
                 value={props.value}
                 onValueChange={props.onValueChange}
               />
-              <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Available Custom App query context">
+              <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Available App query context">
                 <For each={props.contextKeys}>
                   {(key) => <StatusBadge tone="neutral" icon={null} variant="text" label={contextLabel(key)} />}
                 </For>

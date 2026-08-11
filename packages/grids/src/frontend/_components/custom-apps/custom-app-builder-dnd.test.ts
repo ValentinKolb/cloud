@@ -64,7 +64,7 @@ const dropCandidate = (
   meta: { priority: options.priority ?? 1, segment: options.segment ?? "horizontal" },
 });
 
-describe("Custom App drop target selection", () => {
+describe("App drop target selection", () => {
   test("measures the pointer against the complete visible indicator segment", () => {
     expect(selectCustomAppBlockDropTarget([dropCandidate("row", { x: 0, y: 100, width: 300, height: 24 })], { x: 290, y: 113 }, null)).toBe(
       "row",
@@ -127,7 +127,7 @@ describe("Custom App drop target selection", () => {
   });
 });
 
-describe("Custom App canonical drop zones", () => {
+describe("App canonical drop zones", () => {
   test("compares semantic drop intents without serialization", () => {
     expect(sameCustomAppBlockDropIntent(null, null)).toBe(true);
     expect(
@@ -156,7 +156,7 @@ describe("Custom App canonical drop zones", () => {
   });
 });
 
-describe("Custom App implicit block layout", () => {
+describe("App implicit block layout", () => {
   test("moves a block before and after stable block targets", () => {
     expect(layout(drop({ kind: "stack", targetBlockId: "A", edge: "before" }))).toEqual(["CAB"]);
     expect(layout(drop({ kind: "stack", targetBlockId: "A", edge: "after" }))).toEqual(["ACB"]);

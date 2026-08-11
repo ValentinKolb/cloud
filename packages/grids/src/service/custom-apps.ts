@@ -19,7 +19,8 @@ import {
   customAppFormSecurityHash,
 } from "../custom-apps/form-capability";
 import { customAppViewSourceHash } from "../custom-apps/insight-source";
-import { isRecordWritableFieldType } from "../field-types";
+import { customAppBindingRecordTableId } from "../custom-apps/value-bindings";
+import { getRecordWritableFieldType, isRecordWritableFieldType } from "../field-types";
 import type { DslQueryContextValues } from "../query-dsl/parameters";
 import { isDslAggregateOnlyPlan } from "../query-dsl/resolver";
 import { collectDslPlanTableIds } from "../query-dsl/source-plan";
@@ -195,13 +196,13 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const commentBlocks = blocksByType(definition, "comments");
   const actionBlocks = blocksByType(definition, "actions");
   if (recordsBlocks.length > 4) {
-    return { ok: false, diagnostics: [{ path: ["pages"], message: "A Custom App may contain at most 4 Records blocks" }] };
+    return { ok: false, diagnostics: [{ path: ["pages"], message: "A Grids App may contain at most 4 Records blocks" }] };
   }
   if (formBlocks.length > 24) {
-    return { ok: false, diagnostics: [{ path: ["pages"], message: "A Custom App may contain at most 24 Form blocks" }] };
+    return { ok: false, diagnostics: [{ path: ["pages"], message: "A Grids App may contain at most 24 Form blocks" }] };
   }
   if (insightBlocks.length > 24) {
-    return { ok: false, diagnostics: [{ path: ["pages"], message: "A Custom App may contain at most 24 Metrics and Chart blocks" }] };
+    return { ok: false, diagnostics: [{ path: ["pages"], message: "A Grids App may contain at most 24 Metrics and Chart blocks" }] };
   }
 
   const [base] = await client<Array<{ id: string; name: string }>>`
@@ -219,6 +220,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const comments: CustomAppCapabilities["comments"] = [];
   const documents: CustomAppCapabilities["documents"] = [];
   const workflowLaunchers: CustomAppCapabilities["workflowLaunchers"] = [];
+  const recordsPrimaryTableIds = new Map<string, string>();
   const tableBaseIds = new Map<string, string | null>();
   const fieldsByTableId = new Map<string, Field[]>();
   const resolveTableBaseId = async (tableId: string): Promise<string | null> => {
@@ -270,13 +272,30 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
                     ]
                   : [],
               )
-            : []),
+            : block.type === "records"
+              ? (block.rowActions ?? []).flatMap((action) =>
+                  action.availableWhen
+                    ? [
+                        {
+                          page,
+                          query: action.availableWhen.query,
+                          target: {
+                            target: "action" as const,
+                            pageId: page.id,
+                            blockId: block.id,
+                            actionId: action.id,
+                          },
+                        },
+                      ]
+                    : [],
+                )
+              : []),
         ]),
       ),
     ),
   ]);
   if (availabilitySources.length > 256) {
-    return { ok: false, diagnostics: [{ path: ["pages"], message: "A Custom App may contain at most 256 availability queries" }] };
+    return { ok: false, diagnostics: [{ path: ["pages"], message: "A Grids App may contain at most 256 availability queries" }] };
   }
   for (const source of availabilitySources) {
     const compiled = await compileCustomAppQuery({
@@ -449,6 +468,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       continue;
     }
     const primaryTableId = plan.tableId;
+    recordsPrimaryTableIds.set(`${page.id}\0${block.id}`, primaryTableId);
     if (block.rowNavigate) {
       const targetPage = definition.pages.find((candidate) => candidate.id === block.rowNavigate!.pageId)!;
       for (const parameterId of Object.keys(block.rowNavigate.params)) {
@@ -595,14 +615,14 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     if (userInputFieldIds.length > 100) {
       diagnostics.push({
         path: ["pages", page.id, "blocks", block.id, "formId"],
-        message: "A Custom App Form may expose at most 100 input fields",
+        message: "A Grids App Form may expose at most 100 input fields",
       });
       continue;
     }
     if (fixedFieldIds.length > 30) {
       diagnostics.push({
         path: ["pages", page.id, "blocks", block.id, "fixedValues"],
-        message: "A Custom App Form may bind at most 30 fixed fields",
+        message: "A Grids App Form may bind at most 30 fixed fields",
       });
       continue;
     }
@@ -703,24 +723,37 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     }
     for (const [fieldId, value] of Object.entries(block.fixedValues)) {
       const field = fieldsById.get(fieldId);
-      const parameter = page.parameters[value.path];
       if (!userInputFieldIdSet.has(fieldId)) {
         diagnostics.push({
           path: ["pages", page.id, "blocks", block.id, "fixedValues", fieldId],
-          message: "A dynamic fixed value must target a user-input field in the referenced Form",
+          message: "A fixed value must target a user-input field in the referenced Form",
         });
+        continue;
+      }
+      if (!field) continue;
+      if (value.source === "LITERAL") {
+        const handler = getRecordWritableFieldType(field.type);
+        const normalized = handler?.validate(value.value, field.config, field.required);
+        if (!normalized?.ok || normalized.value === undefined) {
+          diagnostics.push({
+            path: ["pages", page.id, "blocks", block.id, "fixedValues", fieldId, "value"],
+            message: `Fixed value is invalid for Form field ${fieldId}${normalized && !normalized.ok ? `: ${normalized.error}` : ""}`,
+          });
+        } else {
+          value.value = normalized.value as typeof value.value;
+        }
         continue;
       }
       const fieldConfig = parseJsonbRow<{ targetTableId?: unknown }>(field?.config, {});
       if (field?.type !== "relation" || typeof fieldConfig.targetTableId !== "string") {
         diagnostics.push({
           path: ["pages", page.id, "blocks", block.id, "fixedValues", fieldId],
-          message: "Record parameters may only bind compatible relation fields",
+          message: "Record sources may only bind compatible relation fields",
         });
-      } else if (!parameter || fieldConfig.targetTableId !== parameter.tableId) {
+      } else if (fieldConfig.targetTableId !== customAppBindingRecordTableId(value, page)) {
         diagnostics.push({
           path: ["pages", page.id, "blocks", block.id, "fixedValues", fieldId],
-          message: "Fixed relation field and page parameter must reference the same table",
+          message: "Fixed relation field and record source must reference the same table",
         });
       }
     }
@@ -753,97 +786,110 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     });
   }
 
-  for (const { page, block } of actionBlocks) {
-    for (const action of block.actions) {
-      if (action.kind !== "workflow") continue;
-      const launcher = await getLauncher(action.launcherId, client);
-      if (
-        !launcher ||
-        launcher.baseId !== definition.baseId ||
-        launcher.deletedAt !== null ||
-        !launcher.enabled ||
-        launcher.diagnostics.some((item) => item.severity === "error") ||
-        launcher.config.kind !== "customApp"
-      ) {
-        diagnostics.push({
-          path: ["pages", page.id, "blocks", block.id, "actions", action.id, "launcherId"],
-          message: "Workflow launcher is missing, disabled, invalid, unsupported, or belongs to another base",
-        });
-        continue;
-      }
-      const workflow = await getWorkflow(launcher.workflowId, false, client);
-      if (
-        !workflow ||
-        workflow.baseId !== definition.baseId ||
-        workflow.deletedAt !== null ||
-        !workflow.enabled ||
-        workflow.revision !== launcher.validatedRevision ||
-        workflow.diagnostics.some((item) => item.severity === "error")
-      ) {
-        diagnostics.push({
-          path: ["pages", page.id, "blocks", block.id, "actions", action.id, "launcherId"],
-          message: "Workflow launcher does not reference a ready workflow revision",
-        });
-        continue;
-      }
-      if (launcher.config.inputMode === "fixed" && Object.keys(action.inputs).length > 0) {
-        diagnostics.push({
-          path: ["pages", page.id, "blocks", block.id, "actions", action.id, "inputs"],
-          message: "Fixed workflow launchers do not accept Custom App inputs",
-        });
-        continue;
-      }
-      if (launcher.config.inputMode === "prompt") {
-        const inputsByName = new Map(workflow.plan.inputs.map((input) => [input.name, input]));
-        for (const inputName of Object.keys(action.inputs)) {
-          if (!inputsByName.has(inputName)) {
-            diagnostics.push({
-              path: ["pages", page.id, "blocks", block.id, "actions", action.id, "inputs", inputName],
-              message: `Unknown workflow input "${inputName}"`,
-            });
-          }
-        }
-        for (const input of workflow.plan.inputs) {
-          const value = action.inputs[input.name];
-          if (!value) {
-            const message = workflowInputShapeError(input, undefined);
-            if (message) {
-              diagnostics.push({
-                path: ["pages", page.id, "blocks", block.id, "actions", action.id, "inputs", input.name],
-                message: `Workflow input "${input.name}" ${message}`,
-              });
-            }
-            continue;
-          }
-          if (value.source === "LITERAL") {
-            const message = workflowInputShapeError(input, value.value);
-            if (message) {
-              diagnostics.push({
-                path: ["pages", page.id, "blocks", block.id, "actions", action.id, "inputs", input.name],
-                message: `Workflow input "${input.name}" ${message}`,
-              });
-            }
-            continue;
-          }
-          const sourceTableId = value.source === "PARAMS" ? page.parameters[value.path]?.tableId : page.record?.tableId;
-          const boundTableId = workflow.plan.bindings[`inputs.${input.name}.table`];
-          if (input.type !== "record" || typeof boundTableId !== "string" || sourceTableId !== boundTableId) {
-            diagnostics.push({
-              path: ["pages", page.id, "blocks", block.id, "actions", action.id, "inputs", input.name],
-              message: `Workflow input "${input.name}" must be a record input bound to the referenced table`,
-            });
-          }
-        }
-      }
-      workflowLaunchers.push({
-        pageId: page.id,
-        blockId: block.id,
-        actionId: action.id,
-        launcherId: launcher.id,
-        workflowId: workflow.id,
-        revision: workflow.revision,
+  const workflowActionOwners = [
+    ...actionBlocks.flatMap(({ page, block }) =>
+      block.actions
+        .filter((action) => action.kind === "workflow")
+        .map((action) => ({ page, block, action, segment: "actions" as const, rowTableId: undefined })),
+    ),
+    ...recordsBlocks.flatMap(({ page, block }) =>
+      (block.rowActions ?? []).map((action) => ({
+        page,
+        block,
+        action,
+        segment: "rowActions" as const,
+        rowTableId: recordsPrimaryTableIds.get(`${page.id}\0${block.id}`),
+      })),
+    ),
+  ];
+  for (const { page, block, action, segment, rowTableId } of workflowActionOwners) {
+    const launcher = await getLauncher(action.launcherId, client);
+    if (
+      !launcher ||
+      launcher.baseId !== definition.baseId ||
+      launcher.deletedAt !== null ||
+      !launcher.enabled ||
+      launcher.diagnostics.some((item) => item.severity === "error") ||
+      launcher.config.kind !== "customApp"
+    ) {
+      diagnostics.push({
+        path: ["pages", page.id, "blocks", block.id, segment, action.id, "launcherId"],
+        message: "Workflow launcher is missing, disabled, invalid, unsupported, or belongs to another base",
       });
+      continue;
     }
+    const workflow = await getWorkflow(launcher.workflowId, false, client);
+    if (
+      !workflow ||
+      workflow.baseId !== definition.baseId ||
+      workflow.deletedAt !== null ||
+      !workflow.enabled ||
+      workflow.revision !== launcher.validatedRevision ||
+      workflow.diagnostics.some((item) => item.severity === "error")
+    ) {
+      diagnostics.push({
+        path: ["pages", page.id, "blocks", block.id, segment, action.id, "launcherId"],
+        message: "Workflow launcher does not reference a ready workflow revision",
+      });
+      continue;
+    }
+    if (launcher.config.inputMode === "fixed" && Object.keys(action.inputs).length > 0) {
+      diagnostics.push({
+        path: ["pages", page.id, "blocks", block.id, segment, action.id, "inputs"],
+        message: "Fixed workflow launchers do not accept Grids App inputs",
+      });
+      continue;
+    }
+    if (launcher.config.inputMode === "prompt") {
+      const inputsByName = new Map(workflow.plan.inputs.map((input) => [input.name, input]));
+      for (const inputName of Object.keys(action.inputs)) {
+        if (!inputsByName.has(inputName)) {
+          diagnostics.push({
+            path: ["pages", page.id, "blocks", block.id, segment, action.id, "inputs", inputName],
+            message: `Unknown workflow input "${inputName}"`,
+          });
+        }
+      }
+      for (const input of workflow.plan.inputs) {
+        const value = action.inputs[input.name];
+        if (!value) {
+          const message = workflowInputShapeError(input, undefined);
+          if (message) {
+            diagnostics.push({
+              path: ["pages", page.id, "blocks", block.id, segment, action.id, "inputs", input.name],
+              message: `Workflow input "${input.name}" ${message}`,
+            });
+          }
+          continue;
+        }
+        if (value.source === "LITERAL") {
+          const message = workflowInputShapeError(input, value.value);
+          if (message) {
+            diagnostics.push({
+              path: ["pages", page.id, "blocks", block.id, segment, action.id, "inputs", input.name],
+              message: `Workflow input "${input.name}" ${message}`,
+            });
+          }
+          continue;
+        }
+        const sourceTableId = customAppBindingRecordTableId(value, page, rowTableId);
+        const boundTableId = workflow.plan.bindings[`inputs.${input.name}.table`];
+        if (input.type !== "record" || typeof boundTableId !== "string" || sourceTableId !== boundTableId) {
+          diagnostics.push({
+            path: ["pages", page.id, "blocks", block.id, segment, action.id, "inputs", input.name],
+            message: `Workflow input "${input.name}" must be a record input bound to the referenced table`,
+          });
+        }
+      }
+    }
+    workflowLaunchers.push({
+      pageId: page.id,
+      blockId: block.id,
+      actionId: action.id,
+      launcherId: launcher.id,
+      workflowId: workflow.id,
+      revision: workflow.revision,
+    });
   }
   if (diagnostics.length > 0) return { ok: false, diagnostics };
 
@@ -960,10 +1006,10 @@ export const saveDraft = async (id: string, input: unknown): Promise<Result<Cust
     );
   return sql.begin(async (tx): Promise<Result<CustomAppDraftSave>> => {
     const [locked] = await tx<DbRow[]>`SELECT * FROM grids.custom_apps WHERE id = ${id}::uuid AND deleted_at IS NULL FOR UPDATE`;
-    if (!locked) return fail(err.notFound("Custom App"));
+    if (!locked) return fail(err.notFound("Grids App"));
     const existing = mapRow(locked);
     if (parsed.data.id !== existing.id || parsed.data.baseId !== existing.baseId)
-      return fail(err.badInput("Custom App identity is immutable"));
+      return fail(err.badInput("Grids App identity is immutable"));
     if (parsed.data.shortId !== undefined && parsed.data.shortId !== existing.shortId) return fail(err.badInput("shortId is immutable"));
     const definition = { ...parsed.data, shortId: existing.shortId };
     const compilation = await compile(definition, tx);
@@ -976,7 +1022,7 @@ export const saveDraft = async (id: string, input: unknown): Promise<Result<Cust
       WHERE id = ${id}::uuid AND deleted_at IS NULL
       RETURNING *
     `;
-    if (!updated) return fail(err.notFound("Custom App"));
+    if (!updated) return fail(err.notFound("Grids App"));
     const app = mapRow(updated);
     return ok({ app, valid: compilation.ok, diagnostics });
   });
@@ -985,8 +1031,8 @@ export const saveDraft = async (id: string, input: unknown): Promise<Result<Cust
 export const restoreDraft = async (id: string, actorId: string | null = null): Promise<Result<CustomApp>> =>
   sql.begin(async (tx): Promise<Result<CustomApp>> => {
     const [locked] = await tx<DbRow[]>`SELECT * FROM grids.custom_apps WHERE id = ${id}::uuid AND deleted_at IS NULL FOR UPDATE`;
-    if (!locked) return fail(err.notFound("Custom App"));
-    if (!locked.published_definition || !locked.published_capabilities) return fail(err.badInput("Custom App has no live version"));
+    if (!locked) return fail(err.notFound("Grids App"));
+    if (!locked.published_definition || !locked.published_capabilities) return fail(err.badInput("Grids App has no live version"));
     const publishedRaw = parseJsonbRow(locked.published_definition, {});
     const published = parseStoredCustomAppDefinition(publishedRaw, "published");
     if (!published.definition) return fail(err.badInput(published.diagnostics.map((item) => item.message).join("; ")));
@@ -998,7 +1044,7 @@ export const restoreDraft = async (id: string, actorId: string | null = null): P
       WHERE id = ${id}::uuid AND deleted_at IS NULL
       RETURNING *
     `;
-    if (!updated) return fail(err.notFound("Custom App"));
+    if (!updated) return fail(err.notFound("Grids App"));
     const app = mapRow(updated);
     await logAudit(
       {
@@ -1057,7 +1103,7 @@ export const apply = async (input: unknown, actorId: string | null = null): Prom
           VALUES (${definition.id}::uuid, ${shortId}, ${definition.baseId}::uuid, ${definition.name}, ${definition.icon ?? null}, ${definition}::jsonb, ${capabilities}::jsonb)
           RETURNING *
         `;
-        if (!created) throw err.internal("Failed to create Custom App");
+        if (!created) throw err.internal("Failed to create Grids App");
         return created;
       }, "idx_grids_custom_apps_short_id");
       const app = mapRow(row);
@@ -1073,7 +1119,7 @@ export const apply = async (input: unknown, actorId: string | null = null): Prom
       return ok(app);
     }
     const existing = await get(parsed.id, tx);
-    if (!existing) return fail(err.notFound("Custom App"));
+    if (!existing) return fail(err.notFound("Grids App"));
     const definition = { ...parsed, shortId: existing.shortId };
     const [updated] = await tx<DbRow[]>`
       UPDATE grids.custom_apps
@@ -1082,7 +1128,7 @@ export const apply = async (input: unknown, actorId: string | null = null): Prom
       WHERE id = ${definition.id}::uuid AND deleted_at IS NULL
       RETURNING *
     `;
-    if (!updated) return fail(err.notFound("Custom App"));
+    if (!updated) return fail(err.notFound("Grids App"));
     const app = mapRow(updated);
     await logAudit(
       {
@@ -1100,7 +1146,7 @@ export const apply = async (input: unknown, actorId: string | null = null): Prom
 export const publish = async (id: string, actorId: string | null = null): Promise<Result<CustomApp>> =>
   sql.begin(async (tx): Promise<Result<CustomApp>> => {
     const [locked] = await tx<DbRow[]>`SELECT * FROM grids.custom_apps WHERE id = ${id}::uuid AND deleted_at IS NULL FOR UPDATE`;
-    if (!locked) return fail(err.notFound("Custom App"));
+    if (!locked) return fail(err.notFound("Grids App"));
     const draft = mapRow(locked);
     if (!draft.draftDefinition) return fail(err.badInput(draft.draftDiagnostics.map((item) => item.message).join("; ")));
     const compilation = await compile(draft.draftDefinition, tx);
@@ -1112,7 +1158,7 @@ export const publish = async (id: string, actorId: string | null = null): Promis
       WHERE id = ${id}::uuid
       RETURNING *
     `;
-    if (!published) return fail(err.notFound("Custom App"));
+    if (!published) return fail(err.notFound("Grids App"));
     const app = mapRow(published);
     await logAudit(
       {
@@ -1129,7 +1175,7 @@ export const publish = async (id: string, actorId: string | null = null): Promis
 export const unpublish = async (id: string, actorId: string | null = null): Promise<Result<CustomApp>> =>
   sql.begin(async (tx): Promise<Result<CustomApp>> => {
     const [locked] = await tx<DbRow[]>`SELECT * FROM grids.custom_apps WHERE id = ${id}::uuid AND deleted_at IS NULL FOR UPDATE`;
-    if (!locked) return fail(err.notFound("Custom App"));
+    if (!locked) return fail(err.notFound("Grids App"));
     if (!locked.published_definition) return ok(mapRow(locked));
     const [unpublished] = await tx<DbRow[]>`
       UPDATE grids.custom_apps
@@ -1137,7 +1183,7 @@ export const unpublish = async (id: string, actorId: string | null = null): Prom
       WHERE id = ${id}::uuid AND deleted_at IS NULL
       RETURNING *
     `;
-    if (!unpublished) return fail(err.notFound("Custom App"));
+    if (!unpublished) return fail(err.notFound("Grids App"));
     const app = mapRow(unpublished);
     await logAudit(
       {
@@ -1159,7 +1205,7 @@ export const remove = async (id: string, actorId: string | null = null): Promise
       WHERE id = ${id}::uuid AND deleted_at IS NULL
       RETURNING base_id, name, short_id
     `;
-    if (!deleted) return fail(err.notFound("Custom App"));
+    if (!deleted) return fail(err.notFound("Grids App"));
     await logAudit(
       {
         baseId: deleted.base_id,

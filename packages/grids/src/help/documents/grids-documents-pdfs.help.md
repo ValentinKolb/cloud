@@ -401,7 +401,7 @@ The document page lists every generated run for a template. Use **Table** for a 
 
 Before generation you can override the template filename and add tags. With Base Write access, open a generated document's details to change its filename or tags later. The document number remains stable.
 
-Base Read allows browsing and redownloading generated documents. Base Write also allows generation and metadata changes. Base Admin manages templates. A Custom App reader sees only document operations included in its published capability snapshot.
+Base Read allows browsing and redownloading generated documents. Base Write also allows generation and metadata changes. Base Admin manages templates. A Grids App reader may download only a run for the current page record whose template is in that Record block's published capability. This App-scoped download does not grant the reader generic Base document access.
 
 To share one generated PDF without a Cloud login, create a public link for 1, 7, 30, or 90 days. The link downloads only that stored document snapshot. An optional comment explains its purpose. The creator or a document editor can revoke the link before it expires.
 

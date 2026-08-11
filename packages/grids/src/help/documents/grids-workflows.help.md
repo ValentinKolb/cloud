@@ -67,7 +67,7 @@ Everything that starts an execute run is an **event**: something happened, Grids
 
 :::reference
 - **Run requested:** Someone asked for this workflow directly — from the workflow page, the authenticated API, or the CLI.
-- **Run option used:** A scanner, bulk action, or Custom App button started it.
+- **Run option used:** A scanner, bulk action, or Grids App button started it.
 - **Schedule fired:** A scheduled slot came due.
 - **Record changed:** A row was created, updated, or deleted in a table this workflow watches.
 :::
@@ -78,7 +78,7 @@ This is why an occurrence that nothing is listening for produces no run at all r
 
 A **dry run is not an event**. Nothing happened; somebody is asking what would. It is created directly against the workflow's newest published revision and never consults a trigger, which is why a disabled workflow can still be dry-run while its execute runs are refused.
 
-Scanner, bulk, and Custom App run options are saved separately and remain outside workflow YAML. One workflow can therefore have several named surfaces without duplicating its executable definition. A scanner maps one input to scanned text or a resolved record and can collect other inputs once before scanning, after every scan, or from fixed values. Bulk supplies one record-list input, and a Custom App option either keeps fixed values for one-click use or asks for the declared inputs when it runs.
+Scanner, bulk, and Grids App run options are saved separately and remain outside workflow YAML. One workflow can therefore have several named surfaces without duplicating its executable definition. A scanner maps one input to scanned text or a resolved record and can collect other inputs once before scanning, after every scan, or from fixed values. Bulk supplies one record-list input, and a Grids App option either keeps fixed values for one-click use or asks for the declared inputs when it runs.
 
 ## Understand a run {icon="layout-grid"}
 
@@ -232,12 +232,12 @@ Direct callers can provide every declared input. Run options accept only the inp
 :::reference
 - **Scanner:** Maps exactly one text or record input to the scan. Record scans resolve by generated scan code or a configured unique field. Any other workflow input can be asked once before scanning, asked after every scan, or fixed by the run option.
 - **Bulk:** Binds one recordList input from explicit record IDs or a row-shaped table query, with at most 10,000 records per run.
-- **Custom App:** Exposes the workflow as a Custom App action and may save input bindings such as a fixed reporting range.
+- **Grids App:** Exposes the workflow as a Grids App action and may save input bindings such as a fixed reporting range.
 - **Lifecycle:** Each option has its own name, enabled state, validated workflow revision, and diagnostics. Source changes can make an option unavailable until it is reviewed and saved again.
 :::
 
 :::note Outside YAML
-Run options are configured separately from the workflow source. One workflow can therefore support multiple named scanner, bulk, or Custom App actions without changing its YAML.
+Run options are configured separately from the workflow source. One workflow can therefore support multiple named scanner, bulk, or Grids App actions without changing its YAML.
 :::
 
 ## Step reference {icon="book-2"}
@@ -584,10 +584,11 @@ Because of that, an `httpRequest` inside a workflow is worth pointing at a recei
 ## Permissions and limits {icon="shield-lock"}
 
 :::reference
-- **Run permission:** Direct calls and standalone run options require Base Write. A published Custom App may invoke only its exact included launcher, and public visitors cannot run Workflow actions.
-- **Caller run identity:** Direct UI, API, and CLI calls plus scanner and bulk run options run as the user or service account that starts them. Custom App run options use the authenticated user's identity; Custom App grants do not support service accounts. Direct calls appear under the api channel.
+- **Run permission:** Direct calls and standalone run options require Base Write. A published Grids App may invoke only its exact included launcher, and public visitors cannot run Workflow actions.
+- **Caller run identity:** Direct UI, API, and CLI calls plus scanner and bulk run options run as the user or service account that starts them. Grids App run options use the authenticated user's identity; Grids App grants do not support service accounts. Direct calls appear under the api channel.
 - **Automatic run identity:** Schedules and record events run as the workflow owner with the owner's current groups. A record event keeps the user who changed the record in trigger metadata, but does not inherit that user's permissions.
-- **Action permission:** Raw runs use the owning Base permission. Custom App invocation rechecks the immutable app capability and `availableWhen` rule on the server; workflow preconditions still protect state that can change after the run starts.
+- **Action permission:** Raw runs use the owning Base permission. Grids App invocation rechecks the immutable app capability and `availableWhen` rule on the server; workflow preconditions still protect state that can change after the run starts.
+- **App result:** The invoking App action may poll only its own run and receives `running`, `succeeded`, or `failed` plus the workflow's sanitized result message. It does not gain access to generic run history or raw errors.
 - **Email delivery:** Email template management requires base admin access. Workflow runs can use enabled email templates without exposing template HTML in autocomplete.
 - **Email-template dependencies:** Grids shows which workflows use an email template and refuses to delete a referenced template. Change those workflows first.
 - **HTTP guardrails:** `httpRequest` reaches public internet addresses only. A URL naming a private, local, or otherwise reserved address is refused, and so is a hostname that resolves to one — including a name that also resolves to a public address. There is no allowlist and no setting that opens this up; a service inside your network cannot be called from a workflow.

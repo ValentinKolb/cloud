@@ -119,7 +119,7 @@ describe("workspace initial GQL results", () => {
     ]);
   });
 
-  test("resolves the initial Custom App draft page before hydration", async () => {
+  test("resolves the initial Grids App draft page before hydration", async () => {
     const state = await withInitialGqlResults(context, customAppState());
 
     expect(savedViewCalls).toHaveLength(1);

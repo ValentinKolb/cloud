@@ -253,7 +253,7 @@ export const list = async (params: {
   if (!aggregatesResult.ok) return aggregatesResult;
 
   // Echo fields back in the response — list is the table-page entry
-  // point and consumers (records page, Custom App records block,
+  // point and consumers (records page, Grids App records block,
   // DatabaseTable) always need them to render. Saves a roundtrip vs
   // calling listFields separately.
   return ok({ items, fields: fieldsWithLookupMeta, nextCursor, aggregates: aggregatesResult.data, filePreviews });

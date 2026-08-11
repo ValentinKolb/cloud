@@ -13,7 +13,7 @@ const columns = [
   { key: "total", label: "Total", type: "number", sqlType: "numeric", aggregate: "count" },
 ];
 
-describe("Custom App Records columns", () => {
+describe("App Records columns", () => {
   test("keeps every GQL output column, including aliases without field IDs", () => {
     expect(customAppRecordsResultColumns(columns).map((column) => column.key)).toEqual(["name", "total"]);
   });

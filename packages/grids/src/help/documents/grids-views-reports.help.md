@@ -32,7 +32,7 @@ Add a sort whenever order has business meaning. If several records share the sam
 
 **Calendar** places records by one date or date-time field. Use it for bookings, due dates, shifts, and scheduled work.
 
-A grouped or aggregate-only query returns summary rows rather than editable records. It is suitable for reports, charts, Custom Apps, documents, and exports.
+A grouped or aggregate-only query returns summary rows rather than editable records. It is suitable for reports, charts, Grids Apps, documents, and exports.
 
 ## Save a useful view {icon="layout-list"}
 
@@ -44,7 +44,7 @@ A grouped or aggregate-only query returns summary rows rather than editable reco
 5. Share it only with the people who should see its included result.
 :::
 
-A shared View is visible to Base readers. A personal View belongs to its owner. To publish a saved result without opening the Base, include it in a Custom App capability snapshot.
+A shared View is visible to Base readers. A personal View belongs to its owner. To publish a saved result without opening the Base, include it in a Grids App capability snapshot.
 
 ## Reports and pagination {icon="point"}
 
@@ -54,7 +54,7 @@ Views without an explicit `limit` can be paged through the complete matching res
 
 ## Reuse or keep local {icon="route"}
 
-Save a View when Base users revisit it or several Custom Apps reuse it. For a query used by only one Custom App block, store GQL directly in that block instead of filling navigation with one-use Views.
+Save a View when Base users revisit it or several Grids Apps reuse it. For a query used by only one Grids App block, store GQL directly in that block instead of filling navigation with one-use Views.
 
 :::note Open the GQL topic for advanced shapes
 Use GQL for joins, precise grouping, `having`, deleted records, scoped search, or any query that is clearer in text than in several controls.

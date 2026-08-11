@@ -38,7 +38,7 @@ const definition = () => ({
   ],
 });
 
-describe("Custom App definition contract", () => {
+describe("Grids App definition contract", () => {
   test("accepts strict multi-page list and route-only record detail definitions", () => {
     expect(CustomAppDefinitionSchema.safeParse(definition()).success).toBe(true);
     expect(CustomAppDefinitionSchema.safeParse(CUSTOM_APP_REFERENCE.example).success).toBe(true);
@@ -326,6 +326,38 @@ describe("Custom App definition contract", () => {
     const missingRecord = structuredClone(example);
     delete missingRecord.pages[1]!.record;
     expect(CustomAppDefinitionSchema.safeParse(missingRecord).success).toBe(false);
+  });
+
+  test("supports plural row workflows with accessible icon-only actions", () => {
+    const source = CustomAppDefinitionSchema.parse(definition());
+    const records = source.pages[0]!.rows[0]!.columns[1]!.blocks[0]!;
+    if (records.type !== "records") throw new Error("Expected Records block");
+    records.rowActions = [
+      {
+        id: "reserve",
+        label: "Reserve item",
+        icon: "calendar-plus",
+        showLabel: false,
+        kind: "workflow",
+        launcherId: uuid(90),
+        inputs: { item: { source: "ROW", path: "id" }, reason: { source: "LITERAL", value: "loan" } },
+      },
+      {
+        id: "inspect",
+        label: "Inspect item",
+        showLabel: true,
+        kind: "workflow",
+        launcherId: uuid(91),
+        inputs: {},
+      },
+    ];
+    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
+
+    const noAccessibleIcon = structuredClone(source);
+    const invalidRecords = noAccessibleIcon.pages[0]!.rows[0]!.columns[1]!.blocks[0]!;
+    if (invalidRecords.type !== "records") throw new Error("Expected Records block");
+    delete invalidRecords.rowActions?.[0]!.icon;
+    expect(CustomAppDefinitionSchema.safeParse(noAccessibleIcon).success).toBe(false);
   });
 
   test("accepts bounded Metrics and Chart sources", () => {

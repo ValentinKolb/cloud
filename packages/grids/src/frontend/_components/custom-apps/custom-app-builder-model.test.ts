@@ -96,6 +96,22 @@ const definition = (): CustomAppDefinition => ({
                     },
                   ],
                 },
+                {
+                  id: "loan-items",
+                  type: "records",
+                  source: { kind: "gql", query: "from table Items", maxRows: 100 },
+                  display: { kind: "table", columnIds: [] },
+                  rowActions: [
+                    {
+                      id: "reserve",
+                      kind: "workflow",
+                      label: "Reserve",
+                      showLabel: true,
+                      launcherId: "019f1234-1234-7000-8000-000000000009",
+                      inputs: { loan: { source: "PARAMS", path: "loan_id" }, item: { source: "ROW", path: "id" } },
+                    },
+                  ],
+                },
               ],
             },
           ],
@@ -105,7 +121,7 @@ const definition = (): CustomAppDefinition => ({
   ],
 });
 
-describe("Custom App builder model", () => {
+describe("App builder model", () => {
   test("renames a page and every navigation reference", () => {
     const renamed = renameCustomAppPage(definition(), "loan", "loan-detail");
     expect(renamed.pages.map((page) => page.id)).toEqual(["home", "loan-detail"]);
@@ -136,7 +152,8 @@ describe("Custom App builder model", () => {
     const form = page.rows[0]!.columns[0]!.blocks[1]!;
     const actions = page.rows[0]!.columns[0]!.blocks[2]!;
     expect(records.type === "records" ? records.rowNavigate?.params : {}).toHaveProperty("record_id");
-    expect(form.type === "form" ? form.fixedValues["019f1234-1234-7000-8000-000000000007"]?.path : null).toBe("record_id");
+    const formBinding = form.type === "form" ? form.fixedValues["019f1234-1234-7000-8000-000000000007"] : null;
+    expect(formBinding?.source === "PARAMS" ? formBinding.path : null).toBe("record_id");
     const workflowInput = actions.type === "actions" && actions.actions[0]?.kind === "workflow" ? actions.actions[0].inputs.loan : null;
     expect(workflowInput?.source === "PARAMS" ? workflowInput.path : null).toBe("record_id");
     expect(page.availableWhen?.query).toContain("@params.record_id");
@@ -151,6 +168,7 @@ describe("Custom App builder model", () => {
       "Form binding",
       "Form success navigation",
       "Workflow action input",
+      "Row action input",
     ]);
     expect(removeCustomAppPageParameter(definition(), "loan", "loan_id").pages[1]!.parameters).toEqual({});
     expect(moveCustomAppPage(definition(), "loan", -1).pages.map((page) => [page.id, page.navigation.order])).toEqual([

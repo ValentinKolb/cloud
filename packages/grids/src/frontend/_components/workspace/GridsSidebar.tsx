@@ -161,7 +161,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
       )}
 
       {(state.catalog.customApps.length > 0 || (state.adminModeRequested && state.canManageBase)) && (
-        <AppWorkspace.SidebarSection title="Custom Apps">
+        <AppWorkspace.SidebarSection title="Apps">
           {state.catalog.customApps.map((app) => (
             <SidebarLink
               href={keepEdit(`/app/grids/${state.base.shortId}/apps/${app.shortId}`, true)}

@@ -4,7 +4,7 @@ import { executePublishedCustomAppQuery } from "./custom-app-runtime-query";
 
 const uuid = "019fa000-0000-7000-8000-000000000001";
 
-describe("published Custom App query execution", () => {
+describe("published Grids App query execution", () => {
   test("rejects a source that differs from its immutable capability before compiling it", async () => {
     const response = await executePublishedCustomAppQuery({
       baseId: uuid,

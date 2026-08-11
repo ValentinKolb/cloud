@@ -40,7 +40,7 @@ const resolveResourceLevel = (grants: Grant[]): PermissionLevel => {
   return "none";
 };
 
-/** Resolve exactly one permission boundary. Base and Custom App grants never inherit from each other. */
+/** Resolve exactly one permission boundary. Base and Grids App grants never inherit from each other. */
 export const resolveEffectivePermission = (grants: Grant[], target: ResolveTarget): PermissionLevel => {
   const resourceType: ResourceType = "baseId" in target ? "base" : "customApp";
   const resourceId = "baseId" in target ? target.baseId : target.customAppId;

@@ -4,7 +4,7 @@ import type { GridsWorkflowLauncher } from "../../../workflows/contracts";
 import { customAppLauncherConfigForSave, missingLauncherRequiredInputs } from "./workflow-launcher-draft";
 
 describe("workflow launcher editor", () => {
-  test("preserves Custom App labels and fixed input bindings while editing metadata", () => {
+  test("preserves App labels and fixed input bindings while editing metadata", () => {
     const launcher = {
       config: { kind: "customApp", label: "Refresh", inputMode: "fixed", inputBindings: { range: "30d" } },
     } as unknown as GridsWorkflowLauncher;
@@ -17,7 +17,7 @@ describe("workflow launcher editor", () => {
     });
   });
 
-  test("replaces Custom App fixed input bindings when edited", () => {
+  test("replaces App fixed input bindings when edited", () => {
     const launcher = {
       config: { kind: "customApp", label: "Refresh", inputMode: "fixed", inputBindings: { range: "30d" } },
     } as unknown as GridsWorkflowLauncher;

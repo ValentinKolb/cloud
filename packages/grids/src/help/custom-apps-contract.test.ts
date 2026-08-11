@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { CustomAppDefinitionSchema } from "../custom-apps/contracts";
 import { gridsHelp } from ".";
 
 const detailedHelpFiles = [
@@ -39,7 +40,7 @@ const visitObjects = (value: unknown, visit: (object: Record<string, unknown>) =
   for (const child of Object.values(object)) visitObjects(child, visit);
 };
 
-describe("Custom Apps documentation contract", () => {
+describe("Grids Apps documentation contract", () => {
   test("keeps the detailed articles complete and registered in live Help", async () => {
     const knownIds = new Set(gridsHelp.documents.map((document) => document.id));
 
@@ -66,6 +67,7 @@ describe("Custom Apps documentation contract", () => {
 
   test("documents progressive visual authoring and contextual GQL", async () => {
     const overview = await Bun.file(new URL("./documents/grids-custom-apps.help.md", import.meta.url)).text();
+    const builder = await Bun.file(new URL("./documents/grids-build-custom-app.help.md", import.meta.url)).text();
     const pages = await Bun.file(new URL("./documents/grids-custom-app-pages-blocks.help.md", import.meta.url)).text();
 
     expect(overview).toContain("opened in a larger editor without creating a second draft");
@@ -73,9 +75,21 @@ describe("Custom Apps documentation contract", () => {
     expect(overview).toContain("Page IDs are editable");
     expect(overview).toContain("@auth.name");
     expect(overview).toContain("no second Columns selection");
-    expect(overview).toContain("only active Custom App launchers");
+    expect(overview).toContain("only active Grids App launchers");
+    expect(overview).toContain("apps restore");
+    expect(overview).toContain("--published");
+    expect(builder).toContain("**Danger zone**");
+    expect(builder).toContain("does not delete Base tables or records");
     expect(pages).toContain("there are no Liquid conditions or loops");
-    expect(pages).toContain("the raw GQL console deliberately does not offer Custom App `@…` context");
+    expect(pages).toContain("the raw GQL console deliberately does not offer Grids App `@…` context");
+  });
+
+  test("keeps the strict YAML root example aligned with the public schema", async () => {
+    const markdown = await Bun.file(new URL("./documents/grids-custom-app-yaml-cli.help.md", import.meta.url)).text();
+    const source = markdown.match(/## Use one strict root document[\s\S]*?```yaml\n([\s\S]*?)```/)?.[1];
+
+    expect(source).toBeDefined();
+    expect(CustomAppDefinitionSchema.safeParse(Bun.YAML.parse(source!)).success).toBe(true);
   });
 
   test("keeps every Golden YAML example parseable and structurally deterministic", async () => {

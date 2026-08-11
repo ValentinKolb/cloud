@@ -70,6 +70,12 @@ export const submitForm = async (params: {
     if (!userInputIds.has(key)) return fail(err.badInput(`Field "${fieldName(key)}" is not part of this form`));
   }
 
+  for (const key of Object.keys(params.submission.inlineCreates)) {
+    if (Object.prototype.hasOwnProperty.call(params.fixedValues ?? {}, key)) {
+      return fail(err.badInput(`Field "${fieldName(key)}" is fixed by this form context and cannot create related records`));
+    }
+  }
+
   for (const key of Object.keys(params.fixedValues ?? {})) {
     if (!userInputIds.has(key)) return fail(err.badInput(`Field "${fieldName(key)}" cannot be fixed by this form context`));
   }

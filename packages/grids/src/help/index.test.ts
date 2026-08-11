@@ -94,7 +94,7 @@ describe("grids help", () => {
     }
 
     const forms = gridsHelp.getMarkdown("grids-forms")!;
-    for (const capability of ["Public form", "required inputs", "hidden values", "redirect", "Custom App"]) {
+    for (const capability of ["Public form", "required inputs", "hidden values", "redirect", "Grids App"]) {
       expect(forms, `missing form capability ${capability}`).toContain(capability);
     }
 
@@ -106,14 +106,16 @@ describe("grids help", () => {
       "Chart",
       "Comments",
       "saved view",
+      "apps create",
       "apps validate",
       "apps plan",
       "apps apply",
       "apps publish",
       "apps unpublish",
+      "apps restore",
       "apps delete",
     ]) {
-      expect(customApps, `missing Custom App capability ${capability}`).toContain(capability);
+      expect(customApps, `missing Grids App capability ${capability}`).toContain(capability);
     }
     expect(customApps).toContain("public grant includes anonymous visitors");
 
@@ -136,8 +138,8 @@ describe("grids help", () => {
     expect(permissions).toContain("Read the complete schema and every record");
     expect(permissions).toContain("hiding a control in the browser is not authorization");
     expect(permissions).toContain("Base grants support users, groups, service accounts");
-    expect(permissions).toContain("Custom App grants do not support service accounts");
-    for (const resource of ["Base", "Custom App"]) {
+    expect(permissions).toContain("Grids App grants do not support service accounts");
+    for (const resource of ["Base", "Grids App"]) {
       expect(permissions, `missing permission resource ${resource}`).toContain(resource);
     }
 

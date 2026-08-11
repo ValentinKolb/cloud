@@ -59,7 +59,7 @@ type LauncherDraft = CreateGridsWorkflowLauncherInput;
 const launcherKindOptions = [
   { id: "scanner", label: "Scanner" },
   { id: "bulk", label: "Bulk selection" },
-  { id: "customApp", label: "Custom App action" },
+  { id: "customApp", label: "App action" },
 ];
 
 const launcherKindLabel = (kind: GridsWorkflowLauncherKind) => launcherKindOptions.find((option) => option.id === kind)?.label ?? kind;
@@ -279,7 +279,7 @@ function LauncherEditor(props: {
             <Show when={missingRequiredInputs().length > 0}>
               <NoticeCard tone="danger" icon={false} role="alert">
                 This surface cannot supply the required {missingRequiredInputs().length === 1 ? "input" : "inputs"}:{" "}
-                {missingRequiredInputs().join(", ")}. Use a Custom App run option or make the inputs optional.
+                {missingRequiredInputs().join(", ")}. Use a App run option or make the inputs optional.
               </NoticeCard>
             </Show>
           </Show>
@@ -388,7 +388,7 @@ function LauncherEditor(props: {
           </Show>
           <CheckboxCard
             label="Enabled"
-            description="Enabled run options are available on their scanner, table, or Custom App surface."
+            description="Enabled run options are available on their scanner, table, or App surface."
             value={enabled}
             onValueChange={setEnabled}
           />
@@ -492,7 +492,7 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
       <PanelDialog.Body>
         <div class="flex flex-col gap-2">
           <div class="flex items-center justify-between gap-2">
-            <p class="text-sm text-dimmed">Make this workflow available as a scanner, bulk action, or Custom App action.</p>
+            <p class="text-sm text-dimmed">Make this workflow available as a scanner, bulk action, or App action.</p>
             <Button variant="primary" size="sm" type="button" disabled={mutationsBlocked()} onClick={() => void edit()}>
               <i class="ti ti-plus" /> Add run option
             </Button>

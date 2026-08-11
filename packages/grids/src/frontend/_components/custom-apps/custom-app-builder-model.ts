@@ -54,7 +54,7 @@ export const renameCustomAppPageParameter = (
     return mapBlocks(renamedPage, (block) => {
       const availableWhen =
         ownsParameter && block.availableWhen ? { query: renameContextParameter(block.availableWhen.query, from, to) } : block.availableWhen;
-      if (block.type === "records" && block.rowNavigate?.pageId === pageId) {
+      if (block.type === "records") {
         return {
           ...block,
           availableWhen,
@@ -62,7 +62,25 @@ export const renameCustomAppPageParameter = (
             ownsParameter && block.source.kind === "gql"
               ? { ...block.source, query: renameContextParameter(block.source.query, from, to) }
               : block.source,
-          rowNavigate: { ...block.rowNavigate, params: renameMappingKey(block.rowNavigate.params, from, to) },
+          rowNavigate:
+            block.rowNavigate?.pageId === pageId
+              ? { ...block.rowNavigate, params: renameMappingKey(block.rowNavigate.params, from, to) }
+              : block.rowNavigate,
+          rowActions: block.rowActions?.map((action) => ({
+            ...action,
+            availableWhen:
+              ownsParameter && action.availableWhen
+                ? { query: renameContextParameter(action.availableWhen.query, from, to) }
+                : action.availableWhen,
+            inputs: ownsParameter
+              ? Object.fromEntries(
+                  Object.entries(action.inputs).map(([name, value]) => [
+                    name,
+                    value.source === "PARAMS" && value.path === from ? { source: "PARAMS" as const, path: to } : value,
+                  ]),
+                )
+              : action.inputs,
+          })),
         };
       }
       if (block.type === "form") {
@@ -73,7 +91,7 @@ export const renameCustomAppPageParameter = (
             ? Object.fromEntries(
                 Object.entries(block.fixedValues).map(([fieldId, value]) => [
                   fieldId,
-                  value.path === from ? { source: "PARAMS" as const, path: to } : value,
+                  value.source === "PARAMS" && value.path === from ? { source: "PARAMS" as const, path: to } : value,
                 ]),
               )
             : block.fixedValues,
@@ -163,10 +181,24 @@ export const customAppPageParameterUsage = (definition: CustomAppDefinition, pag
             usage.add("row navigation");
           }
           if (block.type === "form") {
-            if (page.id === pageId && Object.values(block.fixedValues).some((value) => value.path === parameterId))
+            if (
+              page.id === pageId &&
+              Object.values(block.fixedValues).some((value) => value.source === "PARAMS" && value.path === parameterId)
+            )
               usage.add("Form binding");
             if (block.onSuccessNavigate?.pageId === pageId && block.onSuccessNavigate.params[parameterId])
               usage.add("Form success navigation");
+          }
+          if (block.type === "records") {
+            for (const action of block.rowActions ?? []) {
+              if (page.id === pageId && action.availableWhen?.query.includes(contextReference)) usage.add("row action availability");
+              if (
+                page.id === pageId &&
+                Object.values(action.inputs).some((value) => value.source === "PARAMS" && value.path === parameterId)
+              ) {
+                usage.add("Row action input");
+              }
+            }
           }
           if (block.type !== "actions") continue;
           for (const action of block.actions) {
