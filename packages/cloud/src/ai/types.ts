@@ -426,6 +426,35 @@ export type AiConversationResourceOccurrence = AiConversationResourceRef & {
   chat: Pick<AiConversation, "shortId" | "title" | "icon" | "updatedAt">;
 };
 
+export type AiConversationSourceKind = "web" | "file" | "resource" | "activity";
+
+export type AiConversationSource = {
+  kind: AiConversationSourceKind;
+  key: string;
+  title: string;
+  preview: string | null;
+  icon: string;
+  href: string | null;
+  path: string | null;
+  mediaType: string | null;
+  size: number | null;
+  ref: CloudResourceRef | null;
+  occurrences: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  sourceTurnId: string | null;
+  sourceCallId: string | null;
+};
+
+export type AiConversationSourceObservation = {
+  kind: "web" | "activity";
+  key: string;
+  title: string;
+  preview?: string;
+  icon?: string;
+  href?: string;
+};
+
 export type AiChatTurnRunConfig = {
   kind?: "chat";
   input: Input;
@@ -493,6 +522,8 @@ export type AiConversationStore = {
     refs?: CloudResourceRef[];
     archived?: boolean;
     status?: AiConversationStatusFilter;
+    projectId?: string;
+    unassigned?: boolean;
     limit?: number;
   }): Promise<AiConversation[]>;
   listConversationsPage(input: {
@@ -502,6 +533,8 @@ export type AiConversationStore = {
     search?: string;
     archived?: boolean;
     status?: AiConversationStatusFilter;
+    projectId?: string;
+    unassigned?: boolean;
     page: number;
     perPage: number;
   }): Promise<AiConversationPage>;
@@ -543,6 +576,18 @@ export type AiConversationStore = {
     before?: string;
     limit?: number;
   }): Promise<{ resources: AiConversationResourceOccurrence[]; nextCursor?: string }>;
+  indexConversationSource(input: {
+    conversationId: string;
+    turnId?: string;
+    callId?: string;
+    source: AiConversationSourceObservation;
+  }): Promise<void>;
+  listConversationSources(input: {
+    conversationId: string;
+    search?: string;
+    before?: string;
+    limit?: number;
+  }): Promise<{ sources: AiConversationSource[]; nextCursor?: string }>;
   getCapabilityInvocationOrigin(input: { idempotencyKey: string; toolName: string }): Promise<{
     conversationId: string;
     conversationShortId: string;

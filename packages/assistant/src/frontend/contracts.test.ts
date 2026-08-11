@@ -31,13 +31,19 @@ describe("Assistant frontend contracts", () => {
     }
   });
 
-  test("keeps the Projects frontend deliberately minimal", async () => {
-    const [workspace, projects] = await Promise.all([read("./AssistantWorkspace.island.tsx"), read("./AssistantProjectsDialog.tsx")]);
+  test("keeps Projects and chat context inside the Assistant workspace", async () => {
+    const [workspace, sidebar, project, context] = await Promise.all([
+      read("./AssistantWorkspace.island.tsx"),
+      read("./AssistantSidebar.tsx"),
+      read("./AssistantProjectView.tsx"),
+      read("./AssistantChatContext.tsx"),
+    ]);
 
-    expect(workspace).toContain("openAssistantProjectsDialog");
-    expect(projects).toContain("Create Project");
-    expect(projects).toContain("New chat");
-    expect(projects).not.toContain("PanelDialog");
+    expect(sidebar).toContain("AppWorkspace.NavTree");
+    expect(project).toContain("Search Project chats");
+    expect(project).toContain("IntersectionObserver");
+    expect(workspace).toContain("AssistantChatContextPanel");
+    expect(context).toContain("openAssistantSourcesDialog");
   });
 
   test("frames structured memories as personalization", async () => {

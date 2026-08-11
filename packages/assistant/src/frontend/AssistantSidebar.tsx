@@ -1,12 +1,12 @@
 import { type LinkNavigateEvent, navigate, navigateTo } from "@k2b/ssr/nav";
 import { AppWorkspace, Dropdown, isSpotlightShortcut, openSpotlightSearch, SPOTLIGHT_SHORTCUT_TITLE } from "@k2b/ui";
-import type { AiConversation } from "@valentinkolb/cloud/ai";
-import { type Accessor, For, onCleanup, onMount, Show } from "solid-js";
+import type { AiConversation, AiProject } from "@valentinkolb/cloud/ai";
+import { type Accessor, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import { openAssistantAllChatsDialog } from "./AssistantAllChatsDialog";
 import { conversationIcon, openAssistantConversationEditor } from "./AssistantConversationEditor";
 import { openAssistantPrefsModal } from "./AssistantPrefsModals";
-import { assistantConversationHref } from "./assistant-navigation";
+import { assistantConversationHref, assistantProjectHref } from "./assistant-navigation";
 import { ConversationStatusMeta } from "./conversation-status";
 import { groupRecentConversations } from "./conversation-view";
 
@@ -14,6 +14,8 @@ type AssistantSidebarProps = {
   conversations: Accessor<AiConversation[]>;
   activeConversationId?: Accessor<string | null>;
   activeView?: "chat" | "all";
+  projects?: AiProject[];
+  activeProjectId?: string | null;
   creatingConversation?: Accessor<boolean>;
   onNewConversation?: () => void | Promise<void>;
   onOpenProjects?: () => void | Promise<void>;
@@ -122,7 +124,57 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
   const activeConversationId = () => props.activeConversationId?.() ?? null;
   const activeView = () => props.activeView ?? "chat";
   const creatingConversation = () => props.creatingConversation?.() ?? false;
-  const groups = () => groupRecentConversations(props.conversations());
+  const generalGroups = () => groupRecentConversations(props.conversations().filter((conversation) => !conversation.projectId));
+  const [expandedProjects, setExpandedProjects] = createSignal<readonly string[]>(
+    props.activeProjectId ? [`project:${props.activeProjectId}`] : [],
+  );
+  const [loadedProjectChats, setLoadedProjectChats] = createSignal<Record<string, AiConversation[]>>({});
+  const projectChats = (project: AiProject) =>
+    loadedProjectChats()[project.id] ??
+    props
+      .conversations()
+      .filter((conversation) => conversation.projectId === project.id)
+      .slice(0, 10);
+  const expandProjects = async (ids: readonly string[]) => {
+    const previous = expandedProjects();
+    setExpandedProjects(ids);
+    const projectId = ids.find((id) => id.startsWith("project:") && !previous.includes(id))?.slice(8);
+    if (!projectId || loadedProjectChats()[projectId]) return;
+    const chats = await assistantApi.listConversations({ projectId, limit: 10 });
+    setLoadedProjectChats((current) => ({ ...current, [projectId]: chats }));
+  };
+
+  const ProjectsTree = () => (
+    <AppWorkspace.NavTree
+      ariaLabel="Projects"
+      selectedId={props.activeProjectId ? `project:${props.activeProjectId}` : null}
+      expandedIds={expandedProjects()}
+      onExpandedIdsChange={(ids) => void expandProjects(ids)}
+    >
+      <For each={props.projects ?? []}>
+        {(project) => (
+          <AppWorkspace.NavTree.Item
+            id={`project:${project.id}`}
+            label={project.name}
+            icon={project.icon || "ti ti-folder"}
+            expandedIcon="ti ti-folder-open"
+            href={assistantProjectHref("/app/assistant", project.id)}
+          >
+            <For each={projectChats(project)}>
+              {(conversation) => (
+                <AppWorkspace.NavTree.Item
+                  id={`chat:${conversation.id}`}
+                  label={conversation.title}
+                  icon={conversationIcon(conversation)}
+                  href={assistantConversationHref("/app/assistant", conversation.id)}
+                />
+              )}
+            </For>
+          </AppWorkspace.NavTree.Item>
+        )}
+      </For>
+    </AppWorkspace.NavTree>
+  );
 
   const openConversationFromCommand = async (conversation: AiConversation) => {
     if (conversation.id === activeConversationId()) return;
@@ -196,8 +248,13 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
           </AppWorkspace.SidebarItem>
         </AppWorkspace.SidebarMobileItems>
         <AppWorkspace.SidebarMobileBody scrollPreserveKey="assistant-sidebar-mobile">
-          <Show when={groups().length > 0} fallback={<p class="px-2 py-1 text-xs text-dimmed">No chats yet</p>}>
-            <For each={groups()}>
+          <Show when={(props.projects?.length ?? 0) > 0}>
+            <AppWorkspace.SidebarSection title="Projects">
+              <ProjectsTree />
+            </AppWorkspace.SidebarSection>
+          </Show>
+          <Show when={generalGroups().length > 0} fallback={<p class="px-2 py-1 text-xs text-dimmed">No chats yet</p>}>
+            <For each={generalGroups()}>
               {(group) => (
                 <AppWorkspace.SidebarSection title={group.title}>
                   <For each={group.items}>
@@ -249,8 +306,13 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
         </AppWorkspace.SidebarSection>
 
         <AppWorkspace.SidebarBody scrollPreserveKey="assistant-sidebar" sidebarMode="expanded">
-          <Show when={groups().length > 0} fallback={<p class="px-2 py-1 text-xs text-dimmed">No recent chats</p>}>
-            <For each={groups()}>
+          <Show when={(props.projects?.length ?? 0) > 0}>
+            <AppWorkspace.SidebarSection title="Projects">
+              <ProjectsTree />
+            </AppWorkspace.SidebarSection>
+          </Show>
+          <Show when={generalGroups().length > 0} fallback={<p class="px-2 py-1 text-xs text-dimmed">No recent chats</p>}>
+            <For each={generalGroups()}>
               {(group) => (
                 <AppWorkspace.SidebarSection title={group.title}>
                   <For each={group.items}>

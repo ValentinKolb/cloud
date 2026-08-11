@@ -9,7 +9,9 @@ import {
   rememberAiToolApproval,
   revokeAiToolApprovalPreference,
 } from "./approvals";
+import { aiFileStore } from "./files-store";
 import { migrateCloudAi } from "./migrate";
+import { aiProjects } from "./projects";
 import { AI_SHORT_ID_PATTERN, createAiShortId } from "./short-id";
 import { aiConversationStore } from "./store";
 
@@ -137,6 +139,75 @@ suite("AI conversation store integration", () => {
         "contacts__query__get",
         "notebooks__query__list",
       ]);
+    } finally {
+      await cleanupFixture({ userId, conversationIds });
+    }
+  });
+
+  test("filters owned chats by Project or no Project", async () => {
+    const userId = await insertUser();
+    const conversationIds: string[] = [];
+    const subject = { type: "user" as const, userId };
+    let projectId: string | null = null;
+    try {
+      const project = await aiProjects.create({ subject, name: `Project ${crypto.randomUUID()}` });
+      projectId = project.id;
+      const projectChat = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId, projectId: project.id });
+      const generalChat = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
+      conversationIds.push(projectChat.id, generalChat.id);
+
+      expect(
+        (await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, projectId: project.id })).map(
+          (chat) => chat.id,
+        ),
+      ).toEqual([projectChat.id]);
+      expect(
+        (await aiConversationStore.listConversations({ appId: "ai-test", ownerUserId: userId, unassigned: true })).map((chat) => chat.id),
+      ).toEqual([generalChat.id]);
+    } finally {
+      await cleanupFixture({ userId, conversationIds });
+      if (projectId) await aiProjects.delete(projectId, subject);
+    }
+  });
+
+  test("lists files, web activity, pages, and Cloud refs as unified Sources", async () => {
+    const userId = await insertUser();
+    const conversationIds: string[] = [];
+    try {
+      const conversation = await aiConversationStore.createConversation({ appId: "ai-test", ownerUserId: userId });
+      conversationIds.push(conversation.id);
+      await aiFileStore.write({
+        conversationId: conversation.id,
+        path: "/input/screenshot.png",
+        mediaType: "image/png",
+        bytes: new Uint8Array([1, 2, 3]),
+      });
+      await aiConversationStore.indexConversationResources({
+        conversationId: conversation.id,
+        resources: [{ ref: { type: "notebooks.notebook", id: "ynB3L" }, title: "Research" }],
+      });
+      await aiConversationStore.indexConversationSource({
+        conversationId: conversation.id,
+        callId: "search-1",
+        source: { kind: "activity", key: "web_search", title: "Web search", icon: "ti ti-world" },
+      });
+      await aiConversationStore.indexConversationSource({
+        conversationId: conversation.id,
+        callId: "extract-1",
+        source: { kind: "web", key: "https://example.test/docs", title: "Example docs", href: "https://example.test/docs" },
+      });
+      await aiConversationStore.indexConversationSource({
+        conversationId: conversation.id,
+        callId: "search-1",
+        source: { kind: "activity", key: "web_search", title: "Web search", icon: "ti ti-world" },
+      });
+
+      const result = await aiConversationStore.listConversationSources({ conversationId: conversation.id, limit: 10 });
+      expect(new Set(result.sources.map((source) => source.kind))).toEqual(new Set(["file", "resource", "activity", "web"]));
+      expect(result.sources.find((source) => source.key === "web_search")?.occurrences).toBe(1);
+      expect(
+        (await aiConversationStore.listConversationSources({ conversationId: conversation.id, search: "Research" })).sources,
+      ).toHaveLength(1);
     } finally {
       await cleanupFixture({ userId, conversationIds });
     }

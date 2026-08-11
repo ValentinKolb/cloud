@@ -68,6 +68,50 @@ const indexConversationResources = async (input: Parameters<typeof aiConversatio
   }
 };
 
+const indexConversationToolSource = async (input: {
+  conversationId: string;
+  turnId: string;
+  callId: string;
+  name: string;
+  result: unknown;
+  isError: boolean;
+}): Promise<void> => {
+  if (input.isError) return;
+  try {
+    let source: Parameters<typeof aiConversationStore.indexConversationSource>[0]["source"] | null = null;
+    if (input.name === "web_search") {
+      source = { kind: "activity", key: "web_search", title: "Web search", preview: "Searched the web", icon: "ti ti-world" };
+    } else if (input.name === "web_extract" && typeof input.result === "object" && input.result !== null) {
+      const result = input.result as Record<string, unknown>;
+      if (typeof result.url === "string" && result.url.trim()) {
+        const url = new URL(result.url);
+        url.hash = "";
+        source = {
+          kind: "web",
+          key: url.href,
+          title: typeof result.title === "string" && result.title.trim() ? result.title.trim() : url.hostname,
+          preview: typeof result.description === "string" ? result.description.trim().slice(0, 500) : undefined,
+          icon: "ti ti-world",
+          href: url.href,
+        };
+      }
+    }
+    if (!source) return;
+    await aiConversationStore.indexConversationSource({
+      conversationId: input.conversationId,
+      turnId: input.turnId,
+      callId: input.callId,
+      source,
+    });
+  } catch (error) {
+    log.warn("Failed to index AI conversation source", {
+      conversationId: input.conversationId,
+      turnId: input.turnId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
 const memoryQueryFromInput = (input: unknown): string => {
   if (typeof input === "string") return input;
   if (!Array.isArray(input)) return "";
@@ -254,7 +298,7 @@ const createEventMapper = (attempt: number, seedBlocks: AiTurnBlock[]) => {
             name: event.name,
             status: event.isError ? "failed" : "completed",
             result: event.result,
-            isError: event.isError,
+            isError: Boolean(event.isError),
             clearApproval: true,
           }),
         ];
@@ -738,6 +782,14 @@ export class AiTurnExecutor {
           await aiToolAudit
             .noteToolCompleted({ turnId, callId: event.callId, result: event.result, isError: event.isError })
             .catch(() => undefined);
+          await indexConversationToolSource({
+            conversationId,
+            turnId,
+            callId: event.callId,
+            name: event.name,
+            result: event.result,
+            isError: event.isError === true,
+          });
         } else if (event.type === "issue") {
           lastIssueMessage = event.issue.message;
           log.warn("AI turn issue", { conversationId, turnId, kind: event.issue.kind, message: event.issue.message });

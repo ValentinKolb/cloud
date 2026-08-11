@@ -267,7 +267,7 @@ export const aiProjects = {
     const userId = ownerUserId(subject);
     const match = accessMatch(subject);
     const rows = await sql<ProjectRow[]>`
-      SELECT DISTINCT project.*
+      SELECT DISTINCT project.*, lower(project.name) AS sort_name
       FROM ai.projects project
       LEFT JOIN ai.project_access project_access ON project_access.project_id = project.id
       LEFT JOIN auth.access access ON access.id = project_access.access_id

@@ -6,15 +6,17 @@ description: Find chats, manage metadata, retry, fork, compact, stop, and handle
 order: 110
 ---
 
-Assistant keeps recent chats in the sidebar and stores older chats on the All Chats page. Search is the fastest way back to a known conversation.
+Assistant separates Project chats from general chats in the sidebar. Expand a Project to open its ten most recently active chats, or select the Project itself to search its complete chat history.
 
 ## Chat navigation {icon="layout-list"}
 
 :::reference
-- **Recent groups:** The sidebar groups recent chats into Today, This Week, and This Month.
+- **Projects:** Expand a Project for its recent private chats. Selecting the Project opens its instructions, context, and server-backed chat search.
+- **General chats:** Chats without a Project remain grouped by recent activity below Projects.
 - **Search chats:** Use the sidebar search button or the platform shortcut to search saved chats.
 - **All Chats:** Open All Chats for paginated chat history, server-side search, and edit actions.
-- **Search this chat:** Use `/search` or the composer menu to search visible messages, list this chat's structured Cloud resources, or search resources across active chats.
+- **Chat context:** Open the floating context button for Sources, files, scheduled tasks, and the readable chat ID. On small screens the same content opens as a dialog.
+- **Sources:** Sources combine attached inputs, consulted web pages, structured Cloud resources, and bounded source activity. Use View all for the complete list.
 - **Edit or archive:** Use the settings action on a chat to change its name, icon, description, pinning, or archive it.
 :::
 
@@ -25,7 +27,7 @@ Assistant keeps recent chats in the sidebar and stores older chats on the All Ch
 - **Retry:** Retry reruns a user message and replaces later messages in that chat branch.
 - **Fork:** Fork creates a new chat copied through the selected message.
 - **Compact:** Use the `/compact` command to summarize the current chat context before continuing.
-- **Projects:** Open Projects from the sidebar to create shared instructions and context or start a private chat in an accessible Project.
+- **Projects:** Project settings expose shared instructions and context according to your read, write, or admin permission. Project chats remain private.
 :::
 
 :::info Approvals and client actions

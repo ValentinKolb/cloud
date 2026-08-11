@@ -11,6 +11,7 @@ import type {
   AiConversationResource,
   AiConversationResourceOccurrence,
   AiConversationResourceRef,
+  AiConversationSource,
   AiConversationStore,
   AiConversationTimelineEntry,
   AiEnrichmentOverview,
@@ -202,6 +203,25 @@ type ConversationResourceOccurrenceRow = ConversationResourceRefRow & {
   conversation_updated_at: Date | string;
 };
 
+type ConversationSourceRow = {
+  source_kind: AiConversationSource["kind"];
+  source_key: string;
+  title: string;
+  preview: string | null;
+  icon: string | null;
+  href: string | null;
+  path: string | null;
+  media_type: string | null;
+  size: number | string | null;
+  resource_type: string | null;
+  resource_id: string | null;
+  occurrences: number | string;
+  source_turn_id: string | null;
+  source_call_id: string | null;
+  first_seen_at: Date | string;
+  last_seen_at: Date | string;
+};
+
 type InterChatMessageRow = {
   id: string;
   short_id: string;
@@ -255,6 +275,8 @@ const rowToConversationResourceRef = (row: ConversationResourceRefRow): AiConver
 type ResourceCursor = { at: string; type: string; id: string };
 const encodeResourceCursor = (row: ConversationResourceRefRow): string =>
   encodeURIComponent(JSON.stringify({ at: iso(row.last_seen_at), type: row.resource_type, id: row.resource_id } satisfies ResourceCursor));
+const encodeSourceCursor = (row: ConversationSourceRow): string =>
+  encodeURIComponent(JSON.stringify({ at: iso(row.last_seen_at), type: row.source_kind, id: row.source_key } satisfies ResourceCursor));
 const decodeResourceCursor = (value: string | undefined): ResourceCursor | null => {
   if (!value) return null;
   try {
@@ -278,6 +300,24 @@ const rowToConversationResourceOccurrence = (row: ConversationResourceOccurrence
     icon: row.conversation_icon,
     updatedAt: iso(row.conversation_updated_at),
   },
+});
+
+const rowToConversationSource = (row: ConversationSourceRow): AiConversationSource => ({
+  kind: row.source_kind,
+  key: row.source_key,
+  title: row.title,
+  preview: row.preview,
+  icon: row.icon || "ti ti-link",
+  href: row.href,
+  path: row.path,
+  mediaType: row.media_type,
+  size: row.size === null ? null : Number(row.size),
+  ref: row.resource_type && row.resource_id ? { type: row.resource_type, id: row.resource_id } : null,
+  occurrences: Number(row.occurrences),
+  firstSeenAt: iso(row.first_seen_at),
+  lastSeenAt: iso(row.last_seen_at),
+  sourceTurnId: row.source_turn_id,
+  sourceCallId: row.source_call_id,
 });
 
 const rowToInterChatMessage = (row: InterChatMessageRow): AiInterChatMessage => ({
@@ -886,6 +926,8 @@ export const aiConversationStore: AiConversationStore = {
         AND (${resource?.appId ?? null}::text IS NULL OR conversation.resource_app_id = ${resource?.appId ?? null})
         AND (${resource?.type ?? null}::text IS NULL OR conversation.resource_type = ${resource?.type ?? null})
         AND (${resource?.id ?? null}::text IS NULL OR conversation.resource_id = ${resource?.id ?? null})
+        AND (${input.projectId ?? null}::uuid IS NULL OR conversation.project_id = ${input.projectId ?? null}::uuid)
+        AND (NOT ${Boolean(input.unassigned)}::boolean OR conversation.project_id IS NULL)
         AND (${refs.length === 0}::boolean OR NOT EXISTS (
           SELECT 1
           FROM jsonb_to_recordset((${JSON.stringify(refs)}::text)::jsonb) requested(type text, id text)
@@ -953,6 +995,8 @@ export const aiConversationStore: AiConversationStore = {
         AND (${resource?.appId ?? null}::text IS NULL OR conversation.resource_app_id = ${resource?.appId ?? null})
         AND (${resource?.type ?? null}::text IS NULL OR conversation.resource_type = ${resource?.type ?? null})
         AND (${resource?.id ?? null}::text IS NULL OR conversation.resource_id = ${resource?.id ?? null})
+        AND (${input.projectId ?? null}::uuid IS NULL OR conversation.project_id = ${input.projectId ?? null}::uuid)
+        AND (NOT ${Boolean(input.unassigned)}::boolean OR conversation.project_id IS NULL)
         AND (${pattern}::text IS NULL
           OR LOWER(conversation.title) LIKE ${pattern}
           OR LOWER(conversation.description) LIKE ${pattern}
@@ -992,6 +1036,8 @@ export const aiConversationStore: AiConversationStore = {
         AND (${resource?.appId ?? null}::text IS NULL OR conversation.resource_app_id = ${resource?.appId ?? null})
         AND (${resource?.type ?? null}::text IS NULL OR conversation.resource_type = ${resource?.type ?? null})
         AND (${resource?.id ?? null}::text IS NULL OR conversation.resource_id = ${resource?.id ?? null})
+        AND (${input.projectId ?? null}::uuid IS NULL OR conversation.project_id = ${input.projectId ?? null}::uuid)
+        AND (NOT ${Boolean(input.unassigned)}::boolean OR conversation.project_id IS NULL)
         AND (${pattern}::text IS NULL
           OR LOWER(conversation.title) LIKE ${pattern}
           OR LOWER(conversation.description) LIKE ${pattern}
@@ -1145,6 +1191,80 @@ export const aiConversationStore: AiConversationStore = {
     return {
       resources: page.map(rowToConversationResourceOccurrence),
       ...(rows.length > limit && page.at(-1) ? { nextCursor: encodeResourceOccurrenceCursor(page.at(-1)!) } : {}),
+    };
+  },
+
+  indexConversationSource: async (input) => {
+    const source = input.source;
+    await sql`
+      INSERT INTO ai.conversation_sources (
+        conversation_id, kind, source_key, title, preview, icon, href, source_turn_id, source_call_id
+      ) VALUES (
+        ${input.conversationId}::uuid, ${source.kind}, ${source.key}, ${source.title}, ${source.preview ?? null},
+        ${source.icon ?? null}, ${source.href ?? null}, ${input.turnId ?? null}::uuid, ${input.callId ?? null}
+      )
+      ON CONFLICT (conversation_id, kind, source_key)
+      DO UPDATE SET
+        title = EXCLUDED.title,
+        preview = COALESCE(EXCLUDED.preview, ai.conversation_sources.preview),
+        icon = COALESCE(EXCLUDED.icon, ai.conversation_sources.icon),
+        href = COALESCE(EXCLUDED.href, ai.conversation_sources.href),
+        occurrences = ai.conversation_sources.occurrences +
+          CASE WHEN ai.conversation_sources.source_call_id IS DISTINCT FROM EXCLUDED.source_call_id THEN 1 ELSE 0 END,
+        source_turn_id = COALESCE(EXCLUDED.source_turn_id, ai.conversation_sources.source_turn_id),
+        source_call_id = COALESCE(EXCLUDED.source_call_id, ai.conversation_sources.source_call_id),
+        last_seen_at = now()
+    `;
+  },
+
+  listConversationSources: async (input) => {
+    const limit = Math.min(Math.max(Math.floor(input.limit ?? 20), 1), 100);
+    const pattern = searchPattern(input.search);
+    const cursor = decodeResourceCursor(input.before);
+    const rows = await sql<ConversationSourceRow[]>`
+      SELECT *
+      FROM (
+        SELECT source.kind AS source_kind, source.source_key, source.title, source.preview,
+               source.icon, source.href, NULL::text AS path, NULL::text AS media_type, NULL::bigint AS size,
+               NULL::text AS resource_type, NULL::text AS resource_id, source.occurrences,
+               turn.short_id AS source_turn_id, source.source_call_id, source.first_seen_at, source.last_seen_at
+        FROM ai.conversation_sources source
+        LEFT JOIN ai.turns turn ON turn.id = source.source_turn_id
+        WHERE source.conversation_id = ${input.conversationId}::uuid
+
+        UNION ALL
+
+        SELECT 'file' AS source_kind, file.path AS source_key,
+               regexp_replace(file.path, '^.*/', '') AS title, 'Attached to the conversation' AS preview,
+               CASE WHEN file.media_type LIKE 'image/%' THEN 'ti ti-photo' ELSE 'ti ti-file' END AS icon,
+               NULL::text AS href, file.path, file.media_type, file.size,
+               NULL::text AS resource_type, NULL::text AS resource_id, 1 AS occurrences,
+               NULL::text AS source_turn_id, NULL::text AS source_call_id,
+               file.updated_at AS first_seen_at, file.updated_at AS last_seen_at
+        FROM ai.files file
+        WHERE file.conversation_id = ${input.conversationId}::uuid AND file.path LIKE '/input/%'
+
+        UNION ALL
+
+        SELECT 'resource' AS source_kind, indexed.resource_type || ':' || indexed.resource_id AS source_key,
+               COALESCE(indexed.title, indexed.resource_type || ' ' || indexed.resource_id) AS title,
+               indexed.preview, indexed.icon, indexed.href, NULL::text AS path, NULL::text AS media_type, NULL::bigint AS size,
+               indexed.resource_type, indexed.resource_id, 1 AS occurrences,
+               turn.short_id AS source_turn_id, indexed.source_call_id, indexed.first_seen_at, indexed.last_seen_at
+        FROM ai.conversation_resource_refs indexed
+        LEFT JOIN ai.turns turn ON turn.id = indexed.source_turn_id
+        WHERE indexed.conversation_id = ${input.conversationId}::uuid
+      ) source
+      WHERE (${pattern}::text IS NULL OR LOWER(source.title || ' ' || COALESCE(source.preview, '') || ' ' || source.source_key) LIKE ${pattern})
+        AND (${cursor?.at ?? null}::timestamptz IS NULL OR (source.last_seen_at, source.source_kind, source.source_key) <
+          (${cursor?.at ?? null}::timestamptz, ${cursor?.type ?? null}::text, ${cursor?.id ?? null}::text))
+      ORDER BY source.last_seen_at DESC, source.source_kind DESC, source.source_key DESC
+      LIMIT ${limit + 1}
+    `;
+    const page = rows.slice(0, limit);
+    return {
+      sources: page.map(rowToConversationSource),
+      ...(rows.length > limit && page.at(-1) ? { nextCursor: encodeSourceCursor(page.at(-1)!) } : {}),
     };
   },
 

@@ -238,6 +238,8 @@ export type {
   AiConversationResourceOccurrence,
   AiConversationResourceRef,
   AiConversationRunStatus,
+  AiConversationSource,
+  AiConversationSourceKind,
   AiConversationStatusFilter,
   AiConversationStore,
   AiConversationTimelineEntry,

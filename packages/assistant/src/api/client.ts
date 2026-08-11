@@ -3,6 +3,7 @@ import type {
   AiConversationPage,
   AiConversationResourceOccurrence,
   AiConversationResourceRef,
+  AiConversationSource,
   AiConversationStatusFilter,
   AiEnrichmentRun,
   AiEnrichmentStatus,
@@ -29,6 +30,8 @@ export const assistantApi = {
     limit?: number;
     archived?: boolean;
     status?: AiConversationStatusFilter;
+    projectId?: string;
+    unassigned?: boolean;
     signal?: AbortSignal;
   }): Promise<AiConversation[]> => {
     const response = await client.conversations.$get(
@@ -38,12 +41,16 @@ export const assistantApi = {
           limit: input.limit ? String(input.limit) : undefined,
           archived: input.archived ? "true" : undefined,
           status: input.status,
+          projectId: input.projectId,
+          unassigned: input.unassigned ? "true" : undefined,
         },
       },
       { init: { signal: input.signal } },
     );
     if (!response.ok) throw new Error(await readError(response, "Failed to search chats"));
-    return response.json();
+    const conversations = await response.json();
+    const projectId = input.projectId;
+    return projectId ? conversations.map((conversation) => ({ ...conversation, projectId })) : conversations;
   },
 
   listConversationsPage: async (input: {
@@ -52,6 +59,8 @@ export const assistantApi = {
     perPage?: number;
     archived?: boolean;
     status?: AiConversationStatusFilter;
+    projectId?: string;
+    unassigned?: boolean;
     signal?: AbortSignal;
   }): Promise<AiConversationPage> => {
     const response = await client.conversations.page.$get(
@@ -62,12 +71,16 @@ export const assistantApi = {
           perPage: String(input.perPage ?? 20),
           archived: input.archived ? "true" : undefined,
           status: input.status,
+          projectId: input.projectId,
+          unassigned: input.unassigned ? "true" : undefined,
         },
       },
       { init: { signal: input.signal } },
     );
     if (!response.ok) throw new Error(await readError(response, "Failed to load chats"));
-    return response.json();
+    const page = await response.json();
+    const projectId = input.projectId;
+    return projectId ? { ...page, items: page.items.map((conversation) => ({ ...conversation, projectId })) } : page;
   },
 
   searchMessages: async (input: {
@@ -110,6 +123,24 @@ export const assistantApi = {
     return response.json();
   },
 
+  listConversationSources: async (input: {
+    conversationId: string;
+    q?: string;
+    cursor?: string;
+    limit?: number;
+    signal?: AbortSignal;
+  }): Promise<{ sources: AiConversationSource[]; nextCursor?: string }> => {
+    const response = await client.conversations[":conversationId"].sources.$get(
+      {
+        param: { conversationId: input.conversationId },
+        query: { q: input.q, cursor: input.cursor, limit: input.limit ? String(input.limit) : undefined },
+      },
+      { init: { signal: input.signal } },
+    );
+    if (!response.ok) throw new Error(await readError(response, "Failed to load chat sources"));
+    return response.json();
+  },
+
   listResources: async (
     input: { q?: string; cursor?: string; limit?: number; signal?: AbortSignal } = {},
   ): Promise<{
@@ -127,7 +158,8 @@ export const assistantApi = {
   createConversation: async (input: { title?: string; projectId?: string } = {}): Promise<AiConversation> => {
     const response = await client.conversations.$post({ json: input });
     if (!response.ok) throw new Error(await readError(response, "Failed to create chat"));
-    return response.json();
+    const conversation = await response.json();
+    return input.projectId ? { ...conversation, projectId: input.projectId } : conversation;
   },
 
   updateConversation: async (

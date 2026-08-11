@@ -12,7 +12,19 @@ export const assistantConversationHref = (currentHref: string, conversationId: s
   const previousConversationId = url.searchParams.get("conversation");
   if (conversationId) url.searchParams.set("conversation", conversationId);
   else url.searchParams.delete("conversation");
+  url.searchParams.delete("project");
+  url.searchParams.delete("q");
   if (previousConversationId !== conversationId) url.searchParams.delete("artifact");
+  return relativeHref(url);
+};
+
+export const assistantProjectHref = (currentHref: string, projectId: string, query?: string): string => {
+  const url = new URL(currentHref, URL_BASE);
+  url.searchParams.delete("conversation");
+  url.searchParams.delete("artifact");
+  url.searchParams.set("project", projectId);
+  if (query?.trim()) url.searchParams.set("q", query.trim());
+  else url.searchParams.delete("q");
   return relativeHref(url);
 };
 

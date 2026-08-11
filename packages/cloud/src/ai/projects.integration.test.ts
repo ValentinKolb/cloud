@@ -55,6 +55,8 @@ describe.skipIf(!(await canUseAiDatabase()))("aiProjects (integration)", () => {
       });
       expect(grant?.permission).toBe("write");
       expect(grant?.shortId).toMatch(AI_SHORT_ID_PATTERN);
+      expect((await aiProjects.list(owner)).map((item) => item.id)).toContain(project.id);
+      expect((await aiProjects.list(member)).map((item) => item.id)).toContain(project.id);
 
       const visible = await aiProjects.get(project.id, member, "write");
       expect(visible?.permission).toBe("write");

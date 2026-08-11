@@ -360,6 +360,31 @@ export const migrateCloudAi = async (): Promise<void> => {
   `.simple();
 
   await sql`
+    CREATE TABLE IF NOT EXISTS ai.conversation_sources (
+      conversation_id UUID NOT NULL REFERENCES ai.conversations(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      source_key TEXT NOT NULL,
+      title TEXT NOT NULL,
+      preview TEXT,
+      icon TEXT,
+      href TEXT,
+      occurrences INTEGER NOT NULL DEFAULT 1,
+      source_turn_id UUID REFERENCES ai.turns(id) ON DELETE SET NULL,
+      source_call_id TEXT,
+      first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (conversation_id, kind, source_key),
+      CONSTRAINT ai_conversation_sources_kind_check CHECK (kind IN ('web', 'activity')),
+      CONSTRAINT ai_conversation_sources_occurrences_check CHECK (occurrences > 0)
+    )
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_conversation_sources_recent
+    ON ai.conversation_sources(conversation_id, last_seen_at DESC, kind, source_key)
+  `.simple();
+
+  await sql`
     CREATE TABLE IF NOT EXISTS ai.turn_steers (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       conversation_id UUID NOT NULL REFERENCES ai.conversations(id) ON DELETE CASCADE,

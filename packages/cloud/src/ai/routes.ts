@@ -68,15 +68,22 @@ export type AiChatRoutesConfig = {
   allowConversationManagement?: boolean;
 };
 
-const ConversationListQuerySchema = z.object({
-  q: z.string().trim().max(200).optional(),
-  limit: z.coerce.number().int().min(1).max(50).optional(),
-  archived: z
-    .enum(["true", "false"])
-    .transform((value) => value === "true")
-    .optional(),
-  status: z.enum(["running", "needs_attention", "failed", "unread"]).optional(),
-});
+const ConversationListQuerySchema = z
+  .object({
+    q: z.string().trim().max(200).optional(),
+    limit: z.coerce.number().int().min(1).max(50).optional(),
+    archived: z
+      .enum(["true", "false"])
+      .transform((value) => value === "true")
+      .optional(),
+    status: z.enum(["running", "needs_attention", "failed", "unread"]).optional(),
+    projectId: z.string().regex(AI_SHORT_ID_PATTERN).optional(),
+    unassigned: z
+      .enum(["true", "false"])
+      .transform((value) => value === "true")
+      .optional(),
+  })
+  .refine((input) => !(input.projectId && input.unassigned), "Choose a Project or unassigned chats, not both.");
 
 const ConversationPageQuerySchema = ConversationListQuerySchema.extend({
   page: z.coerce.number().int().min(1).optional(),
@@ -323,6 +330,8 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         const ctx = await config.resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const query = c.req.valid("query");
+        const project = query.projectId ? await aiProjects.getByShortId(query.projectId, c.get("accessSubject"), "read") : null;
+        if (query.projectId && !project) return respond(c, fail(err.notFound("Project")));
         return respond(
           c,
           ok(
@@ -334,6 +343,8 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
                 search: query.q,
                 archived: query.archived,
                 status: query.status,
+                projectId: project?.id,
+                unassigned: query.unassigned,
                 limit: query.limit,
               })
             ).map(publicConversation),
@@ -344,6 +355,8 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         const ctx = await config.resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const query = c.req.valid("query");
+        const project = query.projectId ? await aiProjects.getByShortId(query.projectId, c.get("accessSubject"), "read") : null;
+        if (query.projectId && !project) return respond(c, fail(err.notFound("Project")));
         const page = await aiConversationStore.listConversationsPage({
           appId: config.appId,
           ownerUserId: ctx.ownerUserId,
@@ -351,6 +364,8 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
           search: query.q,
           archived: query.archived,
           status: query.status,
+          projectId: project?.id,
+          unassigned: query.unassigned,
           page: query.page ?? 1,
           perPage: query.perPage ?? 20,
         });
@@ -425,6 +440,24 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
               search: c.req.valid("query").q,
               before: c.req.valid("query").cursor,
               limit: c.req.valid("query").limit,
+            }),
+          ),
+        );
+      })
+      .get("/conversations/:conversationId/sources", v("query", ConversationResourcesQuerySchema), async (c) => {
+        const ctx = await config.resolveContext(c);
+        if (ctx instanceof Response) return ctx;
+        const conversation = await loadConversation(c, ctx);
+        if (!conversation) return notFound(c);
+        const query = c.req.valid("query");
+        return respond(
+          c,
+          ok(
+            await aiConversationStore.listConversationSources({
+              conversationId: conversation.id,
+              search: query.q,
+              before: query.cursor,
+              limit: query.limit,
             }),
           ),
         );
