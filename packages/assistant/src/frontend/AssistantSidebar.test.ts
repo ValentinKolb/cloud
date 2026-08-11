@@ -4,6 +4,7 @@ import { groupRecentConversations } from "./conversation-view";
 
 const conversation = (id: string, updatedAt: string, pinnedAt: string | null = null): AiConversation => ({
   id,
+  shortId: "cHt234",
   appId: "assistant",
   title: id,
   titleSource: "default",

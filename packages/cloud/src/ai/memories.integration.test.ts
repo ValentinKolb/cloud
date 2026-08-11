@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { aiMemories, formatAiMemories, isAiMemoryBm25CapabilityError } from "./memories";
 import { migrateCloudAi } from "./migrate";
+import { AI_SHORT_ID_PATTERN } from "./short-id";
 
 const canUseAiDatabase = async () => {
   try {
@@ -38,6 +39,8 @@ describe.skipIf(!(await canUseAiDatabase()))("aiMemories (integration)", () => {
       });
       await aiMemories.create({ userId: secondUser, kind: "fact", content: "Studies chemistry." });
 
+      expect(fact.shortId).toMatch(AI_SHORT_ID_PATTERN);
+      expect(preference.shortId).toMatch(AI_SHORT_ID_PATTERN);
       expect((await aiMemories.list({ userId: firstUser })).map((memory) => memory.id)).toEqual([preference.id, fact.id]);
       expect((await aiMemories.list({ userId: firstUser, query: "German" })).map((memory) => memory.id)).toEqual([preference.id]);
       expect(await aiMemories.get(secondUser, fact.id)).toBeNull();

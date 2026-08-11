@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrateCloudAi } from "./migrate";
+import { createAiShortId } from "./short-id";
 import { aiConversationStore } from "./store";
 
 const canUseAiDatabase = async () => {
@@ -50,8 +51,9 @@ const insertMessage = async (input: {
   content?: unknown[];
 }) => {
   await sql`
-    INSERT INTO ai.messages (conversation_id, seq, kind, role, message, loop_id, meta, compacted_at)
+    INSERT INTO ai.messages (short_id, conversation_id, seq, kind, role, message, loop_id, meta, compacted_at)
     VALUES (
+      ${createAiShortId()},
       ${input.conversationId},
       ${input.seq},
       ${input.kind ?? "message"},
@@ -139,8 +141,8 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
       conversationIds.push(conversation.id);
       const turnId = crypto.randomUUID();
       await sql`
-        INSERT INTO ai.turns (id, conversation_id, status, model_profile_id, completed_at)
-        VALUES (${turnId}::uuid, ${conversation.id}::uuid, 'completed', 'test-model', now())
+        INSERT INTO ai.turns (id, short_id, conversation_id, status, model_profile_id, completed_at)
+        VALUES (${turnId}::uuid, ${createAiShortId()}, ${conversation.id}::uuid, 'completed', 'test-model', now())
       `;
       await insertMessage({
         conversationId: conversation.id,

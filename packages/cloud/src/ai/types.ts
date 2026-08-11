@@ -128,6 +128,7 @@ export type AiConversationStatusFilter = Exclude<AiConversationRunStatus, "idle"
 
 export type AiConversation = {
   id: string;
+  shortId: string;
   appId: string;
   title: string;
   /** Who set the current title — enrichment never overwrites a user-chosen title. */
@@ -221,6 +222,7 @@ export type AiConversationPage = {
 
 export type AiStoredMessage = {
   id: string;
+  shortId: string;
   conversationId: string;
   seq: number;
   kind: "message" | "summary";
@@ -290,6 +292,7 @@ export type AiTurnFinalizedEvent = {
 
 export type AiTurn = {
   id: string;
+  shortId: string;
   conversationId: string;
   status: AiTurnStatus;
   attempt: number;
@@ -445,6 +448,13 @@ export type AiConversationStore = {
     ownerUserId?: string;
     resource?: AiConversationResource;
   }): Promise<AiConversation | null>;
+  getConversationByShortId(input: {
+    shortId: string;
+    appId?: string;
+    ownerUserId?: string;
+    resource?: AiConversationResource;
+    archived?: boolean;
+  }): Promise<AiConversation | null>;
   getLoadedCapabilities(input: { conversationId: string }): Promise<string[]>;
   loadCapabilities(input: {
     conversationId: string;
@@ -550,6 +560,7 @@ export type AiConversationStore = {
     truncateFromSeq?: number;
   }): Promise<{ turn: AiTurn; message: AiStoredMessage }>;
   getTurn(input: { conversationId: string; turnId: string }): Promise<AiTurn | null>;
+  getTurnByShortId(input: { conversationId: string; shortId: string }): Promise<AiTurn | null>;
   getActiveTurn(input: { conversationId: string }): Promise<{ turn: AiTurn; liveBlocks: AiTurnBlock[]; liveSeq: number } | null>;
   /**
    * Claim a turn attempt. Increments attempt and takes the lease atomically.

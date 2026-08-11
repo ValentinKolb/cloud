@@ -10,6 +10,7 @@ import {
   revokeAiToolApprovalPreference,
 } from "./approvals";
 import { migrateCloudAi } from "./migrate";
+import { AI_SHORT_ID_PATTERN, createAiShortId } from "./short-id";
 import { aiConversationStore } from "./store";
 
 const canUseAiDatabase = async () => {
@@ -236,6 +237,9 @@ suite("AI conversation store integration", () => {
         userMessage: userMessage("Hello turn"),
       });
 
+      expect(conversation.shortId).toMatch(AI_SHORT_ID_PATTERN);
+      expect(submitted.turn.shortId).toMatch(AI_SHORT_ID_PATTERN);
+      expect(submitted.message.shortId).toMatch(AI_SHORT_ID_PATTERN);
       expect(submitted.turn.status).toBe("queued");
       expect(submitted.turn.attempt).toBe(0);
       expect(submitted.message.message.role).toBe("user");
@@ -1019,8 +1023,8 @@ suite("AI conversation store integration", () => {
       // millisecond of skew makes a viewed conversation stay unread.
       const insertTurn = async (conversationId: string, status: string, completed = false, error: string | null = null) => {
         await sql`
-          INSERT INTO ai.turns (conversation_id, status, completed_at, error)
-          VALUES (${conversationId}::uuid, ${status}, CASE WHEN ${completed} THEN now() ELSE NULL END, ${error})
+          INSERT INTO ai.turns (short_id, conversation_id, status, completed_at, error)
+          VALUES (${createAiShortId()}, ${conversationId}::uuid, ${status}, CASE WHEN ${completed} THEN now() ELSE NULL END, ${error})
         `;
       };
       await insertTurn(running.id, "running");

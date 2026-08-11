@@ -12,6 +12,7 @@ const storedAssistant = (input: { usage: Usage; aggregate?: LoopAggregate }): Ai
   };
   return {
     id: "message-1",
+    shortId: "mSg234",
     conversationId: "conversation-1",
     seq: 1,
     kind: "message",

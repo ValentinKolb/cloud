@@ -193,6 +193,7 @@ export {
   selectAiModelProfile,
   toPublicAiSettingsState,
 } from "./settings";
+export { AI_SHORT_ID_PATTERN, createAiShortId } from "./short-id";
 export { aiConversationStore } from "./store";
 export {
   aiStreamTopic,

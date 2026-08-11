@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { aiConversationStore, migrateCloudAi } from "@valentinkolb/cloud/ai";
+import { aiConversationStore, createAiShortId, migrateCloudAi } from "@valentinkolb/cloud/ai";
 import { registerNotificationDefinitions } from "@valentinkolb/cloud/services/notifications/catalog";
 import { sql } from "bun";
 import { app } from "./config";
@@ -47,11 +47,11 @@ suite("Assistant completion notifications", () => {
       conversationIds.push(direct.id, resource.id, compaction.id);
 
       const turns = await sql<{ id: string; conversation_id: string }[]>`
-        INSERT INTO ai.turns (conversation_id, status, completed_at, run_config)
+        INSERT INTO ai.turns (short_id, conversation_id, status, completed_at, run_config)
         VALUES
-          (${direct.id}::uuid, 'completed', now(), (${JSON.stringify({ kind: "chat" })}::text)::jsonb),
-          (${resource.id}::uuid, 'completed', now(), (${JSON.stringify({ kind: "chat" })}::text)::jsonb),
-          (${compaction.id}::uuid, 'completed', now(), (${JSON.stringify({ kind: "compact" })}::text)::jsonb)
+          (${createAiShortId()}, ${direct.id}::uuid, 'completed', now(), (${JSON.stringify({ kind: "chat" })}::text)::jsonb),
+          (${createAiShortId()}, ${resource.id}::uuid, 'completed', now(), (${JSON.stringify({ kind: "chat" })}::text)::jsonb),
+          (${createAiShortId()}, ${compaction.id}::uuid, 'completed', now(), (${JSON.stringify({ kind: "compact" })}::text)::jsonb)
         RETURNING id, conversation_id
       `;
       const directTurn = turns.find((turn) => turn.conversation_id === direct.id)!;
@@ -90,7 +90,7 @@ suite("Assistant completion notifications", () => {
         {
           id: expect.any(String),
           title: "Assistant response ready",
-          target_href: `/app/assistant?conversation=${direct.id}`,
+          target_href: `/app/assistant?conversation=${direct.shortId}`,
           idempotency_key: `turn:${directTurn.id}`,
         },
       ]);

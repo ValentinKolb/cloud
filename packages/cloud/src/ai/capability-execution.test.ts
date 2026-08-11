@@ -29,6 +29,7 @@ const user = (id: string) => ({
 
 const conversation = (ownerId: string): AiConversation => ({
   id: "conversation-1",
+  shortId: "cNv234",
   appId: "assistant",
   title: "Chat",
   titleSource: "default",

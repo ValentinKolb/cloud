@@ -1,5 +1,6 @@
 import { scheduler } from "@k2b/sync";
 import { type BoundNotificationMap, notification } from "@valentinkolb/cloud";
+import { AI_SHORT_ID_PATTERN } from "@valentinkolb/cloud/ai";
 import { coreSettings, logger, notifications, trace } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { z } from "zod";
@@ -15,7 +16,7 @@ export const NOTIFICATIONS = {
     label: "Assistant responses",
     description: "A notification when a background Assistant response finishes.",
     delivery: { recommended: ["browser"] },
-    data: z.object({ conversationId: z.uuid() }),
+    data: z.object({ conversationId: z.string().regex(AI_SHORT_ID_PATTERN) }),
     render: ({ conversationId }) => ({
       title: "Assistant response ready",
       body: "Your Assistant response has finished.",
@@ -55,7 +56,7 @@ export const createAssistantNotificationService = (definitions: AssistantNotific
     const limit = Math.min(Math.max(Math.floor(input.limit ?? RECOVERY_BATCH_SIZE), 1), 1_000);
     const candidates = await sql<CompletionCandidate[]>`
       SELECT turn.id AS turn_id,
-             conversation.id AS conversation_id,
+             conversation.short_id AS conversation_id,
              conversation.created_by_user_id AS user_id
       FROM ai.turns turn
       JOIN ai.conversations conversation ON conversation.id = turn.conversation_id

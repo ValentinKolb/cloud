@@ -12,6 +12,7 @@ import {
   updateAccess as updateAccessEntry,
 } from "../server/services/access";
 import { toPgUuidArray } from "../services/postgres";
+import { withAiShortId } from "./short-id";
 import type { AiProjectPromptSnapshot } from "./types";
 
 export const AI_PROJECT_NAME_MAX_CHARS = 120;
@@ -25,6 +26,7 @@ export type AiProjectPermission = Exclude<PermissionLevel, "none">;
 
 export type AiProject = {
   id: string;
+  shortId: string;
   name: string;
   description: string;
   icon: string;
@@ -39,6 +41,7 @@ export type AiProject = {
 
 export type AiProjectKnowledge = {
   id: string;
+  shortId: string;
   projectId: string;
   title: string;
   content: string;
@@ -48,6 +51,7 @@ export type AiProjectKnowledge = {
 
 export type AiProjectFile = {
   id: string;
+  shortId: string;
   projectId: string;
   path: string;
   mediaType: string;
@@ -57,6 +61,7 @@ export type AiProjectFile = {
 
 export type AiProjectReference = {
   id: string;
+  shortId: string;
   projectId: string;
   ref: CloudResourceRef;
   label: string;
@@ -65,6 +70,7 @@ export type AiProjectReference = {
 
 export type AiProjectAccess = {
   id: string;
+  shortId: string;
   principal: Principal;
   permission: AiProjectPermission;
   displayName?: string;
@@ -73,6 +79,7 @@ export type AiProjectAccess = {
 
 type ProjectRow = {
   id: string;
+  short_id: string;
   name: string;
   description: string;
   icon: string;
@@ -86,6 +93,7 @@ type ProjectRow = {
 
 type KnowledgeRow = {
   id: string;
+  short_id: string;
   project_id: string;
   title: string;
   content: string;
@@ -95,6 +103,7 @@ type KnowledgeRow = {
 
 type FileRow = {
   id: string;
+  short_id: string;
   project_id: string;
   path: string;
   media_type: string;
@@ -104,6 +113,7 @@ type FileRow = {
 
 type ReferenceRow = {
   id: string;
+  short_id: string;
   project_id: string;
   resource_type: string;
   resource_id: string;
@@ -140,6 +150,7 @@ const toProject = async (row: ProjectRow, subject: AccessSubject): Promise<AiPro
   if (permission === "none") return null;
   return {
     id: row.id,
+    shortId: row.short_id,
     name: row.name,
     description: row.description,
     icon: row.icon,
@@ -155,6 +166,7 @@ const toProject = async (row: ProjectRow, subject: AccessSubject): Promise<AiPro
 
 const toKnowledge = (row: KnowledgeRow): AiProjectKnowledge => ({
   id: row.id,
+  shortId: row.short_id,
   projectId: row.project_id,
   title: row.title,
   content: row.content,
@@ -164,6 +176,7 @@ const toKnowledge = (row: KnowledgeRow): AiProjectKnowledge => ({
 
 const toFile = (row: FileRow): AiProjectFile => ({
   id: row.id,
+  shortId: row.short_id,
   projectId: row.project_id,
   path: row.path,
   mediaType: row.media_type,
@@ -173,6 +186,7 @@ const toFile = (row: FileRow): AiProjectFile => ({
 
 const toReference = (row: ReferenceRow): AiProjectReference => ({
   id: row.id,
+  shortId: row.short_id,
   projectId: row.project_id,
   ref: { type: row.resource_type, id: row.resource_id },
   label: row.label,
@@ -184,12 +198,28 @@ const getRow = async (projectId: string): Promise<ProjectRow | null> => {
   return rows[0] ?? null;
 };
 
+const getRowByShortId = async (shortId: string): Promise<ProjectRow | null> => {
+  const rows = await sql<ProjectRow[]>`SELECT * FROM ai.projects WHERE short_id = ${shortId}`;
+  return rows[0] ?? null;
+};
+
 const requireProject = async (
   projectId: string,
   subject: AccessSubject,
   permission: AiProjectPermission = "read",
 ): Promise<AiProject | null> => {
   const row = await getRow(projectId);
+  if (!row) return null;
+  const project = await toProject(row, subject);
+  return project && hasPermission(project.permission, permission) ? project : null;
+};
+
+const requireProjectByShortId = async (
+  shortId: string,
+  subject: AccessSubject,
+  permission: AiProjectPermission = "read",
+): Promise<AiProject | null> => {
+  const row = await getRowByShortId(shortId);
   if (!row) return null;
   const project = await toProject(row, subject);
   return project && hasPermission(project.permission, permission) ? project : null;
@@ -218,14 +248,18 @@ export const aiProjects = {
   }): Promise<AiProject> {
     const userId = ownerUserId(input.subject);
     if (!userId) throw new Error("Projects require a user-backed actor.");
-    const rows = await sql<ProjectRow[]>`
-      INSERT INTO ai.projects (name, description, icon, instructions, default_model_profile_id, owner_user_id)
+    const rows = await withAiShortId(
+      "idx_ai_projects_short_id",
+      (shortId) => sql<ProjectRow[]>`
+      INSERT INTO ai.projects (short_id, name, description, icon, instructions, default_model_profile_id, owner_user_id)
       VALUES (
+        ${shortId},
         ${input.name.trim()}, ${input.description?.trim() ?? ""}, ${input.icon?.trim() || "ti ti-folders"},
         ${input.instructions?.trim() ?? ""}, ${input.defaultModelProfileId?.trim() || null}, ${userId}::uuid
       )
       RETURNING *
-    `;
+    `,
+    );
     return (await toProject(rows[0]!, input.subject))!;
   },
 
@@ -245,6 +279,7 @@ export const aiProjects = {
   },
 
   get: requireProject,
+  getByShortId: requireProjectByShortId,
 
   async update(
     projectId: string,
@@ -290,11 +325,11 @@ export const aiProjects = {
       this.listReferences(projectId, subject),
     ]);
     const lines = [
-      `Project: ${project.name} (${project.id}, revision ${project.revision})`,
+      `Project: ${project.name} (${project.shortId}, revision ${project.revision})`,
       project.description ? `Description: ${project.description}` : null,
-      knowledge.length ? `Knowledge entries:\n${knowledge.map((item) => `- ${item.title} [${item.id}]`).join("\n")}` : null,
+      knowledge.length ? `Knowledge entries:\n${knowledge.map((item) => `- ${item.title} [${item.shortId}]`).join("\n")}` : null,
       files.length
-        ? `Files:\n${files.map((file) => `- ${file.path} (${file.mediaType}, ${file.size} bytes) [${file.id}]`).join("\n")}`
+        ? `Files:\n${files.map((file) => `- ${file.path} (${file.mediaType}, ${file.size} bytes) [${file.shortId}]`).join("\n")}`
         : null,
       references.length
         ? `Cloud references (metadata only; use authorized app capabilities to read the source):\n${references
@@ -303,7 +338,7 @@ export const aiProjects = {
         : null,
     ].filter(Boolean);
     return {
-      id: project.id,
+      id: project.shortId,
       name: project.name,
       revision: project.revision,
       instructions: project.instructions,
@@ -316,7 +351,7 @@ export const aiProjects = {
     if (!(await requireProject(projectId, subject, "admin"))) return null;
     const rows = await sql<
       {
-        id: string;
+        short_id: string;
         user_id: string | null;
         group_id: string | null;
         service_account_id: string | null;
@@ -326,7 +361,7 @@ export const aiProjects = {
         display_name: string | null;
       }[]
     >`
-      SELECT access.id, access.user_id, access.group_id, access.service_account_id, access.authenticated_only,
+      SELECT project_access.short_id, access.user_id, access.group_id, access.service_account_id, access.authenticated_only,
              access.permission, access.created_at,
              COALESCE(users.display_name, groups.name, service_accounts.name,
                CASE WHEN access.authenticated_only THEN 'All authenticated users' ELSE 'Public' END) AS display_name
@@ -339,7 +374,8 @@ export const aiProjects = {
       ORDER BY access.created_at, access.id
     `;
     return rows.map((row) => ({
-      id: row.id,
+      id: row.short_id,
+      shortId: row.short_id,
       principal: row.user_id
         ? { type: "user", userId: row.user_id }
         : row.group_id
@@ -364,9 +400,16 @@ export const aiProjects = {
     const created = await createAccess(input);
     if (!created.ok) throw new Error(created.error.message);
     try {
-      await sql`INSERT INTO ai.project_access (project_id, access_id) VALUES (${projectId}::uuid, ${created.data.id}::uuid)`;
+      let grantedShortId = "";
+      await withAiShortId("idx_ai_project_access_short_id", (shortId) => {
+        grantedShortId = shortId;
+        return sql`
+            INSERT INTO ai.project_access (project_id, access_id, short_id)
+            VALUES (${projectId}::uuid, ${created.data.id}::uuid, ${shortId})
+          `;
+      });
       const entries = await this.listAccess(projectId, subject);
-      return entries?.find((entry) => entry.id === created.data.id) ?? null;
+      return entries?.find((entry) => entry.shortId === grantedShortId) ?? null;
     } catch (error) {
       await deleteAccess({ id: created.data.id }).catch(() => undefined);
       throw error;
@@ -376,20 +419,20 @@ export const aiProjects = {
   async updateAccess(projectId: string, accessId: string, subject: AccessSubject, permission: AiProjectPermission): Promise<boolean> {
     if (!(await requireProject(projectId, subject, "admin"))) return false;
     const bound = await sql<{ id: string }[]>`
-      SELECT access_id AS id FROM ai.project_access WHERE project_id = ${projectId}::uuid AND access_id = ${accessId}::uuid
+      SELECT access_id AS id FROM ai.project_access WHERE project_id = ${projectId}::uuid AND short_id = ${accessId}
     `;
     if (!bound[0]) return false;
-    const result = await updateAccessEntry({ id: accessId, permission });
+    const result = await updateAccessEntry({ id: bound[0].id, permission });
     return result.ok;
   },
 
   async revokeAccess(projectId: string, accessId: string, subject: AccessSubject): Promise<boolean> {
     if (!(await requireProject(projectId, subject, "admin"))) return false;
     const rows = await sql<{ access_id: string }[]>`
-      DELETE FROM ai.project_access WHERE project_id = ${projectId}::uuid AND access_id = ${accessId}::uuid RETURNING access_id
+      DELETE FROM ai.project_access WHERE project_id = ${projectId}::uuid AND short_id = ${accessId} RETURNING access_id
     `;
     if (!rows[0]) return false;
-    await deleteAccess({ id: accessId });
+    await deleteAccess({ id: rows[0].access_id });
     return true;
   },
 
@@ -414,11 +457,14 @@ export const aiProjects = {
     input: { title: string; content: string },
   ): Promise<AiProjectKnowledge | null> {
     if (!(await requireProject(projectId, subject, "write"))) return null;
-    const rows = await sql<KnowledgeRow[]>`
-      INSERT INTO ai.project_knowledge (project_id, title, content, created_by_user_id)
-      VALUES (${projectId}::uuid, ${input.title.trim()}, ${input.content.trim()}, ${ownerUserId(subject)}::uuid)
+    const rows = await withAiShortId(
+      "idx_ai_project_knowledge_short_id",
+      (shortId) => sql<KnowledgeRow[]>`
+      INSERT INTO ai.project_knowledge (short_id, project_id, title, content, created_by_user_id)
+      VALUES (${shortId}, ${projectId}::uuid, ${input.title.trim()}, ${input.content.trim()}, ${ownerUserId(subject)}::uuid)
       RETURNING *
-    `;
+    `,
+    );
     await touchProject(projectId);
     return toKnowledge(rows[0]!);
   },
@@ -433,7 +479,7 @@ export const aiProjects = {
     const rows = await sql<KnowledgeRow[]>`
       UPDATE ai.project_knowledge
       SET title = COALESCE(${input.title?.trim() ?? null}, title), content = COALESCE(${input.content?.trim() ?? null}, content), updated_at = now()
-      WHERE id = ${knowledgeId}::uuid AND project_id = ${projectId}::uuid
+      WHERE short_id = ${knowledgeId} AND project_id = ${projectId}::uuid
       RETURNING *
     `;
     if (rows[0]) await touchProject(projectId);
@@ -443,7 +489,7 @@ export const aiProjects = {
   async deleteKnowledge(projectId: string, knowledgeId: string, subject: AccessSubject): Promise<boolean> {
     if (!(await requireProject(projectId, subject, "write"))) return false;
     const rows = await sql<{ id: string }[]>`
-      DELETE FROM ai.project_knowledge WHERE id = ${knowledgeId}::uuid AND project_id = ${projectId}::uuid RETURNING id
+      DELETE FROM ai.project_knowledge WHERE short_id = ${knowledgeId} AND project_id = ${projectId}::uuid RETURNING id
     `;
     if (rows[0]) await touchProject(projectId);
     return Boolean(rows[0]);
@@ -454,7 +500,7 @@ export const aiProjects = {
     return (
       await sql<
         FileRow[]
-      >`SELECT id, project_id, path, media_type, size, updated_at FROM ai.project_files WHERE project_id = ${projectId}::uuid ORDER BY path LIMIT 500`
+      >`SELECT id, short_id, project_id, path, media_type, size, updated_at FROM ai.project_files WHERE project_id = ${projectId}::uuid ORDER BY path LIMIT 500`
     ).map(toFile);
   },
 
@@ -466,13 +512,16 @@ export const aiProjects = {
     if (!(await requireProject(projectId, subject, "write"))) return null;
     if (input.bytes.byteLength > AI_PROJECT_FILE_MAX_BYTES) throw new Error("Project file exceeds the size limit.");
     const path = normalizeProjectPath(input.path);
-    const rows = await sql<FileRow[]>`
-      INSERT INTO ai.project_files (project_id, path, media_type, bytes, size, created_by_user_id)
-      VALUES (${projectId}::uuid, ${path}, ${input.mediaType.trim() || "application/octet-stream"}, ${input.bytes}, ${input.bytes.byteLength}, ${ownerUserId(subject)}::uuid)
+    const rows = await withAiShortId(
+      "idx_ai_project_files_short_id",
+      (shortId) => sql<FileRow[]>`
+      INSERT INTO ai.project_files (short_id, project_id, path, media_type, bytes, size, created_by_user_id)
+      VALUES (${shortId}, ${projectId}::uuid, ${path}, ${input.mediaType.trim() || "application/octet-stream"}, ${input.bytes}, ${input.bytes.byteLength}, ${ownerUserId(subject)}::uuid)
       ON CONFLICT (project_id, path) DO UPDATE SET
         media_type = EXCLUDED.media_type, bytes = EXCLUDED.bytes, size = EXCLUDED.size, updated_at = now()
-      RETURNING id, project_id, path, media_type, size, updated_at
-    `;
+      RETURNING id, short_id, project_id, path, media_type, size, updated_at
+    `,
+    );
     await touchProject(projectId);
     return toFile(rows[0]!);
   },
@@ -480,8 +529,8 @@ export const aiProjects = {
   async readFile(projectId: string, fileId: string, subject: AccessSubject): Promise<(AiProjectFile & { bytes: Uint8Array }) | null> {
     if (!(await requireProject(projectId, subject, "read"))) return null;
     const rows = await sql<(FileRow & { bytes: Uint8Array })[]>`
-      SELECT id, project_id, path, media_type, size, updated_at, bytes FROM ai.project_files
-      WHERE id = ${fileId}::uuid AND project_id = ${projectId}::uuid
+      SELECT id, short_id, project_id, path, media_type, size, updated_at, bytes FROM ai.project_files
+      WHERE short_id = ${fileId} AND project_id = ${projectId}::uuid
     `;
     return rows[0] ? { ...toFile(rows[0]), bytes: rows[0].bytes } : null;
   },
@@ -489,7 +538,7 @@ export const aiProjects = {
   async deleteFile(projectId: string, fileId: string, subject: AccessSubject): Promise<boolean> {
     if (!(await requireProject(projectId, subject, "write"))) return false;
     const rows = await sql<{ id: string }[]>`
-      DELETE FROM ai.project_files WHERE id = ${fileId}::uuid AND project_id = ${projectId}::uuid RETURNING id
+      DELETE FROM ai.project_files WHERE short_id = ${fileId} AND project_id = ${projectId}::uuid RETURNING id
     `;
     if (rows[0]) await touchProject(projectId);
     return Boolean(rows[0]);
@@ -508,11 +557,14 @@ export const aiProjects = {
     input: { ref: CloudResourceRef; label?: string },
   ): Promise<AiProjectReference | null> {
     if (!(await requireProject(projectId, subject, "write"))) return null;
-    const rows = await sql<ReferenceRow[]>`
-      INSERT INTO ai.project_references (project_id, resource_type, resource_id, label, created_by_user_id)
-      VALUES (${projectId}::uuid, ${input.ref.type}, ${input.ref.id}, ${input.label?.trim() ?? ""}, ${ownerUserId(subject)}::uuid)
+    const rows = await withAiShortId(
+      "idx_ai_project_references_short_id",
+      (shortId) => sql<ReferenceRow[]>`
+      INSERT INTO ai.project_references (short_id, project_id, resource_type, resource_id, label, created_by_user_id)
+      VALUES (${shortId}, ${projectId}::uuid, ${input.ref.type}, ${input.ref.id}, ${input.label?.trim() ?? ""}, ${ownerUserId(subject)}::uuid)
       RETURNING *
-    `;
+    `,
+    );
     await touchProject(projectId);
     return toReference(rows[0]!);
   },
@@ -520,7 +572,7 @@ export const aiProjects = {
   async deleteReference(projectId: string, referenceId: string, subject: AccessSubject): Promise<boolean> {
     if (!(await requireProject(projectId, subject, "write"))) return false;
     const rows = await sql<{ id: string }[]>`
-      DELETE FROM ai.project_references WHERE id = ${referenceId}::uuid AND project_id = ${projectId}::uuid RETURNING id
+      DELETE FROM ai.project_references WHERE short_id = ${referenceId} AND project_id = ${projectId}::uuid RETURNING id
     `;
     if (rows[0]) await touchProject(projectId);
     return Boolean(rows[0]);

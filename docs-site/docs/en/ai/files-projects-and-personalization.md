@@ -5,7 +5,7 @@ section: AI
 order: 1050
 description: Give AI controlled access to chat files, shared Project context, and durable personal preferences.
 tags: [ai, files, projects, memory]
-updated: 2026-08-10
+updated: 2026-08-11
 ---
 
 # Files, Projects, and personalization
@@ -17,6 +17,17 @@ These features have separate ownership and lifetimes.
 | Conversation files | One private chat | Inputs and generated artifacts |
 | Projects | Shared through Cloud permissions | Instructions, knowledge, files, references, and defaults |
 | Personalization | One user | Small durable preferences and facts |
+
+## Use readable resource IDs
+
+AI resources keep UUID primary keys for database relationships and use
+six-character, case-sensitive readable IDs at user and agent boundaries. Chat,
+Project, and memory IDs are globally unique. Turn and message IDs are scoped to
+their chat; Project access, knowledge, file, and reference IDs are scoped to
+their Project. Cloud generates these IDs and retries the insert on a collision.
+
+URLs, Assistant capabilities, streamed chat events, and `cld assistant`
+commands use the readable IDs. Database UUIDs are not a fallback input format.
 
 ## Store conversation files
 
@@ -57,7 +68,7 @@ metadata, knowledge, file, reference, and access management.
 ## Use personalization for durable user context
 
 Personalization stores `fact` or `preference` records for one user. Each entry
-has a stable id, at most 500 characters, normal or pinned priority, source, and
+has a readable id, at most 500 characters, normal or pinned priority, source, and
 timestamps. Manually added entries start pinned.
 
 For up to 20 active records, Cloud adds the bounded set directly to the prompt.

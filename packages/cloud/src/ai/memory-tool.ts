@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type AiMemory, aiMemories } from "./memories";
 import { aiPrefsUserId } from "./prefs";
+import { AI_SHORT_ID_PATTERN } from "./short-id";
 import { defineAiTool } from "./tools";
 
 const MemoryViewSchema = z.object({
@@ -13,7 +14,7 @@ const MemoryViewSchema = z.object({
 
 export const CloudAiMemoryInputSchema = z.object({
   action: z.enum(["list", "search", "add", "update", "delete"]),
-  id: z.string().optional().describe("Memory id required for update and delete."),
+  id: z.string().regex(AI_SHORT_ID_PATTERN).optional().describe("Readable memory id required for update and delete."),
   query: z.string().max(200).optional().describe("Search terms required for search."),
   kind: z.enum(["fact", "preference"]).optional().describe("Required for add; optional for update."),
   content: z.string().max(500).optional().describe("Required for add; optional for update."),
@@ -30,7 +31,7 @@ export type CloudAiMemoryInput = z.infer<typeof CloudAiMemoryInputSchema>;
 export type CloudAiMemoryOutput = z.infer<typeof CloudAiMemoryOutputSchema>;
 
 const view = (memory: AiMemory) => ({
-  id: memory.id,
+  id: memory.shortId,
   kind: memory.kind,
   content: memory.content,
   priority: memory.priority,
@@ -82,7 +83,7 @@ export const createCloudAiMemoryTool = () =>
     if (input.action === "update") {
       if (!input.kind && !input.content?.trim() && !input.priority)
         return { ok: false, message: "Pass a changed field to update the memory." };
-      const memory = await aiMemories.update(userId, input.id, {
+      const memory = await aiMemories.updateByShortId(userId, input.id, {
         kind: input.kind,
         content: input.content,
         priority: input.priority,
@@ -93,7 +94,7 @@ export const createCloudAiMemoryTool = () =>
       return { ok: true, message: `Updated memory: ${memory.content}`, memories: [view(memory)] };
     }
 
-    const memory = await aiMemories.get(userId, input.id);
-    if (!memory || !(await aiMemories.delete(userId, input.id))) return { ok: false, message: "Memory not found." };
+    const memory = await aiMemories.getByShortId(userId, input.id);
+    if (!memory || !(await aiMemories.deleteByShortId(userId, input.id))) return { ok: false, message: "Memory not found." };
     return { ok: true, message: `Forgot memory: ${memory.content}` };
   });

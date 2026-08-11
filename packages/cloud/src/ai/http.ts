@@ -3,13 +3,14 @@ import type { Context } from "hono";
 import { z } from "zod";
 import { type AuthContext, err, fail, respond } from "../server";
 import { aiAttachmentMarker } from "./attachments";
+import { AI_SHORT_ID_PATTERN } from "./short-id";
 import type { AiClientToolId, AiSettingsError, AiUserContentPart } from "./types";
 import { isAiImageMediaType } from "./types";
 import { isAiSettingsError } from "./validate";
 
 export const AiCreateConversationInputSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
-  projectId: z.uuid().optional(),
+  projectId: z.string().regex(AI_SHORT_ID_PATTERN).optional(),
 });
 
 export const AiUserContentPartSchema = z.union([

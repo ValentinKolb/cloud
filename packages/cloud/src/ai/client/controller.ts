@@ -601,6 +601,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     // Optimistic: show the user message immediately.
     const optimistic: AiStoredMessage = {
       id: `pending-${Date.now()}`,
+      shortId: `pending-${Date.now()}`,
       conversationId,
       seq: (baseProjection.messages.at(-1)?.seq ?? 0) + 1,
       kind: "message",

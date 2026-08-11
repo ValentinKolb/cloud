@@ -1,5 +1,5 @@
 import { err, fail, ok } from "@k2b/stdlib";
-import { type AiConversation, type AiStoredMessage, aiConversationStore } from "@valentinkolb/cloud/ai";
+import { AI_SHORT_ID_PATTERN, type AiConversation, type AiStoredMessage, aiConversationStore } from "@valentinkolb/cloud/ai";
 import { type CloudResourceView, capabilityPage, defineCapabilities, UniversalSearchDataSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 
@@ -16,7 +16,7 @@ const ChatSearchInputSchema = z
 
 const ChatReadInputSchema = z
   .object({
-    id: z.uuid().describe("Stable Assistant chat ID."),
+    id: z.string().regex(AI_SHORT_ID_PATTERN).describe("Stable readable Assistant chat ID."),
     cursor: z
       .string()
       .regex(/^[1-9]\d{0,9}$/)
@@ -30,7 +30,7 @@ const ChatReadDataSchema = z
   .object({
     chat: z
       .object({
-        id: z.uuid(),
+        id: z.string().regex(AI_SHORT_ID_PATTERN),
         title: z.string().min(1).max(120),
         description: z.string().max(2_000),
         status: z.enum(["idle", "queued", "running", "needs_attention", "failed"]),
@@ -43,7 +43,7 @@ const ChatReadDataSchema = z
       .array(
         z
           .object({
-            id: z.uuid(),
+            id: z.string().regex(AI_SHORT_ID_PATTERN),
             seq: z.number().int().min(1),
             role: z.enum(["user", "assistant", "summary"]),
             text: z.string().min(1).max(MAX_MESSAGE_TEXT_CHARS),
@@ -59,7 +59,7 @@ const ChatReadDataSchema = z
 const chatHref = (chatId: string): string => `/app/assistant?conversation=${encodeURIComponent(chatId)}`;
 
 const toResourceView = (chat: AiConversation): CloudResourceView => ({
-  ref: { type: "assistant.chat", id: chat.id },
+  ref: { type: "assistant.chat", id: chat.shortId },
   title: chat.title,
   ...(chat.description.trim() ? { preview: chat.description } : {}),
   ...(chat.icon.trim() ? { icon: chat.icon } : {}),
@@ -68,7 +68,7 @@ const toResourceView = (chat: AiConversation): CloudResourceView => ({
     { label: "Status", value: chat.runStatus },
     { label: "Updated", value: chat.updatedAt },
   ],
-  links: [{ rel: "open", href: chatHref(chat.id) }],
+  links: [{ rel: "open", href: chatHref(chat.shortId) }],
 });
 
 const visibleMessage = (stored: AiStoredMessage) => {
@@ -83,7 +83,7 @@ const visibleMessage = (stored: AiStoredMessage) => {
     .trim();
   if (!text) return null;
   return {
-    id: stored.id,
+    id: stored.shortId,
     seq: stored.seq,
     role: stored.kind === "summary" ? ("summary" as const) : message.role,
     text: text.slice(0, MAX_MESSAGE_TEXT_CHARS),
@@ -130,8 +130,8 @@ export const assistantCapabilities = defineCapabilities({
       openWorld: false,
       async run(input, context) {
         if (!context.user) return fail(err.forbidden("Assistant chats require a user-backed actor"));
-        const chat = await aiConversationStore.getConversation({
-          conversationId: input.id,
+        const chat = await aiConversationStore.getConversationByShortId({
+          shortId: input.id,
           appId: ASSISTANT_APP_ID,
           ownerUserId: context.user.id,
         });
@@ -148,7 +148,7 @@ export const assistantCapabilities = defineCapabilities({
         return ok({
           data: {
             chat: {
-              id: chat.id,
+              id: chat.shortId,
               title: chat.title,
               description: chat.description,
               status: chat.runStatus,
@@ -161,8 +161,8 @@ export const assistantCapabilities = defineCapabilities({
               return visible ? [visible] : [];
             }),
           },
-          refs: [{ type: "assistant.chat", id: chat.id }],
-          links: [{ rel: "open", href: chatHref(chat.id) }],
+          refs: [{ type: "assistant.chat", id: chat.shortId }],
+          links: [{ rel: "open", href: chatHref(chat.shortId) }],
           page: capabilityPage(page.hasMore && oldestSeq !== undefined ? String(oldestSeq) : undefined),
         });
       },

@@ -29,7 +29,7 @@ function ProjectsDialogBody(props: { close: () => void; startChat: (project: AiP
       const editing = editingProject();
       const response = editing
         ? await coreClient.ai.projects[":projectId"].$patch({
-            param: { projectId: editing.id },
+            param: { projectId: editing.shortId },
             json: { name: name().trim(), instructions: instructions().trim() },
           })
         : await coreClient.ai.projects.$post({

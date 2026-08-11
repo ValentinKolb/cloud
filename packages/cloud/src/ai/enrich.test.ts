@@ -13,6 +13,7 @@ import type { AiEnrichmentCandidate, AiResolvedModel, AiStoredMessage } from "./
 
 const conversation = (overrides: Partial<AiEnrichmentCandidate> = {}): AiEnrichmentCandidate => ({
   id: "00000000-0000-0000-0000-00000000c001",
+  shortId: "cNv234",
   appId: "assistant",
   title: "New chat",
   titleSource: "default",
@@ -38,6 +39,7 @@ const conversation = (overrides: Partial<AiEnrichmentCandidate> = {}): AiEnrichm
 
 const stored = (seq: number, message: Message): AiStoredMessage => ({
   id: `message-${seq}`,
+  shortId: `mSg23${seq + 1}`,
   conversationId: "00000000-0000-0000-0000-00000000c001",
   seq,
   kind: "message",

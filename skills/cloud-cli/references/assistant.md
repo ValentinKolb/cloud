@@ -37,6 +37,12 @@ printf '%s' "Summarize this carefully" | cld assistant -p
 cld assistant -p --project <project-id> "Summarize the latest changes"
 ```
 
+Assistant resource IDs are six-character, case-sensitive readable IDs such as
+`kq4s54`. Use the IDs printed by the CLI directly; chat, turn, message, memory,
+Project, knowledge, file, and reference commands do not accept database UUIDs.
+Turn and message IDs are scoped to their chat. Access, knowledge, file, and
+reference IDs are scoped to their Project.
+
 Useful options:
 
 - `--title <title>` names a newly created chat.
@@ -100,7 +106,7 @@ Assistant chat.
 
 ## Personalization
 
-Personalization stores separate facts and preferences for the current user. Manually added entries start pinned. Use stable memory IDs returned by `list` for updates, pinning, and forgetting:
+Personalization stores separate facts and preferences for the current user. Manually added entries start pinned. Use the short memory IDs returned by `list` for updates, pinning, and forgetting:
 
 ```bash
 cld assistant personalization list
@@ -137,6 +143,6 @@ cld assistant projects access grant "Release notes" <group-id> --type group --pe
 cld assistant chats create --project <project-id>
 ```
 
-Project names and stable IDs are accepted by management commands. Access grants use `read`, `write`, or `admin`; the Project owner is always an administrator.
+Project names and short IDs are accepted by management commands. Access grants use `read`, `write`, or `admin`; the Project owner is always an administrator.
 
 Run `cld assistant <group> help` or `cld assistant <group> <command> --help` for the complete accepted flags.

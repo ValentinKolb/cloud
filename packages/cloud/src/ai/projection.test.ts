@@ -6,6 +6,7 @@ import type { AiConversation, AiStoredMessage } from "./types";
 
 const conversation: AiConversation = {
   id: "conv-1",
+  shortId: "cNv234",
   appId: "assistant",
   title: "Chat",
   titleSource: "default",
@@ -26,6 +27,7 @@ const conversation: AiConversation = {
 };
 
 const storedMessage = (overrides: Partial<AiStoredMessage> & { id: string; seq: number }): AiStoredMessage => ({
+  shortId: overrides.id,
   conversationId: conversation.id,
   kind: "message",
   message: { role: "user", content: [{ type: "text", text: "hi" }] },

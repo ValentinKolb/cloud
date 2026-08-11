@@ -33,7 +33,7 @@ export const assistantPersonalizationCommands = [
         ctx,
         memories,
         memories.map((memory) => ({
-          id: memory.id,
+          id: memory.shortId,
           kind: memory.kind,
           priority: memory.priority,
           source: memory.source,
@@ -52,7 +52,7 @@ export const assistantPersonalizationCommands = [
       if (args.kind !== "fact" && args.kind !== "preference") throw new Error('Kind must be "fact" or "preference".');
       const content = await readCliInput(flags.content, { label: "personalization content", required: true, trimFinalNewline: true });
       const memory = await readApi<AiMemory>(ctx, "/memories", jsonRequest("POST", { kind: args.kind, content }));
-      printValue(ctx, memory, `${memory.id}\t${memory.content}`);
+      printValue(ctx, memory, `${memory.shortId}\t${memory.content}`);
     },
   }),
   command("personalization update", {
@@ -67,7 +67,7 @@ export const assistantPersonalizationCommands = [
       const changes = { ...(flags.kind ? { kind: flags.kind } : {}), ...(content !== undefined ? { content } : {}) };
       if (!Object.keys(changes).length) throw new Error("Supply --kind or --content.");
       const memory = await readApi<AiMemory>(ctx, memoryPath(args.memory), jsonRequest("PATCH", changes));
-      printValue(ctx, memory, `Updated ${memory.id}.`);
+      printValue(ctx, memory, `Updated ${memory.shortId}.`);
     },
   }),
   ...(["pin", "unpin"] as const).map((action) =>
@@ -80,7 +80,7 @@ export const assistantPersonalizationCommands = [
           memoryPath(args.memory),
           jsonRequest("PATCH", { priority: action === "pin" ? "pinned" : "normal" }),
         );
-        printValue(ctx, memory, `${action === "pin" ? "Pinned" : "Unpinned"} ${memory.id}.`);
+        printValue(ctx, memory, `${action === "pin" ? "Pinned" : "Unpinned"} ${memory.shortId}.`);
       },
     }),
   ),

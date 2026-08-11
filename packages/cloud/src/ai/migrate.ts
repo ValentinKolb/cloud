@@ -1,4 +1,13 @@
 import { sql } from "bun";
+import { withAiShortId } from "./short-id";
+
+const backfillAiShortIds = async (
+  constraint: string,
+  rows: { id: string }[],
+  update: (id: string, shortId: string) => Promise<unknown>,
+): Promise<void> => {
+  for (const row of rows) await withAiShortId(constraint, (shortId) => update(row.id, shortId));
+};
 
 export const migrateCloudAi = async (): Promise<void> => {
   await sql`CREATE SCHEMA IF NOT EXISTS ai`.simple();
@@ -7,6 +16,7 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS ai.conversations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       app_id TEXT NOT NULL,
       resource_kind TEXT NOT NULL DEFAULT 'direct',
       resource_app_id TEXT,
@@ -22,6 +32,15 @@ export const migrateCloudAi = async (): Promise<void> => {
       CONSTRAINT ai_conversations_resource_kind_check CHECK (resource_kind IN ('direct', 'resource'))
     )
   `.simple();
+
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_conversations_short_id ON ai.conversations(short_id)`.simple();
+  await backfillAiShortIds(
+    "idx_ai_conversations_short_id",
+    await sql<{ id: string }[]>`SELECT id FROM ai.conversations WHERE short_id IS NULL`,
+    (id, shortId) => sql`UPDATE ai.conversations SET short_id = ${shortId} WHERE id = ${id}::uuid`,
+  );
+  await sql`ALTER TABLE ai.conversations ALTER COLUMN short_id SET NOT NULL`.simple();
 
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT 'ti ti-message'`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`.simple();
@@ -136,6 +155,7 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS ai.messages (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       conversation_id UUID NOT NULL REFERENCES ai.conversations(id) ON DELETE CASCADE,
       seq INTEGER NOT NULL,
       kind TEXT NOT NULL DEFAULT 'message',
@@ -154,6 +174,15 @@ export const migrateCloudAi = async (): Promise<void> => {
       CONSTRAINT ai_messages_role_check CHECK (role IN ('user', 'assistant', 'tool_result'))
     )
   `.simple();
+
+  await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_messages_conversation_short_id ON ai.messages(conversation_id, short_id)`.simple();
+  await backfillAiShortIds(
+    "idx_ai_messages_conversation_short_id",
+    await sql<{ id: string }[]>`SELECT id FROM ai.messages WHERE short_id IS NULL`,
+    (id, shortId) => sql`UPDATE ai.messages SET short_id = ${shortId} WHERE id = ${id}::uuid`,
+  );
+  await sql`ALTER TABLE ai.messages ALTER COLUMN short_id SET NOT NULL`.simple();
 
   await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS compacted_at TIMESTAMPTZ`.simple();
   await sql`ALTER TABLE ai.messages ADD COLUMN IF NOT EXISTS loop_id TEXT`.simple();
@@ -233,6 +262,7 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS ai.turns (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       conversation_id UUID NOT NULL REFERENCES ai.conversations(id) ON DELETE CASCADE,
       status TEXT NOT NULL DEFAULT 'queued',
       model_profile_id TEXT,
@@ -252,6 +282,15 @@ export const migrateCloudAi = async (): Promise<void> => {
       CONSTRAINT ai_turns_status_check CHECK (status IN ('queued', 'running', 'waiting_for_action', 'completed', 'failed', 'aborted'))
     )
   `.simple();
+
+  await sql`ALTER TABLE ai.turns ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_turns_conversation_short_id ON ai.turns(conversation_id, short_id)`.simple();
+  await backfillAiShortIds(
+    "idx_ai_turns_conversation_short_id",
+    await sql<{ id: string }[]>`SELECT id FROM ai.turns WHERE short_id IS NULL`,
+    (id, shortId) => sql`UPDATE ai.turns SET short_id = ${shortId} WHERE id = ${id}::uuid`,
+  );
+  await sql`ALTER TABLE ai.turns ALTER COLUMN short_id SET NOT NULL`.simple();
 
   await sql`ALTER TABLE ai.turns ADD COLUMN IF NOT EXISTS cancel_requested_at TIMESTAMPTZ`.simple();
   await sql`ALTER TABLE ai.turns ADD COLUMN IF NOT EXISTS cancellation_reason TEXT`.simple();
@@ -444,6 +483,7 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS ai.memories (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
       kind TEXT NOT NULL,
       content TEXT NOT NULL,
@@ -462,6 +502,15 @@ export const migrateCloudAi = async (): Promise<void> => {
       CONSTRAINT ai_memories_content_check CHECK (char_length(content) BETWEEN 1 AND 500)
     )
   `.simple();
+
+  await sql`ALTER TABLE ai.memories ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_memories_short_id ON ai.memories(short_id)`.simple();
+  await backfillAiShortIds(
+    "idx_ai_memories_short_id",
+    await sql<{ id: string }[]>`SELECT id FROM ai.memories WHERE short_id IS NULL`,
+    (id, shortId) => sql`UPDATE ai.memories SET short_id = ${shortId} WHERE id = ${id}::uuid`,
+  );
+  await sql`ALTER TABLE ai.memories ALTER COLUMN short_id SET NOT NULL`.simple();
 
   await sql`
     CREATE INDEX IF NOT EXISTS idx_ai_memories_user_active
@@ -547,6 +596,7 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS ai.projects (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       name TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       icon TEXT NOT NULL DEFAULT 'ti ti-folders',
@@ -561,6 +611,15 @@ export const migrateCloudAi = async (): Promise<void> => {
       CONSTRAINT ai_projects_instructions_check CHECK (length(instructions) <= 16000)
     )
   `.simple();
+
+  await sql`ALTER TABLE ai.projects ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_projects_short_id ON ai.projects(short_id)`.simple();
+  await backfillAiShortIds(
+    "idx_ai_projects_short_id",
+    await sql<{ id: string }[]>`SELECT id FROM ai.projects WHERE short_id IS NULL`,
+    (id, shortId) => sql`UPDATE ai.projects SET short_id = ${shortId} WHERE id = ${id}::uuid`,
+  );
+  await sql`ALTER TABLE ai.projects ALTER COLUMN short_id SET NOT NULL`.simple();
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_projects_owner_name
     ON ai.projects(owner_user_id, lower(name))
@@ -570,13 +629,29 @@ export const migrateCloudAi = async (): Promise<void> => {
     CREATE TABLE IF NOT EXISTS ai.project_access (
       project_id UUID NOT NULL REFERENCES ai.projects(id) ON DELETE CASCADE,
       access_id UUID NOT NULL REFERENCES auth.access(id) ON DELETE CASCADE,
+      short_id TEXT NOT NULL,
       PRIMARY KEY (project_id, access_id)
     )
   `.simple();
+  await sql`ALTER TABLE ai.project_access ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_project_access_short_id ON ai.project_access(project_id, short_id)`.simple();
+  for (const row of await sql<
+    { project_id: string; access_id: string }[]
+  >`SELECT project_id, access_id FROM ai.project_access WHERE short_id IS NULL`) {
+    await withAiShortId(
+      "idx_ai_project_access_short_id",
+      (shortId) => sql`
+        UPDATE ai.project_access SET short_id = ${shortId}
+        WHERE project_id = ${row.project_id}::uuid AND access_id = ${row.access_id}::uuid
+      `,
+    );
+  }
+  await sql`ALTER TABLE ai.project_access ALTER COLUMN short_id SET NOT NULL`.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS ai.project_knowledge (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       project_id UUID NOT NULL REFERENCES ai.projects(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
       content TEXT NOT NULL,
@@ -590,11 +665,20 @@ export const migrateCloudAi = async (): Promise<void> => {
       CONSTRAINT ai_project_knowledge_content_check CHECK (length(btrim(content)) BETWEEN 1 AND 100000)
     )
   `.simple();
+  await sql`ALTER TABLE ai.project_knowledge ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_project_knowledge_short_id ON ai.project_knowledge(project_id, short_id)`.simple();
+  await backfillAiShortIds(
+    "idx_ai_project_knowledge_short_id",
+    await sql<{ id: string }[]>`SELECT id FROM ai.project_knowledge WHERE short_id IS NULL`,
+    (id, shortId) => sql`UPDATE ai.project_knowledge SET short_id = ${shortId} WHERE id = ${id}::uuid`,
+  );
+  await sql`ALTER TABLE ai.project_knowledge ALTER COLUMN short_id SET NOT NULL`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_ai_project_knowledge_search ON ai.project_knowledge USING GIN(search_document)`.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS ai.project_files (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       project_id UUID NOT NULL REFERENCES ai.projects(id) ON DELETE CASCADE,
       path TEXT NOT NULL,
       media_type TEXT NOT NULL DEFAULT 'application/octet-stream',
@@ -607,11 +691,20 @@ export const migrateCloudAi = async (): Promise<void> => {
       CONSTRAINT ai_project_files_size_check CHECK (size BETWEEN 0 AND 10485760)
     )
   `.simple();
+  await sql`ALTER TABLE ai.project_files ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_project_files_short_id ON ai.project_files(project_id, short_id)`.simple();
+  await backfillAiShortIds(
+    "idx_ai_project_files_short_id",
+    await sql<{ id: string }[]>`SELECT id FROM ai.project_files WHERE short_id IS NULL`,
+    (id, shortId) => sql`UPDATE ai.project_files SET short_id = ${shortId} WHERE id = ${id}::uuid`,
+  );
+  await sql`ALTER TABLE ai.project_files ALTER COLUMN short_id SET NOT NULL`.simple();
   await sql`ALTER TABLE ai.project_files ALTER COLUMN bytes SET STORAGE EXTERNAL`.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS ai.project_references (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       project_id UUID NOT NULL REFERENCES ai.projects(id) ON DELETE CASCADE,
       resource_type TEXT NOT NULL,
       resource_id TEXT NOT NULL,
@@ -621,6 +714,14 @@ export const migrateCloudAi = async (): Promise<void> => {
       UNIQUE (project_id, resource_type, resource_id)
     )
   `.simple();
+  await sql`ALTER TABLE ai.project_references ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_project_references_short_id ON ai.project_references(project_id, short_id)`.simple();
+  await backfillAiShortIds(
+    "idx_ai_project_references_short_id",
+    await sql<{ id: string }[]>`SELECT id FROM ai.project_references WHERE short_id IS NULL`,
+    (id, shortId) => sql`UPDATE ai.project_references SET short_id = ${shortId} WHERE id = ${id}::uuid`,
+  );
+  await sql`ALTER TABLE ai.project_references ALTER COLUMN short_id SET NOT NULL`.simple();
 
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES ai.projects(id) ON DELETE SET NULL`.simple();
   await sql`

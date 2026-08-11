@@ -2,16 +2,15 @@ import type { AiProject, AiProjectAccess, AiProjectFile, AiProjectKnowledge, AiP
 import { arg, type CloudCliContext, command, confirmFlag, flag, readCliInput } from "@valentinkolb/cloud/cli";
 import { jsonRequest, printRows, printValue, readProjectsApi, requireConfirmation } from "./shared";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const path = (projectId: string, suffix = ""): string => `/${encodeURIComponent(projectId)}${suffix}`;
 
 const listProjects = (ctx: CloudCliContext): Promise<{ projects: AiProject[] }> => readProjectsApi(ctx, "/");
 
 const resolveProject = async (ctx: CloudCliContext, reference: string): Promise<AiProject> => {
-  if (UUID_RE.test(reference)) return (await readProjectsApi<{ project: AiProject }>(ctx, path(reference))).project;
-  const matches = (await listProjects(ctx)).projects.filter(
-    (project) => project.name.localeCompare(reference, undefined, { sensitivity: "accent" }) === 0,
-  );
+  const projects = (await listProjects(ctx)).projects;
+  const byId = projects.find((project) => project.shortId === reference);
+  if (byId) return byId;
+  const matches = projects.filter((project) => project.name.localeCompare(reference, undefined, { sensitivity: "accent" }) === 0);
   if (matches.length === 1) return matches[0]!;
   if (matches.length > 1) throw new Error(`Multiple Projects are named "${reference}". Use the Project ID.`);
   throw new Error(`Unknown Project "${reference}". Use its exact name or ID.`);
@@ -29,7 +28,7 @@ export const assistantProjectCommands = [
         ctx,
         result,
         result.projects.map((project) => ({
-          id: project.id,
+          id: project.shortId,
           name: project.name,
           permission: project.permission,
           revision: project.revision,
@@ -45,7 +44,7 @@ export const assistantProjectCommands = [
     args: { project: arg.required({ valueLabel: "project-id-or-name" }) },
     async run({ ctx, args }) {
       const project = await resolveProject(ctx, args.project);
-      printValue(ctx, await readProjectsApi(ctx, path(project.id)));
+      printValue(ctx, await readProjectsApi(ctx, path(project.shortId)));
     },
   }),
   command("projects create", {
@@ -70,7 +69,7 @@ export const assistantProjectCommands = [
           ...(flags.model ? { defaultModelProfileId: flags.model } : {}),
         }),
       );
-      printValue(ctx, result, `${result.project.id}\t${result.project.name}`);
+      printValue(ctx, result, `${result.project.shortId}\t${result.project.name}`);
     },
   }),
   command("projects update", {
@@ -94,7 +93,7 @@ export const assistantProjectCommands = [
         ...(flags.model !== undefined ? { defaultModelProfileId: flags.model || null } : {}),
       };
       if (!Object.keys(changes).length) throw new Error("Supply a changed Project field.");
-      printValue(ctx, await readProjectsApi(ctx, path(project.id), jsonRequest("PATCH", changes)), `Updated ${project.name}.`);
+      printValue(ctx, await readProjectsApi(ctx, path(project.shortId), jsonRequest("PATCH", changes)), `Updated ${project.name}.`);
     },
   }),
   command("projects delete", {
@@ -104,7 +103,7 @@ export const assistantProjectCommands = [
     async run({ ctx, args, flags }) {
       requireConfirmation(flags.yes, "Deleting a Project");
       const project = await resolveProject(ctx, args.project);
-      printValue(ctx, await readProjectsApi(ctx, path(project.id), { method: "DELETE" }), `Deleted ${project.name}.`);
+      printValue(ctx, await readProjectsApi(ctx, path(project.shortId), { method: "DELETE" }), `Deleted ${project.name}.`);
     },
   }),
   command("projects knowledge list", {
@@ -114,11 +113,11 @@ export const assistantProjectCommands = [
     async run({ ctx, args, flags }) {
       const project = await resolveProject(ctx, args.project);
       const suffix = `/knowledge${flags.search ? `?q=${encodeURIComponent(flags.search)}` : ""}`;
-      const result = await readProjectsApi<{ knowledge: AiProjectKnowledge[] }>(ctx, path(project.id, suffix));
+      const result = await readProjectsApi<{ knowledge: AiProjectKnowledge[] }>(ctx, path(project.shortId, suffix));
       printRows(
         ctx,
         result,
-        result.knowledge.map((item) => ({ id: item.id, title: item.title, updated: item.updatedAt })),
+        result.knowledge.map((item) => ({ id: item.shortId, title: item.title, updated: item.updatedAt })),
         [{ key: "id" }, { key: "title" }, { key: "updated" }],
       );
     },
@@ -130,7 +129,7 @@ export const assistantProjectCommands = [
     async run({ ctx, args, flags }) {
       const project = await resolveProject(ctx, args.project);
       const content = await readText(flags.content, "Project knowledge", true);
-      printValue(ctx, await readProjectsApi(ctx, path(project.id, "/knowledge"), jsonRequest("POST", { title: args.title, content })));
+      printValue(ctx, await readProjectsApi(ctx, path(project.shortId, "/knowledge"), jsonRequest("POST", { title: args.title, content })));
     },
   }),
   command("projects knowledge update", {
@@ -147,7 +146,11 @@ export const assistantProjectCommands = [
       if (!Object.keys(changes).length) throw new Error("Supply --title or --content.");
       printValue(
         ctx,
-        await readProjectsApi(ctx, path(project.id, `/knowledge/${encodeURIComponent(args.knowledge)}`), jsonRequest("PATCH", changes)),
+        await readProjectsApi(
+          ctx,
+          path(project.shortId, `/knowledge/${encodeURIComponent(args.knowledge)}`),
+          jsonRequest("PATCH", changes),
+        ),
       );
     },
   }),
@@ -160,7 +163,7 @@ export const assistantProjectCommands = [
       const project = await resolveProject(ctx, args.project);
       printValue(
         ctx,
-        await readProjectsApi(ctx, path(project.id, `/knowledge/${encodeURIComponent(args.knowledge)}`), { method: "DELETE" }),
+        await readProjectsApi(ctx, path(project.shortId, `/knowledge/${encodeURIComponent(args.knowledge)}`), { method: "DELETE" }),
       );
     },
   }),
@@ -169,11 +172,11 @@ export const assistantProjectCommands = [
     args: { project: arg.required({ valueLabel: "project-id-or-name" }) },
     async run({ ctx, args }) {
       const project = await resolveProject(ctx, args.project);
-      const result = await readProjectsApi<{ files: AiProjectFile[] }>(ctx, path(project.id, "/files"));
+      const result = await readProjectsApi<{ files: AiProjectFile[] }>(ctx, path(project.shortId, "/files"));
       printRows(
         ctx,
         result,
-        result.files.map((file) => ({ id: file.id, path: file.path, type: file.mediaType, size: file.size })),
+        result.files.map((file) => ({ id: file.shortId, path: file.path, type: file.mediaType, size: file.size })),
         [{ key: "id" }, { key: "path" }, { key: "type" }, { key: "size" }],
       );
     },
@@ -191,7 +194,7 @@ export const assistantProjectCommands = [
         ctx,
         await readProjectsApi(
           ctx,
-          path(project.id, "/files"),
+          path(project.shortId, "/files"),
           jsonRequest("POST", {
             path: projectPath,
             mediaType: flags.mediaType ?? (file.type || "application/octet-stream"),
@@ -208,7 +211,7 @@ export const assistantProjectCommands = [
     flags: { output: flag.string({ required: true, valueLabel: "local-path" }) },
     async run({ ctx, args, flags }) {
       const project = await resolveProject(ctx, args.project);
-      const result = await readProjectsApi<{ content: string }>(ctx, path(project.id, `/files/${encodeURIComponent(args.file)}`));
+      const result = await readProjectsApi<{ content: string }>(ctx, path(project.shortId, `/files/${encodeURIComponent(args.file)}`));
       if (!flags.output) throw new Error("Pass --output.");
       await Bun.write(flags.output, Buffer.from(result.content, "base64"));
       printValue(ctx, result, `Wrote ${flags.output}.`);
@@ -221,7 +224,7 @@ export const assistantProjectCommands = [
     async run({ ctx, args, flags }) {
       requireConfirmation(flags.yes, "Deleting a Project file");
       const project = await resolveProject(ctx, args.project);
-      printValue(ctx, await readProjectsApi(ctx, path(project.id, `/files/${encodeURIComponent(args.file)}`), { method: "DELETE" }));
+      printValue(ctx, await readProjectsApi(ctx, path(project.shortId, `/files/${encodeURIComponent(args.file)}`), { method: "DELETE" }));
     },
   }),
   command("projects references list", {
@@ -229,12 +232,12 @@ export const assistantProjectCommands = [
     args: { project: arg.required({ valueLabel: "project-id-or-name" }) },
     async run({ ctx, args }) {
       const project = await resolveProject(ctx, args.project);
-      const result = await readProjectsApi<{ references: AiProjectReference[] }>(ctx, path(project.id, "/references"));
+      const result = await readProjectsApi<{ references: AiProjectReference[] }>(ctx, path(project.shortId, "/references"));
       printRows(
         ctx,
         result,
         result.references.map((reference) => ({
-          id: reference.id,
+          id: reference.shortId,
           label: reference.label,
           type: reference.ref.type,
           resource: reference.ref.id,
@@ -257,7 +260,7 @@ export const assistantProjectCommands = [
         ctx,
         await readProjectsApi(
           ctx,
-          path(project.id, "/references"),
+          path(project.shortId, "/references"),
           jsonRequest("POST", {
             ref: { type: args.type, id: args.resource },
             label: flags.label ?? "",
@@ -275,7 +278,7 @@ export const assistantProjectCommands = [
       const project = await resolveProject(ctx, args.project);
       printValue(
         ctx,
-        await readProjectsApi(ctx, path(project.id, `/references/${encodeURIComponent(args.reference)}`), { method: "DELETE" }),
+        await readProjectsApi(ctx, path(project.shortId, `/references/${encodeURIComponent(args.reference)}`), { method: "DELETE" }),
       );
     },
   }),
@@ -284,12 +287,12 @@ export const assistantProjectCommands = [
     args: { project: arg.required({ valueLabel: "project-id-or-name" }) },
     async run({ ctx, args }) {
       const project = await resolveProject(ctx, args.project);
-      const result = await readProjectsApi<{ access: AiProjectAccess[] }>(ctx, path(project.id, "/access"));
+      const result = await readProjectsApi<{ access: AiProjectAccess[] }>(ctx, path(project.shortId, "/access"));
       printRows(
         ctx,
         result,
         result.access.map((entry) => ({
-          id: entry.id,
+          id: entry.shortId,
           principal: entry.displayName ?? entry.principal.type,
           permission: entry.permission,
         })),
@@ -314,7 +317,7 @@ export const assistantProjectCommands = [
             : { type: "service_account" as const, serviceAccountId: args.principal };
       printValue(
         ctx,
-        await readProjectsApi(ctx, path(project.id, "/access"), jsonRequest("POST", { principal, permission: flags.permission })),
+        await readProjectsApi(ctx, path(project.shortId, "/access"), jsonRequest("POST", { principal, permission: flags.permission })),
       );
     },
   }),
@@ -328,7 +331,7 @@ export const assistantProjectCommands = [
         ctx,
         await readProjectsApi(
           ctx,
-          path(project.id, `/access/${encodeURIComponent(args.access)}`),
+          path(project.shortId, `/access/${encodeURIComponent(args.access)}`),
           jsonRequest("PATCH", { permission: flags.permission }),
         ),
       );
@@ -341,7 +344,10 @@ export const assistantProjectCommands = [
     async run({ ctx, args, flags }) {
       requireConfirmation(flags.yes, "Revoking Project access");
       const project = await resolveProject(ctx, args.project);
-      printValue(ctx, await readProjectsApi(ctx, path(project.id, `/access/${encodeURIComponent(args.access)}`), { method: "DELETE" }));
+      printValue(
+        ctx,
+        await readProjectsApi(ctx, path(project.shortId, `/access/${encodeURIComponent(args.access)}`), { method: "DELETE" }),
+      );
     },
   }),
 ] as const;

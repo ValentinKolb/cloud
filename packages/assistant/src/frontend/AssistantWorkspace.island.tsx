@@ -435,7 +435,7 @@ export default function AssistantWorkspace(props: Props) {
         onNewConversation={() => void createAndFocusConversation()}
         onOpenProjects={() =>
           openAssistantProjectsDialog(async (project) => {
-            await createConversation(true, project.id);
+            await createConversation(true, project.shortId);
           })
         }
         onOpenConversation={openAndFocusConversation}

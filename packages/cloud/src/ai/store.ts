@@ -4,6 +4,7 @@ import { sql } from "bun";
 import { logger } from "../services/logging";
 import { toPgTextArray } from "../services/postgres";
 import type { AiTurnBlock } from "./protocol";
+import { withAiShortId } from "./short-id";
 import type {
   AiConversation,
   AiConversationPage,
@@ -69,6 +70,7 @@ const isSearchCapabilityError = (error: unknown): boolean =>
 
 type ConversationRow = {
   id: string;
+  short_id: string;
   app_id: string;
   resource_kind: "direct" | "resource";
   resource_app_id: string | null;
@@ -115,6 +117,7 @@ type EnrichmentRunRow = {
 
 type MessageRow = {
   id: string;
+  short_id: string;
   conversation_id: string;
   seq: number;
   kind: "message" | "summary";
@@ -133,6 +136,7 @@ type MessageRow = {
 
 type TurnRow = {
   id: string;
+  short_id: string;
   conversation_id: string;
   status: AiTurnStatus;
   attempt: number;
@@ -263,6 +267,7 @@ const conversationRunStatus = (status: AiTurnStatus | null | undefined): AiConve
 
 const rowToConversation = (row: ConversationRow): AiConversation => ({
   id: row.id,
+  shortId: row.short_id,
   appId: row.app_id,
   title: row.title,
   titleSource: fieldSource(row.title_source),
@@ -326,6 +331,7 @@ const rowToMessage = (row: MessageRow): AiStoredMessage => {
   const message = parseJsonValue<Message>(row.message);
   return {
     id: row.id,
+    shortId: row.short_id,
     conversationId: row.conversation_id,
     seq: row.seq,
     kind: row.kind,
@@ -345,6 +351,7 @@ const rowToMessage = (row: MessageRow): AiStoredMessage => {
 
 const rowToTurn = (row: TurnRow): AiTurn => ({
   id: row.id,
+  shortId: row.short_id,
   conversationId: row.conversation_id,
   status: row.status,
   attempt: Number(row.attempt ?? 0),
@@ -444,7 +451,8 @@ const resourceFilter = (resource: AiConversationResource | undefined, fallbackAp
 };
 
 const loadConversationSummary = async (input: {
-  conversationId: string;
+  conversationId?: string;
+  shortId?: string;
   appId?: string;
   ownerUserId?: string;
   resource?: AiConversationResource;
@@ -465,7 +473,8 @@ const loadConversationSummary = async (input: {
       ORDER BY created_at DESC, id DESC
       LIMIT 1
     ) latest ON TRUE
-    WHERE conversation.id = ${input.conversationId}
+    WHERE (${input.conversationId ?? null}::uuid IS NULL OR conversation.id = ${input.conversationId ?? null}::uuid)
+      AND (${input.shortId ?? null}::text IS NULL OR conversation.short_id = ${input.shortId ?? null})
       AND (${input.appId ?? null}::text IS NULL OR conversation.app_id = ${input.appId ?? null})
       AND (${input.ownerUserId ?? null}::uuid IS NULL OR conversation.created_by_user_id = ${input.ownerUserId ?? null})
       AND (${resource?.kind ?? null}::text IS NULL OR conversation.resource_kind = ${resource?.kind ?? null})
@@ -526,8 +535,11 @@ const insertMessageLocked = async (input: {
       >`SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM ai.messages WHERE conversation_id = ${input.conversationId} AND seq > 0`;
   const seq = seqRows[0]?.seq ?? 1;
 
-  const rows = await sql<MessageRow[]>`
+  const rows = await withAiShortId(
+    "idx_ai_messages_conversation_short_id",
+    (shortId) => sql<MessageRow[]>`
     INSERT INTO ai.messages (
+      short_id,
       conversation_id,
       seq,
       kind,
@@ -542,6 +554,7 @@ const insertMessageLocked = async (input: {
       meta
     )
     VALUES (
+      ${shortId},
       ${input.conversationId},
       ${seq},
       ${input.kind ?? "message"},
@@ -556,7 +569,8 @@ const insertMessageLocked = async (input: {
       ${input.meta ? JSON.stringify(input.meta) : null}::jsonb
     )
     RETURNING *
-  `;
+  `,
+  );
 
   const title = firstText(input.message);
   if (seq === 1 && title) {
@@ -587,8 +601,11 @@ const appendTurnOwnedMessage = async (input: {
   meta?: AiStoredMessage["meta"];
 }): Promise<boolean> => {
   const { usage, providerModel, stopReason } = messageColumns(input.message);
-  const rows = await sql<{ id: string }[]>`
+  const rows = await withAiShortId(
+    "idx_ai_messages_conversation_short_id",
+    (shortId) => sql<{ id: string }[]>`
     INSERT INTO ai.messages (
+      short_id,
       conversation_id,
       seq,
       kind,
@@ -602,6 +619,7 @@ const appendTurnOwnedMessage = async (input: {
       meta
     )
     SELECT
+      ${shortId},
       ${input.conversationId},
       CASE
         WHEN ${input.seq ?? null}::int IS NOT NULL AND ${input.seq ?? null}::int > 0 THEN ${input.seq ?? null}::int
@@ -625,7 +643,8 @@ const appendTurnOwnedMessage = async (input: {
         AND lease_owner = ${input.leaseOwner}
     )
     RETURNING id
-  `;
+  `,
+  );
   if (rows[0]) {
     await sql`UPDATE ai.conversations SET updated_at = now() WHERE id = ${input.conversationId}`;
     return true;
@@ -649,8 +668,11 @@ const toolPresentationMeta = (
 export const aiConversationStore: AiConversationStore = {
   createConversation: async (input) => {
     const resource = resourceColumns(input.resource, input.appId);
-    const rows = await sql<ConversationRow[]>`
+    const rows = await withAiShortId(
+      "idx_ai_conversations_short_id",
+      (shortId) => sql<ConversationRow[]>`
       INSERT INTO ai.conversations (
+        short_id,
         app_id,
         resource_kind,
         resource_app_id,
@@ -663,6 +685,7 @@ export const aiConversationStore: AiConversationStore = {
         created_by_user_id
       )
       VALUES (
+        ${shortId},
         ${input.appId},
         ${resource.resourceKind},
         ${resource.resourceAppId},
@@ -675,7 +698,8 @@ export const aiConversationStore: AiConversationStore = {
         ${input.ownerUserId}
       )
       RETURNING *
-    `;
+    `,
+    );
     return rowToConversation(rows[0]!);
   },
 
@@ -835,6 +859,10 @@ export const aiConversationStore: AiConversationStore = {
   },
 
   getConversation: async (input) => {
+    return loadConversationSummary(input);
+  },
+
+  getConversationByShortId: async (input) => {
     return loadConversationSummary(input);
   },
 
@@ -1204,6 +1232,7 @@ export const aiConversationStore: AiConversationStore = {
       WITH normalized AS (
         SELECT
           id,
+          short_id,
           seq,
           role,
           loop_id,
@@ -1256,9 +1285,9 @@ export const aiConversationStore: AiConversationStore = {
         GROUP BY turn_id
       )
       SELECT
-        users.id,
+        users.short_id AS id,
         users.seq,
-        users.loop_id,
+        COALESCE(timeline_turn.short_id, users.loop_id) AS loop_id,
         left(
           regexp_replace(
             regexp_replace(users.visible_text, '<attachment path="[^"]+" media-type="[^"]*" size="[0-9]+" />', '', 'g'),
@@ -1282,6 +1311,7 @@ export const aiConversationStore: AiConversationStore = {
         users.created_at
       FROM user_rows users
       LEFT JOIN tool_summary tools ON tools.loop_id = users.loop_id
+      LEFT JOIN ai.turns timeline_turn ON timeline_turn.id::text = users.loop_id
       ORDER BY users.seq ASC
     `;
     return rows.map((row) => ({
@@ -1329,6 +1359,7 @@ export const aiConversationStore: AiConversationStore = {
       await sql`SELECT id FROM ai.conversations WHERE id = ${input.targetConversationId} FOR UPDATE`;
       await sql`
         INSERT INTO ai.messages (
+          short_id,
           conversation_id,
           seq,
           kind,
@@ -1343,6 +1374,7 @@ export const aiConversationStore: AiConversationStore = {
           loop_done_reason
         )
         SELECT
+          short_id,
           ${input.targetConversationId},
           seq,
           kind,
@@ -1441,21 +1473,26 @@ export const aiConversationStore: AiConversationStore = {
   },
 
   createTurn: async (input) => {
-    const rows = await sql<TurnRow[]>`
+    const rows = await withAiShortId(
+      "idx_ai_turns_conversation_short_id",
+      (shortId) => sql<TurnRow[]>`
       INSERT INTO ai.turns (
+        short_id,
         conversation_id,
         model_profile_id,
         status,
         run_config
       )
       VALUES (
+        ${shortId},
         ${input.conversationId},
         ${input.modelProfileId},
         'queued',
         (${input.runConfig ? JSON.stringify(input.runConfig) : null}::text)::jsonb
       )
       RETURNING *
-    `;
+    `,
+    );
     return rowToTurn(rows[0]!);
   },
 
@@ -1470,21 +1507,26 @@ export const aiConversationStore: AiConversationStore = {
             AND seq >= ${Math.floor(input.truncateFromSeq)}
         `;
       }
-      const turnRows = await sql<TurnRow[]>`
+      const turnRows = await withAiShortId(
+        "idx_ai_turns_conversation_short_id",
+        (shortId) => sql<TurnRow[]>`
         INSERT INTO ai.turns (
+          short_id,
           conversation_id,
           model_profile_id,
           status,
           run_config
         )
         VALUES (
+          ${shortId},
           ${input.conversationId},
           ${input.modelProfileId},
           'queued',
           (${JSON.stringify(input.runConfig)}::text)::jsonb
         )
         RETURNING *
-      `;
+      `,
+      );
       const turn = rowToTurn(turnRows[0]!);
       const messageRow = await insertMessageLocked({
         conversationId: input.conversationId,
@@ -1501,6 +1543,17 @@ export const aiConversationStore: AiConversationStore = {
       FROM ai.turns
       WHERE id = ${input.turnId}
         AND conversation_id = ${input.conversationId}
+      LIMIT 1
+    `;
+    return rows[0] ? rowToTurn(rows[0]) : null;
+  },
+
+  getTurnByShortId: async (input) => {
+    const rows = await sql<TurnRow[]>`
+      SELECT *
+      FROM ai.turns
+      WHERE short_id = ${input.shortId}
+        AND conversation_id = ${input.conversationId}::uuid
       LIMIT 1
     `;
     return rows[0] ? rowToTurn(rows[0]) : null;

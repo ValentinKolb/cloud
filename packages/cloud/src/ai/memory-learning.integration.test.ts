@@ -3,6 +3,7 @@ import { sql } from "bun";
 import { aiMemories } from "./memories";
 import { learnAiMemoriesFromPrivateChats } from "./memory-learning";
 import { migrateCloudAi } from "./migrate";
+import { createAiShortId } from "./short-id";
 import type { AiResolvedModel } from "./types";
 
 const canUseAiDatabase = async () => {
@@ -25,13 +26,14 @@ describe.skipIf(!(await canUseAiDatabase()))("AI memory learning (integration)",
       RETURNING id
     `;
     const [conversation] = await sql<{ id: string; dirty_as_of: string }[]>`
-      INSERT INTO ai.conversations (app_id, created_by_user_id, title)
-      VALUES ('assistant', ${user!.id}::uuid, 'Memory learning test')
+      INSERT INTO ai.conversations (short_id, app_id, created_by_user_id, title)
+      VALUES (${createAiShortId()}, 'assistant', ${user!.id}::uuid, 'Memory learning test')
       RETURNING id, updated_at::text AS dirty_as_of
     `;
     await sql`
-      INSERT INTO ai.messages (conversation_id, seq, role, message)
+      INSERT INTO ai.messages (short_id, conversation_id, seq, role, message)
       VALUES (
+        ${createAiShortId()},
         ${conversation!.id}::uuid,
         1,
         'user',

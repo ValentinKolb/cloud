@@ -7,6 +7,7 @@ import { aiMemories } from "./memories";
 import { migrateCloudAi } from "./migrate";
 import type { AiWireEvent } from "./protocol";
 import { createAiProvider } from "./provider";
+import { createAiShortId } from "./short-id";
 import { aiConversationStore } from "./store";
 import { aiStreamTopic } from "./stream";
 import type { AiModelProfile, AiTurnFinalizedEvent } from "./types";
@@ -414,8 +415,8 @@ suite("AI executor integration", () => {
     const userId = await insertUser();
     const projectId = "11111111-1111-4111-8111-111111111111";
     await sql`
-      INSERT INTO ai.projects (id, name, instructions, owner_user_id, revision)
-      VALUES (${projectId}::uuid, 'Meeting summary', 'Current instructions that must not replace the snapshot.', ${userId}::uuid, 5)
+      INSERT INTO ai.projects (id, short_id, name, instructions, owner_user_id, revision)
+      VALUES (${projectId}::uuid, ${createAiShortId()}, 'Meeting summary', 'Current instructions that must not replace the snapshot.', ${userId}::uuid, 5)
     `;
     const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
 

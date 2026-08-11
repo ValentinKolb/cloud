@@ -67,7 +67,7 @@ export const encodeSseEvent = (event: AiStreamSseEvent): Uint8Array =>
 export const encodeSseHeartbeat = (): Uint8Array => encoder.encode(": heartbeat\n\n");
 
 const turnSnapshotFromActive = (active: NonNullable<Awaited<ReturnType<typeof aiConversationStore.getActiveTurn>>>): AiTurnSnapshot => ({
-  turnId: active.turn.id,
+  turnId: active.turn.shortId,
   attempt: active.turn.attempt,
   status: active.turn.status,
   seq: active.liveSeq,
@@ -87,8 +87,8 @@ export const loadAiStreamState = async (conversation: AiConversation): Promise<E
   const snapshot = active ? turnSnapshotFromActive(active) : null;
   if (snapshot) {
     const [steers, resolvedActions] = await Promise.all([
-      aiConversationStore.listTurnSteers({ conversationId: conversation.id, turnId: snapshot.turnId }),
-      aiConversationStore.listResolvedPendingActions({ conversationId: conversation.id, turnId: snapshot.turnId }),
+      aiConversationStore.listTurnSteers({ conversationId: conversation.id, turnId: active!.turn.id }),
+      aiConversationStore.listResolvedPendingActions({ conversationId: conversation.id, turnId: active!.turn.id }),
     ]);
     snapshot.blocks = reconcileResolvedTurnActions(snapshot.blocks, resolvedActions);
     const known = new Set(snapshot.blocks.map((block) => block.id));
@@ -108,8 +108,8 @@ export const loadAiStreamState = async (conversation: AiConversation): Promise<E
   }
   return {
     type: "state",
-    conversation,
-    messages: page.messages,
+    conversation: { ...conversation, id: conversation.shortId },
+    messages: page.messages.map((message) => ({ ...message, id: message.shortId, conversationId: conversation.shortId })),
     hasMoreMessages: page.hasMore,
     activeTurn: snapshot,
   };
@@ -198,9 +198,21 @@ export const createAiConversationStreamResponse = (input: {
 
         // Forwarding gate: events of the snapshot turn continue from the snapshot
         // position; other turns only start at their turn_started event.
-        let current: { turnId: string; attempt: number; seq: number } | null = state.activeTurn
-          ? { turnId: state.activeTurn.turnId, attempt: state.activeTurn.attempt, seq: state.activeTurn.seq }
+        const activeTurn = state.activeTurn
+          ? await aiConversationStore.getTurnByShortId({
+              conversationId: input.conversation.id,
+              shortId: state.activeTurn.turnId,
+            })
           : null;
+        let current: { turnId: string; publicTurnId: string; attempt: number; seq: number } | null =
+          state.activeTurn && activeTurn
+            ? {
+                turnId: activeTurn.id,
+                publicTurnId: state.activeTurn.turnId,
+                attempt: state.activeTurn.attempt,
+                seq: state.activeTurn.seq,
+              }
+            : null;
 
         for await (const received of aiStreamTopic.live({
           tenantId: input.conversation.id,
@@ -213,17 +225,35 @@ export const createAiConversationStreamResponse = (input: {
           } else if (event.type !== "turn_started") {
             continue;
           }
-          current = { turnId: event.turnId, attempt: event.attempt, seq: event.seq };
-
+          const publicTurnId =
+            current?.turnId === event.turnId
+              ? current.publicTurnId
+              : (await aiConversationStore.getTurn({ conversationId: input.conversation.id, turnId: event.turnId }))?.shortId;
+          if (!publicTurnId) continue;
+          current = { turnId: event.turnId, publicTurnId, attempt: event.attempt, seq: event.seq };
           if (event.type === "turn_finished") {
             const messages = await aiConversationStore
               .listTurnMessages({ conversationId: event.conversationId, loopId: event.turnId })
               .catch(() => []);
-            if (!enqueue(encodeSseEvent({ ...event, messages }))) return;
+            if (
+              !enqueue(
+                encodeSseEvent({
+                  ...event,
+                  conversationId: input.conversation.shortId,
+                  turnId: publicTurnId,
+                  messages: messages.map((message) => ({
+                    ...message,
+                    id: message.shortId,
+                    conversationId: input.conversation.shortId,
+                  })),
+                }),
+              )
+            )
+              return;
             continue;
           }
 
-          if (!enqueue(encodeSseEvent(event))) return;
+          if (!enqueue(encodeSseEvent({ ...event, conversationId: input.conversation.shortId, turnId: publicTurnId }))) return;
         }
       } catch (error) {
         if (!liveAbort.signal.aborted) {

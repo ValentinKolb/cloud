@@ -21,12 +21,14 @@ export default ssr<AuthContext>(async (c) => {
   const initial = await resolveInitialConversation({
     requestedConversationId,
     conversations,
-    loadConversation: (conversationId) => aiConversationStore.getConversation({ conversationId, appId: "assistant", ownerUserId: user.id }),
+    loadConversation: (shortId) => aiConversationStore.getConversationByShortId({ shortId, appId: "assistant", ownerUserId: user.id }),
   });
   const resolvedActiveConversation = initial.activeConversation;
-  if (requestedConversationId && resolvedActiveConversation?.id !== requestedConversationId) {
+  if (requestedConversationId && resolvedActiveConversation?.shortId !== requestedConversationId) {
     return c.redirect(
-      resolvedActiveConversation ? `/app/assistant?conversation=${encodeURIComponent(resolvedActiveConversation.id)}` : "/app/assistant",
+      resolvedActiveConversation
+        ? `/app/assistant?conversation=${encodeURIComponent(resolvedActiveConversation.shortId)}`
+        : "/app/assistant",
       302,
     );
   }
@@ -39,7 +41,9 @@ export default ssr<AuthContext>(async (c) => {
   }
   const activeConversation = resolvedActiveConversation ? { ...resolvedActiveConversation, unreadCompletion: false } : null;
   const initialConversations = initial.conversations.map((conversation) =>
-    conversation.id === activeConversation?.id ? { ...conversation, unreadCompletion: false } : conversation,
+    conversation.id === activeConversation?.id
+      ? { ...conversation, id: conversation.shortId, unreadCompletion: false }
+      : { ...conversation, id: conversation.shortId },
   );
   const [initialDetail, initialTimeline] = activeConversation
     ? await Promise.all([
@@ -55,7 +59,7 @@ export default ssr<AuthContext>(async (c) => {
         models={models}
         lastModelId={prefs.lastModelId}
         initialConversations={initialConversations}
-        initialConversationId={activeConversation?.id ?? null}
+        initialConversationId={activeConversation?.shortId ?? null}
         initialArtifactPath={initialArtifactPath}
         initialDetail={
           initialDetail

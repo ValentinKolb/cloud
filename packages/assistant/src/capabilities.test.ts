@@ -33,6 +33,7 @@ const context: CapabilityExecutionContext = {
 
 const chat: AiConversation = {
   id: "22222222-2222-4222-8222-222222222222",
+  shortId: "cHt234",
   appId: "assistant",
   title: "Release planning",
   titleSource: "user",
@@ -54,6 +55,7 @@ const chat: AiConversation = {
 
 const storedMessage = (seq: number, message: AiStoredMessage["message"], overrides: Partial<AiStoredMessage> = {}): AiStoredMessage => ({
   id: `${seq.toString().padStart(8, "0")}-0000-4000-8000-000000000000`,
+  shortId: `mSg23${seq + 1}`,
   conversationId: chat.id,
   seq,
   kind: "message",
@@ -99,9 +101,9 @@ describe("Assistant capabilities", () => {
       data: {
         data: [
           {
-            ref: { type: "assistant.chat", id: chat.id },
+            ref: { type: "assistant.chat", id: chat.shortId },
             title: chat.title,
-            links: [{ rel: "open", href: `/app/assistant?conversation=${chat.id}` }],
+            links: [{ rel: "open", href: `/app/assistant?conversation=${chat.shortId}` }],
           },
         ],
       },
@@ -110,7 +112,7 @@ describe("Assistant capabilities", () => {
 
   test("reads bounded visible text without thinking or tool results", async () => {
     const longText = "x".repeat(8_001);
-    const get = spyOn(aiConversationStore, "getConversation").mockResolvedValue(chat);
+    const get = spyOn(aiConversationStore, "getConversationByShortId").mockResolvedValue(chat);
     spyOn(aiConversationStore, "listMessagesPage").mockResolvedValue({
       messages: [
         storedMessage(1, { role: "user", content: [{ type: "text", text: "Please plan it." }] }),
@@ -127,21 +129,21 @@ describe("Assistant capabilities", () => {
       hasMore: true,
     });
 
-    const result = await assistantCapabilities.queries["chat.read"].run({ id: chat.id, limit: 20 }, context);
+    const result = await assistantCapabilities.queries["chat.read"].run({ id: chat.shortId, limit: 20 }, context);
 
-    expect(get).toHaveBeenCalledWith({ conversationId: chat.id, appId: "assistant", ownerUserId: user.id });
+    expect(get).toHaveBeenCalledWith({ shortId: chat.shortId, appId: "assistant", ownerUserId: user.id });
     expect(result).toMatchObject({
       ok: true,
       data: {
         data: {
-          chat: { id: chat.id, title: chat.title },
+          chat: { id: chat.shortId, title: chat.title },
           messages: [
             { seq: 1, role: "user", text: "Please plan it.", truncated: false },
             { seq: 2, role: "assistant", truncated: true },
           ],
         },
-        refs: [{ type: "assistant.chat", id: chat.id }],
-        links: [{ rel: "open", href: `/app/assistant?conversation=${chat.id}` }],
+        refs: [{ type: "assistant.chat", id: chat.shortId }],
+        links: [{ rel: "open", href: `/app/assistant?conversation=${chat.shortId}` }],
         page: { hasMore: true, nextCursor: "1" },
       },
     });
@@ -153,9 +155,9 @@ describe("Assistant capabilities", () => {
   });
 
   test("does not reveal missing or other users' chats", async () => {
-    spyOn(aiConversationStore, "getConversation").mockResolvedValue(null);
+    spyOn(aiConversationStore, "getConversationByShortId").mockResolvedValue(null);
 
-    const result = await assistantCapabilities.queries["chat.read"].run({ id: chat.id, limit: 20 }, context);
+    const result = await assistantCapabilities.queries["chat.read"].run({ id: chat.shortId, limit: 20 }, context);
 
     expect(result).toEqual({ ok: false, error: { code: "NOT_FOUND", message: "Chat not found", status: 404 } });
   });

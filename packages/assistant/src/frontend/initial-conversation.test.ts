@@ -4,6 +4,7 @@ import { resolveInitialConversation } from "./initial-conversation";
 
 const conversation = (id: string): AiConversation => ({
   id,
+  shortId: id,
   appId: "assistant",
   title: id,
   titleSource: "default",

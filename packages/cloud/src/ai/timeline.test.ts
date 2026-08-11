@@ -12,6 +12,7 @@ const stored = (input: {
   createdAt?: string;
 }): AiStoredMessage => ({
   id: input.id,
+  shortId: input.id,
   conversationId: "conversation-1",
   seq: input.seq,
   kind: "message",

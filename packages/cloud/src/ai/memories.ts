@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import { logger } from "../services/logging";
+import { withAiShortId } from "./short-id";
 
 export const AI_MEMORY_CONTENT_MAX_CHARS = 500;
 export const AI_MEMORY_HOT_MAX_ITEMS = 20;
@@ -11,6 +12,7 @@ export type AiMemorySource = "user" | "agent" | "background";
 
 export type AiMemory = {
   id: string;
+  shortId: string;
   userId: string;
   kind: AiMemoryKind;
   content: string;
@@ -24,6 +26,7 @@ export type AiMemory = {
 
 type MemoryRow = {
   id: string;
+  short_id: string;
   user_id: string;
   kind: AiMemoryKind;
   content: string;
@@ -45,6 +48,7 @@ let backendPromise: Promise<SearchBackend> | null = null;
 
 const toMemory = (row: MemoryRow): AiMemory => ({
   id: row.id,
+  shortId: row.short_id,
   userId: row.user_id,
   kind: row.kind,
   content: row.content,
@@ -96,7 +100,7 @@ export const isAiMemoryBm25CapabilityError = (error: unknown): boolean => {
 
 const listActive = async (userId: string, limit: number): Promise<AiMemory[]> => {
   const rows = await sql<MemoryRow[]>`
-    SELECT id, user_id, kind, content, priority, source, source_conversation_id, source_message_id, created_at, updated_at
+    SELECT id, short_id, user_id, kind, content, priority, source, source_conversation_id, source_message_id, created_at, updated_at
     FROM ai.memories
     WHERE user_id = ${userId}::uuid AND deleted_at IS NULL AND superseded_by_id IS NULL
     ORDER BY (priority = 'pinned') DESC, updated_at DESC, id ASC
@@ -112,7 +116,7 @@ const searchRows = async (input: { userId: string; query: string; limit: number;
   const rows =
     input.backend === "bm25"
       ? await sql<MemoryRow[]>`
-          SELECT id, user_id, kind, content, priority, source, source_conversation_id, source_message_id, created_at, updated_at
+          SELECT id, short_id, user_id, kind, content, priority, source, source_conversation_id, source_message_id, created_at, updated_at
           FROM ai.memories
           WHERE user_id = ${input.userId}::uuid
             AND deleted_at IS NULL AND superseded_by_id IS NULL
@@ -125,7 +129,7 @@ const searchRows = async (input: { userId: string; query: string; limit: number;
           LIMIT ${input.limit}
         `
       : await sql<MemoryRow[]>`
-          SELECT id, user_id, kind, content, priority, source, source_conversation_id, source_message_id, created_at, updated_at
+          SELECT id, short_id, user_id, kind, content, priority, source, source_conversation_id, source_message_id, created_at, updated_at
           FROM ai.memories
           WHERE user_id = ${input.userId}::uuid
             AND deleted_at IS NULL AND superseded_by_id IS NULL
@@ -191,9 +195,18 @@ export const aiMemories = {
 
   async get(userId: string, memoryId: string): Promise<AiMemory | null> {
     const rows = await sql<MemoryRow[]>`
-      SELECT id, user_id, kind, content, priority, source, source_conversation_id, source_message_id, created_at, updated_at
+      SELECT id, short_id, user_id, kind, content, priority, source, source_conversation_id, source_message_id, created_at, updated_at
       FROM ai.memories
       WHERE id = ${memoryId}::uuid AND user_id = ${userId}::uuid AND deleted_at IS NULL AND superseded_by_id IS NULL
+    `;
+    return rows[0] ? toMemory(rows[0]) : null;
+  },
+
+  async getByShortId(userId: string, shortId: string): Promise<AiMemory | null> {
+    const rows = await sql<MemoryRow[]>`
+      SELECT id, short_id, user_id, kind, content, priority, source, source_conversation_id, source_message_id, created_at, updated_at
+      FROM ai.memories
+      WHERE short_id = ${shortId} AND user_id = ${userId}::uuid AND deleted_at IS NULL AND superseded_by_id IS NULL
     `;
     return rows[0] ? toMemory(rows[0]) : null;
   },
@@ -209,9 +222,12 @@ export const aiMemories = {
   }): Promise<AiMemory> {
     const content = normalizeContent(input.content);
     if (!content) throw new Error("Memory content is required.");
-    const rows = await sql<MemoryRow[]>`
-      INSERT INTO ai.memories (user_id, kind, content, priority, source, source_conversation_id, source_message_id)
+    const rows = await withAiShortId(
+      "idx_ai_memories_short_id",
+      (shortId) => sql<MemoryRow[]>`
+      INSERT INTO ai.memories (short_id, user_id, kind, content, priority, source, source_conversation_id, source_message_id)
       VALUES (
+        ${shortId},
         ${input.userId}::uuid,
         ${input.kind},
         ${content},
@@ -222,8 +238,9 @@ export const aiMemories = {
       )
       ON CONFLICT (user_id, lower(content)) WHERE deleted_at IS NULL AND superseded_by_id IS NULL
       DO UPDATE SET updated_at = ai.memories.updated_at
-      RETURNING id, user_id, kind, content, priority, source, source_conversation_id, source_message_id, created_at, updated_at
-    `;
+      RETURNING id, short_id, user_id, kind, content, priority, source, source_conversation_id, source_message_id, created_at, updated_at
+    `,
+    );
     return toMemory(rows[0]!);
   },
 
@@ -249,15 +266,39 @@ export const aiMemories = {
           source_conversation_id = COALESCE(${patch.sourceConversationId ?? null}::uuid, source_conversation_id),
           updated_at = now()
       WHERE id = ${memoryId}::uuid AND user_id = ${userId}::uuid AND deleted_at IS NULL AND superseded_by_id IS NULL
-      RETURNING id, user_id, kind, content, priority, source, source_conversation_id, source_message_id, created_at, updated_at
+      RETURNING id, short_id, user_id, kind, content, priority, source, source_conversation_id, source_message_id, created_at, updated_at
     `;
     return rows[0] ? toMemory(rows[0]) : null;
+  },
+
+  async updateByShortId(
+    userId: string,
+    shortId: string,
+    patch: {
+      kind?: AiMemoryKind;
+      content?: string;
+      priority?: AiMemoryPriority;
+      source?: AiMemorySource;
+      sourceConversationId?: string;
+    },
+  ): Promise<AiMemory | null> {
+    const memory = await this.getByShortId(userId, shortId);
+    return memory ? this.update(userId, memory.id, patch) : null;
   },
 
   async delete(userId: string, memoryId: string): Promise<boolean> {
     const rows = await sql<{ id: string }[]>`
       UPDATE ai.memories SET deleted_at = now(), updated_at = now()
       WHERE id = ${memoryId}::uuid AND user_id = ${userId}::uuid AND deleted_at IS NULL AND superseded_by_id IS NULL
+      RETURNING id
+    `;
+    return Boolean(rows[0]);
+  },
+
+  async deleteByShortId(userId: string, shortId: string): Promise<boolean> {
+    const rows = await sql<{ id: string }[]>`
+      UPDATE ai.memories SET deleted_at = now(), updated_at = now()
+      WHERE short_id = ${shortId} AND user_id = ${userId}::uuid AND deleted_at IS NULL AND superseded_by_id IS NULL
       RETURNING id
     `;
     return Boolean(rows[0]);

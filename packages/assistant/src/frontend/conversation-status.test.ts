@@ -4,6 +4,7 @@ import { conversationStatusPresentation } from "./conversation-view";
 
 const conversation = (overrides: Partial<AiConversation> = {}): AiConversation => ({
   id: "chat-1",
+  shortId: "cHt234",
   appId: "assistant",
   title: "Chat",
   titleSource: "default",

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AccessSubject } from "../server";
 import { aiProjects } from "./projects";
+import { AI_SHORT_ID_PATTERN } from "./short-id";
 import { defineAiTool } from "./tools";
 
 const ProjectContextItemSchema = z.object({
@@ -16,7 +17,7 @@ const ProjectContextItemSchema = z.object({
 export const CloudAiProjectContextInputSchema = z.object({
   action: z.enum(["list", "search", "read"]),
   query: z.string().trim().max(200).optional().describe("Search terms required for search."),
-  id: z.string().uuid().optional().describe("Knowledge or file id required for read."),
+  id: z.string().regex(AI_SHORT_ID_PATTERN).optional().describe("Readable knowledge or file id required for read."),
 });
 
 export const CloudAiProjectContextOutputSchema = z.object({
@@ -48,12 +49,12 @@ export const createCloudAiProjectContextTool = (projectId: string, subject: Acce
 
     if (input.action === "read") {
       if (!input.id) return { ok: false, message: "An item id is required." };
-      const knowledge = (await aiProjects.listKnowledge(projectId, subject)).find((item) => item.id === input.id);
+      const knowledge = (await aiProjects.listKnowledge(projectId, subject)).find((item) => item.shortId === input.id);
       if (knowledge) {
         return {
           ok: true,
           message: `Read knowledge entry ${knowledge.title}.`,
-          items: [{ id: knowledge.id, kind: "knowledge" as const, title: knowledge.title, content: knowledge.content }],
+          items: [{ id: knowledge.shortId, kind: "knowledge" as const, title: knowledge.title, content: knowledge.content }],
         };
       }
       const file = await aiProjects.readFile(projectId, input.id, subject);
@@ -66,7 +67,7 @@ export const createCloudAiProjectContextTool = (projectId: string, subject: Acce
         message: `Read Project file ${file.path}.`,
         items: [
           {
-            id: file.id,
+            id: file.shortId,
             kind: "file" as const,
             title: file.path,
             mediaType: file.mediaType,
@@ -85,17 +86,17 @@ export const createCloudAiProjectContextTool = (projectId: string, subject: Acce
       aiProjects.listReferences(projectId, subject),
     ]);
     const items = [
-      ...knowledge.map((item) => ({ id: item.id, kind: "knowledge" as const, title: item.title })),
+      ...knowledge.map((item) => ({ id: item.shortId, kind: "knowledge" as const, title: item.title })),
       ...files
         .filter((file) => !query || file.path.toLowerCase().includes(query))
-        .map((file) => ({ id: file.id, kind: "file" as const, title: file.path, mediaType: file.mediaType, size: file.size })),
+        .map((file) => ({ id: file.shortId, kind: "file" as const, title: file.path, mediaType: file.mediaType, size: file.size })),
       ...references
         .filter(
           (reference) =>
             !query || [reference.label, reference.ref.type, reference.ref.id].some((value) => value.toLowerCase().includes(query)),
         )
         .map((reference) => ({
-          id: reference.id,
+          id: reference.shortId,
           kind: "reference" as const,
           title: reference.label || reference.ref.id,
           ref: reference.ref,

@@ -17,6 +17,7 @@ const {
 
 const conversation = (id: string): AiConversation => ({
   id,
+  shortId: "cNv234",
   appId: "assistant",
   title: id,
   titleSource: "default",

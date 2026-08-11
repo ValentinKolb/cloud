@@ -13,7 +13,7 @@ export const resolveInitialConversation = async (
     return { activeConversation: input.conversations[0] ?? null, conversations: input.conversations };
   }
 
-  const listed = input.conversations.find((conversation) => conversation.id === input.requestedConversationId);
+  const listed = input.conversations.find((conversation) => conversation.shortId === input.requestedConversationId);
   if (listed) return { activeConversation: listed, conversations: input.conversations };
 
   const requested = await input.loadConversation(input.requestedConversationId);

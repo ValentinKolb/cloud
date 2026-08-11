@@ -38,9 +38,8 @@ describe("AI HTTP input helpers", () => {
   });
 
   test("accepts a project only when creating a conversation", () => {
-    expect(AiCreateConversationInputSchema.parse({ projectId: "11111111-1111-4111-8111-111111111111" }).projectId).toBe(
-      "11111111-1111-4111-8111-111111111111",
-    );
+    expect(AiCreateConversationInputSchema.parse({ projectId: "pRk234" }).projectId).toBe("pRk234");
+    expect(() => AiCreateConversationInputSchema.parse({ projectId: "11111111-1111-4111-8111-111111111111" })).toThrow();
     expect(() => AiCreateConversationInputSchema.parse({ projectId: "meeting-summary" })).toThrow();
   });
 

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrateCloudAi } from "./migrate";
 import { aiProjects } from "./projects";
+import { AI_SHORT_ID_PATTERN } from "./short-id";
 import { aiConversationStore } from "./store";
 
 const canUseAiDatabase = async () => {
@@ -53,6 +54,7 @@ describe.skipIf(!(await canUseAiDatabase()))("aiProjects (integration)", () => {
         permission: "write",
       });
       expect(grant?.permission).toBe("write");
+      expect(grant?.shortId).toMatch(AI_SHORT_ID_PATTERN);
 
       const visible = await aiProjects.get(project.id, member, "write");
       expect(visible?.permission).toBe("write");
@@ -69,6 +71,10 @@ describe.skipIf(!(await canUseAiDatabase()))("aiProjects (integration)", () => {
         ref: { type: "notebooks.notebook", id: "support-runbook" },
         label: "Runbook",
       });
+      expect(project.shortId).toMatch(AI_SHORT_ID_PATTERN);
+      expect(knowledge?.shortId).toMatch(AI_SHORT_ID_PATTERN);
+      expect(file?.shortId).toMatch(AI_SHORT_ID_PATTERN);
+      expect(reference?.shortId).toMatch(AI_SHORT_ID_PATTERN);
       expect(knowledge).not.toBeNull();
       expect(file).not.toBeNull();
       expect(reference).not.toBeNull();
