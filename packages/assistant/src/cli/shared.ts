@@ -18,6 +18,11 @@ export const jsonRequest = (method: string, body?: unknown): RequestInit => ({
   body: body === undefined ? undefined : JSON.stringify(body),
 });
 
+export const idempotentJsonRequest = (method: string, body?: unknown): RequestInit => {
+  const request = jsonRequest(method, body);
+  return { ...request, headers: { ...request.headers, "Idempotency-Key": crypto.randomUUID() } };
+};
+
 export const readApi = async <T>(ctx: CloudCliContext, path: string, init?: RequestInit): Promise<T> =>
   ctx.readJson<T>(await ctx.fetch(`${ASSISTANT_API}${path}`, init));
 

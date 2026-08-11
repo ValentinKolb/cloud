@@ -2,6 +2,7 @@ import { createAiChatRoutes } from "@valentinkolb/cloud/ai";
 import { type AuthContext, auth, err, fail, type RequestActor, rateLimit, respond } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
 import { Hono } from "hono";
+import { chatTaskRoutes } from "../chat-tasks-routes";
 import { assistantChatPrompt } from "../prompt";
 
 const ASSISTANT_APP_ID = "assistant";
@@ -41,6 +42,7 @@ const app = new Hono<AuthContext>()
   .use(rateLimit())
   .use("*", auth.requireRole("authenticated"))
   .use("*", auth.requireUser())
+  .route("/", chatTaskRoutes)
   .route("/", chatRoutes);
 
 export default app;

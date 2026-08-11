@@ -13,6 +13,15 @@ export {
 } from "./approvals";
 export { type AiAttachmentRef, aiAttachmentMarker, formatAiFileSize, parseAiAttachmentMarkers } from "./attachments";
 export { aiCapabilityToolName } from "./capabilities";
+export {
+  type AiChatTask,
+  AiChatTaskIdempotencyConflictError,
+  type AiChatTaskOccurrence,
+  type AiChatTaskOccurrenceState,
+  type AiChatTaskSchedule,
+  type AiChatTaskState,
+  aiChatTasks,
+} from "./chat-tasks";
 export { parseAiSse } from "./client/transport";
 export { listAiCredentialProfileIds } from "./credentials";
 export {
@@ -175,6 +184,7 @@ export {
   AiTurnActionSchema,
   abortAiTurn,
   deliverAiInterChatMessage,
+  enqueueExistingAiTurn,
   isAiSettingsError,
   listPendingAiTurnActions,
   type SubmitAiChatTurnInput,

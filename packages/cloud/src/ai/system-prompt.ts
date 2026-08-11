@@ -19,6 +19,7 @@ export const aiGlobalInstructionsContext = (input: {
   user?: Pick<User, "displayName" | "uid" | "mail">;
   appId?: string;
   now?: Date;
+  timeZone?: string;
 }): Record<string, unknown> => aiPromptContext(input);
 
 /** Render the admin global instructions as Liquid; fall back to the raw template on render errors. */
@@ -60,6 +61,8 @@ export type AiSystemPromptInput = {
   /** The user's memory block; only rendered when memoryEnabled. */
   memory?: string;
   now?: Date;
+  /** IANA timezone used for the runtime clock. */
+  timeZone?: string;
 };
 
 /**
@@ -78,6 +81,7 @@ export const composeAiSystemPrompt = (input: AiSystemPromptInput): string => {
     capabilitiesEnabled: input.capabilitiesEnabled,
     tools: input.toolHints,
     now: input.now,
+    timeZone: input.timeZone,
   };
 
   let platform: string;

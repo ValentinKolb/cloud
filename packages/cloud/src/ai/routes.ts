@@ -1,6 +1,7 @@
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import { type ApiErrorResponse, type AuthContext, err, fail, ok, type RequestActor, respond, v } from "../server";
+import { coreSettings } from "../services/settings/api";
 import type { AiToolApprovalContext } from "./approvals";
 import { createConfiguredDefaultCloudAiTools } from "./default-tools";
 import { AI_FILES_MAX_FILE_BYTES_DEFAULT, aiFileStore, decodeAiFileContent, guessAiMediaType, normalizeAiFilePath } from "./files-store";
@@ -285,6 +286,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
             ? [...(await createConfiguredDefaultCloudAiTools()), ...(memoryEnabled ? [createCloudAiMemoryTool()] : [])]
             : [];
         const memoryToolEnabled = tools.some((tool) => tool.def.name === "memory");
+        const timeZone = String((await coreSettings.get<string>("app.timezone")) || "").trim() || "UTC";
         const prompt = composeAiSystemPrompt({
           globalInstructions: state.globalInstructions,
           appPrompt: ctx.systemPrompt,
@@ -296,6 +298,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
           capabilitiesEnabled: ctx.toolSource.kind === "default" && toolsSupported && ctx.toolSource.capabilities === true,
           toolHints: aiToolPromptHints(tools),
           memory: memory?.text,
+          timeZone,
         });
         return respond(c, ok({ prompt, renderedAt: new Date().toISOString() }));
       })

@@ -163,6 +163,39 @@ user-authored text. A message-triggered turn cannot forward another inter-chat
 message, preventing autonomous loops. Busy targets retain the pending message
 and retry delivery after a turn finishes or the Assistant service starts.
 
+Assistant scheduled tasks are owned by a user and attached to one private
+chat, never directly to a Project. A task stores an exact future prompt plus
+either one local wall-clock time or a five-field cron expression. Both are
+interpreted with the current `app.timezone` when the task is created; the
+effective IANA timezone is stored with the schedule. One-time input uses
+`YYYY-MM-DDTHH:mm` and rejects nonexistent or ambiguous local times instead of
+guessing.
+
+The Assistant API adds `/tasks`, `/tasks/status`, plus `/tasks/:taskId` update, delete, pause,
+resume, and run routes. The capability surface exposes `tasks.list` and the
+canonical `task.read` resource reader, together with reviewed `task.create`,
+`task.update`, `task.pause`, `task.resume`, `task.run`, and `task.delete`
+Actions. Agent-created changes use normal capability review. Creation and
+manual runs additionally require durable idempotency keys; replacement,
+state-change, and deletion Actions are explicitly non-retryable after an
+ambiguous transport failure.
+
+PostgreSQL is the source of truth for tasks and occurrence history. A Sync
+scheduler registers recurring tasks and runs one minutely recovery pass to
+reconcile those registrations and recover due one-time work or queued
+occurrences. Each schedule slot has an
+idempotency key, and a task can have at most one queued or running occurrence.
+The recovery pass also finalizes occurrences whose AI turn became terminal
+while the Assistant listener was unavailable, and submits at most one queued
+occurrence per currently idle chat so busy chats cannot starve unrelated work.
+At delivery, the runtime locks the chat, refuses overlap with an active turn,
+loads current Project access and context if the chat belongs to a Project, and
+queues an ordinary durable chat turn. Transient failures retry; terminal
+failures move the task to `needs_attention` and create a user notification.
+Recurring tasks can then be resumed; a failed one-time task must be updated
+with a new future schedule because its original slot remains immutable history.
+Deleting the chat cascades to all of its tasks and occurrences.
+
 `allowConversationManagement` enables metadata editing, pinning, archiving,
 and restore for direct chats.
 

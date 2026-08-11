@@ -1,21 +1,33 @@
 import { err, fail, ok } from "@k2b/stdlib";
 import {
   AI_SHORT_ID_PATTERN,
+  type AiChatTask,
+  AiChatTaskIdempotencyConflictError,
   type AiConversation,
   type AiConversationResourceRef,
   type AiStoredMessage,
   aiCapabilityToolName,
+  aiChatTasks,
   aiConversationStore,
   isConversationResourceCursor,
 } from "@valentinkolb/cloud/ai";
 import {
   CloudResourceRefSchema,
   type CloudResourceView,
+  capabilityIdempotencyConflict,
   capabilityPage,
   defineCapabilities,
   UniversalSearchDataSchema,
 } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
+import {
+  ChatTaskIdSchema,
+  ChatTaskOccurrenceIdSchema,
+  ChatTaskScheduleInputSchema,
+  chatTaskCreateFingerprint,
+  normalizeChatTaskSchedule,
+} from "./chat-tasks-contracts";
+import { assistantChatTaskRuntime, reconcileAssistantChatTasks } from "./chat-tasks-runtime";
 import { deliverPendingAssistantMessages } from "./inter-chat-messages";
 
 const ASSISTANT_APP_ID = "assistant";
@@ -35,6 +47,95 @@ const resourceCursorSchema = (scope: "conversation" | "user") =>
     .optional()
     .describe("Opaque cursor returned by the previous resource page.");
 const CHAT_MESSAGE_TOOL_NAME = aiCapabilityToolName(ASSISTANT_APP_ID, "action", "chat.message");
+const ChatTaskCreateInputSchema = z
+  .object({
+    chatId: ChatIdSchema,
+    prompt: z.string().trim().min(1).max(10_000).describe("Exact prompt to deliver to this chat when the task runs."),
+    schedule: ChatTaskScheduleInputSchema.describe("When this task should run."),
+    timezone: z.string().min(1).max(100).describe("Exact IANA timezone from the current runtime context."),
+  })
+  .strict();
+const ChatTaskUpdateInputSchema = z
+  .object({
+    taskId: ChatTaskIdSchema,
+    prompt: z.string().trim().min(1).max(10_000).optional().describe("Replacement prompt delivered when the task runs."),
+    schedule: ChatTaskScheduleInputSchema.optional().describe("Replacement one-time or recurring schedule."),
+    timezone: z.string().min(1).max(100).optional().describe("Required with schedule; copy the current runtime IANA timezone."),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.prompt === undefined && value.schedule === undefined)
+      context.addIssue({ code: "custom", message: "Provide a prompt or schedule" });
+    if (value.schedule !== undefined && value.timezone === undefined)
+      context.addIssue({ code: "custom", path: ["timezone"], message: "Provide the runtime timezone with a schedule" });
+    if (value.schedule === undefined && value.timezone !== undefined)
+      context.addIssue({ code: "custom", path: ["timezone"], message: "Timezone is only used with a schedule" });
+  });
+const ChatTaskIdInputSchema = z.object({ taskId: ChatTaskIdSchema }).strict();
+const ChatTaskReadInputSchema = z.object({ id: ChatTaskIdSchema.describe("Readable ID of the scheduled task to read.") }).strict();
+const ChatTasksListInputSchema = z
+  .object({
+    chatId: ChatIdSchema.optional().describe("Optional readable chat ID to limit the task list."),
+    state: z.enum(["active", "paused", "completed", "needs_attention"]).optional().describe("Optional task lifecycle state."),
+    limit: z.number().int().min(1).max(50).default(20).describe("Maximum number of tasks to return."),
+  })
+  .strict();
+const ChatTaskDataSchema = z
+  .object({
+    id: ChatTaskIdSchema,
+    chatId: ChatIdSchema,
+    chatTitle: z.string(),
+    prompt: z.string(),
+    schedule: z.union([z.object({ kind: z.literal("once"), runAt: z.string() }), z.object({ kind: z.literal("cron"), cron: z.string() })]),
+    timezone: z.string(),
+    state: z.enum(["active", "paused", "completed", "needs_attention"]),
+    lastError: z.string().nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .strict();
+const ChatTaskDetailDataSchema = z
+  .object({
+    task: ChatTaskDataSchema,
+    occurrences: z.array(
+      z.object({
+        id: ChatTaskOccurrenceIdSchema,
+        scheduledFor: z.string(),
+        trigger: z.enum(["scheduled", "manual"]),
+        state: z.enum(["queued", "running", "completed", "failed"]),
+        error: z.string().nullable(),
+        createdAt: z.string(),
+        completedAt: z.string().nullable(),
+      }),
+    ),
+  })
+  .strict();
+
+const taskData = (task: AiChatTask): z.infer<typeof ChatTaskDataSchema> => ({
+  id: task.shortId,
+  chatId: task.chatId,
+  chatTitle: task.chatTitle,
+  prompt: task.prompt,
+  schedule: task.schedule,
+  timezone: task.timezone,
+  state: task.state,
+  lastError: task.lastError,
+  createdAt: task.createdAt,
+  updatedAt: task.updatedAt,
+});
+const taskScheduleLabel = (task: AiChatTask): string =>
+  task.schedule.kind === "once" ? `${task.schedule.runAt} (${task.timezone})` : `${task.schedule.cron} (${task.timezone})`;
+const invalidTaskState = (task: AiChatTask, action: "pause" | "resume" | "run"): string | null => {
+  if (action === "pause")
+    return task.state === "active" || task.state === "paused" ? null : `Task ${task.shortId} cannot be paused while ${task.state}`;
+  if (action === "resume")
+    return task.state === "needs_attention" && task.schedule.kind === "once"
+      ? `Task ${task.shortId} needs a new future schedule before it can resume`
+      : task.state === "paused" || task.state === "needs_attention" || task.state === "active"
+        ? null
+        : `Task ${task.shortId} cannot be resumed while ${task.state}`;
+  return task.state === "active" ? null : `Task ${task.shortId} cannot run while ${task.state}`;
+};
 
 const ChatsSearchInputSchema = z
   .object({
@@ -221,8 +322,59 @@ export const assistantCapabilities = defineCapabilities({
       icon: "ti ti-message-chatbot",
       reader: "chat.read",
     },
+    task: {
+      title: "Scheduled Assistant task",
+      description: "A one-time or recurring prompt attached to an owned Assistant chat.",
+      icon: "ti ti-calendar-clock",
+      reader: "task.read",
+    },
   },
   queries: {
+    "tasks.list": {
+      title: "List scheduled Assistant tasks",
+      description: "List the current user's chat-bound scheduled tasks, optionally for one chat or state.",
+      input: ChatTasksListInputSchema,
+      data: z.array(ChatTaskDataSchema),
+      openWorld: false,
+      async run(input, context) {
+        if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
+        const tasks = await aiChatTasks.list({ appId: ASSISTANT_APP_ID, userId: context.user.id, ...input });
+        return ok({ data: tasks.map(taskData), refs: tasks.map((task) => ({ type: "assistant.task", id: task.shortId })) });
+      },
+    },
+    "task.read": {
+      title: "Read a scheduled Assistant task",
+      description: "Read one owned scheduled task and its recent occurrence history.",
+      input: ChatTaskReadInputSchema,
+      data: ChatTaskDetailDataSchema,
+      openWorld: false,
+      async run(input, context) {
+        if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
+        const task = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.id });
+        if (!task) return fail(err.notFound("Task"));
+        const occurrences =
+          (await aiChatTasks.listOccurrences({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.id })) ?? [];
+        return ok({
+          data: {
+            task: taskData(task),
+            occurrences: occurrences.map((occurrence) => ({
+              id: occurrence.shortId,
+              scheduledFor: occurrence.scheduledFor,
+              trigger: occurrence.trigger,
+              state: occurrence.state,
+              error: occurrence.error,
+              createdAt: occurrence.createdAt,
+              completedAt: occurrence.completedAt,
+            })),
+          },
+          refs: [
+            { type: "assistant.task", id: task.shortId },
+            { type: "assistant.chat", id: task.chatId },
+          ],
+          links: [{ rel: "open", href: chatHref(task.chatId) }],
+        });
+      },
+    },
     "chats.search": {
       title: "Search Assistant chats",
       description: "Find the current user's Assistant chats by text and exact Cloud resource refs.",
@@ -341,6 +493,287 @@ export const assistantCapabilities = defineCapabilities({
     },
   },
   actions: {
+    "task.create": {
+      title: "Create a scheduled Assistant task",
+      description: "Create one reviewed future prompt in an owned Assistant chat. Resolve relative user wording to localAt before calling.",
+      input: ChatTaskCreateInputSchema,
+      data: ChatTaskDataSchema,
+      destructive: false,
+      openWorld: false,
+      idempotency: "required",
+      async review(input, context) {
+        if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
+        const chat = await ownedChat(input.chatId, context.user.id);
+        if (!chat) return fail(err.notFound("Chat"));
+        try {
+          const normalized = await normalizeChatTaskSchedule(input.schedule, input.timezone);
+          const schedule = normalized.schedule.kind === "once" ? normalized.schedule.runAt : normalized.schedule.cron;
+          return ok({
+            message: `Create a scheduled task in ${chat.title} (${chat.shortId}).`,
+            details: [
+              { label: "Chat", value: `${chat.title} (${chat.shortId})` },
+              { label: "Schedule", value: `${schedule} (${normalized.timezone})` },
+              { label: "Prompt", value: input.prompt },
+            ],
+          });
+        } catch (error) {
+          return fail(err.badInput(error instanceof Error ? error.message : "Invalid schedule"));
+        }
+      },
+      async run(input, context) {
+        if (!context.user || !context.idempotencyKey) return fail(err.forbidden("Scheduled tasks require an idempotent user action"));
+        const idempotencyFingerprint = chatTaskCreateFingerprint(input);
+        try {
+          const replay = await aiChatTasks.getCreateByIdempotency({
+            appId: ASSISTANT_APP_ID,
+            userId: context.user.id,
+            idempotencyKey: context.idempotencyKey,
+            idempotencyFingerprint,
+          });
+          if (replay)
+            return ok({
+              data: taskData(replay),
+              refs: [
+                { type: "assistant.task", id: replay.shortId },
+                { type: "assistant.chat", id: replay.chatId },
+              ],
+            });
+        } catch (error) {
+          if (error instanceof AiChatTaskIdempotencyConflictError) return fail(capabilityIdempotencyConflict(error.message));
+          throw error;
+        }
+        let normalized: Awaited<ReturnType<typeof normalizeChatTaskSchedule>>;
+        try {
+          normalized = await normalizeChatTaskSchedule(input.schedule, input.timezone);
+        } catch (error) {
+          return fail(err.badInput(error instanceof Error ? error.message : "Invalid schedule"));
+        }
+        let task: AiChatTask | null;
+        try {
+          task = await aiChatTasks.create({
+            appId: ASSISTANT_APP_ID,
+            userId: context.user.id,
+            chatId: input.chatId,
+            prompt: input.prompt,
+            ...normalized,
+            idempotencyKey: context.idempotencyKey,
+            idempotencyFingerprint,
+          });
+        } catch (error) {
+          if (error instanceof AiChatTaskIdempotencyConflictError) return fail(capabilityIdempotencyConflict(error.message));
+          throw error;
+        }
+        if (!task) return fail(err.notFound("Chat"));
+        void reconcileAssistantChatTasks().catch(() => undefined);
+        return ok({
+          data: taskData(task),
+          refs: [
+            { type: "assistant.task", id: task.shortId },
+            { type: "assistant.chat", id: task.chatId },
+          ],
+        });
+      },
+    },
+    "task.update": {
+      title: "Update a scheduled Assistant task",
+      description: "Update the prompt or future schedule of one owned task after reviewing the exact replacement.",
+      input: ChatTaskUpdateInputSchema,
+      data: ChatTaskDataSchema,
+      destructive: true,
+      openWorld: false,
+      idempotency: "none",
+      async review(input, context) {
+        if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
+        const task = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        if (!task) return fail(err.notFound("Task"));
+        try {
+          const normalized = input.schedule ? await normalizeChatTaskSchedule(input.schedule, input.timezone) : null;
+          const nextSchedule = normalized?.schedule ?? task.schedule;
+          return ok({
+            message: `Update scheduled task ${task.shortId}.`,
+            details: [
+              { label: "Chat", value: `${task.chatTitle} (${task.chatId})` },
+              {
+                label: "Schedule",
+                value: taskScheduleLabel({ ...task, schedule: nextSchedule, timezone: normalized?.timezone ?? task.timezone }),
+              },
+              { label: "Prompt", value: input.prompt ?? task.prompt },
+            ],
+          });
+        } catch (error) {
+          return fail(err.badInput(error instanceof Error ? error.message : "Invalid schedule"));
+        }
+      },
+      async run(input, context) {
+        if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
+        let normalized: Partial<Awaited<ReturnType<typeof normalizeChatTaskSchedule>>> = {};
+        try {
+          if (input.schedule) normalized = await normalizeChatTaskSchedule(input.schedule, input.timezone);
+        } catch (error) {
+          return fail(err.badInput(error instanceof Error ? error.message : "Invalid schedule"));
+        }
+        const task = await aiChatTasks.update({
+          appId: ASSISTANT_APP_ID,
+          userId: context.user.id,
+          taskId: input.taskId,
+          prompt: input.prompt,
+          ...normalized,
+        });
+        if (!task) return fail(err.notFound("Task"));
+        void reconcileAssistantChatTasks().catch(() => undefined);
+        return ok({ data: taskData(task), refs: [{ type: "assistant.task", id: task.shortId }] });
+      },
+    },
+    "task.pause": {
+      title: "Pause a scheduled Assistant task",
+      description: "Pause one owned scheduled task after review.",
+      input: ChatTaskIdInputSchema,
+      data: ChatTaskDataSchema,
+      destructive: true,
+      openWorld: false,
+      idempotency: "none",
+      async review(input, context) {
+        if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
+        const task = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        if (!task) return fail(err.notFound("Task"));
+        const stateError = invalidTaskState(task, "pause");
+        if (stateError) return fail(err.conflict(stateError));
+        return ok({
+          message: `Pause scheduled task ${task.shortId}.`,
+          details: [
+            { label: "Task", value: task.prompt },
+            { label: "Schedule", value: taskScheduleLabel(task) },
+          ],
+        });
+      },
+      async run(input, context) {
+        if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
+        const current = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        if (!current) return fail(err.notFound("Task"));
+        const stateError = invalidTaskState(current, "pause");
+        if (stateError) return fail(err.conflict(stateError));
+        const task = await aiChatTasks.setState({
+          appId: ASSISTANT_APP_ID,
+          userId: context.user.id,
+          taskId: input.taskId,
+          state: "paused",
+        });
+        if (!task) return fail(err.conflict("Task state changed; read it and retry"));
+        void reconcileAssistantChatTasks().catch(() => undefined);
+        return ok({ data: taskData(task), refs: [{ type: "assistant.task", id: task.shortId }] });
+      },
+    },
+    "task.resume": {
+      title: "Resume a scheduled Assistant task",
+      description: "Resume one owned scheduled task after review.",
+      input: ChatTaskIdInputSchema,
+      data: ChatTaskDataSchema,
+      destructive: true,
+      openWorld: false,
+      idempotency: "none",
+      async review(input, context) {
+        if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
+        const task = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        if (!task) return fail(err.notFound("Task"));
+        const stateError = invalidTaskState(task, "resume");
+        if (stateError) return fail(err.conflict(stateError));
+        return ok({
+          message: `Resume scheduled task ${task.shortId}.`,
+          details: [
+            { label: "Task", value: task.prompt },
+            { label: "Schedule", value: taskScheduleLabel(task) },
+          ],
+        });
+      },
+      async run(input, context) {
+        if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
+        const current = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        if (!current) return fail(err.notFound("Task"));
+        const stateError = invalidTaskState(current, "resume");
+        if (stateError) return fail(err.conflict(stateError));
+        const task = await aiChatTasks.setState({
+          appId: ASSISTANT_APP_ID,
+          userId: context.user.id,
+          taskId: input.taskId,
+          state: "active",
+        });
+        if (!task) return fail(err.conflict("Task state changed; read it and retry"));
+        void reconcileAssistantChatTasks().catch(() => undefined);
+        return ok({ data: taskData(task), refs: [{ type: "assistant.task", id: task.shortId }] });
+      },
+    },
+    "task.run": {
+      title: "Run a scheduled Assistant task now",
+      description: "Queue one manual occurrence without changing the future schedule.",
+      input: ChatTaskIdInputSchema,
+      data: z.object({ id: ChatTaskOccurrenceIdSchema, state: z.enum(["queued", "running", "completed", "failed"]) }),
+      destructive: false,
+      openWorld: false,
+      idempotency: "required",
+      async review(input, context) {
+        if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
+        const task = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        if (!task) return fail(err.notFound("Task"));
+        const stateError = invalidTaskState(task, "run");
+        if (stateError) return fail(err.conflict(stateError));
+        return ok({
+          message: `Run scheduled task ${task.shortId} now.`,
+          details: [
+            { label: "Chat", value: `${task.chatTitle} (${task.chatId})` },
+            { label: "Prompt", value: task.prompt },
+          ],
+        });
+      },
+      async run(input, context) {
+        if (!context.user || !context.idempotencyKey) return fail(err.forbidden("Scheduled tasks require an idempotent user action"));
+        const task = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        if (!task) return fail(err.notFound("Task"));
+        let occurrence: Awaited<ReturnType<typeof aiChatTasks.createOccurrence>>;
+        try {
+          occurrence = await aiChatTasks.createOccurrence({
+            taskId: task.id,
+            scheduledFor: new Date().toISOString(),
+            trigger: "manual",
+            requestKey: `manual:${ASSISTANT_APP_ID}:${context.user.id}:${context.idempotencyKey}`,
+          });
+        } catch (error) {
+          if (error instanceof AiChatTaskIdempotencyConflictError) return fail(capabilityIdempotencyConflict(error.message));
+          throw error;
+        }
+        if (!occurrence) return fail(err.conflict("This task already has a queued or running occurrence"));
+        void assistantChatTaskRuntime.recover().catch(() => undefined);
+        return ok({ data: { id: occurrence.shortId, state: occurrence.state }, refs: [{ type: "assistant.task", id: task.shortId }] });
+      },
+    },
+    "task.delete": {
+      title: "Delete a scheduled Assistant task",
+      description: "Delete one task and all of its occurrence history after review.",
+      input: ChatTaskIdInputSchema,
+      data: z.object({ deleted: z.literal(true) }),
+      destructive: true,
+      openWorld: false,
+      idempotency: "none",
+      async review(input, context) {
+        if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
+        const task = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        if (!task) return fail(err.notFound("Task"));
+        return ok({
+          message: `Delete scheduled task ${task.shortId} and its run history.`,
+          details: [
+            { label: "Chat", value: `${task.chatTitle} (${task.chatId})` },
+            { label: "Prompt", value: task.prompt },
+            { label: "Schedule", value: taskScheduleLabel(task) },
+          ],
+        });
+      },
+      async run(input, context) {
+        if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
+        if (!(await aiChatTasks.delete({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId })))
+          return fail(err.notFound("Task"));
+        void reconcileAssistantChatTasks().catch(() => undefined);
+        return ok({ data: { deleted: true as const } });
+      },
+    },
     "chat.message": {
       title: "Message another Assistant chat",
       description: "Queue one attributable message for another owned Assistant chat after reviewing the exact target and text.",

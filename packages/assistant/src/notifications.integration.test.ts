@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { aiConversationStore, createAiShortId, migrateCloudAi } from "@valentinkolb/cloud/ai";
+import { aiChatTasks, aiConversationStore, createAiShortId, migrateCloudAi } from "@valentinkolb/cloud/ai";
 import { registerNotificationDefinitions } from "@valentinkolb/cloud/services/notifications/catalog";
 import { sql } from "bun";
 import { app } from "./config";
@@ -105,6 +105,58 @@ suite("Assistant completion notifications", () => {
       expect(deliveries[0]?.payload_encrypted).toBeNull();
     } finally {
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
+  test("notifies once when a scheduled task needs attention", async () => {
+    const suffix = crypto.randomUUID();
+    const [user] = await sql<{ id: string }[]>`
+      INSERT INTO auth.users (uid, provider, profile, display_name, mail, given_name, sn)
+      VALUES (${`assistant-task-notify-${suffix}`}, 'local', 'user', 'Assistant Task Notify', ${`assistant-task-notify-${suffix}@example.test`}, 'Assistant', 'Notify')
+      RETURNING id
+    `;
+    const conversation = await aiConversationStore.createConversation({ appId: "assistant", ownerUserId: user!.id });
+    const service = createAssistantNotificationService(app.notifications);
+
+    try {
+      const runAt = new Date(Date.now() + 60_000).toISOString();
+      const task = await aiChatTasks.create({
+        appId: "assistant",
+        userId: user!.id,
+        chatId: conversation.shortId,
+        prompt: "Check the release.",
+        schedule: { kind: "once", runAt },
+        timezone: "Europe/Berlin",
+      });
+      const occurrence = await aiChatTasks.createOccurrence({
+        taskId: task!.id,
+        scheduledFor: runAt,
+        trigger: "scheduled",
+        requestKey: `test:${suffix}`,
+      });
+      await aiChatTasks.failOccurrence({ occurrenceId: occurrence!.id, error: "Model profile unavailable" });
+
+      const first = await service.notifyTaskNeedsAttention(occurrence!.id);
+      expect(first.failed).toBe(0);
+      expect(first.scanned).toBe(first.sent);
+      expect(first.scanned).toBeLessThanOrEqual(1);
+      expect(await service.notifyTaskNeedsAttention(occurrence!.id)).toEqual({ scanned: 0, sent: 0, failed: 0 });
+
+      const events = await sql<{ title: string; target_href: string | null; idempotency_key: string }[]>`
+        SELECT title, target_href, idempotency_key
+        FROM notifications.events
+        WHERE definition_id = ${app.notifications.taskNeedsAttention.id}
+          AND recipient_user_id = ${user!.id}::uuid
+      `;
+      expect(events).toEqual([
+        {
+          title: `Scheduled task ${task!.shortId} needs attention`,
+          target_href: `/app/assistant?conversation=${conversation.shortId}`,
+          idempotency_key: `occurrence:${occurrence!.id}`,
+        },
+      ]);
+    } finally {
+      await sql`DELETE FROM auth.users WHERE id = ${user!.id}::uuid`;
     }
   });
 });

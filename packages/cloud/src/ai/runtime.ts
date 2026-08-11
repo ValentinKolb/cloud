@@ -53,6 +53,9 @@ const aiTurnQueue = queue<AiTurnJob>({
 // continuation, stale-sweep) are always allowed and never silently swallowed.
 const enqueueAiTurn = (job: AiTurnJob): Promise<unknown> => aiTurnQueue.send({ data: job, orderingKey: job.conversationId });
 
+/** Enqueue a turn created atomically by another durable AI workflow. */
+export const enqueueExistingAiTurn = (input: AiTurnJob): Promise<unknown> => enqueueAiTurn(input);
+
 // ---------------------------------------------------------------------------
 // Submit
 // ---------------------------------------------------------------------------

@@ -3,10 +3,11 @@ import { assistantChatCommands, assistantManagementCommands } from "./cli/chat";
 import { assistantRootCommand } from "./cli/interactive";
 import { assistantPersonalizationCommands } from "./cli/personalization";
 import { assistantProjectCommands } from "./cli/projects";
+import { assistantTaskCommands } from "./cli/tasks";
 
 const module = defineCliCommands({
   name: "assistant",
-  summary: "Chat with the Cloud Assistant and manage chats, files, personalization, and Projects.",
+  summary: "Chat with the Cloud Assistant and manage chats, scheduled tasks, files, personalization, and Projects.",
   groupSummaries: {
     actions: "Review and resolve pending turn actions",
     chats: "Create, inspect, and manage Assistant chats",
@@ -16,6 +17,7 @@ const module = defineCliCommands({
     personalization: "Manage personal facts, preferences, and learning",
     prefs: "View and update Assistant preferences",
     projects: "Manage shared Assistant Projects",
+    tasks: "Manage one-time and recurring chat tasks",
     turns: "Watch, steer, and stop Assistant turns",
   },
   commands: [
@@ -24,6 +26,7 @@ const module = defineCliCommands({
     ...assistantManagementCommands,
     ...assistantPersonalizationCommands,
     ...assistantProjectCommands,
+    ...assistantTaskCommands,
   ],
 });
 

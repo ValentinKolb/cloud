@@ -528,6 +528,101 @@ export const migrateCloudAi = async (): Promise<void> => {
   `.simple();
 
   await sql`
+    CREATE TABLE IF NOT EXISTS ai.chat_tasks (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
+      conversation_id UUID NOT NULL REFERENCES ai.conversations(id) ON DELETE CASCADE,
+      sponsor_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      prompt TEXT NOT NULL,
+      schedule_kind TEXT NOT NULL,
+      run_at TIMESTAMPTZ,
+      cron TEXT,
+      timezone TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'active',
+      revision BIGINT NOT NULL DEFAULT 0,
+      last_error TEXT,
+      idempotency_key TEXT,
+      idempotency_fingerprint TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT ai_chat_tasks_short_id_unique UNIQUE (short_id),
+      CONSTRAINT ai_chat_tasks_prompt_check CHECK (length(btrim(prompt)) BETWEEN 1 AND 10000),
+      CONSTRAINT ai_chat_tasks_schedule_kind_check CHECK (schedule_kind IN ('once', 'cron')),
+      CONSTRAINT ai_chat_tasks_schedule_check CHECK (
+        (schedule_kind = 'once' AND run_at IS NOT NULL AND cron IS NULL) OR
+        (schedule_kind = 'cron' AND run_at IS NULL AND cron IS NOT NULL)
+      ),
+      CONSTRAINT ai_chat_tasks_state_check CHECK (state IN ('active', 'paused', 'completed', 'needs_attention'))
+    )
+  `.simple();
+
+  await sql`ALTER TABLE ai.chat_tasks ADD COLUMN IF NOT EXISTS idempotency_fingerprint TEXT`.simple();
+  await sql`ALTER TABLE ai.chat_tasks ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0`.simple();
+  await sql`ALTER TABLE ai.chat_tasks DROP CONSTRAINT IF EXISTS chat_tasks_idempotency_key_key`.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_chat_tasks_owner_idempotency
+    ON ai.chat_tasks(sponsor_user_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_chat_tasks_owner_created
+    ON ai.chat_tasks(sponsor_user_id, created_at DESC, id DESC)
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_chat_tasks_due_once
+    ON ai.chat_tasks(run_at ASC, id ASC)
+    WHERE state = 'active' AND schedule_kind = 'once'
+  `.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.chat_task_occurrences (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
+      task_id UUID NOT NULL REFERENCES ai.chat_tasks(id) ON DELETE CASCADE,
+      scheduled_for TIMESTAMPTZ NOT NULL,
+      trigger TEXT NOT NULL DEFAULT 'scheduled',
+      state TEXT NOT NULL DEFAULT 'queued',
+      task_revision BIGINT NOT NULL DEFAULT 0,
+      request_key TEXT NOT NULL,
+      turn_id UUID REFERENCES ai.turns(id) ON DELETE SET NULL,
+      error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      CONSTRAINT ai_chat_task_occurrences_short_id_unique UNIQUE (short_id),
+      CONSTRAINT ai_chat_task_occurrences_slot_unique UNIQUE (task_id, scheduled_for),
+      CONSTRAINT ai_chat_task_occurrences_trigger_check CHECK (trigger IN ('scheduled', 'manual')),
+      CONSTRAINT ai_chat_task_occurrences_state_check CHECK (state IN ('queued', 'running', 'completed', 'failed'))
+    )
+  `.simple();
+
+  await sql`ALTER TABLE ai.chat_task_occurrences ADD COLUMN IF NOT EXISTS task_revision BIGINT NOT NULL DEFAULT 0`.simple();
+
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_chat_task_occurrences_request_key
+    ON ai.chat_task_occurrences(request_key)
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_chat_task_occurrences_queued
+    ON ai.chat_task_occurrences(created_at ASC, id ASC)
+    WHERE state = 'queued'
+  `.simple();
+
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_chat_task_occurrences_active_task
+    ON ai.chat_task_occurrences(task_id)
+    WHERE state IN ('queued', 'running')
+  `.simple();
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_chat_task_occurrences_task_created
+    ON ai.chat_task_occurrences(task_id, created_at DESC, id DESC)
+  `.simple();
+
+  await sql`
     CREATE TABLE IF NOT EXISTS ai.user_prefs (
       user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
       memory_enabled BOOLEAN NOT NULL DEFAULT TRUE,

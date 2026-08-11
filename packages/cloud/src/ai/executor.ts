@@ -4,6 +4,7 @@ import { loadCurrentHelp } from "../_internal/help-catalog";
 import { listCapabilities } from "../_internal/registry";
 import type { AccessSubject, RequestActor } from "../server";
 import { logger } from "../services/logging";
+import { coreSettings } from "../services/settings/api";
 import { type AiToolApprovalContext, aiToolAllowsAlways, aiToolApprovalScope, hasRememberedAiToolApproval } from "./approvals";
 import { createAiCapabilityToolResolver, createAiHelpToolResolver } from "./capabilities";
 import { executeAiCapability, resolveAiCapabilityActor, reviewAiCapability } from "./capability-execution";
@@ -458,6 +459,7 @@ export class AiTurnExecutor {
     }
     const memoryActive = Boolean(prefs?.memoryEnabled);
     const memory = memoryActive && user ? await aiMemories.selectHot(user.id, memoryQueryFromInput(config.input)) : null;
+    const timeZone = String((await coreSettings.get<string>("app.timezone")) || "").trim() || "UTC";
     const projectSubject = config.project ? accessSubjectForActor(material.actor) : null;
     const runtimeTools = [
       ...material.tools,
@@ -598,6 +600,7 @@ export class AiTurnExecutor {
         capabilitiesEnabled,
         toolHints: aiToolPromptHints(activeTools),
         memory: memory?.text,
+        timeZone,
       }),
       store,
       steering: async ({ signal: steeringSignal }) => {

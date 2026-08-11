@@ -251,6 +251,12 @@ export type AiStoredMessage = {
       sourceTitle: string;
       sourceHref?: string;
     };
+    scheduledTask?: {
+      taskId: string;
+      occurrenceId: string;
+      scheduledFor: string;
+      trigger: "scheduled" | "manual";
+    };
     toolPresentations?: Record<string, AiToolPresentation>;
   } | null;
   createdAt: string;

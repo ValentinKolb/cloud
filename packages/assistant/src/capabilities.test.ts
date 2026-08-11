@@ -82,14 +82,28 @@ const storedMessage = (seq: number, message: AiStoredMessage["message"], overrid
 afterEach(() => mock.restore());
 
 describe("Assistant capabilities", () => {
-  test("publishes five closed-world queries and one reviewed action", () => {
+  test("publishes closed-world chat and scheduled-task capabilities", () => {
     const manifest = compileCapabilityManifest("assistant", assistantCapabilities);
-    const queries = ["chat.read", "chat.resources", "chat.search", "chats.resources", "chats.search"];
+    const queries = ["chat.read", "chat.resources", "chat.search", "chats.resources", "chats.search", "task.read", "tasks.list"];
+    const actions = ["chat.message", "task.create", "task.delete", "task.pause", "task.resume", "task.run", "task.update"];
     expect(Object.keys(assistantCapabilities.queries).sort()).toEqual(queries);
     expect(manifest.queries.map((query) => query.localId).sort()).toEqual(queries);
     expect(manifest.queries.every((query) => query.openWorld === false)).toBe(true);
-    expect(manifest.actions.map((action) => action.localId)).toEqual(["chat.message"]);
-    expect(manifest.actions[0]).toMatchObject({ destructive: false, idempotency: "required", openWorld: false });
+    expect(manifest.actions.map((action) => action.localId).sort()).toEqual(actions);
+    expect(manifest.actions.every((action) => action.openWorld === false)).toBe(true);
+    expect(
+      Object.fromEntries(
+        manifest.actions.map((action) => [action.localId, { destructive: action.destructive, idempotency: action.idempotency }]),
+      ),
+    ).toEqual({
+      "chat.message": { destructive: false, idempotency: "required" },
+      "task.create": { destructive: false, idempotency: "required" },
+      "task.delete": { destructive: true, idempotency: "none" },
+      "task.pause": { destructive: true, idempotency: "none" },
+      "task.resume": { destructive: true, idempotency: "none" },
+      "task.run": { destructive: false, idempotency: "required" },
+      "task.update": { destructive: true, idempotency: "none" },
+    });
     expect(assistantCapabilities.actions["chat.message"].input.safeParse({ chatId: chat.shortId, text: "x".repeat(10_001) }).success).toBe(
       false,
     );

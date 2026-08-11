@@ -32,6 +32,22 @@ export const NOTIFICATIONS = {
       };
     },
   }),
+  taskNeedsAttention: notification({
+    recipient: "user",
+    label: "Assistant scheduled tasks",
+    description: "A notification when a scheduled Assistant task cannot continue.",
+    delivery: { recommended: ["browser"] },
+    data: z.object({
+      conversationId: z.string().regex(AI_SHORT_ID_PATTERN),
+      taskId: z.string().regex(AI_SHORT_ID_PATTERN),
+      error: z.string(),
+    }),
+    render: ({ conversationId, taskId, error }) => ({
+      title: `Scheduled task ${taskId} needs attention`,
+      body: error,
+      targetHref: `/app/assistant?conversation=${encodeURIComponent(conversationId)}`,
+    }),
+  }),
 };
 
 type AssistantNotificationDefinitions = BoundNotificationMap<"assistant", typeof NOTIFICATIONS>;
@@ -40,6 +56,14 @@ type CompletionCandidate = {
   turn_id: string;
   conversation_id: string;
   user_id: string;
+};
+
+type TaskAttentionCandidate = {
+  occurrence_id: string;
+  conversation_id: string;
+  task_id: string;
+  user_id: string;
+  error: string;
 };
 
 type AssistantNotificationRecoverySummary = {
@@ -52,7 +76,7 @@ export const createAssistantNotificationService = (definitions: AssistantNotific
   const recoveryScheduler = scheduler({ id: "assistant-notifications" });
   let started = false;
 
-  const recover = async (input: { turnId?: string; limit?: number } = {}): Promise<AssistantNotificationRecoverySummary> => {
+  const recoverCompletions = async (input: { turnId?: string; limit?: number } = {}): Promise<AssistantNotificationRecoverySummary> => {
     const limit = Math.min(Math.max(Math.floor(input.limit ?? RECOVERY_BATCH_SIZE), 1), 1_000);
     const candidates = await sql<CompletionCandidate[]>`
       SELECT turn.id AS turn_id,
@@ -101,15 +125,86 @@ export const createAssistantNotificationService = (definitions: AssistantNotific
     return { scanned: candidates.length, sent, failed };
   };
 
+  const recoverTaskAttention = async (
+    input: { occurrenceId?: string; limit?: number } = {},
+  ): Promise<AssistantNotificationRecoverySummary> => {
+    const limit = Math.min(Math.max(Math.floor(input.limit ?? RECOVERY_BATCH_SIZE), 1), 1_000);
+    const candidates = await sql<TaskAttentionCandidate[]>`
+      SELECT occurrence.id AS occurrence_id,
+             conversation.short_id AS conversation_id,
+             task.short_id AS task_id,
+             task.sponsor_user_id AS user_id,
+             occurrence.error
+      FROM ai.chat_task_occurrences occurrence
+      JOIN ai.chat_tasks task ON task.id = occurrence.task_id
+      JOIN ai.conversations conversation ON conversation.id = task.conversation_id
+      JOIN notifications.definitions definition ON definition.id = ${definitions.taskNeedsAttention.id}
+      WHERE occurrence.state = 'failed'
+        AND occurrence.completed_at >= definition.first_seen_at
+        AND occurrence.error IS NOT NULL
+        AND task.state = 'needs_attention'
+        AND conversation.app_id = 'assistant'
+        AND (${input.occurrenceId ?? null}::uuid IS NULL OR occurrence.id = ${input.occurrenceId ?? null}::uuid)
+        AND NOT EXISTS (
+          SELECT 1
+          FROM notifications.events event
+          WHERE event.definition_id = ${definitions.taskNeedsAttention.id}
+            AND event.idempotency_key = 'occurrence:' || occurrence.id::text
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM ai.chat_task_occurrences newer
+          WHERE newer.task_id = occurrence.task_id
+            AND newer.state = 'failed'
+            AND (newer.completed_at, newer.id) > (occurrence.completed_at, occurrence.id)
+        )
+      ORDER BY occurrence.completed_at, occurrence.id
+      LIMIT ${limit}
+    `;
+
+    let sent = 0;
+    let failed = 0;
+    for (const candidate of candidates) {
+      try {
+        await notifications.send(definitions.taskNeedsAttention, {
+          recipient: { userId: candidate.user_id },
+          data: { conversationId: candidate.conversation_id, taskId: candidate.task_id, error: candidate.error },
+          idempotencyKey: `occurrence:${candidate.occurrence_id}`,
+        });
+        sent += 1;
+      } catch (error) {
+        failed += 1;
+        log.warn("Failed to create scheduled task attention notification", {
+          taskId: candidate.task_id,
+          occurrenceId: candidate.occurrence_id,
+          error: error instanceof Error ? error.message : "Notification creation failed",
+        });
+      }
+    }
+    if (failed > 0) throw new Error(`Failed to create ${failed} scheduled task notification(s).`);
+    return { scanned: candidates.length, sent, failed };
+  };
+
+  const recover = async (): Promise<AssistantNotificationRecoverySummary> => {
+    const [completions, tasks] = await Promise.all([recoverCompletions(), recoverTaskAttention()]);
+    return {
+      scanned: completions.scanned + tasks.scanned,
+      sent: completions.sent + tasks.sent,
+      failed: completions.failed + tasks.failed,
+    };
+  };
+
   return {
-    notifyTurnCompleted: (turnId: string): Promise<AssistantNotificationRecoverySummary> => recover({ turnId, limit: 1 }),
+    notifyTurnCompleted: (turnId: string): Promise<AssistantNotificationRecoverySummary> => recoverCompletions({ turnId, limit: 1 }),
+    notifyTaskNeedsAttention: (occurrenceId: string): Promise<AssistantNotificationRecoverySummary> =>
+      recoverTaskAttention({ occurrenceId, limit: 1 }),
 
     start: async (): Promise<void> => {
       if (started) return;
       recoveryScheduler.start();
       started = true;
       try {
-        const timezone = String((await coreSettings.get<string>("app.timezone")) || "").trim() || "Europe/Berlin";
+        const timezone = String((await coreSettings.get<string>("app.timezone")) || "").trim() || "UTC";
         await recoveryScheduler.create({
           id: RECOVERY_SCHEDULE_ID,
           cron: "* * * * *",

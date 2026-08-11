@@ -92,6 +92,35 @@ the reviewed `chat.message` Action. The approval names the target and text;
 delivery is durable, attributable to the source chat, same-user only, and
 asynchronous when the target is busy.
 
+## Scheduled chat tasks
+
+Tasks store a prompt that is delivered back into one Assistant chat. They are
+not directly attached to Projects; a chat in a Project loads current Project
+context when the task runs. One-time `--at` values are local wall-clock times
+in `app.timezone`, with the exact format `YYYY-MM-DDTHH:mm`. Recurring tasks use
+a five-field cron expression in the same timezone.
+
+```bash
+cld assistant tasks list
+cld assistant tasks status
+cld assistant tasks list --chat <chat-id> --state active
+cld assistant tasks get <task-id>
+cld assistant tasks create --chat <chat-id> --prompt "Check the release" --at 2026-08-12T09:30
+cld assistant tasks create --chat <chat-id> --prompt-file ./weekly-review.md --cron "0 9 * * 1"
+cld assistant tasks update <task-id> --at 2026-08-13T10:00
+cld assistant tasks pause <task-id>
+cld assistant tasks resume <task-id>
+cld assistant tasks run <task-id>
+cld assistant tasks delete <task-id> --yes
+```
+
+Use `tasks status` before creating a schedule when you need to confirm the
+effective application timezone. `tasks get` includes recent occurrence history. A terminal delivery or turn
+failure moves the task to `needs_attention`. Resume a recurring task after
+fixing the cause; a failed one-time task needs a new future schedule via
+`tasks update`. Deleting a task deletes its history, and deleting its chat cascades
+to the task and all occurrences.
+
 ## Conversation files
 
 Conversation uploads under `/input` represent immutable user inputs. Files under `/files` are the editable agent workspace.

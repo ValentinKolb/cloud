@@ -1,3 +1,4 @@
+import { dates } from "@k2b/stdlib";
 import type { User } from "../contracts/shared";
 import { renderLiquidTemplate } from "./template-rendering";
 
@@ -13,7 +14,7 @@ export const AI_PLATFORM_PROMPT_TEMPLATE = `You are Cloud AI, the assistant insi
 
 <runtime>
 User: {{ user.displayName }} ({{ user.uid }})
-Today: {{ today }}, {{ time }} (Europe/Berlin)
+Today: {{ today }}, {{ time }} ({{ timeZone }})
 App: {{ appId }}
 </runtime>
 
@@ -88,6 +89,7 @@ export type AiPromptContextInput = {
   capabilitiesEnabled?: boolean;
   tools?: AiToolPromptHint[];
   now?: Date;
+  timeZone?: string;
 };
 
 /**
@@ -97,6 +99,7 @@ export type AiPromptContextInput = {
  */
 export const aiPromptContext = (input: AiPromptContextInput): Record<string, unknown> => {
   const now = input.now ?? new Date();
+  const timeZone = dates.normalizeTimeZone(input.timeZone ?? "", "UTC");
   return {
     user: {
       displayName: input.user?.displayName ?? "",
@@ -105,8 +108,9 @@ export const aiPromptContext = (input: AiPromptContextInput): Record<string, unk
     },
     appId: input.appId ?? "",
     now: now.toISOString(),
-    today: now.toLocaleDateString("de-DE", { dateStyle: "full", timeZone: "Europe/Berlin" }),
-    time: now.toLocaleTimeString("de-DE", { timeStyle: "short", timeZone: "Europe/Berlin" }),
+    today: now.toLocaleDateString("de-DE", { dateStyle: "full", timeZone }),
+    time: now.toLocaleTimeString("de-DE", { timeStyle: "short", timeZone }),
+    timeZone,
     memoryEnabled: Boolean(input.memoryEnabled),
     memoryToolEnabled: Boolean(input.memoryToolEnabled),
     helpEnabled: Boolean(input.helpEnabled),
