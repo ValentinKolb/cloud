@@ -44,7 +44,9 @@ export function CustomAppGqlField(props: CustomAppGqlFieldProps) {
                 onValueChange={props.onValueChange}
               />
               <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Available Custom App query context">
-                <For each={props.contextKeys}>{(key) => <StatusBadge tone="neutral" variant="text" label={contextLabel(key)} />}</For>
+                <For each={props.contextKeys}>
+                  {(key) => <StatusBadge tone="neutral" icon={null} variant="text" label={contextLabel(key)} />}
+                </For>
               </div>
             </div>
           </PanelDialog.Body>
@@ -108,13 +110,13 @@ export function CustomAppAvailabilitySection(props: CustomAppAvailabilitySection
   return (
     <DetailPanel.Section
       title="Availability"
-      icon="ti ti-filter-lock"
       description={
         props.value().trim() ? "Available when the query returns at least one row." : "Available to everyone who can open this app."
       }
       meta={
         <StatusBadge
           tone={props.error?.() ? "error" : props.value().trim() ? "running" : "neutral"}
+          icon={null}
           variant="text"
           label={props.error?.() ? "Needs attention" : props.value().trim() ? "Custom rule" : "Always"}
         />

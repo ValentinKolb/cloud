@@ -28,10 +28,14 @@ export const buildCustomAppRuntimeContext = (params: {
 }): CustomAppRuntimeContext => {
   const now = params.now ?? new Date();
   const timeZone = normalizeTimeZone(params.dateConfig.timeZone, "UTC");
+  const user = accessActorUser(params.access);
   return {
     now,
     query: {
-      "auth.id": accessActorUser(params.access)?.id ?? null,
+      "auth.id": user?.id ?? null,
+      "auth.name": user?.displayName ?? null,
+      "auth.username": user?.uid ?? null,
+      "auth.email": user?.mail ?? null,
       "page.id": params.page.id,
       "page.title": params.page.title,
       "page.url": params.pageUrl,

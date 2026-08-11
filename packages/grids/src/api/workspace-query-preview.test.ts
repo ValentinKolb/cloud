@@ -132,6 +132,9 @@ describe("workspace initial GQL results", () => {
         operation: "initial-preview",
         context: {
           "auth.id": null,
+          "auth.name": null,
+          "auth.username": null,
+          "auth.email": null,
           "app.id": "33333333-3333-4333-8333-333333333333",
           "page.id": "home",
           "base.id": baseId,

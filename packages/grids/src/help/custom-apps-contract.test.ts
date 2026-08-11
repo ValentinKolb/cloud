@@ -69,8 +69,12 @@ describe("Custom Apps documentation contract", () => {
     const pages = await Bun.file(new URL("./documents/grids-custom-app-pages-blocks.help.md", import.meta.url)).text();
 
     expect(overview).toContain("opened in a larger editor without creating a second draft");
-    expect(overview).toContain("Renaming one in the builder updates");
+    expect(overview).toContain("there is no second Page Record setting");
+    expect(overview).toContain("Page IDs are editable");
+    expect(overview).toContain("@auth.name");
+    expect(overview).toContain("no second Columns selection");
     expect(overview).toContain("only active Custom App launchers");
+    expect(pages).toContain("there are no Liquid conditions or loops");
     expect(pages).toContain("the raw GQL console deliberately does not offer Custom App `@…` context");
   });
 

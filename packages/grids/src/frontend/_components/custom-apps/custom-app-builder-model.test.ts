@@ -4,6 +4,7 @@ import {
   customAppPageParameterUsage,
   moveCustomAppPage,
   removeCustomAppPageParameter,
+  renameCustomAppPage,
   renameCustomAppPageParameter,
 } from "./custom-app-builder-model";
 
@@ -105,6 +106,22 @@ const definition = (): CustomAppDefinition => ({
 });
 
 describe("Custom App builder model", () => {
+  test("renames a page and every navigation reference", () => {
+    const renamed = renameCustomAppPage(definition(), "loan", "loan-detail");
+    expect(renamed.pages.map((page) => page.id)).toEqual(["home", "loan-detail"]);
+    const homeBlocks = renamed.pages[0]!.rows[0]!.columns[0]!.blocks;
+    expect(homeBlocks[0]!.type === "records" ? homeBlocks[0]!.rowNavigate?.pageId : null).toBe("loan-detail");
+    expect(
+      homeBlocks[1]!.type === "actions" && homeBlocks[1]!.actions[0]?.kind === "navigate" ? homeBlocks[1]!.actions[0].pageId : null,
+    ).toBe("loan-detail");
+    const form = renamed.pages[1]!.rows[0]!.columns[0]!.blocks[1]!;
+    expect(form.type === "form" ? form.onSuccessNavigate?.pageId : null).toBe("loan-detail");
+
+    const startDefinition = definition();
+    startDefinition.startPageId = "loan";
+    expect(renameCustomAppPage(startDefinition, "loan", "loan-detail").startPageId).toBe("loan-detail");
+  });
+
   test("renames a parameter and every source and target mapping", () => {
     const current = definition();
     current.pages[1]!.availableWhen = { query: "from table Loans where id = @params.loan_id" };

@@ -414,13 +414,16 @@ fields and calculated expressions. Use operators in GQL conditions, not function
 Custom App GQL receives typed request context automatically:
 
 - `@auth.id`: current account UUID or `null` for anonymous visitors;
+- `@auth.name`: current account display name or `null`;
+- `@auth.username`: current account username or `null`;
+- `@auth.email`: current account email address or `null`;
 - `@params.<name>`: one declared and validated page parameter;
 - `@page.id`, `@page.title`, `@page.url`;
 - `@app.id`, `@app.shortId`, `@app.name`;
 - `@base.id`, `@base.name`;
 - `@time.now`, `@time.today`, `@time.timeZone`.
 
-Use `@auth.id != null` for authenticated-only data and `@auth.id = null` for anonymous data. Unknown namespaces and undeclared parameters fail compilation. Context values are bound separately from query text; Custom App GQL has no `inputs` map or `param()` helper.
+Use `@auth.id != null` for authenticated-only data and `@auth.id = null` for anonymous data. Unknown namespaces and undeclared parameters fail compilation. Context values are bound separately from query text; Custom App GQL has no `inputs` map or `param()` helper. Custom App Markdown may insert the same names as safe text placeholders, such as `Hello @auth.name`; it does not support Liquid control flow or executable templates.
 
 Record metadata filters are `record.id`, `record.createdBy`, `record.updatedBy`, and `record.deletedBy`; they accept `=` or `oneof(...)` with
 record or user UUIDs and may be combined only with `and`. Metadata sorts are `record.createdAt`, `record.updatedAt`, and `record.deletedAt`.
@@ -564,6 +567,8 @@ or bounded GQL. A Records block can navigate its row id into one required
 record parameter on a detail page. Record and Comments blocks use that page record; Record renders only its explicit field allowlist and
 Comments inherits the record's existing access. Form blocks submit existing Grids forms and may carry trusted fixed values from declared
 page parameters. Run the live reference before authoring a definition:
+
+Saved-view Records blocks require explicit `display.columnIds`. GQL Records blocks display the query's selected result columns, including aliases and aggregate outputs; use an empty `columnIds` list because no second column selection is applied.
 
 Pages, blocks, Forms, and actions may use one `availableWhen.query`. At least one returned row means available. An empty result, invalid query, missing context, timeout, or cancellation means unavailable. The server rechecks Forms and actions before execution.
 

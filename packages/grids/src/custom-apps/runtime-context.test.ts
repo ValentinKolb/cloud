@@ -46,6 +46,9 @@ describe("Custom App runtime context", () => {
     expect(context.now).toBe(common.now);
     expect(context.query).toEqual({
       "auth.id": "019fa000-0000-7000-8000-000000000003",
+      "auth.name": "App Reader",
+      "auth.username": "reader",
+      "auth.email": "reader@example.test",
       "params.state": "open",
       "page.id": "mine",
       "page.title": "My loans",
@@ -62,7 +65,11 @@ describe("Custom App runtime context", () => {
   });
 
   test("uses null auth identity for anonymous requests", () => {
-    expect(buildCustomAppRuntimeContext({ ...common, access: { actor: undefined, accessSubject: null } }).query["auth.id"]).toBeNull();
+    const query = buildCustomAppRuntimeContext({ ...common, access: { actor: undefined, accessSubject: null } }).query;
+    expect(query["auth.id"]).toBeNull();
+    expect(query["auth.name"]).toBeNull();
+    expect(query["auth.username"]).toBeNull();
+    expect(query["auth.email"]).toBeNull();
   });
 
   test("removes unavailable navigation pages but retains route-only targets", () => {

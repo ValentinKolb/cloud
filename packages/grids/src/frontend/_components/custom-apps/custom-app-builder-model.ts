@@ -14,6 +14,26 @@ const renameMappingKey = <T>(mapping: Record<string, T>, from: string, to: strin
 const renameContextParameter = (source: string, from: string, to: string): string =>
   source.replace(new RegExp(`@params\\.${from}(?![a-zA-Z0-9_])`, "g"), `@params.${to}`);
 
+export const renameCustomAppPage = (definition: CustomAppDefinition, from: string, to: string): CustomAppDefinition => ({
+  ...definition,
+  startPageId: definition.startPageId === from ? to : definition.startPageId,
+  pages: definition.pages.map((page) =>
+    mapBlocks(page.id === from ? { ...page, id: to } : page, (block) => {
+      if (block.type === "records" && block.rowNavigate?.pageId === from) {
+        return { ...block, rowNavigate: { ...block.rowNavigate, pageId: to } };
+      }
+      if (block.type === "form" && block.onSuccessNavigate?.pageId === from) {
+        return { ...block, onSuccessNavigate: { ...block.onSuccessNavigate, pageId: to } };
+      }
+      if (block.type !== "actions") return block;
+      return {
+        ...block,
+        actions: block.actions.map((action) => (action.kind === "navigate" && action.pageId === from ? { ...action, pageId: to } : action)),
+      };
+    }),
+  ),
+});
+
 export const renameCustomAppPageParameter = (
   definition: CustomAppDefinition,
   pageId: string,

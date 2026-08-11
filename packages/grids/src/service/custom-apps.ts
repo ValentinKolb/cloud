@@ -166,6 +166,9 @@ const representativeQueryContext = (
   baseName: string,
 ): DslQueryContextValues => ({
   "auth.id": null,
+  "auth.name": "Reader",
+  "auth.username": "reader",
+  "auth.email": "reader@example.test",
   "page.id": page.id,
   "page.title": page.title,
   "page.url": `/app/grids/custom/${definition.shortId ?? definition.id}/${page.id}`,
@@ -457,15 +460,15 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
         }
       }
     }
-    const found = new Set(tableIds.flatMap((tableId) => (compiled.data.fieldsByTableId[tableId] ?? []).map((field) => field.id)));
-    for (const fieldId of block.display.columnIds) {
-      if (!found.has(fieldId))
-        diagnostics.push({
-          path: ["blocks", block.id, "display", "columnIds"],
-          message: `Field ${fieldId} is missing or belongs to another table`,
-        });
-    }
     if (source.kind === "view") {
+      const found = new Set(tableIds.flatMap((tableId) => (compiled.data.fieldsByTableId[tableId] ?? []).map((field) => field.id)));
+      for (const fieldId of block.display.columnIds) {
+        if (!found.has(fieldId))
+          diagnostics.push({
+            path: ["blocks", block.id, "display", "columnIds"],
+            message: `Field ${fieldId} is missing or belongs to another table`,
+          });
+      }
       views.push({
         viewId: source.viewId,
         tableId: primaryTableId,

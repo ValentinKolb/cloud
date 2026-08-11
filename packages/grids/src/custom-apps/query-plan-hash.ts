@@ -9,6 +9,9 @@ const CANONICAL_UUID = "00000000-0000-4000-8000-000000000000";
 /** Resolve published and runtime sources against the same non-user input. */
 export const canonicalCustomAppQueryContext = (context: DslQueryContextValues): DslQueryContextValues => ({
   "auth.id": CANONICAL_UUID,
+  "auth.name": "Reader",
+  "auth.username": "reader",
+  "auth.email": "reader@example.test",
   "page.id": "page",
   "page.title": "Page",
   "page.url": "/custom-app/page",

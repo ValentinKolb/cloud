@@ -126,7 +126,7 @@ All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `
   type: markdown
   markdown: |
     ## Request a certificate
-    Tell us what the certificate should cover.
+    Hello @auth.name. Tell us what the certificate should cover.
 
 # Existing saved view
 - id: requests

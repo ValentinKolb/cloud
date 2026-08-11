@@ -913,6 +913,9 @@ const DslQueryAutocompleteBaseBodySchema = z.object({
           (/^params\.[a-z][a-z0-9_]*$/.test(value) ||
             [
               "auth.id",
+              "auth.name",
+              "auth.username",
+              "auth.email",
               "page.id",
               "page.title",
               "page.url",

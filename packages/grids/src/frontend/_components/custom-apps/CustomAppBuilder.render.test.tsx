@@ -14,6 +14,7 @@ const {
   isCustomAppBlockSourceDiagnostic,
 } = await import("./CustomAppBuilder");
 const { CustomAppAvailabilitySection } = await import("./CustomAppGqlField");
+const { CustomAppMarkdownField } = await import("./CustomAppMarkdownField");
 
 const app = (): CustomApp => {
   const draftDefinition: NonNullable<CustomApp["draftDefinition"]> = {
@@ -211,6 +212,9 @@ describe("CustomAppBuilder", () => {
 
     expect(customAppContextKeys(page)).toEqual([
       "auth.id",
+      "auth.name",
+      "auth.username",
+      "auth.email",
       "page.id",
       "page.title",
       "page.url",
@@ -278,11 +282,29 @@ describe("CustomAppBuilder", () => {
     );
 
     expect(always).toContain("Always");
+    expect(always).not.toContain("ti ti-minus");
     expect(always).toContain("Add rule");
     expect(always).not.toContain("Open large editor");
     expect(custom).toContain("Custom rule");
     expect(custom).toContain("Open large editor");
     expect(custom).toContain('class="k2b-detail-panel__section" open');
+  });
+
+  test("offers exact Custom App placeholders in the shared Markdown editor", () => {
+    const html = renderToString(() =>
+      createComponent(CustomAppMarkdownField, {
+        contextKeys: ["auth.name", "auth.email", "params.record_id"],
+        value: () => "Hello @auth.name",
+        onValueChange: () => undefined,
+      }),
+    );
+
+    expect(html).toContain("k2b-markdown-editor");
+    expect(html).toContain("Add placeholder");
+    expect(html).toContain("@auth.name");
+    expect(html).toContain("@auth.email");
+    expect(html).toContain("@params.record_id");
+    expect(html).toContain("Open large editor");
   });
 
   test("renders fail-closed recovery for an incompatible stored draft", () => {
@@ -343,7 +365,10 @@ describe("CustomAppBuilder", () => {
     expect(html).toContain('class="k2b-content-markdown ');
     expect(html).toContain("Close inspector");
     expect(html).toContain("k2b-detail-panel__body");
-    expect(html).toContain('class="k2b-detail-panel__group" role="group" aria-label="Page settings"');
+    expect(html).toContain('class="k2b-detail-panel__summary"');
+    expect(html).toContain("Route parameters");
+    expect(html).toContain('class="k2b-detail-panel__group" role="group" aria-label="Page rules and structure"');
+    expect(html).not.toContain('role="group" aria-label="Page settings"');
     expect(html).toContain("Show in app navigation");
     expect(html).toContain("Availability");
     expect(html).toContain("Open large editor");
@@ -358,9 +383,10 @@ describe("CustomAppBuilder", () => {
     expect(html).not.toContain("border-t border-subtle");
   });
 
-  test("uses the shared GQL source editor instead of the Markdown input", async () => {
+  test("uses shared large editors and documented DetailPanel groups", async () => {
     const source = await Bun.file(resolve(import.meta.dir, "CustomAppBuilder.tsx")).text();
     const gqlFieldSource = await Bun.file(resolve(import.meta.dir, "CustomAppGqlField.tsx")).text();
+    const markdownFieldSource = await Bun.file(resolve(import.meta.dir, "CustomAppMarkdownField.tsx")).text();
     const gqlSettings = source.slice(source.indexOf('<Show when={selectedSourceBlock()?.source.kind === "gql"}>'));
 
     expect(gqlSettings).toContain("<CustomAppGqlField");
@@ -373,9 +399,28 @@ describe("CustomAppBuilder", () => {
     expect(gqlFieldSource).toContain("<PanelDialog.Body scrollPreserveKey={`custom-app-gql-${props.dialogTitle}`}>");
     expect(gqlFieldSource).toContain('class="flex min-h-0 flex-1 flex-col gap-4"');
     expect(gqlFieldSource).not.toContain("<PanelDialog.Section");
+    expect(gqlFieldSource).toContain('icon={null} variant="text"');
+    expect(markdownFieldSource).toContain("<MarkdownEditor");
+    expect(markdownFieldSource).toContain('trigger: "@"');
+    expect(markdownFieldSource).toContain("Add placeholder");
+    expect(markdownFieldSource).toContain("<PanelDialog.Body");
+    expect(markdownFieldSource).not.toContain("<PanelDialog.Section");
     expect(source).toContain('<DetailPanel.Group label="App settings">');
-    expect(source).toContain('<DetailPanel.Group label="Page settings">');
-    expect(source).toContain('<DetailPanel.Group label="Block settings">');
+    expect(source).toContain('<DetailPanel.Summary title="Page">');
+    expect(source).toContain('title="Route parameters"');
+    expect(source).toContain('<DetailPanel.Group label="Page rules and structure">');
+    expect(source).toContain('<DetailPanel.Summary title="Block">');
+    expect(source).toContain('<DetailPanel.Group label="Block behavior">');
+    expect(source).toContain('<DetailPanel.Group label="Data settings">');
+    expect(source).toContain('title="Data source"');
+    expect(source).toContain('title="Records table"');
+    expect(source).not.toContain("Resolved fields appear after the GQL preview succeeds.");
+    expect(source).toContain('<DetailPanel.Group label="Form settings">');
+    expect(source).toContain('<DetailPanel.Group label="Record settings">');
+    expect(source).toContain('<DetailPanel.Group label="Chart settings">');
+    expect(source).not.toContain('<DetailPanel.Group label="Page settings">');
+    expect(source).not.toContain('<DetailPanel.Group label="Block settings">');
+    expect(source).not.toContain("<Disclosure");
     expect(source).toContain('<DetailPanel.Group label="Action settings">');
   });
 

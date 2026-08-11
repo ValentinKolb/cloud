@@ -24,7 +24,7 @@ App identity is intentionally restrained to a name and supported icon. Pages and
 
 A page declares every URL parameter before a block can use it. This release supports required Record parameters only. Each parameter declares one table in the same Base; its URL and `@params.<name>` value are UUID strings, and the server verifies that the referenced record belongs to that table before loading page data.
 
-A page may load one **page record** from a Record parameter. The load is permission-checked and fail-closed. An invalid, missing, deleted, or inaccessible record shows the page's standard unavailable state without disclosing which case occurred.
+A page may load one **page record** from a Record parameter. In the visual builder, add the parameter ID and Record table under **Route parameters**, then add a Record block; Grids binds that same parameter automatically instead of exposing a second Page Record control. The load is permission-checked and fail-closed. An invalid, missing, deleted, or inaccessible record shows the page's standard unavailable state without disclosing which case occurred.
 
 A route-only page may instead keep the declared Record parameter as context without rendering that record. Records GQL and Form fixed values can then reuse the same authorized parent ID. Pages with required parameters never appear in navigation and cannot be the app's start page.
 
@@ -61,15 +61,15 @@ Do not encode separate desktop and mobile layouts. Check the same draft at wide 
 
 ### Markdown
 
-Markdown renders headings, lists, links, and safe images. It does not run HTML, scripts, styles, or embedded application code. Use it for guidance and identity, not business state.
+Markdown renders headings, lists, links, and safe images. It does not run HTML, scripts, styles, or embedded application code. The inline and large editors autocomplete the current page's `@auth`, `@params`, `@page`, `@app`, `@base`, and `@time` placeholders. For example, `Hello @auth.name` inserts the signed-in display name on the server; anonymous auth values become empty text. Inserted values are escaped before Markdown rendering, and there are no Liquid conditions or loops.
 
 ### Records
 
-Records reads either an existing saved view or a bounded inline GQL query. It supports table presentation, explicit fields, empty copy, and optional row navigation.
+Records reads either an existing saved view or a bounded inline GQL query. A saved View uses an explicit displayed-field selection. Inline GQL displays exactly its selected result columns, including aliases and aggregates, so it has no second Columns selector. Both sources support empty copy and optional row navigation.
 
 Inline GQL has a required maximum row count. The runtime also applies shared query budgets. Search, filter, sort, and pagination state is namespaced by the block ID in the URL, so two Records blocks cannot overwrite each other's state.
 
-An inline query receives typed `@auth`, `@params`, `@page`, `@app`, `@base`, and `@time` context automatically. Values are bound separately from query text. Unknown namespaces and undeclared page parameters fail publication.
+An inline query receives typed `@auth.id`, `@auth.name`, `@auth.username`, `@auth.email`, `@params`, `@page`, `@app`, `@base`, and `@time` context automatically. Values are bound separately from query text. Unknown namespaces and undeclared page parameters fail publication.
 
 Use `ROW.id` only while defining that block's row link. Put workflow buttons in an Actions block on the target record page.
 
@@ -162,7 +162,7 @@ Only the active page resolves. Within that request, identical authorized resourc
 
 ## Know the deliberate limits {icon="barrier-block"}
 
-The first release has no app-global variables, general expression graph, reusable block definitions, arbitrary external fetch or action targets, cross-base resources, raw queries outside GQL, custom HTML, CSS, JavaScript, or domain-specific request, cart, batch, or loan blocks. Sanitized Markdown may still contain ordinary links.
+The first release has no app-global variables, general expression graph, reusable block definitions, arbitrary external fetch or action targets, cross-base resources, raw queries outside GQL, custom HTML, CSS, JavaScript, Liquid control flow, or domain-specific request, cart, batch, or loan blocks. Sanitized Markdown may still contain ordinary links and the documented request-context placeholders.
 
 Compose repeated flows from typed page parameters, fixed Form values, bounded sources, navigation, and existing Workflows. If those primitives cannot express a process safely, extend the owning Grids resource rather than adding application-specific behavior to the page runtime.
 

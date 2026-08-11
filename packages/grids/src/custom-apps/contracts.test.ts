@@ -44,6 +44,18 @@ describe("Custom App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse(CUSTOM_APP_REFERENCE.example).success).toBe(true);
   });
 
+  test("derives GQL Records columns from the query but requires saved-view columns", () => {
+    const gql = CustomAppDefinitionSchema.parse(definition());
+    const records = gql.pages[0]!.rows[0]!.columns[1]!.blocks[0]!;
+    if (records.type !== "records") throw new Error("Expected Records block");
+    records.source = { kind: "gql", query: "from table Requests\nselect Name, Status", maxRows: 100 };
+    records.display.columnIds = [];
+    expect(CustomAppDefinitionSchema.safeParse(gql).success).toBe(true);
+
+    records.source = { kind: "view", viewId: uuid(3) };
+    expect(CustomAppDefinitionSchema.safeParse(gql).success).toBe(false);
+  });
+
   test("keeps the live Help YAML aligned with the public schema", async () => {
     const markdown = await Bun.file(new URL("../help/documents/grids-custom-apps.help.md", import.meta.url)).text();
     const source = markdown.match(/```yaml\n([\s\S]*?)```/)?.[1];

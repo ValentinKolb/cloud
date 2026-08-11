@@ -15,9 +15,9 @@ An app may contain up to 12 responsive pages. Set `startPageId` to the page show
 
 A column may contain:
 
-- **Markdown**, for headings, instructions, and links;
+- **Markdown**, for headings, instructions, links, and request-context placeholders;
 - **Form**, for creating a record with one existing active Grids Form;
-- **Records**, for up to 100 rows from a saved view or bounded GQL and an explicit field allowlist;
+- **Records**, for up to 100 rows from a saved view or bounded GQL; saved views use an explicit field allowlist, while GQL displays its selected result columns;
 - **Metrics**, for named scalar aggregates from a saved view or bounded GQL;
 - **Chart**, for grouped aggregate results rendered as a supported chart;
 - **Record**, for an explicit field allowlist from the current detail record;
@@ -137,7 +137,9 @@ The fixed field must be a user-input relation field targeting the parameter's ta
 
 Pages, blocks, and actions may use one optional `availableWhen.query`. The server runs this bounded GQL with the same implicit context as the page. At least one returned row means available; an empty result, invalid query, missing context, timeout, or cancellation means unavailable. Unavailable resources are omitted and cannot be called directly.
 
-Custom App GQL receives `@auth.id`, declared `@params.<name>`, `@page.*`, `@app.*`, `@base.*`, and `@time.*` automatically. Anonymous visitors receive `@auth.id = null`. Values are bound separately from query text; there is no per-source inputs map or `param()` helper.
+Custom App GQL receives `@auth.id`, `@auth.name`, `@auth.username`, `@auth.email`, declared `@params.<name>`, `@page.*`, `@app.*`, `@base.*`, and `@time.*` automatically. Anonymous visitors receive `null` for every `@auth.*` value. Values are bound separately from query text; there is no per-source inputs map or `param()` helper.
+
+Markdown blocks use the same context names as safe text placeholders. Type `@` or choose **Add placeholder**, for example `Hello @auth.name`. Grids replaces known placeholders on the server before rendering the sanitized Markdown; anonymous `@auth.*` values become empty text. Markdown placeholders do not add Liquid conditions, loops, or executable template code.
 
 Inspect the current contract, then validate and plan the file:
 
@@ -159,9 +161,11 @@ On first apply, Grids assigns the app's stable five-character `shortId`. You may
 
 Base administrators can turn on **Edit mode** and create an app with **New app** under **Custom Apps**. The Pages column creates and selects pages; each page and the active app have their own settings action. **Add block** supports Markdown, Records, Metrics, Charts, Forms, page Records, Comments, and Actions. Records, Metrics, and Charts can use an accessible saved View or inline GQL.
 
-The inspector keeps the common path short. Required identity, page, source, and block fields stay visible. Access, availability, route parameters, page records, appearance, ordering, documents, and danger controls use expandable sections. Optional availability shows **Always** until you add a server-enforced GQL rule. Inline GQL can be opened in a larger editor without creating a second draft or a separate Save step; autocomplete continues to offer only the selected page's valid `@auth`, `@params`, `@page`, `@app`, `@base`, and `@time` context.
+The inspector keeps the common path short. Required identity, page, source, and block fields stay visible. Access, availability, route parameters, appearance, ordering, documents, and danger controls use expandable sections. Optional availability shows **Always** until you add a server-enforced GQL rule. Inline GQL and Markdown can each be opened in a larger editor without creating a second draft or a separate Save step; autocomplete continues to offer only the selected page's valid `@auth`, `@params`, `@page`, `@app`, `@base`, and `@time` context.
 
-Route parameters are required Record IDs. Renaming one in the builder updates its typed Form, navigation, workflow, and exact `@params.<name>` GQL references. Turning a page into a page-record route also hides it from navigation and adds a Record block. Records rows can link to compatible route pages; Forms can prefill compatible relation inputs and navigate after creation; Record blocks can choose writable fields and document templates.
+Route parameters are required Record IDs, each with one parameter ID and Record table. Adding a Record block binds the page to its single compatible route parameter, hides the page from navigation, and makes that same record available to Record and Comments blocks; there is no second Page Record setting. Renaming a parameter updates its typed Form, navigation, workflow, and exact `@params.<name>` GQL references. Page IDs are editable and their navigation references update with them. Records rows can link to compatible route pages; Forms can prefill compatible relation inputs and navigate after creation; Record blocks can choose writable fields and document templates.
+
+For a Records block, choose displayed fields only when the source is a saved View. A GQL Records source displays exactly the columns returned by its query, so aliases and aggregate result columns need no second Columns selection.
 
 An Actions block shows a compact list. Open one action to edit its icon, target, history, typed parameter mappings, workflow launcher, input sources, confirmation, availability, and order. Workflow actions list only active Custom App launchers whose validated workflow revision is available in the current Base.
 

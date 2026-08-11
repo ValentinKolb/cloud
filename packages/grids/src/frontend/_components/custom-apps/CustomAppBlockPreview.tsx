@@ -89,7 +89,7 @@ function SourcePreview(props: {
               title={props.block.title ?? "Records"}
               emptyText={props.block.emptyText ?? "No records found."}
               shortId={props.shortId}
-              selectedColumnIds={props.block.display.columnIds}
+              selectedColumnIds={props.block.source.kind === "view" ? props.block.display.columnIds : undefined}
               result={resolved}
             />
           ) : props.block.type === "metrics" ? (

@@ -58,7 +58,7 @@ Create these pages, then inspect and refine them in the builder:
 | `requests` | My requests | Visible | None |
 | `request` | Request detail | Hidden | Required `request_id`, type Record, Certificate requests table |
 
-Page IDs are stable definition identifiers. Labels may change without breaking navigation. The hidden detail page is reached from a row or successful form submission.
+Page IDs are stable definition identifiers. You may edit them in Page settings; the builder updates navigation references atomically. Labels may change without breaking navigation. The hidden detail page is reached from a row or successful form submission.
 
 **Checkpoint:** preview opens on Apply, shows Apply and My requests in navigation, and keeps Request detail out of navigation. If not, correct the start page, page IDs, and navigation settings.
 
@@ -95,7 +95,7 @@ Search, filters, sort, and pagination use URL state owned by this Records block.
 
 ## Build Request detail {icon="file-description"}
 
-In **Page record**, select Certificate requests and bind its record ID:
+Under **Route parameters**, add one Record parameter with ID `request_id` and table **Certificate requests**. Then add the Record block. The builder binds that same route parameter as the page record automatically; there is no separate Page Record setting:
 
 ```text
 PARAMS.request_id

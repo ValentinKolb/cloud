@@ -1,7 +1,8 @@
-import { DataTable, type DataTableColumn } from "@k2b/ui";
+import { DataTable, type DataTableColumn, Placeholder } from "@k2b/ui";
 import type { DslQueryPreviewResponse } from "../../contracts";
 import type { CustomAppRowNavigation } from "../../custom-apps/contracts";
 import { customAppRowHref } from "../../custom-apps/routing";
+import { customAppRecordsResultColumns } from "./records-table-model";
 
 type QuerySuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
 
@@ -16,12 +17,11 @@ export default function RecordsTable(props: {
   title: string;
   emptyText: string;
   shortId: string;
-  selectedColumnIds: string[];
+  selectedColumnIds?: string[];
   result: QuerySuccess;
   rowNavigate?: CustomAppRowNavigation;
 }) {
-  const selected = new Set(props.selectedColumnIds);
-  const resultColumns = props.result.columns.filter((column) => column.fieldId && selected.has(column.fieldId));
+  const resultColumns = customAppRecordsResultColumns(props.result.columns, props.selectedColumnIds);
   const rows = props.result.rows.map((row, index) => ({
     ...row,
     rowKey: row.recordId ? `${row.recordId}:${index}` : `row-${index}`,
@@ -35,7 +35,15 @@ export default function RecordsTable(props: {
     value: (row) => row.values[column.key],
   }));
   if (columns.length === 0) {
-    return <div class="rounded-xl border p-4 text-sm text-secondary">The selected fields are not part of this view result.</div>;
+    return (
+      <Placeholder
+        state="error"
+        variant="compact"
+        align="left"
+        title="Records unavailable"
+        description="The selected fields are not part of this view result."
+      />
+    );
   }
   return (
     <div class="overflow-x-auto">

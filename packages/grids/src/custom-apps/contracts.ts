@@ -159,13 +159,22 @@ export const CustomAppRecordsBlockSchema = z
     display: z
       .object({
         kind: z.literal("table"),
-        columnIds: z.array(z.string().uuid()).min(1).max(30),
+        columnIds: z.array(z.string().uuid()).max(30),
       })
       .strict(),
     rowNavigate: CustomAppRowNavigationSchema.optional(),
     ...CustomAppAvailabilityShape,
   })
-  .strict();
+  .strict()
+  .superRefine((block, ctx) => {
+    if (block.source.kind === "view" && block.display.columnIds.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Saved-view Records blocks require at least one displayed column",
+        path: ["display", "columnIds"],
+      });
+    }
+  });
 
 export const CustomAppInsightSourceSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("view"), viewId: z.string().uuid() }).strict(),
@@ -836,14 +845,14 @@ export const CUSTOM_APP_REFERENCE = {
   availability: {
     availableWhen: "Optional bounded GQL query on pages, blocks, and individual actions",
     semantics: "Available only when the server-side query returns at least one row; errors fail closed",
-    context: ["@auth.id", "@params.*", "@page.*", "@app.*", "@base.*", "@time.*"],
+    context: ["@auth.id", "@auth.name", "@auth.username", "@auth.email", "@params.*", "@page.*", "@app.*", "@base.*", "@time.*"],
   },
   blocks: {
     markdown: { required: ["id", "type", "markdown"] },
     records: {
       required: ["id", "type", "source", "display"],
       source: "Saved view or bounded inline GQL with implicit typed request context",
-      display: { kind: "table", columnIds: ["field UUID"] },
+      display: "Saved views require explicit field UUIDs; GQL displays its selected result columns",
       rowNavigate: "Optionally navigate a row id into a target page record parameter",
     },
     metrics: {

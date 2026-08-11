@@ -8,6 +8,7 @@ import { customAppPageRecordFieldIds } from "../../custom-apps/conditions";
 import type { CustomAppBlock, CustomAppDefinition, CustomAppPage } from "../../custom-apps/contracts";
 import { customAppFormInlineTargetTableIds } from "../../custom-apps/form-capability";
 import { customAppFormMatchesPublishedCapability } from "../../custom-apps/form-runtime";
+import { renderCustomAppMarkdown } from "../../custom-apps/markdown-context";
 import {
   customAppActionHref,
   customAppActionUrl,
@@ -19,6 +20,7 @@ import {
   resolveCustomAppPageParams,
 } from "../../custom-apps/routing";
 import { buildCustomAppRuntimeContext, customAppDefinitionWithAvailableNavigation } from "../../custom-apps/runtime-context";
+import type { DslQueryContextValues } from "../../query-dsl/parameters";
 import { gridsService } from "../../service";
 import {
   type CustomAppChartData,
@@ -94,7 +96,7 @@ const Records = (props: { block: RecordsBlock; data: BlockResult; shortId: strin
       title={props.block.title ?? "Records"}
       emptyText={props.block.emptyText ?? "No records found."}
       shortId={props.shortId}
-      selectedColumnIds={props.block.display.columnIds}
+      selectedColumnIds={props.block.source.kind === "view" ? props.block.display.columnIds : undefined}
       result={props.data.result}
       rowNavigate={props.block.rowNavigate}
     />
@@ -190,6 +192,7 @@ const CustomAppPage = (props: {
   documentRuns: Map<string, DocumentRunSummary[]>;
   pageRecord: PageRecord | null;
   dateConfig: ReturnType<typeof getDateConfig>;
+  markdownContext: DslQueryContextValues;
 }) => {
   return (
     <CustomAppPageLayout
@@ -198,7 +201,7 @@ const CustomAppPage = (props: {
       shortId={props.shortId}
       renderBlock={(block) =>
         block.type === "markdown" ? (
-          <MarkdownView markdown={block.markdown} smallHeadings />
+          <MarkdownView markdown={renderCustomAppMarkdown(block.markdown, props.markdownContext)} smallHeadings />
         ) : block.type === "records" ? (
           <Records
             block={block}
@@ -668,6 +671,7 @@ export default ssr<AuthContext>(async (c) => {
         documentRuns={documentRuns}
         pageRecord={pageRecord}
         dateConfig={dateConfig}
+        markdownContext={runtimeContext.query}
       />
     </Layout>
   );

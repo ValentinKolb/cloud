@@ -3,6 +3,9 @@ import type { DslQueryAst } from "./types";
 
 export type DslQueryContextKey =
   | "auth.id"
+  | "auth.name"
+  | "auth.username"
+  | "auth.email"
   | `params.${string}`
   | "page.id"
   | "page.title"
@@ -18,6 +21,9 @@ export type DslQueryContextKey =
 
 export type DslQueryContextValues = {
   "auth.id": string | null;
+  "auth.name": string | null;
+  "auth.username": string | null;
+  "auth.email": string | null;
   "page.id": string;
   "page.title": string;
   "page.url": string;
@@ -37,6 +43,9 @@ export type DslQueryContextInput = Readonly<Partial<DslQueryContextValues>>;
 
 const FIXED_CONTEXT_KEYS = new Set<DslQueryContextKey>([
   "auth.id",
+  "auth.name",
+  "auth.username",
+  "auth.email",
   "page.id",
   "page.title",
   "page.url",

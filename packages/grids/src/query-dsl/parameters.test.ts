@@ -10,6 +10,9 @@ const parse = (source: string) => {
 
 const context = (overrides: Partial<DslQueryContextValues> = {}): DslQueryContextValues => ({
   "auth.id": "10000000-0000-4000-8000-000000000001",
+  "auth.name": "App Reader",
+  "auth.username": "reader",
+  "auth.email": "reader@example.test",
   "page.id": "loans",
   "page.title": "My loans",
   "page.url": "/apps/loans/my-loans",
@@ -34,6 +37,9 @@ describe("GQL query context binding", () => {
   test("recognizes exactly the official fixed namespaces and dynamic params", () => {
     for (const key of [
       "auth.id",
+      "auth.name",
+      "auth.username",
+      "auth.email",
       "page.id",
       "page.title",
       "page.url",
@@ -49,7 +55,7 @@ describe("GQL query context binding", () => {
     ]) {
       expect(isDslQueryContextKey(key), key).toBe(true);
     }
-    expect(isDslQueryContextKey("auth.email")).toBe(false);
+    expect(isDslQueryContextKey("auth.avatar")).toBe(false);
     expect(isDslQueryContextKey("params.bad-name")).toBe(false);
     expect(isDslQueryContextKey("params.foo.bar")).toBe(false);
   });
@@ -102,9 +108,9 @@ describe("GQL query context binding", () => {
   });
 
   test("rejects unknown and missing context references", () => {
-    expect(bindDslQueryContext(parse("from table Articles\nwhere @auth.email = null"), context())).toEqual({
+    expect(bindDslQueryContext(parse("from table Articles\nwhere @auth.avatar = null"), context())).toEqual({
       ok: false,
-      error: 'Unknown query context reference "@auth.email"',
+      error: 'Unknown query context reference "@auth.avatar"',
     });
 
     const values = context();

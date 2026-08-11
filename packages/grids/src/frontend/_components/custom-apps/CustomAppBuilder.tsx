@@ -5,7 +5,6 @@ import {
   Button,
   ButtonLink,
   DetailPanel,
-  Disclosure,
   Dropdown,
   IconButton,
   IconInput,
@@ -34,6 +33,7 @@ import { errorMessage } from "../utils/api-helpers";
 import type { WorkspaceCatalog } from "../workspace/workspace-state-model";
 import CustomAppBlockPreview from "./CustomAppBlockPreview";
 import { CustomAppAvailabilitySection, CustomAppGqlField } from "./CustomAppGqlField";
+import { CustomAppMarkdownField } from "./CustomAppMarkdownField";
 import {
   applyCustomAppBlockDrop,
   type CustomAppBlockDropIntent,
@@ -46,6 +46,7 @@ import {
   customAppPageParameterUsage,
   moveCustomAppPage,
   removeCustomAppPageParameter,
+  renameCustomAppPage,
   renameCustomAppPageParameter,
 } from "./custom-app-builder-model";
 import { createCustomAppBuilderState } from "./custom-app-builder-state";
@@ -113,6 +114,9 @@ export const isCustomAppAvailabilityDiagnostic = (diagnostic: CustomAppDiagnosti
 
 const FIXED_CUSTOM_APP_CONTEXT_KEYS = [
   "auth.id",
+  "auth.name",
+  "auth.username",
+  "auth.email",
   "page.id",
   "page.title",
   "page.url",
@@ -179,6 +183,22 @@ function PageParameterIdInput(props: { id: string; existingIds: readonly string[
     if (!error() && next !== props.id) props.onRename(next);
   };
   return <TextInput label="Parameter ID" value={value} onValueChange={setValue} error={error} onBlur={commit} required />;
+}
+
+function PageIdInput(props: { id: string; existingIds: readonly string[]; onRename: (id: string) => void }) {
+  const [value, setValue] = createSignal(props.id);
+  const error = createMemo(() => {
+    const next = value().trim();
+    if (!/^[a-z][a-z0-9-]{0,79}$/.test(next)) return "Use lowercase letters, numbers, and hyphens.";
+    if (next !== props.id && props.existingIds.includes(next)) return "This Page ID is already used.";
+    return undefined;
+  });
+  createEffect(() => setValue(props.id));
+  const commit = () => {
+    const next = value().trim();
+    if (!error() && next !== props.id) props.onRename(next);
+  };
+  return <TextInput label="Page ID" value={value} onValueChange={setValue} error={error} onBlur={commit} required />;
 }
 
 function JsonValueInput(props: { label: string; value: WorkflowJsonValue; onValueChange: (value: WorkflowJsonValue) => void }) {
@@ -460,17 +480,8 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     return block?.type === "records" && block.source.kind === "view" ? (viewsById().get(block.source.viewId) ?? null) : null;
   });
   const selectedRecordsFields = createMemo(() => {
-    const block = selectedSourceBlock();
-    if (block?.type !== "records") return [];
-    if (block.source.kind === "view") {
-      const view = selectedRecordsView();
-      return view ? (viewResources().find((resource) => resource.view.id === view.id)?.fields ?? []) : [];
-    }
-    const preview = previewResults()[block.id];
-    if (!preview?.ok) return [];
-    return preview.columns
-      .flatMap((column) => (column.fieldId ? [fieldsById().get(column.fieldId)] : []))
-      .filter((field): field is Field => Boolean(field));
+    const view = selectedRecordsView();
+    return view ? (viewResources().find((resource) => resource.view.id === view.id)?.fields ?? []) : [];
   });
   const selectedRecordsFieldOptions = createMemo(() =>
     selectedRecordsFields().map((field) => ({
@@ -600,14 +611,16 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     );
   };
 
-  const addBlock = (block: CustomAppBlock) => {
+  const rowsWithAddedBlock = (block: CustomAppBlock): CustomAppPage["rows"] => {
     const targetColumnId = selectedBlock()?.column.id ?? selectedPage().rows[0]!.columns[0]!.id;
-    patchPage({
-      rows: selectedPage().rows.map((row) => ({
-        ...row,
-        columns: row.columns.map((column) => (column.id === targetColumnId ? { ...column, blocks: [...column.blocks, block] } : column)),
-      })),
-    });
+    return selectedPage().rows.map((row) => ({
+      ...row,
+      columns: row.columns.map((column) => (column.id === targetColumnId ? { ...column, blocks: [...column.blocks, block] } : column)),
+    }));
+  };
+
+  const addBlock = (block: CustomAppBlock) => {
+    patchPage({ rows: rowsWithAddedBlock(block) });
     selectBlock(block.id);
   };
 
@@ -635,15 +648,40 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     const view = readyViews()[0]?.view;
     if (view) addBlock({ id: localId("chart"), type: "chart", chartType: "bar", limit: 100, source: { kind: "view", viewId: view.id } });
   };
+  const pageRecordCandidate = createMemo(() => {
+    const entries = Object.entries(selectedPage().parameters);
+    const record = selectedPage().record;
+    if (record) {
+      const parameterId = record.id.path;
+      const parameter = selectedPage().parameters[parameterId];
+      return parameter ? { parameterId, tableId: parameter.tableId } : null;
+    }
+    if (entries.length === 1) return { parameterId: entries[0]![0], tableId: entries[0]![1].tableId };
+    if (entries.length > 1) return null;
+    const table = pageRecordTableOptions().find((option) => !option.disabled);
+    return table ? { parameterId: "record_id", tableId: table.value } : null;
+  });
   const pageRecordFields = createMemo(() => {
-    const tableId = selectedPage().record?.tableId;
+    const tableId = pageRecordCandidate()?.tableId;
     return tableId ? (props.catalog.fieldsByTable[tableId] ?? []).filter((field) => field.deletedAt === null).slice(0, 30) : [];
   });
   const addRecordBlock = () => {
+    const candidate = pageRecordCandidate();
     const fields = pageRecordFields();
-    if (fields.length > 0) {
-      addBlock({ id: localId("record"), type: "record", fieldIds: fields.map((field) => field.id), editableFieldIds: [] });
-    }
+    if (!candidate || fields.length === 0) return;
+    const block: CustomAppBlock = {
+      id: localId("record"),
+      type: "record",
+      fieldIds: fields.map((field) => field.id),
+      editableFieldIds: [],
+    };
+    patchPage({
+      parameters: { [candidate.parameterId]: { type: "record", tableId: candidate.tableId, required: true } },
+      record: { tableId: candidate.tableId, id: { source: "PARAMS", path: candidate.parameterId } },
+      navigation: { ...selectedPage().navigation, visible: false },
+      rows: rowsWithAddedBlock(block),
+    });
+    selectBlock(block.id);
   };
   const addCommentsBlock = () => addBlock({ id: localId("comments"), type: "comments" });
   const addActionsBlock = () =>
@@ -675,12 +713,20 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     readyViews().length > 0
       ? { icon: "ti ti-chart-bar", label: "Chart", description: "Visualize an aggregate view or GQL query.", action: addChartBlock }
       : { icon: "ti ti-chart-bar", label: "Chart", description: "Create a saved aggregate view first.", disabled: true as const },
-    selectedPage().record && pageRecordFields().length > 0
+    pageRecordCandidate() && pageRecordFields().length > 0
       ? { icon: "ti ti-id", label: "Record", description: "Show fields from the page record.", action: addRecordBlock }
-      : { icon: "ti ti-id", label: "Record", description: "Configure a page record first.", disabled: true as const },
+      : {
+          icon: "ti ti-id",
+          label: "Record",
+          description:
+            Object.keys(selectedPage().parameters).length > 1
+              ? "A Record block needs exactly one route record parameter."
+              : "Add a table with visible fields first.",
+          disabled: true as const,
+        },
     selectedPage().record
       ? { icon: "ti ti-messages", label: "Comments", description: "Show comments for the page record.", action: addCommentsBlock }
-      : { icon: "ti ti-messages", label: "Comments", description: "Configure a page record first.", disabled: true as const },
+      : { icon: "ti ti-messages", label: "Comments", description: "Add a Record block first.", disabled: true as const },
     { icon: "ti ti-bolt", label: "Actions", description: "Add page or workflow actions.", action: addActionsBlock },
   ]);
 
@@ -726,12 +772,22 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
   const removeSelectedBlock = async () => {
     const selected = selectedBlock();
     if (!selected || blockCount() === 1) return;
-    const confirmed = await prompts.confirm(`Remove "${selected.block.title || blockMeta[selected.block.type].label}" from this page?`, {
-      title: "Remove block",
-      icon: "ti ti-trash",
-      confirmText: "Remove",
-      variant: "danger",
-    });
+    const removingLastRecord =
+      selected.block.type === "record" &&
+      !selectedPage().rows.some((row) =>
+        row.columns.some((column) => column.blocks.some((block) => block.type === "record" && block.id !== selected.block.id)),
+      );
+    const confirmed = await prompts.confirm(
+      removingLastRecord
+        ? "Remove this Record block? Comments blocks on this page will also be removed."
+        : `Remove "${selected.block.title || blockMeta[selected.block.type].label}" from this page?`,
+      {
+        title: "Remove block",
+        icon: "ti ti-trash",
+        confirmText: "Remove",
+        variant: "danger",
+      },
+    );
     if (!confirmed) return;
     const page = normalizeCustomAppPageLayout({
       ...selectedPage(),
@@ -739,11 +795,11 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
         ...row,
         columns: row.columns.map((column) => ({
           ...column,
-          blocks: column.blocks.filter((block) => block.id !== selected.block.id),
+          blocks: column.blocks.filter((block) => block.id !== selected.block.id && (!removingLastRecord || block.type !== "comments")),
         })),
       })),
     });
-    patchPage({ rows: page.rows });
+    patchPage({ rows: page.rows, ...(removingLastRecord ? { record: undefined } : {}) });
     setSelectedBlockId(null);
   };
 
@@ -835,6 +891,13 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
   const moveSelectedPage = (direction: -1 | 1) =>
     setDefinition((definition) => moveCustomAppPage(definition, selectedPage().id, direction));
 
+  const renameSelectedPage = (nextId: string) => {
+    const currentId = selectedPage().id;
+    if (nextId === currentId || !/^[a-z][a-z0-9-]{0,79}$/.test(nextId) || draft.draft().pages.some((page) => page.id === nextId)) return;
+    setDefinition((definition) => renameCustomAppPage(definition, currentId, nextId));
+    setSelectedPageId(nextId);
+  };
+
   const nextParameterId = () => {
     const parameters = selectedPage().parameters;
     if (!parameters.record_id) return "record_id";
@@ -858,47 +921,44 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     setDefinition((definition) => renameCustomAppPageParameter(definition, selectedPage().id, from, to));
   };
 
-  const configurePageRecord = (tableId: string | null) => {
-    if (!tableId) {
-      patchPage({ record: undefined });
-      return;
-    }
-    const parameterId = Object.keys(selectedPage().parameters)[0] ?? "record_id";
+  const updatePageParameterTable = (parameterId: string, tableId: string) => {
+    const isPageRecord = selectedPage().record?.id.path === parameterId;
     const fields = (props.catalog.fieldsByTable[tableId] ?? []).filter((field) => field.deletedAt === null).slice(0, 30);
-    const hasRecordBlock = selectedPage().rows.some((row) =>
-      row.columns.some((column) => column.blocks.some((block) => block.type === "record")),
-    );
     patchPage({
-      parameters: { [parameterId]: { type: "record", tableId, required: true } },
-      record: { tableId, id: { source: "PARAMS", path: parameterId } },
-      navigation: { ...selectedPage().navigation, visible: false },
-      rows: selectedPage().rows.map((row, rowIndex) => ({
-        ...row,
-        columns: row.columns.map((column, columnIndex) => ({
-          ...column,
-          blocks: [
-            ...column.blocks.map((block) =>
-              block.type === "record"
-                ? { ...block, fieldIds: fields.map((field) => field.id), editableFieldIds: [], documents: undefined }
-                : block,
-            ),
-            ...(!hasRecordBlock && rowIndex === 0 && columnIndex === 0
-              ? [{ id: localId("record"), type: "record" as const, fieldIds: fields.map((field) => field.id), editableFieldIds: [] }]
-              : []),
-          ],
-        })),
-      })),
+      parameters: { ...selectedPage().parameters, [parameterId]: { type: "record", tableId, required: true } },
+      ...(isPageRecord
+        ? {
+            record: { tableId, id: { source: "PARAMS" as const, path: parameterId } },
+            rows: selectedPage().rows.map((row) => ({
+              ...row,
+              columns: row.columns.map((column) => ({
+                ...column,
+                blocks: column.blocks.map((block) =>
+                  block.type === "record"
+                    ? { ...block, fieldIds: fields.map((field) => field.id), editableFieldIds: [], documents: undefined }
+                    : block,
+                ),
+              })),
+            })),
+          }
+        : {}),
     });
   };
 
-  const clearPageRecord = async () => {
-    if (!selectedPage().record) return;
-    const confirmed = await prompts.confirm(
-      "Remove the page record? Record and Comments blocks on this page will also be removed. The route parameter remains available.",
-      { title: "Remove page record", icon: "ti ti-unlink", confirmText: "Remove page record", variant: "danger" },
-    );
+  const removePageParameter = async (parameterId: string) => {
+    if (selectedPage().record?.id.path !== parameterId) {
+      setDefinition((definition) => removeCustomAppPageParameter(definition, selectedPage().id, parameterId));
+      return;
+    }
+    const confirmed = await prompts.confirm("Remove this record parameter? Its Record and Comments blocks will also be removed.", {
+      title: "Remove record parameter",
+      icon: "ti ti-unlink",
+      confirmText: "Remove parameter",
+      variant: "danger",
+    });
     if (!confirmed) return;
     patchPage({
+      parameters: Object.fromEntries(Object.entries(selectedPage().parameters).filter(([id]) => id !== parameterId)),
       record: undefined,
       rows: selectedPage().rows.map((row) => ({
         ...row,
@@ -1156,7 +1216,12 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
               <div class="flex min-w-0 items-center gap-2 px-1">
                 <i class={draft.draft().icon ? `ti ti-${draft.draft().icon}` : "ti ti-app-window"} aria-hidden="true" />
                 <strong class="truncate text-sm">{draft.draft().name}</strong>
-                <StatusBadge tone={app().publishedAt ? "ok" : "neutral"} variant="text" label={app().publishedAt ? "Published" : "Draft"} />
+                <StatusBadge
+                  tone={app().publishedAt ? "ok" : "neutral"}
+                  icon={app().publishedAt ? undefined : null}
+                  variant="text"
+                  label={app().publishedAt ? "Published" : "Draft"}
+                />
               </div>
             </Toolbar.Group>
             <Toolbar.Spacer />
@@ -1281,42 +1346,96 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
             </Show>
 
             <Show when={inspectorMode() === "page"}>
-              <DetailPanel.Group label="Page settings">
-                <DetailPanel.Section title="Page" icon="ti ti-file-settings" tone="accent">
-                  <div class="flex flex-col gap-3">
-                    <TextInput label="Title" value={() => selectedPage().title} onValueChange={(title) => patchPage({ title })} required />
-                    <Switch
-                      label="Show in app navigation"
-                      description={
-                        Object.keys(selectedPage().parameters).length > 0
-                          ? "Pages with required parameters are route-only and cannot appear in navigation."
-                          : undefined
-                      }
-                      value={() => selectedPage().navigation.visible}
-                      onValueChange={(visible) => patchPage({ navigation: { ...selectedPage().navigation, visible } })}
-                      disabled={Object.keys(selectedPage().parameters).length > 0}
-                    />
-                    <Show
-                      when={draft.draft().startPageId === selectedPage().id}
-                      fallback={
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={Object.keys(selectedPage().parameters).length > 0}
-                          onClick={() => setDefinition((definition) => ({ ...definition, startPageId: selectedPage().id }))}
-                        >
-                          Set as start page
-                        </Button>
-                      }
-                    >
-                      <StatusBadge tone="ok" label="Start page" variant="text" />
-                    </Show>
-                    <div>
-                      <p class="text-xs text-dimmed">Page ID</p>
-                      <code class="text-xs">{selectedPage().id}</code>
-                    </div>
-                  </div>
-                </DetailPanel.Section>
+              <DetailPanel.Summary title="Page">
+                <div class="flex flex-col gap-3">
+                  <TextInput label="Title" value={() => selectedPage().title} onValueChange={(title) => patchPage({ title })} required />
+                  <Switch
+                    label="Show in app navigation"
+                    description={
+                      Object.keys(selectedPage().parameters).length > 0
+                        ? "Pages with required parameters are route-only and cannot appear in navigation."
+                        : undefined
+                    }
+                    value={() => selectedPage().navigation.visible}
+                    onValueChange={(visible) => patchPage({ navigation: { ...selectedPage().navigation, visible } })}
+                    disabled={Object.keys(selectedPage().parameters).length > 0}
+                  />
+                  <Show
+                    when={draft.draft().startPageId === selectedPage().id}
+                    fallback={
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={Object.keys(selectedPage().parameters).length > 0}
+                        onClick={() => setDefinition((definition) => ({ ...definition, startPageId: selectedPage().id }))}
+                      >
+                        Set as start page
+                      </Button>
+                    }
+                  >
+                    <StatusBadge tone="ok" label="Start page" variant="text" />
+                  </Show>
+                  <PageIdInput
+                    id={selectedPage().id}
+                    existingIds={draft.draft().pages.map((page) => page.id)}
+                    onRename={renameSelectedPage}
+                  />
+                </div>
+              </DetailPanel.Summary>
+              <DetailPanel.Section
+                title="Route parameters"
+                icon="ti ti-route"
+                description="Required record IDs supplied by links, rows, Forms, or actions."
+                meta={`${Object.keys(selectedPage().parameters).length}`}
+                collapsible
+                defaultOpen={Object.keys(selectedPage().parameters).length > 0}
+              >
+                <div class="flex flex-col gap-4">
+                  <For each={Object.entries(selectedPage().parameters)}>
+                    {([parameterId, parameter]) => {
+                      const usage = () => customAppPageParameterUsage(draft.draft(), selectedPage().id, parameterId);
+                      const isPageRecord = () => selectedPage().record?.id.path === parameterId;
+                      const blockingUsage = () => usage().filter((entry) => entry !== "page record");
+                      return (
+                        <div class="flex flex-col gap-3">
+                          <Show when={isPageRecord()}>
+                            <StatusBadge tone="ok" icon={null} label="Used by Record and Comments blocks" />
+                          </Show>
+                          <PageParameterIdInput
+                            id={parameterId}
+                            existingIds={Object.keys(selectedPage().parameters)}
+                            onRename={(next) => renamePageParameter(parameterId, next)}
+                          />
+                          <Select
+                            label="Record table"
+                            searchable
+                            value={() => parameter.tableId}
+                            options={tableOptions()}
+                            onValueChange={(tableId) => tableId && updatePageParameterTable(parameterId, tableId)}
+                          />
+                          <Button
+                            size="xs"
+                            variant="ghost"
+                            class="self-start"
+                            disabled={blockingUsage().length > 0}
+                            title={blockingUsage().length > 0 ? `Used by ${blockingUsage().join(", ")}` : undefined}
+                            onClick={() => void removePageParameter(parameterId)}
+                          >
+                            <i class="ti ti-x" aria-hidden="true" /> Remove record parameter
+                          </Button>
+                        </div>
+                      );
+                    }}
+                  </For>
+                  <Show when={Object.keys(selectedPage().parameters).length === 0}>
+                    <p class="text-sm text-dimmed">This page has no required route values.</p>
+                  </Show>
+                  <Button size="sm" variant="secondary" onClick={addPageParameter} disabled={props.catalog.tables.length === 0}>
+                    <i class="ti ti-plus" aria-hidden="true" /> Add record parameter
+                  </Button>
+                </div>
+              </DetailPanel.Section>
+              <DetailPanel.Group label="Page rules and structure">
                 <CustomAppAvailabilitySection
                   baseId={draft.draft().baseId}
                   contextKeys={contextKeys()}
@@ -1325,92 +1444,6 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                   onValueChange={(query) => patchPage({ availableWhen: query.trim() ? { query } : undefined }, true)}
                   error={() => diagnosticFor(selectedPage().id, "availableWhen")}
                 />
-                <DetailPanel.Section
-                  title="Route parameters"
-                  icon="ti ti-route"
-                  description="Required record IDs supplied by links, rows, Forms, or actions."
-                  meta={<StatusBadge tone="neutral" variant="text" label={`${Object.keys(selectedPage().parameters).length}`} />}
-                  collapsible
-                  defaultOpen={Object.keys(selectedPage().parameters).length > 0}
-                >
-                  <div class="flex flex-col gap-4">
-                    <For each={Object.entries(selectedPage().parameters)}>
-                      {([parameterId, parameter]) => {
-                        const usage = () => customAppPageParameterUsage(draft.draft(), selectedPage().id, parameterId);
-                        return (
-                          <div class="flex flex-col gap-3">
-                            <PageParameterIdInput
-                              id={parameterId}
-                              existingIds={Object.keys(selectedPage().parameters)}
-                              onRename={(next) => renamePageParameter(parameterId, next)}
-                            />
-                            <Select
-                              label="Record table"
-                              searchable
-                              disabled={selectedPage().record?.id.path === parameterId}
-                              description={
-                                selectedPage().record?.id.path === parameterId
-                                  ? "Change this table from the Page record section."
-                                  : undefined
-                              }
-                              value={() => parameter.tableId}
-                              options={tableOptions()}
-                              onValueChange={(tableId) =>
-                                tableId &&
-                                patchPage({
-                                  parameters: {
-                                    ...selectedPage().parameters,
-                                    [parameterId]: { type: "record", tableId, required: true },
-                                  },
-                                })
-                              }
-                            />
-                            <Button
-                              size="xs"
-                              variant="ghost"
-                              class="self-start"
-                              disabled={usage().length > 0}
-                              title={usage().length > 0 ? `Used by ${usage().join(", ")}` : undefined}
-                              onClick={() =>
-                                setDefinition((definition) => removeCustomAppPageParameter(definition, selectedPage().id, parameterId))
-                              }
-                            >
-                              <i class="ti ti-x" aria-hidden="true" /> Remove parameter
-                            </Button>
-                          </div>
-                        );
-                      }}
-                    </For>
-                    <Show when={Object.keys(selectedPage().parameters).length === 0}>
-                      <p class="text-sm text-dimmed">This page has no required route values.</p>
-                    </Show>
-                    <Button size="sm" variant="secondary" onClick={addPageParameter} disabled={props.catalog.tables.length === 0}>
-                      <i class="ti ti-plus" aria-hidden="true" /> Add record parameter
-                    </Button>
-                  </div>
-                </DetailPanel.Section>
-                <DetailPanel.Section
-                  title="Page record"
-                  icon="ti ti-id"
-                  description="Lets Record and Comments blocks use one route record."
-                  collapsible
-                  defaultOpen={Boolean(selectedPage().record)}
-                >
-                  <div class="flex flex-col gap-3">
-                    <Select
-                      label="Record table"
-                      placeholder="No page record"
-                      value={() => selectedPage().record?.tableId ?? null}
-                      options={pageRecordTableOptions()}
-                      onValueChange={(tableId) => tableId && configurePageRecord(tableId)}
-                    />
-                    <Show when={selectedPage().record}>
-                      <Button size="xs" variant="ghost" class="self-start" onClick={() => void clearPageRecord()}>
-                        <i class="ti ti-unlink" aria-hidden="true" /> Remove page record
-                      </Button>
-                    </Show>
-                  </div>
-                </DetailPanel.Section>
                 <DetailPanel.Section title="Page order" icon="ti ti-arrows-sort" collapsible defaultOpen={false}>
                   <div class="flex flex-wrap gap-2">
                     <Button
@@ -1435,18 +1468,18 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                     </Button>
                   </div>
                 </DetailPanel.Section>
-                <DetailPanel.Section title="Danger zone" icon="ti ti-trash" tone="danger" collapsible defaultOpen={false}>
-                  <Button size="sm" variant="danger" disabled={draft.draft().pages.length === 1} onClick={() => void removePage()}>
-                    <i class="ti ti-trash" aria-hidden="true" /> Remove page
-                  </Button>
-                </DetailPanel.Section>
               </DetailPanel.Group>
+              <DetailPanel.Section title="Danger zone" icon="ti ti-trash" tone="danger" collapsible defaultOpen={false}>
+                <Button size="sm" variant="danger" disabled={draft.draft().pages.length === 1} onClick={() => void removePage()}>
+                  <i class="ti ti-trash" aria-hidden="true" /> Remove page
+                </Button>
+              </DetailPanel.Section>
             </Show>
 
             <Show when={inspectorMode() === "block" && selectedBlock()}>
               {(selected) => (
-                <DetailPanel.Group label="Block settings">
-                  <DetailPanel.Section title="General" icon={blockMeta[selected().block.type].icon} tone="accent">
+                <>
+                  <DetailPanel.Summary title="Block">
                     <div class="flex flex-col gap-4">
                       <TextInput
                         label="Title"
@@ -1457,9 +1490,8 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                         clearable
                       />
                       <Show when={selected().block.type === "markdown"}>
-                        <TextInput
-                          label="Content"
-                          description="Markdown is sanitized when the published app renders it."
+                        <CustomAppMarkdownField
+                          contextKeys={contextKeys()}
                           value={() => {
                             const block = selected().block;
                             return block.type === "markdown" ? block.markdown : "";
@@ -1467,317 +1499,347 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                           onValueChange={(markdown) =>
                             updateSelectedBlock((block) => (block.type === "markdown" ? { ...block, markdown } : block))
                           }
-                          markdown
                         />
                       </Show>
                     </div>
-                  </DetailPanel.Section>
-                  <CustomAppAvailabilitySection
-                    baseId={draft.draft().baseId}
-                    contextKeys={contextKeys()}
-                    targetLabel={selected().block.title || blockMeta[selected().block.type].label}
-                    value={() => selected().block.availableWhen?.query ?? ""}
-                    onValueChange={(query) =>
-                      updateSelectedBlock((block) => ({ ...block, availableWhen: query.trim() ? { query } : undefined }) as CustomAppBlock)
-                    }
-                    error={() => diagnosticFor(selected().block.id, "availableWhen")}
-                  />
-                  <DetailPanel.Section title="Block settings" icon="ti ti-adjustments" collapsible defaultOpen>
-                    <div class="flex flex-col gap-4">
-                      <Show
-                        when={
-                          selected().block.type === "records" || selected().block.type === "metrics" || selected().block.type === "chart"
-                        }
+                  </DetailPanel.Summary>
+                  <DetailPanel.Group label="Block behavior">
+                    <CustomAppAvailabilitySection
+                      baseId={draft.draft().baseId}
+                      contextKeys={contextKeys()}
+                      targetLabel={selected().block.title || blockMeta[selected().block.type].label}
+                      value={() => selected().block.availableWhen?.query ?? ""}
+                      onValueChange={(query) =>
+                        updateSelectedBlock(
+                          (block) => ({ ...block, availableWhen: query.trim() ? { query } : undefined }) as CustomAppBlock,
+                        )
+                      }
+                      error={() => diagnosticFor(selected().block.id, "availableWhen")}
+                    />
+                    <Show
+                      when={
+                        selected().block.type === "records" || selected().block.type === "record" || selected().block.type === "comments"
+                      }
+                    >
+                      <DetailPanel.Section
+                        title="Empty state"
+                        icon="ti ti-placeholder"
+                        description="Message shown when this block has no content."
+                        collapsible
+                        defaultOpen={false}
                       >
-                        <Select
-                          label="Data source"
+                        <TextInput
+                          label="Message"
                           value={() => {
                             const block = selected().block;
-                            return block.type === "records" || block.type === "metrics" || block.type === "chart"
-                              ? block.source.kind
-                              : null;
+                            return block.type === "records" || block.type === "record" || block.type === "comments"
+                              ? (block.emptyText ?? "")
+                              : "";
                           }}
-                          options={[
-                            { id: "view", label: "Saved view", icon: "ti ti-table" },
-                            { id: "gql", label: "GQL query", icon: "ti ti-code" },
-                          ]}
-                          onValueChange={(kind) => {
-                            if (kind !== "view" && kind !== "gql") return;
-                            const resource = readyViews()[0];
-                            const tableName = props.catalog.tables[0]?.name ?? "Table";
-                            updateSelectedBlock((block) => {
-                              if (block.type !== "records" && block.type !== "metrics" && block.type !== "chart") return block;
-                              if (kind === "gql") {
-                                const query =
-                                  block.type === "metrics"
-                                    ? `from table "${tableName}"\naggregate count(*) as total`
-                                    : `from table "${tableName}"`;
-                                return { ...block, source: { kind: "gql", query, maxRows: block.type === "metrics" ? 1 : 100 } };
-                              }
-                              if (!resource) return block;
-                              return block.type === "records"
-                                ? {
-                                    ...block,
-                                    source: { kind: "view", viewId: resource.view.id },
-                                    display: { kind: "table", columnIds: resource.fields.map((field) => field.id) },
-                                  }
-                                : { ...block, source: { kind: "view", viewId: resource.view.id } };
-                            });
-                          }}
-                        />
-                        <Show when={selectedSourceBlock()?.source.kind === "gql"}>
-                          <CustomAppGqlField
-                            baseId={draft.draft().baseId}
-                            contextKeys={contextKeys()}
-                            label="GQL"
-                            dialogTitle={`${selected().block.title || blockMeta[selected().block.type].label} data source`}
-                            description="Use implicit @auth, @params, @page, @app, @base, and @time context."
-                            error={() => {
-                              const block = selected().block;
-                              return block.type === "records" || block.type === "metrics" || block.type === "chart"
-                                ? diagnosticFor(block.id, "source")
-                                : undefined;
-                            }}
-                            lines={10}
-                            value={() => {
-                              const block = selected().block;
-                              return (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
-                                block.source.kind === "gql"
-                                ? block.source.query
-                                : "";
-                            }}
-                            onValueChange={(query) =>
-                              updateSelectedBlock((block) =>
-                                (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
-                                block.source.kind === "gql"
-                                  ? { ...block, source: { ...block.source, query } }
-                                  : block,
-                              )
-                            }
-                          />
-                          <NumberInput
-                            label="Maximum rows"
-                            min={1}
-                            max={100}
-                            step={1}
-                            value={() => {
-                              const block = selected().block;
-                              return (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
-                                block.source.kind === "gql"
-                                ? block.source.maxRows
-                                : null;
-                            }}
-                            onValueChange={(maxRows) => {
-                              if (maxRows === null) return;
-                              updateSelectedBlock((block) =>
-                                (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
-                                block.source.kind === "gql"
-                                  ? { ...block, source: { ...block.source, maxRows } }
-                                  : block,
-                              );
-                            }}
-                          />
-                        </Show>
-                      </Show>
-                      <Show
-                        when={
-                          (selectedSourceBlock()?.type === "metrics" || selectedSourceBlock()?.type === "chart") &&
-                          selectedSourceBlock()?.source.kind === "view"
-                        }
-                      >
-                        <Select
-                          label="Saved view"
-                          searchable
-                          value={() => {
-                            const block = selected().block;
-                            return (block.type === "metrics" || block.type === "chart") && block.source.kind === "view"
-                              ? block.source.viewId
-                              : null;
-                          }}
-                          options={viewOptions()}
-                          onValueChange={(viewId) =>
-                            viewId &&
+                          onValueChange={(emptyText) =>
                             updateSelectedBlock((block) =>
-                              block.type === "metrics" || block.type === "chart" ? { ...block, source: { kind: "view", viewId } } : block,
+                              block.type === "records" || block.type === "record" || block.type === "comments"
+                                ? { ...block, emptyText: emptyText || undefined }
+                                : block,
                             )
                           }
+                          clearable
                         />
-                      </Show>
-                      <Show when={selected().block.type === "records"}>
-                        <Show when={selectedSourceBlock()?.type === "records" && selectedSourceBlock()?.source.kind === "view"}>
+                      </DetailPanel.Section>
+                    </Show>
+                  </DetailPanel.Group>
+                  <Show
+                    when={selected().block.type === "records" || selected().block.type === "metrics" || selected().block.type === "chart"}
+                  >
+                    <DetailPanel.Group label="Data settings">
+                      <DetailPanel.Section
+                        title="Data source"
+                        icon="ti ti-database-search"
+                        description="Choose the published data this block can read."
+                        collapsible
+                        defaultOpen
+                      >
+                        <div class="flex flex-col gap-4">
                           <Select
-                            label="Saved view"
-                            description="Only views you can use in this Base are listed."
-                            placeholder="Choose a saved view"
-                            searchable
+                            label="Data source"
                             value={() => {
                               const block = selected().block;
-                              return block.type === "records" && block.source.kind === "view" ? block.source.viewId : null;
+                              return block.type === "records" || block.type === "metrics" || block.type === "chart"
+                                ? block.source.kind
+                                : null;
                             }}
-                            selectedLabel={() => {
-                              const block = selected().block;
-                              if (block.type !== "records" || block.source.kind !== "view") return undefined;
-                              return viewsById().has(block.source.viewId) ? undefined : "Unavailable view";
-                            }}
-                            error={() => {
-                              const block = selected().block;
-                              if (block.type !== "records") return undefined;
-                              if (block.source.kind !== "view") return "Choose a saved view to configure this block visually.";
-                              if (!viewsById().has(block.source.viewId)) return "This saved view is no longer available.";
-                              return diagnosticFor(block.id, "source");
-                            }}
-                            options={viewOptions()}
-                            onValueChange={(viewId) => {
-                              if (!viewId) return;
-                              const view = viewsById().get(viewId);
-                              if (!view) return;
-                              const fields = viewResources().find((resource) => resource.view.id === viewId)?.fields ?? [];
-                              updateSelectedBlock((block) =>
-                                block.type === "records"
+                            options={[
+                              { id: "view", label: "Saved view", icon: "ti ti-table" },
+                              { id: "gql", label: "GQL query", icon: "ti ti-code" },
+                            ]}
+                            onValueChange={(kind) => {
+                              if (kind !== "view" && kind !== "gql") return;
+                              const resource = readyViews()[0];
+                              const tableName = props.catalog.tables[0]?.name ?? "Table";
+                              updateSelectedBlock((block) => {
+                                if (block.type !== "records" && block.type !== "metrics" && block.type !== "chart") return block;
+                                if (kind === "gql") {
+                                  const query =
+                                    block.type === "metrics"
+                                      ? `from table "${tableName}"\naggregate count(*) as total`
+                                      : `from table "${tableName}"`;
+                                  return block.type === "records"
+                                    ? {
+                                        ...block,
+                                        source: { kind: "gql", query, maxRows: 100 },
+                                        display: { kind: "table", columnIds: [] },
+                                      }
+                                    : { ...block, source: { kind: "gql", query, maxRows: block.type === "metrics" ? 1 : 100 } };
+                                }
+                                if (!resource) return block;
+                                return block.type === "records"
                                   ? {
                                       ...block,
-                                      source: { kind: "view", viewId },
-                                      display: {
-                                        kind: "table",
-                                        columnIds: fields.map((field) => field.id),
-                                      },
+                                      source: { kind: "view", viewId: resource.view.id },
+                                      display: { kind: "table", columnIds: resource.fields.map((field) => field.id) },
                                     }
-                                  : block,
-                              );
+                                  : { ...block, source: { kind: "view", viewId: resource.view.id } };
+                              });
                             }}
                           />
-                          <Show when={selectedRecordsView()}>
-                            <MultiSelectInput
-                              label="Columns"
-                              description="Choose up to 30 fields shown by the Records table."
-                              placeholder="Choose columns"
-                              searchable
-                              clearable
-                              value={() => {
-                                const block = selected().block;
-                                return block.type === "records" ? block.display.columnIds : [];
-                              }}
-                              selectedOptions={() => {
-                                const block = selected().block;
-                                if (block.type !== "records") return [];
-                                const options = new Map(selectedRecordsFieldOptions().map((option) => [option.id, option]));
-                                return block.display.columnIds.map(
-                                  (fieldId) => options.get(fieldId) ?? { id: fieldId, label: "Unavailable field" },
-                                );
-                              }}
-                              options={selectedRecordsFieldOptions()}
+                          <Show when={selectedSourceBlock()?.source.kind === "gql"}>
+                            <CustomAppGqlField
+                              baseId={draft.draft().baseId}
+                              contextKeys={contextKeys()}
+                              label="GQL"
+                              dialogTitle={`${selected().block.title || blockMeta[selected().block.type].label} data source`}
+                              description="Use implicit @auth, @params, @page, @app, @base, and @time context."
                               error={() => {
                                 const block = selected().block;
-                                if (block.type !== "records") return undefined;
-                                if (block.display.columnIds.length === 0) return "Choose at least one column.";
-                                const available = new Set(selectedRecordsFields().map((field) => field.id));
-                                if (block.display.columnIds.some((fieldId) => !available.has(fieldId))) {
-                                  return "Replace or remove unavailable fields.";
-                                }
-                                return diagnosticFor(block.id, "columnIds");
+                                return block.type === "records" || block.type === "metrics" || block.type === "chart"
+                                  ? diagnosticFor(block.id, "source")
+                                  : undefined;
                               }}
-                              onValueChange={(columnIds) =>
+                              lines={10}
+                              value={() => {
+                                const block = selected().block;
+                                return (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
+                                  block.source.kind === "gql"
+                                  ? block.source.query
+                                  : "";
+                              }}
+                              onValueChange={(query) =>
                                 updateSelectedBlock((block) =>
-                                  block.type === "records"
-                                    ? { ...block, display: { kind: "table", columnIds: columnIds.slice(0, 30) } }
+                                  (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
+                                  block.source.kind === "gql"
+                                    ? { ...block, source: { ...block.source, query } }
+                                    : block,
+                                )
+                              }
+                            />
+                            <NumberInput
+                              label="Maximum rows"
+                              min={1}
+                              max={100}
+                              step={1}
+                              value={() => {
+                                const block = selected().block;
+                                return (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
+                                  block.source.kind === "gql"
+                                  ? block.source.maxRows
+                                  : null;
+                              }}
+                              onValueChange={(maxRows) => {
+                                if (maxRows === null) return;
+                                updateSelectedBlock((block) =>
+                                  (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
+                                  block.source.kind === "gql"
+                                    ? { ...block, source: { ...block.source, maxRows } }
+                                    : block,
+                                );
+                              }}
+                            />
+                          </Show>
+                          <Show
+                            when={
+                              (selectedSourceBlock()?.type === "metrics" || selectedSourceBlock()?.type === "chart") &&
+                              selectedSourceBlock()?.source.kind === "view"
+                            }
+                          >
+                            <Select
+                              label="Saved view"
+                              searchable
+                              value={() => {
+                                const block = selected().block;
+                                return (block.type === "metrics" || block.type === "chart") && block.source.kind === "view"
+                                  ? block.source.viewId
+                                  : null;
+                              }}
+                              options={viewOptions()}
+                              onValueChange={(viewId) =>
+                                viewId &&
+                                updateSelectedBlock((block) =>
+                                  block.type === "metrics" || block.type === "chart"
+                                    ? { ...block, source: { kind: "view", viewId } }
                                     : block,
                                 )
                               }
                             />
                           </Show>
-                        </Show>
-                        <Show when={selectedSourceBlock()?.type === "records" && selectedSourceBlock()?.source.kind === "gql"}>
-                          <MultiSelectInput
-                            label="Columns"
-                            description="Resolved fields appear after the GQL preview succeeds."
-                            placeholder="Choose query fields"
-                            searchable
-                            clearable
-                            value={() => selectedRecordsBlock()?.display.columnIds ?? []}
-                            selectedOptions={() => {
-                              const block = selected().block;
-                              if (block.type !== "records") return [];
-                              const options = new Map(selectedRecordsFieldOptions().map((option) => [option.id, option]));
-                              return block.display.columnIds.map(
-                                (fieldId) => options.get(fieldId) ?? { id: fieldId, label: "Unavailable query field" },
-                              );
-                            }}
-                            options={selectedRecordsFieldOptions()}
-                            error={() => {
-                              const block = selected().block;
-                              if (block.type !== "records") return undefined;
-                              if (block.display.columnIds.length === 0) return "Choose at least one resolved field.";
-                              return diagnosticFor(block.id, "columnIds");
-                            }}
-                            onValueChange={(columnIds) =>
-                              updateSelectedBlock((block) =>
-                                block.type === "records"
-                                  ? { ...block, display: { kind: "table", columnIds: columnIds.slice(0, 30) } }
-                                  : block,
-                              )
-                            }
-                          />
-                        </Show>
-                        <Select
-                          label="Open row on page"
-                          description="Optional. Compatible route pages receive the selected row ID."
-                          placeholder="Do nothing"
-                          clearable
-                          value={() => selectedRecordsBlock()?.rowNavigate?.pageId ?? null}
-                          options={draft
-                            .draft()
-                            .pages.filter((page) => {
-                              const parameters = Object.values(page.parameters);
-                              return (
-                                parameters.length > 0 &&
-                                Boolean(selectedSourceTableId()) &&
-                                parameters.every((parameter) => parameter.tableId === selectedSourceTableId())
-                              );
-                            })
-                            .map((page) => ({ id: page.id, label: page.title }))}
-                          onValueChange={(pageId) =>
-                            updateSelectedBlock((block) => {
-                              if (block.type !== "records") return block;
-                              if (!pageId) return { ...block, rowNavigate: undefined };
-                              const target = draft.draft().pages.find((page) => page.id === pageId);
-                              if (!target) return block;
-                              return {
-                                ...block,
-                                rowNavigate: {
-                                  kind: "navigate",
-                                  pageId,
-                                  history: "push",
-                                  params: Object.fromEntries(
-                                    Object.keys(target.parameters).map((parameterId) => [
-                                      parameterId,
-                                      { source: "ROW" as const, path: "id" as const },
-                                    ]),
-                                  ),
-                                },
-                              };
-                            })
-                          }
-                        />
-                        <Show when={selectedRecordsBlock()?.rowNavigate}>
-                          <Select
-                            label="Navigation history"
-                            value={() => selectedRecordsBlock()?.rowNavigate?.history ?? "push"}
-                            options={[
-                              { id: "push", label: "Add to history" },
-                              { id: "replace", label: "Replace current page" },
-                            ]}
-                            onValueChange={(history) =>
-                              (history === "push" || history === "replace") &&
-                              updateSelectedBlock((block) =>
-                                block.type === "records" && block.rowNavigate
-                                  ? { ...block, rowNavigate: { ...block.rowNavigate, history } }
-                                  : block,
-                              )
-                            }
-                          />
-                        </Show>
+                        </div>
+                      </DetailPanel.Section>
+                      <Show when={selected().block.type === "records"}>
+                        <DetailPanel.Section
+                          title="Records table"
+                          icon="ti ti-table"
+                          description="Choose visible columns and optional row navigation."
+                          collapsible
+                          defaultOpen
+                        >
+                          <div class="flex flex-col gap-4">
+                            <Show when={selectedSourceBlock()?.type === "records" && selectedSourceBlock()?.source.kind === "view"}>
+                              <Select
+                                label="Saved view"
+                                description="Only views you can use in this Base are listed."
+                                placeholder="Choose a saved view"
+                                searchable
+                                value={() => {
+                                  const block = selected().block;
+                                  return block.type === "records" && block.source.kind === "view" ? block.source.viewId : null;
+                                }}
+                                selectedLabel={() => {
+                                  const block = selected().block;
+                                  if (block.type !== "records" || block.source.kind !== "view") return undefined;
+                                  return viewsById().has(block.source.viewId) ? undefined : "Unavailable view";
+                                }}
+                                error={() => {
+                                  const block = selected().block;
+                                  if (block.type !== "records") return undefined;
+                                  if (block.source.kind !== "view") return "Choose a saved view to configure this block visually.";
+                                  if (!viewsById().has(block.source.viewId)) return "This saved view is no longer available.";
+                                  return diagnosticFor(block.id, "source");
+                                }}
+                                options={viewOptions()}
+                                onValueChange={(viewId) => {
+                                  if (!viewId) return;
+                                  const view = viewsById().get(viewId);
+                                  if (!view) return;
+                                  const fields = viewResources().find((resource) => resource.view.id === viewId)?.fields ?? [];
+                                  updateSelectedBlock((block) =>
+                                    block.type === "records"
+                                      ? {
+                                          ...block,
+                                          source: { kind: "view", viewId },
+                                          display: {
+                                            kind: "table",
+                                            columnIds: fields.map((field) => field.id),
+                                          },
+                                        }
+                                      : block,
+                                  );
+                                }}
+                              />
+                              <Show when={selectedRecordsView()}>
+                                <MultiSelectInput
+                                  label="Columns"
+                                  description="Choose up to 30 fields shown by the Records table."
+                                  placeholder="Choose columns"
+                                  searchable
+                                  clearable
+                                  value={() => {
+                                    const block = selected().block;
+                                    return block.type === "records" ? block.display.columnIds : [];
+                                  }}
+                                  selectedOptions={() => {
+                                    const block = selected().block;
+                                    if (block.type !== "records") return [];
+                                    const options = new Map(selectedRecordsFieldOptions().map((option) => [option.id, option]));
+                                    return block.display.columnIds.map(
+                                      (fieldId) => options.get(fieldId) ?? { id: fieldId, label: "Unavailable field" },
+                                    );
+                                  }}
+                                  options={selectedRecordsFieldOptions()}
+                                  error={() => {
+                                    const block = selected().block;
+                                    if (block.type !== "records") return undefined;
+                                    if (block.display.columnIds.length === 0) return "Choose at least one column.";
+                                    const available = new Set(selectedRecordsFields().map((field) => field.id));
+                                    if (block.display.columnIds.some((fieldId) => !available.has(fieldId))) {
+                                      return "Replace or remove unavailable fields.";
+                                    }
+                                    return diagnosticFor(block.id, "columnIds");
+                                  }}
+                                  onValueChange={(columnIds) =>
+                                    updateSelectedBlock((block) =>
+                                      block.type === "records"
+                                        ? { ...block, display: { kind: "table", columnIds: columnIds.slice(0, 30) } }
+                                        : block,
+                                    )
+                                  }
+                                />
+                              </Show>
+                            </Show>
+                            <Select
+                              label="Open row on page"
+                              description="Optional. Compatible route pages receive the selected row ID."
+                              placeholder="Do nothing"
+                              clearable
+                              value={() => selectedRecordsBlock()?.rowNavigate?.pageId ?? null}
+                              options={draft
+                                .draft()
+                                .pages.filter((page) => {
+                                  const parameters = Object.values(page.parameters);
+                                  return (
+                                    parameters.length > 0 &&
+                                    Boolean(selectedSourceTableId()) &&
+                                    parameters.every((parameter) => parameter.tableId === selectedSourceTableId())
+                                  );
+                                })
+                                .map((page) => ({ id: page.id, label: page.title }))}
+                              onValueChange={(pageId) =>
+                                updateSelectedBlock((block) => {
+                                  if (block.type !== "records") return block;
+                                  if (!pageId) return { ...block, rowNavigate: undefined };
+                                  const target = draft.draft().pages.find((page) => page.id === pageId);
+                                  if (!target) return block;
+                                  return {
+                                    ...block,
+                                    rowNavigate: {
+                                      kind: "navigate",
+                                      pageId,
+                                      history: "push",
+                                      params: Object.fromEntries(
+                                        Object.keys(target.parameters).map((parameterId) => [
+                                          parameterId,
+                                          { source: "ROW" as const, path: "id" as const },
+                                        ]),
+                                      ),
+                                    },
+                                  };
+                                })
+                              }
+                            />
+                            <Show when={selectedRecordsBlock()?.rowNavigate}>
+                              <Select
+                                label="Navigation history"
+                                value={() => selectedRecordsBlock()?.rowNavigate?.history ?? "push"}
+                                options={[
+                                  { id: "push", label: "Add to history" },
+                                  { id: "replace", label: "Replace current page" },
+                                ]}
+                                onValueChange={(history) =>
+                                  (history === "push" || history === "replace") &&
+                                  updateSelectedBlock((block) =>
+                                    block.type === "records" && block.rowNavigate
+                                      ? { ...block, rowNavigate: { ...block.rowNavigate, history } }
+                                      : block,
+                                  )
+                                }
+                              />
+                            </Show>
+                          </div>
+                        </DetailPanel.Section>
                       </Show>
-                      <Show when={selected().block.type === "form"}>
+                    </DetailPanel.Group>
+                  </Show>
+                  <Show when={selected().block.type === "form"}>
+                    <DetailPanel.Group label="Form settings">
+                      <DetailPanel.Section title="Form" icon="ti ti-forms" description="Choose the active Form rendered by this block.">
                         <Select
                           label="Form"
                           description="Only active forms you can use in this Base are listed."
@@ -1805,454 +1867,468 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                             );
                           }}
                         />
-                        <Show when={selectedForm()}>
-                          <Disclosure
-                            summary="Prefilled relations"
-                            icon="ti ti-link"
-                            defaultValue={Object.keys(selectedFormBlock()?.fixedValues ?? {}).length > 0}
-                          >
-                            <div class="flex flex-col gap-3">
-                              <p class="text-xs text-dimmed">Hide a Form relation input and fill it from a matching page parameter.</p>
-                              <For each={selectedFormBindingOptions()}>
-                                {(binding) => (
-                                  <Select
-                                    label={binding.label}
-                                    placeholder="Ask in Form"
-                                    clearable
-                                    value={() => selectedFormBlock()?.fixedValues[binding.field.id]?.path ?? null}
-                                    options={Object.entries(selectedPage().parameters)
-                                      .filter(([, parameter]) => parameter.tableId === binding.targetTableId)
-                                      .map(([parameterId]) => ({ id: parameterId, label: `@params.${parameterId}` }))}
-                                    onValueChange={(parameterId) =>
-                                      updateSelectedBlock((block) => {
-                                        if (block.type !== "form") return block;
-                                        const fixedValues = { ...block.fixedValues };
-                                        if (parameterId) fixedValues[binding.field.id] = { source: "PARAMS", path: parameterId };
-                                        else delete fixedValues[binding.field.id];
-                                        return { ...block, fixedValues };
-                                      })
-                                    }
-                                  />
-                                )}
-                              </For>
-                              <Show when={selectedFormBindingOptions().length === 0}>
-                                <p class="text-sm text-dimmed">This Form has no relation inputs that can be prefilled.</p>
-                              </Show>
-                            </div>
-                          </Disclosure>
-                          <Disclosure
-                            summary="After submit"
-                            icon="ti ti-arrow-forward-up"
-                            defaultValue={Boolean(selectedFormBlock()?.onSuccessNavigate)}
-                          >
-                            <div class="flex flex-col gap-3">
-                              <p class="text-xs text-dimmed">Optionally navigate after the Form creates its record.</p>
-                              <Select
-                                label="Target page"
-                                placeholder="Stay on this page"
-                                clearable
-                                value={() => selectedFormBlock()?.onSuccessNavigate?.pageId ?? null}
-                                options={draft.draft().pages.map((page) => ({ id: page.id, label: page.title }))}
-                                onValueChange={(pageId) =>
-                                  updateSelectedBlock((block) => {
-                                    if (block.type !== "form") return block;
-                                    if (!pageId) return { ...block, onSuccessNavigate: undefined };
-                                    const target = draft.draft().pages.find((page) => page.id === pageId);
-                                    if (!target) return block;
-                                    return {
-                                      ...block,
-                                      onSuccessNavigate: {
-                                        kind: "navigate",
-                                        pageId,
-                                        params: defaultFormSuccessParams(block.formId, pageId),
-                                      },
-                                    };
-                                  })
-                                }
-                              />
-                              <Show when={selectedFormBlock()?.onSuccessNavigate}>
-                                {(navigation) => {
-                                  const target = () => draft.draft().pages.find((page) => page.id === navigation().pageId);
-                                  return (
-                                    <For each={Object.entries(target()?.parameters ?? {})}>
-                                      {([parameterId, parameter]) => {
-                                        const current = () => navigation().params[parameterId];
-                                        const options = () => [
-                                          ...(selectedForm()?.tableId === parameter.tableId
-                                            ? [{ id: "RESULT", label: "Created Form record" }]
-                                            : []),
-                                          ...Object.entries(selectedPage().parameters)
-                                            .filter(([, candidate]) => candidate.tableId === parameter.tableId)
-                                            .map(([sourceId]) => ({ id: `PARAMS:${sourceId}`, label: `@params.${sourceId}` })),
-                                        ];
-                                        return (
-                                          <Select
-                                            label={`Value for ${parameterId}`}
-                                            value={() => {
-                                              const value = current();
-                                              return value?.source === "RESULT" ? "RESULT" : value ? `PARAMS:${value.path}` : null;
-                                            }}
-                                            options={options()}
-                                            error={() => (current() ? undefined : "Choose a compatible value.")}
-                                            onValueChange={(value) =>
-                                              value &&
-                                              updateSelectedBlock((block) => {
-                                                if (block.type !== "form" || !block.onSuccessNavigate) return block;
-                                                return {
-                                                  ...block,
-                                                  onSuccessNavigate: {
-                                                    ...block.onSuccessNavigate,
-                                                    params: {
-                                                      ...block.onSuccessNavigate.params,
-                                                      [parameterId]:
-                                                        value === "RESULT"
-                                                          ? { source: "RESULT", path: "recordId" }
-                                                          : { source: "PARAMS", path: value.slice("PARAMS:".length) },
-                                                    },
-                                                  },
-                                                };
-                                              })
-                                            }
-                                          />
-                                        );
-                                      }}
-                                    </For>
-                                  );
-                                }}
-                              </Show>
-                            </div>
-                          </Disclosure>
-                        </Show>
-                      </Show>
-                      <Show when={selected().block.type === "record"}>
-                        <MultiSelectInput
-                          label="Fields"
-                          searchable
-                          value={() => selectedRecordBlock()?.fieldIds ?? []}
-                          options={pageRecordFields().map((field) => ({
-                            id: field.id,
-                            label: field.name,
-                            description: field.type,
-                            icon: field.icon ?? "ti ti-column-insert-right",
-                          }))}
-                          onValueChange={(fieldIds) =>
-                            updateSelectedBlock((block) =>
-                              block.type === "record"
-                                ? {
-                                    ...block,
-                                    fieldIds: fieldIds.slice(0, 30),
-                                    editableFieldIds: block.editableFieldIds.filter((id) => fieldIds.includes(id)),
+                      </DetailPanel.Section>
+                      <Show when={selectedForm()}>
+                        <DetailPanel.Section
+                          title="Prefilled relations"
+                          icon="ti ti-link"
+                          description="Fill compatible relation inputs from page parameters."
+                          collapsible
+                          defaultOpen={Object.keys(selectedFormBlock()?.fixedValues ?? {}).length > 0}
+                        >
+                          <div class="flex flex-col gap-3">
+                            <p class="text-xs text-dimmed">Hide a Form relation input and fill it from a matching page parameter.</p>
+                            <For each={selectedFormBindingOptions()}>
+                              {(binding) => (
+                                <Select
+                                  label={binding.label}
+                                  placeholder="Ask in Form"
+                                  clearable
+                                  value={() => selectedFormBlock()?.fixedValues[binding.field.id]?.path ?? null}
+                                  options={Object.entries(selectedPage().parameters)
+                                    .filter(([, parameter]) => parameter.tableId === binding.targetTableId)
+                                    .map(([parameterId]) => ({ id: parameterId, label: `@params.${parameterId}` }))}
+                                  onValueChange={(parameterId) =>
+                                    updateSelectedBlock((block) => {
+                                      if (block.type !== "form") return block;
+                                      const fixedValues = { ...block.fixedValues };
+                                      if (parameterId) fixedValues[binding.field.id] = { source: "PARAMS", path: parameterId };
+                                      else delete fixedValues[binding.field.id];
+                                      return { ...block, fixedValues };
+                                    })
                                   }
-                                : block,
-                            )
-                          }
-                        />
-                        <MultiSelectInput
-                          label="Editable fields"
-                          searchable
-                          clearable
-                          value={() => selectedRecordBlock()?.editableFieldIds ?? []}
-                          options={pageRecordFields()
-                            .filter((field) => selectedRecordBlock()?.fieldIds.includes(field.id) && isRecordInputField(field.type))
-                            .map((field) => ({
+                                />
+                              )}
+                            </For>
+                            <Show when={selectedFormBindingOptions().length === 0}>
+                              <p class="text-sm text-dimmed">This Form has no relation inputs that can be prefilled.</p>
+                            </Show>
+                          </div>
+                        </DetailPanel.Section>
+                        <DetailPanel.Section
+                          title="After submission"
+                          icon="ti ti-arrow-forward-up"
+                          description="Optionally navigate after the Form creates its record."
+                          collapsible
+                          defaultOpen={Boolean(selectedFormBlock()?.onSuccessNavigate)}
+                        >
+                          <div class="flex flex-col gap-3">
+                            <Select
+                              label="Target page"
+                              placeholder="Stay on this page"
+                              clearable
+                              value={() => selectedFormBlock()?.onSuccessNavigate?.pageId ?? null}
+                              options={draft.draft().pages.map((page) => ({ id: page.id, label: page.title }))}
+                              onValueChange={(pageId) =>
+                                updateSelectedBlock((block) => {
+                                  if (block.type !== "form") return block;
+                                  if (!pageId) return { ...block, onSuccessNavigate: undefined };
+                                  const target = draft.draft().pages.find((page) => page.id === pageId);
+                                  if (!target) return block;
+                                  return {
+                                    ...block,
+                                    onSuccessNavigate: {
+                                      kind: "navigate",
+                                      pageId,
+                                      params: defaultFormSuccessParams(block.formId, pageId),
+                                    },
+                                  };
+                                })
+                              }
+                            />
+                            <Show when={selectedFormBlock()?.onSuccessNavigate}>
+                              {(navigation) => {
+                                const target = () => draft.draft().pages.find((page) => page.id === navigation().pageId);
+                                return (
+                                  <For each={Object.entries(target()?.parameters ?? {})}>
+                                    {([parameterId, parameter]) => {
+                                      const current = () => navigation().params[parameterId];
+                                      const options = () => [
+                                        ...(selectedForm()?.tableId === parameter.tableId
+                                          ? [{ id: "RESULT", label: "Created Form record" }]
+                                          : []),
+                                        ...Object.entries(selectedPage().parameters)
+                                          .filter(([, candidate]) => candidate.tableId === parameter.tableId)
+                                          .map(([sourceId]) => ({ id: `PARAMS:${sourceId}`, label: `@params.${sourceId}` })),
+                                      ];
+                                      return (
+                                        <Select
+                                          label={`Value for ${parameterId}`}
+                                          value={() => {
+                                            const value = current();
+                                            return value?.source === "RESULT" ? "RESULT" : value ? `PARAMS:${value.path}` : null;
+                                          }}
+                                          options={options()}
+                                          error={() => (current() ? undefined : "Choose a compatible value.")}
+                                          onValueChange={(value) =>
+                                            value &&
+                                            updateSelectedBlock((block) => {
+                                              if (block.type !== "form" || !block.onSuccessNavigate) return block;
+                                              return {
+                                                ...block,
+                                                onSuccessNavigate: {
+                                                  ...block.onSuccessNavigate,
+                                                  params: {
+                                                    ...block.onSuccessNavigate.params,
+                                                    [parameterId]:
+                                                      value === "RESULT"
+                                                        ? { source: "RESULT", path: "recordId" }
+                                                        : { source: "PARAMS", path: value.slice("PARAMS:".length) },
+                                                  },
+                                                },
+                                              };
+                                            })
+                                          }
+                                        />
+                                      );
+                                    }}
+                                  </For>
+                                );
+                              }}
+                            </Show>
+                          </div>
+                        </DetailPanel.Section>
+                      </Show>
+                    </DetailPanel.Group>
+                  </Show>
+                  <Show when={selected().block.type === "record"}>
+                    <DetailPanel.Group label="Record settings">
+                      <DetailPanel.Section
+                        title="Fields"
+                        icon="ti ti-columns-3"
+                        description="Choose visible fields and which of them readers may edit."
+                        collapsible
+                        defaultOpen
+                      >
+                        <div class="flex flex-col gap-4">
+                          <MultiSelectInput
+                            label="Fields"
+                            searchable
+                            value={() => selectedRecordBlock()?.fieldIds ?? []}
+                            options={pageRecordFields().map((field) => ({
                               id: field.id,
                               label: field.name,
                               description: field.type,
-                              icon: field.icon ?? "ti ti-edit",
+                              icon: field.icon ?? "ti ti-column-insert-right",
                             }))}
-                          onValueChange={(editableFieldIds) =>
-                            updateSelectedBlock((block) =>
-                              block.type === "record" ? { ...block, editableFieldIds: editableFieldIds.slice(0, 30) } : block,
-                            )
-                          }
-                        />
-                        <Disclosure summary="Documents" icon="ti ti-files" defaultValue={Boolean(selectedRecordBlock()?.documents)}>
-                          <MultiSelectInput
-                            label="Document templates"
-                            description="Allow readers to generate these enabled templates for the page record."
-                            searchable
-                            clearable
-                            value={() => selectedRecordBlock()?.documents?.templateIds ?? []}
-                            options={documentTemplateOptions()}
-                            onValueChange={(templateIds) =>
+                            onValueChange={(fieldIds) =>
                               updateSelectedBlock((block) =>
                                 block.type === "record"
-                                  ? { ...block, documents: templateIds.length > 0 ? { templateIds: templateIds.slice(0, 12) } : undefined }
+                                  ? {
+                                      ...block,
+                                      fieldIds: fieldIds.slice(0, 30),
+                                      editableFieldIds: block.editableFieldIds.filter((id) => fieldIds.includes(id)),
+                                    }
                                   : block,
                               )
                             }
                           />
-                        </Disclosure>
-                      </Show>
-                      <Show when={selected().block.type === "actions"}>
-                        <div class="flex flex-col gap-2">
-                          <For each={selectedActionsBlock()?.actions ?? []}>
-                            {(action) => (
-                              <DetailPanel.Action
-                                title={action.label}
-                                description={
-                                  action.kind === "workflow"
-                                    ? "Run workflow"
-                                    : `Open ${draft.draft().pages.find((page) => page.id === action.pageId)?.title ?? "page"}`
-                                }
-                                leading={
-                                  <i
-                                    class={
-                                      action.icon ? `ti ti-${action.icon}` : action.kind === "workflow" ? "ti ti-player-play" : "ti ti-link"
-                                    }
-                                    aria-hidden="true"
-                                  />
-                                }
-                                trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
-                                onClick={() => selectAction(action.id)}
-                              />
-                            )}
-                          </For>
-                          <div class="flex flex-wrap gap-2">
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={addNavigateAction}
-                              disabled={(selectedActionsBlock()?.actions.length ?? 0) >= 12}
-                            >
-                              <i class="ti ti-link-plus" aria-hidden="true" /> Add navigation
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={addWorkflowAction}
-                              disabled={workflowLaunchers().length === 0 || (selectedActionsBlock()?.actions.length ?? 0) >= 12}
-                            >
-                              <i class="ti ti-player-play" aria-hidden="true" /> Add workflow
-                            </Button>
-                          </div>
-                          <Show when={workflowLaunchers().length === 0}>
-                            <p class="text-xs text-dimmed">Create an active Custom App workflow launcher to add workflow actions.</p>
-                          </Show>
+                          <MultiSelectInput
+                            label="Editable fields"
+                            searchable
+                            clearable
+                            value={() => selectedRecordBlock()?.editableFieldIds ?? []}
+                            options={pageRecordFields()
+                              .filter((field) => selectedRecordBlock()?.fieldIds.includes(field.id) && isRecordInputField(field.type))
+                              .map((field) => ({
+                                id: field.id,
+                                label: field.name,
+                                description: field.type,
+                                icon: field.icon ?? "ti ti-edit",
+                              }))}
+                            onValueChange={(editableFieldIds) =>
+                              updateSelectedBlock((block) =>
+                                block.type === "record" ? { ...block, editableFieldIds: editableFieldIds.slice(0, 30) } : block,
+                              )
+                            }
+                          />
                         </div>
-                      </Show>
-                      <Show
-                        when={
-                          selected().block.type === "records" || selected().block.type === "record" || selected().block.type === "comments"
-                        }
+                      </DetailPanel.Section>
+                      <DetailPanel.Section
+                        title="Documents"
+                        icon="ti ti-files"
+                        description="Allow readers to generate documents for the page record."
+                        collapsible
+                        defaultOpen={Boolean(selectedRecordBlock()?.documents)}
                       >
-                        <TextInput
-                          label="Empty state"
-                          value={() => {
-                            const block = selected().block;
-                            return block.type === "records" || block.type === "record" || block.type === "comments"
-                              ? (block.emptyText ?? "")
-                              : "";
-                          }}
-                          onValueChange={(emptyText) =>
+                        <MultiSelectInput
+                          label="Document templates"
+                          description="Allow readers to generate these enabled templates for the page record."
+                          searchable
+                          clearable
+                          value={() => selectedRecordBlock()?.documents?.templateIds ?? []}
+                          options={documentTemplateOptions()}
+                          onValueChange={(templateIds) =>
                             updateSelectedBlock((block) =>
-                              block.type === "records" || block.type === "record" || block.type === "comments"
-                                ? { ...block, emptyText: emptyText || undefined }
+                              block.type === "record"
+                                ? { ...block, documents: templateIds.length > 0 ? { templateIds: templateIds.slice(0, 12) } : undefined }
                                 : block,
                             )
                           }
-                          clearable
                         />
-                      </Show>
-                      <Show when={selected().block.type === "chart"}>
-                        <TextInput
-                          label="Subtitle"
-                          value={() => {
-                            const block = selected().block;
-                            return block.type === "chart" ? (block.subtitle ?? "") : "";
-                          }}
-                          onValueChange={(subtitle) =>
-                            updateSelectedBlock((block) => (block.type === "chart" ? { ...block, subtitle: subtitle || undefined } : block))
-                          }
-                          clearable
-                        />
-                        <Select
-                          label="Chart type"
-                          value={() => {
-                            const block = selected().block;
-                            return block.type === "chart" ? block.chartType : null;
-                          }}
-                          onValueChange={(chartType) => {
-                            const next = chartType ? chartTypeFrom(chartType) : null;
-                            if (!next) return;
-                            updateSelectedBlock((block) => (block.type === "chart" ? { ...block, chartType: next } : block));
-                          }}
-                          options={[
-                            { id: "bar", label: "Bar" },
-                            { id: "line", label: "Line" },
-                            { id: "donut", label: "Donut" },
-                            { id: "sparkline", label: "Sparkline" },
-                            { id: "scatter", label: "Scatter" },
-                          ]}
-                        />
-                        <NumberInput
-                          label="Result limit"
-                          value={() => {
-                            const block = selected().block;
-                            return block.type === "chart" ? block.limit : null;
-                          }}
-                          onValueChange={(limit) => {
-                            if (limit === null) return;
-                            updateSelectedBlock((block) => (block.type === "chart" ? { ...block, limit } : block));
-                          }}
-                          min={1}
-                          max={100}
-                          step={1}
-                        />
-                        <Disclosure
-                          summary="Chart appearance"
-                          icon="ti ti-palette"
-                          defaultValue={Boolean(
-                            selectedChartBlock()?.valueFormat || selectedChartBlock()?.xAxisLabel || selectedChartBlock()?.yAxisLabel,
+                      </DetailPanel.Section>
+                    </DetailPanel.Group>
+                  </Show>
+                  <Show when={selected().block.type === "actions"}>
+                    <DetailPanel.Section
+                      title="Actions"
+                      icon="ti ti-bolt"
+                      description="Open another page or run a published workflow launcher."
+                      collapsible
+                      defaultOpen
+                    >
+                      <div class="flex flex-col gap-2">
+                        <For each={selectedActionsBlock()?.actions ?? []}>
+                          {(action) => (
+                            <DetailPanel.Action
+                              title={action.label}
+                              description={
+                                action.kind === "workflow"
+                                  ? "Run workflow"
+                                  : `Open ${draft.draft().pages.find((page) => page.id === action.pageId)?.title ?? "page"}`
+                              }
+                              leading={
+                                <i
+                                  class={
+                                    action.icon ? `ti ti-${action.icon}` : action.kind === "workflow" ? "ti ti-player-play" : "ti ti-link"
+                                  }
+                                  aria-hidden="true"
+                                />
+                              }
+                              trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+                              onClick={() => selectAction(action.id)}
+                            />
                           )}
-                        >
-                          <div class="flex flex-col gap-3">
-                            <TextInput
-                              label="X-axis label"
+                        </For>
+                        <div class="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={addNavigateAction}
+                            disabled={(selectedActionsBlock()?.actions.length ?? 0) >= 12}
+                          >
+                            <i class="ti ti-link-plus" aria-hidden="true" /> Add navigation
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={addWorkflowAction}
+                            disabled={workflowLaunchers().length === 0 || (selectedActionsBlock()?.actions.length ?? 0) >= 12}
+                          >
+                            <i class="ti ti-player-play" aria-hidden="true" /> Add workflow
+                          </Button>
+                        </div>
+                        <Show when={workflowLaunchers().length === 0}>
+                          <p class="text-xs text-dimmed">Create an active Custom App workflow launcher to add workflow actions.</p>
+                        </Show>
+                      </div>
+                    </DetailPanel.Section>
+                  </Show>
+                  <Show when={selected().block.type === "chart"}>
+                    <DetailPanel.Group label="Chart settings">
+                      <DetailPanel.Section
+                        title="Chart"
+                        icon="ti ti-chart-bar"
+                        description="Choose the chart presentation and result limit."
+                        collapsible
+                        defaultOpen
+                      >
+                        <div class="flex flex-col gap-4">
+                          <TextInput
+                            label="Subtitle"
+                            value={() => {
+                              const block = selected().block;
+                              return block.type === "chart" ? (block.subtitle ?? "") : "";
+                            }}
+                            onValueChange={(subtitle) =>
+                              updateSelectedBlock((block) =>
+                                block.type === "chart" ? { ...block, subtitle: subtitle || undefined } : block,
+                              )
+                            }
+                            clearable
+                          />
+                          <Select
+                            label="Chart type"
+                            value={() => {
+                              const block = selected().block;
+                              return block.type === "chart" ? block.chartType : null;
+                            }}
+                            onValueChange={(chartType) => {
+                              const next = chartType ? chartTypeFrom(chartType) : null;
+                              if (!next) return;
+                              updateSelectedBlock((block) => (block.type === "chart" ? { ...block, chartType: next } : block));
+                            }}
+                            options={[
+                              { id: "bar", label: "Bar" },
+                              { id: "line", label: "Line" },
+                              { id: "donut", label: "Donut" },
+                              { id: "sparkline", label: "Sparkline" },
+                              { id: "scatter", label: "Scatter" },
+                            ]}
+                          />
+                          <NumberInput
+                            label="Result limit"
+                            value={() => {
+                              const block = selected().block;
+                              return block.type === "chart" ? block.limit : null;
+                            }}
+                            onValueChange={(limit) => {
+                              if (limit === null) return;
+                              updateSelectedBlock((block) => (block.type === "chart" ? { ...block, limit } : block));
+                            }}
+                            min={1}
+                            max={100}
+                            step={1}
+                          />
+                        </div>
+                      </DetailPanel.Section>
+                      <DetailPanel.Section
+                        title="Appearance"
+                        icon="ti ti-palette"
+                        description="Optional axis labels and value formatting."
+                        collapsible
+                        defaultOpen={Boolean(
+                          selectedChartBlock()?.valueFormat || selectedChartBlock()?.xAxisLabel || selectedChartBlock()?.yAxisLabel,
+                        )}
+                      >
+                        <div class="flex flex-col gap-3">
+                          <TextInput
+                            label="X-axis label"
+                            clearable
+                            value={() => selectedChartBlock()?.xAxisLabel ?? ""}
+                            onValueChange={(xAxisLabel) =>
+                              updateSelectedBlock((block) =>
+                                block.type === "chart" ? { ...block, xAxisLabel: xAxisLabel || undefined } : block,
+                              )
+                            }
+                          />
+                          <TextInput
+                            label="Y-axis label"
+                            clearable
+                            value={() => selectedChartBlock()?.yAxisLabel ?? ""}
+                            onValueChange={(yAxisLabel) =>
+                              updateSelectedBlock((block) =>
+                                block.type === "chart" ? { ...block, yAxisLabel: yAxisLabel || undefined } : block,
+                              )
+                            }
+                          />
+                          <Select
+                            label="Value format"
+                            placeholder="Automatic"
+                            clearable
+                            value={() => selectedChartBlock()?.valueFormat?.style ?? null}
+                            options={[
+                              { id: "number", label: "Number" },
+                              { id: "integer", label: "Integer" },
+                              { id: "percent", label: "Percent" },
+                            ]}
+                            onValueChange={(style) =>
+                              updateSelectedBlock((block) =>
+                                block.type === "chart"
+                                  ? {
+                                      ...block,
+                                      valueFormat: style === "number" || style === "integer" || style === "percent" ? { style } : undefined,
+                                    }
+                                  : block,
+                              )
+                            }
+                          />
+                          <Show when={selectedChartBlock()?.valueFormat?.style !== "integer" && selectedChartBlock()?.valueFormat}>
+                            <NumberInput
+                              label="Decimal places"
+                              min={0}
+                              max={20}
+                              step={1}
                               clearable
-                              value={() => selectedChartBlock()?.xAxisLabel ?? ""}
-                              onValueChange={(xAxisLabel) =>
+                              value={() => selectedChartBlock()?.valueFormat?.decimalPlaces ?? null}
+                              onValueChange={(decimalPlaces) =>
                                 updateSelectedBlock((block) =>
-                                  block.type === "chart" ? { ...block, xAxisLabel: xAxisLabel || undefined } : block,
-                                )
-                              }
-                            />
-                            <TextInput
-                              label="Y-axis label"
-                              clearable
-                              value={() => selectedChartBlock()?.yAxisLabel ?? ""}
-                              onValueChange={(yAxisLabel) =>
-                                updateSelectedBlock((block) =>
-                                  block.type === "chart" ? { ...block, yAxisLabel: yAxisLabel || undefined } : block,
-                                )
-                              }
-                            />
-                            <Select
-                              label="Value format"
-                              placeholder="Automatic"
-                              clearable
-                              value={() => selectedChartBlock()?.valueFormat?.style ?? null}
-                              options={[
-                                { id: "number", label: "Number" },
-                                { id: "integer", label: "Integer" },
-                                { id: "percent", label: "Percent" },
-                              ]}
-                              onValueChange={(style) =>
-                                updateSelectedBlock((block) =>
-                                  block.type === "chart"
+                                  block.type === "chart" && block.valueFormat
                                     ? {
                                         ...block,
-                                        valueFormat:
-                                          style === "number" || style === "integer" || style === "percent" ? { style } : undefined,
+                                        valueFormat: {
+                                          ...block.valueFormat,
+                                          decimalPlaces: decimalPlaces === null ? undefined : decimalPlaces,
+                                        },
                                       }
                                     : block,
                                 )
                               }
                             />
-                            <Show when={selectedChartBlock()?.valueFormat?.style !== "integer" && selectedChartBlock()?.valueFormat}>
-                              <NumberInput
-                                label="Decimal places"
-                                min={0}
-                                max={20}
-                                step={1}
-                                clearable
-                                value={() => selectedChartBlock()?.valueFormat?.decimalPlaces ?? null}
-                                onValueChange={(decimalPlaces) =>
-                                  updateSelectedBlock((block) =>
-                                    block.type === "chart" && block.valueFormat
-                                      ? {
-                                          ...block,
-                                          valueFormat: {
-                                            ...block.valueFormat,
-                                            decimalPlaces: decimalPlaces === null ? undefined : decimalPlaces,
-                                          },
-                                        }
-                                      : block,
-                                  )
-                                }
-                              />
-                            </Show>
-                            <Show when={selectedChartBlock()?.valueFormat?.style === "number"}>
-                              <TextInput
-                                label="Unit"
-                                clearable
-                                value={() =>
-                                  selectedChartBlock()?.valueFormat?.style === "number"
-                                    ? (selectedChartBlock()?.valueFormat?.unit ?? "")
-                                    : ""
-                                }
-                                onValueChange={(unit) =>
-                                  updateSelectedBlock((block) =>
-                                    block.type === "chart" && block.valueFormat?.style === "number"
-                                      ? {
-                                          ...block,
-                                          valueFormat: {
-                                            ...block.valueFormat,
-                                            unit: unit || undefined,
-                                            unitPosition: unit ? (block.valueFormat.unitPosition ?? "suffix") : undefined,
-                                          },
-                                        }
-                                      : block,
-                                  )
-                                }
-                              />
-                              <Select
-                                label="Unit position"
-                                value={() =>
-                                  selectedChartBlock()?.valueFormat?.style === "number"
-                                    ? (selectedChartBlock()?.valueFormat?.unitPosition ?? "suffix")
-                                    : "suffix"
-                                }
-                                options={[
-                                  { id: "prefix", label: "Before value" },
-                                  { id: "suffix", label: "After value" },
-                                ]}
-                                onValueChange={(unitPosition) =>
-                                  (unitPosition === "prefix" || unitPosition === "suffix") &&
-                                  updateSelectedBlock((block) =>
-                                    block.type === "chart" && block.valueFormat?.style === "number" && block.valueFormat.unit
-                                      ? { ...block, valueFormat: { ...block.valueFormat, unitPosition } }
-                                      : block,
-                                  )
-                                }
-                              />
-                            </Show>
-                          </div>
-                        </Disclosure>
-                      </Show>
-                      <Disclosure summary="Block order" icon="ti ti-arrows-sort">
-                        <div class="flex flex-wrap gap-2">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            disabled={selected().blockIndex === 0}
-                            onClick={() => moveSelectedBlock(-1)}
-                          >
-                            <i class="ti ti-arrow-up" aria-hidden="true" /> Move up
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            disabled={selected().blockIndex === selected().column.blocks.length - 1}
-                            onClick={() => moveSelectedBlock(1)}
-                          >
-                            <i class="ti ti-arrow-down" aria-hidden="true" /> Move down
-                          </Button>
-                        </div>
-                      </Disclosure>
-                      <Disclosure summary="Danger zone" icon="ti ti-trash">
-                        <div class="flex flex-col items-start gap-2">
-                          <Button size="sm" variant="danger" disabled={blockCount() === 1} onClick={() => void removeSelectedBlock()}>
-                            <i class="ti ti-trash" aria-hidden="true" /> Remove block
-                          </Button>
-                          <Show when={blockCount() === 1}>
-                            <p class="text-xs text-dimmed">A page needs at least one block.</p>
+                          </Show>
+                          <Show when={selectedChartBlock()?.valueFormat?.style === "number"}>
+                            <TextInput
+                              label="Unit"
+                              clearable
+                              value={() =>
+                                selectedChartBlock()?.valueFormat?.style === "number" ? (selectedChartBlock()?.valueFormat?.unit ?? "") : ""
+                              }
+                              onValueChange={(unit) =>
+                                updateSelectedBlock((block) =>
+                                  block.type === "chart" && block.valueFormat?.style === "number"
+                                    ? {
+                                        ...block,
+                                        valueFormat: {
+                                          ...block.valueFormat,
+                                          unit: unit || undefined,
+                                          unitPosition: unit ? (block.valueFormat.unitPosition ?? "suffix") : undefined,
+                                        },
+                                      }
+                                    : block,
+                                )
+                              }
+                            />
+                            <Select
+                              label="Unit position"
+                              value={() =>
+                                selectedChartBlock()?.valueFormat?.style === "number"
+                                  ? (selectedChartBlock()?.valueFormat?.unitPosition ?? "suffix")
+                                  : "suffix"
+                              }
+                              options={[
+                                { id: "prefix", label: "Before value" },
+                                { id: "suffix", label: "After value" },
+                              ]}
+                              onValueChange={(unitPosition) =>
+                                (unitPosition === "prefix" || unitPosition === "suffix") &&
+                                updateSelectedBlock((block) =>
+                                  block.type === "chart" && block.valueFormat?.style === "number" && block.valueFormat.unit
+                                    ? { ...block, valueFormat: { ...block.valueFormat, unitPosition } }
+                                    : block,
+                                )
+                              }
+                            />
                           </Show>
                         </div>
-                      </Disclosure>
+                      </DetailPanel.Section>
+                    </DetailPanel.Group>
+                  </Show>
+                  <DetailPanel.Section title="Block order" icon="ti ti-arrows-sort" collapsible defaultOpen={false}>
+                    <div class="flex flex-wrap gap-2">
+                      <Button size="sm" variant="secondary" disabled={selected().blockIndex === 0} onClick={() => moveSelectedBlock(-1)}>
+                        <i class="ti ti-arrow-up" aria-hidden="true" /> Move up
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={selected().blockIndex === selected().column.blocks.length - 1}
+                        onClick={() => moveSelectedBlock(1)}
+                      >
+                        <i class="ti ti-arrow-down" aria-hidden="true" /> Move down
+                      </Button>
                     </div>
                   </DetailPanel.Section>
-                </DetailPanel.Group>
+                  <DetailPanel.Section title="Danger zone" icon="ti ti-trash" tone="danger" collapsible defaultOpen={false}>
+                    <div class="flex flex-col items-start gap-2">
+                      <Button size="sm" variant="danger" disabled={blockCount() === 1} onClick={() => void removeSelectedBlock()}>
+                        <i class="ti ti-trash" aria-hidden="true" /> Remove block
+                      </Button>
+                      <Show when={blockCount() === 1}>
+                        <p class="text-xs text-dimmed">A page needs at least one block.</p>
+                      </Show>
+                    </div>
+                  </DetailPanel.Section>
+                </>
               )}
             </Show>
             <Show when={inspectorMode() === "action" && selectedAction()}>
