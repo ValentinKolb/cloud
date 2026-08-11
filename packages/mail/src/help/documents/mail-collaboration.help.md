@@ -46,7 +46,7 @@ Access can be granted through the standard Cloud permission editor to the suppor
 
 Open **Conversation details** to see Contacts whose email addresses exactly match visible conversation participants. Multiple Contacts can match the same address; Mail shows every currently readable match and does not choose or merge them. **Related Mail** stays inside the current mailbox and rechecks Contact access before every page.
 
-If an external participant has no matching Contact, select **Add as contact**. Contacts opens in a new tab with the displayed name and email prefilled. With one writable contact book it opens the contact form directly; with multiple writable books it asks where to store the Contact first. No button is shown for an address that already matches a readable Contact, including matches that are not on the first result page.
+If an external participant has no matching Contact, select **Add as contact**, choose a writable contact book, and Mail creates the Contact there with the displayed name and email. No button is shown for an address that already matches a readable Contact, including matches that are not on the first result page.
 
 Mail stores no Contact ownership, notes, bank details, access entries, or other private fields. It requests a bounded participant projection from Contacts whenever the details panel is opened.
 

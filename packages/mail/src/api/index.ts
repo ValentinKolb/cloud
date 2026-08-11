@@ -489,6 +489,7 @@ const mailOperationsApi = new Hono<AuthContext>()
         400: jsonResponse(ErrorResponseSchema, "Invalid request"),
         403: jsonResponse(ErrorResponseSchema, "Access denied"),
         404: jsonResponse(ErrorResponseSchema, "Contact or conversation not found"),
+        503: jsonResponse(ErrorResponseSchema, "Contacts unavailable"),
       },
     }),
     v(
@@ -501,16 +502,18 @@ const mailOperationsApi = new Hono<AuthContext>()
       }),
     ),
     v("query", relatedMailQuerySchema),
-    async (c) =>
-      respond(
-        c,
-        conversationContext.listRelatedMail({
-          context: requestContext(c),
-          request: integrationRequest(c),
-          ...c.req.valid("param"),
-          ...c.req.valid("query"),
-        }),
-      ),
+    async (c) => {
+      const result = await conversationContext.listRelatedMail({
+        context: requestContext(c),
+        request: integrationRequest(c),
+        ...c.req.valid("param"),
+        ...c.req.valid("query"),
+      });
+      if (!result.ok && "message" in result) {
+        return c.json({ message: result.message, code: result.code }, result.status);
+      }
+      return respond(c, result);
+    },
   )
   .get("/mailboxes/:mailboxId/settings-context", v("param", uuidParamSchema), async (c) =>
     respond(c, settingsContext.loadMailboxSettingsContext(requestContext(c), c.req.valid("param").mailboxId)),

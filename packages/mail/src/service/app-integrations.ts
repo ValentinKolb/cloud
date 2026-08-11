@@ -37,7 +37,7 @@ export type AppIntegrationRequest = {
   signal?: AbortSignal;
 };
 
-type AppIntegrationFailure = { ok: false; code: string; message: string; status: number };
+export type AppIntegrationFailure = { ok: false; code: string; message: string; status: number };
 type AppIntegrationResult<T> = { ok: true; data: T } | AppIntegrationFailure;
 type CapabilityFailure = { code: string; message: string; status: number };
 

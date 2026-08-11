@@ -41,6 +41,17 @@ import {
 type SqlExecutor = typeof sql;
 const log = logger("spaces:items");
 
+type CalendarEventPersistence = {
+  title: string;
+  description: string | null;
+  location: string | null;
+  url: string | null;
+  startsAt: string;
+  endsAt: string;
+  allDay: boolean;
+  recurrenceRule: string | null;
+};
+
 type DbItem = {
   id: string;
   space_id: string;
@@ -127,6 +138,143 @@ const recurrenceValues = (recurrence: Recurrence | null | undefined) => ({
   dtstart: recurrence?.dtstart ?? null,
   exdate: recurrence?.exdate && recurrence.exdate.length > 0 ? toPgTimestampArray(recurrence.exdate) : null,
 });
+
+export const persistCalendarEvent = async (params: {
+  db: SqlExecutor;
+  spaceId: string;
+  itemId: string | null;
+  createdBy: string;
+  completed: boolean;
+  data: CalendarEventPersistence;
+}): Promise<MutationResult<{ id: string; created: boolean }>> => {
+  if (new Date(params.data.endsAt).getTime() <= new Date(params.data.startsAt).getTime()) {
+    return { ok: false, error: "End time must be after start time", status: 400 };
+  }
+  if (params.data.recurrenceRule) {
+    try {
+      parseRecurrenceRule(params.data.recurrenceRule);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : "Invalid recurrence rule", status: 400 };
+    }
+  }
+
+  if (!params.itemId) {
+    const [column] = await params.db<{ id: string }[]>`
+      SELECT id FROM spaces.columns
+      WHERE space_id = ${params.spaceId}::uuid
+      ORDER BY is_done, rank, id
+      LIMIT 1
+    `;
+    if (!column) return { ok: false, error: "The destination Space needs an open column", status: 400 };
+    const [created] = await params.db<{ id: string }[]>`
+      INSERT INTO spaces.items (
+        space_id, column_id, title, description, location, url, starts_at, ends_at, all_day,
+        recurrence_rrule, recurrence_dtstart, recurrence_exdate, rank, created_by
+      ) VALUES (
+        ${params.spaceId}::uuid, ${column.id}::uuid, ${params.data.title}, ${params.data.description},
+        ${params.data.location}, ${params.data.url}, ${params.data.startsAt}::timestamptz, ${params.data.endsAt}::timestamptz,
+        ${params.data.allDay}, ${params.data.recurrenceRule},
+        ${params.data.recurrenceRule ? params.data.startsAt : null}::timestamptz,
+        CASE WHEN ${params.data.recurrenceRule}::text IS NULL THEN NULL ELSE ARRAY[]::timestamptz[] END,
+        COALESCE((SELECT MAX(rank) + 1024 FROM spaces.items WHERE column_id = ${column.id}::uuid), 1024),
+        ${params.createdBy}::uuid
+      )
+      RETURNING id
+    `;
+    return created
+      ? { ok: true, data: { id: created.id, created: true } }
+      : { ok: false, error: "Could not create the calendar event", status: 500 };
+  }
+
+  const [current] = await params.db<
+    { space_id: string; starts_at: Date | null; recurrence_rrule: string | null; recurring_event_id: string | null }[]
+  >`
+    SELECT space_id, starts_at, recurrence_rrule, recurring_event_id
+    FROM spaces.items
+    WHERE id = ${params.itemId}::uuid
+    FOR UPDATE
+  `;
+  if (!current || current.space_id !== params.spaceId) return { ok: false, error: "Event not found", status: 404 };
+  if (params.data.recurrenceRule && current.recurring_event_id) {
+    return { ok: false, error: "Recurring series cannot also be an override", status: 400 };
+  }
+  const seriesShiftMilliseconds =
+    current.recurrence_rrule && params.data.recurrenceRule && !current.recurring_event_id && current.starts_at
+      ? new Date(params.data.startsAt).getTime() - current.starts_at.getTime()
+      : 0;
+  await params.db`
+    UPDATE spaces.items
+    SET title = ${params.data.title},
+        description = ${params.data.description},
+        location = ${params.data.location},
+        url = ${params.data.url},
+        starts_at = ${params.data.startsAt}::timestamptz,
+        ends_at = ${params.data.endsAt}::timestamptz,
+        all_day = ${params.data.allDay},
+        recurrence_rrule = ${params.data.recurrenceRule},
+        recurrence_dtstart = ${params.data.recurrenceRule ? params.data.startsAt : null}::timestamptz,
+        recurrence_exdate = CASE
+          WHEN ${params.data.recurrenceRule}::text IS NULL THEN NULL
+          ELSE ARRAY[]::timestamptz[]
+        END,
+        updated_at = now()
+    WHERE id = ${params.itemId}::uuid
+  `;
+  if (seriesShiftMilliseconds !== 0) {
+    const interval = sql`(${seriesShiftMilliseconds}::double precision * interval '1 millisecond')`;
+    await params.db`
+      UPDATE spaces.items
+      SET recurrence_id = recurrence_id + ${interval},
+          starts_at = starts_at + ${interval},
+          ends_at = ends_at + ${interval},
+          updated_at = now()
+      WHERE recurring_event_id = ${params.itemId}::uuid
+        AND recurrence_id IS NOT NULL
+    `;
+    await params.db`
+      UPDATE spaces.comments
+      SET recurrence_id = recurrence_id + ${interval}
+      WHERE item_id = ${params.itemId}::uuid
+        AND recurrence_id IS NOT NULL
+    `;
+  }
+  if (params.completed) {
+    await params.db`
+      WITH current_item AS (
+        SELECT item.id, item.space_id, item.column_id, column_state.is_done AS column_is_done
+        FROM spaces.items item
+        JOIN spaces.columns column_state ON column_state.id = item.column_id
+        WHERE item.id = ${params.itemId}::uuid
+      ), target_column AS (
+        SELECT COALESCE(
+          (SELECT column_id FROM current_item WHERE column_is_done),
+          (
+            SELECT candidate.id
+            FROM spaces.columns candidate
+            JOIN current_item current_item_row ON current_item_row.space_id = candidate.space_id
+            WHERE candidate.is_done
+            ORDER BY candidate.rank ASC
+            LIMIT 1
+          )
+        ) AS id
+      ), target_rank AS (
+        SELECT COALESCE(MAX(item.rank), 0) + 1024 AS value
+        FROM spaces.items item
+        JOIN target_column target ON target.id = item.column_id
+      )
+      UPDATE spaces.items item
+      SET completed_at = now(),
+          column_id = COALESCE((SELECT id FROM target_column), item.column_id),
+          rank = CASE
+            WHEN (SELECT id FROM target_column) IS DISTINCT FROM item.column_id THEN (SELECT value FROM target_rank)
+            ELSE item.rank
+          END,
+          updated_at = now()
+      WHERE item.id = ${params.itemId}::uuid
+    `;
+  }
+  return { ok: true, data: { id: params.itemId, created: false } };
+};
 
 const shiftIsoInstant = (value: string, milliseconds: number) => new Date(new Date(value).getTime() + milliseconds).toISOString();
 

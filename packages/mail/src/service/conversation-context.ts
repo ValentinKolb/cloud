@@ -1,5 +1,5 @@
-import { toPgTextArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { z } from "zod";
 import {
@@ -8,7 +8,7 @@ import {
   mailConversationParticipantSchema,
   type RelatedMailPage,
 } from "../contracts";
-import { type AppIntegrationRequest, resolveContacts } from "./app-integrations";
+import { type AppIntegrationFailure, type AppIntegrationRequest, resolveContacts } from "./app-integrations";
 import type { MailRequestContext } from "./auth";
 import { requireMailboxCollaborationPermission } from "./collaboration";
 
@@ -24,6 +24,7 @@ type ConversationProjection = {
 };
 
 type HistoryCursor = { version: 1; date: string; id: string };
+type RelatedMailDependencyFailure = Omit<AppIntegrationFailure, "status"> & { status: 503 };
 
 const historyCursorSchema = z.object({ version: z.literal(1), date: z.string().datetime(), id: z.uuid() }).strict();
 
@@ -144,7 +145,7 @@ export const listRelatedMail = async (params: {
   contactId: string;
   cursor?: string;
   limit: number;
-}): Promise<Result<RelatedMailPage>> => {
+}): Promise<Result<RelatedMailPage> | RelatedMailDependencyFailure> => {
   const access = await requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
   if (!access.ok) return access;
   const conversation = await loadConversationProjection(params.mailboxId, params.conversationId);
@@ -152,7 +153,7 @@ export const listRelatedMail = async (params: {
   const participantEmails = conversation.participants.map((participant) => participant.email);
   if (participantEmails.length === 0) return fail(err.notFound("Contact"));
   const contact = await resolveContacts({ emails: participantEmails, contactIds: [params.contactId], limit: 1 }, params.request);
-  if (!contact.ok) return fail(err.internal("Contacts are temporarily unavailable"));
+  if (!contact.ok) return { ...contact, status: 503 as const };
   const match = contact.data.items.find((item) => item.contactId === params.contactId && item.bookId === params.bookId);
   if (!match) return fail(err.notFound("Contact"));
   const cursor = decodeHistoryCursor(params.cursor);

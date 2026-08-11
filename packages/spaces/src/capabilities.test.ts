@@ -369,6 +369,30 @@ describe("spaces capabilities", () => {
     });
   });
 
+  test("does not treat caller-provided Mail identifiers as Space authorization", async () => {
+    spyOn(spacesService.item, "get").mockResolvedValue(event);
+    spyOn(spacesService.space, "get").mockResolvedValue(space);
+    spyOn(spacesService.space.permission, "get").mockResolvedValue("none");
+    spyOn(audit, "recordResult").mockImplementation(async ({ result }) => result);
+    const prepare = spyOn(spacesService.calendarInvitations, "prepareEventInvitationAttachment");
+    const context = { ...userContext, idempotencyKey: "foreign-mail-identifiers" } satisfies CapabilityExecutionContext;
+
+    const result = await spacesCapabilities.actions["event.invitation.prepare"].run(
+      {
+        itemId,
+        mailboxId: "99999999-9999-4999-8999-999999999999",
+        draftId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        senderIdentityId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        organizer: { name: "Organizer", address: "organizer@example.test" },
+        attendees: [{ name: null, address: "attendee@example.test" }],
+      },
+      context,
+    );
+
+    expect(result).toMatchObject({ ok: false, error: { status: 404 } });
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
   test("keeps task, event, comment, and output schemas strict", () => {
     expect(TaskCreateInputSchema.safeParse({ spaceId, columnId, title: "Task", startsAt: "2026-08-02T10:00:00.000Z" }).success).toBeFalse();
     expect(TaskUpdateInputSchema.safeParse({ itemId }).success).toBeFalse();

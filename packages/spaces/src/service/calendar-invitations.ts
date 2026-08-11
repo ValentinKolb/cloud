@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
-import type { AccessSubject } from "@valentinkolb/cloud/server";
 import { capabilityIdempotencyConflict } from "@valentinkolb/cloud/contracts";
+import type { AccessSubject } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import type { User } from "../contracts";
 import {
@@ -22,6 +22,7 @@ import {
   type EventInvitationDraft,
 } from "../integration";
 import { getSpacePermission } from "./access";
+import { publishSpaceEvent } from "./events";
 import * as items from "./items";
 import {
   createInvitationDraft as createMailInvitationDraft,
@@ -30,6 +31,7 @@ import {
 } from "./mail-integration";
 
 type ParsedProperty = { name: string; params: Record<string, string>; value: string };
+type SqlExecutor = typeof sql;
 
 const unfold = (source: string): string[] =>
   source
@@ -244,9 +246,11 @@ export const parseCalendarInvitation = (source: string): Result<CalendarInvitati
 };
 
 const sourceHref = (spaceId: string, itemId: string) => `/app/spaces/${spaceId}?item=${itemId}`;
+const calendarSourceLockKey = (mailboxId: string, uid: string) => `spaces:calendar-invitation:${mailboxId}:${uid}`;
+const calendarItemLockKey = (itemId: string) => `spaces:calendar-invitation-item:${itemId}`;
 
-const findExisting = async (mailboxId: string, uid: string) => {
-  const [row] = await sql<
+const findExisting = async (mailboxId: string, uid: string, db: SqlExecutor = sql, lock = false) => {
+  const [row] = await db<
     {
       item_id: string;
       space_id: string;
@@ -260,6 +264,7 @@ const findExisting = async (mailboxId: string, uid: string) => {
     FROM spaces.calendar_invitation_sources source
     JOIN spaces.items item ON item.id = source.item_id
     WHERE source.mailbox_id = ${mailboxId}::uuid AND source.calendar_uid = ${uid}
+    ${lock ? sql`FOR UPDATE OF source` : sql``}
   `;
   if (!row) return null;
   const response = row.last_response
@@ -276,6 +281,42 @@ const findExisting = async (mailboxId: string, uid: string) => {
     href: sourceHref(row.space_id, row.item_id),
     response,
   };
+};
+
+const lockCalendarSourceForItem = async (
+  db: SqlExecutor,
+  itemId: string,
+  target?: { mailboxId: string; calendarUid: string },
+): Promise<boolean> => {
+  const [observed] = await db<{ mailbox_id: string; calendar_uid: string }[]>`
+    SELECT mailbox_id, calendar_uid
+    FROM spaces.calendar_invitation_sources
+    WHERE item_id = ${itemId}::uuid
+  `;
+  const sourceLockKeys = new Set<string>();
+  if (observed) sourceLockKeys.add(calendarSourceLockKey(observed.mailbox_id, observed.calendar_uid));
+  if (target) sourceLockKeys.add(calendarSourceLockKey(target.mailboxId, target.calendarUid));
+  for (const lockKey of [...sourceLockKeys].sort()) {
+    await db`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+  }
+  await db`SELECT pg_advisory_xact_lock(hashtextextended(${calendarItemLockKey(itemId)}, 0))`;
+  const [current] = await db<{ mailbox_id: string; calendar_uid: string }[]>`
+    SELECT mailbox_id, calendar_uid
+    FROM spaces.calendar_invitation_sources
+    WHERE item_id = ${itemId}::uuid
+    FOR UPDATE
+  `;
+  const unchanged = observed
+    ? current?.mailbox_id === observed.mailbox_id && current.calendar_uid === observed.calendar_uid
+    : current === undefined;
+  if (!unchanged || !target) return unchanged;
+  const [targetSource] = await db<{ item_id: string }[]>`
+    SELECT item_id
+    FROM spaces.calendar_invitation_sources
+    WHERE mailbox_id = ${target.mailboxId}::uuid AND calendar_uid = ${target.calendarUid}
+    FOR UPDATE
+  `;
+  return !targetSource || targetSource.item_id === itemId;
 };
 
 export const previewCalendarInvitation = async (input: CalendarInvitationPreviewInput): Promise<Result<CalendarInvitationPreview>> => {
@@ -300,7 +341,7 @@ export const getCalendarResponseCommitContext = async (params: {
   `;
   if (!source) return fail(err.badInput("Add this invitation to Spaces before responding"));
   const permission = await getSpacePermission({ spaceId: source.space_id, subject: params.subject });
-  if (permission !== "write" && permission !== "admin") return fail(err.forbidden("Write access to the linked Space is required"));
+  if (permission !== "write" && permission !== "admin") return fail(err.badInput("Add this invitation to Spaces before responding"));
   const item = await items.get({ id: source.item_id });
   return item ? ok({ itemId: item.id, spaceId: source.space_id, title: item.title }) : fail(err.notFound("Event"));
 };
@@ -317,19 +358,26 @@ export const commitCalendarResponse = async (params: {
     draftId: params.input.draftId,
     updatedAt: new Date().toISOString(),
   };
-  await sql`
-    UPDATE spaces.calendar_invitation_sources
-    SET last_response = ${state}::jsonb, updated_at = now()
-    WHERE item_id = ${source.data.itemId}::uuid
-  `;
-  return ok(state);
-};
-
-const firstOpenColumn = async (spaceId: string): Promise<string | null> => {
-  const [column] = await sql<{ id: string }[]>`
-    SELECT id FROM spaces.columns WHERE space_id = ${spaceId}::uuid ORDER BY is_done, rank, id LIMIT 1
-  `;
-  return column?.id ?? null;
+  return sql.begin(async (tx) => {
+    if (!(await lockCalendarSourceForItem(tx, source.data.itemId))) {
+      return fail(err.conflict("Calendar invitation linkage changed concurrently"));
+    }
+    const [current] = await tx<{ item_id: string }[]>`
+      SELECT item_id
+      FROM spaces.calendar_invitation_sources
+      WHERE item_id = ${source.data.itemId}::uuid
+        AND mailbox_id = ${params.input.mailboxId}::uuid
+        AND message_id = ${params.input.messageId}::uuid
+      FOR UPDATE
+    `;
+    if (!current) return fail(err.badInput("Add this invitation to Spaces before responding"));
+    await tx`
+      UPDATE spaces.calendar_invitation_sources
+      SET last_response = ${state}::jsonb, updated_at = now()
+      WHERE item_id = ${current.item_id}::uuid
+    `;
+    return ok(state);
+  });
 };
 
 export const decideCalendarImport = (params: {
@@ -343,27 +391,43 @@ export const decideCalendarImport = (params: {
   return "apply";
 };
 
-export const importCalendarInvitation = async (params: {
+const importParsedCalendarInvitation = async (params: {
   input: CalendarInvitationImportInput;
+  invitation: CalendarInvitation;
   user: User;
   subject: AccessSubject;
 }): Promise<Result<CalendarInvitationImportResult>> => {
-  const preview = await previewCalendarInvitation(params.input);
-  if (!preview.ok) return preview;
-  const { invitation, existing } = preview.data;
+  const { invitation } = params;
   const permission = await getSpacePermission({ spaceId: params.input.spaceId, subject: params.subject });
   if (permission !== "write" && permission !== "admin") return fail(err.forbidden("Write access to the destination Space is required"));
-  if (existing && existing.spaceId !== params.input.spaceId) {
-    return fail(err.conflict("This calendar event is already linked to another Space"));
-  }
-  const decision = decideCalendarImport({ existing, invitation });
-  if (existing && decision === "unchanged") {
-    return ok({ itemId: existing.itemId, spaceId: existing.spaceId, href: existing.href, outcome: "unchanged" });
-  }
-  const cancelled = invitation.method === "cancel" || invitation.status === "cancelled";
-  if (existing) {
-    const updated = await items.update({
-      id: existing.itemId,
+  const result = await sql.begin(async (tx): Promise<Result<CalendarInvitationImportResult>> => {
+    await tx`
+      SELECT pg_advisory_xact_lock(
+        hashtextextended(${calendarSourceLockKey(params.input.mailboxId, invitation.uid)}, 0)
+      )
+    `;
+    let existing = await findExisting(params.input.mailboxId, invitation.uid, tx, true);
+    if (existing) {
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${calendarItemLockKey(existing.itemId)}, 0))`;
+      const current = await findExisting(params.input.mailboxId, invitation.uid, tx, true);
+      if (!current || current.itemId !== existing.itemId) return fail(err.conflict("Calendar invitation linkage changed concurrently"));
+      existing = current;
+    }
+    if (existing && existing.spaceId !== params.input.spaceId) {
+      return fail(err.conflict("This calendar event is already linked to another Space"));
+    }
+    const decision = decideCalendarImport({ existing, invitation });
+    if (existing && decision === "unchanged") {
+      return ok({ itemId: existing.itemId, spaceId: existing.spaceId, href: existing.href, outcome: "unchanged" });
+    }
+    const cancelled = invitation.method === "cancel" || invitation.status === "cancelled";
+    if (decision === "reject_cancellation") return fail(err.badInput("A cancellation cannot create a new event"));
+    const persisted = await items.persistCalendarEvent({
+      db: tx,
+      spaceId: params.input.spaceId,
+      itemId: existing?.itemId ?? null,
+      createdBy: params.user.id,
+      completed: cancelled,
       data: {
         title: invitation.title,
         description: invitation.description,
@@ -372,67 +436,68 @@ export const importCalendarInvitation = async (params: {
         startsAt: invitation.startsAt,
         endsAt: invitation.endsAt,
         allDay: invitation.allDay,
-        recurrence: invitation.recurrenceRule ? { rrule: invitation.recurrenceRule, dtstart: invitation.startsAt, exdate: [] } : null,
+        recurrenceRule: invitation.recurrenceRule,
       },
     });
-    if (!updated.ok) return fail(updated.status === 404 ? err.notFound(updated.error) : err.badInput(updated.error));
-    if (cancelled) {
-      const completed = await items.setCompleted({ id: existing.itemId, completed: true });
-      if (!completed.ok) return fail(err.badInput(completed.error));
+    if (!persisted.ok) {
+      return fail(
+        persisted.status === 404
+          ? err.notFound(persisted.error)
+          : persisted.status === 500
+            ? err.internal(persisted.error)
+            : err.badInput(persisted.error),
+      );
     }
-    await sql`
-      UPDATE spaces.calendar_invitation_sources
-      SET message_id = ${params.input.messageId}::uuid, sequence = ${invitation.sequence}, method = ${invitation.method},
-          organizer = ${invitation.organizer}::jsonb, attendees = ${invitation.attendees}::jsonb,
-          last_response = NULL, updated_at = now()
-      WHERE mailbox_id = ${params.input.mailboxId}::uuid AND calendar_uid = ${invitation.uid}
-    `;
-    return ok({ itemId: existing.itemId, spaceId: existing.spaceId, href: existing.href, outcome: cancelled ? "cancelled" : "updated" });
-  }
-  if (decision === "reject_cancellation") return fail(err.badInput("A cancellation cannot create a new event"));
-  const columnId = await firstOpenColumn(params.input.spaceId);
-  if (!columnId) return fail(err.badInput("The destination Space needs an open column"));
-  const created = await items.create({
-    spaceId: params.input.spaceId,
-    createdBy: params.user.id,
-    data: {
-      columnId,
-      title: invitation.title,
-      description: invitation.description ?? undefined,
-      location: invitation.location ?? undefined,
-      url: invitation.url ?? undefined,
-      startsAt: invitation.startsAt,
-      endsAt: invitation.endsAt,
-      allDay: invitation.allDay,
-      recurrence: invitation.recurrenceRule ? { rrule: invitation.recurrenceRule, dtstart: invitation.startsAt, exdate: [] } : undefined,
-    },
-  });
-  if (!created.ok) return fail(err.badInput(created.error));
-  try {
-    await sql`
+    if (existing) {
+      await tx`
+        UPDATE spaces.calendar_invitation_sources
+        SET message_id = ${params.input.messageId}::uuid, sequence = ${invitation.sequence}, method = ${invitation.method},
+            organizer = ${invitation.organizer}::jsonb, attendees = ${invitation.attendees}::jsonb,
+            last_response = NULL, updated_at = now()
+        WHERE item_id = ${existing.itemId}::uuid
+      `;
+      return ok({
+        itemId: existing.itemId,
+        spaceId: existing.spaceId,
+        href: existing.href,
+        outcome: cancelled ? "cancelled" : "updated",
+      });
+    }
+    await tx`
       INSERT INTO spaces.calendar_invitation_sources (
         item_id, mailbox_id, message_id, calendar_uid, sequence, method, organizer, attendees
       ) VALUES (
-        ${created.data.id}::uuid, ${params.input.mailboxId}::uuid, ${params.input.messageId}::uuid, ${invitation.uid},
+        ${persisted.data.id}::uuid, ${params.input.mailboxId}::uuid, ${params.input.messageId}::uuid, ${invitation.uid},
         ${invitation.sequence}, ${invitation.method}, ${invitation.organizer}::jsonb, ${invitation.attendees}::jsonb
       )
     `;
-  } catch (error) {
-    const removed = await items.remove({ id: created.data.id });
-    if (!removed.ok) return fail(err.internal("Calendar event linkage failed and cleanup requires attention"));
-    if ((error as { code?: string } | null)?.code !== "23505")
-      return fail(err.internal("Could not link the calendar event to its invitation"));
-    const concurrent = await findExisting(params.input.mailboxId, invitation.uid);
-    return concurrent
-      ? ok({ itemId: concurrent.itemId, spaceId: concurrent.spaceId, href: concurrent.href, outcome: "unchanged" })
-      : fail(err.conflict("Calendar event was imported concurrently"));
-  }
-  return ok({
-    itemId: created.data.id,
-    spaceId: params.input.spaceId,
-    href: sourceHref(params.input.spaceId, created.data.id),
-    outcome: "created",
+    return ok({
+      itemId: persisted.data.id,
+      spaceId: params.input.spaceId,
+      href: sourceHref(params.input.spaceId, persisted.data.id),
+      outcome: "created",
+    });
   });
+  if (!result.ok || result.data.outcome === "unchanged") return result;
+  if (result.data.outcome === "created") {
+    await publishSpaceEvent({ type: "item.created", spaceId: result.data.spaceId, itemId: result.data.itemId });
+  } else {
+    await publishSpaceEvent({ type: "item.updated", spaceId: result.data.spaceId, itemId: result.data.itemId });
+    if (result.data.outcome === "cancelled") {
+      await publishSpaceEvent({ type: "item.completed", spaceId: result.data.spaceId, itemId: result.data.itemId });
+    }
+  }
+  return result;
+};
+
+export const importCalendarInvitation = async (params: {
+  input: CalendarInvitationImportInput;
+  user: User;
+  subject: AccessSubject;
+}): Promise<Result<CalendarInvitationImportResult>> => {
+  const invitation = parseCalendarInvitation(params.input.calendar);
+  if (!invitation.ok) return invitation;
+  return importParsedCalendarInvitation({ ...params, invitation: invitation.data });
 };
 
 const escapeText = (value: string) => value.replace(/\\/gu, "\\\\").replace(/\n/gu, "\\n").replace(/,/gu, "\\,").replace(/;/gu, "\\;");
@@ -486,11 +551,11 @@ export const prepareCalendarResponse = async (params: {
   if (!parsed.ok) return parsed;
   const existing = await findExisting(params.input.mailboxId, parsed.data.uid);
   if (!existing) return fail(err.badInput("Add this invitation to Spaces before responding"));
+  const permission = await getSpacePermission({ spaceId: existing.spaceId, subject: params.subject });
+  if (permission !== "write" && permission !== "admin") return fail(err.badInput("Add this invitation to Spaces before responding"));
   if (existing.sequence !== parsed.data.sequence || existing.messageId !== params.input.messageId) {
     return fail(err.conflict("A newer invitation is already linked in Spaces"));
   }
-  const permission = await getSpacePermission({ spaceId: existing.spaceId, subject: params.subject });
-  if (permission !== "write" && permission !== "admin") return fail(err.forbidden("Write access to the linked Space is required"));
   return buildCalendarResponse(params.input);
 };
 
@@ -608,6 +673,7 @@ export const prepareEventInvitationAttachment = async (params: {
     .digest("hex");
   const filename = "invitation.ics";
   const contentType = "text/calendar; method=REQUEST; charset=utf-8";
+  const uid = `${params.itemId}@spaces.cloud`;
 
   return sql.begin(async (tx) => {
     await tx`
@@ -655,7 +721,9 @@ export const prepareEventInvitationAttachment = async (params: {
       });
     }
 
-    const uid = `${params.itemId}@spaces.cloud`;
+    if (!(await lockCalendarSourceForItem(tx, params.itemId, { mailboxId: params.mailboxId, calendarUid: uid }))) {
+      return fail(err.conflict("Calendar invitation linkage changed concurrently"));
+    }
     const [insertedSource] = await tx<{ sequence: number }[]>`
       INSERT INTO spaces.calendar_invitation_sources (
         item_id, mailbox_id, message_id, calendar_uid, sequence, method, organizer, attendees
@@ -824,6 +892,7 @@ export const createEventInvitationDraft = async (params: {
   if (!identity) return fail(err.forbidden("The selected verified sender identity is unavailable"));
   const attendees = normalizeAttendees(params.input.attendees, identity.from.address);
   if (attendees.length === 0) return fail(err.badInput("Add at least one attendee other than the organizer"));
+  const uid = `${params.itemId}@spaces.cloud`;
 
   const prepared = await sql.begin(async (tx) => {
     const [delivery] = await tx<
@@ -861,6 +930,9 @@ export const createEventInvitationDraft = async (params: {
       `;
       return ok({ sequence: delivery.sequence, draftId: null, alreadyDrafted: false });
     }
+    if (!(await lockCalendarSourceForItem(tx, params.itemId, { mailboxId: mailbox.id, calendarUid: uid }))) {
+      return fail(err.conflict("Calendar invitation linkage changed concurrently"));
+    }
     const [source] = await tx<{ sequence: number }[]>`
       SELECT sequence FROM spaces.calendar_invitation_sources WHERE item_id = ${params.itemId}::uuid FOR UPDATE
     `;
@@ -868,7 +940,6 @@ export const createEventInvitationDraft = async (params: {
       return fail(err.badInput("No invitation has been created for this event yet"));
     }
     const sequence = source ? source.sequence + 1 : 0;
-    const uid = `${params.itemId}@spaces.cloud`;
     await tx`
       INSERT INTO spaces.calendar_invitation_sources (
         item_id, mailbox_id, message_id, calendar_uid, sequence, method, organizer, attendees
@@ -907,7 +978,6 @@ export const createEventInvitationDraft = async (params: {
     });
   }
 
-  const uid = `${params.itemId}@spaces.cloud`;
   const calendar = buildEventInvitation({
     item: item.data,
     uid,

@@ -134,7 +134,9 @@ describe("mailHelp", () => {
     const collaboration = mailHelp.getMarkdown("mail-collaboration");
     expect(collaboration).toContain("Multiple Contacts can match the same address");
     expect(collaboration).toContain("Add as contact");
-    expect(collaboration).toContain("multiple writable books");
+    expect(collaboration).toContain("choose a writable contact book");
+    expect(collaboration).toContain("Mail creates the Contact there");
+    expect(collaboration).not.toContain("opens in a new tab");
     expect(collaboration).toContain("Mail stores no Contact ownership");
     expect(collaboration).toContain("contact-history");
   });

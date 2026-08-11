@@ -924,7 +924,7 @@ export const spacesCapabilities = defineCapabilities({
     "calendar-invitation.response.prepare": {
       title: "Prepare calendar response",
       description:
-        "Prepare a standards-based response for an invitation already imported into a writable Space. Create the draft with mail.draft.create, then commit it.",
+        "Prepare a standards-based response for an invitation already imported into a writable Space. Mail identifiers are opaque correlation values and grant no Space access. Create the draft with mail.draft.create, then commit it.",
       input: CalendarInvitationResponsePrepareInputSchema,
       data: CalendarInvitationResponsePrepareDataSchema,
       openWorld: false,
@@ -1033,7 +1033,8 @@ export const spacesCapabilities = defineCapabilities({
     },
     "event.invitation.prepare": {
       title: "Prepare event invitation",
-      description: "Prepare an idempotent iCalendar invitation for an existing Mail draft without sending it.",
+      description:
+        "Prepare an idempotent iCalendar invitation for a writable Space event. Mail identifiers are opaque correlation values and grant no Space access.",
       input: EventInvitationPrepareInputSchema,
       data: EventInvitationPrepareDataSchema,
       destructive: false,
@@ -1043,7 +1044,7 @@ export const spacesCapabilities = defineCapabilities({
     },
     "event.invitation.commit": {
       title: "Commit event invitation",
-      description: "Record that a prepared event invitation was attached to its authorized Mail draft.",
+      description: "Record that a prepared event invitation was attached to its correlated Mail draft after rechecking Space event access.",
       input: EventInvitationCommitInputSchema,
       data: EventInvitationCommitDataSchema,
       destructive: true,
@@ -1148,7 +1149,8 @@ export const spacesCapabilities = defineCapabilities({
     },
     "calendar-invitation.import": {
       title: "Import calendar invitation",
-      description: "Idempotently create, update, or cancel the matching event in an explicitly selected writable Space.",
+      description:
+        "Idempotently create, update, or cancel the matching event in an explicitly selected writable Space. Mail identifiers are opaque correlation values and grant no Space access.",
       input: CalendarInvitationImportCapabilityInputSchema,
       data: CalendarInvitationImportCapabilityDataSchema,
       destructive: true,
@@ -1185,7 +1187,7 @@ export const spacesCapabilities = defineCapabilities({
     },
     "calendar-invitation.response.commit": {
       title: "Commit calendar response draft",
-      description: "Record the mail draft created from calendar-invitation.response.prepare after mail.draft.create succeeds.",
+      description: "Record the correlated Mail draft after mail.draft.create succeeds and recheck access to the linked Space event.",
       input: CalendarInvitationResponseCommitCapabilityInputSchema,
       data: CalendarInvitationResponseCommitCapabilityDataSchema,
       destructive: true,
