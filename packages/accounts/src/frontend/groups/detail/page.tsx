@@ -7,6 +7,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import type { JSX } from "solid-js/jsx-runtime";
 import { createPagination } from "@/contracts";
 import { ssr } from "../../../config";
+import { toAccountsActor } from "../../../shared/actor";
 import AccountsFactGrid from "../../AccountsFactGrid";
 import AccountsWorkspace from "../../AccountsWorkspace";
 import { getProviderBadge } from "../../lib/account-badges";
@@ -27,6 +28,7 @@ import MembersTab from "./MembersTab";
 export default ssr<AuthContext>(async (c) => {
   const groupId = c.req.param("id");
   const user = expectUserBackedActor(c);
+  const accountsActor = toAccountsActor(user);
   const isAdmin = isAdminUser(user);
   const freeIpaEnabled = Boolean(await coreSettings.get<boolean>("freeipa.enable"));
   const defaultScope = getDefaultGroupScope(user);
@@ -151,6 +153,7 @@ export default ssr<AuthContext>(async (c) => {
   if (tab === "members") {
     const [membersPage, directMembersPage] = await Promise.all([
       accountsService.entity.list({
+        actor: accountsActor,
         pagination: { page, perPage },
         search: search || undefined,
         memberOfGroupId: groupId,
@@ -170,6 +173,7 @@ export default ssr<AuthContext>(async (c) => {
   } else if (tab === "managers") {
     const [managersPage, directManagersPage] = await Promise.all([
       accountsService.entity.list({
+        actor: accountsActor,
         pagination: { page, perPage },
         search: search || undefined,
         managerOfGroupId: groupId,
@@ -186,6 +190,7 @@ export default ssr<AuthContext>(async (c) => {
     managersPagination = createPagination({ page, perPage, offset: (page - 1) * perPage }, managersPage.total);
   } else if (tab === "member-of") {
     const parentGroupsPage = await accountsService.entity.list({
+      actor: accountsActor,
       pagination: { page, perPage },
       search: search || undefined,
       parentGroupId: groupId,

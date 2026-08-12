@@ -56,6 +56,23 @@ type Principal =
 | Authenticated | Any authenticated user or service account |
 | Public | Every caller, including anonymous requests |
 
+### Discover principals safely
+
+Cloud's entity search is caller-scoped before it applies text, kind, provider,
+or relation filters:
+
+- full user accounts can search the account directory;
+- guest accounts can find only themselves and their direct or recursively
+  inherited groups;
+- anonymous callers and userless service accounts cannot search identities.
+
+A group result contains the group's identity, not its members. A guest who
+shares a group with another user cannot discover that user through entity
+search. Applications may narrow results to accepted principal kinds, but
+client-provided filters never widen the caller's server-side visibility.
+Relationship filters are directory operations and remain limited to full user
+accounts.
+
 ## Link access entries to the resource
 
 Cloud owns `auth.access`. The application owns a junction table:

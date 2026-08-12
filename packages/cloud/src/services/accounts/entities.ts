@@ -4,12 +4,13 @@ import { getFreeIpaConfig } from "../freeipa-config";
 import { escapeLikePattern, toPgTextArray, toPgUuidArray } from "../postgres";
 import { buildBaseGroup } from "./base-group";
 import { buildBaseUser } from "./base-user";
-import { buildManagedGroupScopeCondition } from "./group-sql";
+import { buildManagedGroupScopeCondition, recursiveGroupIdsSubquery } from "./group-sql";
 
 type DbRow = Record<string, unknown>;
 type SqlFragment = any;
 
 export type EntityListParams = {
+  visibility: { type: "directory" } | { type: "self_and_effective_groups"; userId: string };
   search?: string;
   kinds?: EntityKind[];
   provider?: UserProvider;
@@ -412,6 +413,16 @@ export const list = async (
   const groupsAdmin = (await getFreeIpaConfig()).groupsAdmin;
   const groupsAdminLiteral = toPgTextArray(groupsAdmin);
   const spec = buildQuerySpec(params);
+  const visibilityCondition =
+    params.visibility.type === "directory"
+      ? sql`TRUE`
+      : sql`(
+          (kind = 'user' AND id = ${params.visibility.userId}::uuid)
+          OR (
+            kind = 'group'
+            AND id IN (${recursiveGroupIdsSubquery(params.visibility.userId)})
+          )
+        )`;
   const kindsCondition = (params.kinds?.length ?? 0) === 0 ? sql`TRUE` : sql`kind = ANY(${toPgTextArray(params.kinds ?? [])}::text[])`;
   const excludeUserCondition =
     (params.excludeUserIds?.length ?? 0) === 0
@@ -436,7 +447,8 @@ export const list = async (
         ))`;
 
   const where = sql`
-    ${kindsCondition}
+    ${visibilityCondition}
+    AND ${kindsCondition}
     AND (${params.provider ?? null}::text IS NULL OR provider = ${params.provider ?? null})
     AND (${params.profile ?? null}::text IS NULL OR kind = 'group' OR profile = ${params.profile ?? null})
     AND ${excludeUserCondition}

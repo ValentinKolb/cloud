@@ -1133,6 +1133,7 @@ export const accountsAppService = {
   },
   entity: {
     list: async (config: {
+      actor: AccountsActor;
       pagination?: PageParams;
       search?: string;
       kinds?: EntityKind[];
@@ -1148,8 +1149,20 @@ export const accountsAppService = {
       managedByUserId?: string;
       recursive?: boolean;
     }): Promise<Paginated<EntityListItem>> => {
+      const canSearchDirectory = config.actor.roles.includes("user");
+      const usesRelationFilter = Boolean(
+        config.userMemberOfGroupIds?.length ||
+          config.memberOfGroupId ||
+          config.managerOfGroupId ||
+          config.parentGroupId ||
+          config.managedByUserId,
+      );
+      if (!canSearchDirectory && usesRelationFilter) {
+        throw new Error("Guest accounts cannot use entity relation filters");
+      }
       const { page, perPage } = paginate(config.pagination);
       const result = await entities.list({
+        visibility: canSearchDirectory ? { type: "directory" } : { type: "self_and_effective_groups", userId: config.actor.userId },
         search: config.search,
         kinds: config.kinds,
         provider: config.provider,

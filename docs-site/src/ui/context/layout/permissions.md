@@ -47,6 +47,17 @@ Authorization still belongs in the service. Rendering an editor does not grant t
 
 Users and groups can be limited by provider. Existing ids can be excluded. Real directory searches begin after two characters and use the Cloud accounts endpoint.
 
+The accounts endpoint scopes discovery to the current account before applying
+those component filters. Full user accounts can search the directory. Guest
+accounts can find only themselves and their direct or recursively inherited
+groups; group results do not reveal members. Anonymous callers and userless
+service accounts cannot search identities.
+
+The include and exclude props refine that server-authorized result. They are
+presentation controls, not authorization boundaries.
+Relationship-scoped account searches remain available only to full user
+accounts.
+
 `onSelect` receives a discriminated `EntitySearchPrincipal`.
 
 ## Manage resource API keys
