@@ -5,6 +5,7 @@ import type { Headers } from "@zone-eu/mailsplit";
 import { sql } from "bun";
 import { type AttachmentStream, MailParser, type MessageText } from "mailparser";
 import sanitizeHtml from "sanitize-html";
+import { withShortIdDb } from "../lib/short-id";
 import { deriveConversationWorkState, isAutomaticSubmission } from "./conversation-work-state";
 import { allowedEmailInlineStyles } from "./email-inline-style-policy";
 import { type MailCollaborationEvent, publishMailCollaborationEvent } from "./events";
@@ -814,8 +815,12 @@ export const hydrateMessageFromSource = async (params: {
         `;
         if (!partRow) throw new Error("Message part insert returned no row");
         if (part.attachment) {
-          await tx`
+          await withShortIdDb(
+            tx,
+            "attachment",
+            (db, shortId) => db`
             INSERT INTO mail.attachments (
+              short_id,
               message_id,
               part_id,
               filename,
@@ -827,6 +832,7 @@ export const hydrateMessageFromSource = async (params: {
               blob_id
             )
             VALUES (
+              ${shortId},
               ${params.messageId}::uuid,
               ${partRow.id}::uuid,
               ${part.filename},
@@ -837,7 +843,8 @@ export const hydrateMessageFromSource = async (params: {
               ${part.blob.byteLength},
               ${part.blob.id}::uuid
             )
-          `;
+          `,
+          );
         }
       }
       const searchChunks = splitSearchText(plainText);

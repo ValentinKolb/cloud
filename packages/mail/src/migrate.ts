@@ -43,6 +43,7 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.mailboxes (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT mailboxes_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 160),
       description TEXT CHECK (description IS NULL OR char_length(description) <= 2000),
       health TEXT NOT NULL DEFAULT 'disconnected'
@@ -186,6 +187,7 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.folders (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT folders_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       remote_resource_id UUID NOT NULL REFERENCES mail.remote_resources(id) ON DELETE CASCADE,
       parent_id UUID REFERENCES mail.folders(id) ON DELETE SET NULL,
       stable_key TEXT NOT NULL CHECK (char_length(stable_key) BETWEEN 1 AND 1000),
@@ -236,6 +238,7 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.message_contents (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT message_contents_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
       message_id TEXT,
       in_reply_to TEXT,
@@ -327,6 +330,7 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.attachments (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT attachments_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       message_id UUID NOT NULL REFERENCES mail.message_contents(id) ON DELETE CASCADE,
       part_id UUID NOT NULL UNIQUE REFERENCES mail.message_parts(id) ON DELETE CASCADE,
       filename TEXT,
@@ -378,6 +382,7 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.conversations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT conversations_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
       subject TEXT NOT NULL DEFAULT '',
       participant_summary TEXT NOT NULL DEFAULT '',
@@ -410,6 +415,7 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.sender_identities (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT sender_identities_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
       display_name TEXT NOT NULL DEFAULT '',
       from_address TEXT NOT NULL CHECK (char_length(from_address) BETWEEN 3 AND 320),
@@ -495,6 +501,7 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.drafts (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT drafts_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
       conversation_id UUID REFERENCES mail.conversations(id) ON DELETE SET NULL,
       sender_identity_id UUID NOT NULL REFERENCES mail.sender_identities(id) ON DELETE RESTRICT,
@@ -516,6 +523,7 @@ const createInitialSchema = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.outbox_submissions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT outbox_submissions_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
       draft_id UUID NOT NULL REFERENCES mail.drafts(id) ON DELETE RESTRICT,
       command_id UUID NOT NULL UNIQUE REFERENCES mail.commands(id) ON DELETE RESTRICT,
@@ -947,6 +955,7 @@ const addProviderBackedOperations = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.draft_attachments (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT draft_attachments_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       draft_id UUID NOT NULL REFERENCES mail.drafts(id) ON DELETE CASCADE,
       blob_id UUID NOT NULL REFERENCES mail.message_part_blobs(id) ON DELETE RESTRICT,
       filename TEXT NOT NULL CHECK (char_length(filename) BETWEEN 1 AND 255),
@@ -981,6 +990,7 @@ const addConversationCollaboration = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.conversation_comments (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT conversation_comments_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE CASCADE,
       author_kind TEXT NOT NULL CHECK (author_kind IN ('user', 'service_account')),
       author_id UUID NOT NULL,
@@ -1043,6 +1053,7 @@ const addCollaborationOperations = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.conversation_reminders (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT conversation_reminders_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
       conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE CASCADE,
       user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -1070,6 +1081,9 @@ const addCollaborationOperations = async (db: SqlClient): Promise<void> => {
       conversation_id UUID NOT NULL REFERENCES mail.conversations(id) ON DELETE CASCADE,
       recipient_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
       source_id UUID NOT NULL,
+      source_short_id TEXT NOT NULL
+        CONSTRAINT collaboration_notification_deliveries_source_short_id_format
+        CHECK (source_short_id ~ '^[0-9A-Za-z]{6}$'),
       source_revision BIGINT NOT NULL CHECK (source_revision > 0),
       state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'sending', 'sent', 'skipped')),
       available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1102,6 +1116,7 @@ const addCollaborationOperations = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.saved_conversation_views (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT saved_conversation_views_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
       scope TEXT NOT NULL CHECK (scope IN ('private', 'mailbox')),
       owner_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -1472,6 +1487,7 @@ const addStructuredSearchAndLocalTags = async (db: SqlClient): Promise<void> => 
   await db`
     CREATE TABLE mail.local_tags (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT local_tags_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
       name TEXT NOT NULL CHECK (name = btrim(name) AND char_length(name) BETWEEN 1 AND 80),
       normalized_name TEXT NOT NULL CHECK (
@@ -1856,6 +1872,7 @@ const addComposeTemplatesAndStyles = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.compose_templates (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT compose_templates_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
       kind TEXT NOT NULL CHECK (kind IN ('signature', 'snippet')),
       scope TEXT NOT NULL CHECK (scope IN ('private', 'mailbox')),
@@ -2072,6 +2089,7 @@ const addManagedAutomaticReplyConfigurations = async (db: SqlClient): Promise<vo
   await db`
     CREATE TABLE mail.automatic_reply_configurations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT automatic_reply_configurations_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
       workflow_id UUID NOT NULL,
       response_schedule_id UUID NOT NULL,
@@ -3867,6 +3885,7 @@ const unifyIncomingAutomations = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.incoming_automations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL CONSTRAINT incoming_automations_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$'),
       mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
       workflow_id UUID NOT NULL,
       name TEXT NOT NULL CHECK (name = btrim(name) AND char_length(name) BETWEEN 1 AND 120),
@@ -3926,12 +3945,65 @@ const addConversationSummaries = async (db: SqlClient): Promise<void> => {
   `;
 };
 
+const installLiveInvalidationEnqueue = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE OR REPLACE FUNCTION mail.enqueue_live_invalidation(
+      target_mailbox_id UUID,
+      target_conversation_id UUID DEFAULT NULL
+    )
+    RETURNS UUID
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+      invalidation_id UUID;
+      current_transaction_key TEXT := pg_current_xact_id()::text;
+    BEGIN
+      INSERT INTO mail.live_invalidation_outbox (
+        mailbox_id,
+        mailbox_short_id,
+        conversation_id,
+        conversation_short_id,
+        transaction_key
+      )
+      SELECT
+        mailbox.id,
+        mailbox.short_id,
+        conversation.id,
+        conversation.short_id,
+        current_transaction_key
+      FROM mail.mailboxes mailbox
+      LEFT JOIN mail.conversations conversation
+        ON conversation.id = target_conversation_id
+       AND conversation.mailbox_id = mailbox.id
+      WHERE mailbox.id = target_mailbox_id
+        AND (target_conversation_id IS NULL OR conversation.id IS NOT NULL)
+      ON CONFLICT DO NOTHING
+      RETURNING id INTO invalidation_id;
+
+      IF invalidation_id IS NULL THEN
+        SELECT id INTO invalidation_id
+        FROM mail.live_invalidation_outbox
+        WHERE mailbox_id = target_mailbox_id
+          AND conversation_id IS NOT DISTINCT FROM target_conversation_id
+          AND transaction_key = current_transaction_key;
+      END IF;
+      RETURN invalidation_id;
+    END;
+    $$
+  `;
+};
+
 const addLiveInvalidationOutbox = async (db: SqlClient): Promise<void> => {
   await db`
     CREATE TABLE mail.live_invalidation_outbox (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       mailbox_id UUID NOT NULL REFERENCES mail.mailboxes(id) ON DELETE CASCADE,
+      mailbox_short_id TEXT NOT NULL
+        CONSTRAINT live_invalidation_outbox_mailbox_short_id_format CHECK (mailbox_short_id ~ '^[0-9A-Za-z]{6}$'),
       conversation_id UUID,
+      conversation_short_id TEXT
+        CONSTRAINT live_invalidation_outbox_conversation_short_id_format
+        CHECK (conversation_short_id IS NULL OR conversation_short_id ~ '^[0-9A-Za-z]{6}$'),
       transaction_key TEXT NOT NULL,
       attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
       next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -3957,37 +4029,7 @@ const addLiveInvalidationOutbox = async (db: SqlClient): Promise<void> => {
     ON mail.live_invalidation_outbox (delivered_at)
     WHERE delivered_at IS NOT NULL
   `;
-  await db`
-    CREATE OR REPLACE FUNCTION mail.enqueue_live_invalidation(
-      target_mailbox_id UUID,
-      target_conversation_id UUID DEFAULT NULL
-    )
-    RETURNS UUID
-    LANGUAGE plpgsql
-    AS $$
-    DECLARE
-      invalidation_id UUID;
-      current_transaction_key TEXT := pg_current_xact_id()::text;
-    BEGIN
-      INSERT INTO mail.live_invalidation_outbox (
-        mailbox_id, conversation_id, transaction_key
-      ) VALUES (
-        target_mailbox_id, target_conversation_id, current_transaction_key
-      )
-      ON CONFLICT DO NOTHING
-      RETURNING id INTO invalidation_id;
-
-      IF invalidation_id IS NULL THEN
-        SELECT id INTO invalidation_id
-        FROM mail.live_invalidation_outbox
-        WHERE mailbox_id = target_mailbox_id
-          AND conversation_id IS NOT DISTINCT FROM target_conversation_id
-          AND transaction_key = current_transaction_key;
-      END IF;
-      RETURN invalidation_id;
-    END;
-    $$
-  `;
+  await installLiveInvalidationEnqueue(db);
   await db`
     CREATE OR REPLACE FUNCTION mail.enqueue_activity_live_invalidation()
     RETURNS TRIGGER
@@ -4004,6 +4046,89 @@ const addLiveInvalidationOutbox = async (db: SqlClient): Promise<void> => {
     AFTER INSERT ON mail.activity_events
     FOR EACH ROW EXECUTE FUNCTION mail.enqueue_activity_live_invalidation()
   `;
+};
+
+const detachLiveInvalidationScope = async (db: SqlClient): Promise<void> => {
+  await db`ALTER TABLE mail.live_invalidation_outbox ADD COLUMN IF NOT EXISTS mailbox_short_id TEXT`;
+  await db`ALTER TABLE mail.live_invalidation_outbox ADD COLUMN IF NOT EXISTS conversation_short_id TEXT`;
+  await installLiveInvalidationEnqueue(db);
+};
+
+const PUBLIC_SHORT_ID_TABLES = [
+  "mailboxes",
+  "folders",
+  "message_contents",
+  "attachments",
+  "conversations",
+  "sender_identities",
+  "drafts",
+  "outbox_submissions",
+  "draft_attachments",
+  "conversation_comments",
+  "conversation_reminders",
+  "saved_conversation_views",
+  "local_tags",
+  "compose_templates",
+  "automatic_reply_configurations",
+  "incoming_automations",
+] as const;
+
+const finalizePublicShortIds = async (db: SqlClient): Promise<void> => {
+  for (const table of PUBLIC_SHORT_ID_TABLES) {
+    await db.unsafe(`ALTER TABLE mail.${table} ADD COLUMN IF NOT EXISTS short_id TEXT`);
+    await db.unsafe(`ALTER TABLE mail.${table} ALTER COLUMN short_id SET NOT NULL`);
+    await db.unsafe(`ALTER TABLE mail.${table} DROP CONSTRAINT IF EXISTS ${table}_short_id_format`);
+    await db.unsafe(`
+      ALTER TABLE mail.${table}
+      ADD CONSTRAINT ${table}_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$')
+    `);
+    await db.unsafe(`CREATE UNIQUE INDEX IF NOT EXISTS ${table}_short_id_idx ON mail.${table} (short_id)`);
+  }
+
+  await db`ALTER TABLE mail.live_invalidation_outbox ADD COLUMN IF NOT EXISTS mailbox_short_id TEXT`;
+  await db`ALTER TABLE mail.live_invalidation_outbox ADD COLUMN IF NOT EXISTS conversation_short_id TEXT`;
+  await db`ALTER TABLE mail.live_invalidation_outbox ALTER COLUMN mailbox_short_id SET NOT NULL`;
+  await db`
+    ALTER TABLE mail.live_invalidation_outbox
+    DROP CONSTRAINT IF EXISTS live_invalidation_outbox_mailbox_short_id_format
+  `;
+  await db`
+    ALTER TABLE mail.live_invalidation_outbox
+    ADD CONSTRAINT live_invalidation_outbox_mailbox_short_id_format
+    CHECK (mailbox_short_id ~ '^[0-9A-Za-z]{6}$')
+  `;
+  await db`
+    ALTER TABLE mail.live_invalidation_outbox
+    DROP CONSTRAINT IF EXISTS live_invalidation_outbox_conversation_short_id_format
+  `;
+  await db`
+    ALTER TABLE mail.live_invalidation_outbox
+    ADD CONSTRAINT live_invalidation_outbox_conversation_short_id_format
+    CHECK (conversation_short_id IS NULL OR conversation_short_id ~ '^[0-9A-Za-z]{6}$')
+  `;
+
+  await db`
+    ALTER TABLE mail.collaboration_notification_deliveries
+    ADD COLUMN IF NOT EXISTS source_short_id TEXT
+  `;
+  await db`
+    ALTER TABLE mail.collaboration_notification_deliveries
+    ALTER COLUMN source_short_id SET NOT NULL
+  `;
+  await db`
+    ALTER TABLE mail.collaboration_notification_deliveries
+    DROP CONSTRAINT IF EXISTS collaboration_notification_deliveries_source_short_id_format
+  `;
+  await db`
+    ALTER TABLE mail.collaboration_notification_deliveries
+    ADD CONSTRAINT collaboration_notification_deliveries_source_short_id_format
+    CHECK (source_short_id ~ '^[0-9A-Za-z]{6}$')
+  `;
+
+  // Migration 116 may already exist with the UUID-only function body. Reinstall
+  // after every public ID column is final so upgraded databases snapshot the
+  // public envelope before a source row can be deleted.
+  await installLiveInvalidationEnqueue(db);
 };
 
 const migrations: readonly MailMigration[] = [
@@ -4106,6 +4231,8 @@ const migrations: readonly MailMigration[] = [
   { version: 113, name: "reviewable_workflow_drafts", run: exposeReviewableWorkflowDrafts },
   { version: 114, name: "conversation_summaries", run: addConversationSummaries },
   { version: 115, name: "live_invalidation_outbox", run: addLiveInvalidationOutbox },
+  { version: 116, name: "detached_live_invalidation_scope", run: detachLiveInvalidationScope },
+  { version: 117, name: "public_short_ids", run: finalizePublicShortIds },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

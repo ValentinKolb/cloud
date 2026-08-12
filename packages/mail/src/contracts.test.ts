@@ -103,9 +103,15 @@ describe("conversation tag contracts", () => {
   });
 
   test("bounds additive bulk assignments and rejects duplicate ids", () => {
-    const conversationId = "00000000-0000-4000-8000-000000000001";
-    const tagId = "00000000-0000-4000-8000-000000000002";
+    const conversationId = "Conv01";
+    const tagId = "Tag001";
     expect(addConversationLocalTagsSchema.safeParse({ conversationIds: [conversationId], tagIds: [tagId] }).success).toBe(true);
+    expect(
+      addConversationLocalTagsSchema.safeParse({
+        conversationIds: ["00000000-0000-4000-8000-000000000001"],
+        tagIds: [tagId],
+      }).success,
+    ).toBe(false);
     expect(addConversationLocalTagsSchema.safeParse({ conversationIds: [conversationId, conversationId], tagIds: [tagId] }).success).toBe(
       false,
     );
@@ -128,7 +134,7 @@ describe("conversation summary contracts", () => {
 });
 
 const draftEditableContent = {
-  senderIdentityId: "00000000-0000-4000-8000-000000000001",
+  senderIdentityId: "Send01",
   to: [],
   cc: [],
   bcc: [],
@@ -143,21 +149,27 @@ describe("mail draft contracts", () => {
     expect(
       draftContentInputSchema.safeParse({
         ...draftEditableContent,
-        conversationId: "00000000-0000-4000-8000-000000000002",
+        conversationId: "Conv01",
         intent: "reply",
-        sourceMessageId: "00000000-0000-4000-8000-000000000003",
+        sourceMessageId: "Msg001",
         includeSourceAttachments: false,
       }).success,
     ).toBe(true);
     expect(
       draftContentInputSchema.safeParse({
         ...draftEditableContent,
-        conversationId: "00000000-0000-4000-8000-000000000002",
+        conversationId: "Conv01",
         intent: "forward",
-        sourceMessageId: "00000000-0000-4000-8000-000000000003",
+        sourceMessageId: "Msg001",
         includeSourceAttachments: true,
       }).success,
     ).toBe(true);
+    expect(
+      draftContentInputSchema.safeParse({
+        ...draftEditableContent,
+        sourceMessageId: "00000000-0000-4000-8000-000000000003",
+      }).success,
+    ).toBe(false);
     expect(
       createDraftAttachmentUploadSchema.safeParse({
         filename: "too-large.bin",
@@ -175,33 +187,33 @@ describe("scheduled send contracts", () => {
     expect(cancelScheduledSendInputSchema.safeParse({}).success).toBe(false);
     expect(cancelScheduledSendInputSchema.safeParse({ disposition: "delete" }).success).toBe(false);
 
+    const scheduledSend = {
+      id: "Deliv1",
+      commandId: "00000000-0000-4000-8000-000000000002",
+      draftId: "Draft1",
+      conversationId: null,
+      intent: "new",
+      to: [{ name: null, address: "recipient@example.com" }],
+      cc: [],
+      bcc: [],
+      subject: "Scheduled",
+      bodyPreview: "Preview",
+      scheduledAt: "2026-07-18T09:00:00.000Z",
+      nextAttemptAt: null,
+      state: "scheduled",
+      attempt: 0,
+      lastError: null,
+      scheduledBy: { kind: "user", displayName: "Ada" },
+      createdAt: "2026-07-17T09:00:00.000Z",
+    };
+    const page = { items: [scheduledSend], nextCursor: null, total: 1 };
+    expect(scheduledSendPageSchema.safeParse(page).success).toBe(true);
     expect(
       scheduledSendPageSchema.safeParse({
-        items: [
-          {
-            id: "00000000-0000-4000-8000-000000000001",
-            commandId: "00000000-0000-4000-8000-000000000002",
-            draftId: "00000000-0000-4000-8000-000000000003",
-            conversationId: null,
-            intent: "new",
-            to: [{ name: null, address: "recipient@example.com" }],
-            cc: [],
-            bcc: [],
-            subject: "Scheduled",
-            bodyPreview: "Preview",
-            scheduledAt: "2026-07-18T09:00:00.000Z",
-            nextAttemptAt: null,
-            state: "scheduled",
-            attempt: 0,
-            lastError: null,
-            scheduledBy: { kind: "user", displayName: "Ada" },
-            createdAt: "2026-07-17T09:00:00.000Z",
-          },
-        ],
-        nextCursor: null,
-        total: 1,
+        ...page,
+        items: [{ ...scheduledSend, id: "00000000-0000-4000-8000-000000000001" }],
       }).success,
-    ).toBe(true);
+    ).toBe(false);
   });
 });
 
@@ -209,7 +221,7 @@ describe("automatic reply configuration contracts", () => {
   const configuration = {
     name: "Out of office",
     enabled: true,
-    senderIdentityId: "00000000-0000-4000-8000-000000000001",
+    senderIdentityId: "Send01",
     subject: "Re: original subject",
     body: "I am away.",
     format: "markdown" as const,
@@ -227,6 +239,12 @@ describe("automatic reply configuration contracts", () => {
 
   test("keeps presets out of the persisted contract", () => {
     expect(createAutomaticReplyConfigurationSchema.safeParse(configuration).success).toBe(true);
+    expect(
+      createAutomaticReplyConfigurationSchema.safeParse({
+        ...configuration,
+        senderIdentityId: "00000000-0000-4000-8000-000000000001",
+      }).success,
+    ).toBe(false);
     expect(createAutomaticReplyConfigurationSchema.safeParse({ ...configuration, schedule: { mode: "always" } }).success).toBe(true);
     expect(
       createAutomaticReplyConfigurationSchema.safeParse({
@@ -279,7 +297,7 @@ describe("automatic reply configuration contracts", () => {
 
   test("requires the reference format for reference-enabled previews", () => {
     const preview = {
-      senderIdentityId: "00000000-0000-4000-8000-000000000001",
+      senderIdentityId: "Send01",
       subject: "Re: {{ inputs.message.subject }}",
       body: "{{ reference.value }}",
       format: "markdown",
@@ -307,7 +325,7 @@ describe("incoming automation contracts", () => {
         {
           id: "00000000-0000-4000-8000-000000000010",
           kind: "mail_action",
-          action: { kind: "add_local_tag", tagId: "00000000-0000-4000-8000-000000000016" },
+          action: { kind: "add_local_tag", tagId: "Tag001" },
         },
         {
           id: classifierId,
@@ -337,7 +355,7 @@ describe("incoming automation contracts", () => {
           id: "00000000-0000-4000-8000-000000000014",
           kind: "create_reply_draft",
           body: { kind: "step_output", sourceStepId: textId },
-          senderIdentityId: "00000000-0000-4000-8000-000000000015",
+          senderIdentityId: "Send01",
         },
         { id: "00000000-0000-4000-8000-000000000017", kind: "add_comment", body: { kind: "custom", value: "AI summary reviewed" } },
         { id: "00000000-0000-4000-8000-000000000018", kind: "set_summary", body: { kind: "step_output", sourceStepId: textId } },
@@ -345,6 +363,20 @@ describe("incoming automation contracts", () => {
     });
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.enabled).toBe(false);
+    expect(
+      createIncomingAutomationSchema.safeParse({
+        name: "Legacy identity",
+        scope: { mode: "all" },
+        steps: [
+          {
+            id: "00000000-0000-4000-8000-000000000019",
+            kind: "create_reply_draft",
+            body: { kind: "custom", value: "Reply" },
+            senderIdentityId: "00000000-0000-4000-8000-000000000015",
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 
   test("rejects forward references and incompatible output types", () => {
@@ -373,7 +405,7 @@ describe("incoming automation contracts", () => {
           id: "00000000-0000-4000-8000-000000000021",
           kind: "create_reply_draft",
           body: { kind: "custom", value: "Thanks for your message. We will review it shortly." },
-          senderIdentityId: "00000000-0000-4000-8000-000000000022",
+          senderIdentityId: "Send01",
         },
         {
           id: "00000000-0000-4000-8000-000000000023",
@@ -585,11 +617,19 @@ describe("mail message state contracts", () => {
     expect(
       conversationTriageInputSchema.safeParse({
         kind: "move_to_folder",
-        sourceFolderId: "00000000-0000-4000-8000-000000000001",
-        destinationFolderId: "00000000-0000-4000-8000-000000000002",
+        sourceFolderId: "Fold01",
+        destinationFolderId: "Fold02",
         idempotencyKey: "move:test",
       }).success,
     ).toBe(true);
+    expect(
+      conversationTriageInputSchema.safeParse({
+        kind: "move_to_folder",
+        sourceFolderId: "00000000-0000-4000-8000-000000000001",
+        destinationFolderId: "Fold02",
+        idempotencyKey: "move:legacy",
+      }).success,
+    ).toBe(false);
   });
 
   test("keeps system flags and provider keywords in separate namespaces", () => {
@@ -671,8 +711,8 @@ describe("mail collaboration contracts", () => {
   });
 
   test("requires explicit confirmation and unique message ids for manual threading", () => {
-    const sourceConversationId = "00000000-0000-4000-8000-000000000001";
-    const messageId = "00000000-0000-4000-8000-000000000002";
+    const sourceConversationId = "Conv01";
+    const messageId = "Msg001";
     expect(
       mergeConversationsInputSchema.safeParse({
         sourceConversationId,
@@ -702,6 +742,14 @@ describe("mail collaboration contracts", () => {
         expectedTargetRevision: 1,
       }).success,
     ).toBe(false);
+    expect(
+      reassignConversationMessageInputSchema.safeParse({
+        targetConversationId: "00000000-0000-4000-8000-000000000001",
+        expectedSourceRevision: 1,
+        expectedTargetRevision: 1,
+        confirm: true,
+      }).success,
+    ).toBe(false);
   });
 });
 
@@ -720,11 +768,12 @@ describe("mail workflow contracts", () => {
       { type: "work_status", value: "waiting" },
       { type: "assignee", userId: null },
       { type: "snoozed", value: false },
-      { type: "folder_id", folderId: crypto.randomUUID() },
+      { type: "folder_id", folderId: "Foldr1" },
       { type: "assigned_to_me" },
       { type: "all" },
     ];
     for (const expression of expressions) expect(mailSearchExpressionSchema.safeParse(expression).success).toBe(true);
+    expect(mailSearchExpressionSchema.safeParse({ type: "folder_id", folderId: crypto.randomUUID() }).success).toBe(false);
     expect(mailSearchExpressionSchema.safeParse({ field: "subject", query: "legacy" }).success).toBe(false);
     expect(mailSearchExpressionSchema.safeParse({ and: expressions }).success).toBe(false);
   });

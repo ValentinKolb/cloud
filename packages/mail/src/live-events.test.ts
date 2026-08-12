@@ -7,8 +7,9 @@ import {
   parseMailLiveServerMessage,
 } from "./live-events";
 
-const MAILBOX_ID = "1da425e0-6bea-47ee-95a4-9d2151802171";
-const CONVERSATION_ID = "06efc190-c522-47a3-a972-3c9aef8c7e2b";
+const MAILBOX_ID = "Box001";
+const CONVERSATION_ID = "Conv01";
+const INTERNAL_UUID = "1da425e0-6bea-47ee-95a4-9d2151802171";
 
 describe("Mail live protocol", () => {
   test("validates subscribe cursors and rejects unknown client messages", () => {
@@ -25,6 +26,12 @@ describe("Mail live protocol", () => {
       }).success,
     ).toBeFalse();
     expect(MailLiveClientMessageSchema.safeParse({ type: "mail.live.legacy", payload: {} }).success).toBeFalse();
+    expect(
+      MailLiveClientMessageSchema.safeParse({
+        type: MAIL_LIVE_WS_TYPE.subscribe,
+        payload: { mailboxId: INTERNAL_UUID, fromCursor: null },
+      }).success,
+    ).toBeFalse();
   });
 
   test("parses every server message variant through one discriminated union", () => {

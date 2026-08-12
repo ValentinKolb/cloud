@@ -4,6 +4,7 @@ import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { CalendarAddress, CalendarParticipationStatus, SpacesMailDestinationContext } from "../app-integration-contracts";
 import type { MailDraft } from "../contracts";
+import { withShortIdDb } from "../lib/short-id";
 import { requireMailboxPermission } from "./access";
 import {
   type AppIntegrationRequest,
@@ -76,15 +77,19 @@ const attachCalendar = async (params: {
   let inserted = false;
   try {
     inserted = await sql.begin(async (tx) => {
-      const rows = await tx<{ id: string }[]>`
-        INSERT INTO mail.draft_attachments (draft_id, blob_id, filename, content_type, byte_length, content_hash, position)
+      const rows = await withShortIdDb(
+        tx,
+        "draftAttachment",
+        (db, shortId) => db<{ id: string }[]>`
+        INSERT INTO mail.draft_attachments (short_id, draft_id, blob_id, filename, content_type, byte_length, content_hash, position)
         VALUES (
-          ${params.draftId}::uuid, ${blob.id}::uuid, ${params.filename},
+          ${shortId}, ${params.draftId}::uuid, ${blob.id}::uuid, ${params.filename},
           ${`text/calendar; method=${params.method}; charset=utf-8`}, ${bytes.byteLength}, ${blob.contentHash}, 0
         )
         ON CONFLICT (draft_id, position) DO NOTHING
         RETURNING id
-      `;
+      `,
+      );
       if (rows.length > 0) {
         await tx`UPDATE mail.drafts SET revision = revision + 1 WHERE id = ${params.draftId}::uuid`;
         return true;

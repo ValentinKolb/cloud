@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { messageInspectorSchema, messageSourcePreviewSchema } from "../contracts";
+import {
+  messageInspectorAttachmentSchema,
+  messageInspectorPartSchema,
+  messageInspectorSchema,
+  messageSourcePreviewSchema,
+} from "../contracts";
 import {
   MESSAGE_HEADER_FIELD_LIMIT,
   MESSAGE_HEADER_LIMIT_BYTES,
@@ -66,7 +71,7 @@ describe("message inspector contracts", () => {
   test("rejects unbounded or structurally invalid response values", () => {
     expect(
       messageSourcePreviewSchema.safeParse({
-        messageId: "00000000-0000-4000-8000-000000000001",
+        messageId: "Msg001",
         exact: true,
         text: "source",
         byteLength: 6,
@@ -75,9 +80,46 @@ describe("message inspector contracts", () => {
       }).success,
     ).toBe(true);
     expect(
+      messageSourcePreviewSchema.safeParse({
+        messageId: "00000000-0000-4000-8000-000000000001",
+        exact: true,
+        text: "source",
+        byteLength: 6,
+        previewByteLength: 6,
+        truncated: false,
+      }).success,
+    ).toBe(false);
+    expect(
       messageInspectorSchema.safeParse({
         id: "not-a-message-id",
       }).success,
     ).toBe(false);
+  });
+
+  test("keeps internal MIME join IDs out of the public contract", () => {
+    const part = {
+      partPath: "1.2",
+      contentType: "text/plain",
+      charset: "utf-8",
+      transferEncoding: "quoted-printable",
+      disposition: null,
+      contentId: null,
+      filename: null,
+      sizeBytes: 42,
+      hydrationStatus: "hydrated",
+    };
+    const attachment = {
+      id: "Att001",
+      filename: "notes.txt",
+      contentType: "text/plain",
+      disposition: "attachment",
+      contentId: null,
+      sizeBytes: 42,
+    };
+
+    expect(messageInspectorPartSchema.safeParse(part).success).toBe(true);
+    expect(messageInspectorPartSchema.safeParse({ ...part, id: crypto.randomUUID() }).success).toBe(false);
+    expect(messageInspectorAttachmentSchema.safeParse(attachment).success).toBe(true);
+    expect(messageInspectorAttachmentSchema.safeParse({ ...attachment, partId: crypto.randomUUID() }).success).toBe(false);
   });
 });

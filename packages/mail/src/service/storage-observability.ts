@@ -138,6 +138,7 @@ export const getMailStorageSummary = async (context: MailRequestContext): Promis
   const rows = await sql<
     {
       mailbox_id: string;
+      mailbox_short_id: string;
       mailbox_name: string;
       message_count: string | number;
       message_bytes: string | number;
@@ -150,6 +151,7 @@ export const getMailStorageSummary = async (context: MailRequestContext): Promis
   >`
     SELECT
       snapshot.mailbox_id,
+      mailbox.short_id AS mailbox_short_id,
       mailbox.name AS mailbox_name,
       snapshot.message_count,
       snapshot.message_bytes,
@@ -173,7 +175,7 @@ export const getMailStorageSummary = async (context: MailRequestContext): Promis
     return ok(
       mailStorageSummarySchema.parse({
         mailboxes: rows.map((row) => ({
-          mailboxId: row.mailbox_id,
+          mailboxId: row.mailbox_short_id,
           mailboxName: row.mailbox_name,
           messageCount: Number(row.message_count),
           messageBytes: Number(row.message_bytes),

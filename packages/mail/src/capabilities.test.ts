@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { compileCapabilityManifest } from "@valentinkolb/cloud/capabilities/testing";
 import {
   CAPABILITY_MAX_RESULT_BYTES,
@@ -8,6 +8,7 @@ import {
 } from "@valentinkolb/cloud/contracts";
 import { mailCapabilities } from "./capabilities";
 import {
+  ActivityListDataSchema,
   CommentListDataSchema,
   ConversationListDataSchema,
   ConversationMarkInputSchema,
@@ -20,16 +21,84 @@ import {
   SubscriptionListDataSchema,
   SubscriptionUnsubscribeInputSchema,
 } from "./capability-contracts";
-import { listSubscriptions, mailboxAccess, mailboxes, messages, triage } from "./service";
+import { collaboration, listSubscriptions, mailboxAccess, mailboxes, messages, publicResources, triage } from "./service";
 
-const mailboxId = "553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef";
-const conversationId = "34e29d53-8e6a-4a4d-bd83-4ad8d69957c8";
+const mailboxId = "MbA123";
+const conversationId = "CvB234";
+const folderId = "FdC345";
+const senderIdentityId = "SiD456";
+const deliveryId = "DlE567";
+const tagId = "TgF678";
+const folderAId = "FaA111";
+const folderBId = "FbB222";
+const folderCId = "FcC333";
+const internalMailboxId = "553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef";
+const internalConversationId = "34e29d53-8e6a-4a4d-bd83-4ad8d69957c8";
+const internalFolderId = "dc1fe87d-c60b-4f63-a83d-9db6320da31d";
+const internalFolderAId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const internalFolderBId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const internalFolderCId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const internalCommentId = "11111111-1111-4111-8111-111111111111";
+const internalDraftId = "22222222-2222-4222-8222-222222222222";
+const internalDraftAttachmentId = "33333333-3333-4333-8333-333333333333";
+const internalTagId = "44444444-4444-4444-8444-444444444444";
+const internalMessageId = "55555555-5555-4555-8555-555555555555";
+const missingResourceId = "66666666-6666-4666-8666-666666666666";
+const technicalTargetId = "77777777-7777-4777-8777-777777777777";
+const commentId = "CmK012";
+const draftId = "DrG789";
+const draftAttachmentId = "DaL123";
+const messageId = "MsH890";
+const userId = "dc1fe87d-c60b-4f63-a83d-9db6320da31d";
+const publicIdsByTable = {
+  mailboxes: new Map([[internalMailboxId, mailboxId]]),
+  folders: new Map([
+    [internalFolderId, folderId],
+    [internalFolderAId, folderAId],
+    [internalFolderBId, folderBId],
+    [internalFolderCId, folderCId],
+  ]),
+  conversations: new Map([[internalConversationId, conversationId]]),
+  messages: new Map([
+    [internalConversationId, messageId],
+    [internalMessageId, messageId],
+  ]),
+  senderIdentities: new Map([[internalConversationId, senderIdentityId]]),
+  deliveries: new Map([[internalConversationId, deliveryId]]),
+  tags: new Map([
+    [internalConversationId, tagId],
+    [internalTagId, tagId],
+  ]),
+  comments: new Map([[internalCommentId, commentId]]),
+  drafts: new Map([[internalDraftId, draftId]]),
+  draftAttachments: new Map([[internalDraftAttachmentId, draftAttachmentId]]),
+} as const;
+const internalIdsByTable = {
+  mailboxes: new Map([[mailboxId, internalMailboxId]]),
+  folders: new Map([[folderId, internalFolderId]]),
+  conversations: new Map([[conversationId, internalConversationId]]),
+  senderIdentities: new Map([[senderIdentityId, internalConversationId]]),
+  deliveries: new Map([[deliveryId, internalConversationId]]),
+  tags: new Map([[tagId, internalConversationId]]),
+} as const;
 const context = {
-  actor: { kind: "user", user: { id: "dc1fe87d-c60b-4f63-a83d-9db6320da31d" } },
-  accessSubject: { type: "user", userId: "dc1fe87d-c60b-4f63-a83d-9db6320da31d" },
-  user: { id: "dc1fe87d-c60b-4f63-a83d-9db6320da31d" },
+  actor: { kind: "user", user: { id: userId } },
+  accessSubject: { type: "user", userId },
+  user: { id: userId },
   signal: new AbortController().signal,
 } as CapabilityExecutionContext;
+
+beforeEach(() => {
+  spyOn(publicResources, "resolvePublicId").mockImplementation(
+    async (table, id) => (internalIdsByTable as Record<string, Map<string, string>>)[table]?.get(id) ?? null,
+  );
+  spyOn(publicResources, "resolveMailboxPublicId").mockImplementation(
+    async (table, _mailboxId, id) => (internalIdsByTable as Record<string, Map<string, string>>)[table]?.get(id) ?? null,
+  );
+  spyOn(publicResources, "publicIds").mockImplementation(
+    async (table) => new Map((publicIdsByTable as Record<string, Map<string, string>>)[table] ?? []),
+  );
+});
 
 afterEach(() => mock.restore());
 
@@ -151,26 +220,26 @@ describe("mail capabilities", () => {
 
   test("uses singular conversation mutations and agent-oriented discovery wording", () => {
     const target = {
-      conversationId: "553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef",
-      sourceFolderId: "34e29d53-8e6a-4a4d-bd83-4ad8d69957c8",
+      conversationId,
+      sourceFolderId: folderId,
     };
     expect(
       ConversationMarkInputSchema.safeParse({
-        mailboxId: "dc1fe87d-c60b-4f63-a83d-9db6320da31d",
+        mailboxId,
         target,
         read: false,
       }).success,
     ).toBeTrue();
     expect(
       ConversationMarkInputSchema.safeParse({
-        mailboxId: "dc1fe87d-c60b-4f63-a83d-9db6320da31d",
+        mailboxId,
         targets: [target, target],
         read: false,
       }).success,
     ).toBeFalse();
     expect(
       ConversationMoveInputSchema.safeParse({
-        mailboxId: "dc1fe87d-c60b-4f63-a83d-9db6320da31d",
+        mailboxId,
         target,
         destination: { kind: "role", role: "archive" },
       }).success,
@@ -180,20 +249,27 @@ describe("mail capabilities", () => {
     expect(mailCapabilities.queries["draft.send.review"].description).toContain("does not send");
   });
 
+  test("rejects UUIDs at the public Mail resource boundary", () => {
+    expect(DraftCreateInputSchema.safeParse({ mailboxId, senderIdentityId }).success).toBeTrue();
+    expect(DraftCreateInputSchema.safeParse({ mailboxId: internalMailboxId, senderIdentityId }).success).toBeFalse();
+    expect(DraftCreateInputSchema.safeParse({ mailboxId, senderIdentityId: internalConversationId }).success).toBeFalse();
+    expect(
+      ConversationMarkInputSchema.safeParse({
+        mailboxId,
+        target: { conversationId: internalConversationId, sourceFolderId: folderId },
+        read: true,
+      }).success,
+    ).toBeFalse();
+  });
+
   test("aligns action reviews with their run permissions", async () => {
     const denied = { ok: false as const, error: { code: "FORBIDDEN", message: "Denied", status: 403 as const } };
     const requirePermission = spyOn(mailboxAccess, "requireMailboxPermission").mockResolvedValue(denied);
 
-    await mailCapabilities.actions["draft.create"].review(
-      DraftCreateInputSchema.parse({ mailboxId, senderIdentityId: conversationId }),
-      context,
-    );
-    await mailCapabilities.actions["delivery.cancel"].review({ mailboxId, deliveryId: conversationId, disposition: "draft" }, context);
-    await mailCapabilities.actions["mailbox.tag.update"].review(
-      { mailboxId, tagId: conversationId, expectedRevision: 1, name: "Updated" },
-      context,
-    );
-    await mailCapabilities.actions["mailbox.tag.delete"].review({ mailboxId, tagId: conversationId, expectedRevision: 1 }, context);
+    await mailCapabilities.actions["draft.create"].review(DraftCreateInputSchema.parse({ mailboxId, senderIdentityId }), context);
+    await mailCapabilities.actions["delivery.cancel"].review({ mailboxId, deliveryId, disposition: "draft" }, context);
+    await mailCapabilities.actions["mailbox.tag.update"].review({ mailboxId, tagId, expectedRevision: 1, name: "Updated" }, context);
+    await mailCapabilities.actions["mailbox.tag.delete"].review({ mailboxId, tagId, expectedRevision: 1 }, context);
     await mailCapabilities.actions["mailing-list.unsubscribe"].review(
       { mailboxId, listKey: "example", href: "https://example.test/unsubscribe" },
       context,
@@ -212,7 +288,7 @@ describe("mail capabilities", () => {
     const review = await mailCapabilities.actions["draft.create"].review(
       DraftCreateInputSchema.parse({
         mailboxId,
-        senderIdentityId: conversationId,
+        senderIdentityId,
         to: [{ name: "Ada", address: "ada@example.test" }],
         cc: [{ address: "team@example.test" }],
         subject: "Release follow-up",
@@ -242,14 +318,14 @@ describe("mail capabilities", () => {
       data: { items: [{ subject: "s".repeat(998) }], nextCursor: null },
     } as never);
     const review = await mailCapabilities.actions["conversation.mark"].review(
-      { mailboxId, target: { conversationId, sourceFolderId: mailboxId }, read: false },
+      { mailboxId, target: { conversationId, sourceFolderId: folderId }, read: false },
       context,
     );
     expect(review.ok).toBeTrue();
     if (review.ok) expect(CapabilityActionReviewSchema.safeParse(review.data).success).toBeTrue();
   });
 
-  test("paginates capability-owned folder vocabulary in stable UUID order", async () => {
+  test("resolves short mailbox IDs and paginates folders with public IDs", async () => {
     const folder = (id: string, name: string) => ({
       id,
       parentId: null,
@@ -266,27 +342,24 @@ describe("mail capabilities", () => {
       total: 0,
       unread: 0,
     });
-    spyOn(messages, "listFolders").mockResolvedValue({
+    const listFolders = spyOn(messages, "listFolders").mockResolvedValue({
       ok: true,
-      data: [
-        folder("cccccccc-cccc-4ccc-8ccc-cccccccccccc", "C"),
-        folder("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "A"),
-        folder("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "B"),
-      ],
+      data: [folder(internalFolderCId, "C"), folder(internalFolderAId, "A"), folder(internalFolderBId, "B")],
     });
 
     const first = await mailCapabilities.queries["folder.list"].run({ mailboxId, limit: 2 }, context);
+    expect(listFolders.mock.calls[0]?.[1]).toBe(internalMailboxId);
     expect(first).toMatchObject({
       ok: true,
       data: {
         data: [
           {
-            id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-            links: [{ rel: "open", href: `/app/mail/${mailboxId}?folder=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa` }],
+            id: folderAId,
+            links: [{ rel: "open", href: `/app/mail/${mailboxId}?folder=${folderAId}` }],
           },
           {
-            id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-            links: [{ rel: "open", href: `/app/mail/${mailboxId}?folder=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb` }],
+            id: folderBId,
+            links: [{ rel: "open", href: `/app/mail/${mailboxId}?folder=${folderBId}` }],
           },
         ],
         page: { hasMore: true },
@@ -297,7 +370,7 @@ describe("mail capabilities", () => {
     const second = await mailCapabilities.queries["folder.list"].run({ mailboxId, limit: 2, cursor: first.data.page.nextCursor }, context);
     expect(second).toMatchObject({
       ok: true,
-      data: { data: [{ id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" }], page: { hasMore: false } },
+      data: { data: [{ id: folderCId }], page: { hasMore: false } },
     });
   });
 
@@ -307,7 +380,7 @@ describe("mail capabilities", () => {
       data: {
         items: [
           {
-            id: conversationId,
+            id: internalConversationId,
             primaryReference: null,
             subject: "Release update",
             participantSummary: "Ada",
@@ -319,7 +392,7 @@ describe("mail capabilities", () => {
             revision: 1,
             updatedAt: "2026-08-04T10:00:00.000Z",
             unread: true,
-            activeFolderIds: [mailboxId],
+            activeFolderIds: [internalFolderId],
             flagged: false,
             hasAttachments: false,
             messageCount: 1,
@@ -346,6 +419,8 @@ describe("mail capabilities", () => {
     if (!result.ok) throw new Error("Expected conversation list success");
     expect(ConversationListDataSchema.safeParse(result.data.data).success).toBeTrue();
     expect(ConversationListDataSchema.safeParse(result.data.data.map(({ links: _, ...item }) => item)).success).toBeTrue();
+    expect(JSON.stringify(result)).not.toContain(internalConversationId);
+    expect(JSON.stringify(result)).not.toContain(internalMailboxId);
   });
 
   test("returns exact conversation links from reviews and mutation results", async () => {
@@ -354,15 +429,20 @@ describe("mail capabilities", () => {
       ok: true,
       data: { items: [{ subject: "Release update" }], nextCursor: null },
     } as never);
-    spyOn(triage, "createConversationTriageCommands").mockResolvedValue({
+    const createCommands = spyOn(triage, "createConversationTriageCommands").mockResolvedValue({
       ok: true,
-      data: { correlationId: "correlation", commands: [{ id: mailboxId, state: "pending" }] },
+      data: { correlationId: "correlation", commands: [{ id: internalMailboxId, state: "pending" }] },
     } as never);
-    const input = { mailboxId, target: { conversationId, sourceFolderId: mailboxId }, read: true };
+    const input = { mailboxId, target: { conversationId, sourceFolderId: folderId }, read: true };
 
     const review = await mailCapabilities.actions["conversation.mark"].review(input, context);
     const result = await mailCapabilities.actions["conversation.mark"].run(input, { ...context, idempotencyKey: "mark-read" });
 
+    expect(createCommands.mock.calls[0]?.[0]).toMatchObject({
+      mailboxId: internalMailboxId,
+      conversationId: internalConversationId,
+      input: { sourceFolderId: internalFolderId },
+    });
     expect(review).toMatchObject({
       ok: true,
       data: { links: [{ rel: "open", href: `/app/mail/${mailboxId}?conversation=${conversationId}` }] },
@@ -392,8 +472,8 @@ describe("mail capabilities", () => {
       lastMessageAt: "2026-08-04T10:00:00.000Z",
       lastSubject: "Update",
       lastSender: "Example",
-      lastMessageId: conversationId,
-      lastConversationId: conversationId,
+      lastMessageId: internalConversationId,
+      lastConversationId: internalConversationId,
       unsubscribeRequestedAt: null,
       unsubscribeErrorCode: null,
     });
@@ -414,6 +494,65 @@ describe("mail capabilities", () => {
     expect("links" in result.data.data[1]!).toBeFalse();
   });
 
+  test("projects activity resource targets and resource metadata without leaking UUIDs", async () => {
+    const activity = (id: string, targetType: string, targetId: string, metadata: Record<string, unknown> = {}) => ({
+      id,
+      conversationId: internalConversationId,
+      actor: { kind: "system" as const, id: null, displayName: "System", avatarHash: null },
+      action: `test.${targetType}`,
+      outcome: "confirmed" as const,
+      targetType,
+      targetId,
+      metadata,
+      createdAt: "2026-08-04T10:00:00.000Z",
+    });
+    const listActivity = spyOn(collaboration, "listActivity").mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          activity("1", "conversation", internalConversationId, {
+            messageId: internalMessageId,
+            addedTagIds: [internalTagId, missingResourceId],
+          }),
+          activity("2", "draft_attachment", internalDraftAttachmentId),
+          activity("3", "comment", missingResourceId, { messageId: missingResourceId }),
+          activity("4", "command", technicalTargetId),
+          activity("5", "unknown_resource", missingResourceId),
+        ],
+        nextCursor: null,
+      },
+    } as never);
+
+    const result = await mailCapabilities.queries["conversation.activity.list"].run({ mailboxId, limit: 25 }, context);
+
+    expect(listActivity.mock.calls[0]?.[0]).toMatchObject({ mailboxId: internalMailboxId, conversationId: null });
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        data: [
+          {
+            conversationId,
+            targetType: "conversation",
+            targetId: conversationId,
+            metadata: { messageId, addedTagIds: [tagId, null] },
+          },
+          { conversationId, targetType: "draft_attachment", targetId: draftAttachmentId },
+          { conversationId, targetType: "comment", targetId: null, metadata: { messageId: null } },
+          { conversationId, targetType: "command", targetId: technicalTargetId },
+          { conversationId, targetType: "unknown_resource", targetId: null },
+        ],
+        refs: [{ type: "mail.mailbox", id: mailboxId }],
+        links: [{ rel: "open", href: `/app/mail/${mailboxId}` }],
+      },
+    });
+    if (!result.ok) throw new Error("Expected activity list success");
+    expect(ActivityListDataSchema.safeParse(result.data.data).success).toBeTrue();
+    const projectedResourceActivities = JSON.stringify(result.data.data.slice(0, 3));
+    for (const id of [internalConversationId, internalDraftAttachmentId, internalMessageId, internalTagId, missingResourceId]) {
+      expect(projectedResourceActivities).not.toContain(id);
+    }
+  });
+
   test("propagates Mail search discovery failures instead of returning empty success", async () => {
     spyOn(mailboxes, "listMailboxes").mockResolvedValue({
       ok: false,
@@ -425,8 +564,8 @@ describe("mail capabilities", () => {
 
   test("keeps draft creation bounded and closed", () => {
     const base = {
-      mailboxId: "553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef",
-      senderIdentityId: "34e29d53-8e6a-4a4d-bd83-4ad8d69957c8",
+      mailboxId,
+      senderIdentityId,
     };
     expect(DraftCreateInputSchema.safeParse(base).success).toBeTrue();
     expect(DraftCreateInputSchema.safeParse({ ...base, connectorPassword: "secret" }).success).toBeFalse();
@@ -440,10 +579,10 @@ describe("mail capabilities", () => {
 
   test("requires the exact safety approval shape for sending", () => {
     const input = {
-      mailboxId: "553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef",
-      draftId: "34e29d53-8e6a-4a4d-bd83-4ad8d69957c8",
+      mailboxId,
+      draftId: "DrG789",
       expectedRevision: 2,
-      senderIdentityId: "dc1fe87d-c60b-4f63-a83d-9db6320da31d",
+      senderIdentityId,
       safetyApproval: { revision: 2, fingerprint: "a".repeat(64), warningIds: ["missing_attachment"] },
     };
     expect(DraftSendInputSchema.safeParse(input).success).toBeTrue();
@@ -452,8 +591,8 @@ describe("mail capabilities", () => {
 
   test("does not expose raw source or sanitized html from message.read", () => {
     const value = {
-      id: "553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef",
-      mailboxId: "34e29d53-8e6a-4a4d-bd83-4ad8d69957c8",
+      id: "MsH890",
+      mailboxId,
       conversationId: null,
       subject: "Hello",
       subjectTruncated: false,
@@ -488,7 +627,7 @@ describe("mail capabilities", () => {
 
   test("accepts only explicit unsubscribe targets", () => {
     const valid = {
-      mailboxId: "553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef",
+      mailboxId,
       listKey: "example.list",
       href: "https://example.com/unsubscribe",
     };
@@ -497,7 +636,7 @@ describe("mail capabilities", () => {
   });
 
   test("keeps compact high-cardinality results below the capability transport limit", () => {
-    const id = "553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef";
+    const id = "RsA123";
     const timestamp = "2026-08-02T10:00:00.000Z";
     const drafts = Array.from({ length: 100 }, () => ({
       id,
@@ -522,7 +661,7 @@ describe("mail capabilities", () => {
       conversationId: id,
       body: "c".repeat(1000),
       bodyTruncated: true,
-      author: { kind: "user" as const, id, displayName: "Agent", avatarHash: null },
+      author: { kind: "user" as const, id: userId, displayName: "Agent", avatarHash: null },
       parentCommentId: null,
       referencedMessageId: null,
       revision: 1,
@@ -537,7 +676,7 @@ describe("mail capabilities", () => {
     expect(Buffer.byteLength(JSON.stringify({ data: parsedComments }), "utf8")).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
 
     const address = { name: "n".repeat(200), address: `${"a".repeat(64)}@example.test` };
-    const attachmentId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const attachmentId = "AtJ901";
     const message = MessageDataSchema.parse({
       id,
       mailboxId: id,

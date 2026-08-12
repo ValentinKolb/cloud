@@ -1,6 +1,7 @@
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import type { CancelConversationReminder, SetConversationReminder } from "../contracts";
+import { withShortIdDb } from "../lib/short-id";
 import { type MailRequestContext, userBackedActor } from "./auth";
 import { lockMailboxForCollaboration } from "./collaboration";
 import { enqueueCollaborationNotifications } from "./notification-outbox";
@@ -158,16 +159,21 @@ export const setConversationReminder = async (params: {
             WHERE id = ${current.id}::uuid
             RETURNING ${reminderColumns}
           `
-        : await tx<ReminderRow[]>`
-            INSERT INTO mail.conversation_reminders (mailbox_id, conversation_id, user_id, due_at)
+        : await withShortIdDb(
+            tx,
+            "reminder",
+            (db, shortId) => db<ReminderRow[]>`
+            INSERT INTO mail.conversation_reminders (short_id, mailbox_id, conversation_id, user_id, due_at)
             VALUES (
+              ${shortId},
               ${params.mailboxId}::uuid,
               ${params.conversationId}::uuid,
               ${user.data.id}::uuid,
               ${params.input.dueAt}::timestamptz
             )
             RETURNING ${reminderColumns}
-          `;
+          `,
+          );
       if (!row) return fail(err.internal("Reminder write returned no row"));
       await tx`
         UPDATE mail.collaboration_notification_deliveries

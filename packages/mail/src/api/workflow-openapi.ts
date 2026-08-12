@@ -7,6 +7,7 @@ import {
   type MailWorkflow,
   type MailWorkflowDetail,
   type MailWorkflowVersion,
+  ResourceShortIdSchema,
   type WorkflowAutocomplete,
   type WorkflowValidation,
   workflowEffectBudgetSchema,
@@ -193,7 +194,7 @@ export const workflowAutocompleteSchema = responseSchema<WorkflowAutocomplete>()
 export const mailWorkflowSchema = responseSchema<MailWorkflow>()(
   z.object({
     id: z.string().uuid(),
-    mailboxId: z.string().uuid(),
+    mailboxId: ResourceShortIdSchema,
     name: z.string(),
     description: z.string().nullable(),
     priority: z.number().int(),
@@ -209,7 +210,7 @@ export const mailWorkflowVersionSchema = responseSchema<MailWorkflowVersion>()(
     id: z.string().uuid(),
     identity: z.string(),
     workflowId: z.string().uuid(),
-    mailboxId: z.string().uuid(),
+    mailboxId: ResourceShortIdSchema,
     source: z.string(),
     sourceHash: workflowHashSchema,
     boundPlan: workflowBoundPlanSchema,

@@ -1,12 +1,13 @@
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { logger } from "@valentinkolb/cloud/services";
 import { escapeLikePattern } from "@valentinkolb/cloud/services/postgres";
-import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { z } from "zod";
 import { type MailSearchExpression, mailSearchExpressionSchema, type SearchRequest } from "../contracts";
 import { type MailRequestContext, userBackedActor } from "./auth";
 import { sha256Json } from "./canonical";
 import { resolveMailExecution } from "./execution";
+import { resolveMailboxPublicIds } from "./public-resources";
 
 type SqlFragment = Bun.SQL.Query<unknown>;
 const log = logger("mail:search");
@@ -130,6 +131,26 @@ export const validateSearchComplexity = (expression: MailSearchExpression): Resu
     return queryCharacters <= 5_000 && wordCount <= 500;
   };
   return visit(expression, 1) ? ok() : fail(err.badInput("Search expression is too complex"));
+};
+
+const resolveSearchFolderIds = async (mailboxId: string, expression: MailSearchExpression): Promise<MailSearchExpression | null> => {
+  const folderIds: string[] = [];
+  const collect = (node: MailSearchExpression): void => {
+    if (node.type === "and" || node.type === "or") node.expressions.forEach(collect);
+    else if (node.type === "not") collect(node.expression);
+    else if (node.type === "folder_id") folderIds.push(node.folderId);
+  };
+  collect(expression);
+  const resolved = await resolveMailboxPublicIds("folders", mailboxId, folderIds);
+  if (!resolved) return null;
+  const byShortId = new Map(folderIds.map((id, index) => [id, resolved[index]!]));
+  const replace = (node: MailSearchExpression): MailSearchExpression => {
+    if (node.type === "and" || node.type === "or") return { ...node, expressions: node.expressions.map(replace) };
+    if (node.type === "not") return { ...node, expression: replace(node.expression) };
+    if (node.type === "folder_id") return { ...node, folderId: byShortId.get(node.folderId)! };
+    return node;
+  };
+  return replace(expression);
 };
 
 const ftsMatch = (document: SqlFragment, query: string, match: "words" | "phrase"): SqlFragment => {
@@ -1171,10 +1192,12 @@ export const searchMessages = async (params: {
   if (!complexity.ok) return complexity;
   const access = await resolveMailExecution({ mailboxId: params.mailboxId, operation: "actorRead", context: params.context });
   if (!access.ok) return access;
+  const expression = await resolveSearchFolderIds(params.mailboxId, parsed.data);
+  if (!expression) return fail(err.notFound("Mail folder"));
   const sort = params.request.sort ?? "relevance";
   const currentUserId = userBackedActor(params.context)?.id ?? null;
   const groupByConversation = params.groupByConversation !== false;
-  const queryHash = sha256Json({ mailboxId: params.mailboxId, expression: parsed.data, currentUserId, groupByConversation });
+  const queryHash = sha256Json({ mailboxId: params.mailboxId, expression, currentUserId, groupByConversation });
   const cursor = decodeCursor(params.request.cursor, sort, queryHash);
   if (!cursor.ok) return cursor;
   const limit = Math.min(Math.max(Math.floor(params.request.limit ?? 50), 1), 100);
@@ -1185,7 +1208,7 @@ export const searchMessages = async (params: {
   }
   const execution = await executeSearchWithFallback({
     mailboxId: params.mailboxId,
-    expression: parsed.data,
+    expression,
     sort,
     cursor: cursor.data,
     limit,

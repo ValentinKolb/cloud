@@ -1,13 +1,14 @@
 import type { SenderIdentity } from "../../contracts";
 
 const SENDER_PREFERENCE_PREFIX = "cloud:mail:last-sender:";
+const isMailResourceId = (value: string | null): value is string => Boolean(value && /^[0-9A-Za-z]{6}$/.test(value));
 
 const preferenceKey = (mailboxId: string): string => `${SENDER_PREFERENCE_PREFIX}${mailboxId}`;
 
 export const readMailSenderPreference = (storage: Storage, mailboxId: string): string | null => {
   try {
     const value = storage.getItem(preferenceKey(mailboxId));
-    return value && value.length <= 200 ? value : null;
+    return isMailResourceId(value) ? value : null;
   } catch {
     return null;
   }

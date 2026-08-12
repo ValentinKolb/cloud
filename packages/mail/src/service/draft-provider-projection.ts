@@ -1,10 +1,11 @@
 import { type Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { createRuntimeTaskTracker, logger, stopRuntimeJobs, toPgTextArray } from "@valentinkolb/cloud/services";
 import { job, type Lock } from "@k2b/sync";
+import { createRuntimeTaskTracker, logger, stopRuntimeJobs, toPgTextArray } from "@valentinkolb/cloud/services";
 import { Splitter, Streamer } from "@zone-eu/mailsplit";
 import { sql } from "bun";
 import { type AddressObject, type AttachmentStream, type Headers, MailParser, type MessageText } from "mailparser";
+import { withShortIdDb } from "../lib/short-id";
 import type { ConnectorEnvelope } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
 import {
@@ -1100,13 +1101,17 @@ const applyImportedDraft = async (params: {
           `
         : [];
       draftId = crypto.randomUUID();
-      await tx`
+      await withShortIdDb(
+        tx,
+        "draft",
+        (db, shortId) => db`
         INSERT INTO mail.drafts (
-          id, mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
+          id, short_id, mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
           author_kind, author_id, last_editor_kind, last_editor_id, origin,
           to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format
         ) VALUES (
           ${draftId}::uuid,
+          ${shortId},
           ${params.snapshot.mailbox_id}::uuid,
           ${thread?.conversation_id ?? null}::uuid,
           ${thread ? "reply" : "new"},
@@ -1124,14 +1129,19 @@ const applyImportedDraft = async (params: {
           ${params.parsed.body},
           ${params.parsed.format}
         )
-      `;
+      `,
+      );
     }
     for (let position = 0; position < params.parsed.attachments.length; position += 1) {
       const attachment = params.parsed.attachments[position]!;
-      await tx`
+      await withShortIdDb(
+        tx,
+        "draftAttachment",
+        (db, shortId) => db`
         INSERT INTO mail.draft_attachments (
-          draft_id, blob_id, filename, content_type, byte_length, content_hash, position
+          short_id, draft_id, blob_id, filename, content_type, byte_length, content_hash, position
         ) VALUES (
+          ${shortId},
           ${draftId}::uuid,
           ${attachment.blobId}::uuid,
           ${attachment.filename},
@@ -1140,7 +1150,8 @@ const applyImportedDraft = async (params: {
           ${attachment.contentHash},
           ${position}
         )
-      `;
+      `,
+      );
     }
     const [updated] = await tx<{ revision: string | number }[]>`
       SELECT revision FROM mail.drafts WHERE id = ${draftId}::uuid

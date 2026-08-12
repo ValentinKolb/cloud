@@ -293,7 +293,7 @@ const findExisting = async (mailboxId: string, uid: string, db: SqlExecutor = sq
     FROM spaces.calendar_invitation_sources source
     JOIN spaces.items item ON item.id = source.item_id
     JOIN spaces.spaces space ON space.id = item.space_id
-    WHERE source.mailbox_id = ${mailboxId}::uuid AND source.calendar_uid = ${uid}
+    WHERE source.mailbox_id = ${mailboxId} AND source.calendar_uid = ${uid}
     ${lock ? sql`FOR UPDATE OF source` : sql``}
   `;
   if (!row) return null;
@@ -343,7 +343,7 @@ const lockCalendarSourceForItem = async (
   const [targetSource] = await db<{ item_id: string }[]>`
     SELECT item_id
     FROM spaces.calendar_invitation_sources
-    WHERE mailbox_id = ${target.mailboxId}::uuid AND calendar_uid = ${target.calendarUid}
+    WHERE mailbox_id = ${target.mailboxId} AND calendar_uid = ${target.calendarUid}
     FOR UPDATE
   `;
   return !targetSource || targetSource.item_id === itemId;
@@ -368,8 +368,8 @@ export const getCalendarResponseCommitContext = async (params: {
     SELECT source.item_id, item.space_id
     FROM spaces.calendar_invitation_sources source
     JOIN spaces.items item ON item.id = source.item_id
-    WHERE source.mailbox_id = ${params.input.mailboxId}::uuid
-      AND source.message_id = ${params.input.messageId}::uuid
+    WHERE source.mailbox_id = ${params.input.mailboxId}
+      AND source.message_id = ${params.input.messageId}
   `;
   if (!source) return fail(err.badInput("Add this invitation to Spaces before responding"));
   const permission = await getSpacePermission({ spaceId: source.space_id, subject: params.subject });
@@ -398,8 +398,8 @@ export const commitCalendarResponse = async (params: {
       SELECT item_id
       FROM spaces.calendar_invitation_sources
       WHERE item_id = ${source.data.itemId}::uuid
-        AND mailbox_id = ${params.input.mailboxId}::uuid
-        AND message_id = ${params.input.messageId}::uuid
+        AND mailbox_id = ${params.input.mailboxId}
+        AND message_id = ${params.input.messageId}
       FOR UPDATE
     `;
     if (!current) return fail(err.badInput("Add this invitation to Spaces before responding"));
@@ -485,7 +485,7 @@ const importParsedCalendarInvitation = async (params: {
       if (existing) {
         await tx`
         UPDATE spaces.calendar_invitation_sources
-        SET message_id = ${params.input.messageId}::uuid, sequence = ${invitation.sequence}, method = ${invitation.method},
+        SET message_id = ${params.input.messageId}, sequence = ${invitation.sequence}, method = ${invitation.method},
             organizer = ${invitation.organizer}::jsonb, attendees = ${invitation.attendees}::jsonb,
             last_response = NULL, updated_at = now()
         WHERE item_id = ${existing.itemId}::uuid
@@ -501,7 +501,7 @@ const importParsedCalendarInvitation = async (params: {
       INSERT INTO spaces.calendar_invitation_sources (
         item_id, mailbox_id, message_id, calendar_uid, sequence, method, organizer, attendees
       ) VALUES (
-        ${persisted.data.id}::uuid, ${params.input.mailboxId}::uuid, ${params.input.messageId}::uuid, ${invitation.uid},
+        ${persisted.data.id}::uuid, ${params.input.mailboxId}, ${params.input.messageId}, ${invitation.uid},
         ${invitation.sequence}, ${invitation.method}, ${invitation.organizer}::jsonb, ${invitation.attendees}::jsonb
       )
     `;
@@ -767,7 +767,7 @@ export const prepareEventInvitationAttachment = async (params: {
       INSERT INTO spaces.calendar_invitation_sources (
         item_id, mailbox_id, message_id, calendar_uid, sequence, method, organizer, attendees
       ) VALUES (
-        ${params.itemId}::uuid, ${params.mailboxId}::uuid, NULL, ${uid}, 0, 'request',
+        ${params.itemId}::uuid, ${params.mailboxId}, NULL, ${uid}, 0, 'request',
         ${organizer}::jsonb, ${attendees}::jsonb
       )
       ON CONFLICT (item_id) DO NOTHING
@@ -785,7 +785,7 @@ export const prepareEventInvitationAttachment = async (params: {
       sequence = source.sequence + 1;
       await tx`
         UPDATE spaces.calendar_invitation_sources
-        SET mailbox_id = ${params.mailboxId}::uuid,
+        SET mailbox_id = ${params.mailboxId},
             calendar_uid = ${uid},
             sequence = ${sequence},
             method = 'request',
@@ -809,8 +809,8 @@ export const prepareEventInvitationAttachment = async (params: {
         idempotency_key, item_id, mailbox_id, sender_identity_id, sequence, method, state,
         draft_id, request_fingerprint, calendar_payload, attachment_filename
       ) VALUES (
-        ${params.deliveryId}::uuid, ${params.itemId}::uuid, ${params.mailboxId}::uuid,
-        ${params.senderIdentityId}::uuid, ${sequence}, 'request', 'prepared', ${params.draftId}::uuid,
+        ${params.deliveryId}::uuid, ${params.itemId}::uuid, ${params.mailboxId},
+        ${params.senderIdentityId}, ${sequence}, 'request', 'prepared', ${params.draftId},
         ${requestFingerprint}, ${calendar}, ${filename}
       )
     `;
@@ -985,7 +985,7 @@ export const createEventInvitationDraft = async (params: {
       INSERT INTO spaces.calendar_invitation_sources (
         item_id, mailbox_id, message_id, calendar_uid, sequence, method, organizer, attendees
       ) VALUES (
-        ${params.itemId}::uuid, ${mailbox.id}::uuid, NULL, ${uid}, ${sequence}, ${params.input.method},
+        ${params.itemId}::uuid, ${mailbox.id}, NULL, ${uid}, ${sequence}, ${params.input.method},
         ${identity.from}::jsonb, ${attendees}::jsonb
       )
       ON CONFLICT (item_id) DO UPDATE SET
@@ -1001,7 +1001,7 @@ export const createEventInvitationDraft = async (params: {
       INSERT INTO spaces.calendar_invitation_deliveries (
         idempotency_key, item_id, mailbox_id, sender_identity_id, sequence, method, state
       ) VALUES (
-        ${params.input.idempotencyKey}::uuid, ${params.itemId}::uuid, ${mailbox.id}::uuid, ${identity.id}::uuid,
+        ${params.input.idempotencyKey}::uuid, ${params.itemId}::uuid, ${mailbox.id}, ${identity.id},
         ${sequence}, ${params.input.method}, 'preparing'
       )
     `;
@@ -1053,7 +1053,7 @@ export const createEventInvitationDraft = async (params: {
   }
   await sql`
     UPDATE spaces.calendar_invitation_deliveries
-    SET state = 'drafted', draft_id = ${mail.data.draftId}::uuid, updated_at = now()
+    SET state = 'drafted', draft_id = ${mail.data.draftId}, updated_at = now()
     WHERE idempotency_key = ${params.input.idempotencyKey}::uuid
   `;
   return ok({

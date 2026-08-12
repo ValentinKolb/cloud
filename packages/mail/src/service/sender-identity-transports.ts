@@ -16,6 +16,7 @@ import { auditActorFromRequest, type MailRequestContext } from "./auth";
 import { imapSmtpConnector } from "./connectors";
 import type { SmtpConnectionConfig } from "./connectors/contract";
 import { logDatabaseFailure } from "./database-errors";
+import { resolveMailboxPublicId } from "./public-resources";
 
 const log = logger("mail:sender-identity-transports");
 
@@ -94,13 +95,15 @@ export const upsertSenderIdentityTransport = async (params: {
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid SMTP transport"));
   const access = await requireMailboxPermission(params.context, params.mailboxId, "admin");
   if (!access.ok) return access;
+  const senderIdentityId = await resolveMailboxPublicId("senderIdentities", params.mailboxId, params.senderIdentityId);
+  if (!senderIdentityId) return fail(err.notFound("Sender identity"));
 
   let current: DbTransport | undefined;
   try {
     [current] = await sql<DbTransport[]>`
       SELECT *
       FROM mail.sender_identity_transports
-      WHERE sender_identity_id = ${params.senderIdentityId}::uuid
+      WHERE sender_identity_id = ${senderIdentityId}::uuid
         AND mailbox_id = ${params.mailboxId}::uuid
     `;
   } catch (error) {
@@ -154,7 +157,7 @@ export const upsertSenderIdentityTransport = async (params: {
       const [identity] = await tx<{ id: string }[]>`
         SELECT id
         FROM mail.sender_identities
-        WHERE id = ${params.senderIdentityId}::uuid
+        WHERE id = ${senderIdentityId}::uuid
           AND mailbox_id = ${params.mailboxId}::uuid
           AND status <> 'disabled'
         FOR UPDATE
@@ -163,7 +166,7 @@ export const upsertSenderIdentityTransport = async (params: {
       const [locked] = await tx<{ revision: number; encrypted_secret: string | null }[]>`
         SELECT revision, encrypted_secret
         FROM mail.sender_identity_transports
-        WHERE sender_identity_id = ${params.senderIdentityId}::uuid
+        WHERE sender_identity_id = ${senderIdentityId}::uuid
           AND mailbox_id = ${params.mailboxId}::uuid
         FOR UPDATE
       `;
@@ -189,7 +192,7 @@ export const upsertSenderIdentityTransport = async (params: {
           last_verified_at,
           last_error_message
         ) VALUES (
-          ${params.senderIdentityId}::uuid,
+          ${senderIdentityId}::uuid,
           ${params.mailboxId}::uuid,
           ${runtime.smtp.host},
           ${runtime.smtp.port},
@@ -252,13 +255,15 @@ export const deleteSenderIdentityTransport = async (params: {
   senderIdentityId: string;
   expectedRevision: number;
 }): Promise<Result<SenderIdentityTransport>> => {
+  const senderIdentityId = await resolveMailboxPublicId("senderIdentities", params.mailboxId, params.senderIdentityId);
+  if (!senderIdentityId) return fail(err.notFound("Sender identity"));
   try {
     return await sql.begin(async (tx) => {
       const access = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
       if (!access.ok) return access;
       const removed = await tx`
         DELETE FROM mail.sender_identity_transports
-        WHERE sender_identity_id = ${params.senderIdentityId}::uuid
+        WHERE sender_identity_id = ${senderIdentityId}::uuid
           AND mailbox_id = ${params.mailboxId}::uuid
           AND revision = ${params.expectedRevision}
         RETURNING sender_identity_id
@@ -267,7 +272,7 @@ export const deleteSenderIdentityTransport = async (params: {
         const [exists] = await tx<{ revision: number }[]>`
           SELECT revision
           FROM mail.sender_identity_transports
-          WHERE sender_identity_id = ${params.senderIdentityId}::uuid
+          WHERE sender_identity_id = ${senderIdentityId}::uuid
             AND mailbox_id = ${params.mailboxId}::uuid
         `;
         return exists
@@ -300,7 +305,7 @@ export const deleteSenderIdentityTransport = async (params: {
   }
 };
 
-export const loadSenderIdentityTransportRuntime = async (params: {
+export const loadSenderIdentityTransportRuntimeById = async (params: {
   mailboxId: string;
   senderIdentityId: string;
   expectedRevision?: number;
@@ -329,4 +334,14 @@ export const loadSenderIdentityTransportRuntime = async (params: {
     revision: row.revision,
     capabilities: parseCapabilities(row.capabilities),
   };
+};
+
+export const loadSenderIdentityTransportRuntime = async (params: {
+  mailboxId: string;
+  senderIdentityId: string;
+  expectedRevision?: number;
+}): ReturnType<typeof loadSenderIdentityTransportRuntimeById> => {
+  const senderIdentityId = await resolveMailboxPublicId("senderIdentities", params.mailboxId, params.senderIdentityId);
+  if (!senderIdentityId) return null;
+  return loadSenderIdentityTransportRuntimeById({ ...params, senderIdentityId });
 };

@@ -26,6 +26,7 @@ import { updateConversationSummaryInTransaction, updateWorkflowConversationSumma
 import { createWorkflowDraftInTransaction, createWorkflowReviewReplyDraftInTransaction } from "../service/drafts";
 import { updateWorkflowConversationLocalTagInTransaction } from "../service/local-tags";
 import { parseMessageProtocolFacts } from "../service/message-protocol";
+import { type MailboxOwnedPublicResourceTable, publicIds, requirePublicId, resolveMailboxPublicId } from "../service/public-resources";
 import { renderMailWorkflowTemplate } from "../service/template-rendering";
 import { mailWorkflowActionFailure } from "../service/workflow-action-errors";
 import { withMailWorkflowCollaborationEvent } from "../service/workflow-collaboration-events";
@@ -108,6 +109,21 @@ const asText = (value: unknown, label: string): string => {
   if (typeof value !== "string" || !value) throw new Error(`${label} must resolve to text`);
   return value;
 };
+
+const internalResourceId = async (
+  db: SqlClient,
+  table: MailboxOwnedPublicResourceTable,
+  mailboxId: string,
+  publicId: string,
+  label: string,
+): Promise<string> => {
+  const id = await resolveMailboxPublicId(table, mailboxId, publicId, db);
+  if (!id) throw Object.assign(new Error(`${label} is no longer available`), { code: "NOT_FOUND" });
+  return id;
+};
+
+const publicResourceId = async (db: SqlClient, table: MailboxOwnedPublicResourceTable, internalId: string): Promise<string> =>
+  requirePublicId(await publicIds(table, [internalId], db), internalId);
 const resultFailure = mailWorkflowActionFailure;
 const attempt = async (run: () => Promise<ActionResult>): Promise<ActionResult> => {
   try {
@@ -276,17 +292,32 @@ const messageAction = (
     run: (ctx, rawValues) =>
       attempt(async () => {
         const values = rawValues as unknown as Record<string, WorkflowJsonValue>;
-        const scope = await loadScope(ctx);
+        const tx = (ctx.tx as SqlClient | undefined) ?? sql;
+        const scope = await loadScope(ctx, tx);
         const message = await resolveObject(ctx, values.message, "message");
-        const remoteMessageRefId = asText(message.remoteMessageRefId, "message.remoteMessageRefId");
-        const folderId = asText(message.folderId, "message.folderId");
-        const expectedRemoteState = mailWorkflowMessagePrecondition(ctx.invocation.context, remoteMessageRefId);
+        const publicMessageId = asText(message.id, "message.id");
+        const messageId = await internalResourceId(tx, "messages", scope.mailboxId, publicMessageId, "Message");
+        const publicFolderId = asText(message.folderId, "message.folderId");
+        const folderId = await internalResourceId(tx, "folders", scope.mailboxId, publicFolderId, "Folder");
+        const [target] = await tx<{ remote_message_ref_id: string }[]>`
+          SELECT remote_ref.id AS remote_message_ref_id
+          FROM mail.remote_message_refs remote_ref
+          JOIN mail.folders folder ON folder.id = remote_ref.folder_id
+          JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
+          WHERE remote_ref.message_id = ${messageId}::uuid
+            AND remote_ref.folder_id = ${folderId}::uuid
+            AND resource.mailbox_id = ${scope.mailboxId}::uuid
+            AND remote_ref.stale_at IS NULL
+        `;
+        if (!target) throw Object.assign(new Error("Message provider target is no longer available"), { code: "NOT_FOUND" });
+        const remoteMessageRefId = target.remote_message_ref_id;
+        const expectedRemoteState = mailWorkflowMessagePrecondition(ctx.invocation.context, { messageId, remoteMessageRefId, folderId });
         const value =
           kind === "addKeyword" || kind === "removeKeyword"
             ? asText(values.keyword, "keyword")
             : kind === "addFlag" || kind === "removeFlag"
               ? asText(values.flag, "flag")
-              : asText(ctx.binding("folder") ?? values.folder ?? folderId, "folder");
+              : asText(ctx.binding("folder") ?? values.folder ?? publicFolderId, "folder");
         if (!mailMessageTransitionChanges(message, kind, value)) {
           return { state: "succeeded", output: { action: kind, applied: false } };
         }
@@ -294,8 +325,8 @@ const messageAction = (
           kind === "moveMessage" || kind === "copyMessage" || kind === "archiveMessage" || kind === "trashMessage" || kind === "junkMessage"
             ? {
                 kind: kind === "copyMessage" ? "copy" : "move",
-                remoteMessageRefId,
-                sourceFolderId: folderId,
+                messageId: publicMessageId,
+                sourceFolderId: publicFolderId,
                 destinationFolderId: value,
                 expectedRemoteState,
                 idempotencyKey: ctx.effectKey,
@@ -303,8 +334,8 @@ const messageAction = (
               }
             : {
                 kind: "change_message_state",
-                remoteMessageRefId,
-                folderId,
+                messageId: publicMessageId,
+                folderId: publicFolderId,
                 change: {
                   addFlags: kind === "addFlag" ? [value as "seen" | "answered" | "flagged" | "draft"] : [],
                   removeFlags: kind === "removeFlag" ? [value as "seen" | "answered" | "flagged" | "draft"] : [],
@@ -343,7 +374,8 @@ const conversationMutation = (
         const tx = ctx.tx as SqlClient;
         const scope = await loadScope(ctx, tx);
         const conversation = await resolveObject(ctx, values.conversation, "conversation");
-        const conversationId = asText(conversation.id, "conversation.id");
+        const publicConversationId = asText(conversation.id, "conversation.id");
+        const conversationId = await internalResourceId(tx, "conversations", scope.mailboxId, publicConversationId, "Conversation");
         const expectedRevision = Number(conversation.revision);
         if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) throw new Error("Conversation revision is unavailable");
         const value: WorkflowJsonValue =
@@ -387,7 +419,7 @@ const conversationMutation = (
         return {
           state: "succeeded",
           output: withMailWorkflowCollaborationEvent(
-            { action: kind, applied: true, value, conversationId, revision: mutation.data.value.revision },
+            { action: kind, applied: true, value, conversationId: publicConversationId, revision: mutation.data.value.revision },
             mutation.data.event,
           ),
         };
@@ -496,7 +528,8 @@ export const MAIL_WORKFLOW_ACTIONS = {
         const tx = ctx.tx as SqlClient;
         const scope = await loadScope(ctx, tx);
         const conversation = await resolveObject(ctx, values.conversation, "conversation");
-        const conversationId = asText(conversation.id, "conversation.id");
+        const publicConversationId = asText(conversation.id, "conversation.id");
+        const conversationId = await internalResourceId(tx, "conversations", scope.mailboxId, publicConversationId, "Conversation");
         const expectedSummaryRevision = Number(conversation.summaryRevision);
         if (!Number.isSafeInteger(expectedSummaryRevision) || expectedSummaryRevision < 1) {
           throw new Error("Conversation summary revision is unavailable");
@@ -536,7 +569,7 @@ export const MAIL_WORKFLOW_ACTIONS = {
               action: "setConversationSummary",
               applied,
               value: mutation.data.value.summary,
-              conversationId,
+              conversationId: publicConversationId,
               revision: mutation.data.value.conversationRevision,
               summaryRevision: mutation.data.value.summaryRevision,
             },
@@ -555,14 +588,15 @@ export const MAIL_WORKFLOW_ACTIONS = {
       planned(
         "Ensure the conversation has a reference number.",
         { maxCollaborationChanges: 1 },
-        { id: "planned", value: "REFERENCE-PREVIEW", created: true, conversationId: "planned", conversationRevision: 1 },
+        { value: "REFERENCE-PREVIEW", created: true, conversationId: "planned", conversationRevision: 1 },
       ),
     run: (ctx, values) =>
       attempt(async () => {
         const tx = ctx.tx as SqlClient;
         const scope = await loadScope(ctx, tx);
         const conversation = await resolveObject(ctx, values.conversation, "conversation");
-        const conversationId = asText(conversation.id, "conversation.id");
+        const publicConversationId = asText(conversation.id, "conversation.id");
+        const conversationId = await internalResourceId(tx, "conversations", scope.mailboxId, publicConversationId, "Conversation");
         const ensured = await ensureConversationReferenceInTransaction({
           db: tx,
           mailboxId: scope.mailboxId,
@@ -576,10 +610,9 @@ export const MAIL_WORKFLOW_ACTIONS = {
           state: "succeeded",
           output: withMailWorkflowCollaborationEvent(
             {
-              id: ensured.data.result.reference.id,
               value: ensured.data.result.reference.value,
               created: ensured.data.result.created,
-              conversationId,
+              conversationId: publicConversationId,
               conversationRevision: ensured.data.result.conversationRevision,
             },
             ensured.data.activityId
@@ -606,14 +639,16 @@ export const MAIL_WORKFLOW_ACTIONS = {
         const tx = ctx.tx as SqlClient;
         const scope = await loadScope(ctx, tx);
         const conversation = await resolveObject(ctx, values.conversation, "conversation");
-        const conversationId = asText(conversation.id, "conversation.id");
+        const publicConversationId = asText(conversation.id, "conversation.id");
+        const conversationId = await internalResourceId(tx, "conversations", scope.mailboxId, publicConversationId, "Conversation");
+        const tagId = await internalResourceId(tx, "tags", scope.mailboxId, asText(ctx.binding("tag"), "local tag"), "Local tag");
         const mutation = await updateWorkflowConversationLocalTagInTransaction({
           db: tx,
           mailboxId: scope.mailboxId,
           conversationId,
           workflowVersionId: scope.workflowVersionId,
           expectedRevision: Number(conversation.revision),
-          tagId: asText(ctx.binding("tag"), "local tag"),
+          tagId,
           operation: "add",
         });
         if (!mutation.ok) return resultFailure(mutation.error);
@@ -621,13 +656,13 @@ export const MAIL_WORKFLOW_ACTIONS = {
         return {
           state: "succeeded",
           output: withMailWorkflowCollaborationEvent(
-            { applied: mutation.data.applied, conversationId, revision: mutation.data.conversationRevision },
+            { applied: mutation.data.applied, conversationId: publicConversationId, revision: mutation.data.conversationRevision },
             mutation.data.activityId
               ? {
                   mailboxId: scope.mailboxId,
                   conversationId,
                   reason: "local_tag",
-                  targetId: asText(ctx.binding("tag"), "local tag"),
+                  targetId: tagId,
                   activityId: mutation.data.activityId,
                 }
               : null,
@@ -646,14 +681,16 @@ export const MAIL_WORKFLOW_ACTIONS = {
         const tx = ctx.tx as SqlClient;
         const scope = await loadScope(ctx, tx);
         const conversation = await resolveObject(ctx, values.conversation, "conversation");
-        const conversationId = asText(conversation.id, "conversation.id");
+        const publicConversationId = asText(conversation.id, "conversation.id");
+        const conversationId = await internalResourceId(tx, "conversations", scope.mailboxId, publicConversationId, "Conversation");
+        const tagId = await internalResourceId(tx, "tags", scope.mailboxId, asText(ctx.binding("tag"), "local tag"), "Local tag");
         const mutation = await updateWorkflowConversationLocalTagInTransaction({
           db: tx,
           mailboxId: scope.mailboxId,
           conversationId,
           workflowVersionId: scope.workflowVersionId,
           expectedRevision: Number(conversation.revision),
-          tagId: asText(ctx.binding("tag"), "local tag"),
+          tagId,
           operation: "remove",
         });
         if (!mutation.ok) return resultFailure(mutation.error);
@@ -661,13 +698,13 @@ export const MAIL_WORKFLOW_ACTIONS = {
         return {
           state: "succeeded",
           output: withMailWorkflowCollaborationEvent(
-            { applied: mutation.data.applied, conversationId, revision: mutation.data.conversationRevision },
+            { applied: mutation.data.applied, conversationId: publicConversationId, revision: mutation.data.conversationRevision },
             mutation.data.activityId
               ? {
                   mailboxId: scope.mailboxId,
                   conversationId,
                   reason: "local_tag",
-                  targetId: asText(ctx.binding("tag"), "local tag"),
+                  targetId: tagId,
                   activityId: mutation.data.activityId,
                 }
               : null,
@@ -686,7 +723,8 @@ export const MAIL_WORKFLOW_ACTIONS = {
         const tx = ctx.tx as SqlClient;
         const scope = await loadScope(ctx, tx);
         const conversation = await resolveObject(ctx, values.conversation, "conversation");
-        const conversationId = asText(conversation.id, "conversation.id");
+        const publicConversationId = asText(conversation.id, "conversation.id");
+        const conversationId = await internalResourceId(tx, "conversations", scope.mailboxId, publicConversationId, "Conversation");
         const mutation = await createWorkflowConversationCommentInTransaction({
           db: tx,
           mailboxId: scope.mailboxId,
@@ -695,10 +733,11 @@ export const MAIL_WORKFLOW_ACTIONS = {
           body: renderMailWorkflowTemplate(ctx, asText(values.body, "body"), "text"),
         });
         if (!mutation.ok) return resultFailure(mutation.error);
+        const commentId = await publicResourceId(tx, "comments", mutation.data.id);
         return {
           state: "succeeded",
           output: withMailWorkflowCollaborationEvent(
-            { applied: true, conversationId, commentId: mutation.data.id },
+            { applied: true, conversationId: publicConversationId, commentId },
             mutation.data.activityId
               ? {
                   mailboxId: scope.mailboxId,
@@ -737,6 +776,14 @@ export const MAIL_WORKFLOW_ACTIONS = {
       attempt(async () => {
         const tx = ctx.tx as SqlClient;
         const scope = await loadScope(ctx, tx);
+        const publicSenderIdentityId = asText(ctx.binding("sender"), "sender identity");
+        const senderIdentityId = await internalResourceId(
+          tx,
+          "senderIdentities",
+          scope.mailboxId,
+          publicSenderIdentityId,
+          "Sender identity",
+        );
         const addresses = (value: unknown, field: string): MailAddress[] => {
           const parsed = mailAddressSchema
             .array()
@@ -750,7 +797,7 @@ export const MAIL_WORKFLOW_ACTIONS = {
           mailboxId: scope.mailboxId,
           workflowVersionId: scope.workflowVersionId,
           draftId: crypto.randomUUID(),
-          senderIdentityId: asText(ctx.binding("sender"), "sender identity"),
+          senderIdentityId,
           to: addresses(values.to, "to"),
           cc: addresses(values.cc, "cc"),
           bcc: addresses(values.bcc, "bcc"),
@@ -758,7 +805,15 @@ export const MAIL_WORKFLOW_ACTIONS = {
           body: renderMailWorkflowTemplate(ctx, asText(values.body, "body"), values.format === "plain" ? "text" : "markdown"),
           format: values.format === "plain" ? "plain" : "markdown",
         });
-        return draft.ok ? { state: "succeeded", output: draft.data } : resultFailure(draft.error);
+        if (!draft.ok) return resultFailure(draft.error);
+        return {
+          state: "succeeded",
+          output: {
+            ...draft.data,
+            id: await publicResourceId(tx, "drafts", draft.data.id),
+            senderIdentityId: publicSenderIdentityId,
+          },
+        };
       }),
   }),
   createReplyDraft: workflowAction.transactional({
@@ -786,15 +841,25 @@ export const MAIL_WORKFLOW_ACTIONS = {
         const scope = await loadScope(ctx, tx);
         const message = await resolveObject(ctx, values.message, "message");
         const conversation = await resolveObject(ctx, values.conversation, "conversation");
-        const conversationId = asText(conversation.id, "conversation.id");
+        const publicConversationId = asText(conversation.id, "conversation.id");
+        const conversationId = await internalResourceId(tx, "conversations", scope.mailboxId, publicConversationId, "Conversation");
+        const sourceMessageId = await internalResourceId(tx, "messages", scope.mailboxId, asText(message.id, "message.id"), "Message");
+        const publicSenderIdentityId = asText(ctx.binding("sender"), "sender identity");
+        const senderIdentityId = await internalResourceId(
+          tx,
+          "senderIdentities",
+          scope.mailboxId,
+          publicSenderIdentityId,
+          "Sender identity",
+        );
         const draft = await createWorkflowReviewReplyDraftInTransaction({
           db: tx,
           mailboxId: scope.mailboxId,
           workflowVersionId: scope.workflowVersionId,
           draftId: crypto.randomUUID(),
           conversationId,
-          sourceMessageId: asText(message.id, "message.id"),
-          senderIdentityId: asText(ctx.binding("sender"), "sender identity"),
+          sourceMessageId,
+          senderIdentityId,
           body: renderMailWorkflowTemplate(ctx, asText(values.body, "body"), values.format === "plain" ? "text" : "markdown"),
           format: values.format === "plain" ? "plain" : "markdown",
         });
@@ -815,15 +880,19 @@ export const MAIL_WORKFLOW_ACTIONS = {
             workflowStepKey: ctx.stepKey,
           },
         });
+        const publicDraftId = await publicResourceId(tx, "drafts", draft.data.id);
         return {
           state: "succeeded",
-          output: withMailWorkflowCollaborationEvent(draft.data, {
-            mailboxId: scope.mailboxId,
-            conversationId,
-            reason: "draft",
-            targetId: draft.data.id,
-            activityId,
-          }),
+          output: withMailWorkflowCollaborationEvent(
+            { ...draft.data, id: publicDraftId, senderIdentityId: publicSenderIdentityId },
+            {
+              mailboxId: scope.mailboxId,
+              conversationId,
+              reason: "draft",
+              targetId: draft.data.id,
+              activityId,
+            },
+          ),
         };
       }),
   }),
@@ -868,10 +937,11 @@ export const MAIL_WORKFLOW_ACTIONS = {
         if (!(await hasCurrentMailboxUserPermission({ mailboxId: scope.mailboxId, userId, minimumPermission: "read" }))) {
           return { state: "failed", code: "FORBIDDEN", message: "Notification recipient no longer has mailbox access" };
         }
+        const mailboxIds = await publicIds("mailboxes", [scope.mailboxId]);
         await notifications.send(app.notifications.workflowNotice, {
           recipient: { userId },
           data: {
-            mailboxId: scope.mailboxId,
+            mailboxId: requirePublicId(mailboxIds, scope.mailboxId),
             title: renderMailWorkflowTemplate(ctx, asText(values.title, "title"), "text"),
             body: renderMailWorkflowTemplate(ctx, asText(values.body, "body"), "text"),
           },
@@ -920,9 +990,22 @@ export const MAIL_WORKFLOW_ACTIONS = {
         }
         const message = await resolveObject(ctx, values.message, "message");
         const conversation = await resolveObject(ctx, values.conversation, "conversation");
-        const messageId = asText(message.id, "message.id");
-        const conversationId = asText(conversation.id, "conversation.id");
-        const senderIdentityId = asText(ctx.binding("sender"), "sender identity");
+        const messageId = await internalResourceId(sql, "messages", scope.mailboxId, asText(message.id, "message.id"), "Message");
+        const conversationId = await internalResourceId(
+          sql,
+          "conversations",
+          scope.mailboxId,
+          asText(conversation.id, "conversation.id"),
+          "Conversation",
+        );
+        const publicSenderIdentityId = asText(ctx.binding("sender"), "sender identity");
+        const senderIdentityId = await internalResourceId(
+          sql,
+          "senderIdentities",
+          scope.mailboxId,
+          publicSenderIdentityId,
+          "Sender identity",
+        );
         const schedule: ResponseScheduleDefinitionInput = responseScheduleDefinitionSchema.parse(values.schedule);
         const prepared = await sql.begin(async (tx) => {
           const fence = await lockProviderFence(tx, ctx);
@@ -949,11 +1032,13 @@ export const MAIL_WORKFLOW_ACTIONS = {
           });
           if (!reply.ok || reply.data.state === "suppressed") return reply;
 
+          const draftId = await publicResourceId(tx, "drafts", reply.data.draftId);
+
           const input: ActorCommandInput = {
             kind: "send",
-            draftId: reply.data.draftId,
+            draftId,
             expectedDraftRevision: reply.data.draftRevision,
-            senderIdentityId,
+            senderIdentityId: publicSenderIdentityId,
             scheduledAt: reply.data.scheduledAt,
             undoSeconds: 0,
             idempotencyKey: ctx.effectKey,

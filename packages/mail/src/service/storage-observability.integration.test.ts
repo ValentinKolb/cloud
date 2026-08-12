@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Readable } from "node:stream";
 import { sql } from "bun";
+import { mailStorageSummarySchema } from "../contracts";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import type { MailRequestContext } from "./auth";
 import { createMailbox } from "./mailboxes";
@@ -38,6 +40,7 @@ suite("Mail storage observability", () => {
   let adminContext: MailRequestContext;
   let userContext: MailRequestContext;
   let mailboxId: string;
+  let mailboxShortId: string;
 
   beforeAll(async () => {
     await migrate();
@@ -58,6 +61,10 @@ suite("Mail storage observability", () => {
     const mailbox = await createMailbox(adminContext, { name: `Storage ${suffix}` });
     if (!mailbox.ok) throw new Error(mailbox.error.message);
     mailboxId = mailbox.data.id;
+    const [mailboxIdentity] = await sql<{ short_id: string }[]>`
+      SELECT short_id FROM mail.mailboxes WHERE id = ${mailboxId}::uuid
+    `;
+    mailboxShortId = mailboxIdentity!.short_id;
 
     const receivedBlob = await storeReadableBlob(Readable.from([Buffer.alloc(200, 1)]), 200);
     const draftBlob = await storeReadableBlob(Readable.from([Buffer.alloc(300, 2)]), 300);
@@ -70,9 +77,9 @@ suite("Mail storage observability", () => {
     blobIds.push(activeUploadBlob!.id);
 
     const [message] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid, ${`<storage-${suffix}@example.com>`}, 'Storage fixture', now(), 1000,
         ${crypto.randomUUID().replaceAll("-", "").padEnd(64, "0")}, 'complete'
       )
@@ -88,30 +95,30 @@ suite("Mail storage observability", () => {
       RETURNING id
     `;
     await sql`
-      INSERT INTO mail.attachments (message_id, part_id, filename, content_type, disposition, size_bytes, blob_id)
-      VALUES (
+      INSERT INTO mail.attachments (short_id, message_id, part_id, filename, content_type, disposition, size_bytes, blob_id)
+      VALUES (${newShortId()},
         ${message!.id}::uuid, ${part!.id}::uuid, 'received.bin', 'application/octet-stream', 'attachment',
         200, ${receivedBlob.id}::uuid
       )
     `;
 
     const [identity] = await sql<{ id: string }[]>`
-      INSERT INTO mail.sender_identities (mailbox_id, label, display_name, from_address)
-      VALUES (${mailboxId}::uuid, 'Storage', 'Storage', ${`storage-${suffix}@example.com`})
+      INSERT INTO mail.sender_identities (short_id, mailbox_id, label, display_name, from_address)
+      VALUES (${newShortId()}, ${mailboxId}::uuid, 'Storage', 'Storage', ${`storage-${suffix}@example.com`})
       RETURNING id
     `;
     const actorId = adminContext.accessSubject.type === "user" ? adminContext.accessSubject.userId : "";
     const [draft] = await sql<{ id: string }[]>`
-      INSERT INTO mail.drafts (
+      INSERT INTO mail.drafts (short_id,
         mailbox_id, sender_identity_id, author_kind, author_id, last_editor_kind, last_editor_id
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid, ${identity!.id}::uuid, 'user', ${actorId}::uuid, 'user', ${actorId}::uuid
       )
       RETURNING id
     `;
     await sql`
-      INSERT INTO mail.draft_attachments (draft_id, blob_id, filename, content_type, byte_length, content_hash, position)
-      VALUES (
+      INSERT INTO mail.draft_attachments (short_id, draft_id, blob_id, filename, content_type, byte_length, content_hash, position)
+      VALUES (${newShortId()},
         ${draft!.id}::uuid, ${draftBlob.id}::uuid, 'draft.bin', 'application/octet-stream', 300,
         ${draftBlob.contentHash}, 0
       )
@@ -155,7 +162,7 @@ suite("Mail storage observability", () => {
     const summary = await getMailStorageSummary(adminContext);
     expect(summary.ok).toBe(true);
     if (!summary.ok) return;
-    const mailbox = summary.data.mailboxes.find((entry) => entry.mailboxId === mailboxId);
+    const mailbox = summary.data.mailboxes.find((entry) => entry.mailboxId === mailboxShortId);
     expect(mailbox).toMatchObject({
       messageCount: 1,
       messageBytes: 1_000,
@@ -165,6 +172,13 @@ suite("Mail storage observability", () => {
       logicalTotalBytes: 1_340,
     });
     expect(summary.data.physicalBlobBytes).toBeGreaterThanOrEqual(500);
+    expect(summary.data.mailboxes.some((entry) => entry.mailboxId === mailboxId)).toBe(false);
+    expect(
+      mailStorageSummarySchema.safeParse({
+        ...summary.data,
+        mailboxes: summary.data.mailboxes.map((entry) => ({ ...entry, mailboxId })),
+      }).success,
+    ).toBe(false);
   });
 
   test("requires current Cloud Admin access for snapshots and reconciliation requests", async () => {

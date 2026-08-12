@@ -5,7 +5,7 @@ import type { MailInvalidation } from "./live-events";
 import type { MailRequestContext } from "./service/auth";
 import { evaluateMailLiveAccess, type MailLiveAccessDependencies, parseMailLiveReplayEvent, resolveMailLiveCursor } from "./ws";
 
-const MAILBOX_ID = "1da425e0-6bea-47ee-95a4-9d2151802171";
+const MAILBOX_ID = "Box001";
 
 const contextFor = (displayName: string): MailRequestContext => {
   const user = UserSchema.parse({
@@ -122,14 +122,14 @@ describe("Mail live cursors", () => {
       data: {
         type: "mail.invalidated",
         mailboxId: MAILBOX_ID,
-        conversationId: crypto.randomUUID(),
+        conversationId: "Conv01",
         changeId: crypto.randomUUID(),
         at: "2026-07-16T20:00:00.000Z",
       },
     } satisfies { cursor: string; data: MailInvalidation };
 
     expect(parseMailLiveReplayEvent(MAILBOX_ID, event)).toEqual({ cursor: event.cursor, event: event.data });
-    expect(parseMailLiveReplayEvent(crypto.randomUUID(), event)).toBeNull();
+    expect(parseMailLiveReplayEvent("Box002", event)).toBeNull();
     expect(parseMailLiveReplayEvent(MAILBOX_ID, { ...event, cursor: "latest" })).toBeNull();
   });
 });

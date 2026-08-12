@@ -5,6 +5,7 @@ const timestampSchema = z.string().datetime({ offset: true });
 const nullableTextSchema = z.string().nullable();
 const spacesResourceIdSchema = z.string().regex(/^[0-9A-Za-z]{6}$/);
 const contactsResourceIdSchema = z.string().regex(/^[0-9A-Za-z]{6}$/);
+const mailResourceIdSchema = z.string().regex(/^[0-9A-Za-z]{6}$/);
 const contactHref = (bookId: string, contactId: string) => `/app/contacts/${bookId}?contact=${contactId}&contactBook=${bookId}`;
 
 export const normalizedContactEmailSchema = z.email().max(320);
@@ -121,7 +122,7 @@ const calendarResponseStateSchema = z
   .object({
     participationStatus: calendarParticipationStatusSchema,
     state: z.literal("drafted"),
-    draftId: z.uuid(),
+    draftId: mailResourceIdSchema,
     updatedAt: z.string().datetime(),
   })
   .passthrough();
@@ -221,8 +222,8 @@ export const eventInvitationPrepareDataSchema = z
   .object({
     deliveryId: z.uuid(),
     itemId: spacesResourceIdSchema,
-    mailboxId: z.uuid(),
-    draftId: z.uuid(),
+    mailboxId: mailResourceIdSchema,
+    draftId: mailResourceIdSchema,
     sequence: z.number().int().nonnegative(),
     filename: z.string().min(1).max(255),
     contentType: z.string().min(1).max(255),
@@ -233,5 +234,5 @@ export const eventInvitationPrepareDataSchema = z
   })
   .passthrough();
 export const eventInvitationCommitDataSchema = z
-  .object({ deliveryId: z.uuid(), itemId: spacesResourceIdSchema, draftId: z.uuid(), state: z.literal("drafted") })
+  .object({ deliveryId: z.uuid(), itemId: spacesResourceIdSchema, draftId: mailResourceIdSchema, state: z.literal("drafted") })
   .passthrough();

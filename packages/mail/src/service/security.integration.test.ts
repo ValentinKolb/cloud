@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import type { MailRequestContext } from "./auth";
 import { createMailbox } from "./mailboxes";
@@ -185,9 +186,9 @@ suite("Mail security operations", () => {
     policyIds.push(policy.data.id);
 
     const [message] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, normalized_subject, internal_date, size_bytes, content_hash, hydration_status
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailbox.data.id}::uuid,
         ${`<mail-security-${suffix}@example.test>`},
         'Security workflow boundary',

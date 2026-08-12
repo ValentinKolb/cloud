@@ -130,7 +130,16 @@ const jsonRequest = (method: string, value: unknown): RequestInit => ({
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(value),
 });
-const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+const MAIL_RESOURCE_ID_PATTERN = /^[0-9A-Za-z]{6}$/;
+const LEGACY_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const requireMailResourceId = (value: string, label: string): string => {
+  if (!MAIL_RESOURCE_ID_PATTERN.test(value)) throw new Error(`${label} must be an exact six-character Mail resource id.`);
+  return value;
+};
+const requireMailResourceIds = (values: string[], label: string): string[] => {
+  for (const value of values) requireMailResourceId(value, label);
+  return values;
+};
 const offsetDateTimeSchema = z.iso.datetime({ offset: true });
 const parseOffsetDateTime = (value: string, flagName: string): string => {
   if (!offsetDateTimeSchema.safeParse(value).success) {
@@ -299,19 +308,28 @@ const pollUntil = async <T>(params: {
 const listMailboxes = (ctx: CloudCliContext): Promise<MailboxWithPermission[]> => readApi(ctx, "/mailboxes?limit=200");
 const getMailbox = (ctx: CloudCliContext, mailboxId: string, signal?: AbortSignal): Promise<Mailbox> =>
   readApi(ctx, `/mailboxes/${mailboxId}`, { signal });
+const getMailboxIfFound = async (ctx: CloudCliContext, mailboxId: string): Promise<Mailbox | null> => {
+  const response = await ctx.fetch(apiPath(`/mailboxes/${mailboxId}`));
+  if (response.status === 404) return null;
+  return ctx.readJson<Mailbox>(response);
+};
 
 const resolveMailbox = async (ctx: CloudCliContext, ref?: string): Promise<ResolvedMailbox> => {
   const effectiveRef = ref ?? (await ctx.getDefault(DEFAULT_MAILBOX_KEY));
   if (!effectiveRef) throw new Error("Missing mailbox. Pass a mailbox or run `cld mail use <mailbox>`. ");
-  if (isUuid(effectiveRef)) {
-    const mailboxes = await listMailboxes(ctx);
-    const match = mailboxes.find((mailbox) => mailbox.id === effectiveRef);
-    if (match) return match;
-    return { ...(await getMailbox(ctx, effectiveRef)), permission: null };
+  if (LEGACY_UUID_PATTERN.test(effectiveRef)) {
+    throw new Error("Mailbox id must be an exact six-character Mail resource id; legacy UUIDs are not supported.");
   }
-  const exact = await readApi<ResolvedMailbox[]>(ctx, `/mailboxes?limit=2&name=${encodeURIComponent(effectiveRef)}`);
-  if (exact.length === 1) return exact[0]!;
-  if (exact.length > 1) throw new Error(`Mailbox "${effectiveRef}" is ambiguous; use its id.`);
+  const candidates = new Map<string, ResolvedMailbox>();
+  const [idMatch, exact] = await Promise.all([
+    MAIL_RESOURCE_ID_PATTERN.test(effectiveRef) ? getMailboxIfFound(ctx, effectiveRef) : Promise.resolve(null),
+    readApi<ResolvedMailbox[]>(ctx, `/mailboxes?limit=2&name=${encodeURIComponent(effectiveRef)}`),
+  ]);
+  if (idMatch) candidates.set(idMatch.id, { ...idMatch, permission: null });
+  for (const mailbox of exact) candidates.set(mailbox.id, mailbox);
+  if (candidates.size > 1) throw new Error(`Mailbox "${effectiveRef}" is ambiguous; use its id.`);
+  const candidate = candidates.values().next().value;
+  if (candidate) return candidate;
   throw new Error(`Mailbox "${effectiveRef}" was not found.`);
 };
 
@@ -473,24 +491,29 @@ type AdminMailboxResource = {
 
 const resolveAdminMailbox = async (ctx: CloudCliContext, ref?: string): Promise<AdminMailboxResource> => {
   if (!ref) throw new Error("Pass a mailbox id or exact name.");
-  if (isUuid(ref)) {
+  if (LEGACY_UUID_PATTERN.test(ref)) {
+    throw new Error("Mailbox id must be an exact six-character Mail resource id; legacy UUIDs are not supported.");
+  }
+  const candidates = new Map<string, PlatformMailboxOperationSummary>();
+  let cursor: string | null = null;
+  do {
+    const query: URLSearchParams = new URLSearchParams({ q: ref, limit: "100" });
+    if (cursor) query.set("cursor", cursor);
+    const result: PlatformMailOperations = await readApi<PlatformMailOperations>(ctx, `/admin/operations?${query}`);
+    for (const mailbox of result.mailboxes as PlatformMailboxOperationSummary[]) {
+      if (mailbox.mailboxId === ref || mailbox.mailboxName === ref) candidates.set(mailbox.mailboxId, mailbox);
+    }
+    cursor = result.nextCursor;
+  } while (cursor);
+  if (candidates.size > 1) throw new Error(`Mailbox "${ref}" is ambiguous; use its id.`);
+  const mailbox = candidates.values().next().value;
+  if (mailbox) {
+    return { id: mailbox.mailboxId, label: `${mailbox.mailboxName} (${mailbox.mailboxId})` };
+  }
+  if (MAIL_RESOURCE_ID_PATTERN.test(ref)) {
     const mailbox = await readApi<PlatformMailboxOperationSummary>(ctx, `/admin/mailboxes/${ref}/operations`);
     return { id: mailbox.mailboxId, label: `${mailbox.mailboxName} (${mailbox.mailboxId})` };
   }
-  const exact: PlatformMailboxOperationSummary[] = [];
-  let cursor: string | null = null;
-  do {
-    const query = new URLSearchParams({ q: ref, limit: "100" });
-    if (cursor) query.set("cursor", cursor);
-    const result = await readApi<PlatformMailOperations>(ctx, `/admin/operations?${query}`);
-    exact.push(...result.mailboxes.filter((mailbox) => mailbox.mailboxName === ref));
-    cursor = result.nextCursor;
-  } while (cursor && exact.length < 2);
-  if (exact.length === 1) {
-    const mailbox = exact[0]!;
-    return { id: mailbox.mailboxId, label: `${mailbox.mailboxName} (${mailbox.mailboxId})` };
-  }
-  if (exact.length > 1) throw new Error(`Mailbox "${ref}" is ambiguous; use its id.`);
   throw new Error(`Mailbox "${ref}" was not found.`);
 };
 
@@ -598,12 +621,13 @@ const readDraftEditableContent = async (flags: {
   readReceipt?: "on" | "off";
 }) => {
   if (!flags.identity) throw new Error("Missing sender identity.");
+  const senderIdentityId = requireMailResourceId(flags.identity, "Sender identity id");
   const body = await readCliInput(flags.body, {
     label: "message body",
     required: true,
   });
   return {
-    senderIdentityId: flags.identity,
+    senderIdentityId,
     to: parseAddresses(flags.to),
     cc: parseAddresses(flags.cc),
     bcc: parseAddresses(flags.bcc),
@@ -625,9 +649,9 @@ const readDraftContent = async (
   },
 ) => ({
   ...(await readDraftEditableContent(flags)),
-  conversationId: flags.conversation,
+  conversationId: flags.conversation ? requireMailResourceId(flags.conversation, "Conversation id") : undefined,
   intent: flags.intent,
-  sourceMessageId: flags.sourceMessage,
+  sourceMessageId: flags.sourceMessage ? requireMailResourceId(flags.sourceMessage, "Source message id") : undefined,
   ...(flags.includeSourceAttachments ? { includeSourceAttachments: true } : {}),
 });
 
@@ -941,7 +965,7 @@ const printCollaboration = (ctx: CloudCliContext, value: ConversationCollaborati
 };
 
 const collaborationPath = (mailboxId: string, conversationId: string): string =>
-  `/mailboxes/${mailboxId}/conversations/${conversationId}/collaboration`;
+  `/mailboxes/${mailboxId}/conversations/${requireMailResourceId(conversationId, "Conversation id")}/collaboration`;
 
 const printCollaborators = (ctx: CloudCliContext, users: MailAssignableUser[]): void =>
   printTable(
@@ -1081,7 +1105,7 @@ const searchMessages = async (
 const submitMessageState = (
   ctx: CloudCliContext,
   mailbox: Mailbox,
-  remoteMessageRefId: string,
+  messageId: string,
   folderId: string,
   change: Record<string, unknown>,
   flags: {
@@ -1096,8 +1120,8 @@ const submitMessageState = (
     mailbox,
     {
       kind: "change_message_state",
-      remoteMessageRefId,
-      folderId,
+      messageId: requireMailResourceId(messageId, "Message id"),
+      folderId: requireMailResourceId(folderId, "Folder id"),
       change,
       idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
       correlationId: flags.correlationId,
@@ -1120,7 +1144,11 @@ const submitConversationAction = async (params: {
   const result = await readApi<{
     correlationId: string;
     commands: MailCommand[];
-  }>(params.ctx, `/mailboxes/${params.mailbox.id}/conversations/${params.conversationId}/actions`, jsonRequest("POST", params.input));
+  }>(
+    params.ctx,
+    `/mailboxes/${params.mailbox.id}/conversations/${requireMailResourceId(params.conversationId, "Conversation id")}/actions`,
+    jsonRequest("POST", params.input),
+  );
   const commands = params.wait
     ? await waitForCommands(
         params.ctx,
@@ -1169,7 +1197,7 @@ const conversationActionCommand = (
         conversationId: args.conversationId,
         input: {
           ...action,
-          sourceFolderId: flags.source,
+          sourceFolderId: requireMailResourceId(flags.source!, "Source folder id"),
           idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
           correlationId: flags.correlationId,
         },
@@ -1195,7 +1223,7 @@ const conversationKeywordCommand = (path: string, summary: string, operation: "a
         conversationId: args.conversationId,
         input: {
           kind: "change_state",
-          sourceFolderId: flags.source,
+          sourceFolderId: requireMailResourceId(flags.source!, "Source folder id"),
           change: operation === "add" ? { addKeywords: [args.keyword] } : { removeKeywords: [args.keyword] },
           idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
           correlationId: flags.correlationId,
@@ -1221,8 +1249,8 @@ const conversationMoveCommand = command("conversation move", {
       conversationId: args.conversationId,
       input: {
         kind: "move_to_folder",
-        sourceFolderId: flags.source,
-        destinationFolderId: args.destinationFolderId,
+        sourceFolderId: requireMailResourceId(flags.source!, "Source folder id"),
+        destinationFolderId: requireMailResourceId(args.destinationFolderId, "Destination folder id"),
         idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
         correlationId: flags.correlationId,
       },
@@ -1244,7 +1272,7 @@ const folderSubscriptionCommand = (path: "folder subscribe" | "folder unsubscrib
         mailbox,
         {
           kind: "set_folder_subscription",
-          folderId: args.folderId,
+          folderId: requireMailResourceId(args.folderId, "Folder id"),
           subscribed,
           idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
           correlationId: flags.correlationId,
@@ -1267,7 +1295,7 @@ const folderSidebarVisibilityCommand = (path: "folder show" | "folder hide", sho
       const mailbox = await resolveMailbox(ctx, flags.mailbox);
       const result = await readApi<{ folderId: string; showInSidebar: boolean }>(
         ctx,
-        `/mailboxes/${mailbox.id}/folders/${args.folderId}`,
+        `/mailboxes/${mailbox.id}/folders/${requireMailResourceId(args.folderId, "Folder id")}`,
         jsonRequest("PATCH", { showInSidebar }),
       );
       if (printStructured(ctx, result)) return;
@@ -1279,14 +1307,12 @@ const messageStateCommand = (path: string, summary: string, change: Record<strin
   command(path, {
     summary,
     args: {
-      remoteMessageRefId: arg.required({
-        description: "Remote message reference id",
-      }),
+      messageId: arg.required({ description: "Message id" }),
     },
     flags: stateMutationFlags,
     run: async ({ ctx, args, flags }) => {
       const mailbox = await resolveMailbox(ctx, flags.mailbox);
-      await submitMessageState(ctx, mailbox, args.remoteMessageRefId, flags.folder!, change, flags);
+      await submitMessageState(ctx, mailbox, args.messageId, flags.folder!, change, flags);
     },
   });
 
@@ -1294,16 +1320,14 @@ const messageKeywordCommand = (path: string, summary: string, operation: "add" |
   command(path, {
     summary,
     args: {
-      remoteMessageRefId: arg.required({
-        description: "Remote message reference id",
-      }),
+      messageId: arg.required({ description: "Message id" }),
       keyword: arg.required({ description: "IMAP keyword" }),
     },
     flags: stateMutationFlags,
     run: async ({ ctx, args, flags }) => {
       const mailbox = await resolveMailbox(ctx, flags.mailbox);
       const change = operation === "add" ? { addKeywords: [args.keyword] } : { removeKeywords: [args.keyword] };
-      await submitMessageState(ctx, mailbox, args.remoteMessageRefId, flags.folder!, change, flags);
+      await submitMessageState(ctx, mailbox, args.messageId, flags.folder!, change, flags);
     },
   });
 
@@ -1487,8 +1511,8 @@ export default defineCliCommands({
       summary: "Show one recoverable deleted mailbox",
       args: { mailboxId: arg.required({ description: "Deleted mailbox id" }) },
       run: async ({ ctx, args }) => {
-        if (!isUuid(args.mailboxId)) throw new Error("Mailbox id must be a UUID.");
-        const mailbox = await readApi<DeletedMailbox>(ctx, `/mailboxes/${args.mailboxId}/deleted`);
+        const mailboxId = requireMailResourceId(args.mailboxId, "Mailbox id");
+        const mailbox = await readApi<DeletedMailbox>(ctx, `/mailboxes/${mailboxId}/deleted`);
         if (printStructured(ctx, mailbox)) return;
         ctx.print(`${mailbox.name} (${mailbox.id})`);
         ctx.print(`Deleted at: ${mailbox.deletedAt}`);
@@ -1502,8 +1526,8 @@ export default defineCliCommands({
       flags: { yes: confirmFlag("Confirm mailbox restore") },
       run: async ({ ctx, args, flags }) => {
         if (!flags.yes) throw new Error("Pass --yes to restore the deleted mailbox.");
-        if (!isUuid(args.mailboxId)) throw new Error("Mailbox id must be a UUID.");
-        const restored = await readApi<Mailbox>(ctx, `/mailboxes/${args.mailboxId}/restore`, { method: "POST" });
+        const mailboxId = requireMailResourceId(args.mailboxId, "Mailbox id");
+        const restored = await readApi<Mailbox>(ctx, `/mailboxes/${mailboxId}/restore`, { method: "POST" });
         if (printStructured(ctx, restored)) return;
         ctx.print(`Restored ${restored.name} in paused state. Verify the provider, then explicitly resume synchronization.`);
       },
@@ -1859,7 +1883,7 @@ export default defineCliCommands({
         if (Object.keys(update).length === 1) throw new Error("Pass --name, --shortcut, --body, --body-file, or --body-stdin.");
         const template = await readApi<ComposeTemplate>(
           ctx,
-          `/mailboxes/${mailbox.id}/compose-templates/${args.templateId}`,
+          `/mailboxes/${mailbox.id}/compose-templates/${requireMailResourceId(args.templateId, "Compose template id")}`,
           jsonRequest("PATCH", update),
         );
         if (printStructured(ctx, template)) return;
@@ -1885,7 +1909,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         await readApi(
           ctx,
-          `/mailboxes/${mailbox.id}/compose-templates/${args.templateId}`,
+          `/mailboxes/${mailbox.id}/compose-templates/${requireMailResourceId(args.templateId, "Compose template id")}`,
           jsonRequest("DELETE", { expectedRevision: flags.revision }),
         );
         if (printStructured(ctx, { archived: true, templateId: args.templateId })) return;
@@ -1910,9 +1934,9 @@ export default defineCliCommands({
           ctx,
           `/mailboxes/${mailbox.id}/compose-snippet`,
           jsonRequest("POST", {
-            templateId: args.templateId,
+            templateId: requireMailResourceId(args.templateId, "Compose template id"),
             draft: await readComposeDraftInput(flags.draft),
-            conversationId: flags.conversation ?? null,
+            conversationId: flags.conversation ? requireMailResourceId(flags.conversation, "Conversation id") : null,
           }),
         );
         if (printStructured(ctx, rendered)) return;
@@ -1941,7 +1965,7 @@ export default defineCliCommands({
           jsonRequest("POST", {
             query: args.query ?? "",
             draft: await readComposeDraftInput(flags.draft),
-            conversationId: flags.conversation ?? null,
+            conversationId: flags.conversation ? requireMailResourceId(flags.conversation, "Conversation id") : null,
           }),
         );
         printTable(
@@ -1980,17 +2004,19 @@ export default defineCliCommands({
       },
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const senderIdentityId = requireMailResourceId(args.senderIdentityId, "Sender identity id");
+        const templateId = flags.template ? requireMailResourceId(flags.template, "Compose template id") : null;
         const scope = flags.scope ?? "private";
         const defaults = await readApi<ComposeSignatureDefault[]>(ctx, `/mailboxes/${mailbox.id}/compose-signature-defaults`);
         const current = defaults.find(
-          (item) => item.senderIdentityId === args.senderIdentityId && (scope === "private" ? item.userId !== null : item.userId === null),
+          (item) => item.senderIdentityId === senderIdentityId && (scope === "private" ? item.userId !== null : item.userId === null),
         );
         const next = await readApi<ComposeSignatureDefault | null>(
           ctx,
-          `/mailboxes/${mailbox.id}/sender-identities/${args.senderIdentityId}/compose-signature-default`,
+          `/mailboxes/${mailbox.id}/sender-identities/${senderIdentityId}/compose-signature-default`,
           jsonRequest("PUT", {
             scope,
-            templateId: flags.template ?? null,
+            templateId,
             expectedRevision: current?.revision ?? null,
           }),
         );
@@ -2074,7 +2100,7 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/compose-preview`,
           jsonRequest("POST", {
             draft: await readComposeDraftInput(flags.draft),
-            conversationId: flags.conversation ?? null,
+            conversationId: flags.conversation ? requireMailResourceId(flags.conversation, "Conversation id") : null,
           }),
         );
         if (printStructured(ctx, preview)) return;
@@ -2180,13 +2206,13 @@ export default defineCliCommands({
                       ? {
                           ...base,
                           kind: "sync_folder",
-                          folderId: requireValue(flags.folder, "Pass --folder for sync-folder."),
+                          folderId: requireMailResourceId(requireValue(flags.folder, "Pass --folder for sync-folder."), "Folder id"),
                         }
                       : args.action === "rebuild-folder"
                         ? {
                             ...base,
                             kind: "rebuild_folder",
-                            folderId: requireValue(flags.folder, "Pass --folder for rebuild-folder."),
+                            folderId: requireMailResourceId(requireValue(flags.folder, "Pass --folder for rebuild-folder."), "Folder id"),
                           }
                         : args.action === "reconcile"
                           ? {
@@ -2604,7 +2630,7 @@ export default defineCliCommands({
           mailbox,
           {
             kind: "create_folder",
-            parentFolderId: flags.parent ?? null,
+            parentFolderId: flags.parent ? requireMailResourceId(flags.parent, "Parent folder id") : null,
             name: args.name,
             subscribe: !flags.noSubscribe,
             showInSidebar: !flags.hideInSidebar,
@@ -2633,7 +2659,7 @@ export default defineCliCommands({
           mailbox,
           {
             kind: "rename_folder",
-            folderId: args.folderId,
+            folderId: requireMailResourceId(args.folderId, "Folder id"),
             name: args.name,
             idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
             correlationId: flags.correlationId,
@@ -2663,7 +2689,7 @@ export default defineCliCommands({
           mailbox,
           {
             kind: "delete_folder",
-            folderId: args.folderId,
+            folderId: requireMailResourceId(args.folderId, "Folder id"),
             idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
             correlationId: flags.correlationId,
           },
@@ -2691,7 +2717,11 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         const role = folderRole(args.role);
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const result = await readApi(ctx, `/mailboxes/${mailbox.id}/folder-roles/${role}`, jsonRequest("PUT", { folderId: args.folderId }));
+        const result = await readApi(
+          ctx,
+          `/mailboxes/${mailbox.id}/folder-roles/${role}`,
+          jsonRequest("PUT", { folderId: requireMailResourceId(args.folderId, "Folder id") }),
+        );
         if (printStructured(ctx, result)) return;
         ctx.print(`Mapped ${role} to ${args.folderId}.`);
       },
@@ -2750,7 +2780,7 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/commands`,
           jsonRequest("POST", {
             kind: "sync_folder",
-            folderId: args.folderId,
+            folderId: requireMailResourceId(args.folderId, "Folder id"),
             idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
             correlationId: flags.correlationId,
           }),
@@ -2825,7 +2855,7 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/commands`,
           jsonRequest("POST", {
             kind: "rebuild_folder",
-            folderId: args.folderId,
+            folderId: requireMailResourceId(args.folderId, "Folder id"),
             idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
             correlationId: flags.correlationId,
           }),
@@ -2928,7 +2958,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const tag = await readApi<LocalTag>(
           ctx,
-          `/mailboxes/${mailbox.id}/local-tags/${args.tagId}`,
+          `/mailboxes/${mailbox.id}/local-tags/${requireMailResourceId(args.tagId, "Tag id")}`,
           jsonRequest("PATCH", {
             expectedRevision: flags.revision,
             name: args.name,
@@ -2956,7 +2986,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         await readApi(
           ctx,
-          `/mailboxes/${mailbox.id}/local-tags/${args.tagId}`,
+          `/mailboxes/${mailbox.id}/local-tags/${requireMailResourceId(args.tagId, "Tag id")}`,
           jsonRequest("DELETE", { expectedRevision: flags.revision }),
         );
         if (printStructured(ctx, { deleted: true, tagId: args.tagId })) return;
@@ -2969,7 +2999,10 @@ export default defineCliCommands({
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const message = await readApi<MessageDetail>(ctx, `/mailboxes/${mailbox.id}/messages/${args.messageId}`);
+        const message = await readApi<MessageDetail>(
+          ctx,
+          `/mailboxes/${mailbox.id}/messages/${requireMailResourceId(args.messageId, "Message id")}`,
+        );
         if (printStructured(ctx, message)) return;
         {
           ctx.print(`Subject: ${message.subject}`);
@@ -2993,7 +3026,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const report = await readApi<MailSecurityReport>(
           ctx,
-          `/mailboxes/${mailbox.id}/messages/${args.messageId}/security-report`,
+          `/mailboxes/${mailbox.id}/messages/${requireMailResourceId(args.messageId, "Message id")}/security-report`,
           jsonRequest("POST", {}),
         );
         if (printStructured(ctx, report)) return;
@@ -3046,7 +3079,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const value = await readApi<CalendarInvitationPreview>(
           ctx,
-          `/mailboxes/${mailbox.id}/messages/${args.messageId}/calendar-invitation`,
+          `/mailboxes/${mailbox.id}/messages/${requireMailResourceId(args.messageId, "Message id")}/calendar-invitation`,
         );
         if (!printStructured(ctx, value)) {
           ctx.print(`${value.invitation.title} · ${value.invitation.startsAt}`);
@@ -3065,7 +3098,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const value = await readApi<CalendarInvitationImportResult>(
           ctx,
-          `/mailboxes/${mailbox.id}/messages/${args.messageId}/calendar-invitation/import`,
+          `/mailboxes/${mailbox.id}/messages/${requireMailResourceId(args.messageId, "Message id")}/calendar-invitation/import`,
           jsonRequest("POST", flags.space ? { spaceId: flags.space } : {}),
         );
         if (!printStructured(ctx, value)) ctx.print(`${value.outcome}: ${value.href}`);
@@ -3083,7 +3116,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const draft = await readApi<MailDraft>(
           ctx,
-          `/mailboxes/${mailbox.id}/messages/${args.messageId}/calendar-invitation/respond`,
+          `/mailboxes/${mailbox.id}/messages/${requireMailResourceId(args.messageId, "Message id")}/calendar-invitation/respond`,
           jsonRequest("POST", { participationStatus: flags.status, idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID() }),
         );
         if (!printStructured(ctx, draft)) ctx.print(`Created response draft ${draft.id}.`);
@@ -3110,13 +3143,13 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const input: DeriveDraftFromMessageInput = {
           kind: "edit_as_new",
-          senderIdentityId: flags.identity,
+          senderIdentityId: requireMailResourceId(flags.identity, "Sender identity id"),
           includeAttachments: flags.includeAttachments,
           idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
         };
         const draft = await readApi<MailDraft>(
           ctx,
-          `/mailboxes/${mailbox.id}/messages/${args.messageId}/derive-draft`,
+          `/mailboxes/${mailbox.id}/messages/${requireMailResourceId(args.messageId, "Message id")}/derive-draft`,
           jsonRequest("POST", input),
         );
         if (printStructured(ctx, draft)) return;
@@ -3144,13 +3177,13 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const input: DeriveDraftFromMessageInput = {
           kind: "resend",
-          senderIdentityId: flags.identity,
+          senderIdentityId: requireMailResourceId(flags.identity, "Sender identity id"),
           includeAttachments: flags.includeAttachments,
           idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
         };
         const draft = await readApi<MailDraft>(
           ctx,
-          `/mailboxes/${mailbox.id}/messages/${args.messageId}/derive-draft`,
+          `/mailboxes/${mailbox.id}/messages/${requireMailResourceId(args.messageId, "Message id")}/derive-draft`,
           jsonRequest("POST", input),
         );
         if (printStructured(ctx, draft)) return;
@@ -3163,7 +3196,10 @@ export default defineCliCommands({
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const inspector = await readApi<MessageInspector>(ctx, `/mailboxes/${mailbox.id}/messages/${args.messageId}/inspector`);
+        const inspector = await readApi<MessageInspector>(
+          ctx,
+          `/mailboxes/${mailbox.id}/messages/${requireMailResourceId(args.messageId, "Message id")}/inspector`,
+        );
         if (printStructured(ctx, inspector)) return;
         ctx.print(`Subject: ${inspector.subject || "(no subject)"}`);
         ctx.print(`Message-ID: ${inspector.messageId ?? "unavailable"}`);
@@ -3210,7 +3246,9 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         if (!flags.out) throw new Error("Missing required flag --out.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const response = await ctx.fetch(apiPath(`/mailboxes/${mailbox.id}/messages/${args.messageId}/source`));
+        const response = await ctx.fetch(
+          apiPath(`/mailboxes/${mailbox.id}/messages/${requireMailResourceId(args.messageId, "Message id")}/source`),
+        );
         if (!response.ok) {
           await ctx.readJson(response);
           throw new Error(`Message source download failed with HTTP ${response.status}.`);
@@ -3276,7 +3314,9 @@ export default defineCliCommands({
         if (flags.length !== undefined) query.set("length", String(flags.length));
         const suffix = query.size > 0 ? `?${query}` : "";
         const response = await ctx.fetch(
-          apiPath(`/mailboxes/${mailbox.id}/messages/${args.messageId}/attachments/${args.attachmentId}${suffix}`),
+          apiPath(
+            `/mailboxes/${mailbox.id}/messages/${requireMailResourceId(args.messageId, "Message id")}/attachments/${requireMailResourceId(args.attachmentId, "Attachment id")}${suffix}`,
+          ),
         );
         if (!response.ok) {
           await ctx.readJson(response);
@@ -3329,10 +3369,12 @@ export default defineCliCommands({
         });
         if (password === "") throw new Error("Attachment-link password cannot be empty.");
         const expiresAt = flags.expiresAt ? parseOffsetDateTime(flags.expiresAt, "--expires-at") : undefined;
+        const sourceId = requireMailResourceId(args.sourceId, flags.source === "message" ? "Message id" : "Draft id");
+        const attachmentId = requireMailResourceId(args.attachmentId, flags.source === "message" ? "Attachment id" : "Draft attachment id");
         const sourcePath =
           flags.source === "message"
-            ? `/mailboxes/${mailbox.id}/messages/${args.sourceId}/attachments/${args.attachmentId}/links`
-            : `/mailboxes/${mailbox.id}/drafts/${args.sourceId}/attachments/${args.attachmentId}/links`;
+            ? `/mailboxes/${mailbox.id}/messages/${sourceId}/attachments/${attachmentId}/links`
+            : `/mailboxes/${mailbox.id}/drafts/${sourceId}/attachments/${attachmentId}/links`;
         const created = await readApi<CreatedAttachmentLink>(
           ctx,
           sourcePath,
@@ -3406,9 +3448,7 @@ export default defineCliCommands({
     command("message flags", {
       summary: "Replace provider flags on one remote message",
       args: {
-        remoteMessageRefId: arg.required({
-          description: "Remote message reference id",
-        }),
+        messageId: arg.required({ description: "Message id" }),
       },
       flags: {
         ...mutationFlags,
@@ -3424,8 +3464,8 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         await commandResult(ctx, mailbox, {
           kind: "set_flags",
-          remoteMessageRefId: args.remoteMessageRefId,
-          folderId: flags.folder,
+          messageId: requireMailResourceId(args.messageId, "Message id"),
+          folderId: requireMailResourceId(flags.folder!, "Folder id"),
           flags: flags.flag,
           idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
           correlationId: flags.correlationId,
@@ -3445,9 +3485,7 @@ export default defineCliCommands({
     command("message move", {
       summary: "Move one remote message",
       args: {
-        remoteMessageRefId: arg.required({
-          description: "Remote message reference id",
-        }),
+        messageId: arg.required({ description: "Message id" }),
       },
       flags: {
         ...mutationFlags,
@@ -3464,9 +3502,9 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         await commandResult(ctx, mailbox, {
           kind: "move",
-          remoteMessageRefId: args.remoteMessageRefId,
-          sourceFolderId: flags.source,
-          destinationFolderId: flags.destination,
+          messageId: requireMailResourceId(args.messageId, "Message id"),
+          sourceFolderId: requireMailResourceId(flags.source!, "Source folder id"),
+          destinationFolderId: requireMailResourceId(flags.destination!, "Destination folder id"),
           idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
           correlationId: flags.correlationId,
         });
@@ -3475,9 +3513,7 @@ export default defineCliCommands({
     command("message copy", {
       summary: "Copy one remote message",
       args: {
-        remoteMessageRefId: arg.required({
-          description: "Remote message reference id",
-        }),
+        messageId: arg.required({ description: "Message id" }),
       },
       flags: {
         ...mutationFlags,
@@ -3494,9 +3530,9 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         await commandResult(ctx, mailbox, {
           kind: "copy",
-          remoteMessageRefId: args.remoteMessageRefId,
-          sourceFolderId: flags.source,
-          destinationFolderId: flags.destination,
+          messageId: requireMailResourceId(args.messageId, "Message id"),
+          sourceFolderId: requireMailResourceId(flags.source!, "Source folder id"),
+          destinationFolderId: requireMailResourceId(flags.destination!, "Destination folder id"),
           idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
           correlationId: flags.correlationId,
         });
@@ -3505,9 +3541,7 @@ export default defineCliCommands({
     command("message delete", {
       summary: "Delete one remote message with the provider's safe UID operation",
       args: {
-        remoteMessageRefId: arg.required({
-          description: "Remote message reference id",
-        }),
+        messageId: arg.required({ description: "Message id" }),
       },
       flags: {
         ...mutationFlags,
@@ -3522,8 +3556,8 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         await commandResult(ctx, mailbox, {
           kind: "delete",
-          remoteMessageRefId: args.remoteMessageRefId,
-          folderId: flags.folder,
+          messageId: requireMailResourceId(args.messageId, "Message id"),
+          folderId: requireMailResourceId(flags.folder!, "Folder id"),
           idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
           correlationId: flags.correlationId,
         });
@@ -3548,7 +3582,7 @@ export default defineCliCommands({
       run: async ({ ctx, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const query = new URLSearchParams({ limit: String(flags.limit ?? 50) });
-        if (flags.folder) query.set("folderId", flags.folder);
+        if (flags.folder) query.set("folderId", requireMailResourceId(flags.folder, "Folder id"));
         if (flags.status) query.set("status", flags.status);
         if (flags.view) query.set("view", flags.view);
         if (flags.cursor) query.set("cursor", flags.cursor);
@@ -3597,7 +3631,10 @@ export default defineCliCommands({
         const page = await readApi<{
           items: MessageSummary[];
           nextCursor: string | null;
-        }>(ctx, `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/messages?${query}`);
+        }>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/messages?${query}`,
+        );
         printTable(
           ctx,
           page,
@@ -3605,14 +3642,12 @@ export default defineCliCommands({
             date: message.internalDate,
             from: message.from.map((address) => address.address).join(", "),
             subject: message.subject,
-            remote: message.remoteMessageRefId ?? "",
             id: message.id,
           })),
           [
             { key: "date", label: "DATE" },
             { key: "from", label: "FROM" },
             { key: "subject", label: "SUBJECT" },
-            { key: "remote", label: "REMOTE REF" },
             { key: "id", label: "MESSAGE ID" },
           ],
         );
@@ -3631,7 +3666,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const drafts = await readApi<ConversationDraftSummary[]>(
           ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/drafts?limit=${flags.limit ?? 20}`,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/drafts?limit=${flags.limit ?? 20}`,
         );
         printTable(
           ctx,
@@ -3686,9 +3721,9 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const value = await readApi<MergeConversationsResult>(
           ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.targetConversationId}/merge`,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.targetConversationId, "Target conversation id")}/merge`,
           jsonRequest("POST", {
-            sourceConversationId: args.sourceConversationId,
+            sourceConversationId: requireMailResourceId(args.sourceConversationId, "Source conversation id"),
             expectedTargetRevision: flags.targetRevision,
             expectedSourceRevision: flags.sourceRevision,
             reason: flags.reason,
@@ -3724,9 +3759,9 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const value = await readApi<SplitConversationResult>(
           ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/split`,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/split`,
           jsonRequest("POST", {
-            messageIds: flags.message,
+            messageIds: requireMailResourceIds(flags.message, "Message id"),
             expectedRevision: flags.revision,
             reason: flags.reason,
             confirm: true,
@@ -3766,9 +3801,9 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const value = await readApi<ReassignConversationMessageResult>(
           ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.sourceConversationId}/messages/${args.messageId}/reassign`,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.sourceConversationId, "Source conversation id")}/messages/${requireMailResourceId(args.messageId, "Message id")}/reassign`,
           jsonRequest("POST", {
-            targetConversationId: args.targetConversationId,
+            targetConversationId: requireMailResourceId(args.targetConversationId, "Target conversation id"),
             expectedSourceRevision: flags.sourceRevision,
             expectedTargetRevision: flags.targetRevision,
             reason: flags.reason,
@@ -3804,7 +3839,7 @@ export default defineCliCommands({
         if (flags.cursor) query.set("contactsCursor", flags.cursor);
         const value = await readApi<MailConversationContext>(
           ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/context?${query}`,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/context?${query}`,
         );
         if (printStructured(ctx, value)) return;
         ctx.print(`Participants: ${value.participants.length}`);
@@ -3830,7 +3865,7 @@ export default defineCliCommands({
         if (flags.cursor) query.set("cursor", flags.cursor);
         const page = await readApi<RelatedMailPage>(
           ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/contacts/${args.bookId}/${args.contactId}/history?${query}`,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/contacts/${args.bookId}/${args.contactId}/history?${query}`,
         );
         printTable(
           ctx,
@@ -3858,7 +3893,10 @@ export default defineCliCommands({
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const state = await readApi<ConversationLocalTags>(ctx, `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/local-tags`);
+        const state = await readApi<ConversationLocalTags>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/local-tags`,
+        );
         if (printStructured(ctx, state)) return;
         {
           ctx.print(`Conversation revision: ${state.conversationRevision}`);
@@ -3884,10 +3922,8 @@ export default defineCliCommands({
         if (tagIds.length === 0) throw new Error("Pass at least one --tag.");
         if (conversationIds.length > 50) throw new Error("Pass at most 50 unique conversations.");
         if (tagIds.length > 50) throw new Error("Pass at most 50 unique tags.");
-        const invalidConversationId = conversationIds.find((id) => !isUuid(id));
-        if (invalidConversationId) throw new Error(`Conversation id must be a UUID: ${invalidConversationId}`);
-        const invalidTagId = tagIds.find((id) => !isUuid(id));
-        if (invalidTagId) throw new Error(`Tag id must be a UUID: ${invalidTagId}`);
+        requireMailResourceIds(conversationIds, "Conversation id");
+        requireMailResourceIds(tagIds, "Tag id");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const result = await readApi<AddConversationLocalTagsResult>(
           ctx,
@@ -3921,10 +3957,10 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const state = await readApi<ConversationLocalTags>(
           ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/local-tags`,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/local-tags`,
           jsonRequest("PUT", {
             expectedRevision: flags.revision,
-            tagIds: flags.tag,
+            tagIds: requireMailResourceIds(flags.tag, "Tag id"),
           }),
         );
         if (printStructured(ctx, state)) return;
@@ -4028,7 +4064,7 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const query = new URLSearchParams({ limit: String(flags.limit ?? 50) });
-        if (args.conversationId) query.set("conversationId", args.conversationId);
+        if (args.conversationId) query.set("conversationId", requireMailResourceId(args.conversationId, "Conversation id"));
         if (flags.cursor) query.set("cursor", flags.cursor);
         const page = await readApi<{
           items: MailActivityEvent[];
@@ -4062,7 +4098,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const value = await readApi<ConversationReminder | null>(
           ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/reminder`,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/reminder`,
         );
         if (printStructured(ctx, value)) return;
         if (value) ctx.print(`${value.dueAt} (${value.state}, revision ${value.revision}, ${value.id}).`);
@@ -4091,7 +4127,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const value = await readApi<ConversationReminder>(
           ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/reminder`,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/reminder`,
           jsonRequest("PUT", {
             dueAt,
             expectedRevision: flags.revision ?? null,
@@ -4119,7 +4155,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const value = await readApi<ConversationReminder>(
           ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/reminder`,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/reminder`,
           jsonRequest("DELETE", { expectedRevision: flags.revision }),
         );
         if (printStructured(ctx, value)) return;
@@ -4156,7 +4192,10 @@ export default defineCliCommands({
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const value = await readApi<SavedConversationView>(ctx, `/mailboxes/${mailbox.id}/saved-views/${args.viewId}`);
+        const value = await readApi<SavedConversationView>(
+          ctx,
+          `/mailboxes/${mailbox.id}/saved-views/${requireMailResourceId(args.viewId, "Saved view id")}`,
+        );
         if (printStructured(ctx, value)) return;
         {
           ctx.print(`${value.name} (${value.scope}, revision ${value.revision}, ${value.id})`);
@@ -4210,7 +4249,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const value = await readApi<SavedConversationView>(
           ctx,
-          `/mailboxes/${mailbox.id}/saved-views/${args.viewId}`,
+          `/mailboxes/${mailbox.id}/saved-views/${requireMailResourceId(args.viewId, "Saved view id")}`,
           jsonRequest("PATCH", {
             expectedRevision: flags.revision,
             ...(flags.name !== undefined ? { name: flags.name } : {}),
@@ -4239,7 +4278,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const value = await readApi<{ id: string }>(
           ctx,
-          `/mailboxes/${mailbox.id}/saved-views/${args.viewId}`,
+          `/mailboxes/${mailbox.id}/saved-views/${requireMailResourceId(args.viewId, "Saved view id")}`,
           jsonRequest("DELETE", { expectedRevision: flags.revision }),
         );
         if (printStructured(ctx, value)) return;
@@ -4263,7 +4302,7 @@ export default defineCliCommands({
         const page = await readApi<{
           items: ConversationSummary[];
           nextCursor: string | null;
-        }>(ctx, `/mailboxes/${mailbox.id}/saved-views/${args.viewId}/conversations?${query}`);
+        }>(ctx, `/mailboxes/${mailbox.id}/saved-views/${requireMailResourceId(args.viewId, "Saved view id")}/conversations?${query}`);
         printTable(
           ctx,
           page,
@@ -4305,7 +4344,10 @@ export default defineCliCommands({
         const page = await readApi<{
           items: ConversationComment[];
           nextCursor: string | null;
-        }>(ctx, `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/comments?${query}`);
+        }>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/comments?${query}`,
+        );
         printTable(
           ctx,
           page,
@@ -4350,11 +4392,11 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const value = await readApi<ConversationComment>(
           ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/comments`,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/comments`,
           jsonRequest("POST", {
             body: body ?? "",
-            parentCommentId: flags.parent,
-            referencedMessageId: flags.message,
+            parentCommentId: flags.parent ? requireMailResourceId(flags.parent, "Parent comment id") : undefined,
+            referencedMessageId: flags.message ? requireMailResourceId(flags.message, "Referenced message id") : undefined,
           }),
         );
         if (printStructured(ctx, value)) return;
@@ -4390,7 +4432,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const value = await readApi<ConversationComment>(
           ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/comments/${args.commentId}`,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/comments/${requireMailResourceId(args.commentId, "Comment id")}`,
           jsonRequest("PATCH", {
             expectedRevision: flags.revision,
             body: body ?? "",
@@ -4421,7 +4463,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const value = await readApi<ConversationComment>(
           ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/comments/${args.commentId}`,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/comments/${requireMailResourceId(args.commentId, "Comment id")}`,
           jsonRequest("DELETE", { expectedRevision: flags.revision }),
         );
         if (printStructured(ctx, value)) return;
@@ -4773,9 +4815,11 @@ export default defineCliCommands({
             ...(flags.deliveryReceipt !== undefined ? { defaultDeliveryReceipt: flags.deliveryReceipt === "on" } : {}),
             ...(flags.readReceipt !== undefined ? { defaultReadReceipt: flags.readReceipt === "on" } : {}),
             ...(vcard !== undefined ? { vcard } : {}),
-            defaultSignatureTemplateId: flags.defaultSignature ?? null,
+            defaultSignatureTemplateId: flags.defaultSignature
+              ? requireMailResourceId(flags.defaultSignature, "Compose template id")
+              : null,
             ...(flags.automation !== undefined ? { authenticationPolicy: { automation: flags.automation } } : {}),
-            sentFolderId: flags.sentFolder,
+            sentFolderId: flags.sentFolder ? requireMailResourceId(flags.sentFolder, "Sent folder id") : undefined,
             isDefault: flags.default,
           }),
         );
@@ -4896,7 +4940,11 @@ export default defineCliCommands({
           ...(flags.readReceipt !== undefined ? { defaultReadReceipt: receiptSetting(flags.readReceipt) } : {}),
           ...(vcard !== undefined || flags.clearVcard ? { vcard: flags.clearVcard ? null : vcard } : {}),
           ...(flags.defaultSignature !== undefined || flags.clearDefaultSignature
-            ? { defaultSignatureTemplateId: flags.clearDefaultSignature ? null : flags.defaultSignature }
+            ? {
+                defaultSignatureTemplateId: flags.clearDefaultSignature
+                  ? null
+                  : requireMailResourceId(flags.defaultSignature!, "Compose template id"),
+              }
             : {}),
           ...(flags.envelopeSender !== undefined || flags.clearEnvelopeSender
             ? {
@@ -4905,11 +4953,11 @@ export default defineCliCommands({
             : {}),
           ...(flags.automation !== undefined ? { authenticationPolicy: { automation: flags.automation } } : {}),
           ...(flags.sentFolder !== undefined || flags.clearSentFolder
-            ? { sentFolderId: flags.clearSentFolder ? null : flags.sentFolder }
+            ? { sentFolderId: flags.clearSentFolder ? null : requireMailResourceId(flags.sentFolder!, "Sent folder id") }
             : {}),
           ...(flags.draftsFolder !== undefined || flags.clearDraftsFolder
             ? {
-                draftsFolderId: flags.clearDraftsFolder ? null : flags.draftsFolder,
+                draftsFolderId: flags.clearDraftsFolder ? null : requireMailResourceId(flags.draftsFolder!, "Drafts folder id"),
               }
             : {}),
           ...(flags.default ? { isDefault: true } : {}),
@@ -4917,7 +4965,7 @@ export default defineCliCommands({
         if (Object.keys(update).length === 0) throw new Error("Pass at least one sender identity setting.");
         const identity = await readApi<SenderIdentity>(
           ctx,
-          `/mailboxes/${mailbox.id}/sender-identities/${args.identityId}`,
+          `/mailboxes/${mailbox.id}/sender-identities/${requireMailResourceId(args.identityId, "Sender identity id")}`,
           jsonRequest("PATCH", update),
         );
         if (printStructured(ctx, identity)) return;
@@ -4952,11 +5000,12 @@ export default defineCliCommands({
         });
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const identities = await readApi<SenderIdentity[]>(ctx, `/mailboxes/${mailbox.id}/sender-identities`);
-        const identity = identities.find((item) => item.id === args.identityId);
+        const identityId = requireMailResourceId(args.identityId, "Sender identity id");
+        const identity = identities.find((item) => item.id === identityId);
         if (!identity) throw new Error("Sender identity not found.");
         const transport = await readApi<SenderIdentity["transport"]>(
           ctx,
-          `/mailboxes/${mailbox.id}/sender-identities/${args.identityId}/transport`,
+          `/mailboxes/${mailbox.id}/sender-identities/${identityId}/transport`,
           jsonRequest("PUT", {
             expectedRevision: identity.transport.revision,
             host: flags.host,
@@ -4989,14 +5038,15 @@ export default defineCliCommands({
         if (!flags.yes) throw new Error("Pass --yes to remove the custom SMTP transport.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const identities = await readApi<SenderIdentity[]>(ctx, `/mailboxes/${mailbox.id}/sender-identities`);
-        const identity = identities.find((item) => item.id === args.identityId);
+        const identityId = requireMailResourceId(args.identityId, "Sender identity id");
+        const identity = identities.find((item) => item.id === identityId);
         if (!identity || identity.transport.mode !== "custom") throw new Error("Custom SMTP transport not found.");
         await readApi(
           ctx,
-          `/mailboxes/${mailbox.id}/sender-identities/${args.identityId}/transport`,
+          `/mailboxes/${mailbox.id}/sender-identities/${identityId}/transport`,
           jsonRequest("DELETE", { expectedRevision: identity.transport.revision }),
         );
-        if (printStructured(ctx, { removed: true, identityId: args.identityId })) return;
+        if (printStructured(ctx, { removed: true, identityId })) return;
         ctx.print("The identity now uses the mailbox SMTP transport.");
       },
     }),
@@ -5010,9 +5060,10 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         if (!flags.yes) throw new Error("Pass --yes to disable the sender identity.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        await readApi(ctx, `/mailboxes/${mailbox.id}/sender-identities/${args.identityId}`, { method: "DELETE" });
-        if (printStructured(ctx, { disabled: true, identityId: args.identityId })) return;
-        ctx.print(`Disabled sender identity ${args.identityId}.`);
+        const identityId = requireMailResourceId(args.identityId, "Sender identity id");
+        await readApi(ctx, `/mailboxes/${mailbox.id}/sender-identities/${identityId}`, { method: "DELETE" });
+        if (printStructured(ctx, { disabled: true, identityId })) return;
+        ctx.print(`Disabled sender identity ${identityId}.`);
       },
     }),
     command("identity verify", {
@@ -5033,7 +5084,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const identity = await readApi<SenderIdentity>(
           ctx,
-          `/mailboxes/${mailbox.id}/sender-identities/${args.identityId}/verify`,
+          `/mailboxes/${mailbox.id}/sender-identities/${requireMailResourceId(args.identityId, "Sender identity id")}/verify`,
           jsonRequest("POST", {
             bindingId: args.bindingId,
             verificationRecipient: flags.recipient,
@@ -5079,7 +5130,7 @@ export default defineCliCommands({
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const draft = await readApi<MailDraft>(ctx, `/mailboxes/${mailbox.id}/drafts/${args.draftId}`);
+        const draft = await readApi<MailDraft>(ctx, `/mailboxes/${mailbox.id}/drafts/${requireMailResourceId(args.draftId, "Draft id")}`);
         if (printStructured(ctx, draft)) return;
         {
           ctx.print(`${draft.subject || "[No subject]"} (${draft.id})`);
@@ -5095,7 +5146,10 @@ export default defineCliCommands({
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const lease = await readApi<DraftLease | null>(ctx, `/mailboxes/${mailbox.id}/drafts/${args.draftId}/lease`);
+        const lease = await readApi<DraftLease | null>(
+          ctx,
+          `/mailboxes/${mailbox.id}/drafts/${requireMailResourceId(args.draftId, "Draft id")}/lease`,
+        );
         if (printStructured(ctx, lease)) return;
         if (!lease) {
           ctx.print("No active draft lease.");
@@ -5117,7 +5171,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const lease = await readApi<AcquiredDraftLease>(
           ctx,
-          `/mailboxes/${mailbox.id}/drafts/${args.draftId}/lease`,
+          `/mailboxes/${mailbox.id}/drafts/${requireMailResourceId(args.draftId, "Draft id")}/lease`,
           jsonRequest("POST", { takeover: flags.takeover }),
         );
         if (printStructured(ctx, lease)) return;
@@ -5137,7 +5191,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const lease = await readApi<AcquiredDraftLease>(
           ctx,
-          `/mailboxes/${mailbox.id}/drafts/${args.draftId}/lease`,
+          `/mailboxes/${mailbox.id}/drafts/${requireMailResourceId(args.draftId, "Draft id")}/lease`,
           jsonRequest("PUT", { token: flags.token }),
         );
         if (printStructured(ctx, lease)) return;
@@ -5154,8 +5208,9 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         if (!flags.token) throw new Error("Missing draft lease token.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        await readApi<void>(ctx, `/mailboxes/${mailbox.id}/drafts/${args.draftId}/lease`, jsonRequest("DELETE", { token: flags.token }));
-        if (printStructured(ctx, { released: true, draftId: args.draftId })) return;
+        const draftId = requireMailResourceId(args.draftId, "Draft id");
+        await readApi<void>(ctx, `/mailboxes/${mailbox.id}/drafts/${draftId}/lease`, jsonRequest("DELETE", { token: flags.token }));
+        if (printStructured(ctx, { released: true, draftId })) return;
         ctx.print("Released draft lease.");
       },
     }),
@@ -5186,7 +5241,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const draft = await readApi<MailDraft>(
           ctx,
-          `/mailboxes/${mailbox.id}/drafts/${args.draftId}`,
+          `/mailboxes/${mailbox.id}/drafts/${requireMailResourceId(args.draftId, "Draft id")}`,
           jsonRequest("PUT", {
             expectedRevision: flags.revision,
             draft: await readDraftEditableContent(flags),
@@ -5202,7 +5257,10 @@ export default defineCliCommands({
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const copies = await readApi<DraftRecoveryCopy[]>(ctx, `/mailboxes/${mailbox.id}/drafts/${args.draftId}/recovery-copies`);
+        const copies = await readApi<DraftRecoveryCopy[]>(
+          ctx,
+          `/mailboxes/${mailbox.id}/drafts/${requireMailResourceId(args.draftId, "Draft id")}/recovery-copies`,
+        );
         printTable(
           ctx,
           copies,
@@ -5240,27 +5298,26 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         if (flags.revision === undefined) throw new Error("Missing expected draft revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const draftId = requireMailResourceId(args.draftId, "Draft id");
         const lease = await readApi<AcquiredDraftLease>(
           ctx,
-          `/mailboxes/${mailbox.id}/drafts/${args.draftId}/lease`,
+          `/mailboxes/${mailbox.id}/drafts/${draftId}/lease`,
           jsonRequest("POST", { takeover: false }),
         );
         let draft: MailDraft;
         try {
           draft = await readApi<MailDraft>(
             ctx,
-            `/mailboxes/${mailbox.id}/drafts/${args.draftId}/recovery-copies/${args.recoveryId}/restore`,
+            `/mailboxes/${mailbox.id}/drafts/${draftId}/recovery-copies/${args.recoveryId}/restore`,
             jsonRequest("POST", {
               expectedRevision: flags.revision,
               leaseToken: lease.token,
             }),
           );
         } finally {
-          await readApi<void>(
-            ctx,
-            `/mailboxes/${mailbox.id}/drafts/${args.draftId}/lease`,
-            jsonRequest("DELETE", { token: lease.token }),
-          ).catch(() => undefined);
+          await readApi<void>(ctx, `/mailboxes/${mailbox.id}/drafts/${draftId}/lease`, jsonRequest("DELETE", { token: lease.token })).catch(
+            () => undefined,
+          );
         }
         if (printStructured(ctx, draft)) return;
         ctx.print(`Restored recovery copy into draft ${draft.id}; revision ${draft.revision}.`);
@@ -5296,7 +5353,7 @@ export default defineCliCommands({
         const draft = await uploadDraftAttachment({
           ctx,
           mailboxId: mailbox.id,
-          draftId: args.draftId,
+          draftId: requireMailResourceId(args.draftId, "Draft id"),
           expectedRevision: flags.revision,
           path: args.path,
           filename: flags.name,
@@ -5313,7 +5370,10 @@ export default defineCliCommands({
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const uploads = await readApi<DraftAttachmentUpload[]>(ctx, `/mailboxes/${mailbox.id}/drafts/${args.draftId}/attachment-uploads`);
+        const uploads = await readApi<DraftAttachmentUpload[]>(
+          ctx,
+          `/mailboxes/${mailbox.id}/drafts/${requireMailResourceId(args.draftId, "Draft id")}/attachment-uploads`,
+        );
         printTable(
           ctx,
           uploads,
@@ -5349,7 +5409,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const upload = await readApi<DraftAttachmentUpload>(
           ctx,
-          `/mailboxes/${mailbox.id}/drafts/${args.draftId}/attachment-uploads/${args.uploadId}`,
+          `/mailboxes/${mailbox.id}/drafts/${requireMailResourceId(args.draftId, "Draft id")}/attachment-uploads/${args.uploadId}`,
           { method: "DELETE" },
         );
         if (printStructured(ctx, upload)) return;
@@ -5378,7 +5438,7 @@ export default defineCliCommands({
         });
         const draft = await readApi<MailDraft>(
           ctx,
-          `/mailboxes/${mailbox.id}/drafts/${args.draftId}/attachments/${args.attachmentId}?${query}`,
+          `/mailboxes/${mailbox.id}/drafts/${requireMailResourceId(args.draftId, "Draft id")}/attachments/${requireMailResourceId(args.attachmentId, "Draft attachment id")}?${query}`,
           { method: "DELETE" },
         );
         if (printStructured(ctx, draft)) return;
@@ -5402,7 +5462,11 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         if (!flags.out) throw new Error("Missing required flag --out.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const response = await ctx.fetch(apiPath(`/mailboxes/${mailbox.id}/drafts/${args.draftId}/attachments/${args.attachmentId}`));
+        const response = await ctx.fetch(
+          apiPath(
+            `/mailboxes/${mailbox.id}/drafts/${requireMailResourceId(args.draftId, "Draft id")}/attachments/${requireMailResourceId(args.attachmentId, "Draft attachment id")}`,
+          ),
+        );
         if (!response.ok) {
           await ctx.readJson(response);
           throw new Error(`Draft attachment download failed with HTTP ${response.status}.`);
@@ -5436,7 +5500,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const draft = await readApi<MailDraft>(
           ctx,
-          `/mailboxes/${mailbox.id}/drafts/${args.draftId}/discard`,
+          `/mailboxes/${mailbox.id}/drafts/${requireMailResourceId(args.draftId, "Draft id")}/discard`,
           jsonRequest("POST", { expectedRevision: flags.revision }),
         );
         if (printStructured(ctx, draft)) return;
@@ -5493,7 +5557,7 @@ export default defineCliCommands({
             kind: "send",
             draftId: draft.id,
             expectedDraftRevision: draft.revision,
-            senderIdentityId: flags.identity,
+            senderIdentityId: requireMailResourceId(flags.identity!, "Sender identity id"),
             scheduledAt,
             undoSeconds: flags.undo,
             idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
@@ -5563,7 +5627,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const result = await readApi<CancelScheduledSendResult>(
           ctx,
-          `/mailboxes/${mailbox.id}/scheduled-sends/${args.scheduledSendId}/cancel`,
+          `/mailboxes/${mailbox.id}/scheduled-sends/${requireMailResourceId(args.scheduledSendId, "Delivery id")}/cancel`,
           jsonRequest("POST", {
             disposition: flags.discard ? "discard" : "draft",
           }),
@@ -5652,7 +5716,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const references = await readApi<ConversationReference[]>(
           ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/references`,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/references`,
         );
         printTable(
           ctx,
@@ -5661,13 +5725,11 @@ export default defineCliCommands({
             value: reference.value,
             role: reference.role,
             allocated: reference.allocatedAt,
-            id: reference.id,
           })),
           [
             { key: "value", label: "REFERENCE" },
             { key: "role", label: "ROLE" },
             { key: "allocated", label: "ALLOCATED" },
-            { key: "id", label: "ID" },
           ],
         );
       },
@@ -5688,7 +5750,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const result = await readApi<EnsureConversationReferenceResult>(
           ctx,
-          `/mailboxes/${mailbox.id}/conversations/${args.conversationId}/references`,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/references`,
           jsonRequest("POST", {
             idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
           }),
@@ -5781,7 +5843,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const setup = await readApi<AutomaticReplySetup>(
           ctx,
-          `/mailboxes/${mailbox.id}/automatic-replies/${args.configurationId}`,
+          `/mailboxes/${mailbox.id}/automatic-replies/${requireMailResourceId(args.configurationId, "Automatic reply id")}`,
           jsonRequest("PATCH", {
             automaticReply: {
               expectedRevision: flags.revision,
@@ -5843,7 +5905,10 @@ export default defineCliCommands({
       flags: mailboxFlag,
       run: async ({ ctx, args, flags }) => {
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const automation = await readApi<IncomingAutomation>(ctx, `/mailboxes/${mailbox.id}/incoming-automations/${args.automationId}`);
+        const automation = await readApi<IncomingAutomation>(
+          ctx,
+          `/mailboxes/${mailbox.id}/incoming-automations/${requireMailResourceId(args.automationId, "Incoming automation id")}`,
+        );
         if (printStructured(ctx, automation)) return;
         ctx.print(`${automation.name} (${automation.id})`);
         ctx.print(`Scope: ${automation.scope.mode}`);
@@ -5946,7 +6011,10 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         if (flags.revision === undefined) throw new Error("Missing expected incoming-automation revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const current = await readApi<IncomingAutomation>(ctx, `/mailboxes/${mailbox.id}/incoming-automations/${args.automationId}`);
+        const current = await readApi<IncomingAutomation>(
+          ctx,
+          `/mailboxes/${mailbox.id}/incoming-automations/${requireMailResourceId(args.automationId, "Incoming automation id")}`,
+        );
         if (current.revision !== flags.revision)
           throw new Error(`Incoming automation is at revision ${current.revision}, not ${flags.revision}.`);
         const automation = await readApi<IncomingAutomation>(
@@ -5973,7 +6041,10 @@ export default defineCliCommands({
         if (!flags.yes) throw new Error("Pass --yes to delete the incoming automation.");
         if (flags.revision === undefined) throw new Error("Missing expected incoming-automation revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const current = await readApi<IncomingAutomation>(ctx, `/mailboxes/${mailbox.id}/incoming-automations/${args.automationId}`);
+        const current = await readApi<IncomingAutomation>(
+          ctx,
+          `/mailboxes/${mailbox.id}/incoming-automations/${requireMailResourceId(args.automationId, "Incoming automation id")}`,
+        );
         if (current.revision !== flags.revision)
           throw new Error(`Incoming automation is at revision ${current.revision}, not ${flags.revision}.`);
         const deleted = await readApi<IncomingAutomation>(
@@ -5997,7 +6068,10 @@ export default defineCliCommands({
         if (!flags.yes) throw new Error("Pass --yes to start the incoming-automation backfill.");
         if (flags.revision === undefined) throw new Error("Missing expected incoming-automation revision.");
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const current = await readApi<IncomingAutomation>(ctx, `/mailboxes/${mailbox.id}/incoming-automations/${args.automationId}`);
+        const current = await readApi<IncomingAutomation>(
+          ctx,
+          `/mailboxes/${mailbox.id}/incoming-automations/${requireMailResourceId(args.automationId, "Incoming automation id")}`,
+        );
         if (current.revision !== flags.revision)
           throw new Error(`Incoming automation is at revision ${current.revision}, not ${flags.revision}.`);
         const result = await readApi<IncomingAutomationBackfill>(
@@ -6025,7 +6099,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const result = await readApi<IncomingAutomationBackfill>(
           ctx,
-          `/mailboxes/${mailbox.id}/incoming-automations/${args.automationId}/backfills/${args.operationId}`,
+          `/mailboxes/${mailbox.id}/incoming-automations/${requireMailResourceId(args.automationId, "Incoming automation id")}/backfills/${args.operationId}`,
         );
         if (printStructured(ctx, result)) return;
         ctx.print(
@@ -6050,7 +6124,7 @@ export default defineCliCommands({
         const mailbox = await resolveMailbox(ctx, flags.mailbox);
         const result = await readApi<IncomingAutomationBackfill>(
           ctx,
-          `/mailboxes/${mailbox.id}/incoming-automations/${args.automationId}/backfills/${args.operationId}`,
+          `/mailboxes/${mailbox.id}/incoming-automations/${requireMailResourceId(args.automationId, "Incoming automation id")}/backfills/${args.operationId}`,
           { method: "DELETE" },
         );
         if (printStructured(ctx, result)) return;

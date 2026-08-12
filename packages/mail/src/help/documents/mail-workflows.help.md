@@ -123,6 +123,8 @@ Conversation paths:
 - `inputs.conversation.id`, `subject`, `summary`, `summaryRevision`, `assigneeUserId`
 - `inputs.conversation.workStatus`, `latestMessageAt`
 
+Mail resource IDs exposed to a workflow use the same stable six-character IDs as Mail URLs and capabilities. Provider references and database UUIDs are internal and are not workflow fields.
+
 Execution context paths:
 
 - `context.mailboxId`
@@ -344,8 +346,7 @@ steps:
 
 The action is safe to repeat and does not allocate a second reference for the same conversation. When `saveAs` is present, later steps in the same scope can use:
 
-- `{{ reference.id }}` for the immutable reference record ID.
-- `{{ reference.value }}` for the rendered value such as `REF-K7M3-P9QX-2F4N`.
+- `{{ reference.value }}` for the permanent human-facing reference such as `REF-K7M3-P9QX-2F4N`.
 - `{{ reference.created }}` to distinguish a new allocation from an existing value.
 - `{{ reference.conversationId }}` and `{{ reference.conversationRevision }}` for subsequent workflow logic.
 

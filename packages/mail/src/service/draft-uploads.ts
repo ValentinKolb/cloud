@@ -8,10 +8,12 @@ import {
   MAX_DRAFT_ATTACHMENT_BYTES,
   type MailDraft,
 } from "../contracts";
+import { withShortIdDb } from "../lib/short-id";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
 import { sha256Text } from "./canonical";
 import { getDraft, sanitizeContentType, sanitizeFilename } from "./drafts";
+import { publicIds, requirePublicId, resolveMailboxPublicId } from "./public-resources";
 
 export const DRAFT_UPLOAD_CHUNK_BYTES = 1024 * 1024;
 const DRAFT_UPLOAD_TTL_HOURS = 24;
@@ -51,19 +53,35 @@ const uploadColumns = sql`
 
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
 
-const mapUpload = (row: DbUpload): DraftAttachmentUpload => ({
-  id: row.id,
-  draftId: row.draft_id,
-  filename: row.filename,
-  contentType: row.content_type,
-  byteLength: Number(row.byte_length),
-  receivedBytes: Number(row.received_bytes),
-  chunkSize: DRAFT_UPLOAD_CHUNK_BYTES,
-  state: row.state,
-  attachmentId: row.attachment_id,
-  createdAt: toIso(row.created_at),
-  updatedAt: toIso(row.updated_at),
-});
+const mapUploads = async (rows: DbUpload[], db: typeof sql = sql): Promise<DraftAttachmentUpload[]> => {
+  const [drafts, attachments] = await Promise.all([
+    publicIds(
+      "drafts",
+      rows.map((row) => row.draft_id),
+      db,
+    ),
+    publicIds(
+      "draftAttachments",
+      rows.map((row) => row.attachment_id),
+      db,
+    ),
+  ]);
+  return rows.map((row) => ({
+    id: row.id,
+    draftId: requirePublicId(drafts, row.draft_id),
+    filename: row.filename,
+    contentType: row.content_type,
+    byteLength: Number(row.byte_length),
+    receivedBytes: Number(row.received_bytes),
+    chunkSize: DRAFT_UPLOAD_CHUNK_BYTES,
+    state: row.state,
+    attachmentId: row.attachment_id ? requirePublicId(attachments, row.attachment_id) : null,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  }));
+};
+
+const mapUpload = async (row: DbUpload, db: typeof sql = sql): Promise<DraftAttachmentUpload> => (await mapUploads([row], db))[0]!;
 
 const uploadActor = (context: MailRequestContext): UploadActor | null => {
   const actor = actorRefFromRequest(context);
@@ -96,9 +114,11 @@ export const createDraftAttachmentUpload = async (params: {
     return await sql.begin(async (tx) => {
       const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
       if (!allowed.ok) return allowed;
+      const draftId = await resolveMailboxPublicId("drafts", params.mailboxId, params.draftId, tx);
+      if (!draftId) return fail(err.notFound("Draft"));
       const [draft] = await tx<{ id: string; state: string }[]>`
         SELECT id, state FROM mail.drafts
-        WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user'
+        WHERE id = ${draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user'
         FOR SHARE
       `;
       if (!draft) return fail(err.notFound("Draft"));
@@ -115,7 +135,7 @@ export const createDraftAttachmentUpload = async (params: {
         INSERT INTO mail.draft_attachment_uploads AS upload (
           draft_id, blob_id, filename, content_type, byte_length, state, creator_kind, creator_id
         ) VALUES (
-          ${params.draftId}::uuid,
+          ${draftId}::uuid,
           ${blob.id}::uuid,
           ${sanitizeFilename(parsed.data.filename)},
           ${sanitizeContentType(parsed.data.contentType)},
@@ -126,7 +146,7 @@ export const createDraftAttachmentUpload = async (params: {
         )
         RETURNING ${uploadColumns}
       `;
-      return upload ? ok(mapUpload(upload)) : fail(err.internal("Attachment upload insert returned no row"));
+      return upload ? ok(await mapUpload(upload, tx)) : fail(err.internal("Attachment upload insert returned no row"));
     });
   } catch {
     return fail(err.internal("Failed to create attachment upload"));
@@ -140,17 +160,19 @@ export const listDraftAttachmentUploads = async (params: {
 }): Promise<Result<DraftAttachmentUpload[]>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
+  const draftId = await resolveMailboxPublicId("drafts", params.mailboxId, params.draftId);
+  if (!draftId) return fail(err.notFound("Draft"));
   const rows = await sql<DbUpload[]>`
     SELECT ${uploadColumns}
     FROM mail.draft_attachment_uploads upload
     JOIN mail.drafts draft ON draft.id = upload.draft_id
-    WHERE upload.draft_id = ${params.draftId}::uuid
+    WHERE upload.draft_id = ${draftId}::uuid
       AND draft.mailbox_id = ${params.mailboxId}::uuid
       AND draft.origin = 'user'
       AND upload.state IN ('uploading', 'uploaded', 'attached')
     ORDER BY upload.created_at, upload.id
   `;
-  return ok(rows.map(mapUpload));
+  return ok(await mapUploads(rows));
 };
 
 export const getDraftAttachmentUpload = async (params: {
@@ -161,16 +183,18 @@ export const getDraftAttachmentUpload = async (params: {
 }): Promise<Result<DraftAttachmentUpload>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
+  const draftId = await resolveMailboxPublicId("drafts", params.mailboxId, params.draftId);
+  if (!draftId) return fail(err.notFound("Draft"));
   const [upload] = await sql<DbUpload[]>`
     SELECT ${uploadColumns}
     FROM mail.draft_attachment_uploads upload
     JOIN mail.drafts draft ON draft.id = upload.draft_id
     WHERE upload.id = ${params.uploadId}::uuid
-      AND upload.draft_id = ${params.draftId}::uuid
+      AND upload.draft_id = ${draftId}::uuid
       AND draft.mailbox_id = ${params.mailboxId}::uuid
       AND draft.origin = 'user'
   `;
-  return upload ? ok(mapUpload(upload)) : fail(err.notFound("Draft attachment upload"));
+  return upload ? ok(await mapUpload(upload)) : fail(err.notFound("Draft attachment upload"));
 };
 
 export const appendDraftAttachmentUpload = async (params: {
@@ -189,12 +213,14 @@ export const appendDraftAttachmentUpload = async (params: {
     return await sql.begin(async (tx) => {
       const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
       if (!allowed.ok) return allowed;
+      const draftId = await resolveMailboxPublicId("drafts", params.mailboxId, params.draftId, tx);
+      if (!draftId) return fail(err.notFound("Draft"));
       const [upload] = await tx<(DbUpload & { draft_state: string })[]>`
         SELECT ${uploadColumns}, draft.state AS draft_state
         FROM mail.draft_attachment_uploads upload
         JOIN mail.drafts draft ON draft.id = upload.draft_id
         WHERE upload.id = ${params.uploadId}::uuid
-          AND upload.draft_id = ${params.draftId}::uuid
+          AND upload.draft_id = ${draftId}::uuid
           AND draft.mailbox_id = ${params.mailboxId}::uuid
           AND draft.origin = 'user'
         FOR UPDATE OF upload, draft
@@ -230,7 +256,7 @@ export const appendDraftAttachmentUpload = async (params: {
         SET byte_length = ${nextReceived}, chunk_count = ${upload.next_position + 1}
         WHERE id = ${upload.blob_id}::uuid AND complete = false
       `;
-      return updated ? ok(mapUpload(updated)) : fail(err.internal("Attachment upload update returned no row"));
+      return updated ? ok(await mapUpload(updated, tx)) : fail(err.internal("Attachment upload update returned no row"));
     });
   } catch (error) {
     if ((error as { code?: string } | null)?.code === "23505") return conflict("Attachment upload chunk was already accepted");
@@ -272,12 +298,14 @@ export const finalizeDraftAttachmentUpload = async (params: {
   if (!actor) return fail(err.forbidden("Draft upload actor is invalid"));
   const permission = await requireMailboxPermission(params.context, params.mailboxId, "write");
   if (!permission.ok) return permission;
+  const draftId = await resolveMailboxPublicId("drafts", params.mailboxId, params.draftId);
+  if (!draftId) return fail(err.notFound("Draft"));
   const [candidate] = await sql<(DbUpload & { mailbox_id: string })[]>`
     SELECT ${uploadColumns}, draft.mailbox_id
     FROM mail.draft_attachment_uploads upload
     JOIN mail.drafts draft ON draft.id = upload.draft_id
     WHERE upload.id = ${params.uploadId}::uuid
-      AND upload.draft_id = ${params.draftId}::uuid
+      AND upload.draft_id = ${draftId}::uuid
       AND draft.origin = 'user'
   `;
   if (!candidate || candidate.mailbox_id !== params.mailboxId) return fail(err.notFound("Draft attachment upload"));
@@ -298,7 +326,7 @@ export const finalizeDraftAttachmentUpload = async (params: {
         FROM mail.draft_attachment_uploads upload
         JOIN mail.drafts draft ON draft.id = upload.draft_id
         WHERE upload.id = ${params.uploadId}::uuid
-          AND upload.draft_id = ${params.draftId}::uuid
+          AND upload.draft_id = ${draftId}::uuid
           AND draft.mailbox_id = ${params.mailboxId}::uuid
           AND draft.origin = 'user'
         FOR UPDATE OF upload, draft
@@ -339,12 +367,16 @@ export const finalizeDraftAttachmentUpload = async (params: {
       const [position] = await tx<{ position: number }[]>`
         SELECT COALESCE(MAX(position), -1)::int + 1 AS position
         FROM mail.draft_attachments
-        WHERE draft_id = ${params.draftId}::uuid
+        WHERE draft_id = ${draftId}::uuid
       `;
-      const [attachment] = await tx<{ id: string }[]>`
-        INSERT INTO mail.draft_attachments (draft_id, blob_id, filename, content_type, byte_length, content_hash, position)
+      const attachmentRows = await withShortIdDb(
+        tx,
+        "draftAttachment",
+        (db, shortId) => db<{ id: string }[]>`
+        INSERT INTO mail.draft_attachments (short_id, draft_id, blob_id, filename, content_type, byte_length, content_hash, position)
         VALUES (
-          ${params.draftId}::uuid,
+          ${shortId},
+          ${draftId}::uuid,
           ${blobId}::uuid,
           ${upload.filename},
           ${upload.content_type},
@@ -353,7 +385,9 @@ export const finalizeDraftAttachmentUpload = async (params: {
           ${position?.position ?? 0}
         )
         RETURNING id
-      `;
+      `,
+      );
+      const [attachment] = attachmentRows;
       if (!attachment) return fail(err.internal("Draft attachment insert returned no row"));
       const [updated] = await tx<{ revision: string | number }[]>`
         UPDATE mail.drafts
@@ -361,7 +395,7 @@ export const finalizeDraftAttachmentUpload = async (params: {
           revision = revision + 1,
           last_editor_kind = ${actor.kind},
           last_editor_id = ${actor.id}::uuid
-        WHERE id = ${params.draftId}::uuid AND origin = 'user'
+        WHERE id = ${draftId}::uuid AND origin = 'user'
         RETURNING revision
       `;
       if (!updated) return fail(err.internal("Draft attachment update returned no row"));
@@ -383,7 +417,7 @@ export const finalizeDraftAttachmentUpload = async (params: {
           'draft_attachment',
           ${attachment.id}::uuid,
           ${{
-            draftId: params.draftId,
+            draftId,
             uploadId: upload.id,
             filename: upload.filename,
             byteLength: Number(upload.byte_length),
@@ -411,19 +445,21 @@ export const cancelDraftAttachmentUpload = async (params: {
     return await sql.begin(async (tx) => {
       const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
       if (!allowed.ok) return allowed;
+      const draftId = await resolveMailboxPublicId("drafts", params.mailboxId, params.draftId, tx);
+      if (!draftId) return fail(err.notFound("Draft"));
       const [upload] = await tx<DbUpload[]>`
         SELECT ${uploadColumns}
         FROM mail.draft_attachment_uploads upload
         JOIN mail.drafts draft ON draft.id = upload.draft_id
         WHERE upload.id = ${params.uploadId}::uuid
-          AND upload.draft_id = ${params.draftId}::uuid
+          AND upload.draft_id = ${draftId}::uuid
           AND draft.mailbox_id = ${params.mailboxId}::uuid
           AND draft.origin = 'user'
         FOR UPDATE OF upload
       `;
       if (!upload) return fail(err.notFound("Draft attachment upload"));
       if (upload.state === "attached") return conflict("An attached upload cannot be cancelled");
-      if (upload.state === "cancelled") return ok(mapUpload(upload));
+      if (upload.state === "cancelled") return ok(await mapUpload(upload, tx));
       const blobId = upload.blob_id;
       const [cancelled] = await tx<DbUpload[]>`
         UPDATE mail.draft_attachment_uploads upload
@@ -432,7 +468,7 @@ export const cancelDraftAttachmentUpload = async (params: {
         RETURNING ${uploadColumns}
       `;
       if (blobId) await tx`DELETE FROM mail.message_part_blobs WHERE id = ${blobId}::uuid AND complete = false`;
-      return cancelled ? ok(mapUpload(cancelled)) : fail(err.internal("Attachment upload cancellation returned no row"));
+      return cancelled ? ok(await mapUpload(cancelled, tx)) : fail(err.internal("Attachment upload cancellation returned no row"));
     });
   } catch {
     return fail(err.internal("Failed to cancel attachment upload"));

@@ -3,11 +3,15 @@ import { readWorkflowValuePath } from "@valentinkolb/cloud/workflows/language";
 import type { WorkflowValueResolverPort } from "@valentinkolb/cloud/workflows/runtime";
 import type { WorkflowRunClaim } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
+import { resolveMailboxPublicId } from "./public-resources";
 import { enqueueMessageHydration } from "./sync-runtime";
 import { mailWorkflowDependencyDeadline } from "./workflow-dependencies";
 
 type JsonObject = Record<string, WorkflowJsonValue>;
-type HydratedMessageValue = { state: "resolved"; value: WorkflowJsonValue } | { state: "pending" } | { state: "unavailable" };
+type HydratedMessageValue =
+  | { state: "resolved"; value: WorkflowJsonValue }
+  | { state: "pending"; messageId: string }
+  | { state: "unavailable" };
 
 const isObject = (value: WorkflowJsonValue | undefined): value is JsonObject =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -27,9 +31,11 @@ const messageForReference = (
 
 const hydratedMessageValue = async (
   mailboxId: string,
-  messageId: string,
+  publicMessageId: string,
   field: "body" | "bodyText" | "bodyHtml" | "attachments",
 ): Promise<HydratedMessageValue> => {
+  const messageId = await resolveMailboxPublicId("messages", mailboxId, publicMessageId);
+  if (!messageId) return { state: "unavailable" };
   const [message] = await sql<
     { hydration_status: string; hydration_attempt: number; plain_text: string | null; sanitized_html: string | null }[]
   >`
@@ -42,14 +48,14 @@ const hydratedMessageValue = async (
   if (field === "body" || field === "bodyText") {
     return message.hydration_status === "body" || message.hydration_status === "complete"
       ? { state: "resolved", value: message.plain_text ?? "" }
-      : { state: "pending" };
+      : { state: "pending", messageId };
   }
   if (field === "bodyHtml") {
     return message.hydration_status === "body" || message.hydration_status === "complete"
       ? { state: "resolved", value: message.sanitized_html ?? "" }
-      : { state: "pending" };
+      : { state: "pending", messageId };
   }
-  if (message.hydration_status !== "complete") return { state: "pending" };
+  if (message.hydration_status !== "complete") return { state: "pending", messageId };
   const rows = await sql<
     {
       id: string;
@@ -60,7 +66,7 @@ const hydratedMessageValue = async (
       size_bytes: string | number;
     }[]
   >`
-    SELECT attachment.id, attachment.filename, attachment.content_type, attachment.disposition,
+    SELECT attachment.short_id AS id, attachment.filename, attachment.content_type, attachment.disposition,
       attachment.content_id, attachment.size_bytes
     FROM mail.attachments attachment
     JOIN mail.message_contents message ON message.id = attachment.message_id
@@ -145,17 +151,17 @@ export const createMailWorkflowValueResolver = (params: {
       return resolvedPath(params.frozenHydration[candidate.frozenKey]!, candidate.tail);
     }
 
-    const messageId = candidate.message.messageId;
+    const messageId = candidate.message.id;
     if (typeof messageId !== "string") return { state: "missing" };
     const hydrated = await hydratedMessageValue(params.mailboxId, messageId, candidate.field);
     if (hydrated.state === "unavailable") return { state: "missing" };
     if (hydrated.state === "pending") {
-      await enqueueMessageHydration(messageId);
+      await enqueueMessageHydration(hydrated.messageId);
       return {
         state: "waiting",
         dependency: {
           kind: "mail.hydration",
-          key: messageId,
+          key: hydrated.messageId,
           deadline: mailWorkflowDependencyDeadline(),
           data: { runId: params.claim.runId },
         },

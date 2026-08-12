@@ -21,6 +21,7 @@ export const getMailboxOperationalHealth = async (
       const [mailbox] = await tx<
         {
           id: string;
+          short_id: string;
           health: MailboxHealth;
           health_reason: string | null;
           sync_enabled: boolean;
@@ -34,6 +35,7 @@ export const getMailboxOperationalHealth = async (
       >`
         SELECT
           mailbox.id,
+          mailbox.short_id,
           mailbox.health,
           mailbox.health_reason,
           mailbox.sync_enabled,
@@ -170,7 +172,7 @@ export const getMailboxOperationalHealth = async (
       `;
       const runStates = stateRecord(syncRuns);
       return mailboxOperationalHealthSchema.parse({
-        mailboxId: mailbox.id,
+        mailboxId: mailbox.short_id,
         health: mailbox.health,
         healthReason: mailbox.health_reason,
         syncEnabled: mailbox.sync_enabled,

@@ -1,7 +1,7 @@
 import { Readable } from "node:stream";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { ErrorResponseSchema, GrantAccessSchema, UpdateAccessSchema } from "@valentinkolb/cloud/contracts";
-import { type AuthContext, auth, jsonResponse, rateLimit, requiresAuth, respond, v } from "@valentinkolb/cloud/server";
+import { auth, jsonResponse, rateLimit, requiresAuth, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
@@ -53,6 +53,7 @@ import {
   mergeConversationsInputSchema,
   prepareDraftSeedInputSchema,
   providerConnectionInputSchema,
+  ResourceShortIdSchema,
   reassignConversationMessageInputSchema,
   relatedMailPageSchema,
   relatedMailQuerySchema,
@@ -107,6 +108,7 @@ import {
   operations,
   presence,
   providerConnections,
+  publicResources,
   reminders,
   savedViews,
   scheduledSends,
@@ -123,14 +125,28 @@ import type { AttachmentDownload } from "../service/messages";
 import { discoverMailConfigurations } from "../service/onboarding-discovery";
 import { loadMailboxConversationDetail, loadMailboxPageData } from "../service/workspace";
 import wsRoutes from "../ws";
+import { projectActivityResult } from "./activity-public";
 import { providerOAuthApi } from "./provider-oauth";
+import {
+  internalInput,
+  internalMailboxId,
+  internalParams,
+  type MailApiContext,
+  mailboxParamSchema,
+  projectResourcePaths,
+  projectRootRelation,
+  resolveMailboxParam,
+  resolveMailboxResourceParam,
+  resolveReminderNotificationSourceParam,
+  respondPublic,
+} from "./public-resource-boundary";
 import resourceRoutes from "./resources";
 import workflowRoutes from "./workflows";
 
-const uuidParamSchema = z.object({ mailboxId: z.string().uuid() });
-const mailboxAndIdParamSchema = (name: string) => z.object({ mailboxId: z.string().uuid(), [name]: z.string().uuid() });
+const mailboxAndIdParamSchema = (name: string, idSchema: z.ZodType = ResourceShortIdSchema) =>
+  z.object({ mailboxId: ResourceShortIdSchema, [name]: idSchema });
 const mailboxAndTwoIdsParamSchema = (first: string, second: string) =>
-  z.object({ mailboxId: z.string().uuid(), [first]: z.string().uuid(), [second]: z.string().uuid() });
+  z.object({ mailboxId: ResourceShortIdSchema, [first]: ResourceShortIdSchema, [second]: ResourceShortIdSchema });
 const limitQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(100),
 });
@@ -158,7 +174,7 @@ const mailboxOperationsQuerySchema = z.object({
   attentionLimit: z.coerce.number().int().min(1).max(200).default(100),
 });
 const conversationQuerySchema = cursorQuerySchema.extend({
-  folderId: z.string().uuid().optional(),
+  folderId: ResourceShortIdSchema.optional(),
   status: z.enum(["needs_action", "waiting", "done"]).optional(),
   view: conversationViewSchema.optional(),
 });
@@ -167,7 +183,7 @@ const collaboratorQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 const activityQuerySchema = cursorQuerySchema.extend({
-  conversationId: z.string().uuid().optional(),
+  conversationId: ResourceShortIdSchema.optional(),
 });
 const workspaceRouteQuerySchema = z.object({
   href: z.string().trim().min(1).max(4_000),
@@ -205,16 +221,16 @@ const updateMailboxSchema = z
     composeSafety: composeSafetyConfigSchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, "At least one field is required");
-const calendarDestinationInputSchema = z.object({ spaceId: z.string().uuid().nullable() }).strict();
+const calendarDestinationInputSchema = z.object({ spaceId: ResourceShortIdSchema.nullable() }).strict();
 const calendarDestinationsResponseSchema = z.object({
-  selectedSpaceId: z.string().uuid().nullable(),
+  selectedSpaceId: ResourceShortIdSchema.nullable(),
   items: spacesMailDestinationsSchema,
 });
-const calendarImportInputSchema = z.object({ spaceId: z.string().uuid().optional() }).strict();
-const calendarEventsQuerySchema = z.object({ spaceId: z.uuid(), query: z.string().trim().max(500).optional() }).strict();
+const calendarImportInputSchema = z.object({ spaceId: ResourceShortIdSchema.optional() }).strict();
+const calendarEventsQuerySchema = z.object({ spaceId: ResourceShortIdSchema, query: z.string().trim().max(500).optional() }).strict();
 const createCalendarEventInputSchema = z
   .object({
-    spaceId: z.uuid(),
+    spaceId: ResourceShortIdSchema,
     title: z.string().trim().min(1).max(200),
     location: z.string().trim().max(500).optional(),
     startsAt: z.string().datetime({ offset: true }),
@@ -225,12 +241,12 @@ const createCalendarEventInputSchema = z
     message: "End time must be after start time",
     path: ["endsAt"],
   });
-const attachCalendarEventInputSchema = z.object({ itemId: z.uuid(), idempotencyKey: z.uuid() }).strict();
+const attachCalendarEventInputSchema = z.object({ itemId: ResourceShortIdSchema, idempotencyKey: z.uuid() }).strict();
 const calendarResponseInputSchema = z
   .object({
     participationStatus: calendarParticipationStatusSchema,
     idempotencyKey: z.string().uuid(),
-    spaceId: z.string().uuid().optional(),
+    spaceId: ResourceShortIdSchema.optional(),
   })
   .strict();
 const attachBindingSchema = z.object({ connectionId: z.string().uuid() });
@@ -244,10 +260,10 @@ const updateDraftSchema = z.object({
   draft: draftEditableContentInputSchema,
 });
 const roleParamSchema = z.object({
-  mailboxId: z.string().uuid(),
+  mailboxId: ResourceShortIdSchema,
   role: configurableFolderRoleSchema,
 });
-const folderRoleInputSchema = z.object({ folderId: z.string().uuid() });
+const folderRoleInputSchema = z.object({ folderId: ResourceShortIdSchema });
 const folderVisibilityInputSchema = z.object({ showInSidebar: z.boolean() }).strict();
 const draftRevisionSchema = z.object({
   expectedRevision: z.coerce.number().int().positive(),
@@ -263,19 +279,33 @@ const attachmentChunkQuerySchema = z.object({
 });
 const acquireDraftLeaseSchema = z.object({ takeover: z.boolean().default(false) }).strict();
 const notificationTargetParamSchema = z.object({
-  mailboxId: z.string().uuid(),
+  mailboxId: ResourceShortIdSchema,
   kind: z.literal("reminder"),
-  sourceId: z.string().uuid(),
+  sourceId: ResourceShortIdSchema,
 });
 const providerDiscoveryQuerySchema = z.object({
   email: z.string().email().max(320),
 });
 
-const parseWorkspaceRouteUrl = (mailboxId: string, href: string): URL | null => {
+const parseWorkspaceRouteUrl = async (publicMailboxId: string, internalMailboxId: string, href: string): Promise<URL | null> => {
   try {
     const base = new URL("https://cloud.invalid");
     const url = new URL(href, base);
-    if (url.origin !== base.origin || url.pathname !== `/app/mail/${mailboxId}`) return null;
+    if (url.origin !== base.origin || url.pathname !== `/app/mail/${publicMailboxId}`) return null;
+    const resourceParams = [
+      ["savedView", "savedViews"],
+      ["folder", "folders"],
+      ["conversation", "conversations"],
+      ["message", "messages"],
+    ] as const;
+    for (const [name, table] of resourceParams) {
+      const publicId = url.searchParams.get(name);
+      if (publicId === null) continue;
+      if (!ResourceShortIdSchema.safeParse(publicId).success) return null;
+      const resolved = await publicResources.resolveMailboxPublicId(table, internalMailboxId, publicId);
+      if (!resolved) return null;
+      url.searchParams.set(name, resolved);
+    }
     return url;
   } catch {
     return null;
@@ -294,13 +324,13 @@ const safeAttachmentContentType = (value: string): string =>
     ? baseAttachmentContentType(value)
     : "application/octet-stream";
 
-const requestContext = (c: Context<AuthContext>): MailRequestContext => ({
+const requestContext = (c: Context<MailApiContext>): MailRequestContext => ({
   actor: c.get("actor"),
   accessSubject: c.get("accessSubject"),
   requestId: c.req.header("x-request-id") ?? null,
 });
 
-const integrationRequest = (c: Context<AuthContext>) => ({
+const integrationRequest = (c: Context<MailApiContext>) => ({
   cookie: c.req.header("Cookie"),
   authorization: c.req.header("Authorization"),
   requestId: c.req.header("X-Request-Id") ?? requestContext(c).requestId,
@@ -308,6 +338,145 @@ const integrationRequest = (c: Context<AuthContext>) => ({
   tracestate: c.req.header("tracestate"),
   signal: c.req.raw.signal,
 });
+
+const respondMailboxes = <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) => respondPublic(c, result, "mailboxes");
+const respondFolders = async <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) =>
+  respondPublic(c, await projectRootRelation(await result, "parentId", "folders"), "folders");
+const respondConversations = <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) =>
+  respondPublic(c, result, "conversations");
+const respondMessages = async <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) => {
+  const resolved = await result;
+  if (!resolved.ok) return respondPublic(c, resolved);
+  const data = resolved.data as unknown;
+  const items = Array.isArray(data)
+    ? data
+    : data && typeof data === "object" && "items" in data && Array.isArray(data.items)
+      ? data.items
+      : [data];
+  const deliveryPaths = items.flatMap((item, index) => {
+    if (!item || typeof item !== "object" || !("delivery" in item) || !item.delivery) return [];
+    const prefix = Array.isArray(data)
+      ? [String(index)]
+      : data && typeof data === "object" && "items" in data
+        ? ["items", String(index)]
+        : [];
+    return [{ path: [...prefix, "delivery", "submissionId"], table: "deliveries" as const }];
+  });
+  return respondPublic(c, await projectResourcePaths(resolved, deliveryPaths), "messages");
+};
+const respondComments = <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) => respondPublic(c, result, "comments");
+const respondReminders = <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) => respondPublic(c, result, "reminders");
+const respondSavedViews = <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) => respondPublic(c, result, "savedViews");
+const respondComposeTemplates = <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) =>
+  respondPublic(c, result, "composeTemplates");
+const respondSenderIdentities = <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) =>
+  respondPublic(c, result, "senderIdentities");
+const respondDrafts = <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) => respondPublic(c, result, "drafts");
+const respondDeliveries = <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) => respondPublic(c, result, "deliveries");
+const respondMessageSource = async <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) =>
+  respondPublic(c, await projectRootRelation(await result, "messageId", "messages"));
+const respondMergedConversations = async <T extends { removedConversationId: string }>(
+  c: Context<MailApiContext>,
+  result: Result<T> | Promise<Result<T>>,
+  removedConversationId: string,
+) => {
+  const projected = await projectResourcePaths(await result, [{ path: ["target", "id"], table: "conversations" }]);
+  return respondPublic(c, projected.ok ? ok({ ...projected.data, removedConversationId }) : projected);
+};
+const respondSplitConversations = async <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) =>
+  respondPublic(
+    c,
+    await projectResourcePaths(await result, [
+      { path: ["source", "id"], table: "conversations" },
+      { path: ["created", "id"], table: "conversations" },
+    ]),
+  );
+const respondReassignedMessage = async <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) =>
+  respondPublic(
+    c,
+    await projectResourcePaths(await result, [
+      { path: ["source", "id"], table: "conversations" },
+      { path: ["target", "id"], table: "conversations" },
+      { path: ["messageId"], table: "messages" },
+    ]),
+  );
+
+const aggregateResourcePaths = (data: unknown) => {
+  const paths: Array<{ path: string[]; table: Parameters<typeof projectResourcePaths>[1][number]["table"] }> = [];
+  const at = (path: readonly string[]): unknown => {
+    let value = data;
+    for (const segment of path)
+      value = Array.isArray(value)
+        ? value[Number(segment)]
+        : value && typeof value === "object"
+          ? (value as Record<string, unknown>)[segment]
+          : undefined;
+    return value;
+  };
+  const one = (path: string[], table: (typeof paths)[number]["table"]) => {
+    const value = at(path);
+    if (value && typeof value === "object" && "id" in value) paths.push({ path: [...path, "id"], table });
+  };
+  const many = (path: string[], table: (typeof paths)[number]["table"]) => {
+    const values = at(path);
+    if (!Array.isArray(values)) return;
+    values.forEach((_value, index) => one([...path, String(index)], table));
+  };
+
+  one(["mailbox"], "mailboxes");
+  for (const [field, table] of [
+    ["savedViewId", "savedViews"],
+    ["folderId", "folders"],
+    ["selectedConversationId", "conversations"],
+    ["selectedMessageId", "messages"],
+  ] as const) {
+    if (typeof at([field]) === "string") paths.push({ path: [field], table });
+  }
+  many(["folders"], "folders");
+  many(["identities"], "senderIdentities");
+  many(["savedViews"], "savedViews");
+  many(["scheduledPage", "items"], "deliveries");
+  many(["detailMessages"], "messages");
+  many(["conversationDrafts"], "drafts");
+  many(["localTags"], "tags");
+  many(["conversationLocalTags", "tags"], "tags");
+  many(["comments"], "comments");
+  one(["reminder"], "reminders");
+  many(["organization", "savedViews"], "savedViews");
+  many(["organization", "localTags"], "tags");
+  many(["compose", "templates"], "composeTemplates");
+  many(["compose", "identities"], "senderIdentities");
+  many(["admin", "folders"], "folders");
+  many(["admin", "identities"], "senderIdentities");
+
+  const listItems = at(["listItems"]);
+  if (Array.isArray(listItems)) {
+    listItems.forEach((item, index) => {
+      if (!item || typeof item !== "object") return;
+      paths.push({
+        path: ["listItems", String(index), "id"],
+        table: "selectionKind" in item && item.selectionKind === "conversation" ? "conversations" : "messages",
+      });
+      many(["listItems", String(index), "localTags"], "tags");
+    });
+  }
+  const detailMessages = at(["detailMessages"]);
+  if (Array.isArray(detailMessages)) {
+    detailMessages.forEach((_message, index) => {
+      many(["detailMessages", String(index), "attachments"], "attachments");
+      const submissionId = at(["detailMessages", String(index), "delivery", "submissionId"]);
+      if (typeof submissionId === "string") {
+        paths.push({ path: ["detailMessages", String(index), "delivery", "submissionId"], table: "deliveries" });
+      }
+    });
+  }
+  return paths;
+};
+
+const respondAggregate = async <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) => {
+  const resolved = await result;
+  return respondPublic(c, resolved.ok ? await projectResourcePaths(resolved, aggregateResourcePaths(resolved.data)) : resolved);
+};
 
 const readBoundedBody = async (body: ReadableStream<Uint8Array> | null, maxBytes: number): Promise<Result<Uint8Array>> => {
   if (!body) return fail(err.badInput("Request body is required"));
@@ -338,27 +507,27 @@ const readBoundedBody = async (body: ReadableStream<Uint8Array> | null, maxBytes
 };
 
 const attachmentDownloadResponse = async (
-  c: Context<AuthContext>,
+  c: Context<MailApiContext>,
   result: Result<AttachmentDownload>,
   query: z.infer<typeof attachmentQuerySchema>,
   assertCurrentAccess?: (blobId: string) => Promise<void>,
 ) => {
-  if (!result.ok) return respond(c, result);
+  if (!result.ok) return respondPublic(c, result);
   const rangeHeader = c.req.header("range");
   const hasQueryRange = query.offset !== undefined || query.length !== undefined;
   if (rangeHeader && hasQueryRange)
-    return respond(c, fail(err.badInput("Use either the Range header or offset and length query parameters")));
+    return respondPublic(c, fail(err.badInput("Use either the Range header or offset and length query parameters")));
   const { blobId, total, chunkSize, chunkCount, contentHash, contentType, filename } = result.data;
   const responseType = safeAttachmentContentType(contentType).toLowerCase();
   const previewKind = attachmentPreviewKind(responseType, total);
   if (query.inline === true && !previewKind) {
-    return respond(c, fail(err.badInput("This attachment type or size cannot be previewed safely")));
+    return respondPublic(c, fail(err.badInput("This attachment type or size cannot be previewed safely")));
   }
   const inline = query.inline === true;
   if (inline) {
     const prefix = await messages.readAttachmentPrefix(blobId);
     if (!attachmentPreviewSignatureMatches(responseType, prefix)) {
-      return respond(c, fail(err.badInput("The attachment content does not match its declared preview type")));
+      return respondPublic(c, fail(err.badInput("The attachment content does not match its declared preview type")));
     }
   }
   const requestedRange =
@@ -401,53 +570,90 @@ const attachmentDownloadResponse = async (
   );
 };
 
-const mailOperationsApi = new Hono<AuthContext>()
+const resolveFolderParam = resolveMailboxResourceParam("folders", "folderId", "Folder");
+const resolveConversationParam = resolveMailboxResourceParam("conversations", "conversationId", "Conversation");
+const resolveMessageParam = resolveMailboxResourceParam("messages", "messageId", "Message");
+const resolveReceivedAttachmentParam = resolveMailboxResourceParam("attachments", "attachmentId", "Attachment");
+const resolveDraftParam = resolveMailboxResourceParam("drafts", "draftId", "Draft");
+const resolveDraftAttachmentParam = resolveMailboxResourceParam("draftAttachments", "attachmentId", "Attachment");
+const resolveSenderIdentityParam = resolveMailboxResourceParam("senderIdentities", "senderIdentityId", "Sender identity");
+const resolveCommentParam = resolveMailboxResourceParam("comments", "commentId", "Comment");
+const resolveSavedViewParam = resolveMailboxResourceParam("savedViews", "viewId", "Saved view");
+const resolveComposeTemplateParam = resolveMailboxResourceParam("composeTemplates", "templateId", "Compose template");
+const resolveScheduledSendParam = resolveMailboxResourceParam("deliveries", "scheduledSendId", "Scheduled send");
+
+const mailOperationsApi = new Hono<MailApiContext>()
+  .use("/mailboxes/:mailboxId", resolveMailboxParam)
+  .use("/mailboxes/:mailboxId/*", resolveMailboxParam)
+  .use("/mailboxes/:mailboxId/folders/:folderId", resolveFolderParam)
+  .use("/mailboxes/:mailboxId/folders/:folderId/*", resolveFolderParam)
+  .use("/mailboxes/:mailboxId/conversations/:conversationId", resolveConversationParam)
+  .use("/mailboxes/:mailboxId/conversations/:conversationId/*", resolveConversationParam)
+  .use("/mailboxes/:mailboxId/messages/:messageId", resolveMessageParam)
+  .use("/mailboxes/:mailboxId/messages/:messageId/*", resolveMessageParam)
+  .use("/mailboxes/:mailboxId/messages/:messageId/attachments/:attachmentId", resolveReceivedAttachmentParam)
+  .use("/mailboxes/:mailboxId/messages/:messageId/attachments/:attachmentId/*", resolveReceivedAttachmentParam)
+  .use("/mailboxes/:mailboxId/drafts/:draftId", resolveDraftParam)
+  .use("/mailboxes/:mailboxId/drafts/:draftId/*", resolveDraftParam)
+  .use("/mailboxes/:mailboxId/drafts/:draftId/attachments/:attachmentId", resolveDraftAttachmentParam)
+  .use("/mailboxes/:mailboxId/drafts/:draftId/attachments/:attachmentId/*", resolveDraftAttachmentParam)
+  .use("/mailboxes/:mailboxId/sender-identities/:senderIdentityId", resolveSenderIdentityParam)
+  .use("/mailboxes/:mailboxId/sender-identities/:senderIdentityId/*", resolveSenderIdentityParam)
+  .use("/mailboxes/:mailboxId/conversations/:conversationId/comments/:commentId", resolveCommentParam)
+  .use("/mailboxes/:mailboxId/conversations/:conversationId/comments/:commentId/*", resolveCommentParam)
+  .use("/mailboxes/:mailboxId/notification-targets/reminder/:sourceId", resolveReminderNotificationSourceParam)
+  .use("/mailboxes/:mailboxId/saved-views/:viewId", resolveSavedViewParam)
+  .use("/mailboxes/:mailboxId/saved-views/:viewId/*", resolveSavedViewParam)
+  .use("/mailboxes/:mailboxId/compose-templates/:templateId", resolveComposeTemplateParam)
+  .use("/mailboxes/:mailboxId/compose-templates/:templateId/*", resolveComposeTemplateParam)
+  .use("/mailboxes/:mailboxId/scheduled-sends/:scheduledSendId", resolveScheduledSendParam)
+  .use("/mailboxes/:mailboxId/scheduled-sends/:scheduledSendId/*", resolveScheduledSendParam)
   .use(auth.requireRole("authenticated"))
-  .get("/mailboxes/:mailboxId/provider-discovery", v("param", uuidParamSchema), v("query", providerDiscoveryQuerySchema), async (c) => {
-    const mailboxId = c.req.valid("param").mailboxId;
+  .get("/mailboxes/:mailboxId/provider-discovery", v("param", mailboxParamSchema), v("query", providerDiscoveryQuerySchema), async (c) => {
+    const mailboxId = internalMailboxId(c);
     const allowed = await mailboxAccess.requireMailboxPermission(requestContext(c), mailboxId, "admin");
-    if (!allowed.ok) return respond(c, allowed);
-    return respond(c, ok(await discoverMailConfigurations(c.req.valid("query").email)));
+    if (!allowed.ok) return respondPublic(c, allowed);
+    return respondPublic(c, ok(await discoverMailConfigurations((await internalInput(c, c.req.valid("query"))).email)));
   })
   .get("/mailboxes", v("query", mailboxListQuerySchema), async (c) => {
     const query = c.req.valid("query");
-    return respond(c, mailboxes.listMailboxes(requestContext(c), query.limit, query.name, query.q));
+    return respondMailboxes(c, mailboxes.listMailboxes(requestContext(c), query.limit, query.name, query.q));
   })
   .post("/mailboxes", v("json", createMailboxInputSchema), async (c) =>
-    respond(c, mailboxes.createMailbox(requestContext(c), c.req.valid("json"))),
+    respondMailboxes(c, mailboxes.createMailbox(requestContext(c), c.req.valid("json"))),
   )
-  .get("/mailboxes/:mailboxId", v("param", uuidParamSchema), async (c) =>
-    respond(c, mailboxes.getMailbox(requestContext(c), c.req.valid("param").mailboxId)),
+  .get("/mailboxes/:mailboxId", v("param", mailboxParamSchema), async (c) =>
+    respondMailboxes(c, mailboxes.getMailbox(requestContext(c), internalMailboxId(c))),
   )
-  .get("/mailboxes/:mailboxId/workspace-route", v("param", uuidParamSchema), v("query", workspaceRouteQuerySchema), async (c) => {
-    const mailboxId = c.req.valid("param").mailboxId;
-    const query = c.req.valid("query");
-    const requestUrl = parseWorkspaceRouteUrl(mailboxId, query.href);
-    if (!requestUrl) return respond(c, fail(err.badInput("Workspace route must target this mailbox")));
+  .get("/mailboxes/:mailboxId/workspace-route", v("param", mailboxParamSchema), v("query", workspaceRouteQuerySchema), async (c) => {
+    const mailboxId = internalMailboxId(c);
+    const query = await internalInput(c, c.req.valid("query"));
+    const requestUrl = await parseWorkspaceRouteUrl(c.req.valid("param").mailboxId, mailboxId, query.href);
+    if (!requestUrl) return respondPublic(c, fail(err.badInput("Workspace route must target this mailbox")));
     const data = await loadMailboxPageData({
       context: requestContext(c),
       mailboxId,
       requestUrl,
       listMode: query.listMode,
     });
-    return respond(c, data ? { ok: true, data } : fail(err.notFound("Mailbox")));
+    return respondAggregate(c, data ? { ok: true, data } : fail(err.notFound("Mailbox")));
   })
   .get(
     "/mailboxes/:mailboxId/workspace-detail/:conversationId",
     v(
       "param",
       z.object({
-        mailboxId: z.string().uuid(),
-        conversationId: z.string().uuid(),
+        mailboxId: ResourceShortIdSchema,
+        conversationId: ResourceShortIdSchema,
       }),
     ),
     async (c) => {
-      const params = c.req.valid("param");
+      const params = internalParams(c, c.req.valid("param"));
       const detail = await loadMailboxConversationDetail({
         context: requestContext(c),
         ...params,
       });
-      return respond(c, detail ? { ok: true, data: detail } : fail(err.notFound("Conversation")));
+      return respondAggregate(c, detail ? { ok: true, data: detail } : fail(err.notFound("Conversation")));
     },
   )
   .get(
@@ -467,13 +673,13 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("conversationId")),
     v("query", mailConversationContextQuerySchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         conversationContext.getConversationContext({
           context: requestContext(c),
           request: integrationRequest(c),
-          ...(c.req.valid("param") as { mailboxId: string; conversationId: string }),
-          query: c.req.valid("query"),
+          ...internalParams(c, c.req.valid("param") as { mailboxId: string; conversationId: string }),
+          query: await internalInput(c, c.req.valid("query")),
         }),
       ),
   )
@@ -495,10 +701,10 @@ const mailOperationsApi = new Hono<AuthContext>()
     v(
       "param",
       z.object({
-        mailboxId: z.uuid(),
-        conversationId: z.uuid(),
-        bookId: z.union([z.uuid(), z.literal("system")]),
-        contactId: z.uuid(),
+        mailboxId: ResourceShortIdSchema,
+        conversationId: ResourceShortIdSchema,
+        bookId: z.union([ResourceShortIdSchema, z.literal("system")]),
+        contactId: ResourceShortIdSchema,
       }),
     ),
     v("query", relatedMailQuerySchema),
@@ -506,17 +712,17 @@ const mailOperationsApi = new Hono<AuthContext>()
       const result = await conversationContext.listRelatedMail({
         context: requestContext(c),
         request: integrationRequest(c),
-        ...c.req.valid("param"),
-        ...c.req.valid("query"),
+        ...internalParams(c, c.req.valid("param")),
+        ...(await internalInput(c, c.req.valid("query"))),
       });
       if (!result.ok && "message" in result) {
         return c.json({ message: result.message, code: result.code }, result.status);
       }
-      return respond(c, result);
+      return respondPublic(c, result);
     },
   )
-  .get("/mailboxes/:mailboxId/settings-context", v("param", uuidParamSchema), async (c) =>
-    respond(c, settingsContext.loadMailboxSettingsContext(requestContext(c), c.req.valid("param").mailboxId)),
+  .get("/mailboxes/:mailboxId/settings-context", v("param", mailboxParamSchema), async (c) =>
+    respondAggregate(c, settingsContext.loadMailboxSettingsContext(requestContext(c), internalMailboxId(c))),
   )
   .get(
     "/mailboxes/:mailboxId/calendar-destinations",
@@ -526,16 +732,16 @@ const mailOperationsApi = new Hono<AuthContext>()
       ...requiresAuth,
       responses: { 200: jsonResponse(calendarDestinationsResponseSchema, "Mailbox calendar destinations") },
     }),
-    v("param", uuidParamSchema),
+    v("param", mailboxParamSchema),
     async (c) => {
-      const mailboxId = c.req.valid("param").mailboxId;
+      const mailboxId = internalMailboxId(c);
       const destinations = await calendarInvitations.listDestinations({
         context: requestContext(c),
         mailboxId,
         request: integrationRequest(c),
       });
-      if (!destinations.ok) return respond(c, destinations);
-      return respond(c, destinations);
+      if (!destinations.ok) return respondPublic(c, destinations);
+      return respondPublic(c, destinations);
     },
   )
   .put(
@@ -551,18 +757,18 @@ const mailOperationsApi = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Mailbox admin required"),
       },
     }),
-    v("param", uuidParamSchema),
+    v("param", mailboxParamSchema),
     v("json", calendarDestinationInputSchema),
     async (c) => {
-      const mailboxId = c.req.valid("param").mailboxId;
-      const input = c.req.valid("json");
+      const mailboxId = internalMailboxId(c);
+      const input = await internalInput(c, c.req.valid("json"));
       const updated = await calendarInvitations.setDefaultDestination({
         context: requestContext(c),
         mailboxId,
         spaceId: input.spaceId,
         request: integrationRequest(c),
       });
-      return respond(c, updated);
+      return respondPublic(c, updated);
     },
   )
   .get(
@@ -576,12 +782,12 @@ const mailOperationsApi = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Access denied"),
       },
     }),
-    v("param", uuidParamSchema),
+    v("param", mailboxParamSchema),
     v("query", calendarEventsQuerySchema),
     async (c) => {
-      const { mailboxId } = c.req.valid("param");
-      const query = c.req.valid("query");
-      return respond(
+      const { mailboxId } = internalParams(c, c.req.valid("param"));
+      const query = await internalInput(c, c.req.valid("query"));
+      return respondPublic(
         c,
         calendarInvitations.listComposerEvents({
           context: requestContext(c),
@@ -605,11 +811,11 @@ const mailOperationsApi = new Hono<AuthContext>()
         403: jsonResponse(ErrorResponseSchema, "Access denied"),
       },
     }),
-    v("param", uuidParamSchema),
+    v("param", mailboxParamSchema),
     v("json", createCalendarEventInputSchema),
     async (c) => {
-      const { mailboxId } = c.req.valid("param");
-      return respond(
+      const { mailboxId } = internalParams(c, c.req.valid("param"));
+      return respondPublic(
         c,
         calendarInvitations.createComposerEvent({
           context: requestContext(c),
@@ -637,13 +843,13 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("draftId")),
     v("json", attachCalendarEventInputSchema),
     async (c) => {
-      const params = c.req.valid("param") as { mailboxId: string; draftId: string };
-      return respond(
+      const params = internalParams(c, c.req.valid("param")) as { mailboxId: string; draftId: string };
+      return respondDrafts(
         c,
         calendarInvitations.attachEventInvitation({
           context: requestContext(c),
           ...params,
-          ...c.req.valid("json"),
+          ...(await internalInput(c, c.req.valid("json"))),
           request: integrationRequest(c),
         }),
       );
@@ -662,11 +868,11 @@ const mailOperationsApi = new Hono<AuthContext>()
     }),
     v("param", mailboxAndIdParamSchema("messageId")),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         calendarInvitations.preview({
           context: requestContext(c),
-          ...(c.req.valid("param") as { mailboxId: string; messageId: string }),
+          ...internalParams(c, c.req.valid("param") as { mailboxId: string; messageId: string }),
           request: integrationRequest(c),
         }),
       ),
@@ -682,12 +888,12 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("messageId")),
     v("json", calendarImportInputSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         calendarInvitations.importToSpace({
           context: requestContext(c),
-          ...(c.req.valid("param") as { mailboxId: string; messageId: string }),
-          ...c.req.valid("json"),
+          ...internalParams(c, c.req.valid("param") as { mailboxId: string; messageId: string }),
+          ...(await internalInput(c, c.req.valid("json"))),
           request: integrationRequest(c),
         }),
       ),
@@ -704,25 +910,25 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("messageId")),
     v("json", calendarResponseInputSchema),
     async (c) =>
-      respond(
+      respondDrafts(
         c,
         calendarInvitations.createResponseDraft({
           context: requestContext(c),
-          ...(c.req.valid("param") as { mailboxId: string; messageId: string }),
-          participationStatus: c.req.valid("json").participationStatus,
-          idempotencyKey: c.req.valid("json").idempotencyKey,
-          spaceId: c.req.valid("json").spaceId,
+          ...internalParams(c, c.req.valid("param") as { mailboxId: string; messageId: string }),
+          participationStatus: (await internalInput(c, c.req.valid("json"))).participationStatus,
+          idempotencyKey: (await internalInput(c, c.req.valid("json"))).idempotencyKey,
+          spaceId: (await internalInput(c, c.req.valid("json"))).spaceId,
           request: integrationRequest(c),
         }),
       ),
   )
-  .get("/mailboxes/:mailboxId/health", v("param", uuidParamSchema), async (c) =>
-    respond(c, health.getMailboxOperationalHealth(requestContext(c), c.req.valid("param").mailboxId)),
+  .get("/mailboxes/:mailboxId/health", v("param", mailboxParamSchema), async (c) =>
+    respondPublic(c, health.getMailboxOperationalHealth(requestContext(c), internalMailboxId(c))),
   )
-  .get("/mailboxes/:mailboxId/subscriptions", v("param", uuidParamSchema), v("query", subscriptionQuerySchema), async (c) => {
-    const params = c.req.valid("param");
-    const query = c.req.valid("query");
-    return respond(
+  .get("/mailboxes/:mailboxId/subscriptions", v("param", mailboxParamSchema), v("query", subscriptionQuerySchema), async (c) => {
+    const params = internalParams(c, c.req.valid("param"));
+    const query = await internalInput(c, c.req.valid("query"));
+    return respondPublic(
       c,
       listSubscriptions.listSubscriptions({
         context: requestContext(c),
@@ -735,59 +941,62 @@ const mailOperationsApi = new Hono<AuthContext>()
   })
   .post(
     "/mailboxes/:mailboxId/subscriptions/unsubscribe",
-    v("param", uuidParamSchema),
+    v("param", mailboxParamSchema),
     v("json", unsubscribeMailingListInputSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         listSubscriptions.requestUnsubscribe({
           context: requestContext(c),
-          mailboxId: c.req.valid("param").mailboxId,
-          input: c.req.valid("json"),
+          mailboxId: internalMailboxId(c),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       ),
   )
   .post(
     "/mailboxes/:mailboxId/subscriptions/disposition",
-    v("param", uuidParamSchema),
+    v("param", mailboxParamSchema),
     v("json", mailingListDispositionInputSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         listSubscriptions.applyMailingListDisposition({
           context: requestContext(c),
-          mailboxId: c.req.valid("param").mailboxId,
-          input: c.req.valid("json"),
+          mailboxId: internalMailboxId(c),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       ),
   )
-  .get("/mailboxes/:mailboxId/operations", v("param", uuidParamSchema), v("query", mailboxOperationsQuerySchema), async (c) =>
-    respond(c, operations.getMailboxOperations(requestContext(c), c.req.valid("param").mailboxId, c.req.valid("query"))),
+  .get("/mailboxes/:mailboxId/operations", v("param", mailboxParamSchema), v("query", mailboxOperationsQuerySchema), async (c) =>
+    respondPublic(
+      c,
+      operations.getMailboxOperations(requestContext(c), internalMailboxId(c), await internalInput(c, c.req.valid("query"))),
+    ),
   )
-  .patch("/mailboxes/:mailboxId", v("param", uuidParamSchema), v("json", updateMailboxSchema), async (c) =>
-    respond(
+  .patch("/mailboxes/:mailboxId", v("param", mailboxParamSchema), v("json", updateMailboxSchema), async (c) =>
+    respondMailboxes(
       c,
       mailboxes.updateMailbox({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        ...c.req.valid("json"),
+        mailboxId: internalMailboxId(c),
+        ...(await internalInput(c, c.req.valid("json"))),
       }),
     ),
   )
-  .delete("/mailboxes/:mailboxId", v("param", uuidParamSchema), async (c) =>
-    respond(c, mailboxes.deleteMailbox(requestContext(c), c.req.valid("param").mailboxId)),
+  .delete("/mailboxes/:mailboxId", v("param", mailboxParamSchema), async (c) =>
+    respondMailboxes(c, mailboxes.deleteMailbox(requestContext(c), internalMailboxId(c))),
   )
-  .get("/mailboxes/:mailboxId/access", v("param", uuidParamSchema), async (c) =>
-    respond(c, mailboxAccess.listMailboxAccess(requestContext(c), c.req.valid("param").mailboxId)),
+  .get("/mailboxes/:mailboxId/access", v("param", mailboxParamSchema), async (c) =>
+    respondPublic(c, mailboxAccess.listMailboxAccess(requestContext(c), internalMailboxId(c))),
   )
-  .post("/mailboxes/:mailboxId/access", v("param", uuidParamSchema), v("json", GrantAccessSchema), async (c) => {
-    const input = c.req.valid("json");
-    if (input.permission === "none") return respond(c, fail(err.badInput("Access permission cannot be none")));
-    return respond(
+  .post("/mailboxes/:mailboxId/access", v("param", mailboxParamSchema), v("json", GrantAccessSchema), async (c) => {
+    const input = await internalInput(c, c.req.valid("json"));
+    if (input.permission === "none") return respondPublic(c, fail(err.badInput("Access permission cannot be none")));
+    return respondPublic(
       c,
       mailboxAccess.grantMailboxAccess({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
+        mailboxId: internalMailboxId(c),
         principal: input.principal,
         permission: input.permission,
       }),
@@ -795,16 +1004,16 @@ const mailOperationsApi = new Hono<AuthContext>()
   })
   .patch(
     "/mailboxes/:mailboxId/access/:accessId",
-    v("param", mailboxAndIdParamSchema("accessId")),
+    v("param", mailboxAndIdParamSchema("accessId", z.uuid())),
     v("json", UpdateAccessSchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         accessId: string;
       };
-      const { permission } = c.req.valid("json");
-      if (permission === "none") return respond(c, fail(err.badInput("Use DELETE to revoke access")));
-      return respond(
+      const { permission } = await internalInput(c, c.req.valid("json"));
+      if (permission === "none") return respondPublic(c, fail(err.badInput("Use DELETE to revoke access")));
+      return respondPublic(
         c,
         mailboxAccess.updateMailboxAccess({
           context: requestContext(c),
@@ -814,12 +1023,12 @@ const mailOperationsApi = new Hono<AuthContext>()
       );
     },
   )
-  .delete("/mailboxes/:mailboxId/access/:accessId", v("param", mailboxAndIdParamSchema("accessId")), async (c) => {
-    const params = c.req.valid("param") as {
+  .delete("/mailboxes/:mailboxId/access/:accessId", v("param", mailboxAndIdParamSchema("accessId", z.uuid())), async (c) => {
+    const params = internalParams(c, c.req.valid("param")) as {
       mailboxId: string;
       accessId: string;
     };
-    return respond(
+    return respondPublic(
       c,
       mailboxAccess.revokeMailboxAccess({
         context: requestContext(c),
@@ -827,60 +1036,60 @@ const mailOperationsApi = new Hono<AuthContext>()
       }),
     );
   })
-  .get("/mailboxes/:mailboxId/connections", v("param", uuidParamSchema), async (c) =>
-    respond(c, providerConnections.listProviderConnections(requestContext(c), c.req.valid("param").mailboxId)),
+  .get("/mailboxes/:mailboxId/connections", v("param", mailboxParamSchema), async (c) =>
+    respondPublic(c, providerConnections.listProviderConnections(requestContext(c), internalMailboxId(c))),
   )
-  .post("/mailboxes/:mailboxId/connections", v("param", uuidParamSchema), v("json", providerConnectionInputSchema), async (c) =>
-    respond(
+  .post("/mailboxes/:mailboxId/connections", v("param", mailboxParamSchema), v("json", providerConnectionInputSchema), async (c) =>
+    respondPublic(
       c,
       providerConnections.createProviderConnection({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        input: c.req.valid("json"),
+        mailboxId: internalMailboxId(c),
+        input: await internalInput(c, c.req.valid("json")),
       }),
     ),
   )
   .put(
     "/mailboxes/:mailboxId/connections/:connectionId",
-    v("param", mailboxAndIdParamSchema("connectionId")),
+    v("param", mailboxAndIdParamSchema("connectionId", z.uuid())),
     v("json", providerConnectionInputSchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         connectionId: string;
       };
       const current = await providerConnections.getProviderConnection(requestContext(c), params.connectionId);
-      if (!current.ok) return respond(c, current);
-      if (current.data.mailboxId !== params.mailboxId) return respond(c, fail(err.notFound("Provider connection")));
-      return respond(
+      if (!current.ok) return respondPublic(c, current);
+      if (current.data.mailboxId !== params.mailboxId) return respondPublic(c, fail(err.notFound("Provider connection")));
+      return respondPublic(
         c,
         providerConnections.replaceProviderConnection({
           context: requestContext(c),
           connectionId: params.connectionId,
-          input: c.req.valid("json"),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       );
     },
   )
-  .delete("/mailboxes/:mailboxId/connections/:connectionId", v("param", mailboxAndIdParamSchema("connectionId")), async (c) => {
-    const params = c.req.valid("param") as {
+  .delete("/mailboxes/:mailboxId/connections/:connectionId", v("param", mailboxAndIdParamSchema("connectionId", z.uuid())), async (c) => {
+    const params = internalParams(c, c.req.valid("param")) as {
       mailboxId: string;
       connectionId: string;
     };
     const current = await providerConnections.getProviderConnection(requestContext(c), params.connectionId);
-    if (!current.ok) return respond(c, current);
-    if (current.data.mailboxId !== params.mailboxId) return respond(c, fail(err.notFound("Provider connection")));
-    return respond(c, providerConnections.revokeProviderConnection(requestContext(c), params.connectionId));
+    if (!current.ok) return respondPublic(c, current);
+    if (current.data.mailboxId !== params.mailboxId) return respondPublic(c, fail(err.notFound("Provider connection")));
+    return respondPublic(c, providerConnections.revokeProviderConnection(requestContext(c), params.connectionId));
   })
   .post(
     "/mailboxes/:mailboxId/connections/:connectionId/limits/refresh",
-    v("param", mailboxAndIdParamSchema("connectionId")),
+    v("param", mailboxAndIdParamSchema("connectionId", z.uuid())),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         connectionId: string;
       };
-      return respond(
+      return respondPublic(
         c,
         providerConnections.refreshProviderConnectionLimits({
           context: requestContext(c),
@@ -889,22 +1098,22 @@ const mailOperationsApi = new Hono<AuthContext>()
       );
     },
   )
-  .get("/mailboxes/:mailboxId/bindings", v("param", uuidParamSchema), async (c) =>
-    respond(c, bindings.listProviderBindings(requestContext(c), c.req.valid("param").mailboxId)),
+  .get("/mailboxes/:mailboxId/bindings", v("param", mailboxParamSchema), async (c) =>
+    respondPublic(c, bindings.listProviderBindings(requestContext(c), internalMailboxId(c))),
   )
-  .post("/mailboxes/:mailboxId/bindings", v("param", uuidParamSchema), v("json", attachBindingSchema), async (c) =>
-    respond(
+  .post("/mailboxes/:mailboxId/bindings", v("param", mailboxParamSchema), v("json", attachBindingSchema), async (c) =>
+    respondPublic(
       c,
       bindings.attachProviderBinding({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        ...c.req.valid("json"),
+        mailboxId: internalMailboxId(c),
+        ...(await internalInput(c, c.req.valid("json"))),
       }),
     ),
   )
-  .post("/mailboxes/:mailboxId/sync", v("param", uuidParamSchema), async (c) => {
-    const mailboxId = c.req.valid("param").mailboxId;
-    return respond(
+  .post("/mailboxes/:mailboxId/sync", v("param", mailboxParamSchema), async (c) => {
+    const mailboxId = internalMailboxId(c);
+    return respondPublic(
       c,
       commands.createMaintenanceCommand({
         context: requestContext(c),
@@ -916,28 +1125,28 @@ const mailOperationsApi = new Hono<AuthContext>()
       }),
     );
   })
-  .get("/mailboxes/:mailboxId/folders", v("param", uuidParamSchema), async (c) =>
-    respond(c, messages.listFolders(requestContext(c), c.req.valid("param").mailboxId)),
+  .get("/mailboxes/:mailboxId/folders", v("param", mailboxParamSchema), async (c) =>
+    respondFolders(c, messages.listFolders(requestContext(c), internalMailboxId(c))),
   )
   .patch(
     "/mailboxes/:mailboxId/folders/:folderId",
     v("param", mailboxAndIdParamSchema("folderId")),
     v("json", folderVisibilityInputSchema),
     async (c) => {
-      const params = c.req.valid("param") as { mailboxId: string; folderId: string };
-      return respond(
+      const params = internalParams(c, c.req.valid("param")) as { mailboxId: string; folderId: string };
+      return respondFolders(
         c,
         folders.setFolderSidebarVisibility({
           context: requestContext(c),
           ...params,
-          showInSidebar: c.req.valid("json").showInSidebar,
+          showInSidebar: (await internalInput(c, c.req.valid("json"))).showInSidebar,
         }),
       );
     },
   )
   .delete("/mailboxes/:mailboxId/folders/:folderId", v("param", mailboxAndIdParamSchema("folderId")), async (c) => {
-    const params = c.req.valid("param") as { mailboxId: string; folderId: string };
-    return respond(
+    const params = internalParams(c, c.req.valid("param")) as { mailboxId: string; folderId: string };
+    return respondFolders(
       c,
       folders.dismissUnavailableFolder({
         context: requestContext(c),
@@ -948,95 +1157,93 @@ const mailOperationsApi = new Hono<AuthContext>()
   .get("/mailboxes/:mailboxId/notification-targets/:kind/:sourceId", v("param", notificationTargetParamSchema), async (c) => {
     const resolved = await notificationTargets.resolveMailNotificationTarget({
       context: requestContext(c),
-      ...c.req.valid("param"),
+      ...internalParams(c, c.req.valid("param")),
     });
-    return resolved.ok ? c.redirect(resolved.data.href, 302) : respond(c, resolved);
+    return resolved.ok ? c.redirect(resolved.data.href, 302) : respondPublic(c, resolved);
   })
-  .get("/mailboxes/:mailboxId/assignable-users", v("param", uuidParamSchema), v("query", collaboratorQuerySchema), async (c) =>
-    respond(
+  .get("/mailboxes/:mailboxId/assignable-users", v("param", mailboxParamSchema), v("query", collaboratorQuerySchema), async (c) =>
+    respondPublic(
       c,
       collaboration.listAssignableUsers({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        ...c.req.valid("query"),
+        mailboxId: internalMailboxId(c),
+        ...(await internalInput(c, c.req.valid("query"))),
       }),
     ),
   )
-  .get("/mailboxes/:mailboxId/conversation-view-counts", v("param", uuidParamSchema), async (c) =>
-    respond(
+  .get("/mailboxes/:mailboxId/conversation-view-counts", v("param", mailboxParamSchema), async (c) =>
+    respondPublic(
       c,
       messages.getConversationViewCounts({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
+        mailboxId: internalMailboxId(c),
       }),
     ),
   )
-  .get("/mailboxes/:mailboxId/activity", v("param", uuidParamSchema), v("query", activityQuerySchema), async (c) =>
-    respond(
-      c,
-      collaboration.listActivity({
-        context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        ...c.req.valid("query"),
-      }),
-    ),
-  )
+  .get("/mailboxes/:mailboxId/activity", v("param", mailboxParamSchema), v("query", activityQuerySchema), async (c) => {
+    const result = await collaboration.listActivity({
+      context: requestContext(c),
+      mailboxId: internalMailboxId(c),
+      ...(await internalInput(c, c.req.valid("query"))),
+    });
+    return respondPublic(c, projectActivityResult(result));
+  })
   .put("/mailboxes/:mailboxId/folder-roles/:role", v("param", roleParamSchema), v("json", folderRoleInputSchema), async (c) =>
-    respond(
+    respondFolders(
       c,
       folders.setFolderRole({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
+        mailboxId: internalMailboxId(c),
         role: c.req.valid("param").role,
-        folderId: c.req.valid("json").folderId,
+        folderId: (await internalInput(c, c.req.valid("json"))).folderId,
       }),
     ),
   )
   .delete("/mailboxes/:mailboxId/folder-roles/:role", v("param", roleParamSchema), async (c) =>
-    respond(
+    respondFolders(
       c,
       folders.clearFolderRole({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
+        mailboxId: internalMailboxId(c),
         role: c.req.valid("param").role,
       }),
     ),
   )
-  .get("/mailboxes/:mailboxId/conversations", v("param", uuidParamSchema), v("query", conversationQuerySchema), async (c) =>
-    respond(
+  .get("/mailboxes/:mailboxId/conversations", v("param", mailboxParamSchema), v("query", conversationQuerySchema), async (c) =>
+    respondConversations(
       c,
       messages.listConversations({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        ...c.req.valid("query"),
+        mailboxId: internalMailboxId(c),
+        ...(await internalInput(c, c.req.valid("query"))),
       }),
     ),
   )
-  .get("/mailboxes/:mailboxId/saved-views", v("param", uuidParamSchema), async (c) =>
-    respond(
+  .get("/mailboxes/:mailboxId/saved-views", v("param", mailboxParamSchema), async (c) =>
+    respondSavedViews(
       c,
       savedViews.listSavedConversationViews({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
+        mailboxId: internalMailboxId(c),
       }),
     ),
   )
-  .post("/mailboxes/:mailboxId/saved-views", v("param", uuidParamSchema), v("json", createSavedConversationViewSchema), async (c) =>
-    respond(
+  .post("/mailboxes/:mailboxId/saved-views", v("param", mailboxParamSchema), v("json", createSavedConversationViewSchema), async (c) =>
+    respondSavedViews(
       c,
       savedViews.createSavedConversationView({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        input: c.req.valid("json"),
+        mailboxId: internalMailboxId(c),
+        input: await internalInput(c, c.req.valid("json")),
       }),
     ),
   )
   .get("/mailboxes/:mailboxId/saved-views/:viewId", v("param", mailboxAndIdParamSchema("viewId")), async (c) =>
-    respond(
+    respondSavedViews(
       c,
       savedViews.getSavedConversationView({
         context: requestContext(c),
-        ...(c.req.valid("param") as { mailboxId: string; viewId: string }),
+        ...internalParams(c, c.req.valid("param") as { mailboxId: string; viewId: string }),
       }),
     ),
   )
@@ -1045,12 +1252,12 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("viewId")),
     v("json", updateSavedConversationViewSchema),
     async (c) =>
-      respond(
+      respondSavedViews(
         c,
         savedViews.updateSavedConversationView({
           context: requestContext(c),
-          ...(c.req.valid("param") as { mailboxId: string; viewId: string }),
-          input: c.req.valid("json"),
+          ...internalParams(c, c.req.valid("param") as { mailboxId: string; viewId: string }),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       ),
   )
@@ -1059,16 +1266,16 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("senderIdentityId")),
     v("json", updateSenderIdentityTransportInputSchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         senderIdentityId: string;
       };
-      return respond(
+      return respondPublic(
         c,
         senderIdentityTransports.upsertSenderIdentityTransport({
           context: requestContext(c),
           ...params,
-          input: c.req.valid("json"),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       );
     },
@@ -1078,16 +1285,16 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("senderIdentityId")),
     v("json", deleteSenderIdentityTransportInputSchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         senderIdentityId: string;
       };
-      return respond(
+      return respondPublic(
         c,
         senderIdentityTransports.deleteSenderIdentityTransport({
           context: requestContext(c),
           ...params,
-          expectedRevision: c.req.valid("json").expectedRevision,
+          expectedRevision: (await internalInput(c, c.req.valid("json"))).expectedRevision,
         }),
       );
     },
@@ -1096,27 +1303,27 @@ const mailOperationsApi = new Hono<AuthContext>()
     "/mailboxes/:mailboxId/saved-views/:viewId",
     v("param", mailboxAndIdParamSchema("viewId")),
     v("json", deleteSavedConversationViewSchema),
-    async (c) =>
-      respond(
-        c,
-        savedViews.deleteSavedConversationView({
-          context: requestContext(c),
-          ...(c.req.valid("param") as { mailboxId: string; viewId: string }),
-          expectedRevision: c.req.valid("json").expectedRevision,
-        }),
-      ),
+    async (c) => {
+      const publicViewId = c.req.valid("param").viewId;
+      const deleted = await savedViews.deleteSavedConversationView({
+        context: requestContext(c),
+        ...internalParams(c, c.req.valid("param") as { mailboxId: string; viewId: string }),
+        expectedRevision: (await internalInput(c, c.req.valid("json"))).expectedRevision,
+      });
+      return respondPublic(c, deleted.ok ? ok({ id: publicViewId }) : deleted);
+    },
   )
   .get(
     "/mailboxes/:mailboxId/saved-views/:viewId/conversations",
     v("param", mailboxAndIdParamSchema("viewId")),
     v("query", cursorQuerySchema),
     async (c) =>
-      respond(
+      respondConversations(
         c,
         savedViews.listSavedViewConversations({
           context: requestContext(c),
-          ...(c.req.valid("param") as { mailboxId: string; viewId: string }),
-          ...c.req.valid("query"),
+          ...internalParams(c, c.req.valid("param") as { mailboxId: string; viewId: string }),
+          ...(await internalInput(c, c.req.valid("query"))),
         }),
       ),
   )
@@ -1125,16 +1332,16 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("conversationId")),
     v("query", cursorQuerySchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         conversationId: string;
       };
-      return respond(
+      return respondMessages(
         c,
         messages.listConversationMessages({
           context: requestContext(c),
           ...params,
-          ...c.req.valid("query"),
+          ...(await internalInput(c, c.req.valid("query"))),
         }),
       );
     },
@@ -1144,26 +1351,26 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("conversationId")),
     v("query", conversationDraftsQuerySchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         conversationId: string;
       };
-      return respond(
+      return respondDrafts(
         c,
         drafts.listConversationDrafts({
           context: requestContext(c),
           ...params,
-          limit: c.req.valid("query").limit,
+          limit: (await internalInput(c, c.req.valid("query"))).limit,
         }),
       );
     },
   )
   .get("/mailboxes/:mailboxId/conversations/:conversationId/summary", v("param", mailboxAndIdParamSchema("conversationId")), async (c) =>
-    respond(
+    respondPublic(
       c,
       conversationSummaries.getConversationSummary({
         context: requestContext(c),
-        ...(c.req.valid("param") as { mailboxId: string; conversationId: string }),
+        ...internalParams(c, c.req.valid("param") as { mailboxId: string; conversationId: string }),
       }),
     ),
   )
@@ -1172,12 +1379,12 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("conversationId")),
     v("json", updateConversationSummarySchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         conversationSummaries.updateConversationSummary({
           context: requestContext(c),
-          ...(c.req.valid("param") as { mailboxId: string; conversationId: string }),
-          input: c.req.valid("json"),
+          ...internalParams(c, c.req.valid("param") as { mailboxId: string; conversationId: string }),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       ),
   )
@@ -1186,18 +1393,20 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("conversationId")),
     v("json", mergeConversationsInputSchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         conversationId: string;
       };
-      return respond(
+      const input = c.req.valid("json");
+      return respondMergedConversations(
         c,
         conversations.mergeConversations({
           context: requestContext(c),
           mailboxId: params.mailboxId,
           targetConversationId: params.conversationId,
-          input: c.req.valid("json"),
+          input: await internalInput(c, input),
         }),
+        input.sourceConversationId,
       );
     },
   )
@@ -1206,17 +1415,17 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("conversationId")),
     v("json", splitConversationInputSchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         conversationId: string;
       };
-      return respond(
+      return respondSplitConversations(
         c,
         conversations.splitConversation({
           context: requestContext(c),
           mailboxId: params.mailboxId,
           conversationId: params.conversationId,
-          input: c.req.valid("json"),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       );
     },
@@ -1226,19 +1435,19 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndTwoIdsParamSchema("conversationId", "messageId")),
     v("json", reassignConversationMessageInputSchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         conversationId: string;
         messageId: string;
       };
-      return respond(
+      return respondReassignedMessage(
         c,
         conversations.reassignConversationMessage({
           context: requestContext(c),
           mailboxId: params.mailboxId,
           sourceConversationId: params.conversationId,
           messageId: params.messageId,
-          input: c.req.valid("json"),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       );
     },
@@ -1247,11 +1456,11 @@ const mailOperationsApi = new Hono<AuthContext>()
     "/mailboxes/:mailboxId/conversations/:conversationId/collaboration",
     v("param", mailboxAndIdParamSchema("conversationId")),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         conversationId: string;
       };
-      return respond(
+      return respondPublic(
         c,
         collaboration.getConversationCollaboration({
           context: requestContext(c),
@@ -1265,29 +1474,32 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("conversationId")),
     v("json", updateConversationCollaborationSchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         conversationId: string;
       };
-      return respond(
+      return respondPublic(
         c,
         collaboration.updateConversationCollaboration({
           context: requestContext(c),
           ...params,
-          input: c.req.valid("json"),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       );
     },
   )
   .get("/mailboxes/:mailboxId/conversations/:conversationId/reminder", v("param", mailboxAndIdParamSchema("conversationId")), async (c) =>
-    respond(
+    respondReminders(
       c,
       reminders.getConversationReminder({
         context: requestContext(c),
-        ...(c.req.valid("param") as {
-          mailboxId: string;
-          conversationId: string;
-        }),
+        ...internalParams(
+          c,
+          c.req.valid("param") as {
+            mailboxId: string;
+            conversationId: string;
+          },
+        ),
       }),
     ),
   )
@@ -1296,15 +1508,18 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("conversationId")),
     v("json", setConversationReminderSchema),
     async (c) =>
-      respond(
+      respondReminders(
         c,
         reminders.setConversationReminder({
           context: requestContext(c),
-          ...(c.req.valid("param") as {
-            mailboxId: string;
-            conversationId: string;
-          }),
-          input: c.req.valid("json"),
+          ...internalParams(
+            c,
+            c.req.valid("param") as {
+              mailboxId: string;
+              conversationId: string;
+            },
+          ),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       ),
   )
@@ -1313,27 +1528,33 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("conversationId")),
     v("json", cancelConversationReminderSchema),
     async (c) =>
-      respond(
+      respondReminders(
         c,
         reminders.cancelConversationReminder({
           context: requestContext(c),
-          ...(c.req.valid("param") as {
-            mailboxId: string;
-            conversationId: string;
-          }),
-          input: c.req.valid("json"),
+          ...internalParams(
+            c,
+            c.req.valid("param") as {
+              mailboxId: string;
+              conversationId: string;
+            },
+          ),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       ),
   )
   .get("/mailboxes/:mailboxId/conversations/:conversationId/presence", v("param", mailboxAndIdParamSchema("conversationId")), async (c) =>
-    respond(
+    respondPublic(
       c,
       presence.getConversationPresence({
         context: requestContext(c),
-        ...(c.req.valid("param") as {
-          mailboxId: string;
-          conversationId: string;
-        }),
+        ...internalParams(
+          c,
+          c.req.valid("param") as {
+            mailboxId: string;
+            conversationId: string;
+          },
+        ),
       }),
     ),
   )
@@ -1342,15 +1563,18 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("conversationId")),
     v("json", conversationPresenceHeartbeatSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         presence.heartbeatConversationPresence({
           context: requestContext(c),
-          ...(c.req.valid("param") as {
-            mailboxId: string;
-            conversationId: string;
-          }),
-          input: c.req.valid("json"),
+          ...internalParams(
+            c,
+            c.req.valid("param") as {
+              mailboxId: string;
+              conversationId: string;
+            },
+          ),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       ),
   )
@@ -1359,15 +1583,18 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("conversationId")),
     v("json", conversationPresenceLeaveSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         presence.leaveConversationPresence({
           context: requestContext(c),
-          ...(c.req.valid("param") as {
-            mailboxId: string;
-            conversationId: string;
-          }),
-          peerId: c.req.valid("json").peerId,
+          ...internalParams(
+            c,
+            c.req.valid("param") as {
+              mailboxId: string;
+              conversationId: string;
+            },
+          ),
+          peerId: (await internalInput(c, c.req.valid("json"))).peerId,
         }),
       ),
   )
@@ -1376,16 +1603,16 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("conversationId")),
     v("query", cursorQuerySchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         conversationId: string;
       };
-      return respond(
+      return respondPublic(
         c,
         collaboration.listConversationComments({
           context: requestContext(c),
           ...params,
-          ...c.req.valid("query"),
+          ...(await internalInput(c, c.req.valid("query"))),
         }),
       );
     },
@@ -1395,16 +1622,16 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("conversationId")),
     v("json", createConversationCommentSchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         conversationId: string;
       };
-      return respond(
+      return respondComments(
         c,
         collaboration.createConversationComment({
           context: requestContext(c),
           ...params,
-          input: c.req.valid("json"),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       );
     },
@@ -1414,19 +1641,19 @@ const mailOperationsApi = new Hono<AuthContext>()
     v(
       "param",
       z.object({
-        mailboxId: z.string().uuid(),
-        conversationId: z.string().uuid(),
-        commentId: z.string().uuid(),
+        mailboxId: ResourceShortIdSchema,
+        conversationId: ResourceShortIdSchema,
+        commentId: ResourceShortIdSchema,
       }),
     ),
     v("json", updateConversationCommentSchema),
     async (c) =>
-      respond(
+      respondComments(
         c,
         collaboration.updateConversationComment({
           context: requestContext(c),
-          ...c.req.valid("param"),
-          input: c.req.valid("json"),
+          ...internalParams(c, c.req.valid("param")),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       ),
   )
@@ -1435,19 +1662,19 @@ const mailOperationsApi = new Hono<AuthContext>()
     v(
       "param",
       z.object({
-        mailboxId: z.string().uuid(),
-        conversationId: z.string().uuid(),
-        commentId: z.string().uuid(),
+        mailboxId: ResourceShortIdSchema,
+        conversationId: ResourceShortIdSchema,
+        commentId: ResourceShortIdSchema,
       }),
     ),
     v("json", deleteConversationCommentSchema),
     async (c) =>
-      respond(
+      respondComments(
         c,
         collaboration.deleteConversationComment({
           context: requestContext(c),
-          ...c.req.valid("param"),
-          input: c.req.valid("json"),
+          ...internalParams(c, c.req.valid("param")),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       ),
   )
@@ -1456,33 +1683,33 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("conversationId")),
     v("json", conversationTriageInputSchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         conversationId: string;
       };
-      return respond(
+      return respondPublic(
         c,
         triage.createConversationTriageCommands({
           context: requestContext(c),
           ...params,
-          input: c.req.valid("json"),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       );
     },
   )
   .get("/mailboxes/:mailboxId/messages/:messageId", v("param", mailboxAndIdParamSchema("messageId")), async (c) => {
-    const params = c.req.valid("param") as {
+    const params = internalParams(c, c.req.valid("param")) as {
       mailboxId: string;
       messageId: string;
     };
-    return respond(c, messages.getMessage({ context: requestContext(c), ...params }));
+    return respondMessages(c, messages.getMessage({ context: requestContext(c), ...params }));
   })
   .post("/mailboxes/:mailboxId/messages/:messageId/security-report", v("param", mailboxAndIdParamSchema("messageId")), async (c) =>
-    respond(
+    respondPublic(
       c,
       security.reportMessage({
         context: requestContext(c),
-        ...(c.req.valid("param") as { mailboxId: string; messageId: string }),
+        ...internalParams(c, c.req.valid("param") as { mailboxId: string; messageId: string }),
       }),
     ),
   )
@@ -1491,41 +1718,41 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("messageId")),
     v("json", deriveDraftFromMessageInputSchema),
     async (c) => {
-      const params = c.req.valid("param") as { mailboxId: string; messageId: string };
-      return respond(
+      const params = internalParams(c, c.req.valid("param")) as { mailboxId: string; messageId: string };
+      return respondDrafts(
         c,
         drafts.deriveDraftFromMessage({
           context: requestContext(c),
           ...params,
-          input: c.req.valid("json"),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       );
     },
   )
   .get("/mailboxes/:mailboxId/messages/:messageId/inspector", v("param", mailboxAndIdParamSchema("messageId")), async (c) => {
-    const params = c.req.valid("param") as {
+    const params = internalParams(c, c.req.valid("param")) as {
       mailboxId: string;
       messageId: string;
     };
-    return respond(c, messageInspector.inspectMessage({ context: requestContext(c), ...params }));
+    return respondMessages(c, messageInspector.inspectMessage({ context: requestContext(c), ...params }));
   })
   .get("/mailboxes/:mailboxId/messages/:messageId/source-preview", v("param", mailboxAndIdParamSchema("messageId")), async (c) => {
-    const params = c.req.valid("param") as {
+    const params = internalParams(c, c.req.valid("param")) as {
       mailboxId: string;
       messageId: string;
     };
-    return respond(c, messageInspector.previewMessageSource({ context: requestContext(c), ...params }));
+    return respondMessageSource(c, messageInspector.previewMessageSource({ context: requestContext(c), ...params }));
   })
   .get(
     "/mailboxes/:mailboxId/messages/:messageId/source",
     v("param", mailboxAndIdParamSchema("messageId")),
     v("query", messageSourceQuerySchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         messageId: string;
       };
-      const query = c.req.valid("query");
+      const query = await internalInput(c, c.req.valid("query"));
       return attachmentDownloadResponse(
         c,
         await messageInspector.openMessageSource({ context: requestContext(c), ...params }),
@@ -1544,19 +1771,19 @@ const mailOperationsApi = new Hono<AuthContext>()
     v(
       "param",
       z.object({
-        mailboxId: z.string().uuid(),
-        messageId: z.string().uuid(),
-        attachmentId: z.string().uuid(),
+        mailboxId: ResourceShortIdSchema,
+        messageId: ResourceShortIdSchema,
+        attachmentId: ResourceShortIdSchema,
       }),
     ),
     v("query", attachmentQuerySchema),
     async (c) => {
       const context = requestContext(c);
-      const params = c.req.valid("param");
+      const params = internalParams(c, c.req.valid("param"));
       return attachmentDownloadResponse(
         c,
         await messages.openAttachment({ context, ...params }),
-        c.req.valid("query"),
+        await internalInput(c, c.req.valid("query")),
         async (expectedBlobId) => {
           const current = await messages.openAttachment({ context, ...params });
           if (!current.ok || current.data.blobId !== expectedBlobId) {
@@ -1571,15 +1798,15 @@ const mailOperationsApi = new Hono<AuthContext>()
     v(
       "param",
       z.object({
-        mailboxId: z.string().uuid(),
-        messageId: z.string().uuid(),
-        attachmentId: z.string().uuid(),
+        mailboxId: ResourceShortIdSchema,
+        messageId: ResourceShortIdSchema,
+        attachmentId: ResourceShortIdSchema,
       }),
     ),
     v("json", createAttachmentLinkInputSchema),
     async (c) => {
-      const params = c.req.valid("param");
-      return respond(
+      const params = internalParams(c, c.req.valid("param"));
+      return respondPublic(
         c,
         attachmentLinks.createPublicAttachmentLink({
           context: requestContext(c),
@@ -1587,20 +1814,23 @@ const mailOperationsApi = new Hono<AuthContext>()
           sourceKind: "message",
           sourceId: params.messageId,
           attachmentId: params.attachmentId,
-          input: c.req.valid("json"),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       );
     },
   )
-  .get("/mailboxes/:mailboxId/attachment-links", v("param", uuidParamSchema), v("query", cursorQuerySchema), async (c) =>
-    respond(c, attachmentLinks.listPublicAttachmentLinks(requestContext(c), c.req.valid("param").mailboxId, c.req.valid("query"))),
+  .get("/mailboxes/:mailboxId/attachment-links", v("param", mailboxParamSchema), v("query", cursorQuerySchema), async (c) =>
+    respondPublic(
+      c,
+      attachmentLinks.listPublicAttachmentLinks(requestContext(c), internalMailboxId(c), await internalInput(c, c.req.valid("query"))),
+    ),
   )
-  .delete("/mailboxes/:mailboxId/attachment-links/:linkId", v("param", mailboxAndIdParamSchema("linkId")), async (c) => {
-    const params = c.req.valid("param") as {
+  .delete("/mailboxes/:mailboxId/attachment-links/:linkId", v("param", mailboxAndIdParamSchema("linkId", z.uuid())), async (c) => {
+    const params = internalParams(c, c.req.valid("param")) as {
       mailboxId: string;
       linkId: string;
     };
-    return respond(
+    return respondPublic(
       c,
       attachmentLinks.revokePublicAttachmentLink({
         context: requestContext(c),
@@ -1608,29 +1838,29 @@ const mailOperationsApi = new Hono<AuthContext>()
       }),
     );
   })
-  .post("/mailboxes/:mailboxId/search", v("param", uuidParamSchema), v("json", searchRequestSchema), async (c) =>
-    respond(
+  .post("/mailboxes/:mailboxId/search", v("param", mailboxParamSchema), v("json", searchRequestSchema), async (c) =>
+    respondMessages(
       c,
       search.searchMessages({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        request: c.req.valid("json"),
+        mailboxId: internalMailboxId(c),
+        request: await internalInput(c, c.req.valid("json")),
       }),
     ),
   )
-  .get("/mailboxes/:mailboxId/sender-identities", v("param", uuidParamSchema), async (c) =>
-    respond(c, senderIdentities.listSenderIdentities(requestContext(c), c.req.valid("param").mailboxId)),
+  .get("/mailboxes/:mailboxId/sender-identities", v("param", mailboxParamSchema), async (c) =>
+    respondSenderIdentities(c, senderIdentities.listSenderIdentities(requestContext(c), internalMailboxId(c))),
   )
-  .get("/mailboxes/:mailboxId/compose-templates", v("param", uuidParamSchema), async (c) =>
-    respond(c, composeTemplates.listComposeTemplates(requestContext(c), c.req.valid("param").mailboxId)),
+  .get("/mailboxes/:mailboxId/compose-templates", v("param", mailboxParamSchema), async (c) =>
+    respondComposeTemplates(c, composeTemplates.listComposeTemplates(requestContext(c), internalMailboxId(c))),
   )
-  .post("/mailboxes/:mailboxId/compose-templates", v("param", uuidParamSchema), v("json", createComposeTemplateInputSchema), async (c) =>
-    respond(
+  .post("/mailboxes/:mailboxId/compose-templates", v("param", mailboxParamSchema), v("json", createComposeTemplateInputSchema), async (c) =>
+    respondComposeTemplates(
       c,
       composeTemplates.createComposeTemplate({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        input: c.req.valid("json"),
+        mailboxId: internalMailboxId(c),
+        input: await internalInput(c, c.req.valid("json")),
       }),
     ),
   )
@@ -1639,16 +1869,16 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("templateId")),
     v("json", updateComposeTemplateInputSchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         templateId: string;
       };
-      return respond(
+      return respondComposeTemplates(
         c,
         composeTemplates.updateComposeTemplate({
           context: requestContext(c),
           ...params,
-          input: c.req.valid("json"),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       );
     },
@@ -1658,106 +1888,106 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("templateId")),
     v("json", archiveComposeTemplateInputSchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         templateId: string;
       };
-      return respond(
+      return respondComposeTemplates(
         c,
         composeTemplates.archiveComposeTemplate({
           context: requestContext(c),
           ...params,
-          input: c.req.valid("json"),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       );
     },
   )
-  .get("/mailboxes/:mailboxId/compose-signature-defaults", v("param", uuidParamSchema), async (c) =>
-    respond(c, composeTemplates.listComposeSignatureDefaults(requestContext(c), c.req.valid("param").mailboxId)),
+  .get("/mailboxes/:mailboxId/compose-signature-defaults", v("param", mailboxParamSchema), async (c) =>
+    respondPublic(c, composeTemplates.listComposeSignatureDefaults(requestContext(c), internalMailboxId(c))),
   )
   .put(
     "/mailboxes/:mailboxId/sender-identities/:senderIdentityId/compose-signature-default",
     v("param", mailboxAndIdParamSchema("senderIdentityId")),
     v("json", setComposeSignatureDefaultInputSchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         senderIdentityId: string;
       };
-      return respond(
+      return respondPublic(
         c,
         composeTemplates.setComposeSignatureDefault({
           context: requestContext(c),
           ...params,
-          input: c.req.valid("json"),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       );
     },
   )
-  .get("/mailboxes/:mailboxId/compose-style", v("param", uuidParamSchema), async (c) =>
-    respond(c, composeTemplates.getMailboxComposeStyle(requestContext(c), c.req.valid("param").mailboxId)),
+  .get("/mailboxes/:mailboxId/compose-style", v("param", mailboxParamSchema), async (c) =>
+    respondPublic(c, composeTemplates.getMailboxComposeStyle(requestContext(c), internalMailboxId(c))),
   )
-  .put("/mailboxes/:mailboxId/compose-style", v("param", uuidParamSchema), v("json", updateMailboxComposeStyleInputSchema), async (c) =>
-    respond(
+  .put("/mailboxes/:mailboxId/compose-style", v("param", mailboxParamSchema), v("json", updateMailboxComposeStyleInputSchema), async (c) =>
+    respondPublic(
       c,
       composeTemplates.updateMailboxComposeStyle({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        input: c.req.valid("json"),
+        mailboxId: internalMailboxId(c),
+        input: await internalInput(c, c.req.valid("json")),
       }),
     ),
   )
-  .post("/mailboxes/:mailboxId/compose-preview", v("param", uuidParamSchema), v("json", composePreviewInputSchema), async (c) =>
-    respond(
+  .post("/mailboxes/:mailboxId/compose-preview", v("param", mailboxParamSchema), v("json", composePreviewInputSchema), async (c) =>
+    respondPublic(
       c,
       composeTemplates.previewComposeDraft({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        input: c.req.valid("json"),
+        mailboxId: internalMailboxId(c),
+        input: await internalInput(c, c.req.valid("json")),
       }),
     ),
   )
-  .post("/mailboxes/:mailboxId/compose-snippet", v("param", uuidParamSchema), v("json", renderComposeSnippetInputSchema), async (c) =>
-    respond(
+  .post("/mailboxes/:mailboxId/compose-snippet", v("param", mailboxParamSchema), v("json", renderComposeSnippetInputSchema), async (c) =>
+    respondPublic(
       c,
       composeTemplates.renderComposeSnippet({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        input: c.req.valid("json"),
+        mailboxId: internalMailboxId(c),
+        input: await internalInput(c, c.req.valid("json")),
       }),
     ),
   )
-  .post("/mailboxes/:mailboxId/compose-suggestions", v("param", uuidParamSchema), v("json", composeSuggestionsInputSchema), async (c) =>
-    respond(
+  .post("/mailboxes/:mailboxId/compose-suggestions", v("param", mailboxParamSchema), v("json", composeSuggestionsInputSchema), async (c) =>
+    respondPublic(
       c,
       composeTemplates.renderComposeSuggestions({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        input: c.req.valid("json"),
+        mailboxId: internalMailboxId(c),
+        input: await internalInput(c, c.req.valid("json")),
       }),
     ),
   )
-  .post("/mailboxes/:mailboxId/sender-identities", v("param", uuidParamSchema), v("json", createSenderIdentityInputSchema), async (c) =>
-    respond(
+  .post("/mailboxes/:mailboxId/sender-identities", v("param", mailboxParamSchema), v("json", createSenderIdentityInputSchema), async (c) =>
+    respondSenderIdentities(
       c,
       senderIdentities.createSenderIdentity({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        input: c.req.valid("json"),
+        mailboxId: internalMailboxId(c),
+        input: await internalInput(c, c.req.valid("json")),
       }),
     ),
   )
   .post(
     "/mailboxes/:mailboxId/sender-identities/default/setup",
-    v("param", uuidParamSchema),
+    v("param", mailboxParamSchema),
     v("json", defaultSenderSetupInputSchema),
     async (c) =>
-      respond(
+      respondSenderIdentities(
         c,
         senderIdentities.setupDefaultSender({
           context: requestContext(c),
-          mailboxId: c.req.valid("param").mailboxId,
-          input: c.req.valid("json"),
+          mailboxId: internalMailboxId(c),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       ),
   )
@@ -1766,16 +1996,16 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("senderIdentityId")),
     v("json", updateSenderIdentityInputSchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         senderIdentityId: string;
       };
-      return respond(
+      return respondSenderIdentities(
         c,
         senderIdentities.updateSenderIdentity({
           context: requestContext(c),
           ...params,
-          input: c.req.valid("json"),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       );
     },
@@ -1784,11 +2014,11 @@ const mailOperationsApi = new Hono<AuthContext>()
     "/mailboxes/:mailboxId/sender-identities/:senderIdentityId",
     v("param", mailboxAndIdParamSchema("senderIdentityId")),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         senderIdentityId: string;
       };
-      return respond(
+      return respondSenderIdentities(
         c,
         senderIdentities.disableSenderIdentity({
           context: requestContext(c),
@@ -1802,71 +2032,71 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("senderIdentityId")),
     v("json", verifyIdentitySchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         senderIdentityId: string;
       };
-      return respond(
+      return respondSenderIdentities(
         c,
         senderIdentities.verifySenderIdentity({
           context: requestContext(c),
           ...params,
-          ...c.req.valid("json"),
+          ...(await internalInput(c, c.req.valid("json"))),
         }),
       );
     },
   )
-  .get("/mailboxes/:mailboxId/drafts", v("param", uuidParamSchema), v("query", limitQuerySchema), async (c) =>
-    respond(c, drafts.listDrafts(requestContext(c), c.req.valid("param").mailboxId, c.req.valid("query").limit)),
+  .get("/mailboxes/:mailboxId/drafts", v("param", mailboxParamSchema), v("query", limitQuerySchema), async (c) =>
+    respondDrafts(c, drafts.listDrafts(requestContext(c), internalMailboxId(c), (await internalInput(c, c.req.valid("query"))).limit)),
   )
   .get("/mailboxes/:mailboxId/drafts/:draftId", v("param", mailboxAndIdParamSchema("draftId")), async (c) => {
-    const params = c.req.valid("param") as {
+    const params = internalParams(c, c.req.valid("param")) as {
       mailboxId: string;
       draftId: string;
     };
-    return respond(c, drafts.getDraft(requestContext(c), params.mailboxId, params.draftId));
+    return respondDrafts(c, drafts.getDraft(requestContext(c), params.mailboxId, params.draftId));
   })
-  .post("/mailboxes/:mailboxId/draft-seeds", v("param", uuidParamSchema), v("json", prepareDraftSeedInputSchema), async (c) =>
-    respond(
+  .post("/mailboxes/:mailboxId/draft-seeds", v("param", mailboxParamSchema), v("json", prepareDraftSeedInputSchema), async (c) =>
+    respondPublic(
       c,
       drafts.prepareDraftSeed({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        origin: c.req.valid("json").origin,
+        mailboxId: internalMailboxId(c),
+        origin: (await internalInput(c, c.req.valid("json"))).origin,
       }),
     ),
   )
   .post(
     "/mailboxes/:mailboxId/draft-seeds/materialize",
-    v("param", uuidParamSchema),
+    v("param", mailboxParamSchema),
     v("json", materializeDraftSeedInputSchema),
     async (c) =>
-      respond(
+      respondDrafts(
         c,
         drafts.materializeDraftSeed({
           context: requestContext(c),
-          mailboxId: c.req.valid("param").mailboxId,
-          input: c.req.valid("json"),
+          mailboxId: internalMailboxId(c),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       ),
   )
-  .post("/mailboxes/:mailboxId/drafts", v("param", uuidParamSchema), v("json", draftContentInputSchema), async (c) =>
-    respond(
+  .post("/mailboxes/:mailboxId/drafts", v("param", mailboxParamSchema), v("json", draftContentInputSchema), async (c) =>
+    respondDrafts(
       c,
       drafts.createDraft({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        input: c.req.valid("json"),
+        mailboxId: internalMailboxId(c),
+        input: await internalInput(c, c.req.valid("json")),
       }),
     ),
   )
   .put("/mailboxes/:mailboxId/drafts/:draftId", v("param", mailboxAndIdParamSchema("draftId")), v("json", updateDraftSchema), async (c) => {
-    const params = c.req.valid("param") as {
+    const params = internalParams(c, c.req.valid("param")) as {
       mailboxId: string;
       draftId: string;
     };
-    const input = c.req.valid("json");
-    return respond(
+    const input = await internalInput(c, c.req.valid("json"));
+    return respondDrafts(
       c,
       drafts.updateDraft({
         context: requestContext(c),
@@ -1881,23 +2111,23 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("draftId")),
     v("json", composeSafetyReviewInputSchema),
     async (c) => {
-      const params = c.req.valid("param") as { mailboxId: string; draftId: string };
-      return respond(
+      const params = internalParams(c, c.req.valid("param")) as { mailboxId: string; draftId: string };
+      return respondPublic(
         c,
         composeSafety.reviewDraftComposeSafety({
           context: requestContext(c),
           ...params,
-          expectedRevision: c.req.valid("json").expectedRevision,
+          expectedRevision: (await internalInput(c, c.req.valid("json"))).expectedRevision,
         }),
       );
     },
   )
   .get("/mailboxes/:mailboxId/drafts/:draftId/recovery-copies", v("param", mailboxAndIdParamSchema("draftId")), async (c) =>
-    respond(
+    respondPublic(
       c,
       drafts.listDraftRecoveryCopies({
         context: requestContext(c),
-        ...(c.req.valid("param") as { mailboxId: string; draftId: string }),
+        ...internalParams(c, c.req.valid("param") as { mailboxId: string; draftId: string }),
       }),
     ),
   )
@@ -1906,29 +2136,29 @@ const mailOperationsApi = new Hono<AuthContext>()
     v(
       "param",
       z.object({
-        mailboxId: z.string().uuid(),
-        draftId: z.string().uuid(),
+        mailboxId: ResourceShortIdSchema,
+        draftId: ResourceShortIdSchema,
         recoveryCopyId: z.string().uuid(),
       }),
     ),
     v("json", draftRecoveryRestoreSchema),
     async (c) =>
-      respond(
+      respondDrafts(
         c,
         drafts.restoreDraftRecoveryCopy({
           context: requestContext(c),
-          ...c.req.valid("param"),
-          expectedRevision: c.req.valid("json").expectedRevision,
-          leaseToken: c.req.valid("json").leaseToken,
+          ...internalParams(c, c.req.valid("param")),
+          expectedRevision: (await internalInput(c, c.req.valid("json"))).expectedRevision,
+          leaseToken: (await internalInput(c, c.req.valid("json"))).leaseToken,
         }),
       ),
   )
   .get("/mailboxes/:mailboxId/drafts/:draftId/lease", v("param", mailboxAndIdParamSchema("draftId")), async (c) =>
-    respond(
+    respondPublic(
       c,
       draftLeases.getDraftLease({
         context: requestContext(c),
-        ...(c.req.valid("param") as { mailboxId: string; draftId: string }),
+        ...internalParams(c, c.req.valid("param") as { mailboxId: string; draftId: string }),
       }),
     ),
   )
@@ -1937,12 +2167,12 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("draftId")),
     v("json", acquireDraftLeaseSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         draftLeases.acquireDraftLease({
           context: requestContext(c),
-          ...(c.req.valid("param") as { mailboxId: string; draftId: string }),
-          takeover: c.req.valid("json").takeover,
+          ...internalParams(c, c.req.valid("param") as { mailboxId: string; draftId: string }),
+          takeover: (await internalInput(c, c.req.valid("json"))).takeover,
         }),
       ),
   )
@@ -1951,12 +2181,12 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("draftId")),
     v("json", draftLeaseTokenSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         draftLeases.heartbeatDraftLease({
           context: requestContext(c),
-          ...(c.req.valid("param") as { mailboxId: string; draftId: string }),
-          token: c.req.valid("json").token,
+          ...internalParams(c, c.req.valid("param") as { mailboxId: string; draftId: string }),
+          token: (await internalInput(c, c.req.valid("json"))).token,
         }),
       ),
   )
@@ -1965,12 +2195,12 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("draftId")),
     v("json", draftLeaseTokenSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         draftLeases.releaseDraftLease({
           context: requestContext(c),
-          ...(c.req.valid("param") as { mailboxId: string; draftId: string }),
-          token: c.req.valid("json").token,
+          ...internalParams(c, c.req.valid("param") as { mailboxId: string; draftId: string }),
+          token: (await internalInput(c, c.req.valid("json"))).token,
         }),
       ),
   )
@@ -1979,16 +2209,16 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("draftId")),
     v("json", draftRevisionSchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         draftId: string;
       };
-      return respond(
+      return respondDrafts(
         c,
         drafts.discardDraft({
           context: requestContext(c),
           ...params,
-          expectedRevision: c.req.valid("json").expectedRevision,
+          expectedRevision: (await internalInput(c, c.req.valid("json"))).expectedRevision,
         }),
       );
     },
@@ -1998,20 +2228,20 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("draftId")),
     v("query", attachmentUploadQuerySchema),
     async (c) => {
-      const params = c.req.valid("param") as {
+      const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;
         draftId: string;
       };
-      const query = c.req.valid("query");
+      const query = await internalInput(c, c.req.valid("query"));
       const contentLength = c.req.header("content-length");
-      if (contentLength == null) return respond(c, fail(err.badInput("Attachment Content-Length is required")));
+      if (contentLength == null) return respondPublic(c, fail(err.badInput("Attachment Content-Length is required")));
       const expectedSize = Number(contentLength);
       if (!Number.isSafeInteger(expectedSize) || expectedSize < 0) {
-        return respond(c, fail(err.badInput("Invalid attachment Content-Length")));
+        return respondPublic(c, fail(err.badInput("Invalid attachment Content-Length")));
       }
       const body = c.req.raw.body;
-      if (!body && expectedSize > 0) return respond(c, fail(err.badInput("Attachment body is required")));
-      return respond(
+      if (!body && expectedSize > 0) return respondPublic(c, fail(err.badInput("Attachment body is required")));
+      return respondDrafts(
         c,
         draftUploads.uploadDraftAttachmentStream({
           context: requestContext(c),
@@ -2030,19 +2260,19 @@ const mailOperationsApi = new Hono<AuthContext>()
     v(
       "param",
       z.object({
-        mailboxId: z.string().uuid(),
-        draftId: z.string().uuid(),
-        attachmentId: z.string().uuid(),
+        mailboxId: ResourceShortIdSchema,
+        draftId: ResourceShortIdSchema,
+        attachmentId: ResourceShortIdSchema,
       }),
     ),
     v("query", attachmentQuerySchema),
     async (c) => {
       const context = requestContext(c);
-      const params = c.req.valid("param");
+      const params = internalParams(c, c.req.valid("param"));
       return attachmentDownloadResponse(
         c,
         await drafts.openDraftAttachment({ context, ...params }),
-        c.req.valid("query"),
+        await internalInput(c, c.req.valid("query")),
         async (expectedBlobId) => {
           const current = await drafts.openDraftAttachment({
             context,
@@ -2060,19 +2290,19 @@ const mailOperationsApi = new Hono<AuthContext>()
     v(
       "param",
       z.object({
-        mailboxId: z.string().uuid(),
-        draftId: z.string().uuid(),
-        attachmentId: z.string().uuid(),
+        mailboxId: ResourceShortIdSchema,
+        draftId: ResourceShortIdSchema,
+        attachmentId: ResourceShortIdSchema,
       }),
     ),
     v("query", draftRevisionSchema),
     async (c) =>
-      respond(
+      respondDrafts(
         c,
         drafts.removeDraftAttachment({
           context: requestContext(c),
-          ...c.req.valid("param"),
-          expectedRevision: c.req.valid("query").expectedRevision,
+          ...internalParams(c, c.req.valid("param")),
+          expectedRevision: (await internalInput(c, c.req.valid("query"))).expectedRevision,
         }),
       ),
   )
@@ -2081,15 +2311,15 @@ const mailOperationsApi = new Hono<AuthContext>()
     v(
       "param",
       z.object({
-        mailboxId: z.string().uuid(),
-        draftId: z.string().uuid(),
-        attachmentId: z.string().uuid(),
+        mailboxId: ResourceShortIdSchema,
+        draftId: ResourceShortIdSchema,
+        attachmentId: ResourceShortIdSchema,
       }),
     ),
     v("json", createAttachmentLinkInputSchema),
     async (c) => {
-      const params = c.req.valid("param");
-      return respond(
+      const params = internalParams(c, c.req.valid("param"));
+      return respondPublic(
         c,
         attachmentLinks.createPublicAttachmentLink({
           context: requestContext(c),
@@ -2097,17 +2327,17 @@ const mailOperationsApi = new Hono<AuthContext>()
           sourceKind: "draft",
           sourceId: params.draftId,
           attachmentId: params.attachmentId,
-          input: c.req.valid("json"),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       );
     },
   )
   .get("/mailboxes/:mailboxId/drafts/:draftId/attachment-uploads", v("param", mailboxAndIdParamSchema("draftId")), async (c) =>
-    respond(
+    respondPublic(
       c,
       draftUploads.listDraftAttachmentUploads({
         context: requestContext(c),
-        ...(c.req.valid("param") as { mailboxId: string; draftId: string }),
+        ...internalParams(c, c.req.valid("param") as { mailboxId: string; draftId: string }),
       }),
     ),
   )
@@ -2116,12 +2346,12 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("draftId")),
     v("json", createDraftAttachmentUploadSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         draftUploads.createDraftAttachmentUpload({
           context: requestContext(c),
-          ...(c.req.valid("param") as { mailboxId: string; draftId: string }),
-          input: c.req.valid("json"),
+          ...internalParams(c, c.req.valid("param") as { mailboxId: string; draftId: string }),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       ),
   )
@@ -2130,17 +2360,17 @@ const mailOperationsApi = new Hono<AuthContext>()
     v(
       "param",
       z.object({
-        mailboxId: z.string().uuid(),
-        draftId: z.string().uuid(),
+        mailboxId: ResourceShortIdSchema,
+        draftId: ResourceShortIdSchema,
         uploadId: z.string().uuid(),
       }),
     ),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         draftUploads.getDraftAttachmentUpload({
           context: requestContext(c),
-          ...c.req.valid("param"),
+          ...internalParams(c, c.req.valid("param")),
         }),
       ),
   )
@@ -2149,21 +2379,21 @@ const mailOperationsApi = new Hono<AuthContext>()
     v(
       "param",
       z.object({
-        mailboxId: z.string().uuid(),
-        draftId: z.string().uuid(),
+        mailboxId: ResourceShortIdSchema,
+        draftId: ResourceShortIdSchema,
         uploadId: z.string().uuid(),
       }),
     ),
     v("query", attachmentChunkQuerySchema),
     async (c) => {
       const body = await readBoundedBody(c.req.raw.body, draftUploads.DRAFT_UPLOAD_CHUNK_BYTES);
-      if (!body.ok) return respond(c, body);
-      return respond(
+      if (!body.ok) return respondPublic(c, body);
+      return respondPublic(
         c,
         draftUploads.appendDraftAttachmentUpload({
           context: requestContext(c),
-          ...c.req.valid("param"),
-          offset: c.req.valid("query").offset,
+          ...internalParams(c, c.req.valid("param")),
+          offset: (await internalInput(c, c.req.valid("query"))).offset,
           bytes: body.data,
         }),
       );
@@ -2174,19 +2404,19 @@ const mailOperationsApi = new Hono<AuthContext>()
     v(
       "param",
       z.object({
-        mailboxId: z.string().uuid(),
-        draftId: z.string().uuid(),
+        mailboxId: ResourceShortIdSchema,
+        draftId: ResourceShortIdSchema,
         uploadId: z.string().uuid(),
       }),
     ),
     v("json", draftRevisionSchema),
     async (c) =>
-      respond(
+      respondDrafts(
         c,
         draftUploads.finalizeDraftAttachmentUpload({
           context: requestContext(c),
-          ...c.req.valid("param"),
-          expectedRevision: c.req.valid("json").expectedRevision,
+          ...internalParams(c, c.req.valid("param")),
+          expectedRevision: (await internalInput(c, c.req.valid("json"))).expectedRevision,
         }),
       ),
   )
@@ -2195,64 +2425,64 @@ const mailOperationsApi = new Hono<AuthContext>()
     v(
       "param",
       z.object({
-        mailboxId: z.string().uuid(),
-        draftId: z.string().uuid(),
+        mailboxId: ResourceShortIdSchema,
+        draftId: ResourceShortIdSchema,
         uploadId: z.string().uuid(),
       }),
     ),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         draftUploads.cancelDraftAttachmentUpload({
           context: requestContext(c),
-          ...c.req.valid("param"),
+          ...internalParams(c, c.req.valid("param")),
         }),
       ),
   )
-  .post("/mailboxes/:mailboxId/commands", v("param", uuidParamSchema), v("json", mailCommandInputSchema), async (c) =>
-    respond(
+  .post("/mailboxes/:mailboxId/commands", v("param", mailboxParamSchema), v("json", mailCommandInputSchema), async (c) =>
+    respondPublic(
       c,
       commands.createMailCommand({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        input: c.req.valid("json"),
+        mailboxId: internalMailboxId(c),
+        input: await internalInput(c, c.req.valid("json")),
       }),
     ),
   )
-  .post("/mailboxes/:mailboxId/operator-actions", v("param", uuidParamSchema), v("json", maintenanceCommandInputSchema), async (c) =>
-    respond(
+  .post("/mailboxes/:mailboxId/operator-actions", v("param", mailboxParamSchema), v("json", maintenanceCommandInputSchema), async (c) =>
+    respondPublic(
       c,
       commands.createMaintenanceCommand({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        input: c.req.valid("json"),
+        mailboxId: internalMailboxId(c),
+        input: await internalInput(c, c.req.valid("json")),
       }),
     ),
   )
-  .get("/mailboxes/:mailboxId/commands", v("param", uuidParamSchema), v("query", limitQuerySchema), async (c) =>
-    respond(c, commands.listCommands(requestContext(c), c.req.valid("param").mailboxId, c.req.valid("query").limit)),
+  .get("/mailboxes/:mailboxId/commands", v("param", mailboxParamSchema), v("query", limitQuerySchema), async (c) =>
+    respondPublic(c, commands.listCommands(requestContext(c), internalMailboxId(c), (await internalInput(c, c.req.valid("query"))).limit)),
   )
-  .get("/mailboxes/:mailboxId/commands/:commandId", v("param", mailboxAndIdParamSchema("commandId")), async (c) => {
-    const params = c.req.valid("param") as {
+  .get("/mailboxes/:mailboxId/commands/:commandId", v("param", mailboxAndIdParamSchema("commandId", z.uuid())), async (c) => {
+    const params = internalParams(c, c.req.valid("param")) as {
       mailboxId: string;
       commandId: string;
     };
-    return respond(c, commands.getCommand(requestContext(c), params.mailboxId, params.commandId));
+    return respondPublic(c, commands.getCommand(requestContext(c), params.mailboxId, params.commandId));
   })
-  .post("/mailboxes/:mailboxId/commands/:commandId/cancel", v("param", mailboxAndIdParamSchema("commandId")), async (c) => {
-    const params = c.req.valid("param") as {
+  .post("/mailboxes/:mailboxId/commands/:commandId/cancel", v("param", mailboxAndIdParamSchema("commandId", z.uuid())), async (c) => {
+    const params = internalParams(c, c.req.valid("param")) as {
       mailboxId: string;
       commandId: string;
     };
-    return respond(c, cancelSendCommand({ context: requestContext(c), ...params }));
+    return respondPublic(c, cancelSendCommand({ context: requestContext(c), ...params }));
   })
-  .get("/mailboxes/:mailboxId/scheduled-sends", v("param", uuidParamSchema), v("query", cursorQuerySchema), async (c) =>
-    respond(
+  .get("/mailboxes/:mailboxId/scheduled-sends", v("param", mailboxParamSchema), v("query", cursorQuerySchema), async (c) =>
+    respondDeliveries(
       c,
       scheduledSends.listScheduledSends({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
-        ...c.req.valid("query"),
+        mailboxId: internalMailboxId(c),
+        ...(await internalInput(c, c.req.valid("query"))),
       }),
     ),
   )
@@ -2261,39 +2491,44 @@ const mailOperationsApi = new Hono<AuthContext>()
     v("param", mailboxAndIdParamSchema("scheduledSendId")),
     v("json", cancelScheduledSendInputSchema),
     async (c) =>
-      respond(
+      respondDeliveries(
         c,
         scheduledSends.cancelScheduledSend({
           context: requestContext(c),
-          ...(c.req.valid("param") as {
-            mailboxId: string;
-            scheduledSendId: string;
-          }),
-          input: c.req.valid("json"),
+          ...internalParams(
+            c,
+            c.req.valid("param") as {
+              mailboxId: string;
+              scheduledSendId: string;
+            },
+          ),
+          input: await internalInput(c, c.req.valid("json")),
         }),
       ),
   )
   .route("/", workflowRoutes);
 
-const adminApi = new Hono<AuthContext>()
+const adminApi = new Hono<MailApiContext>()
   .use("/admin/*", auth.requireRole("admin"))
+  .use("/admin/mailboxes/:mailboxId", resolveMailboxParam)
+  .use("/admin/mailboxes/:mailboxId/*", resolveMailboxParam)
   .get("/admin/operations", v("query", platformOperationsQuerySchema), async (c) =>
-    respond(c, operations.getPlatformMailOperations(requestContext(c), c.req.valid("query"))),
+    respondPublic(c, operations.getPlatformMailOperations(requestContext(c), c.req.valid("query"))),
   )
-  .get("/admin/mailboxes/:mailboxId/operations", v("param", uuidParamSchema), async (c) =>
-    respond(c, operations.getPlatformMailboxOperation(requestContext(c), c.req.valid("param").mailboxId)),
+  .get("/admin/mailboxes/:mailboxId/operations", v("param", mailboxParamSchema), async (c) =>
+    respondPublic(c, operations.getPlatformMailboxOperation(requestContext(c), internalMailboxId(c))),
   )
-  .get("/admin/mailboxes/:mailboxId/access", v("param", uuidParamSchema), async (c) =>
-    respond(c, mailboxAccess.listMailboxAccessAsPlatformAdmin(requestContext(c), c.req.valid("param").mailboxId)),
+  .get("/admin/mailboxes/:mailboxId/access", v("param", mailboxParamSchema), async (c) =>
+    respondPublic(c, mailboxAccess.listMailboxAccessAsPlatformAdmin(requestContext(c), internalMailboxId(c))),
   )
-  .post("/admin/mailboxes/:mailboxId/access", v("param", uuidParamSchema), v("json", GrantAccessSchema), async (c) => {
-    const input = c.req.valid("json");
-    if (input.permission === "none") return respond(c, fail(err.badInput("Access permission cannot be none")));
-    return respond(
+  .post("/admin/mailboxes/:mailboxId/access", v("param", mailboxParamSchema), v("json", GrantAccessSchema), async (c) => {
+    const input = await internalInput(c, c.req.valid("json"));
+    if (input.permission === "none") return respondPublic(c, fail(err.badInput("Access permission cannot be none")));
+    return respondPublic(
       c,
       mailboxAccess.grantMailboxAccessAsPlatformAdmin({
         context: requestContext(c),
-        mailboxId: c.req.valid("param").mailboxId,
+        mailboxId: internalMailboxId(c),
         principal: input.principal,
         permission: input.permission,
       }),
@@ -2301,13 +2536,13 @@ const adminApi = new Hono<AuthContext>()
   })
   .patch(
     "/admin/mailboxes/:mailboxId/access/:accessId",
-    v("param", mailboxAndIdParamSchema("accessId")),
+    v("param", mailboxAndIdParamSchema("accessId", z.uuid())),
     v("json", UpdateAccessSchema),
     async (c) => {
-      const params = c.req.valid("param") as { mailboxId: string; accessId: string };
-      const { permission } = c.req.valid("json");
-      if (permission === "none") return respond(c, fail(err.badInput("Use DELETE to revoke access")));
-      return respond(
+      const params = internalParams(c, c.req.valid("param")) as { mailboxId: string; accessId: string };
+      const { permission } = await internalInput(c, c.req.valid("json"));
+      if (permission === "none") return respondPublic(c, fail(err.badInput("Use DELETE to revoke access")));
+      return respondPublic(
         c,
         mailboxAccess.updateMailboxAccessAsPlatformAdmin({
           context: requestContext(c),
@@ -2317,9 +2552,9 @@ const adminApi = new Hono<AuthContext>()
       );
     },
   )
-  .delete("/admin/mailboxes/:mailboxId/access/:accessId", v("param", mailboxAndIdParamSchema("accessId")), async (c) => {
-    const params = c.req.valid("param") as { mailboxId: string; accessId: string };
-    return respond(
+  .delete("/admin/mailboxes/:mailboxId/access/:accessId", v("param", mailboxAndIdParamSchema("accessId", z.uuid())), async (c) => {
+    const params = internalParams(c, c.req.valid("param")) as { mailboxId: string; accessId: string };
+    return respondPublic(
       c,
       mailboxAccess.revokeMailboxAccessAsPlatformAdmin({
         context: requestContext(c),
@@ -2327,61 +2562,61 @@ const adminApi = new Hono<AuthContext>()
       }),
     );
   })
-  .get("/admin/storage", async (c) => respond(c, storageObservability.getMailStorageSummary(requestContext(c))))
-  .post("/admin/storage/reconcile", async (c) => respond(c, storageObservability.requestMailStorageReconciliation(requestContext(c))))
+  .get("/admin/storage", async (c) => respondPublic(c, storageObservability.getMailStorageSummary(requestContext(c))))
+  .post("/admin/storage/reconcile", async (c) => respondPublic(c, storageObservability.requestMailStorageReconciliation(requestContext(c))))
   .get("/admin/security/reports", v("query", mailSecurityListQuerySchema), async (c) =>
-    respond(c, security.listReports(requestContext(c), c.req.valid("query"))),
+    respondPublic(c, security.listReports(requestContext(c), c.req.valid("query"))),
   )
   .patch(
     "/admin/security/reports/:reportId",
     v("param", z.object({ reportId: z.string().uuid() })),
     v("json", resolveMailSecurityReportInputSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         security.resolveReport({
           context: requestContext(c),
           reportId: c.req.valid("param").reportId,
-          ...c.req.valid("json"),
+          ...(await internalInput(c, c.req.valid("json"))),
         }),
       ),
   )
-  .get("/admin/security/policies", async (c) => respond(c, security.listPolicies(requestContext(c))))
+  .get("/admin/security/policies", async (c) => respondPublic(c, security.listPolicies(requestContext(c))))
   .post("/admin/security/policies", v("json", createMailSecurityPolicyInputSchema), async (c) =>
-    respond(c, security.createPolicy({ context: requestContext(c), input: c.req.valid("json") })),
+    respondPublic(c, security.createPolicy({ context: requestContext(c), input: c.req.valid("json") })),
   )
   .patch(
     "/admin/security/policies/:policyId",
     v("param", z.object({ policyId: z.string().uuid() })),
     v("json", updateMailSecurityPolicyInputSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         security.updatePolicy({ context: requestContext(c), policyId: c.req.valid("param").policyId, input: c.req.valid("json") }),
       ),
   )
   .delete("/admin/security/policies/:policyId", v("param", z.object({ policyId: z.string().uuid() })), async (c) =>
-    respond(c, security.deletePolicy(requestContext(c), c.req.valid("param").policyId)),
+    respondPublic(c, security.deletePolicy(requestContext(c), c.req.valid("param").policyId)),
   )
-  .get("/admin/security/protected-identities", async (c) => respond(c, security.listProtectedIdentities(requestContext(c))))
+  .get("/admin/security/protected-identities", async (c) => respondPublic(c, security.listProtectedIdentities(requestContext(c))))
   .post("/admin/security/protected-identities", v("json", createMailProtectedIdentityInputSchema), async (c) =>
-    respond(c, security.createProtectedIdentity({ context: requestContext(c), input: c.req.valid("json") })),
+    respondPublic(c, security.createProtectedIdentity({ context: requestContext(c), input: c.req.valid("json") })),
   )
   .delete("/admin/security/protected-identities/:identityId", v("param", z.object({ identityId: z.string().uuid() })), async (c) =>
-    respond(c, security.deleteProtectedIdentity(requestContext(c), c.req.valid("param").identityId)),
+    respondPublic(c, security.deleteProtectedIdentity(requestContext(c), c.req.valid("param").identityId)),
   )
-  .get("/admin/security/settings", async (c) => respond(c, security.getSettings(requestContext(c))))
+  .get("/admin/security/settings", async (c) => respondPublic(c, security.getSettings(requestContext(c))))
   .patch("/admin/security/settings", v("json", updateMailSecuritySettingsInputSchema), async (c) =>
-    respond(c, security.updateSettings({ context: requestContext(c), ...c.req.valid("json") })),
+    respondPublic(c, security.updateSettings({ context: requestContext(c), ...c.req.valid("json") })),
   );
 
-const authenticatedApi = new Hono<AuthContext>()
+const authenticatedApi = new Hono<MailApiContext>()
   .route("/", providerOAuthApi)
   .route("/", resourceRoutes)
   .route("/", adminApi)
   .route("/", mailOperationsApi);
 
-const api = new Hono<AuthContext>()
+const api = new Hono<MailApiContext>()
   .use(rateLimit())
   .route("/ws", wsRoutes)
   .use(auth.requireRole("authenticated"))

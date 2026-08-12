@@ -48,8 +48,8 @@ export type CalendarAttendee = z.infer<typeof CalendarAttendeeSchema>;
 
 export const CalendarInvitationSourceSchema = z
   .object({
-    mailboxId: z.string().uuid(),
-    messageId: z.string().uuid(),
+    mailboxId: ResourceShortIdSchema,
+    messageId: ResourceShortIdSchema,
   })
   .strict();
 
@@ -85,7 +85,7 @@ export const CalendarInvitationPreviewSchema = z
       .object({
         participationStatus: z.enum(["accepted", "tentative", "declined"]),
         state: z.literal("drafted"),
-        draftId: z.string().uuid(),
+        draftId: ResourceShortIdSchema,
         updatedAt: z.string().datetime(),
       })
       .strict()
@@ -124,7 +124,7 @@ export type CalendarInvitationResponse = z.infer<typeof CalendarInvitationRespon
 
 export const CalendarInvitationResponseCommitInputSchema = CalendarInvitationSourceSchema.extend({
   participationStatus: CalendarParticipationStatusSchema,
-  draftId: z.string().uuid(),
+  draftId: ResourceShortIdSchema,
 }).strict();
 export type CalendarInvitationResponseCommitInput = z.infer<typeof CalendarInvitationResponseCommitInputSchema>;
 
@@ -152,13 +152,13 @@ export type SpacesMailDestinationContext = z.infer<typeof SpacesMailDestinationC
 
 export const MailInvitationMailboxSchema = z
   .object({
-    id: z.string().uuid(),
+    id: ResourceShortIdSchema,
     name: z.string().min(1).max(160),
     identities: z
       .array(
         z
           .object({
-            id: z.string().uuid(),
+            id: ResourceShortIdSchema,
             label: z.string().min(1).max(160),
             from: CalendarAddressSchema,
             isDefault: z.boolean(),
@@ -175,8 +175,8 @@ export type MailInvitationMailbox = z.infer<typeof MailInvitationMailboxSchema>;
 export const CreateEventInvitationDraftInputSchema = z
   .object({
     idempotencyKey: z.string().uuid(),
-    mailboxId: z.string().uuid(),
-    senderIdentityId: z.string().uuid(),
+    mailboxId: ResourceShortIdSchema,
+    senderIdentityId: ResourceShortIdSchema,
     attendees: z.array(CalendarAddressSchema).min(1).max(200),
     method: z.enum(["request", "cancel"]).default("request"),
   })
@@ -193,7 +193,7 @@ export const EventInvitationContextSchema = z
         sequence: z.number().int().nonnegative(),
         method: z.enum(["request", "cancel"]),
         state: z.enum(["preparing", "prepared", "drafted", "failed"]),
-        draftId: z.string().uuid().nullable(),
+        draftId: ResourceShortIdSchema.nullable(),
         errorMessage: z.string().max(2_000).nullable(),
         updatedAt: z.string().datetime(),
       })
@@ -206,8 +206,8 @@ export type EventInvitationContext = z.infer<typeof EventInvitationContextSchema
 export const MailEventInvitationDraftInputSchema = z
   .object({
     idempotencyKey: z.string().uuid(),
-    mailboxId: z.string().uuid(),
-    senderIdentityId: z.string().uuid(),
+    mailboxId: ResourceShortIdSchema,
+    senderIdentityId: ResourceShortIdSchema,
     to: z.array(CalendarAddressSchema).min(1).max(200),
     subject: z.string().min(1).max(998),
     body: z.string().max(20_000),
@@ -218,8 +218,8 @@ export type MailEventInvitationDraftInput = z.infer<typeof MailEventInvitationDr
 
 export const MailEventInvitationDraftSchema = z
   .object({
-    mailboxId: z.string().uuid(),
-    draftId: z.string().uuid(),
+    mailboxId: ResourceShortIdSchema,
+    draftId: ResourceShortIdSchema,
   })
   .strict();
 export type MailEventInvitationDraft = z.infer<typeof MailEventInvitationDraftSchema>;

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mailConversationContextSchema } from "./contracts";
 
-const CONVERSATION_ID = "11111111-1111-4111-8111-111111111111";
+const CONVERSATION_ID = "Conv01";
 
 describe("Mail conversation context contracts", () => {
   test("accepts bounded Contacts context", () => {

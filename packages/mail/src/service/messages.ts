@@ -9,6 +9,7 @@ import { type ConversationCursorScope, decodeConversationCursor, encodeConversat
 import { resolveMailExecution } from "./execution";
 import { mailingListMetadata } from "./mailing-list-metadata";
 import { parseMessageProtocolFacts } from "./message-protocol";
+import { resolveMailboxPublicId } from "./public-resources";
 import { type MessageRemoteContent, resolveMessagesRemoteContent } from "./remote-content";
 import { assessMessages } from "./security";
 
@@ -507,7 +508,6 @@ export type MessageSummary = {
   keywords: string[];
   hydrationStatus: string;
   remoteAvailable: boolean;
-  remoteMessageRefId: string | null;
   folderId: string | null;
 };
 
@@ -539,7 +539,6 @@ const mapMessageSummary = (row: DbMessageSummary): MessageSummary => ({
   keywords: row.keywords ?? [],
   hydrationStatus: row.hydration_status,
   remoteAvailable: row.remote_available,
-  remoteMessageRefId: row.remote_message_ref_id,
   folderId: row.folder_id,
 });
 
@@ -868,6 +867,8 @@ export const getMessage = async (params: {
 }): Promise<Result<MessageDetail>> => {
   const access = await resolveMailExecution({ mailboxId: params.mailboxId, operation: "actorRead", context: params.context });
   if (!access.ok) return access;
+  const messageId = await resolveMailboxPublicId("messages", params.mailboxId, params.messageId);
+  if (!messageId) return fail(err.notFound("Message"));
   const [row] = await sql<DbMessageDetail[]>`
     SELECT ${messageDetailSelect}
     FROM mail.message_contents mc
@@ -875,7 +876,7 @@ export const getMessage = async (params: {
     ${messageDetailAddressJoin}
     ${messageDetailAttachmentJoin}
     ${messageDetailDeliveryJoin}
-    WHERE mc.id = ${params.messageId}::uuid AND mc.mailbox_id = ${params.mailboxId}::uuid
+    WHERE mc.id = ${messageId}::uuid AND mc.mailbox_id = ${params.mailboxId}::uuid
   `;
   if (!row) return fail(err.notFound("Message"));
   const resolved = await attachMessageMetadata(params.context, params.mailboxId, [mapMessageDetail(row)]);
@@ -900,6 +901,11 @@ export const openAttachment = async (params: {
 }): Promise<Result<AttachmentDownload>> => {
   const access = await resolveMailExecution({ mailboxId: params.mailboxId, operation: "actorRead", context: params.context });
   if (!access.ok) return access;
+  const [messageId, attachmentId] = await Promise.all([
+    resolveMailboxPublicId("messages", params.mailboxId, params.messageId),
+    resolveMailboxPublicId("attachments", params.mailboxId, params.attachmentId),
+  ]);
+  if (!messageId || !attachmentId) return fail(err.notFound("Attachment"));
   const [attachment] = await sql<
     {
       blob_id: string;
@@ -922,8 +928,8 @@ export const openAttachment = async (params: {
     FROM mail.attachments a
     JOIN mail.message_contents mc ON mc.id = a.message_id
     JOIN mail.message_part_blobs blob ON blob.id = a.blob_id AND blob.complete = true
-    WHERE a.id = ${params.attachmentId}::uuid
-      AND a.message_id = ${params.messageId}::uuid
+    WHERE a.id = ${attachmentId}::uuid
+      AND a.message_id = ${messageId}::uuid
       AND mc.mailbox_id = ${params.mailboxId}::uuid
   `;
   if (!attachment) return fail(err.notFound("Attachment"));

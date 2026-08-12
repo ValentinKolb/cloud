@@ -17,6 +17,7 @@ export const MESSAGE_SOURCE_PREVIEW_LIMIT_BYTES = 256 * 1024;
 
 type InspectorMessageRow = {
   id: string;
+  short_id: string;
   message_id: string | null;
   in_reply_to: string | null;
   reference_ids: string[];
@@ -35,8 +36,7 @@ type InspectorMessageRow = {
 };
 
 type PlacementRow = {
-  remote_message_ref_id: string;
-  folder_id: string;
+  folder_short_id: string;
   folder_name: string;
   remote_path: string | null;
   uid_validity: string | number | bigint;
@@ -61,6 +61,7 @@ type PartRow = {
 
 type AttachmentRow = {
   id: string;
+  short_id: string;
   part_id: string;
   filename: string | null;
   content_type: string;
@@ -165,6 +166,7 @@ const loadMessage = async (mailboxId: string, messageId: string): Promise<Inspec
   const [message] = await sql<InspectorMessageRow[]>`
     SELECT
       message.id,
+      message.short_id,
       message.message_id,
       message.in_reply_to,
       message.reference_ids,
@@ -213,8 +215,7 @@ export const inspectMessage = async (params: {
   const [placements, parts, attachments] = await Promise.all([
     sql<PlacementRow[]>`
       SELECT
-        remote_ref.id AS remote_message_ref_id,
-        folder.id AS folder_id,
+        folder.short_id AS folder_short_id,
         folder.name AS folder_name,
         folder_ref.remote_path,
         remote_ref.uid_validity,
@@ -255,7 +256,7 @@ export const inspectMessage = async (params: {
       LIMIT ${MESSAGE_INSPECTOR_PART_LIMIT + 1}
     `,
     sql<AttachmentRow[]>`
-      SELECT id, part_id, filename, content_type, disposition, content_id, size_bytes
+      SELECT id, short_id, part_id, filename, content_type, disposition, content_id, size_bytes
       FROM mail.attachments
       WHERE message_id = ${params.messageId}::uuid
       ORDER BY id
@@ -327,7 +328,7 @@ export const inspectMessage = async (params: {
   const protocolFacts = parseMessageProtocolFacts(parseJsonObject(message.protocol_facts));
   const mailingList = mailingListMetadata(protocolFacts);
   const value = {
-    id: message.id,
+    id: message.short_id,
     messageId: message.message_id,
     inReplyTo: message.in_reply_to,
     referenceIds: message.reference_ids,
@@ -350,8 +351,7 @@ export const inspectMessage = async (params: {
     rawHeaders: parsedHeaders.rawHeaders,
     headersComplete: parsedHeaders.complete,
     placements: placements.slice(0, MESSAGE_INSPECTOR_PLACEMENT_LIMIT).map((placement) => ({
-      remoteMessageRefId: placement.remote_message_ref_id,
-      folderId: placement.folder_id,
+      folderId: placement.folder_short_id,
       folderName: placement.folder_name,
       remotePath: placement.remote_path ?? placement.folder_name,
       uidValidity: String(placement.uid_validity),
@@ -361,7 +361,6 @@ export const inspectMessage = async (params: {
       keywords: placement.keywords,
     })),
     parts: parts.slice(0, MESSAGE_INSPECTOR_PART_LIMIT).map((part) => ({
-      id: part.id,
       partPath: part.part_path,
       contentType: part.content_type,
       charset: part.charset,
@@ -373,8 +372,7 @@ export const inspectMessage = async (params: {
       hydrationStatus: part.hydration_status,
     })),
     attachments: attachments.slice(0, MESSAGE_INSPECTOR_ATTACHMENT_LIMIT).map((attachment) => ({
-      id: attachment.id,
-      partId: attachment.part_id,
+      id: attachment.short_id,
       filename: attachment.filename,
       contentType: attachment.content_type,
       disposition: attachment.disposition,
@@ -421,7 +419,7 @@ export const previewMessageSource = async (params: {
   if (!currentAccess.ok) return currentAccess;
 
   const parsed = messageSourcePreviewSchema.safeParse({
-    messageId: loaded.data.id,
+    messageId: loaded.data.short_id,
     exact: true,
     text: new TextDecoder("utf-8", { fatal: false }).decode(prefix.bytes),
     byteLength: prefix.blob.byteLength,
@@ -457,7 +455,7 @@ export const openMessageSource = async (params: {
       return fail(err.internal("Message source metadata is invalid"));
     }
     return ok({
-      messageId: loaded.data.id,
+      messageId: loaded.data.short_id,
       blobId: blob.id,
       total: blob.byteLength,
       chunkSize: blob.chunkSize,

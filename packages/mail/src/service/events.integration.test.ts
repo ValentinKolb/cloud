@@ -16,16 +16,18 @@ const suite = enabled ? describe : describe.skip;
 suite("Mail live invalidation outbox", () => {
   const mailboxId = crypto.randomUUID();
   const conversationId = crypto.randomUUID();
+  const mailboxShortId = "Box001";
+  const conversationShortId = "Conv01";
 
   beforeAll(async () => {
     await migrate();
     await sql`
-      INSERT INTO mail.mailboxes (id, name)
-      VALUES (${mailboxId}::uuid, 'Live invalidation test')
+      INSERT INTO mail.mailboxes (id, short_id, name)
+      VALUES (${mailboxId}::uuid, ${mailboxShortId}, 'Live invalidation test')
     `;
     await sql`
-      INSERT INTO mail.conversations (id, mailbox_id, latest_message_at)
-      VALUES (${conversationId}::uuid, ${mailboxId}::uuid, now())
+      INSERT INTO mail.conversations (id, short_id, mailbox_id, latest_message_at)
+      VALUES (${conversationId}::uuid, ${conversationShortId}, ${mailboxId}::uuid, now())
     `;
   });
 
@@ -65,6 +67,7 @@ suite("Mail live invalidation outbox", () => {
     `;
     expect(queued?.count).toBe(1);
 
+    await sql`DELETE FROM mail.conversations WHERE id = ${conversationId}::uuid`;
     await notifyMailInvalidations();
     const events = await Promise.all(
       pendingEvents.map((pendingEvent) =>
@@ -80,8 +83,8 @@ suite("Mail live invalidation outbox", () => {
       expect(event.done).toBe(false);
       expect(event.value?.data).toMatchObject({
         type: "mail.invalidated",
-        mailboxId,
-        conversationId,
+        mailboxId: mailboxShortId,
+        conversationId: conversationShortId,
         changeId: expect.any(String),
       });
     }

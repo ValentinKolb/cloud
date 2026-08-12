@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { encryptSecret } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { app } from "../config";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import { createMailNotificationService, type MailNotificationSendInput } from "../notifications";
 import { grantMailboxAccess, revokeMailboxAccess } from "./access";
@@ -114,15 +115,15 @@ suite("mail collaboration operations", () => {
     `;
     remoteResourceId = resource!.id;
     const [folder] = await sql<{ id: string }[]>`
-      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
-      VALUES (${resource!.id}::uuid, 'operations-inbox', 'Inbox', 'inbox', 'current')
+      INSERT INTO mail.folders (short_id, remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${newShortId()}, ${resource!.id}::uuid, 'operations-inbox', 'Inbox', 'inbox', 'current')
       RETURNING id
     `;
     const messageDate = new Date(Date.now() - 60_000);
     const [message] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, normalized_subject, internal_date, size_bytes, content_hash, hydration_status, plain_text
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid,
         ${`<mail-ops-${suffix}@example.com>`},
         'Collaboration operations',
@@ -145,9 +146,9 @@ suite("mail collaboration operations", () => {
       VALUES (${remoteRef!.id}::uuid, ${folder!.id}::uuid, ${message!.id}::uuid, ARRAY[]::text[], ARRAY[]::text[])
     `;
     const [conversation] = await sql<{ id: string }[]>`
-      INSERT INTO mail.conversations (
+      INSERT INTO mail.conversations (short_id,
         mailbox_id, subject, participant_summary, latest_message_at, assignee_user_id, work_status
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid,
         'Collaboration operations',
         'customer@example.com',

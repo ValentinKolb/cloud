@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { deleteWorkflowScope } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
@@ -76,6 +77,53 @@ suite("incoming automations", () => {
       permission: "write",
     });
     if (!access.ok) throw new Error(access.error.message);
+    const scopeFingerprint = `${"e".repeat(56)}${suffix}`;
+    const [connection] = await sql<{ id: string }[]>`
+      INSERT INTO mail.provider_connections (
+        owner_mailbox_id, name, email, username,
+        imap_host, imap_port, imap_tls_mode,
+        smtp_host, smtp_port, smtp_tls_mode,
+        secret_kind, encrypted_secret, status
+      ) VALUES (
+        ${mailboxId}::uuid, 'Incoming automation fixture', 'automation@example.test', 'automation@example.test',
+        'imap.example.test', 993, 'implicit',
+        'smtp.example.test', 465, 'implicit',
+        'password', 'fixture-secret', 'active'
+      )
+      RETURNING id
+    `;
+    if (!connection) throw new Error("Failed to create incoming automation provider connection");
+    const [resource] = await sql<{ id: string }[]>`
+      INSERT INTO mail.remote_resources (mailbox_id, remote_locator, server_identity, scope_fingerprint, status)
+      VALUES (${mailboxId}::uuid, '{}'::jsonb, '{}'::jsonb, ${scopeFingerprint}, 'active')
+      RETURNING id
+    `;
+    if (!resource) throw new Error("Failed to create incoming automation remote resource");
+    const [binding] = await sql<{ id: string }[]>`
+      INSERT INTO mail.provider_bindings (
+        remote_resource_id, connection_id, state, remote_locator,
+        verified_scope_fingerprint, verified_secret_revision
+      ) VALUES (
+        ${resource.id}::uuid, ${connection.id}::uuid, 'active', '{}'::jsonb,
+        ${scopeFingerprint}, 1
+      )
+      RETURNING id
+    `;
+    if (!binding) throw new Error("Failed to create incoming automation provider binding");
+    const [junkFolder] = await sql<{ id: string }[]>`
+      INSERT INTO mail.folders (short_id, remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${newShortId()}, ${resource.id}::uuid, ${`incoming-automation-junk-${suffix}`}, 'Junk', 'junk', 'current')
+      RETURNING id
+    `;
+    if (!junkFolder) throw new Error("Failed to create incoming automation junk folder");
+    await sql`
+      INSERT INTO mail.binding_folder_refs (
+        binding_id, folder_id, remote_path, uid_validity, uid_next, effective_rights, last_verified_at
+      ) VALUES (
+        ${binding.id}::uuid, ${junkFolder.id}::uuid, 'Junk', 1, 1,
+        ARRAY['read', 'insert', 'move']::text[], now()
+      )
+    `;
   });
 
   afterAll(async () => {

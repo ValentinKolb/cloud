@@ -1,6 +1,6 @@
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
-import { userBackedActor, type MailRequestContext } from "./auth";
+import { type MailRequestContext, userBackedActor } from "./auth";
 import { requireMailboxCollaborationPermission } from "./collaboration";
 import type { CollaborationNotificationKind } from "./notification-outbox";
 
@@ -33,21 +33,23 @@ export const resolveMailNotificationTarget = async (params: {
 
   const user = userBackedActor(params.context);
   if (!user) return fail(err.notFound("Notification target"));
-  const [reminder] = await db<{ conversation_id: string }[]>`
-    SELECT reminder.conversation_id
+  const [reminder] = await db<{ mailbox_short_id: string; conversation_short_id: string }[]>`
+    SELECT mailbox.short_id AS mailbox_short_id, conversation.short_id AS conversation_short_id
     FROM mail.conversation_reminders reminder
     JOIN mail.conversations conversation ON conversation.id = reminder.conversation_id
+    JOIN mail.mailboxes mailbox ON mailbox.id = reminder.mailbox_id
     WHERE reminder.id = ${params.sourceId}::uuid
       AND reminder.user_id = ${user.id}::uuid
       AND conversation.mailbox_id = ${params.mailboxId}::uuid
   `;
   if (reminder) {
-    return ok({ href: conversationHref({ mailboxId: params.mailboxId, conversationId: reminder.conversation_id }) });
+    return ok({ href: conversationHref({ mailboxId: reminder.mailbox_short_id, conversationId: reminder.conversation_short_id }) });
   }
-  const [delivery] = await db<{ conversation_id: string }[]>`
-    SELECT delivery.conversation_id
+  const [delivery] = await db<{ mailbox_short_id: string; conversation_short_id: string }[]>`
+    SELECT mailbox.short_id AS mailbox_short_id, conversation.short_id AS conversation_short_id
     FROM mail.collaboration_notification_deliveries delivery
     JOIN mail.conversations conversation ON conversation.id = delivery.conversation_id
+    JOIN mail.mailboxes mailbox ON mailbox.id = delivery.mailbox_id
     WHERE delivery.kind = 'reminder'
       AND delivery.source_id = ${params.sourceId}::uuid
       AND delivery.recipient_user_id = ${user.id}::uuid
@@ -57,6 +59,6 @@ export const resolveMailNotificationTarget = async (params: {
     LIMIT 1
   `;
   return delivery
-    ? ok({ href: conversationHref({ mailboxId: params.mailboxId, conversationId: delivery.conversation_id }) })
+    ? ok({ href: conversationHref({ mailboxId: delivery.mailbox_short_id, conversationId: delivery.conversation_short_id }) })
     : fail(err.notFound("Notification target"));
 };

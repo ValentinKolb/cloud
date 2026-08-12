@@ -6,6 +6,7 @@ import type {
   OperatorActionKind,
   OperatorActionSafety,
 } from "../contracts";
+import { withShortIdDb } from "../lib/short-id";
 import { SEARCH_CHUNK_CHARACTERS, SEARCH_CHUNK_OVERLAP_CHARACTERS } from "./search-chunks";
 
 type SqlClient = typeof sql;
@@ -240,55 +241,66 @@ const rebuildSearchProjection = async (db: SqlClient, mailboxId: string): Promis
 
 const rebuildThreadProjection = async (db: SqlClient, mailboxId: string): Promise<JsonRecord> => {
   await db`SELECT id FROM mail.message_contents WHERE mailbox_id = ${mailboxId}::uuid ORDER BY id FOR SHARE`;
-  const created = await db<{ message_id: string }[]>`
-    WITH orphan AS MATERIALIZED (
-      SELECT
-        message.id AS message_id,
-        gen_random_uuid() AS conversation_id,
-        message.subject,
-        message.internal_date,
-        EXISTS (
-          SELECT 1 FROM mail.message_addresses sender
-          JOIN mail.sender_identities identity
-            ON identity.mailbox_id = message.mailbox_id
-           AND lower(identity.from_address) = sender.normalized_email
-          WHERE sender.message_id = message.id AND sender.role = 'from'
-        ) AS outbound,
-        (
-          (message.in_reply_to IS NOT NULL OR cardinality(message.reference_ids) > 0)
-          AND COALESCE(
-            NULLIF(lower(btrim(message.protocol_facts->>'autoSubmitted')), ''),
-            'no'
-          ) = 'no'
-        ) AS human_reply,
-        COALESCE((
-          SELECT string_agg(COALESCE(NULLIF(address.display_name, ''), address.email), ', ' ORDER BY address.position)
-          FROM mail.message_addresses address WHERE address.message_id = message.id
-        ), '') AS participants
-      FROM mail.message_contents message
-      WHERE message.mailbox_id = ${mailboxId}::uuid
-        AND NOT EXISTS (SELECT 1 FROM mail.conversation_messages link WHERE link.message_id = message.id)
-    ), inserted AS (
-      INSERT INTO mail.conversations (
-        id, mailbox_id, subject, participant_summary, latest_inbound_at, latest_outbound_at, latest_message_at, work_status
-      )
-      SELECT
-        orphan.conversation_id,
-        ${mailboxId}::uuid,
-        orphan.subject,
-        orphan.participants,
-        CASE WHEN orphan.outbound THEN NULL ELSE orphan.internal_date END,
-        CASE WHEN orphan.outbound THEN orphan.internal_date ELSE NULL END,
-        orphan.internal_date,
-        CASE WHEN orphan.outbound AND orphan.human_reply THEN 'waiting' ELSE 'needs_action' END
-      FROM orphan
-      RETURNING id
-    )
-    INSERT INTO mail.conversation_messages (conversation_id, message_id, position, added_by)
-    SELECT orphan.conversation_id, orphan.message_id, floor(extract(epoch FROM orphan.internal_date) * 1000)::bigint, 'heuristic'
-    FROM orphan JOIN inserted ON inserted.id = orphan.conversation_id
-    RETURNING message_id
+  const orphans = await db<
+    {
+      message_id: string;
+      subject: string;
+      internal_date: Date | string;
+      outbound: boolean;
+      human_reply: boolean;
+      participants: string;
+    }[]
+  >`
+    SELECT
+      message.id AS message_id,
+      message.subject,
+      message.internal_date,
+      EXISTS (
+        SELECT 1 FROM mail.message_addresses sender
+        JOIN mail.sender_identities identity
+          ON identity.mailbox_id = message.mailbox_id
+         AND lower(identity.from_address) = sender.normalized_email
+        WHERE sender.message_id = message.id AND sender.role = 'from'
+      ) AS outbound,
+      (
+        (message.in_reply_to IS NOT NULL OR cardinality(message.reference_ids) > 0)
+        AND COALESCE(NULLIF(lower(btrim(message.protocol_facts->>'autoSubmitted')), ''), 'no') = 'no'
+      ) AS human_reply,
+      COALESCE((
+        SELECT string_agg(COALESCE(NULLIF(address.display_name, ''), address.email), ', ' ORDER BY address.position)
+        FROM mail.message_addresses address WHERE address.message_id = message.id
+      ), '') AS participants
+    FROM mail.message_contents message
+    WHERE message.mailbox_id = ${mailboxId}::uuid
+      AND NOT EXISTS (SELECT 1 FROM mail.conversation_messages link WHERE link.message_id = message.id)
+    ORDER BY message.id
   `;
+  for (const orphan of orphans) {
+    const rows = await withShortIdDb(
+      db,
+      "conversation",
+      (attempt, shortId) => attempt<{ id: string }[]>`
+      INSERT INTO mail.conversations (
+        short_id, mailbox_id, subject, participant_summary,
+        latest_inbound_at, latest_outbound_at, latest_message_at, work_status
+      ) VALUES (
+        ${shortId}, ${mailboxId}::uuid, ${orphan.subject}, ${orphan.participants},
+        ${orphan.outbound ? null : orphan.internal_date}, ${orphan.outbound ? orphan.internal_date : null},
+        ${orphan.internal_date}, ${orphan.outbound && orphan.human_reply ? "waiting" : "needs_action"}
+      )
+      RETURNING id
+    `,
+    );
+    const conversation = rows[0];
+    if (!conversation) throw new Error("Thread rebuild conversation insert returned no row");
+    await db`
+      INSERT INTO mail.conversation_messages (conversation_id, message_id, position, added_by)
+      VALUES (
+        ${conversation.id}::uuid, ${orphan.message_id}::uuid,
+        floor(extract(epoch FROM ${orphan.internal_date}::timestamptz) * 1000)::bigint, 'heuristic'
+      )
+    `;
+  }
   const refreshed = await db<{ id: string }[]>`
     WITH classified AS (
       SELECT
@@ -346,7 +358,7 @@ const rebuildThreadProjection = async (db: SqlClient, mailboxId: string): Promis
       AND participants.conversation_id = conversation.id
     RETURNING conversation.id
   `;
-  return { createdSingletonThreads: created.length, refreshedThreads: refreshed.length };
+  return { createdSingletonThreads: orphans.length, refreshedThreads: refreshed.length };
 };
 
 export const executeOperatorAction = async (params: {

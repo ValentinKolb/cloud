@@ -25,8 +25,6 @@ export type FrozenMailAttachment = {
 
 export type FrozenMailMessage = {
   id: string;
-  remoteMessageRefId: string;
-  messageId: string;
   conversationId: string | null;
   subject: string;
   body: string;
@@ -68,6 +66,11 @@ export type FrozenMailWorkflowSource = {
 
 export type FrozenMailWorkflowPreconditions = {
   sourceHash: string;
+  message: {
+    id: string;
+    remoteMessageRefId: string;
+    folderId: string;
+  };
   remoteState: {
     modseq: string | null;
     flags: string[];
@@ -79,13 +82,14 @@ export type FrozenMailWorkflowPreconditions = {
 
 export type MailWorkflowTargetSnapshot = {
   targetKey: string;
+  mailboxShortId: string;
   source: FrozenMailWorkflowSource;
   preconditions: FrozenMailWorkflowPreconditions;
   internalDate: string;
 };
 
-export const mailWorkflowEventContext = (mailboxId: string, snapshot: MailWorkflowTargetSnapshot): Record<string, WorkflowJsonValue> => ({
-  mailboxId,
+export const mailWorkflowEventContext = (snapshot: MailWorkflowTargetSnapshot): Record<string, WorkflowJsonValue> => ({
+  mailboxId: snapshot.mailboxShortId,
   source: snapshot.source as unknown as WorkflowJsonValue,
   preconditions: snapshot.preconditions as unknown as WorkflowJsonValue,
 });
@@ -93,7 +97,10 @@ export const mailWorkflowEventContext = (mailboxId: string, snapshot: MailWorkfl
 type WorkflowSnapshotRow = {
   remote_message_ref_id: string;
   message_id: string;
+  message_short_id: string;
   conversation_id: string | null;
+  conversation_short_id: string | null;
+  mailbox_short_id: string;
   subject: string;
   plain_text: string | null;
   sanitized_html: string | null;
@@ -105,6 +112,7 @@ type WorkflowSnapshotRow = {
   sent_at: Date | string | null;
   protocol_facts: ConnectorProtocolFacts | string;
   folder_id: string;
+  folder_short_id: string;
   modseq: string | number | null;
   flags: string[] | null;
   keywords: string[] | null;
@@ -134,7 +142,10 @@ export const normalizeWorkflowFlags = (flags: readonly string[]): string[] =>
 const snapshotColumns = sql`
   rmr.id AS remote_message_ref_id,
   mc.id AS message_id,
+  mc.short_id AS message_short_id,
   cm.conversation_id,
+  conversation.short_id AS conversation_short_id,
+  mailbox.short_id AS mailbox_short_id,
   mc.subject,
   mc.plain_text,
   mc.sanitized_html,
@@ -146,6 +157,7 @@ const snapshotColumns = sql`
   mc.sent_at,
   mc.protocol_facts,
   mp.folder_id,
+  folder.short_id AS folder_short_id,
   rmr.modseq,
   mp.flags,
   mp.keywords,
@@ -173,6 +185,7 @@ const snapshotJoins = sql`
   JOIN mail.message_contents mc ON mc.id = rmr.message_id
   JOIN mail.folders folder ON folder.id = rmr.folder_id
   JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
+  JOIN mail.mailboxes mailbox ON mailbox.id = resource.mailbox_id
   LEFT JOIN mail.conversation_messages cm ON cm.message_id = mc.id
   LEFT JOIN mail.conversations conversation ON conversation.id = cm.conversation_id
   LEFT JOIN LATERAL (
@@ -195,7 +208,7 @@ const snapshotJoins = sql`
   ) recipient ON true
   LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object(
-      'id', item.id,
+      'id', item.short_id,
       'filename', item.filename,
       'contentType', item.content_type,
       'disposition', item.disposition,
@@ -217,9 +230,9 @@ const mapSnapshot = (row: WorkflowSnapshotRow): MailWorkflowTargetSnapshot => {
   const fromAddress = normalizeEmailAddress(rawFromAddress) ?? rawFromAddress.trim().toLowerCase();
   const fromDomain = fromAddress.includes("@") ? fromAddress.slice(fromAddress.lastIndexOf("@") + 1) : "";
   const conversation =
-    row.conversation_id && row.collaboration_revision != null && row.work_status && row.latest_message_at
+    row.conversation_id && row.conversation_short_id && row.collaboration_revision != null && row.work_status && row.latest_message_at
       ? {
-          id: row.conversation_id,
+          id: row.conversation_short_id,
           subject: row.conversation_subject ?? "",
           summary: row.conversation_summary,
           summaryRevision: Number(row.summary_revision ?? 1),
@@ -231,10 +244,8 @@ const mapSnapshot = (row: WorkflowSnapshotRow): MailWorkflowTargetSnapshot => {
       : null;
   const source: FrozenMailWorkflowSource = {
     message: {
-      id: row.message_id,
-      remoteMessageRefId: row.remote_message_ref_id,
-      messageId: row.message_id,
-      conversationId: row.conversation_id,
+      id: row.message_short_id,
+      conversationId: row.conversation_short_id,
       subject: row.subject,
       body: row.plain_text ?? "",
       bodyText: row.plain_text ?? "",
@@ -247,7 +258,7 @@ const mapSnapshot = (row: WorkflowSnapshotRow): MailWorkflowTargetSnapshot => {
       recipients: parseJson(row.recipients),
       attachments,
       hasAttachments: attachments.length > 0,
-      folderId: row.folder_id,
+      folderId: row.folder_short_id,
       flags,
       keywords,
       direction: row.direction,
@@ -260,15 +271,21 @@ const mapSnapshot = (row: WorkflowSnapshotRow): MailWorkflowTargetSnapshot => {
   };
   return {
     targetKey: row.remote_message_ref_id,
+    mailboxShortId: row.mailbox_short_id,
     source,
     preconditions: {
       sourceHash: sha256Json(source),
+      message: {
+        id: row.message_id,
+        remoteMessageRefId: row.remote_message_ref_id,
+        folderId: row.folder_id,
+      },
       remoteState: {
         modseq: row.modseq == null ? null : String(row.modseq),
         flags: flags.filter((flag) => ["seen", "answered", "flagged", "draft"].includes(flag)),
         keywords,
       },
-      conversation: conversation ? { id: conversation.id, revision: conversation.revision } : null,
+      conversation: row.conversation_id && conversation ? { id: row.conversation_id, revision: conversation.revision } : null,
     },
     internalDate,
   };

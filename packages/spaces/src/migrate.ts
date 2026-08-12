@@ -209,8 +209,8 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS spaces.calendar_invitation_sources (
       item_id UUID PRIMARY KEY REFERENCES spaces.items(id) ON DELETE CASCADE,
-      mailbox_id UUID NOT NULL,
-      message_id UUID,
+      mailbox_id TEXT NOT NULL CONSTRAINT calendar_invitation_sources_mailbox_id_short_check CHECK (mailbox_id ~ '^[0-9A-Za-z]{6}$'),
+      message_id TEXT CONSTRAINT calendar_invitation_sources_message_id_short_check CHECK (message_id ~ '^[0-9A-Za-z]{6}$'),
       calendar_uid TEXT NOT NULL CHECK (char_length(calendar_uid) BETWEEN 1 AND 1024),
       sequence INTEGER NOT NULL DEFAULT 0 CHECK (sequence >= 0),
       method TEXT NOT NULL CHECK (method IN ('request', 'cancel', 'reply', 'publish', 'unknown')),
@@ -221,6 +221,32 @@ export const migrate = async (): Promise<void> => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       UNIQUE (mailbox_id, calendar_uid)
     )
+  `.simple();
+  await sql`
+    ALTER TABLE spaces.calendar_invitation_sources
+    ALTER COLUMN mailbox_id TYPE TEXT USING mailbox_id::text,
+    ALTER COLUMN message_id TYPE TEXT USING message_id::text
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'calendar_invitation_sources_mailbox_id_short_check'
+          AND conrelid = 'spaces.calendar_invitation_sources'::regclass
+      ) THEN
+        ALTER TABLE spaces.calendar_invitation_sources
+        ADD CONSTRAINT calendar_invitation_sources_mailbox_id_short_check CHECK (mailbox_id ~ '^[0-9A-Za-z]{6}$');
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'calendar_invitation_sources_message_id_short_check'
+          AND conrelid = 'spaces.calendar_invitation_sources'::regclass
+      ) THEN
+        ALTER TABLE spaces.calendar_invitation_sources
+        ADD CONSTRAINT calendar_invitation_sources_message_id_short_check CHECK (message_id ~ '^[0-9A-Za-z]{6}$');
+      END IF;
+    END $$
   `.simple();
   await sql`
     ALTER TABLE spaces.calendar_invitation_sources
@@ -236,12 +262,12 @@ export const migrate = async (): Promise<void> => {
     CREATE TABLE IF NOT EXISTS spaces.calendar_invitation_deliveries (
       idempotency_key UUID PRIMARY KEY,
       item_id UUID NOT NULL REFERENCES spaces.items(id) ON DELETE CASCADE,
-      mailbox_id UUID NOT NULL,
-      sender_identity_id UUID NOT NULL,
+      mailbox_id TEXT NOT NULL CONSTRAINT calendar_invitation_deliveries_mailbox_id_short_check CHECK (mailbox_id ~ '^[0-9A-Za-z]{6}$'),
+      sender_identity_id TEXT NOT NULL CONSTRAINT calendar_invitation_deliveries_sender_identity_id_short_check CHECK (sender_identity_id ~ '^[0-9A-Za-z]{6}$'),
       sequence INTEGER NOT NULL CHECK (sequence >= 0),
       method TEXT NOT NULL CHECK (method IN ('request', 'cancel')),
       state TEXT NOT NULL CHECK (state IN ('preparing', 'drafted', 'failed')),
-      draft_id UUID,
+      draft_id TEXT CONSTRAINT calendar_invitation_deliveries_draft_id_short_check CHECK (draft_id ~ '^[0-9A-Za-z]{6}$'),
       error_message TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -249,7 +275,42 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   await sql`
     ALTER TABLE spaces.calendar_invitation_deliveries
-    ADD COLUMN IF NOT EXISTS sender_identity_id UUID
+    ADD COLUMN IF NOT EXISTS sender_identity_id TEXT
+  `.simple();
+  await sql`
+    ALTER TABLE spaces.calendar_invitation_deliveries
+    ALTER COLUMN mailbox_id TYPE TEXT USING mailbox_id::text,
+    ALTER COLUMN sender_identity_id TYPE TEXT USING sender_identity_id::text,
+    ALTER COLUMN draft_id TYPE TEXT USING draft_id::text
+  `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'calendar_invitation_deliveries_mailbox_id_short_check'
+          AND conrelid = 'spaces.calendar_invitation_deliveries'::regclass
+      ) THEN
+        ALTER TABLE spaces.calendar_invitation_deliveries
+        ADD CONSTRAINT calendar_invitation_deliveries_mailbox_id_short_check CHECK (mailbox_id ~ '^[0-9A-Za-z]{6}$');
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'calendar_invitation_deliveries_sender_identity_id_short_check'
+          AND conrelid = 'spaces.calendar_invitation_deliveries'::regclass
+      ) THEN
+        ALTER TABLE spaces.calendar_invitation_deliveries
+        ADD CONSTRAINT calendar_invitation_deliveries_sender_identity_id_short_check CHECK (sender_identity_id ~ '^[0-9A-Za-z]{6}$');
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'calendar_invitation_deliveries_draft_id_short_check'
+          AND conrelid = 'spaces.calendar_invitation_deliveries'::regclass
+      ) THEN
+        ALTER TABLE spaces.calendar_invitation_deliveries
+        ADD CONSTRAINT calendar_invitation_deliveries_draft_id_short_check CHECK (draft_id ~ '^[0-9A-Za-z]{6}$');
+      END IF;
+    END $$
   `.simple();
   await sql`
     ALTER TABLE spaces.calendar_invitation_deliveries

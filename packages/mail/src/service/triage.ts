@@ -1,5 +1,5 @@
-import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { type ConversationTriageInput, conversationTriageInputSchema, type MailCommand } from "../contracts";
 import { requireMailboxPermission } from "./access";
@@ -7,11 +7,13 @@ import type { MailRequestContext } from "./auth";
 import { createActorCommands } from "./commands";
 import { resolveMailExecution } from "./execution";
 import { resolveRoleFolder } from "./folders";
+import { publicIds, requirePublicId, resolveMailboxPublicId } from "./public-resources";
 
 const MAX_CONVERSATION_TARGETS = 500;
 
 type ConversationTarget = {
   remote_message_ref_id: string;
+  message_short_id: string;
 };
 
 type ConversationProjectionTarget = ConversationTarget & {
@@ -49,11 +51,28 @@ export const createConversationTriageCommands = async (params: {
   const input = parsed.data;
   const permission = await requireMailboxPermission(params.context, params.mailboxId, "write");
   if (!permission.ok) return permission;
+  const [conversationId, sourceFolderId] = await Promise.all([
+    resolveMailboxPublicId("conversations", params.mailboxId, params.conversationId),
+    resolveMailboxPublicId("folders", params.mailboxId, input.sourceFolderId),
+  ]);
+  if (!conversationId) return fail(err.notFound("Conversation"));
+  if (!sourceFolderId) return fail(err.notFound("Mail folder"));
   const roleDestination = input.kind === "move_to_role" ? await resolveRoleFolder(params.mailboxId, input.role) : null;
   if (roleDestination && !roleDestination.ok) return roleDestination;
   const destinationFolderId =
-    input.kind === "move_to_folder" ? input.destinationFolderId : roleDestination?.ok ? roleDestination.data.id : null;
-  if (destinationFolderId === input.sourceFolderId) return fail(err.badInput("Source and destination folders must differ"));
+    input.kind === "move_to_folder"
+      ? await resolveMailboxPublicId("folders", params.mailboxId, input.destinationFolderId)
+      : roleDestination?.ok
+        ? roleDestination.data.id
+        : null;
+  if (input.kind === "move_to_folder" && !destinationFolderId) return fail(err.notFound("Mail folder"));
+  if (destinationFolderId === sourceFolderId) return fail(err.badInput("Source and destination folders must differ"));
+  const destinationPublicId =
+    input.kind === "move_to_folder"
+      ? input.destinationFolderId
+      : destinationFolderId
+        ? requirePublicId(await publicIds("folders", [destinationFolderId]), destinationFolderId)
+        : null;
 
   const execution = await resolveMailExecution({
     mailboxId: params.mailboxId,
@@ -61,7 +80,7 @@ export const createConversationTriageCommands = async (params: {
     context: params.context,
     folderRequirements: [
       {
-        folderId: input.sourceFolderId,
+        folderId: sourceFolderId,
         rights: input.kind === "change_state" ? ["write_flags"] : ["read", "move"],
       },
       ...(destinationFolderId ? [{ folderId: destinationFolderId, rights: ["insert"] }] : []),
@@ -70,17 +89,18 @@ export const createConversationTriageCommands = async (params: {
   if (!execution.ok) return execution;
 
   const targets = await sql<ConversationTarget[]>`
-    SELECT ref.id AS remote_message_ref_id
+    SELECT ref.id AS remote_message_ref_id, message.short_id AS message_short_id
     FROM mail.conversation_messages conversation_message
     JOIN mail.conversations conversation ON conversation.id = conversation_message.conversation_id
     JOIN mail.remote_message_refs ref ON ref.message_id = conversation_message.message_id
+    JOIN mail.message_contents message ON message.id = ref.message_id
     JOIN mail.message_placements placement ON placement.remote_message_ref_id = ref.id
     JOIN mail.folders folder ON folder.id = ref.folder_id
     JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
-    WHERE conversation.id = ${params.conversationId}::uuid
+    WHERE conversation.id = ${conversationId}::uuid
       AND conversation.mailbox_id = ${params.mailboxId}::uuid
       AND resource.mailbox_id = ${params.mailboxId}::uuid
-      AND ref.folder_id = ${input.sourceFolderId}::uuid
+      AND ref.folder_id = ${sourceFolderId}::uuid
       AND ref.stale_at IS NULL
       AND placement.deleted_at IS NULL
     ORDER BY conversation_message.position, ref.uid
@@ -99,7 +119,7 @@ export const createConversationTriageCommands = async (params: {
       input.kind === "change_state"
         ? {
             kind: "change_message_state",
-            remoteMessageRefId: target.remote_message_ref_id,
+            messageId: target.message_short_id,
             folderId: input.sourceFolderId,
             change: input.change,
             idempotencyKey: `${input.idempotencyKey}:${target.remote_message_ref_id}`,
@@ -107,9 +127,9 @@ export const createConversationTriageCommands = async (params: {
           }
         : {
             kind: "move",
-            remoteMessageRefId: target.remote_message_ref_id,
+            messageId: target.message_short_id,
             sourceFolderId: input.sourceFolderId,
-            destinationFolderId: destinationFolderId!,
+            destinationFolderId: destinationPublicId!,
             idempotencyKey: `${input.idempotencyKey}:${target.remote_message_ref_id}`,
             correlationId,
           },

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { deleteWorkflowScope } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
@@ -12,6 +13,7 @@ import {
   updateAutomaticReplyConfiguration,
   updateAutomaticReplySetup,
 } from "./automatic-reply-configuration";
+import { listActivity } from "./collaboration";
 import {
   ensureConversationReference,
   findConversationByReference,
@@ -66,20 +68,21 @@ suite("conversation references and automatic reply policies", () => {
   };
 
   const createConversation = async (messageCount = 1) => {
-    const [conversation] = await sql<{ id: string; revision: string | number }[]>`
-      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_message_at)
-      VALUES (${mailboxId}::uuid, ${`Reference ${nextUid}`}, 'Customer', now())
-      RETURNING id, revision
+    const [conversation] = await sql<{ id: string; short_id: string; revision: string | number }[]>`
+      INSERT INTO mail.conversations (short_id, mailbox_id, subject, participant_summary, latest_message_at)
+      VALUES (${newShortId()}, ${mailboxId}::uuid, ${`Reference ${nextUid}`}, 'Customer', now())
+      RETURNING id, short_id, revision
     `;
     if (!conversation) throw new Error("Failed to create reference conversation");
     const messageIds: string[] = [];
+    const messageShortIds: string[] = [];
     for (let index = 0; index < messageCount; index += 1) {
       const uid = nextUid++;
-      const [message] = await sql<{ id: string }[]>`
-        INSERT INTO mail.message_contents (
+      const [message] = await sql<{ id: string; short_id: string }[]>`
+        INSERT INTO mail.message_contents (short_id,
           mailbox_id, message_id, subject, normalized_subject, internal_date,
           size_bytes, content_hash, hydration_status, plain_text
-        ) VALUES (
+        ) VALUES (${newShortId()},
           ${mailboxId}::uuid,
           ${`<reference-${suffix}-${uid}@example.com>`},
           ${`Reference ${uid}`},
@@ -90,7 +93,7 @@ suite("conversation references and automatic reply policies", () => {
           'complete',
           'Reference search body'
         )
-        RETURNING id
+        RETURNING id, short_id
       `;
       const [remoteRef] = await sql<{ id: string }[]>`
         INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
@@ -110,8 +113,9 @@ suite("conversation references and automatic reply policies", () => {
         VALUES (${message!.id}::uuid, 'from', 0, 'Customer', 'customer@example.com', 'customer@example.com')
       `;
       messageIds.push(message!.id);
+      messageShortIds.push(message!.short_id);
     }
-    return { id: conversation.id, revision: Number(conversation.revision), messageIds };
+    return { id: conversation.id, shortId: conversation.short_id, revision: Number(conversation.revision), messageIds, messageShortIds };
   };
 
   beforeAll(async () => {
@@ -147,8 +151,8 @@ suite("conversation references and automatic reply policies", () => {
       RETURNING id
     `;
     const [folder] = await sql<{ id: string }[]>`
-      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
-      VALUES (${resource!.id}::uuid, ${`references-${suffix}`}, 'Inbox', 'inbox', 'current')
+      INSERT INTO mail.folders (short_id, remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${newShortId()}, ${resource!.id}::uuid, ${`references-${suffix}`}, 'Inbox', 'inbox', 'current')
       RETURNING id
     `;
     folderId = folder!.id;
@@ -271,6 +275,37 @@ suite("conversation references and automatic reply policies", () => {
         (SELECT next_sequence::text FROM mail.reference_number_configurations WHERE mailbox_id = ${mailboxId}::uuid) AS next_sequence
     `;
     expect(evidence).toEqual({ references: 1, activities: 1, next_sequence: "2" });
+    const [mailboxIdentity] = await sql<{ short_id: string }[]>`
+      SELECT short_id FROM mail.mailboxes WHERE id = ${mailboxId}::uuid
+    `;
+    const publicActivity = await listActivity({ context: readerContext, mailboxId, limit: 100 });
+    if (!publicActivity.ok) throw new Error(publicActivity.error.message);
+    expect(publicActivity.data.items.find((item) => item.action === "conversation.reference_allocated")?.targetId).toBe(first.value);
+    expect(publicActivity.data.items.find((item) => item.targetType === "reference_configuration")?.targetId).toBe(
+      mailboxIdentity?.short_id,
+    );
+
+    const missingReferenceId = crypto.randomUUID();
+    await sql`
+      INSERT INTO mail.activity_events (
+        mailbox_id, conversation_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
+      ) VALUES (
+        ${mailboxId}::uuid,
+        ${firstConversation.id}::uuid,
+        'system',
+        NULL,
+        'conversation.reference_missing_fixture',
+        'confirmed',
+        'conversation_reference',
+        ${missingReferenceId}::uuid,
+        '{}'::jsonb
+      )
+    `;
+    const activityWithMissingReference = await listActivity({ context: readerContext, mailboxId, limit: 100 });
+    if (!activityWithMissingReference.ok) throw new Error(activityWithMissingReference.error.message);
+    expect(
+      activityWithMissingReference.data.items.find((item) => item.action === "conversation.reference_missing_fixture")?.targetId,
+    ).toBeNull();
     let immutableError: unknown;
     try {
       await sql`UPDATE mail.conversation_references SET value = 'mutated' WHERE id = ${first.id}::uuid`;
@@ -308,7 +343,7 @@ suite("conversation references and automatic reply policies", () => {
       },
     });
     expect(unicodeSearch.ok && unicodeSearch.data.items.map((item) => item.id)).toEqual(unicodeConversation.messageIds);
-  });
+  }, 15_000);
 
   test("updates one mailbox configuration with optimistic concurrency", async () => {
     const before = await getReferenceConfiguration();
@@ -375,10 +410,10 @@ suite("conversation references and automatic reply policies", () => {
       },
     });
     if (!enabled.ok) throw new Error(enabled.error.message);
-    const [identity] = await sql<{ id: string }[]>`
-      INSERT INTO mail.sender_identities (
+    const [identity] = await sql<{ id: string; short_id: string }[]>`
+      INSERT INTO mail.sender_identities (short_id,
         mailbox_id, label, display_name, from_address, automation_policy, is_default, status
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid,
         'Reply drafts',
         'Reply drafts',
@@ -387,7 +422,7 @@ suite("conversation references and automatic reply policies", () => {
         false,
         'verified'
       )
-      RETURNING id
+      RETURNING id, short_id
     `;
     if (!identity) throw new Error("Failed to create reply draft sender fixture");
     const conversation = await createConversation();
@@ -402,10 +437,10 @@ suite("conversation references and automatic reply policies", () => {
       context: writerContext,
       mailboxId,
       input: {
-        conversationId: conversation.id,
+        conversationId: conversation.shortId,
         intent: "reply",
-        sourceMessageId: conversation.messageIds[0]!,
-        senderIdentityId: identity.id,
+        sourceMessageId: conversation.messageShortIds[0]!,
+        senderIdentityId: identity.short_id,
         to: [{ name: "Customer", address: "customer@example.com" }],
         cc: [],
         bcc: [],
@@ -440,10 +475,10 @@ suite("conversation references and automatic reply policies", () => {
       context: writerContext,
       mailboxId,
       input: {
-        conversationId: secondConversation.id,
+        conversationId: secondConversation.shortId,
         intent: "reply_all",
-        sourceMessageId: secondConversation.messageIds[0]!,
-        senderIdentityId: identity.id,
+        sourceMessageId: secondConversation.messageShortIds[0]!,
+        senderIdentityId: identity.short_id,
         to: [{ name: "Customer", address: "customer@example.com" }],
         cc: [],
         bcc: [],
@@ -548,10 +583,10 @@ suite("conversation references and automatic reply policies", () => {
   });
 
   test("creates and updates managed automatic replies atomically", async () => {
-    const [identity] = await sql<{ id: string }[]>`
-      INSERT INTO mail.sender_identities (
+    const [identity] = await sql<{ id: string; short_id: string }[]>`
+      INSERT INTO mail.sender_identities (short_id,
         mailbox_id, label, display_name, from_address, automation_policy, is_default, status
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid,
         'Automatic replies',
         'Automatic replies',
@@ -560,14 +595,14 @@ suite("conversation references and automatic reply policies", () => {
         true,
         'verified'
       )
-      RETURNING id
+      RETURNING id, short_id
     `;
     if (!identity) throw new Error("Failed to create automatic reply sender fixture");
     const preview = await previewAutomaticReply({
       context: ownerContext,
       mailboxId,
       input: {
-        senderIdentityId: identity.id,
+        senderIdentityId: identity.short_id,
         subject: "Re: {{ inputs.message.subject }}",
         body: "Reference: **{{ reference.value }}**",
         format: "markdown",
@@ -586,7 +621,7 @@ suite("conversation references and automatic reply policies", () => {
       context: ownerContext,
       mailboxId,
       input: {
-        senderIdentityId: identity.id,
+        senderIdentityId: identity.short_id,
         subject: "{{ missing.value }}",
         body: "Body",
         format: "plain",
@@ -598,7 +633,7 @@ suite("conversation references and automatic reply policies", () => {
     const input = {
       name: `Out of office ${suffix}`,
       enabled: true,
-      senderIdentityId: identity.id,
+      senderIdentityId: identity.short_id,
       subject: "Re: {{ inputs.message.subject }}",
       body: "I am currently away.",
       format: "markdown" as const,
@@ -634,7 +669,7 @@ suite("conversation references and automatic reply policies", () => {
     expect(created.data).toMatchObject({
       name: input.name,
       enabled: true,
-      senderIdentityId: identity.id,
+      senderIdentityId: identity.short_id,
       inactiveBehavior: "skip",
       revision: 1,
     });
@@ -802,7 +837,7 @@ suite("conversation references and automatic reply policies", () => {
         ORDER BY revision DESC
         LIMIT 1
       ) latest ON true
-      WHERE configuration.id = ${created.data.id}::uuid
+      WHERE configuration.short_id = ${created.data.id}
     `;
     expect(stored).toMatchObject({
       current_version_id: expect.any(String),
@@ -936,7 +971,7 @@ suite("conversation references and automatic reply policies", () => {
         ORDER BY revision DESC
         LIMIT 1
       ) version ON true
-      WHERE configuration.id = ${created.data.id}::uuid
+      WHERE configuration.short_id = ${created.data.id}
     `;
     expect(referenceWorkflow?.source).toContain("ensureConversationReference:");
     expect(referenceWorkflow?.source).toContain("saveAs: reference");
@@ -948,7 +983,7 @@ suite("conversation references and automatic reply policies", () => {
          WHERE activation.workflow_id = workflow.id AND activation.enabled) AS activation_count
       FROM mail.automatic_reply_configurations configuration
       JOIN workflows.workflow workflow ON workflow.id = configuration.workflow_id
-      WHERE configuration.id = ${created.data.id}::uuid
+      WHERE configuration.short_id = ${created.data.id}
     `;
     expect(disabled).toEqual({ active_version_id: expect.any(String), activation_count: 0 });
     const beforeMetadataUpdate = await sql<{ current_version_id: string }[]>`
@@ -961,7 +996,7 @@ suite("conversation references and automatic reply policies", () => {
         ORDER BY revision DESC
         LIMIT 1
       ) latest ON true
-      WHERE configuration.id = ${created.data.id}::uuid
+      WHERE configuration.short_id = ${created.data.id}
     `;
     const referenceConfiguration = await getReferenceConfiguration();
     const stoppedReferenceAllocation = await putConversationReferenceConfiguration({
@@ -1010,7 +1045,7 @@ suite("conversation references and automatic reply policies", () => {
         ORDER BY revision DESC
         LIMIT 1
       ) latest ON true
-      WHERE configuration.id = ${created.data.id}::uuid
+      WHERE configuration.short_id = ${created.data.id}
     `;
     expect(afterMetadataUpdate[0]?.current_version_id).toBe(beforeMetadataUpdate[0]?.current_version_id);
   });

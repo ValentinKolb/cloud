@@ -12,8 +12,8 @@ import {
 } from "./mail-navigation";
 
 const item: MailListItem = {
-  id: "00000000-0000-4000-8000-000000000002",
-  conversationId: "00000000-0000-4000-8000-000000000003",
+  id: "Msg001",
+  conversationId: "Conv01",
   selectionKind: "conversation",
   primaryReference: null,
   subject: "Subject",
@@ -48,7 +48,7 @@ describe("Mail search navigation", () => {
     });
     expect(serialized.ok).toBe(true);
     if (!serialized.ok) return;
-    const url = new URL("https://cloud.example/app/mail/00000000-0000-4000-8000-000000000001");
+    const url = new URL("https://cloud.example/app/mail/Box001");
     url.searchParams.set(MAIL_SEARCH_PARAMETER, serialized.value);
 
     const selected = new URL(buildMailSelectionHref(url, item), url.origin);
@@ -58,10 +58,10 @@ describe("Mail search navigation", () => {
 
   test("clears all current and legacy search state without changing the active mailbox view", () => {
     const url = new URL(
-      "https://cloud.example/app/mail/00000000-0000-4000-8000-000000000001?folder=00000000-0000-4000-8000-000000000004&q=x&qFields=from%2Cbody&search=%7B%7D&subject=y&combine=all&cursor=next&conversation=00000000-0000-4000-8000-000000000003",
+      "https://cloud.example/app/mail/Box001?folder=Fold01&q=x&qFields=from%2Cbody&search=%7B%7D&subject=y&combine=all&cursor=next&conversation=Conv01",
     );
     const cleared = new URL(buildMailListHref(url, true), url.origin);
-    expect(cleared.searchParams.get("folder")).toBe("00000000-0000-4000-8000-000000000004");
+    expect(cleared.searchParams.get("folder")).toBe("Fold01");
     expect(cleared.searchParams.has("q")).toBe(false);
     expect(cleared.searchParams.has("qFields")).toBe(false);
     expect(cleared.searchParams.has(MAIL_SEARCH_PARAMETER)).toBe(false);
@@ -73,7 +73,7 @@ describe("Mail search navigation", () => {
 
   test("derives the active row from the current conversation or message selection", () => {
     expect(isMailListItemActive(item, item.conversationId, null)).toBe(true);
-    expect(isMailListItemActive(item, "00000000-0000-4000-8000-000000000099", null)).toBe(false);
+    expect(isMailListItemActive(item, "Conv02", null)).toBe(false);
     expect(isMailListItemActive({ ...item, conversationId: null, selectionKind: "message" }, null, item.id)).toBe(true);
   });
 
@@ -86,14 +86,12 @@ describe("Mail search navigation", () => {
   });
 
   test("builds an exact URL-backed sender search and normalizes a usable domain", () => {
-    const url = new URL(
-      "https://cloud.example/app/mail/00000000-0000-4000-8000-000000000001?folder=00000000-0000-4000-8000-000000000004&q=old&conversation=00000000-0000-4000-8000-000000000003",
-    );
+    const url = new URL("https://cloud.example/app/mail/Box001?folder=Fold01&q=old&conversation=Conv01");
     const href = buildExactSenderSearchHref(url, "Sender+news@Sub.Example.com");
     expect(href).not.toBeNull();
     const next = new URL(href!, url.origin);
 
-    expect(next.searchParams.get("folder")).toBe("00000000-0000-4000-8000-000000000004");
+    expect(next.searchParams.get("folder")).toBe("Fold01");
     expect(next.searchParams.has("q")).toBe(false);
     expect(next.searchParams.has("conversation")).toBe(false);
     expect(parseMailSearchState(next)).toEqual({
@@ -109,20 +107,17 @@ describe("Mail search navigation", () => {
 });
 
 test("adds a focused mailing list without dropping the mailbox context", () => {
-  const href = buildMailingListHref(
-    new URL("https://cloud.example/app/mail/mailbox-1?folder=inbox&conversation=conversation-1"),
-    "list one&two",
-  );
-  expect(href).toBe("/app/mail/mailbox-1?folder=inbox&conversation=conversation-1&mailingList=list+one%26two");
+  const href = buildMailingListHref(new URL("https://cloud.example/app/mail/Box001?folder=Fold01&conversation=Conv01"), "list one&two");
+  expect(href).toBe("/app/mail/Box001?folder=Fold01&conversation=Conv01&mailingList=list+one%26two");
 });
 
 describe("Mail workspace route ownership", () => {
   const origin = "https://cloud.example";
-  const mailboxId = "00000000-0000-4000-8000-000000000001";
+  const mailboxId = "Box001";
 
   test("owns query and selection changes on the current mailbox route", () => {
     expect(isMailWorkspaceUrl(new URL(`/app/mail/${mailboxId}?view=mine`, origin), mailboxId, origin)).toBe(true);
-    expect(isMailWorkspaceUrl(new URL(`/app/mail/${mailboxId}?conversation=conversation-1`, origin), mailboxId, origin)).toBe(true);
+    expect(isMailWorkspaceUrl(new URL(`/app/mail/${mailboxId}?conversation=Conv01`, origin), mailboxId, origin)).toBe(true);
   });
 
   test("leaves server-rendered Mail pages and other origins to document navigation", () => {
@@ -130,8 +125,8 @@ describe("Mail workspace route ownership", () => {
       "/app/mail",
       "/app/mail/compose",
       `/app/mail/${mailboxId}/automations`,
-      "/app/mail/00000000-0000-4000-8000-000000000002",
-      "https://other.example/app/mail/00000000-0000-4000-8000-000000000001",
+      "/app/mail/Box002",
+      "https://other.example/app/mail/Box001",
     ]) {
       expect(isMailWorkspaceUrl(new URL(href, origin), mailboxId, origin)).toBe(false);
     }

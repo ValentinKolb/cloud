@@ -8,6 +8,7 @@ import type {
   UpdateSavedConversationView,
 } from "../contracts";
 import { savedConversationViewFilterSchema } from "../contracts";
+import { withShortIdDb } from "../lib/short-id";
 import { type MailRequestContext, userBackedActor } from "./auth";
 import { lockMailboxForCollaboration } from "./collaboration";
 import { hasCurrentMailboxUserPermission } from "./collaborators";
@@ -236,10 +237,14 @@ export const createSavedConversationView = async (params: {
       const references = await validateFilterReferences({ db: tx, mailboxId: params.mailboxId, filter: params.input.filter });
       if (!references.ok) return references;
       const actor = actorIdentity(params.context);
-      const [row] = await tx<SavedViewRow[]>`
+      const rows = await withShortIdDb(
+        tx,
+        "savedView",
+        (db, shortId) => db<SavedViewRow[]>`
         INSERT INTO mail.saved_conversation_views (
-          mailbox_id, scope, owner_user_id, name, filter, created_by_kind, created_by_id
+          short_id, mailbox_id, scope, owner_user_id, name, filter, created_by_kind, created_by_id
         ) VALUES (
+          ${shortId},
           ${params.mailboxId}::uuid,
           ${params.input.scope},
           ${ownerUserId}::uuid,
@@ -249,7 +254,9 @@ export const createSavedConversationView = async (params: {
           ${actor.id}::uuid
         )
         RETURNING ${viewColumns}
-      `;
+      `,
+      );
+      const [row] = rows;
       if (!row) return fail(err.internal("Saved conversation view insert returned no row"));
       if (row.scope === "mailbox") {
         await insertViewActivity({

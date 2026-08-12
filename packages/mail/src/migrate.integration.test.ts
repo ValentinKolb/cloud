@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
+import { newShortId } from "./lib/short-id";
 import { migrate } from "./migrate";
 import { commitManagedOAuthRefresh } from "./service/provider-oauth-tokens";
 
@@ -7,6 +8,117 @@ const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 suite("mail migrations", () => {
+  test("finalizes public short IDs without changing internal UUID keys", async () => {
+    await migrate();
+    await migrate();
+
+    const [shape] = await sql<
+      {
+        applied_count: number;
+        short_id_columns: number;
+        nullable_columns: number;
+        unique_indexes: number;
+        format_constraints: number;
+        uuid_primary_keys: number;
+        snapshot_columns_ready: boolean;
+      }[]
+    >`
+      WITH resource_tables(table_name) AS (
+        SELECT unnest(ARRAY[
+          'mailboxes', 'folders', 'message_contents', 'attachments', 'conversations', 'sender_identities',
+          'drafts', 'outbox_submissions', 'draft_attachments', 'conversation_comments',
+          'conversation_reminders', 'saved_conversation_views', 'local_tags', 'compose_templates',
+          'automatic_reply_configurations', 'incoming_automations'
+        ]::text[])
+      )
+      SELECT
+        (SELECT count(*)::int FROM mail.schema_migrations WHERE version = 117 AND name = 'public_short_ids')
+          AS applied_count,
+        (
+          SELECT count(*)::int FROM information_schema.columns column_shape
+          JOIN resource_tables resource USING (table_name)
+          WHERE column_shape.table_schema = 'mail' AND column_shape.column_name = 'short_id'
+        ) AS short_id_columns,
+        (
+          SELECT count(*)::int FROM information_schema.columns column_shape
+          JOIN resource_tables resource USING (table_name)
+          WHERE column_shape.table_schema = 'mail'
+            AND column_shape.column_name = 'short_id'
+            AND column_shape.is_nullable <> 'NO'
+        ) AS nullable_columns,
+        (
+          SELECT count(*)::int FROM pg_indexes index_shape
+          JOIN resource_tables resource ON index_shape.indexname = resource.table_name || '_short_id_idx'
+          WHERE index_shape.schemaname = 'mail' AND index_shape.indexdef LIKE 'CREATE UNIQUE INDEX%'
+        ) AS unique_indexes,
+        (
+          SELECT count(*)::int FROM pg_constraint constraint_shape
+          JOIN resource_tables resource ON constraint_shape.conname = resource.table_name || '_short_id_format'
+          WHERE constraint_shape.connamespace = 'mail'::regnamespace AND constraint_shape.contype = 'c'
+        ) AS format_constraints,
+        (
+          SELECT count(*)::int FROM information_schema.columns column_shape
+          JOIN resource_tables resource USING (table_name)
+          WHERE column_shape.table_schema = 'mail'
+            AND column_shape.column_name = 'id'
+            AND column_shape.data_type = 'uuid'
+        ) AS uuid_primary_keys,
+        (
+          SELECT count(*) = 3
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND (
+              (table_name = 'live_invalidation_outbox' AND column_name = 'mailbox_short_id' AND is_nullable = 'NO')
+              OR (table_name = 'collaboration_notification_deliveries' AND column_name = 'source_short_id' AND is_nullable = 'NO')
+              OR (table_name = 'live_invalidation_outbox' AND column_name = 'conversation_short_id' AND is_nullable = 'YES')
+            )
+        ) AS snapshot_columns_ready
+    `;
+
+    expect(shape).toEqual({
+      applied_count: 1,
+      short_id_columns: 16,
+      nullable_columns: 0,
+      unique_indexes: 16,
+      format_constraints: 16,
+      uuid_primary_keys: 16,
+      snapshot_columns_ready: true,
+    });
+
+    const mailbox = { id: crypto.randomUUID(), shortId: newShortId() };
+    const conversation = { id: crypto.randomUUID(), shortId: newShortId() };
+    try {
+      await sql`
+        INSERT INTO mail.mailboxes (id, short_id, name)
+        VALUES (${mailbox.id}::uuid, ${mailbox.shortId}, 'Short-ID enqueue migration test')
+      `;
+      await sql`
+        INSERT INTO mail.conversations (id, short_id, mailbox_id, latest_message_at)
+        VALUES (${conversation.id}::uuid, ${conversation.shortId}, ${mailbox.id}::uuid, now())
+      `;
+      await sql`
+        INSERT INTO mail.activity_events (
+          mailbox_id, conversation_id, actor_kind, action, outcome, target_type, target_id, metadata
+        ) VALUES (
+          ${mailbox.id}::uuid, ${conversation.id}::uuid, 'system', 'message.received', 'confirmed',
+          'conversation', ${conversation.id}::uuid, '{}'::jsonb
+        )
+      `;
+
+      const [snapshot] = await sql<{ mailbox_short_id: string; conversation_short_id: string | null }[]>`
+        SELECT mailbox_short_id, conversation_short_id
+        FROM mail.live_invalidation_outbox
+        WHERE mailbox_id = ${mailbox.id}::uuid AND conversation_id = ${conversation.id}::uuid
+      `;
+      expect(snapshot).toEqual({
+        mailbox_short_id: mailbox.shortId,
+        conversation_short_id: conversation.shortId,
+      });
+    } finally {
+      await sql`DELETE FROM mail.mailboxes WHERE id = ${mailbox.id}::uuid`;
+    }
+  });
+
   test("installs unified incoming automations and removes split alpha tables", async () => {
     await migrate();
     await migrate();
@@ -273,10 +385,10 @@ suite("mail migrations", () => {
     const mailboxId = crypto.randomUUID();
     const conversationId = crypto.randomUUID();
     await sql.begin(async (tx) => {
-      await tx`INSERT INTO mail.mailboxes (id, name) VALUES (${mailboxId}::uuid, 'Work-state migration test')`;
+      await tx`INSERT INTO mail.mailboxes (short_id, id, name) VALUES (${newShortId()}, ${mailboxId}::uuid, 'Work-state migration test')`;
       await tx`
-        INSERT INTO mail.conversations (id, mailbox_id, subject, participant_summary, latest_message_at)
-        VALUES (${conversationId}::uuid, ${mailboxId}::uuid, 'Migration fixture', 'Customer', now())
+        INSERT INTO mail.conversations (short_id, id, mailbox_id, subject, participant_summary, latest_message_at)
+        VALUES (${newShortId()}, ${conversationId}::uuid, ${mailboxId}::uuid, 'Migration fixture', 'Customer', now())
       `;
       await tx`
         INSERT INTO mail.activity_events (
@@ -792,8 +904,10 @@ suite("mail migrations", () => {
     const otherMailboxId = crypto.randomUUID();
     try {
       await sql`
-        INSERT INTO mail.mailboxes (id, name)
-        VALUES (${mailboxId}, 'Provider invariant test'), (${otherMailboxId}, 'Other provider invariant test')
+        INSERT INTO mail.mailboxes (short_id, id, name)
+        VALUES
+          (${newShortId()}, ${mailboxId}, 'Provider invariant test'),
+          (${newShortId()}, ${otherMailboxId}, 'Other provider invariant test')
       `;
       const [resource] = await sql<{ id: string }[]>`
         INSERT INTO mail.remote_resources (mailbox_id, remote_locator, server_identity, scope_fingerprint)
@@ -935,7 +1049,7 @@ suite("mail migrations", () => {
           INSERT INTO auth.users (id, uid, provider, profile)
           VALUES (${userId}::uuid, ${`oauth-migration-${userId}`}, 'local', 'user')
         `;
-        await tx`INSERT INTO mail.mailboxes (id, name) VALUES (${mailboxId}::uuid, 'OAuth migration test')`;
+        await tx`INSERT INTO mail.mailboxes (short_id, id, name) VALUES (${newShortId()}, ${mailboxId}::uuid, 'OAuth migration test')`;
         await tx`
           INSERT INTO mail.provider_oauth_flows (
             id, state_hash, browser_nonce_hash, mailbox_id, user_id, provider_id, operation,

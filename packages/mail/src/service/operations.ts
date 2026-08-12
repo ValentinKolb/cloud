@@ -1,5 +1,5 @@
-import { escapeLikePattern } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { escapeLikePattern } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { z } from "zod";
 import {
@@ -19,6 +19,7 @@ import {
   operatorActionForCommand,
   operatorActionForFolder,
 } from "./operator-actions";
+import { publicIds, requirePublicId } from "./public-resources";
 
 const toIso = (value: Date | string | null): string | null =>
   value ? (value instanceof Date ? value : new Date(value)).toISOString() : null;
@@ -68,6 +69,7 @@ const decodeAttentionCursor = (value?: string): Result<AttentionCursor | null> =
 
 type DbMailbox = {
   id: string;
+  short_id: string;
   name: string;
   health: MailboxHealth;
   sync_enabled: boolean;
@@ -94,6 +96,7 @@ const encodeAttentionCursor = (row: DbAttentionCommand): string =>
 
 type DbFolder = {
   id: string;
+  short_id: string;
   name: string;
   discovery_state: "active" | "missing" | "ambiguous";
   sync_status: string;
@@ -111,6 +114,7 @@ const loadMailboxOperations = async (
   const [mailbox] = await sql<DbMailbox[]>`
     SELECT
       mailbox.id,
+      mailbox.short_id,
       mailbox.name,
       mailbox.health,
       mailbox.sync_enabled,
@@ -242,7 +246,7 @@ const loadMailboxOperations = async (
     options.includeFolderActions === false
       ? []
       : await sql<DbFolder[]>`
-          SELECT folder.id, folder.name, folder.discovery_state, folder.sync_status, folder.selected_for_sync
+          SELECT folder.id, folder.short_id, folder.name, folder.discovery_state, folder.sync_status, folder.selected_for_sync
           FROM mail.folders folder
           JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
           WHERE resource.mailbox_id = ${mailboxId}::uuid
@@ -326,7 +330,7 @@ const loadMailboxOperations = async (
   const effectiveBackend = mailbox.search_backend !== "postgres" && bm25Ready ? "pg_textsearch" : "postgres";
 
   return mailboxOperatorOperationsSchema.parse({
-    mailboxId: mailbox.id,
+    mailboxId: mailbox.short_id,
     mailboxName: mailbox.name,
     health: mailbox.health,
     syncEnabled: mailbox.sync_enabled,
@@ -374,7 +378,7 @@ const loadMailboxOperations = async (
       allocated: Number(references?.allocated ?? 0),
     },
     folders: folders.map((folder) => ({
-      id: folder.id,
+      id: folder.short_id,
       name: folder.name,
       discoveryState: folder.discovery_state,
       syncStatus: folder.sync_status,
@@ -489,6 +493,7 @@ export const getPlatformMailOperations = async (
       sql<
         Array<{
           id: string;
+          short_id: string;
           name: string;
           created_at: Date | string;
           cursor_created_at: string;
@@ -510,13 +515,13 @@ export const getPlatformMailOperations = async (
         }>
       >`
         WITH mailbox_page AS (
-          SELECT id, name, created_at, health, sync_enabled
+          SELECT id, short_id, name, created_at, health, sync_enabled
           FROM mail.mailboxes
           WHERE deleted_at IS NULL
             AND (
               ${search}::text IS NULL
               OR LOWER(name) LIKE LOWER(${search}) ESCAPE '\\'
-              OR id::text = ${rawSearch}
+              OR short_id = ${rawSearch}
             )
             AND (${cursor.data?.createdAt ?? null}::timestamptz IS NULL
               OR (created_at, id) > (${cursor.data?.createdAt ?? null}::timestamptz, ${cursor.data?.id ?? null}::uuid))
@@ -525,6 +530,7 @@ export const getPlatformMailOperations = async (
         )
         SELECT
           mailbox.id,
+          mailbox.short_id,
           mailbox.name,
           mailbox.created_at,
           to_char(mailbox.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_created_at,
@@ -587,7 +593,7 @@ export const getPlatformMailOperations = async (
     const hasMore = rows.length > limit;
     const page = rows.slice(0, limit);
     const values = page.map((mailbox) => ({
-      mailboxId: mailbox.id,
+      mailboxId: mailbox.short_id,
       mailboxName: mailbox.name,
       health: mailbox.health,
       syncEnabled: mailbox.sync_enabled,
@@ -643,8 +649,11 @@ export const getPlatformMailboxOperation = async (
   context: MailRequestContext,
   mailboxId: string,
 ): Promise<Result<PlatformMailboxOperationSummary>> => {
-  const result = await getPlatformMailOperations(context, { q: mailboxId, limit: 2 });
+  const ids = await publicIds("mailboxes", [mailboxId]);
+  const shortId = ids.get(mailboxId);
+  if (!shortId) return fail(err.notFound("Mailbox"));
+  const result = await getPlatformMailOperations(context, { q: requirePublicId(ids, mailboxId), limit: 2 });
   if (!result.ok) return result;
-  const mailbox = result.data.mailboxes.find((candidate) => candidate.mailboxId === mailboxId);
+  const mailbox = result.data.mailboxes.find((candidate) => candidate.mailboxId === shortId);
   return mailbox ? ok(mailbox) : fail(err.notFound("Mailbox"));
 };

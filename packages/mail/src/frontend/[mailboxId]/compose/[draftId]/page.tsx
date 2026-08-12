@@ -4,10 +4,15 @@ import { ssr } from "../../../../config";
 import { calendarInvitations, drafts, type MailRequestContext, mailboxAccess, mailboxes, senderIdentities } from "../../../../service";
 import MailComposerPage from "../../../_components/MailComposerPage.island";
 import { mailDraftReturnHref } from "../../../_components/mail-compose-route";
+import { projectComposeData, resolveSsrMailboxId, resolveSsrMailboxResourceId } from "../../../ssr-public-boundary";
 
 export default ssr<AuthContext>(async (c) => {
-  const mailboxId = c.req.param("mailboxId") ?? "";
-  const draftId = c.req.param("draftId") ?? "";
+  const mailboxShortId = c.req.param("mailboxId") ?? "";
+  const draftShortId = c.req.param("draftId") ?? "";
+  const mailboxId = await resolveSsrMailboxId(mailboxShortId);
+  if (!mailboxId) return c.redirect("/app/mail");
+  const draftId = await resolveSsrMailboxResourceId("drafts", mailboxId, draftShortId);
+  if (!draftId) return c.redirect(`/app/mail/${mailboxShortId}`);
   const context: MailRequestContext = {
     actor: c.get("actor"),
     accessSubject: c.get("accessSubject"),
@@ -20,8 +25,13 @@ export default ssr<AuthContext>(async (c) => {
     drafts.getDraft(context, mailboxId, draftId),
     calendarInvitations.composerIntegrationAvailable(),
   ]);
-  if (!mailbox.ok || !draft.ok || (permission !== "write" && permission !== "admin")) return c.redirect(`/app/mail/${mailboxId}`);
-  const returnHref = mailDraftReturnHref(c.req.query("return") ?? "", mailboxId);
+  if (!mailbox.ok || !draft.ok || (permission !== "write" && permission !== "admin")) return c.redirect(`/app/mail/${mailboxShortId}`);
+  const publicData = await projectComposeData({
+    mailbox: mailbox.data,
+    identities: identities.ok ? identities.data : [],
+    draft: draft.data,
+  });
+  const returnHref = mailDraftReturnHref(c.req.query("return") ?? "", mailboxShortId);
   const popout = c.req.query("window") === "1";
   return () => (
     <Layout
@@ -32,9 +42,9 @@ export default ssr<AuthContext>(async (c) => {
       title={[{ title: "Mail", href: returnHref }, { title: draft.data.subject || "Draft" }]}
     >
       <MailComposerPage
-        mailboxId={mailboxId}
-        identities={identities.ok ? identities.data : []}
-        initialDraft={draft.data}
+        mailboxId={mailboxShortId}
+        identities={publicData.identities}
+        initialDraft={publicData.draft}
         returnHref={returnHref}
         popout={popout}
         dateConfig={getDateConfig(c)}

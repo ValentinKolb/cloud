@@ -1,10 +1,11 @@
-import { ephemeral, type Lock, mutex } from "@k2b/sync";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { ephemeral, type Lock, mutex } from "@k2b/sync";
 import { sql } from "bun";
 import type { AcquiredDraftLease, DraftLease, DraftLeaseHolder } from "../contracts";
 import { requireMailboxPermission } from "./access";
 import type { MailRequestContext } from "./auth";
 import { hasCurrentMailboxUserPermission } from "./collaborators";
+import { resolveMailboxPublicId } from "./public-resources";
 
 const DRAFT_LEASE_TTL_MS = 30_000;
 const DRAFT_LEASE_STATE_TTL_MS = 30_000;
@@ -62,19 +63,21 @@ const holderFromContext = (context: MailRequestContext): DraftLeaseHolder => {
 
 const sameHolder = (left: DraftLeaseHolder, right: DraftLeaseHolder): boolean => left.kind === right.kind && left.id === right.id;
 
-const authorizeDraft = async (params: {
+const resolveAuthorizedDraft = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   draftId: string;
   permission: "read" | "write";
-}): Promise<Result<void>> => {
+}): Promise<Result<string>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, params.permission);
   if (!allowed.ok) return allowed;
+  const draftId = await resolveMailboxPublicId("drafts", params.mailboxId, params.draftId);
+  if (!draftId) return fail(err.notFound("Editable draft"));
   const [draft] = await sql<{ id: string }[]>`
     SELECT id FROM mail.drafts
-    WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user' AND state = 'draft'
+    WHERE id = ${draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user' AND state = 'draft'
   `;
-  return draft ? ok() : fail(err.notFound("Editable draft"));
+  return draft ? ok(draft.id) : fail(err.notFound("Editable draft"));
 };
 
 const currentEntry = async (draftId: string): Promise<{ value: DraftLeaseEntry; expiresAt: number } | null> =>
@@ -125,10 +128,10 @@ export const getDraftLease = async (params: {
   mailboxId: string;
   draftId: string;
 }): Promise<Result<DraftLease | null>> => {
-  const allowed = await authorizeDraft({ ...params, permission: "read" });
-  if (!allowed.ok) return allowed;
-  return withLeaseState(params.draftId, async () => {
-    const entry = await currentValidEntry(params.mailboxId, params.draftId);
+  const draft = await resolveAuthorizedDraft({ ...params, permission: "read" });
+  if (!draft.ok) return draft;
+  return withLeaseState(draft.data, async () => {
+    const entry = await currentValidEntry(params.mailboxId, draft.data);
     return ok(entry ? mapLease(entry) : null);
   });
 };
@@ -140,10 +143,10 @@ export const acquireDraftLease = async (params: {
   takeover?: boolean;
 }): Promise<Result<AcquiredDraftLease>> => {
   const holder = holderFromContext(params.context);
-  return withLeaseState(params.draftId, async () => {
-    const allowed = await authorizeDraft({ ...params, permission: "write" });
-    if (!allowed.ok) return allowed;
-    const current = await currentValidEntry(params.mailboxId, params.draftId);
+  const draft = await resolveAuthorizedDraft({ ...params, permission: "write" });
+  if (!draft.ok) return draft;
+  return withLeaseState(draft.data, async () => {
+    const current = await currentValidEntry(params.mailboxId, draft.data);
     if (current) {
       if (!params.takeover) {
         return conflict(
@@ -152,17 +155,17 @@ export const acquireDraftLease = async (params: {
             : `This draft is being edited by ${current.value.holder.displayName}`,
         );
       }
-      await removeEntry(params.draftId, current.value, "taken-over");
+      await removeEntry(draft.data, current.value, "taken-over");
     }
 
-    const lock = await leaseMutex.acquire(params.draftId, DRAFT_LEASE_TTL_MS);
+    const lock = await leaseMutex.acquire(draft.data, DRAFT_LEASE_TTL_MS);
     if (!lock) return conflict("Another collaborator acquired the draft lease");
     const token = crypto.randomUUID();
     const acquiredAt = Date.now();
     let stored = false;
     try {
       const entry = await leaseStore.upsert({
-        tenantId: params.draftId,
+        tenantId: draft.data,
         key: "lease",
         value: { holder, token, lock, acquiredAt },
       });
@@ -178,14 +181,14 @@ export const acquireDraftLease = async (params: {
             'draft.lease_taken_over',
             'confirmed',
             'draft',
-            ${params.draftId}::uuid,
+            ${draft.data}::uuid,
             ${{ previousHolder: current.value.holder }}::jsonb
           )
         `;
       }
       return ok({ ...mapLease(entry), token });
     } catch (error) {
-      if (stored) await leaseStore.remove({ tenantId: params.draftId, key: "lease", reason: "acquire-failed" }).catch(() => false);
+      if (stored) await leaseStore.remove({ tenantId: draft.data, key: "lease", reason: "acquire-failed" }).catch(() => false);
       await leaseMutex.release(lock).catch(() => false);
       throw error;
     }
@@ -204,11 +207,11 @@ export const withOwnedDraftLease = async <T>(params: {
   token: string;
   operation: () => Promise<Result<T>>;
 }): Promise<Result<T>> => {
-  const allowed = await authorizeDraft({ ...params, permission: "write" });
-  if (!allowed.ok) return allowed;
+  const draft = await resolveAuthorizedDraft({ ...params, permission: "write" });
+  if (!draft.ok) return draft;
   const holder = holderFromContext(params.context);
-  return withLeaseState(params.draftId, async () => {
-    const lease = await ownedEntry(params.draftId, holder, params.token);
+  return withLeaseState(draft.data, async () => {
+    const lease = await ownedEntry(draft.data, holder, params.token);
     if (!lease) return conflict("Draft lease is no longer owned by this session");
     return params.operation();
   });
@@ -220,17 +223,17 @@ export const heartbeatDraftLease = async (params: {
   draftId: string;
   token: string;
 }): Promise<Result<AcquiredDraftLease>> => {
-  const allowed = await authorizeDraft({ ...params, permission: "write" });
-  if (!allowed.ok) return allowed;
+  const draft = await resolveAuthorizedDraft({ ...params, permission: "write" });
+  if (!draft.ok) return draft;
   const holder = holderFromContext(params.context);
-  return withLeaseState(params.draftId, async () => {
-    const lease = await ownedEntry(params.draftId, holder, params.token);
+  return withLeaseState(draft.data, async () => {
+    const lease = await ownedEntry(draft.data, holder, params.token);
     if (!lease) return conflict("Draft lease is no longer owned by this session");
     if (!(await leaseMutex.extend(lease.lock, DRAFT_LEASE_TTL_MS))) {
-      await leaseStore.remove({ tenantId: params.draftId, key: "lease", reason: "mutex-expired" });
+      await leaseStore.remove({ tenantId: draft.data, key: "lease", reason: "mutex-expired" });
       return conflict("Draft lease expired");
     }
-    const entry = await leaseStore.upsert({ tenantId: params.draftId, key: "lease", value: lease });
+    const entry = await leaseStore.upsert({ tenantId: draft.data, key: "lease", value: lease });
     return ok({ ...mapLease(entry), token: lease.token });
   });
 };
@@ -241,13 +244,13 @@ export const releaseDraftLease = async (params: {
   draftId: string;
   token: string;
 }): Promise<Result<void>> => {
-  const allowed = await authorizeDraft({ ...params, permission: "write" });
-  if (!allowed.ok) return allowed;
+  const draft = await resolveAuthorizedDraft({ ...params, permission: "write" });
+  if (!draft.ok) return draft;
   const holder = holderFromContext(params.context);
-  return withLeaseState(params.draftId, async () => {
-    const lease = await ownedEntry(params.draftId, holder, params.token);
+  return withLeaseState(draft.data, async () => {
+    const lease = await ownedEntry(draft.data, holder, params.token);
     if (!lease) return conflict("Draft lease is no longer owned by this session");
-    await removeEntry(params.draftId, lease, "released");
+    await removeEntry(draft.data, lease, "released");
     return ok();
   });
 };

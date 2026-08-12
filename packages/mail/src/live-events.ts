@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const MailResourceIdSchema = z.string().regex(/^[0-9A-Za-z]{6}$/);
+
 export const MAIL_LIVE_WS_TYPE = {
   subscribe: "mail.live.subscribe",
   ready: "mail.live.ready",
@@ -11,8 +13,8 @@ export const MAIL_LIVE_WS_TYPE = {
 export const MailInvalidationSchema = z
   .object({
     type: z.literal("mail.invalidated"),
-    mailboxId: z.uuid(),
-    conversationId: z.uuid().nullable(),
+    mailboxId: MailResourceIdSchema,
+    conversationId: MailResourceIdSchema.nullable(),
     changeId: z.uuid(),
     at: z.string().datetime(),
   })
@@ -32,7 +34,7 @@ const MailLiveSubscribeMessageSchema = z
     type: z.literal(MAIL_LIVE_WS_TYPE.subscribe),
     payload: z
       .object({
-        mailboxId: z.uuid(),
+        mailboxId: MailResourceIdSchema,
         fromCursor: MailLiveCursorSchema.nullable(),
       })
       .strict(),
@@ -46,13 +48,13 @@ export const MailLiveServerMessageSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal(MAIL_LIVE_WS_TYPE.ready),
-      payload: z.object({ mailboxId: z.uuid(), cursor: MailLiveCursorSchema }).strict(),
+      payload: z.object({ mailboxId: MailResourceIdSchema, cursor: MailLiveCursorSchema }).strict(),
     })
     .strict(),
   z
     .object({
       type: z.literal(MAIL_LIVE_WS_TYPE.event),
-      payload: z.object({ mailboxId: z.uuid(), cursor: MailLiveCursorSchema, event: MailInvalidationSchema }).strict(),
+      payload: z.object({ mailboxId: MailResourceIdSchema, cursor: MailLiveCursorSchema, event: MailInvalidationSchema }).strict(),
     })
     .strict(),
   z
@@ -60,7 +62,7 @@ export const MailLiveServerMessageSchema = z.discriminatedUnion("type", [
       type: z.literal(MAIL_LIVE_WS_TYPE.revoked),
       payload: z
         .object({
-          mailboxId: z.uuid(),
+          mailboxId: MailResourceIdSchema,
           code: MailLiveRevocationCodeSchema,
           message: z.string().min(1).max(500),
         })
@@ -72,7 +74,7 @@ export const MailLiveServerMessageSchema = z.discriminatedUnion("type", [
       type: z.literal(MAIL_LIVE_WS_TYPE.error),
       payload: z
         .object({
-          mailboxId: z.uuid().optional(),
+          mailboxId: MailResourceIdSchema.optional(),
           code: MailLiveErrorCodeSchema,
           message: z.string().min(1).max(500),
         })

@@ -54,7 +54,6 @@ const message = (overrides: Partial<MessageDetail> = {}): MessageDetail => ({
   flags: [],
   hydrationStatus: "body",
   remoteAvailable: true,
-  remoteMessageRefId: null,
   folderId: null,
   contentType: "text/plain",
   sizeBytes: 8,

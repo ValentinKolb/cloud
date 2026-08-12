@@ -3,7 +3,7 @@ import type { DraftEditableContent } from "../../contracts";
 import { advanceMailDraftJournalAfterSave, readMailDraftJournal } from "./mail-draft-journal";
 
 const content = (body: string): DraftEditableContent => ({
-  senderIdentityId: "00000000-0000-4000-8000-000000000001",
+  senderIdentityId: "Send01",
   to: [],
   cc: [],
   bcc: [],

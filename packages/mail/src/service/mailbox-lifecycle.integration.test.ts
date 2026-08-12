@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Readable } from "node:stream";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import {
   grantMailboxAccess,
@@ -414,9 +415,9 @@ suite("reversible mailbox lifecycle", () => {
       RETURNING id
     `;
     const [message] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, internal_date, content_hash, hydration_status, hydration_attempt
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid,
         ${`<hydration-fence-${suffix}@example.com>`},
         'Hydration fence',

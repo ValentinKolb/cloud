@@ -8,14 +8,18 @@ import { loadMailboxPageData } from "../../service/workspace";
 import { readMailUserPreferencesFromCookieHeader } from "../_components/mail-user-preferences";
 import { readMailWorkspacePreferences } from "../_components/mail-workspace-preferences";
 import MailWorkspace from "../MailWorkspace.island";
+import { projectMailboxPageData, resolveSsrMailboxId, resolveSsrWorkspaceUrl } from "../ssr-public-boundary";
 
 export default ssr<AuthContext>(async (c) => {
-  const mailboxId = c.req.param("mailboxId") ?? "";
+  const mailboxShortId = c.req.param("mailboxId") ?? "";
+  const mailboxId = await resolveSsrMailboxId(mailboxShortId);
   if (!mailboxId) return c.redirect("/app/mail");
   const actor = c.get("actor");
   const user = actor.kind === "user" ? actor.user : actor.delegatedUser;
   if (!user) return c.redirect("/app/mail");
   const requestUrl = new URL(c.req.raw.url);
+  const internalRequestUrl = await resolveSsrWorkspaceUrl(requestUrl, mailboxId);
+  if (!internalRequestUrl) return c.redirect(`/app/mail/${mailboxShortId}`);
   const context: MailRequestContext = {
     actor,
     accessSubject: c.get("accessSubject"),
@@ -23,13 +27,14 @@ export default ssr<AuthContext>(async (c) => {
   };
   const cookieHeader = c.req.header("cookie");
   const workspacePreferences = readMailWorkspacePreferences(cookieHeader);
-  const userPreferences = readMailUserPreferencesFromCookieHeader(cookieHeader, mailboxId);
+  const userPreferences = readMailUserPreferencesFromCookieHeader(cookieHeader, mailboxShortId);
   const theme = readThemeFromCookieHeader(cookieHeader);
-  const [data, spacesIntegration] = await Promise.all([
-    loadMailboxPageData({ context, mailboxId, requestUrl, listMode: workspacePreferences.listMode }),
+  const [internalData, spacesIntegration] = await Promise.all([
+    loadMailboxPageData({ context, mailboxId, requestUrl: internalRequestUrl, listMode: workspacePreferences.listMode }),
     getSpacesMailIntegrationAvailability(),
   ]);
-  if (!data) return c.redirect("/app/mail");
+  if (!internalData) return c.redirect("/app/mail");
+  const data = await projectMailboxPageData(internalData);
   const dateConfig = getDateConfig(c);
 
   return () => (

@@ -5,6 +5,7 @@ import { sql } from "bun";
 import { mailCapabilities } from "../capabilities";
 import { ConversationGetDataSchema } from "../capability-contracts";
 import { unavailableProviderLimitSnapshot } from "../contracts";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, listMailboxAccess, revokeMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
@@ -62,6 +63,60 @@ suite("mail PostgreSQL foundation", () => {
     blobIds: [],
   };
   let context: MailRequestContext;
+
+  const publicDraftId = async (id: string): Promise<string> => {
+    const [row] = await sql<{ short_id: string }[]>`SELECT short_id FROM mail.drafts WHERE id = ${id}::uuid`;
+    if (!row) throw new Error("Draft fixture is missing its public ID");
+    return row.short_id;
+  };
+
+  const publicConversationId = async (id: string): Promise<string> => {
+    const [row] = await sql<{ short_id: string }[]>`SELECT short_id FROM mail.conversations WHERE id = ${id}::uuid`;
+    if (!row) throw new Error("Conversation fixture is missing its public ID");
+    return row.short_id;
+  };
+
+  const publicMessageId = async (id: string): Promise<string> => {
+    const [row] = await sql<{ short_id: string }[]>`SELECT short_id FROM mail.message_contents WHERE id = ${id}::uuid`;
+    if (!row) throw new Error("Message fixture is missing its public ID");
+    return row.short_id;
+  };
+
+  const publicFolderId = async (id: string): Promise<string> => {
+    const [row] = await sql<{ short_id: string }[]>`SELECT short_id FROM mail.folders WHERE id = ${id}::uuid`;
+    if (!row) throw new Error("Folder fixture is missing its public ID");
+    return row.short_id;
+  };
+
+  const publicMailboxId = async (id: string): Promise<string> => {
+    const [row] = await sql<{ short_id: string }[]>`SELECT short_id FROM mail.mailboxes WHERE id = ${id}::uuid`;
+    if (!row) throw new Error("Mailbox fixture is missing its public ID");
+    return row.short_id;
+  };
+
+  const publicDeliveryId = async (id: string): Promise<string> => {
+    const [row] = await sql<{ short_id: string }[]>`SELECT short_id FROM mail.outbox_submissions WHERE id = ${id}::uuid`;
+    if (!row) throw new Error("Delivery fixture is missing its public ID");
+    return row.short_id;
+  };
+
+  const internalDeliveryId = async (shortId: string): Promise<string> => {
+    const [row] = await sql<{ id: string }[]>`SELECT id FROM mail.outbox_submissions WHERE short_id = ${shortId}`;
+    if (!row) throw new Error("Delivery fixture is missing its internal ID");
+    return row.id;
+  };
+
+  const publicDraftAttachmentId = async (id: string): Promise<string> => {
+    const [row] = await sql<{ short_id: string }[]>`SELECT short_id FROM mail.draft_attachments WHERE id = ${id}::uuid`;
+    if (!row) throw new Error("Draft attachment fixture is missing its public ID");
+    return row.short_id;
+  };
+
+  const publicAttachmentId = async (id: string): Promise<string> => {
+    const [row] = await sql<{ short_id: string }[]>`SELECT short_id FROM mail.attachments WHERE id = ${id}::uuid`;
+    if (!row) throw new Error("Attachment fixture is missing its public ID");
+    return row.short_id;
+  };
 
   beforeAll(async () => {
     await migrate();
@@ -167,10 +222,10 @@ suite("mail PostgreSQL foundation", () => {
         '{}'::jsonb, '{}'::jsonb, ${scope}, now()
       ) RETURNING id
     `;
-    const [folder] = await sql<{ id: string }[]>`
-      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
-      VALUES (${resource!.id}::uuid, 'inbox-fixture', 'Inbox', 'inbox', 'current')
-      RETURNING id
+    const [folder] = await sql<{ id: string; short_id: string }[]>`
+      INSERT INTO mail.folders (short_id, remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${newShortId()}, ${resource!.id}::uuid, 'inbox-fixture', 'Inbox', 'inbox', 'current')
+      RETURNING id, short_id
     `;
     await sql`
       INSERT INTO mail.binding_folder_refs (
@@ -180,11 +235,11 @@ suite("mail PostgreSQL foundation", () => {
         ARRAY['read', 'write_flags', 'insert', 'move', 'delete_messages']::text[], now()
       )
     `;
-    const [identity] = await sql<{ id: string }[]>`
+    const [identity] = await sql<{ id: string; short_id: string }[]>`
       INSERT INTO mail.sender_identities (
-        mailbox_id, label, display_name, from_address, automation_policy, is_default, status
-      ) VALUES (${mailbox.data.id}::uuid, 'Fixture Sender', 'Fixture Sender', 'sender@example.com', 'disabled', true, 'verified')
-      RETURNING id
+        short_id, mailbox_id, label, display_name, from_address, automation_policy, is_default, status
+      ) VALUES (${newShortId()}, ${mailbox.data.id}::uuid, 'Fixture Sender', 'Fixture Sender', 'sender@example.com', 'disabled', true, 'verified')
+      RETURNING id, short_id
     `;
     await sql`
       INSERT INTO mail.sender_identity_bindings (
@@ -203,7 +258,7 @@ suite("mail PostgreSQL foundation", () => {
       origin: {
         kind: "compose",
         input: {
-          senderIdentityId: identity!.id,
+          senderIdentityId: identity!.short_id,
           to: [],
           cc: [],
           bcc: [],
@@ -386,10 +441,10 @@ suite("mail PostgreSQL foundation", () => {
         (SELECT COUNT(*)::int FROM mail.conversation_messages WHERE message_id = ${latestInboundId}::uuid) AS link_count
     `;
     expect(conversationReplay).toEqual({ conversation_count: conversationCountBeforeReplay!.count, link_count: 1 });
-    const [copyFolder] = await sql<{ id: string }[]>`
-      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
-      VALUES (${resource!.id}::uuid, 'copy-fixture', 'Copy target', 'other', 'current')
-      RETURNING id
+    const [copyFolder] = await sql<{ id: string; short_id: string }[]>`
+      INSERT INTO mail.folders (short_id, remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${newShortId()}, ${resource!.id}::uuid, 'copy-fixture', 'Copy target', 'other', 'current')
+      RETURNING id, short_id
     `;
     const [projectedCopyRef] = await sql<{ id: string }[]>`
       INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid, connector_ref)
@@ -473,7 +528,7 @@ suite("mail PostgreSQL foundation", () => {
       messageId: newerOutboundId,
       input: {
         kind: "resend" as const,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         includeAttachments: true,
         idempotencyKey: `resend-${suffix}`,
       },
@@ -506,7 +561,7 @@ suite("mail PostgreSQL foundation", () => {
       messageId: latestInboundId,
       input: {
         kind: "resend",
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         includeAttachments: true,
         idempotencyKey: `inbound-resend-${suffix}`,
       },
@@ -519,7 +574,7 @@ suite("mail PostgreSQL foundation", () => {
       context,
       mailboxId: mailbox.data.id,
       input: {
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [{ name: "Customer", address: "customer@example.com" }],
         cc: [],
         bcc: [],
@@ -535,9 +590,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: safetyDraft.data.id,
+        draftId: await publicDraftId(safetyDraft.data.id),
         expectedDraftRevision: safetyDraft.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         undoSeconds: 60,
         idempotencyKey: `safety-unapproved-${suffix}`,
       },
@@ -549,7 +604,7 @@ suite("mail PostgreSQL foundation", () => {
     const safetyReview = await reviewDraftComposeSafety({
       context,
       mailboxId: mailbox.data.id,
-      draftId: safetyDraft.data.id,
+      draftId: await publicDraftId(safetyDraft.data.id),
       expectedRevision: safetyDraft.data.revision,
     });
     expect(safetyReview.ok).toBe(true);
@@ -558,10 +613,10 @@ suite("mail PostgreSQL foundation", () => {
     const revisedSafetyDraft = await updateDraft({
       context,
       mailboxId: mailbox.data.id,
-      draftId: safetyDraft.data.id,
+      draftId: await publicDraftId(safetyDraft.data.id),
       expectedRevision: safetyDraft.data.revision,
       input: {
-        senderIdentityId: safetyDraft.data.senderIdentityId,
+        senderIdentityId: identity!.short_id,
         to: safetyDraft.data.to,
         cc: safetyDraft.data.cc,
         bcc: safetyDraft.data.bcc,
@@ -580,9 +635,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: revisedSafetyDraft.data.id,
+        draftId: await publicDraftId(revisedSafetyDraft.data.id),
         expectedDraftRevision: revisedSafetyDraft.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         undoSeconds: 60,
         idempotencyKey: `safety-stale-${suffix}`,
         safetyApproval: {
@@ -599,7 +654,7 @@ suite("mail PostgreSQL foundation", () => {
     const revisedSafetyReview = await reviewDraftComposeSafety({
       context,
       mailboxId: mailbox.data.id,
-      draftId: revisedSafetyDraft.data.id,
+      draftId: await publicDraftId(revisedSafetyDraft.data.id),
       expectedRevision: revisedSafetyDraft.data.revision,
     });
     expect(revisedSafetyReview.ok).toBe(true);
@@ -609,9 +664,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: revisedSafetyDraft.data.id,
+        draftId: await publicDraftId(revisedSafetyDraft.data.id),
         expectedDraftRevision: revisedSafetyDraft.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         undoSeconds: 60,
         idempotencyKey: `safety-approved-${suffix}`,
         safetyApproval: {
@@ -660,27 +715,31 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: { name: `Capability ${suffix}`, color: "#2563eb" },
     });
+    if (!capabilityTag.ok) throw new Error(`${capabilityTag.error.code}: ${capabilityTag.error.message}`);
     expect(capabilityTag.ok).toBe(true);
     if (!capabilityTag.ok) return;
     const taggedConversation = await setConversationLocalTags({
       context,
       mailboxId: mailbox.data.id,
-      conversationId: orderedConversation!.id,
+      conversationId: await publicConversationId(orderedConversation!.id),
       input: { expectedRevision: unreadConversation.revision, tagIds: [capabilityTag.data.id] },
     });
+    if (!taggedConversation.ok) throw new Error(`${taggedConversation.error.code}: ${taggedConversation.error.message}`);
     expect(taggedConversation.ok).toBe(true);
     if (!taggedConversation.ok) return;
 
-    const conversationCapability = mailCapabilities.queries["conversation.get"];
-    const capabilityResult = await conversationCapability.run(
-      { mailboxId: mailbox.data.id, conversationId: orderedConversation!.id },
-      {
-        actor: context.actor,
-        accessSubject: context.accessSubject,
-        user: context.actor.kind === "user" ? context.actor.user : context.actor.delegatedUser,
-        signal: AbortSignal.timeout(10_000),
-      },
-    );
+    const capabilityResult = await (async (orderedConversation: { id: string }) => {
+      const conversationCapability = mailCapabilities.queries["conversation.read"];
+      return conversationCapability.run(
+        { id: orderedConversation.id },
+        {
+          actor: context.actor,
+          accessSubject: context.accessSubject,
+          user: context.actor.kind === "user" ? context.actor.user : context.actor.delegatedUser,
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+    })({ id: await publicConversationId(orderedConversation!.id) });
     expect(capabilityResult.ok).toBe(true);
     if (!capabilityResult.ok) return;
     expect(ConversationGetDataSchema.safeParse(capabilityResult.data.data).success).toBe(true);
@@ -702,10 +761,10 @@ suite("mail PostgreSQL foundation", () => {
     const conversationRead = await createConversationTriageCommands({
       context,
       mailboxId: mailbox.data.id,
-      conversationId: orderedConversation!.id,
+      conversationId: await publicConversationId(orderedConversation!.id),
       input: {
         kind: "change_state",
-        sourceFolderId: folder!.id,
+        sourceFolderId: await publicFolderId(folder!.id),
         change: { addFlags: ["seen"], removeFlags: [], addKeywords: [], removeKeywords: [] },
         idempotencyKey: `conversation-read-${suffix}`,
       },
@@ -719,7 +778,7 @@ suite("mail PostgreSQL foundation", () => {
     liveAbort.abort();
     expect(liveInvalidation.value?.data).toMatchObject({
       type: "mail.invalidated",
-      mailboxId: mailbox.data.id,
+      mailboxId: await publicMailboxId(mailbox.data.id),
       conversationId: null,
       changeId: expect.any(String),
     });
@@ -743,10 +802,10 @@ suite("mail PostgreSQL foundation", () => {
     const replayedConversationRead = await createConversationTriageCommands({
       context,
       mailboxId: mailbox.data.id,
-      conversationId: orderedConversation!.id,
+      conversationId: await publicConversationId(orderedConversation!.id),
       input: {
         kind: "change_state",
-        sourceFolderId: folder!.id,
+        sourceFolderId: await publicFolderId(folder!.id),
         change: { addFlags: ["seen"], removeFlags: [], addKeywords: [], removeKeywords: [] },
         idempotencyKey: `conversation-read-${suffix}`,
       },
@@ -760,10 +819,10 @@ suite("mail PostgreSQL foundation", () => {
       context,
       mailboxId: mailbox.data.id,
       input: {
-        conversationId: orderedConversation!.id,
+        conversationId: await publicConversationId(orderedConversation!.id),
         intent: "reply",
-        sourceMessageId: latestInboundId,
-        senderIdentityId: identity!.id,
+        sourceMessageId: await publicMessageId(latestInboundId),
+        senderIdentityId: identity!.short_id,
         to: [{ name: "Untrusted client value", address: "wrong@example.com" }],
         cc: [],
         bcc: [],
@@ -780,10 +839,10 @@ suite("mail PostgreSQL foundation", () => {
     const editedReplyDraft = await updateDraft({
       context,
       mailboxId: mailbox.data.id,
-      draftId: replyDraft.data.id,
+      draftId: await publicDraftId(replyDraft.data.id),
       expectedRevision: replyDraft.data.revision,
       input: {
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [{ name: "Recipient", address: "recipient@example.com" }],
         cc: [],
         bcc: [],
@@ -798,12 +857,12 @@ suite("mail PostgreSQL foundation", () => {
     const conversationDrafts = await listConversationDrafts({
       context,
       mailboxId: mailbox.data.id,
-      conversationId: orderedConversation!.id,
+      conversationId: await publicConversationId(orderedConversation!.id),
     });
     expect(conversationDrafts.ok).toBe(true);
     if (conversationDrafts.ok) {
       expect(conversationDrafts.data).toContainEqual({
-        id: replyDraft.data.id,
+        id: await publicDraftId(replyDraft.data.id),
         intent: "reply",
         subject: "Re: Ordered newest inbound",
         bodyPreview: "Edited reply content",
@@ -817,9 +876,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: replyDraft.data.id,
+        draftId: await publicDraftId(replyDraft.data.id),
         expectedDraftRevision: editedReplyDraft.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         undoSeconds: 60,
         idempotencyKey: `reply-source-send-${suffix}`,
       },
@@ -829,11 +888,11 @@ suite("mail PostgreSQL foundation", () => {
     const scheduledConversationDrafts = await listConversationDrafts({
       context,
       mailboxId: mailbox.data.id,
-      conversationId: orderedConversation!.id,
+      conversationId: await publicConversationId(orderedConversation!.id),
     });
     expect(scheduledConversationDrafts.ok).toBe(true);
     if (scheduledConversationDrafts.ok) {
-      expect(scheduledConversationDrafts.data.map((draft) => draft.id)).not.toContain(replyDraft.data.id);
+      expect(scheduledConversationDrafts.data.map((draft) => draft.id)).not.toContain(await publicDraftId(replyDraft.data.id));
     }
     const [replyOutbox] = await sql<
       { id: string; message_id: string; stable_message_id: string; draft_snapshot: Record<string, unknown> | string }[]
@@ -847,9 +906,9 @@ suite("mail PostgreSQL foundation", () => {
     expect(replySnapshot?.inReplyTo).toBe("<ordering-inbound@example.com>");
     expect(replySnapshot?.references).toContain("<ordering-inbound@example.com>");
     expect(replyCommand.data.result).toMatchObject({
-      outboxSubmissionId: replyOutbox!.id,
-      outboundMessageId: replyOutbox!.message_id,
-      conversationId: orderedConversation!.id,
+      outboxSubmissionId: await publicDeliveryId(replyOutbox!.id),
+      outboundMessageId: await publicMessageId(replyOutbox!.message_id),
+      conversationId: await publicConversationId(orderedConversation!.id),
     });
     const [projectedReply] = await sql<
       {
@@ -881,7 +940,7 @@ suite("mail PostgreSQL foundation", () => {
     const projectedReplyDetail = await getMessage({
       context,
       mailboxId: mailbox.data.id,
-      messageId: replyOutbox!.message_id,
+      messageId: await publicMessageId(replyOutbox!.message_id),
     });
     expect(projectedReplyDetail.ok).toBe(true);
     if (projectedReplyDetail.ok) {
@@ -896,8 +955,9 @@ suite("mail PostgreSQL foundation", () => {
     }
     const [reportMessage] = await sql<{ id: string }[]>`
       INSERT INTO mail.message_contents (
-        mailbox_id, message_id, internal_date, content_hash, hydration_status
+        short_id, mailbox_id, message_id, internal_date, content_hash, hydration_status
       ) VALUES (
+        ${newShortId()},
         ${mailbox.data.id}::uuid,
         ${`<delivery-report-${suffix}@example.com>`},
         now(),
@@ -954,10 +1014,10 @@ suite("mail PostgreSQL foundation", () => {
     const rejectedPostSendAutosave = await updateDraft({
       context,
       mailboxId: mailbox.data.id,
-      draftId: replyDraft.data.id,
+      draftId: await publicDraftId(replyDraft.data.id),
       expectedRevision: editedReplyDraft.data.revision,
       input: {
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [{ name: "Recipient", address: "recipient@example.com" }],
         cc: [],
         bcc: [],
@@ -970,7 +1030,7 @@ suite("mail PostgreSQL foundation", () => {
     const postSendRecovery = await listDraftRecoveryCopies({
       context,
       mailboxId: mailbox.data.id,
-      draftId: replyDraft.data.id,
+      draftId: await publicDraftId(replyDraft.data.id),
     });
     expect(postSendRecovery.ok && postSendRecovery.data.filter((copy) => copy.restoredAt === null)).toHaveLength(1);
     if (postSendRecovery.ok) expect(postSendRecovery.data[0]?.content.body).toBe("Typing that arrived after scheduling");
@@ -1035,7 +1095,7 @@ suite("mail PostgreSQL foundation", () => {
     const discardedReply = await discardDraft({
       context,
       mailboxId: mailbox.data.id,
-      draftId: replyDraft.data.id,
+      draftId: await publicDraftId(replyDraft.data.id),
       expectedRevision: editedReplyDraft.data.revision,
     });
     expect(discardedReply.ok).toBe(true);
@@ -1044,7 +1104,7 @@ suite("mail PostgreSQL foundation", () => {
       context,
       mailboxId: mailbox.data.id,
       input: {
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [],
         cc: [],
         bcc: [],
@@ -1054,16 +1114,18 @@ suite("mail PostgreSQL foundation", () => {
       },
     });
     if (!emptyDraft.ok) throw new Error(`${emptyDraft.error.code}: ${emptyDraft.error.message}`);
-    const lease = await acquireDraftLease({ context, mailboxId: mailbox.data.id, draftId: emptyDraft.data.id });
+    const lease = await acquireDraftLease({ context, mailboxId: mailbox.data.id, draftId: await publicDraftId(emptyDraft.data.id) });
     expect(lease.ok).toBe(true);
     if (!lease.ok) return;
-    expect((await acquireDraftLease({ context, mailboxId: mailbox.data.id, draftId: emptyDraft.data.id })).ok).toBe(false);
+    expect((await acquireDraftLease({ context, mailboxId: mailbox.data.id, draftId: await publicDraftId(emptyDraft.data.id) })).ok).toBe(
+      false,
+    );
     expect(
       (
         await heartbeatDraftLease({
           context,
           mailboxId: mailbox.data.id,
-          draftId: emptyDraft.data.id,
+          draftId: await publicDraftId(emptyDraft.data.id),
           token: crypto.randomUUID(),
         })
       ).ok,
@@ -1073,7 +1135,7 @@ suite("mail PostgreSQL foundation", () => {
         await heartbeatDraftLease({
           context,
           mailboxId: mailbox.data.id,
-          draftId: emptyDraft.data.id,
+          draftId: await publicDraftId(emptyDraft.data.id),
           token: lease.data.token,
         })
       ).ok,
@@ -1083,7 +1145,7 @@ suite("mail PostgreSQL foundation", () => {
         await releaseDraftLease({
           context,
           mailboxId: mailbox.data.id,
-          draftId: emptyDraft.data.id,
+          draftId: await publicDraftId(emptyDraft.data.id),
           token: lease.data.token,
         })
       ).ok,
@@ -1093,9 +1155,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: emptyDraft.data.id,
+        draftId: await publicDraftId(emptyDraft.data.id),
         expectedDraftRevision: emptyDraft.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         undoSeconds: 60,
         idempotencyKey: `empty-send-${suffix}`,
       },
@@ -1112,7 +1174,7 @@ suite("mail PostgreSQL foundation", () => {
       context,
       mailboxId: mailbox.data.id,
       input: {
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [{ name: "Recipient", address: "recipient@example.com" }],
         cc: [],
         bcc: [],
@@ -1126,10 +1188,10 @@ suite("mail PostgreSQL foundation", () => {
     const rejectedIdentityUpdate = await updateDraft({
       context,
       mailboxId: mailbox.data.id,
-      draftId: invalidIdentityDraft.data.id,
+      draftId: await publicDraftId(invalidIdentityDraft.data.id),
       expectedRevision: invalidIdentityDraft.data.revision,
       input: {
-        senderIdentityId: crypto.randomUUID(),
+        senderIdentityId: newShortId(),
         to: [{ name: "Recipient", address: "recipient@example.com" }],
         cc: [],
         bcc: [],
@@ -1142,7 +1204,7 @@ suite("mail PostgreSQL foundation", () => {
     const identityRecoveryCopies = await listDraftRecoveryCopies({
       context,
       mailboxId: mailbox.data.id,
-      draftId: invalidIdentityDraft.data.id,
+      draftId: await publicDraftId(invalidIdentityDraft.data.id),
     });
     expect(identityRecoveryCopies.ok && identityRecoveryCopies.data).toHaveLength(1);
     if (identityRecoveryCopies.ok) {
@@ -1151,7 +1213,7 @@ suite("mail PostgreSQL foundation", () => {
     const pendingUpload = await createDraftAttachmentUpload({
       context,
       mailboxId: mailbox.data.id,
-      draftId: invalidIdentityDraft.data.id,
+      draftId: await publicDraftId(invalidIdentityDraft.data.id),
       input: { filename: "pending.txt", contentType: "text/plain", byteLength: 1 },
     });
     expect(pendingUpload.ok).toBe(true);
@@ -1161,9 +1223,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: invalidIdentityDraft.data.id,
+        draftId: await publicDraftId(invalidIdentityDraft.data.id),
         expectedDraftRevision: invalidIdentityDraft.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         undoSeconds: 60,
         idempotencyKey: `pending-upload-send-${suffix}`,
       },
@@ -1173,21 +1235,21 @@ suite("mail PostgreSQL foundation", () => {
     const cancelledUpload = await cancelDraftAttachmentUpload({
       context,
       mailboxId: mailbox.data.id,
-      draftId: invalidIdentityDraft.data.id,
+      draftId: await publicDraftId(invalidIdentityDraft.data.id),
       uploadId: pendingUpload.data.id,
     });
     expect(cancelledUpload.ok && cancelledUpload.data.state).toBe("cancelled");
     const repeatedCancellation = await cancelDraftAttachmentUpload({
       context,
       mailboxId: mailbox.data.id,
-      draftId: invalidIdentityDraft.data.id,
+      draftId: await publicDraftId(invalidIdentityDraft.data.id),
       uploadId: pendingUpload.data.id,
     });
     expect(repeatedCancellation.ok && repeatedCancellation.data.state).toBe("cancelled");
     const retainedCancellation = await getDraftAttachmentUpload({
       context,
       mailboxId: mailbox.data.id,
-      draftId: invalidIdentityDraft.data.id,
+      draftId: await publicDraftId(invalidIdentityDraft.data.id),
       uploadId: pendingUpload.data.id,
     });
     expect(retainedCancellation.ok && retainedCancellation.data.state).toBe("cancelled");
@@ -1195,10 +1257,10 @@ suite("mail PostgreSQL foundation", () => {
     const draft = await updateDraft({
       context,
       mailboxId: mailbox.data.id,
-      draftId: emptyDraft.data.id,
+      draftId: await publicDraftId(emptyDraft.data.id),
       expectedRevision: emptyDraft.data.revision,
       input: {
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [{ name: "Recipient", address: "recipient@example.com" }],
         cc: [],
         bcc: [],
@@ -1219,10 +1281,10 @@ suite("mail PostgreSQL foundation", () => {
     const staleUpdate = await updateDraft({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
+      draftId: await publicDraftId(draft.data.id),
       expectedRevision: emptyDraft.data.revision,
       input: {
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [{ name: "Recipient", address: "recipient@example.com" }],
         cc: [],
         bcc: [],
@@ -1232,16 +1294,20 @@ suite("mail PostgreSQL foundation", () => {
       },
     });
     expect(staleUpdate.ok).toBe(false);
-    const recoveryCopies = await listDraftRecoveryCopies({ context, mailboxId: mailbox.data.id, draftId: draft.data.id });
+    const recoveryCopies = await listDraftRecoveryCopies({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: await publicDraftId(draft.data.id),
+    });
     expect(recoveryCopies.ok && recoveryCopies.data).toHaveLength(1);
     if (!recoveryCopies.ok || !recoveryCopies.data[0]) return;
-    const recoveryLease = await acquireDraftLease({ context, mailboxId: mailbox.data.id, draftId: draft.data.id });
+    const recoveryLease = await acquireDraftLease({ context, mailboxId: mailbox.data.id, draftId: await publicDraftId(draft.data.id) });
     expect(recoveryLease.ok).toBe(true);
     if (!recoveryLease.ok) return;
     const restoreWithoutLease = await restoreDraftRecoveryCopy({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
+      draftId: await publicDraftId(draft.data.id),
       recoveryCopyId: recoveryCopies.data[0].id,
       expectedRevision: draft.data.revision,
       leaseToken: crypto.randomUUID(),
@@ -1250,7 +1316,7 @@ suite("mail PostgreSQL foundation", () => {
     const restoredDraft = await restoreDraftRecoveryCopy({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
+      draftId: await publicDraftId(draft.data.id),
       recoveryCopyId: recoveryCopies.data[0].id,
       expectedRevision: draft.data.revision,
       leaseToken: recoveryLease.data.token,
@@ -1262,7 +1328,7 @@ suite("mail PostgreSQL foundation", () => {
     const draftWithAttachment = await uploadDraftAttachmentStream({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
+      draftId: await publicDraftId(draft.data.id),
       expectedRevision: restoredDraft.data.revision,
       filename: "integration.txt",
       contentType: "text/plain",
@@ -1283,9 +1349,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: draft.data.id,
+        draftId: await publicDraftId(draft.data.id),
         expectedDraftRevision: restoredDraft.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         undoSeconds: 60,
         idempotencyKey: `stale-send-${suffix}`,
       },
@@ -1296,9 +1362,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: draft.data.id,
+        draftId: await publicDraftId(draft.data.id),
         expectedDraftRevision: draftWithAttachment.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         undoSeconds: 60,
         idempotencyKey: `send-${suffix}`,
       },
@@ -1314,9 +1380,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: draft.data.id,
+        draftId: await publicDraftId(draft.data.id),
         expectedDraftRevision: draftWithAttachment.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         undoSeconds: 60,
         idempotencyKey: `send-${suffix}`,
       },
@@ -1327,9 +1393,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: draft.data.id,
+        draftId: await publicDraftId(draft.data.id),
         expectedDraftRevision: draftWithAttachment.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         undoSeconds: 60,
         idempotencyKey: `duplicate-send-${suffix}`,
       },
@@ -1340,9 +1406,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: draft.data.id,
+        draftId: await publicDraftId(draft.data.id),
         expectedDraftRevision: draftWithAttachment.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         undoSeconds: 59,
         idempotencyKey: `send-${suffix}`,
       },
@@ -1376,8 +1442,8 @@ suite("mail PostgreSQL foundation", () => {
       }),
     ]);
     expect(command.data.result).toMatchObject({
-      outboxSubmissionId: outbox!.id,
-      outboundMessageId: outbox!.message_id,
+      outboxSubmissionId: await publicDeliveryId(outbox!.id),
+      outboundMessageId: await publicMessageId(outbox!.message_id),
     });
     const [projectedMessage] = await sql<
       {
@@ -1405,17 +1471,21 @@ suite("mail PostgreSQL foundation", () => {
     });
     const projectedConversationId = command.data.result.conversationId;
     expect(typeof projectedConversationId).toBe("string");
+    if (typeof projectedConversationId !== "string") throw new Error("Send command is missing its public conversation ID");
     const projectedConversationList = await listConversations({ context, mailboxId: mailbox.data.id, limit: 100 });
     expect(projectedConversationList.ok).toBe(true);
+    let projectedConversationDbId: string | null = null;
     if (projectedConversationList.ok) {
-      expect(projectedConversationList.data.items.some((item) => item.id === projectedConversationId)).toBe(true);
+      const publicConversationIds = await Promise.all(projectedConversationList.data.items.map((item) => publicConversationId(item.id)));
+      expect(publicConversationIds).toContain(projectedConversationId);
+      projectedConversationDbId = projectedConversationList.data.items[publicConversationIds.indexOf(projectedConversationId)]?.id ?? null;
     }
     const cancelled = await cancelSendCommand({ context, mailboxId: mailbox.data.id, commandId: command.data.id });
     expect(cancelled.ok).toBe(true);
     const restoredLease = await acquireDraftLease({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
+      draftId: await publicDraftId(draft.data.id),
     });
     expect(restoredLease.ok).toBe(true);
     if (restoredLease.ok) {
@@ -1424,7 +1494,7 @@ suite("mail PostgreSQL foundation", () => {
           await releaseDraftLease({
             context,
             mailboxId: mailbox.data.id,
-            draftId: draft.data.id,
+            draftId: await publicDraftId(draft.data.id),
             token: restoredLease.data.token,
           })
         ).ok,
@@ -1436,7 +1506,7 @@ suite("mail PostgreSQL foundation", () => {
         (
           SELECT COUNT(*)::int
           FROM mail.conversations
-          WHERE id = ${typeof projectedConversationId === "string" ? projectedConversationId : null}::uuid
+          WHERE id = ${projectedConversationDbId}::uuid
         ) AS conversation_count
     `;
     expect(cancelledProjection).toEqual({ message_count: 0, conversation_count: 0 });
@@ -1453,7 +1523,7 @@ suite("mail PostgreSQL foundation", () => {
       context,
       mailboxId: mailbox.data.id,
       input: {
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [{ name: "Recipient", address: "recipient@example.com" }],
         cc: [],
         bcc: [],
@@ -1469,9 +1539,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: oversizedDraft.data.id,
+        draftId: await publicDraftId(oversizedDraft.data.id),
         expectedDraftRevision: oversizedDraft.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         undoSeconds: 0,
         idempotencyKey: `oversized-send-${suffix}`,
       },
@@ -1493,7 +1563,7 @@ suite("mail PostgreSQL foundation", () => {
       context,
       mailboxId: mailbox.data.id,
       input: {
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [{ name: "Recipient", address: "recipient@example.com" }],
         cc: [],
         bcc: [],
@@ -1509,9 +1579,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: discardScheduledDraft.data.id,
+        draftId: await publicDraftId(discardScheduledDraft.data.id),
         expectedDraftRevision: discardScheduledDraft.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         scheduledAt: new Date(Date.now() - 60_000).toISOString(),
         undoSeconds: 0,
         idempotencyKey: `past-scheduled-${suffix}`,
@@ -1524,9 +1594,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: discardScheduledDraft.data.id,
+        draftId: await publicDraftId(discardScheduledDraft.data.id),
         expectedDraftRevision: discardScheduledDraft.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         scheduledAt: discardScheduledAt,
         undoSeconds: 30,
         idempotencyKey: `discard-scheduled-${suffix}`,
@@ -1545,7 +1615,7 @@ suite("mail PostgreSQL foundation", () => {
       context,
       mailboxId: mailbox.data.id,
       input: {
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [{ name: "Recipient", address: "recipient@example.com" }],
         cc: [],
         bcc: [],
@@ -1561,9 +1631,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: secondScheduledDraft.data.id,
+        draftId: await publicDraftId(secondScheduledDraft.data.id),
         expectedDraftRevision: secondScheduledDraft.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         scheduledAt: discardScheduledAt,
         undoSeconds: 0,
         idempotencyKey: `second-scheduled-${suffix}`,
@@ -1578,12 +1648,13 @@ suite("mail PostgreSQL foundation", () => {
     expect(firstScheduledPage.data.total).toBe(2);
     expect(firstScheduledPage.data.nextCursor).not.toBeNull();
     const firstScheduledItem = firstScheduledPage.data.items[0]!;
+    const firstScheduledItemDbId = await internalDeliveryId(firstScheduledItem.id);
     let requestedAtMutationError: unknown;
     try {
       await sql`
         UPDATE mail.outbox_submissions
         SET requested_at = requested_at + interval '1 second'
-        WHERE id = ${firstScheduledItem.id}::uuid
+        WHERE id = ${firstScheduledItemDbId}::uuid
       `;
     } catch (error) {
       requestedAtMutationError = error;
@@ -1595,7 +1666,7 @@ suite("mail PostgreSQL foundation", () => {
         scheduled_at = requested_at + interval '15 minutes',
         last_error_code = 'SMTP_TEMPORARY',
         last_error_message = 'Temporary SMTP failure'
-      WHERE id = ${firstScheduledItem.id}::uuid
+      WHERE id = ${firstScheduledItemDbId}::uuid
     `;
     const secondScheduledPage = await listScheduledSends({
       context,
@@ -1656,7 +1727,7 @@ suite("mail PostgreSQL foundation", () => {
         await createDraftAttachmentUpload({
           context,
           mailboxId: mailbox.data.id,
-          draftId: draft.data.id,
+          draftId: await publicDraftId(draft.data.id),
           input: { filename: "too-large.bin", contentType: "application/octet-stream", byteLength: 100 * 1024 * 1024 + 1 },
         })
       ).ok,
@@ -1665,7 +1736,7 @@ suite("mail PostgreSQL foundation", () => {
     const upload = await createDraftAttachmentUpload({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
+      draftId: await publicDraftId(draft.data.id),
       input: { filename: "resumed.bin", contentType: "application/octet-stream", byteLength: resumedBytes.length },
     });
     if (!upload.ok) throw new Error(`${upload.error.code}: ${upload.error.message}`);
@@ -1674,7 +1745,7 @@ suite("mail PostgreSQL foundation", () => {
         await appendDraftAttachmentUpload({
           context,
           mailboxId: mailbox.data.id,
-          draftId: draft.data.id,
+          draftId: await publicDraftId(draft.data.id),
           uploadId: upload.data.id,
           offset: 1,
           bytes: resumedBytes.subarray(0, 16),
@@ -1684,7 +1755,7 @@ suite("mail PostgreSQL foundation", () => {
     const partialNonFinalChunk = await appendDraftAttachmentUpload({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
+      draftId: await publicDraftId(draft.data.id),
       uploadId: upload.data.id,
       offset: 0,
       bytes: resumedBytes.subarray(0, 16),
@@ -1694,7 +1765,7 @@ suite("mail PostgreSQL foundation", () => {
     const firstChunk = await appendDraftAttachmentUpload({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
+      draftId: await publicDraftId(draft.data.id),
       uploadId: upload.data.id,
       offset: 0,
       bytes: resumedBytes.subarray(0, 1024 * 1024),
@@ -1703,14 +1774,14 @@ suite("mail PostgreSQL foundation", () => {
     const resumed = await getDraftAttachmentUpload({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
+      draftId: await publicDraftId(draft.data.id),
       uploadId: upload.data.id,
     });
     expect(resumed.ok && resumed.data.receivedBytes).toBe(1024 * 1024);
     const completedUpload = await appendDraftAttachmentUpload({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
+      draftId: await publicDraftId(draft.data.id),
       uploadId: upload.data.id,
       offset: 1024 * 1024,
       bytes: resumedBytes.subarray(1024 * 1024),
@@ -1719,7 +1790,7 @@ suite("mail PostgreSQL foundation", () => {
     const draftWithResumedAttachment = await finalizeDraftAttachmentUpload({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
+      draftId: await publicDraftId(draft.data.id),
       uploadId: upload.data.id,
       expectedRevision: draftWithAttachment.data.revision,
     });
@@ -1741,7 +1812,7 @@ suite("mail PostgreSQL foundation", () => {
     const draftWithStreamedAttachment = await uploadDraftAttachmentStream({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
+      draftId: await publicDraftId(draft.data.id),
       expectedRevision: draftWithResumedAttachment.data.revision,
       filename: "fragmented-stream.bin",
       contentType: "application/octet-stream",
@@ -1798,8 +1869,8 @@ suite("mail PostgreSQL foundation", () => {
     const withoutFirstAttachment = await removeDraftAttachment({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
-      attachmentId: draftWithAttachment.data.attachments[0]!.id,
+      draftId: await publicDraftId(draft.data.id),
+      attachmentId: await publicDraftAttachmentId(draftWithAttachment.data.attachments[0]!.id),
       expectedRevision: draftWithStreamedAttachment.data.revision,
     });
     expect(withoutFirstAttachment.ok).toBe(true);
@@ -1807,8 +1878,8 @@ suite("mail PostgreSQL foundation", () => {
     const withoutAttachment = await removeDraftAttachment({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
-      attachmentId: resumedAttachment.id,
+      draftId: await publicDraftId(draft.data.id),
+      attachmentId: await publicDraftAttachmentId(resumedAttachment.id),
       expectedRevision: withoutFirstAttachment.data.revision,
     });
     expect(withoutAttachment.ok && withoutAttachment.data.attachments.map((attachment) => attachment.id)).toEqual([streamedAttachment.id]);
@@ -1816,8 +1887,8 @@ suite("mail PostgreSQL foundation", () => {
     const withoutStreamedAttachment = await removeDraftAttachment({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
-      attachmentId: streamedAttachment.id,
+      draftId: await publicDraftId(draft.data.id),
+      attachmentId: await publicDraftAttachmentId(streamedAttachment.id),
       expectedRevision: withoutAttachment.data.revision,
     });
     expect(withoutStreamedAttachment.ok && withoutStreamedAttachment.data.attachments).toEqual([]);
@@ -1825,7 +1896,7 @@ suite("mail PostgreSQL foundation", () => {
     const discarded = await discardDraft({
       context,
       mailboxId: mailbox.data.id,
-      draftId: draft.data.id,
+      draftId: await publicDraftId(draft.data.id),
       expectedRevision: withoutStreamedAttachment.data.revision,
     });
     expect(discarded.ok && discarded.data.state).toBe("discarded");
@@ -1849,14 +1920,14 @@ suite("mail PostgreSQL foundation", () => {
       { action: "draft.discarded", target_type: "draft" },
     ]);
 
-    const [message] = await sql<{ id: string }[]>`
+    const [message] = await sql<{ id: string; short_id: string }[]>`
       INSERT INTO mail.message_contents (
-        mailbox_id, message_id, subject, internal_date, size_bytes, content_hash,
+        short_id, mailbox_id, message_id, subject, internal_date, size_bytes, content_hash,
         hydration_status, plain_text, normalized_subject
       ) VALUES (
-        ${mailbox.data.id}::uuid, '<integration@example.com>', 'Searchable subject', now(), 42,
+        ${newShortId()}, ${mailbox.data.id}::uuid, '<integration@example.com>', 'Searchable subject', now(), 42,
         ${"b".repeat(64)}, 'complete', 'A unique integration body phrase', 'searchable subject'
-      ) RETURNING id
+      ) RETURNING id, short_id
     `;
     await sql`
       INSERT INTO mail.message_search_chunks (message_id, mailbox_id, position, search_document)
@@ -1877,13 +1948,13 @@ suite("mail PostgreSQL foundation", () => {
       INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id, flags, keywords)
       VALUES (${remoteRef!.id}::uuid, ${folder!.id}::uuid, ${message!.id}::uuid, ARRAY[]::text[], ARRAY[]::text[])
     `;
-    const [attachmentConversation] = await sql<{ id: string }[]>`
+    const [attachmentConversation] = await sql<{ id: string; short_id: string }[]>`
       INSERT INTO mail.conversations (
-        mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at
+        short_id, mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at
       ) VALUES (
-        ${mailbox.data.id}::uuid, 'Searchable subject', 'Alice Fixture', now(), now()
+        ${newShortId()}, ${mailbox.data.id}::uuid, 'Searchable subject', 'Alice Fixture', now(), now()
       )
-      RETURNING id
+      RETURNING id, short_id
     `;
     await sql`
       INSERT INTO mail.conversation_messages (conversation_id, message_id, position, added_by)
@@ -1896,14 +1967,14 @@ suite("mail PostgreSQL foundation", () => {
         assignee_user_id = ${context.actor.kind === "user" ? context.actor.user.id : null}::uuid
       WHERE id = ${attachmentConversation!.id}::uuid
     `;
-    const [secondMatchingMessage] = await sql<{ id: string }[]>`
+    const [secondMatchingMessage] = await sql<{ id: string; short_id: string }[]>`
       INSERT INTO mail.message_contents (
-        mailbox_id, message_id, subject, internal_date, size_bytes, content_hash,
+        short_id, mailbox_id, message_id, subject, internal_date, size_bytes, content_hash,
         hydration_status, plain_text, normalized_subject
       ) VALUES (
-        ${mailbox.data.id}::uuid, '<integration-2@example.com>', 'Searchable follow-up', now() + interval '1 second', 43,
+        ${newShortId()}, ${mailbox.data.id}::uuid, '<integration-2@example.com>', 'Searchable follow-up', now() + interval '1 second', 43,
         ${"c".repeat(64)}, 'complete', 'A second unique integration body phrase', 'searchable follow-up'
-      ) RETURNING id
+      ) RETURNING id, short_id
     `;
     await sql`
       INSERT INTO mail.message_search_chunks (message_id, mailbox_id, position, search_document)
@@ -2005,10 +2076,10 @@ suite("mail PostgreSQL foundation", () => {
       },
     });
     expect(crossChunkWords.ok && crossChunkWords.data.items.map((item) => item.conversationId)).toContain(attachmentConversation!.id);
-    const [secondaryFolder] = await sql<{ id: string }[]>`
-      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
-      VALUES (${resource!.id}::uuid, ${`secondary-${suffix}`}, 'Secondary', 'other', 'current')
-      RETURNING id
+    const [secondaryFolder] = await sql<{ id: string; short_id: string }[]>`
+      INSERT INTO mail.folders (short_id, remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${newShortId()}, ${resource!.id}::uuid, ${`secondary-${suffix}`}, 'Secondary', 'other', 'current')
+      RETURNING id, short_id
     `;
     const [secondaryRef] = await sql<{ id: string }[]>`
       INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
@@ -2031,7 +2102,7 @@ suite("mail PostgreSQL foundation", () => {
       context,
       mailboxId: mailbox.data.id,
       request: {
-        expression: { type: "folder_id", folderId: folder!.id },
+        expression: { type: "folder_id", folderId: await publicFolderId(folder!.id) },
         sort: "newest",
         limit: 10,
       },
@@ -2091,10 +2162,11 @@ suite("mail PostgreSQL foundation", () => {
 
     const [uidValidityDraft] = await sql<{ id: string; revision: number }[]>`
       INSERT INTO mail.drafts (
-        mailbox_id, intent, sender_identity_id,
+        short_id, mailbox_id, intent, sender_identity_id,
         author_kind, author_id, last_editor_kind, last_editor_id,
         to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format
       ) VALUES (
+        ${newShortId()},
         ${mailbox.data.id}::uuid,
         'new',
         ${identity!.id}::uuid,
@@ -2212,24 +2284,24 @@ suite("mail PostgreSQL foundation", () => {
       )
       RETURNING id
     `;
-    const [attachment] = await sql<{ id: string }[]>`
+    const [attachment] = await sql<{ id: string; short_id: string }[]>`
       INSERT INTO mail.attachments (
-        message_id, part_id, filename, content_type, disposition, checksum, size_bytes, blob_id
+        short_id, message_id, part_id, filename, content_type, disposition, checksum, size_bytes, blob_id
       ) VALUES (
-        ${message!.id}::uuid, ${attachmentPart!.id}::uuid, 'stream-test.bin', 'application/octet-stream',
+        ${newShortId()}, ${message!.id}::uuid, ${attachmentPart!.id}::uuid, 'stream-test.bin', 'application/octet-stream',
         'attachment', ${attachmentBlob.contentHash}, ${attachmentBytes.length}, ${attachmentBlob.id}::uuid
       )
-      RETURNING id
+      RETURNING id, short_id
     `;
     const forwardedDraft = await createDraft({
       context,
       mailboxId: mailbox.data.id,
       input: {
-        conversationId: attachmentConversation!.id,
+        conversationId: await publicConversationId(attachmentConversation!.id),
         intent: "forward",
-        sourceMessageId: message!.id,
+        sourceMessageId: await publicMessageId(message!.id),
         includeSourceAttachments: true,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [],
         cc: [],
         bcc: [],
@@ -2258,11 +2330,11 @@ suite("mail PostgreSQL foundation", () => {
       context,
       mailboxId: mailbox.data.id,
       input: {
-        conversationId: attachmentConversation!.id,
+        conversationId: await publicConversationId(attachmentConversation!.id),
         intent: "forward",
-        sourceMessageId: message!.id,
+        sourceMessageId: await publicMessageId(message!.id),
         includeSourceAttachments: false,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [],
         cc: [],
         bcc: [],
@@ -2276,11 +2348,11 @@ suite("mail PostgreSQL foundation", () => {
       context,
       mailboxId: mailbox.data.id,
       input: {
-        conversationId: attachmentConversation!.id,
+        conversationId: await publicConversationId(attachmentConversation!.id),
         intent: "reply",
-        sourceMessageId: message!.id,
+        sourceMessageId: await publicMessageId(message!.id),
         includeSourceAttachments: true,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [{ name: "Alice Fixture", address: "alice@example.com" }],
         cc: [],
         bcc: [],
@@ -2293,8 +2365,8 @@ suite("mail PostgreSQL foundation", () => {
     const openedAttachment = await openAttachment({
       context,
       mailboxId: mailbox.data.id,
-      messageId: message!.id,
-      attachmentId: attachment!.id,
+      messageId: await publicMessageId(message!.id),
+      attachmentId: await publicAttachmentId(attachment!.id),
     });
     expect(openedAttachment.ok).toBe(true);
     if (!openedAttachment.ok) return;
@@ -2350,8 +2422,9 @@ suite("mail PostgreSQL foundation", () => {
       `From: Large Body <large@example.com>\r\nTo: Recipient <recipient@example.com>\r\nSubject: Large body search\r\nMessage-ID: <large-body@example.com>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${longBody}`,
       "utf8",
     );
-    const [largeMessage] = await sql<{ id: string }[]>`
+    const [largeMessage] = await sql<{ id: string; short_id: string }[]>`
       INSERT INTO mail.message_contents (
+        short_id,
         mailbox_id,
         message_id,
         subject,
@@ -2361,6 +2434,7 @@ suite("mail PostgreSQL foundation", () => {
         hydration_status,
         mime_structure
       ) VALUES (
+        ${newShortId()},
         ${mailbox.data.id}::uuid,
         '<large-body@example.com>',
         'Large body search',
@@ -2369,7 +2443,7 @@ suite("mail PostgreSQL foundation", () => {
         ${"e".repeat(64)},
         'envelope',
         ${{ part: "1", type: "text/plain", childNodes: [] }}::jsonb
-      ) RETURNING id
+      ) RETURNING id, short_id
     `;
     const [largeRemoteRef] = await sql<{ id: string }[]>`
       INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid)
@@ -2466,7 +2540,7 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         intent: "new",
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [],
         cc: [],
         bcc: [],
@@ -2574,7 +2648,7 @@ suite("mail PostgreSQL foundation", () => {
       context: collaboratorContext,
       mailboxId: mailbox.data.id,
       input: {
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [{ address: "recipient@example.com" }],
         cc: [],
         bcc: [],
@@ -2588,13 +2662,21 @@ suite("mail PostgreSQL foundation", () => {
     const collaboratorLease = await acquireDraftLease({
       context: collaboratorContext,
       mailboxId: mailbox.data.id,
-      draftId: collaboratorDraft.data.id,
+      draftId: await publicDraftId(collaboratorDraft.data.id),
     });
     expect(collaboratorLease.ok).toBe(true);
     expect((await revokeMailboxAccess({ context, mailboxId: mailbox.data.id, accessId: grant.data.id })).ok).toBe(true);
-    const leaseAfterRevocation = await getDraftLease({ context, mailboxId: mailbox.data.id, draftId: collaboratorDraft.data.id });
+    const leaseAfterRevocation = await getDraftLease({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: await publicDraftId(collaboratorDraft.data.id),
+    });
     expect(leaseAfterRevocation.ok && leaseAfterRevocation.data).toBeNull();
-    const ownerLease = await acquireDraftLease({ context, mailboxId: mailbox.data.id, draftId: collaboratorDraft.data.id });
+    const ownerLease = await acquireDraftLease({
+      context,
+      mailboxId: mailbox.data.id,
+      draftId: await publicDraftId(collaboratorDraft.data.id),
+    });
     expect(ownerLease.ok).toBe(true);
     if (ownerLease.ok) {
       expect(
@@ -2602,7 +2684,7 @@ suite("mail PostgreSQL foundation", () => {
           await releaseDraftLease({
             context,
             mailboxId: mailbox.data.id,
-            draftId: collaboratorDraft.data.id,
+            draftId: await publicDraftId(collaboratorDraft.data.id),
             token: ownerLease.data.token,
           })
         ).ok,
@@ -2616,13 +2698,13 @@ suite("mail PostgreSQL foundation", () => {
     });
     expect(readGrant.ok).toBe(true);
     if (!readGrant.ok) return;
-    expect((await getDraft(collaboratorContext, mailbox.data.id, collaboratorDraft.data.id)).ok).toBe(true);
+    expect((await getDraft(collaboratorContext, mailbox.data.id, await publicDraftId(collaboratorDraft.data.id))).ok).toBe(true);
     expect(
       (
         await listConversationDrafts({
           context: collaboratorContext,
           mailboxId: mailbox.data.id,
-          conversationId: orderedConversation!.id,
+          conversationId: await publicConversationId(orderedConversation!.id),
         })
       ).ok,
     ).toBe(true);
@@ -2631,10 +2713,10 @@ suite("mail PostgreSQL foundation", () => {
         await updateDraft({
           context: collaboratorContext,
           mailboxId: mailbox.data.id,
-          draftId: collaboratorDraft.data.id,
+          draftId: await publicDraftId(collaboratorDraft.data.id),
           expectedRevision: collaboratorDraft.data.revision,
           input: {
-            senderIdentityId: identity!.id,
+            senderIdentityId: identity!.short_id,
             to: [{ address: "recipient@example.com" }],
             cc: [],
             bcc: [],
@@ -2649,7 +2731,7 @@ suite("mail PostgreSQL foundation", () => {
     const revokedConversationDrafts = await listConversationDrafts({
       context: collaboratorContext,
       mailboxId: mailbox.data.id,
-      conversationId: orderedConversation!.id,
+      conversationId: await publicConversationId(orderedConversation!.id),
     });
     expect(revokedConversationDrafts.ok).toBe(false);
     if (!revokedConversationDrafts.ok) expect(revokedConversationDrafts.error.code).toBe("FORBIDDEN");
@@ -2666,9 +2748,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: collaboratorDraft.data.id,
+        draftId: await publicDraftId(collaboratorDraft.data.id),
         expectedDraftRevision: collaboratorDraft.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         scheduledAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         undoSeconds: 0,
         idempotencyKey: `revoked-send-${suffix}`,
@@ -2686,7 +2768,7 @@ suite("mail PostgreSQL foundation", () => {
       expect(collaboratorScheduled.data.items).toContainEqual(
         expect.objectContaining({
           commandId: collaboratorCommand.data.id,
-          draftId: collaboratorDraft.data.id,
+          draftId: await publicDraftId(collaboratorDraft.data.id),
           state: "scheduled",
         }),
       );
@@ -2859,7 +2941,7 @@ suite("mail PostgreSQL foundation", () => {
       context,
       mailboxId: mailbox.data.id,
       input: {
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         to: [{ address: "recipient@example.com" }],
         cc: [],
         bcc: [],
@@ -2875,9 +2957,9 @@ suite("mail PostgreSQL foundation", () => {
       mailboxId: mailbox.data.id,
       input: {
         kind: "send",
-        draftId: retryDraft.data.id,
+        draftId: await publicDraftId(retryDraft.data.id),
         expectedDraftRevision: retryDraft.data.revision,
-        senderIdentityId: identity!.id,
+        senderIdentityId: identity!.short_id,
         scheduledAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         undoSeconds: 0,
         idempotencyKey: `sent-copy-${suffix}`,
@@ -2998,8 +3080,9 @@ suite("mail PostgreSQL foundation", () => {
       worker_heartbeat_at: null,
     });
 
-    const [exhaustedHydration] = await sql<{ id: string }[]>`
+    const [exhaustedHydration] = await sql<{ id: string; short_id: string }[]>`
       INSERT INTO mail.message_contents (
+        short_id,
         mailbox_id,
         message_id,
         subject,
@@ -3009,6 +3092,7 @@ suite("mail PostgreSQL foundation", () => {
         hydration_status,
         hydration_attempt
       ) VALUES (
+        ${newShortId()},
         ${mailbox.data.id}::uuid,
         '<exhausted-hydration@example.com>',
         'Exhausted hydration',
@@ -3017,7 +3101,7 @@ suite("mail PostgreSQL foundation", () => {
         ${"d".repeat(64)},
         'failed',
         5
-      ) RETURNING id
+      ) RETURNING id, short_id
     `;
     await expect(
       hydrateMessageFromSource({

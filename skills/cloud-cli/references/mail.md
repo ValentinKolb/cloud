@@ -47,7 +47,8 @@ Start here for mailbox setup, search, and collaboration. Continue with:
 - Use `--json` when a later command needs an id, revision, token, or cursor.
 - Pass provider credentials with `--secret-stdin` or `--secret-file`. Credentials are write-only and are never returned by the API.
 - Read a message and its folder ids before changing provider state, moving, copying, or deleting it.
-- Treat ids returned by Mail as opaque. Do not derive a mailbox, folder, message, conversation, draft, command, or workflow id.
+- Public Mail resource ids are case-sensitive, exactly six ASCII letters or digits, and must be passed through unchanged. This applies to mailboxes, folders, conversations, messages, attachments, drafts and draft attachments, sender identities, tags, comments, reminders, scheduled deliveries, saved views, compose templates, incoming automations, and automatic replies. Legacy UUID resource ids are rejected; an exact mailbox name remains valid where a command documents `<mailbox-id-or-name>`.
+- Treat technical command, provider, workflow, operation, cursor, and token ids as opaque. Do not derive or shorten them.
 - `sync`, `rediscover`, `repair`, sends, and provider mutations create durable commands. A successful request proves that work was accepted, not that every remote effect has finished. Use the corresponding wait or status command.
 - Do not delete remote messages, revoke credentials, revoke access, cancel another user's work, or delete mailbox resources without an explicit request.
 

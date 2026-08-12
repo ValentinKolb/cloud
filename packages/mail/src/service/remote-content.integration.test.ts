@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, revokeMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
@@ -137,9 +138,9 @@ suite("mail remote content rules", () => {
     const messageId = crypto.randomUUID();
     const imageId = crypto.randomUUID();
     await sql`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         id, mailbox_id, subject, normalized_subject, internal_date, size_bytes, content_hash, hydration_status
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${messageId}::uuid, ${mailboxId}::uuid, 'Remote image', 'remote image', now(), 1,
         ${crypto.randomUUID().replaceAll("-", "").padEnd(64, "0")}, 'complete'
       )

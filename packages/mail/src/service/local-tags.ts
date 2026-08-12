@@ -1,16 +1,19 @@
-import { audit } from "@valentinkolb/cloud/services";
 import { err, fail, isServiceError, ok, type Result } from "@k2b/stdlib";
+import { audit } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { AddConversationLocalTags, CreateLocalTag, DeleteLocalTag, SetConversationLocalTags, UpdateLocalTag } from "../contracts";
+import { withShortIdDb } from "../lib/short-id";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { insertActivity } from "./collaboration";
 import { publishMailCollaborationEvent, publishMailMailboxEvent } from "./events";
+import { resolveMailboxPublicId, resolveMailboxPublicIds } from "./public-resources";
 
 type SqlClient = typeof sql;
 
 type LocalTagRow = {
   id: string;
+  short_id: string;
   mailbox_id: string;
   name: string;
   color: string;
@@ -48,10 +51,10 @@ export type WorkflowLocalTagMutation = {
 
 type ActorIdentity = { kind: "user" | "service_account"; id: string };
 
-const localTagColumns = sql`tag.id, tag.mailbox_id, tag.name, tag.color, tag.revision, tag.created_at, tag.updated_at`;
+const localTagColumns = sql`tag.id, tag.short_id, tag.mailbox_id, tag.name, tag.color, tag.revision, tag.created_at, tag.updated_at`;
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
 const mapTag = (row: LocalTagRow): LocalTag => ({
-  id: row.id,
+  id: row.short_id,
   mailboxId: row.mailbox_id,
   name: row.name,
   color: row.color,
@@ -141,10 +144,14 @@ export const createLocalTag = async (params: {
     const result = await sql.begin(async (tx): Promise<Result<{ tag: LocalTag; activityId: string }>> => {
       const allowed = await lockMailboxForWrite(params.context, params.mailboxId, tx);
       if (!allowed.ok) return allowed;
-      const [row] = await tx<LocalTagRow[]>`
+      const rows = await withShortIdDb(
+        tx,
+        "tag",
+        (db, shortId) => db<LocalTagRow[]>`
         INSERT INTO mail.local_tags (
-          mailbox_id, name, normalized_name, color, created_by_actor_kind, created_by_actor_id
+          short_id, mailbox_id, name, normalized_name, color, created_by_actor_kind, created_by_actor_id
         ) VALUES (
+          ${shortId},
           ${params.mailboxId}::uuid,
           ${name},
           lower(regexp_replace(${name}, '\\s+', ' ', 'g')),
@@ -152,8 +159,10 @@ export const createLocalTag = async (params: {
           ${actor.kind},
           ${actor.id}::uuid
         )
-        RETURNING id, mailbox_id, name, color, revision, created_at, updated_at
-      `;
+        RETURNING id, short_id, mailbox_id, name, color, revision, created_at, updated_at
+      `,
+      );
+      const [row] = rows;
       if (!row) throw new Error("Local tag insert returned no row");
       const tag = mapTag(row);
       const activityId = await insertMailboxActivity({
@@ -161,7 +170,7 @@ export const createLocalTag = async (params: {
         context: params.context,
         mailboxId: params.mailboxId,
         action: "local_tag.created",
-        targetId: tag.id,
+        targetId: row.id,
         metadata: { name: tag.name, color: tag.color, revision: tag.revision },
       });
       await audit.record(
@@ -220,7 +229,7 @@ export const updateLocalTag = async (params: {
           color = ${color},
           revision = revision + 1
         WHERE tag.id = ${params.tagId}::uuid
-        RETURNING tag.id, tag.mailbox_id, tag.name, tag.color, tag.revision, tag.created_at, tag.updated_at
+        RETURNING tag.id, tag.short_id, tag.mailbox_id, tag.name, tag.color, tag.revision, tag.created_at, tag.updated_at
       `;
       if (!updated) throw new Error("Local tag update returned no row");
       const tag = mapTag(updated);
@@ -229,7 +238,7 @@ export const updateLocalTag = async (params: {
         context: params.context,
         mailboxId: params.mailboxId,
         action: "local_tag.updated",
-        targetId: tag.id,
+        targetId: updated.id,
         metadata: {
           before: { name: current.name, color: current.color, revision: Number(current.revision) },
           after: { name: tag.name, color: tag.color, revision: tag.revision },
@@ -607,97 +616,103 @@ export const setConversationLocalTags = async (params: {
   const actor = mutationActor(params.context);
   const requestedTagIds = [...params.input.tagIds].sort();
   try {
-    const result = await sql.begin(async (tx): Promise<Result<{ state: ConversationLocalTags; activityId: string | null }>> => {
-      const allowed = await lockMailboxForWrite(params.context, params.mailboxId, tx);
-      if (!allowed.ok) return allowed;
-      const [conversation] = await tx<{ revision: string | number }[]>`
+    const result = await sql.begin(
+      async (tx): Promise<Result<{ state: ConversationLocalTags; activityId: string | null; conversationId: string }>> => {
+        const allowed = await lockMailboxForWrite(params.context, params.mailboxId, tx);
+        if (!allowed.ok) return allowed;
+        const conversationId = await resolveMailboxPublicId("conversations", params.mailboxId, params.conversationId, tx);
+        const tagIds = await resolveMailboxPublicIds("tags", params.mailboxId, requestedTagIds, tx);
+        if (!conversationId) return fail(err.notFound("Conversation"));
+        if (!tagIds) return fail(err.badInput("Every local tag must belong to this mailbox"));
+        const [conversation] = await tx<{ revision: string | number }[]>`
         SELECT revision
         FROM mail.conversations
-        WHERE id = ${params.conversationId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
+        WHERE id = ${conversationId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
         FOR UPDATE
       `;
-      if (!conversation) return fail(err.notFound("Conversation"));
-      if (Number(conversation.revision) !== params.input.expectedRevision) {
-        return fail(err.conflict("Conversation was changed by another collaborator"));
-      }
-      const validTags = await tx<{ id: string }[]>`
+        if (!conversation) return fail(err.notFound("Conversation"));
+        if (Number(conversation.revision) !== params.input.expectedRevision) {
+          return fail(err.conflict("Conversation was changed by another collaborator"));
+        }
+        const validTags = await tx<{ id: string }[]>`
         SELECT id
         FROM mail.local_tags
         WHERE mailbox_id = ${params.mailboxId}::uuid
-          AND id IN (SELECT value::uuid FROM jsonb_array_elements_text(${requestedTagIds}::jsonb))
+          AND id IN (SELECT value::uuid FROM jsonb_array_elements_text(${tagIds}::jsonb))
         ORDER BY id
         FOR SHARE
       `;
-      if (validTags.length !== requestedTagIds.length) return fail(err.badInput("Every local tag must belong to this mailbox"));
-      const existingRows = await tx<{ tag_id: string }[]>`
+        if (validTags.length !== tagIds.length) return fail(err.badInput("Every local tag must belong to this mailbox"));
+        const existingRows = await tx<{ tag_id: string }[]>`
         SELECT tag_id
         FROM mail.conversation_local_tags
-        WHERE mailbox_id = ${params.mailboxId}::uuid AND conversation_id = ${params.conversationId}::uuid
+        WHERE mailbox_id = ${params.mailboxId}::uuid AND conversation_id = ${conversationId}::uuid
         ORDER BY tag_id
         FOR UPDATE
       `;
-      const existingTagIds = existingRows.map((row) => row.tag_id);
-      if (existingTagIds.length === requestedTagIds.length && existingTagIds.every((id, index) => id === requestedTagIds[index])) {
-        const state = await loadConversationLocalTags(params.mailboxId, params.conversationId, tx);
-        if (!state) return fail(err.notFound("Conversation"));
-        return ok({ state, activityId: null });
-      }
-      await tx`
-        DELETE FROM mail.conversation_local_tags
-        WHERE mailbox_id = ${params.mailboxId}::uuid AND conversation_id = ${params.conversationId}::uuid
-      `;
-      if (requestedTagIds.length > 0) {
+        const existingTagIds = existingRows.map((row) => row.tag_id);
+        if (existingTagIds.length === tagIds.length && existingTagIds.every((id, index) => id === tagIds[index])) {
+          const state = await loadConversationLocalTags(params.mailboxId, conversationId, tx);
+          if (!state) return fail(err.notFound("Conversation"));
+          return ok({ state, activityId: null, conversationId });
+        }
         await tx`
+        DELETE FROM mail.conversation_local_tags
+        WHERE mailbox_id = ${params.mailboxId}::uuid AND conversation_id = ${conversationId}::uuid
+      `;
+        if (requestedTagIds.length > 0) {
+          await tx`
           INSERT INTO mail.conversation_local_tags (
             mailbox_id, conversation_id, tag_id, assigned_by_actor_kind, assigned_by_actor_id
           )
           SELECT
             ${params.mailboxId}::uuid,
-            ${params.conversationId}::uuid,
+            ${conversationId}::uuid,
             value::uuid,
             ${actor.kind},
             ${actor.id}::uuid
-          FROM jsonb_array_elements_text(${requestedTagIds}::jsonb)
+          FROM jsonb_array_elements_text(${tagIds}::jsonb)
         `;
-      }
-      await tx`
+        }
+        await tx`
         UPDATE mail.conversations
         SET revision = revision + 1, updated_at = now()
-        WHERE id = ${params.conversationId}::uuid
+        WHERE id = ${conversationId}::uuid
       `;
-      const state = await loadConversationLocalTags(params.mailboxId, params.conversationId, tx);
-      if (!state) return fail(err.internal("Updated conversation tags could not be loaded"));
-      const activityId = await insertActivity({
-        db: tx,
-        mailboxId: params.mailboxId,
-        conversationId: params.conversationId,
-        context: params.context,
-        action: "conversation.local_tags_updated",
-        targetType: "conversation",
-        targetId: params.conversationId,
-        metadata: {
-          before: { tagIds: existingTagIds, revision: Number(conversation.revision) },
-          after: { tagIds: requestedTagIds, revision: state.conversationRevision },
-        },
-      });
-      await audit.record(
-        {
-          action: "mail.conversation.local_tags.update",
-          outcome: "allowed",
-          actor: auditActorFromRequest(params.context),
-          target: { type: "conversation", id: params.conversationId },
-          requestId: params.context.requestId,
-          metadata: { mailboxId: params.mailboxId, beforeTagIds: existingTagIds, afterTagIds: requestedTagIds },
-        },
-        tx,
-      );
-      return ok({ state, activityId });
-    });
+        const state = await loadConversationLocalTags(params.mailboxId, conversationId, tx);
+        if (!state) return fail(err.internal("Updated conversation tags could not be loaded"));
+        const activityId = await insertActivity({
+          db: tx,
+          mailboxId: params.mailboxId,
+          conversationId,
+          context: params.context,
+          action: "conversation.local_tags_updated",
+          targetType: "conversation",
+          targetId: conversationId,
+          metadata: {
+            before: { tagIds: existingTagIds, revision: Number(conversation.revision) },
+            after: { tagIds: requestedTagIds, revision: state.conversationRevision },
+          },
+        });
+        await audit.record(
+          {
+            action: "mail.conversation.local_tags.update",
+            outcome: "allowed",
+            actor: auditActorFromRequest(params.context),
+            target: { type: "conversation", id: params.conversationId },
+            requestId: params.context.requestId,
+            metadata: { mailboxId: params.mailboxId, beforeTagIds: existingTagIds, afterTagIds: requestedTagIds },
+          },
+          tx,
+        );
+        return ok({ state, activityId, conversationId });
+      },
+    );
     if (!result.ok) return result;
     if (result.data.activityId) {
       await publishMailCollaborationEvent({
         mailboxId: params.mailboxId,
-        conversationId: params.conversationId,
+        conversationId: result.data.conversationId,
         reason: "local_tag",
         targetId: params.conversationId,
         activityId: result.data.activityId,

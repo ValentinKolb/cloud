@@ -1,5 +1,6 @@
 import { createRuntimeLifecycle, stopRuntimeResources } from "@valentinkolb/cloud/services";
 import * as mailboxAccess from "./access";
+import * as activityPublic from "./activity-public";
 import * as attachmentLinks from "./attachment-links";
 import * as automaticReplyConfigurations from "./automatic-reply-configuration";
 import * as bindings from "./bindings";
@@ -36,6 +37,7 @@ import * as operatorActions from "./operator-actions";
 import * as presence from "./presence";
 import * as providerConnections from "./provider-connections";
 import * as providerOAuth from "./provider-oauth";
+import * as publicResources from "./public-resources";
 import * as reminders from "./reminders";
 import * as remoteContent from "./remote-content";
 import * as resourceParents from "./resource-parents";
@@ -76,6 +78,7 @@ export const mailRuntime = {
 
 export type { MailRequestContext } from "./auth";
 export {
+  activityPublic,
   attachmentLinks,
   automaticReplyConfigurations,
   bindings,
@@ -110,6 +113,7 @@ export {
   presence,
   providerConnections,
   providerOAuth,
+  publicResources,
   reminders,
   remoteContent,
   resourceParents,
@@ -159,6 +163,7 @@ export const mailService = {
   operatorActions,
   providerConnections,
   providerOAuth,
+  publicResources,
   presence,
   reminders,
   resourceParents,

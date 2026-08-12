@@ -375,6 +375,7 @@
         "postcss": "8.5.25",
         "postcss-selector-parser": "7.1.4",
         "sanitize-html": "catalog:",
+        "seroval": "catalog:",
         "solid-js": "catalog:",
         "yaml": "catalog:",
         "zod": "catalog:",

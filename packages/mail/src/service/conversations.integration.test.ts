@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { notifications } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { app } from "../config";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
@@ -12,6 +13,7 @@ import { createLocalTag } from "./local-tags";
 import { createMailbox } from "./mailboxes";
 import { hydrateMessageFromSource } from "./message-hydration";
 import { mailNotificationTargetHref, resolveMailNotificationTarget } from "./notification-targets";
+import { publicIds, requirePublicId, resolveMailboxPublicIds } from "./public-resources";
 import { setConversationReminder } from "./reminders";
 import { ingestEnvelope } from "./sync-runtime";
 import { loadMailboxConversationDetail } from "./workspace";
@@ -116,8 +118,8 @@ suite("mail manual conversation threading", () => {
       RETURNING id
     `;
     const [folder] = await sql<{ id: string }[]>`
-      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
-      VALUES (${resource!.id}::uuid, ${`threading-${suffix}`}, 'Inbox', 'inbox', 'current')
+      INSERT INTO mail.folders (short_id, remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${newShortId()}, ${resource!.id}::uuid, ${`threading-${suffix}`}, 'Inbox', 'inbox', 'current')
       RETURNING id
     `;
     remoteResourceId = resource!.id;
@@ -125,10 +127,10 @@ suite("mail manual conversation threading", () => {
 
     const createMessage = async (params: { uid: number; messageId: string; subject: string; date: Date }) => {
       const [message] = await sql<{ id: string }[]>`
-        INSERT INTO mail.message_contents (
+        INSERT INTO mail.message_contents (short_id,
           mailbox_id, message_id, subject, normalized_subject, internal_date, size_bytes, content_hash,
           hydration_status, plain_text, sanitized_html
-        ) VALUES (
+        ) VALUES (${newShortId()},
           ${mailboxId}::uuid,
           ${params.messageId},
           ${params.subject},
@@ -159,9 +161,9 @@ suite("mail manual conversation threading", () => {
         VALUES (${remoteRef!.id}::uuid, ${folderId}::uuid, ${message!.id}::uuid)
       `;
       const [conversation] = await sql<{ id: string }[]>`
-        INSERT INTO mail.conversations (
+        INSERT INTO mail.conversations (short_id,
           mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at
-        ) VALUES (
+        ) VALUES (${newShortId()},
           ${mailboxId}::uuid, ${params.subject}, 'Customer', ${params.date}, ${params.date}
         ) RETURNING id
       `;
@@ -204,15 +206,15 @@ suite("mail manual conversation threading", () => {
     if (!comment.ok) throw new Error(comment.error.message);
     sourceCommentId = comment.data.id;
     const [identity] = await sql<{ id: string }[]>`
-      INSERT INTO mail.sender_identities (mailbox_id, label, display_name, from_address, is_default, status)
-      VALUES (${mailboxId}::uuid, 'Thread Sender', 'Thread Sender', 'support@example.com', true, 'verified')
+      INSERT INTO mail.sender_identities (short_id, mailbox_id, label, display_name, from_address, is_default, status)
+      VALUES (${newShortId()}, ${mailboxId}::uuid, 'Thread Sender', 'Thread Sender', 'support@example.com', true, 'verified')
       RETURNING id
     `;
     await sql`
-      INSERT INTO mail.drafts (
+      INSERT INTO mail.drafts (short_id,
         mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
         author_kind, author_id, last_editor_kind, last_editor_id, subject, body_markdown
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid,
         ${sourceConversationId}::uuid,
         'reply',
@@ -233,8 +235,8 @@ suite("mail manual conversation threading", () => {
     if (!otherMailbox.ok) throw new Error(otherMailbox.error.message);
     mailboxIds.push(otherMailbox.data.id);
     const [otherConversation] = await sql<{ id: string }[]>`
-      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_message_at)
-      VALUES (${otherMailbox.data.id}::uuid, 'Other mailbox', '', now())
+      INSERT INTO mail.conversations (short_id, mailbox_id, subject, participant_summary, latest_message_at)
+      VALUES (${newShortId()}, ${otherMailbox.data.id}::uuid, 'Other mailbox', '', now())
       RETURNING id
     `;
     otherConversationId = otherConversation!.id;
@@ -352,13 +354,24 @@ suite("mail manual conversation threading", () => {
     expect(targetReminder.ok && conflictingSourceReminder.ok && movedSourceReminder.ok).toBe(true);
     if (!targetReminder.ok || !conflictingSourceReminder.ok || !movedSourceReminder.ok) return;
 
+    const [mailboxPublicIds, conversationPublicIds, reminderPublicIds] = await Promise.all([
+      publicIds("mailboxes", [mailboxId]),
+      publicIds("conversations", [sourceConversationId, targetConversationId]),
+      publicIds("reminders", [conflictingSourceReminder.data.id, movedSourceReminder.data.id]),
+    ]);
+    const publicMailboxId = requirePublicId(mailboxPublicIds, mailboxId);
+    const publicSourceConversationId = requirePublicId(conversationPublicIds, sourceConversationId);
+    const publicTargetConversationId = requirePublicId(conversationPublicIds, targetConversationId);
+    const publicConflictingReminderId = requirePublicId(reminderPublicIds, conflictingSourceReminder.data.id);
+    const publicMovedReminderId = requirePublicId(reminderPublicIds, movedSourceReminder.data.id);
+
     const conflictingReminderIdempotencyKey = `mail:reminder:${conflictingSourceReminder.data.id}:${conflictingSourceReminder.data.revision}:${writer.id}`;
     await notifications.send(app.notifications.conversationReminder, {
       recipient: { userId: writer.id },
       data: {
-        mailboxId,
-        conversationId: sourceConversationId,
-        sourceId: conflictingSourceReminder.data.id,
+        mailboxId: publicMailboxId,
+        conversationId: publicSourceConversationId,
+        sourceId: publicConflictingReminderId,
         subject: "Thread source",
       },
       idempotencyKey: conflictingReminderIdempotencyKey,
@@ -383,9 +396,9 @@ suite("mail manual conversation threading", () => {
     expect(rescheduledConflictingSourceReminder.ok).toBe(true);
     if (!rescheduledConflictingSourceReminder.ok) return;
     const stableConflictingReminderTarget = mailNotificationTargetHref({
-      mailboxId,
+      mailboxId: publicMailboxId,
       kind: "reminder",
-      sourceId: conflictingSourceReminder.data.id,
+      sourceId: publicConflictingReminderId,
     });
     const resolvedConflictingReminderBeforeMerge = await resolveMailNotificationTarget({
       context: writerContext,
@@ -394,7 +407,7 @@ suite("mail manual conversation threading", () => {
       sourceId: conflictingSourceReminder.data.id,
     });
     expect(resolvedConflictingReminderBeforeMerge.ok && resolvedConflictingReminderBeforeMerge.data.href).toContain(
-      `conversation=${sourceConversationId}`,
+      `conversation=${publicSourceConversationId}`,
     );
 
     const mergeDeliveryClaimId = crypto.randomUUID();
@@ -425,9 +438,9 @@ suite("mail manual conversation threading", () => {
     await notifications.send(app.notifications.conversationReminder, {
       recipient: { userId: owner.id },
       data: {
-        mailboxId,
-        conversationId: sourceConversationId,
-        sourceId: movedSourceReminder.data.id,
+        mailboxId: publicMailboxId,
+        conversationId: publicSourceConversationId,
+        sourceId: publicMovedReminderId,
         subject: "Thread source",
       },
       idempotencyKey: movedReminderIdempotencyKey,
@@ -448,9 +461,9 @@ suite("mail manual conversation threading", () => {
         AND idempotency_key = ${movedReminderIdempotencyKey}
     `;
     const stableMovedReminderTarget = mailNotificationTargetHref({
-      mailboxId,
+      mailboxId: publicMailboxId,
       kind: "reminder",
-      sourceId: movedSourceReminder.data.id,
+      sourceId: publicMovedReminderId,
     });
     expect(notificationBeforeMerge?.target_href).toBe(stableMovedReminderTarget);
     const resolvedBeforeMerge = await resolveMailNotificationTarget({
@@ -459,7 +472,7 @@ suite("mail manual conversation threading", () => {
       kind: "reminder",
       sourceId: movedSourceReminder.data.id,
     });
-    expect(resolvedBeforeMerge.ok && resolvedBeforeMerge.data.href).toContain(`conversation=${sourceConversationId}`);
+    expect(resolvedBeforeMerge.ok && resolvedBeforeMerge.data.href).toContain(`conversation=${publicSourceConversationId}`);
 
     const sourceOnlyTag = await createLocalTag({
       context: writerContext,
@@ -472,13 +485,17 @@ suite("mail manual conversation threading", () => {
       input: { name: "Shared", color: "#2563eb" },
     });
     if (!sourceOnlyTag.ok || !sharedTag.ok) throw new Error("Failed to create merge tag fixtures");
+    const tagIds = await resolveMailboxPublicIds("tags", mailboxId, [sourceOnlyTag.data.id, sharedTag.data.id]);
+    if (!tagIds) throw new Error("Failed to resolve merge tag fixtures");
+    const sourceOnlyTagId = tagIds[0]!;
+    const sharedTagId = tagIds[1]!;
     await sql`
       INSERT INTO mail.conversation_local_tags (
         mailbox_id, conversation_id, tag_id, assigned_by_actor_kind, assigned_by_actor_id
       ) VALUES
-        (${mailboxId}::uuid, ${sourceConversationId}::uuid, ${sourceOnlyTag.data.id}::uuid, 'user', ${writer.id}::uuid),
-        (${mailboxId}::uuid, ${sourceConversationId}::uuid, ${sharedTag.data.id}::uuid, 'user', ${writer.id}::uuid),
-        (${mailboxId}::uuid, ${targetConversationId}::uuid, ${sharedTag.data.id}::uuid, 'user', ${owner.id}::uuid)
+        (${mailboxId}::uuid, ${sourceConversationId}::uuid, ${sourceOnlyTagId}::uuid, 'user', ${writer.id}::uuid),
+        (${mailboxId}::uuid, ${sourceConversationId}::uuid, ${sharedTagId}::uuid, 'user', ${writer.id}::uuid),
+        (${mailboxId}::uuid, ${targetConversationId}::uuid, ${sharedTagId}::uuid, 'user', ${owner.id}::uuid)
     `;
 
     const merged = await mergeConversations({
@@ -538,7 +555,7 @@ suite("mail manual conversation threading", () => {
       WHERE conversation_id = ${targetConversationId}::uuid
       ORDER BY tag_id
     `;
-    expect(mergedTags.map((tag) => tag.tag_id)).toEqual([sourceOnlyTag.data.id, sharedTag.data.id].sort());
+    expect(mergedTags.map((tag) => tag.tag_id)).toEqual([sourceOnlyTagId, sharedTagId].sort());
     const mergedReminders = await sql<{ user_id: string; due_at: Date | string }[]>`
       SELECT user_id, due_at
       FROM mail.conversation_reminders
@@ -597,7 +614,7 @@ suite("mail manual conversation threading", () => {
       sourceId: conflictingSourceReminder.data.id,
     });
     expect(resolvedConflictingReminderAfterMerge.ok && resolvedConflictingReminderAfterMerge.data.href).toContain(
-      `conversation=${targetConversationId}`,
+      `conversation=${publicTargetConversationId}`,
     );
     const [notificationAfterMerge] = await sql<{ target_href: string | null }[]>`
       SELECT target_href
@@ -613,7 +630,7 @@ suite("mail manual conversation threading", () => {
       kind: "reminder",
       sourceId: movedSourceReminder.data.id,
     });
-    expect(resolvedAfterMerge.ok && resolvedAfterMerge.data.href).toContain(`conversation=${targetConversationId}`);
+    expect(resolvedAfterMerge.ok && resolvedAfterMerge.data.href).toContain(`conversation=${publicTargetConversationId}`);
 
     const rejectWholeSplit = await splitConversation({
       context: writerContext,
@@ -762,29 +779,29 @@ suite("mail manual conversation threading", () => {
 
   test("reassigns one message atomically with permission and revision fencing", async () => {
     const conversations = await sql<{ id: string; subject: string }[]>`
-      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_message_at)
+      INSERT INTO mail.conversations (short_id, mailbox_id, subject, participant_summary, latest_message_at)
       VALUES
-        (${mailboxId}::uuid, 'Reassign source', 'Customer', '2026-07-13T12:20:00.000Z'),
-        (${mailboxId}::uuid, 'Reassign target', 'Customer', '2026-07-13T12:30:00.000Z')
+        (${newShortId()}, ${mailboxId}::uuid, 'Reassign source', 'Customer', '2026-07-13T12:20:00.000Z'),
+        (${newShortId()}, ${mailboxId}::uuid, 'Reassign target', 'Customer', '2026-07-13T12:30:00.000Z')
       RETURNING id, subject
     `;
     const source = conversations.find((conversation) => conversation.subject === "Reassign source")!;
     const target = conversations.find((conversation) => conversation.subject === "Reassign target")!;
     const contents = await sql<{ id: string; subject: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, normalized_subject, internal_date, size_bytes, content_hash, hydration_status,
         in_reply_to, reference_ids, selected_headers
       ) VALUES
-        (
+        (${newShortId()},
           ${mailboxId}::uuid, ${`<reassign-source-a-${suffix}@example.com>`}, 'Reassign source', 'reassign source',
           '2026-07-13T12:10:00.000Z', 128, ${"1".repeat(64)}, 'complete', NULL, '{}'::text[], '{}'::jsonb
         ),
         (
-          ${mailboxId}::uuid, ${`<reassign-source-b-${suffix}@example.com>`}, 'Reassign source', 'reassign source',
+          ${newShortId()},${mailboxId}::uuid, ${`<reassign-source-b-${suffix}@example.com>`}, 'Reassign source', 'reassign source',
           '2026-07-13T12:20:00.000Z', 128, ${"2".repeat(64)}, 'complete', NULL, '{}'::text[], '{}'::jsonb
         ),
         (
-          ${mailboxId}::uuid, ${`<reassign-target-${suffix}@example.com>`}, 'Reassign target', 'reassign target',
+          ${newShortId()},${mailboxId}::uuid, ${`<reassign-target-${suffix}@example.com>`}, 'Reassign target', 'reassign target',
           '2026-07-13T12:30:00.000Z', 128, ${"3".repeat(64)}, 'complete',
           ${`<reassign-source-a-${suffix}@example.com>`},
           ARRAY[${`<reassign-source-a-${suffix}@example.com>`}]::text[],
@@ -858,17 +875,17 @@ suite("mail manual conversation threading", () => {
 
   test("rolls back a split when a selected message disappears after validation", async () => {
     const [conversation] = await sql<{ id: string }[]>`
-      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_message_at)
-      VALUES (${mailboxId}::uuid, 'Concurrent split', '', '2026-07-13T12:10:00.000Z')
+      INSERT INTO mail.conversations (short_id, mailbox_id, subject, participant_summary, latest_message_at)
+      VALUES (${newShortId()}, ${mailboxId}::uuid, 'Concurrent split', '', '2026-07-13T12:10:00.000Z')
       RETURNING id
     `;
     const keepInternetMessageId = `<split-keep-${suffix}@example.com>`;
     const disappearingInternetMessageId = `<split-disappears-${suffix}@example.com>`;
     const messages = await sql<{ id: string; message_id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, normalized_subject, internal_date, size_bytes, content_hash, hydration_status
       ) VALUES
-        (
+        (${newShortId()},
           ${mailboxId}::uuid,
           ${keepInternetMessageId},
           'Concurrent split',
@@ -879,7 +896,7 @@ suite("mail manual conversation threading", () => {
           'complete'
         ),
         (
-          ${mailboxId}::uuid,
+          ${newShortId()},${mailboxId}::uuid,
           ${disappearingInternetMessageId},
           'Concurrent split',
           'concurrent split',
@@ -1305,10 +1322,10 @@ suite("mail manual conversation threading", () => {
     });
     const incompatibleSnooze = new Date(Date.now() + 2 * 60 * 60_000).toISOString();
     const [manualConversation] = await sql<{ id: string }[]>`
-      INSERT INTO mail.conversations (
+      INSERT INTO mail.conversations (short_id,
         mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at,
         work_status, snoozed_until
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid,
         'Manually separated exact copy',
         'Customer',

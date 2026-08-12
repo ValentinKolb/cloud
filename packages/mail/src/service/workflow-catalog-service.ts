@@ -11,7 +11,7 @@ export const loadMailWorkflowCatalog = async (params: {
 }): Promise<MailWorkflowCatalog> => {
   const db = params.db ?? sql;
   const folders = await db<{ id: string; name: string; role: string }[]>`
-      SELECT DISTINCT folder.id, folder.name, COALESCE(role_override.role, folder.role) AS role
+      SELECT DISTINCT folder.short_id AS id, folder.name, COALESCE(role_override.role, folder.role) AS role
       FROM mail.folders folder
       JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
       JOIN mail.mailboxes mailbox ON mailbox.id = resource.mailbox_id
@@ -35,21 +35,21 @@ export const loadMailWorkflowCatalog = async (params: {
             AND connection.encrypted_secret IS NOT NULL
             AND connection.owner_mailbox_id = mailbox.id
         )
-      ORDER BY folder.id
+      ORDER BY folder.short_id
     `;
   const senderIdentities = await db<{ id: string; name: string }[]>`
-      SELECT id, display_name || ' <' || from_address || '>' AS name
+      SELECT short_id AS id, display_name || ' <' || from_address || '>' AS name
       FROM mail.sender_identities
       WHERE mailbox_id = ${params.mailboxId}::uuid
         AND status = 'verified'
         AND automation_policy = 'mailbox'
-      ORDER BY id
+      ORDER BY short_id
     `;
   const localTags = await db<{ id: string; name: string; color: string }[]>`
-      SELECT id, name, color
+      SELECT short_id AS id, name, color
       FROM mail.local_tags
       WHERE mailbox_id = ${params.mailboxId}::uuid
-      ORDER BY id
+      ORDER BY short_id
     `;
   const assignableUsers = await listCurrentMailboxUsers({
     mailboxId: params.mailboxId,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mailboxOperatorOperationsSchema, platformMailboxOperationSummarySchema, platformMailOperationsSchema } from "../contracts";
 
-const mailboxId = "00000000-0000-4000-8000-000000000001";
+const mailboxId = "mbx001";
 
 const snapshot = {
   mailboxId,
@@ -106,7 +106,7 @@ describe("Mail operator read model contract", () => {
 
   test("exposes a user-facing folder name without provider details", () => {
     const folder = {
-      id: "00000000-0000-4000-8000-000000000003",
+      id: "fld001",
       name: "Inbox",
       discoveryState: "active" as const,
       syncStatus: "current",

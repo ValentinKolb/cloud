@@ -32,7 +32,7 @@ import { type loadProviderConnectionRuntime, loadProviderConnectionRuntimeSnapsh
 import { activeSmtpMessageLimit, assertProviderMessageSize, loadBindingProviderLimits } from "./provider-limits";
 import { MAIL_PROVIDER_OPERATION_LEASE_MS, mailProviderOperationMutex } from "./provider-operation-lock";
 import { waitForMailProviderSlot } from "./provider-pacer";
-import { loadSenderIdentityTransportRuntime } from "./sender-identity-transports";
+import { loadSenderIdentityTransportRuntimeById } from "./sender-identity-transports";
 import { publishMailWorkflowDependency } from "./workflow-dependencies";
 
 const log = logger("mail:commands");
@@ -2424,7 +2424,7 @@ const prepareFreshOutbox = async (
   const customTransport =
     outbox.selected_identity_transport_revision === null
       ? null
-      : await loadSenderIdentityTransportRuntime({
+      : await loadSenderIdentityTransportRuntimeById({
           mailboxId: outbox.mailbox_id,
           senderIdentityId: outbox.sender_identity_id,
           expectedRevision: outbox.selected_identity_transport_revision,

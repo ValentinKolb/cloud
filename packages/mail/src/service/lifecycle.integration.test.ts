@@ -12,6 +12,7 @@ import {
 } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
 import { type ConnectorVerification, unavailableProviderLimitSnapshot } from "../contracts";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, revokeMailboxAccess, updateMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
@@ -134,9 +135,18 @@ suite("mail lifecycle control plane", () => {
   const users: string[] = [];
   const accessIds: string[] = [];
   let mailboxId = "";
+  let mailboxShortId = "";
   let connectionId = "";
   let bindingId = "";
   let inboxFolderId = "";
+  let inboxFolderShortId = "";
+  const publicMessageId = async (messageId: string): Promise<string> => {
+    const [message] = await sql<{ short_id: string }[]>`
+      SELECT short_id FROM mail.message_contents WHERE id = ${messageId}::uuid
+    `;
+    if (!message) throw new Error("Message public ID is unavailable");
+    return message.short_id;
+  };
   let adminContext: MailRequestContext;
   let collaboratorContext: MailRequestContext;
 
@@ -162,6 +172,11 @@ suite("mail lifecycle control plane", () => {
     });
     if (!mailbox.ok) throw new Error(mailbox.error.message);
     mailboxId = mailbox.data.id;
+    const [mailboxIdentity] = await sql<{ short_id: string }[]>`
+      SELECT short_id FROM mail.mailboxes WHERE id = ${mailboxId}::uuid
+    `;
+    if (!mailboxIdentity) throw new Error("Mailbox public ID was not created");
+    mailboxShortId = mailboxIdentity.short_id;
     const readAccess = await grantMailboxAccess({
       context: adminContext,
       mailboxId,
@@ -337,7 +352,7 @@ suite("mail lifecycle control plane", () => {
       if (!verified.ok) expect(verified.error.code).toBe("NOT_FOUND");
       expect(send).not.toHaveBeenCalled();
       const [status] = await sql<{ status: string }[]>`
-        SELECT status FROM mail.sender_identities WHERE id = ${identity.data.id}::uuid
+        SELECT status FROM mail.sender_identities WHERE short_id = ${identity.data.id}
       `;
       expect(status?.status).toBe("disabled");
     } finally {
@@ -524,7 +539,7 @@ suite("mail lifecycle control plane", () => {
         displayName: "Invalid signature",
         fromAddress: `invalid-signature-${suffix}@example.com`,
         defaultCc: [],
-        defaultSignatureTemplateId: crypto.randomUUID(),
+        defaultSignatureTemplateId: newShortId(),
         authenticationPolicy: { automation: "disabled" },
         isDefault: false,
       },
@@ -556,12 +571,13 @@ suite("mail lifecycle control plane", () => {
     });
     expect(identity.ok).toBe(true);
     if (!identity.ok) return;
-    await sql`UPDATE mail.sender_identities SET status = 'verified' WHERE id = ${identity.data.id}::uuid`;
+    await sql`UPDATE mail.sender_identities SET status = 'verified' WHERE short_id = ${identity.data.id}`;
     await sql`
       INSERT INTO mail.sender_identity_bindings (
         sender_identity_id, binding_id, provider_principal, verified_at, verified_secret_revision
       )
-      VALUES (${identity.data.id}::uuid, ${bindingId}::uuid, ${identity.data.fromAddress}, now(), 1)
+      SELECT id, ${bindingId}::uuid, ${identity.data.fromAddress}, now(), 1
+      FROM mail.sender_identities WHERE short_id = ${identity.data.id}
     `;
 
     const updated = await updateSenderIdentity({
@@ -579,7 +595,8 @@ suite("mail lifecycle control plane", () => {
     const [binding] = await sql<{ revoked_at: Date | null }[]>`
       SELECT revoked_at
       FROM mail.sender_identity_bindings
-      WHERE sender_identity_id = ${identity.data.id}::uuid AND binding_id = ${bindingId}::uuid
+      WHERE sender_identity_id = (SELECT id FROM mail.sender_identities WHERE short_id = ${identity.data.id})
+        AND binding_id = ${bindingId}::uuid
     `;
     expect(binding?.revoked_at).toBeNull();
 
@@ -589,7 +606,7 @@ suite("mail lifecycle control plane", () => {
       senderIdentityId: identity.data.id,
       input: {
         fromAddress: `changed-${suffix}@example.com`,
-        defaultSignatureTemplateId: crypto.randomUUID(),
+        defaultSignatureTemplateId: newShortId(),
       },
     });
     expect(rejected).toMatchObject({
@@ -600,7 +617,7 @@ suite("mail lifecycle control plane", () => {
       SELECT identity.from_address, identity.status, identity_binding.revoked_at
       FROM mail.sender_identities identity
       JOIN mail.sender_identity_bindings identity_binding ON identity_binding.sender_identity_id = identity.id
-      WHERE identity.id = ${identity.data.id}::uuid
+      WHERE identity.short_id = ${identity.data.id}
         AND identity_binding.binding_id = ${bindingId}::uuid
     `;
     expect(rolledBack).toMatchObject({
@@ -625,13 +642,14 @@ suite("mail lifecycle control plane", () => {
     });
     expect(identity.ok).toBe(true);
     if (!identity.ok) return;
-    await sql`UPDATE mail.sender_identities SET status = 'verified' WHERE id = ${identity.data.id}::uuid`;
+    await sql`UPDATE mail.sender_identities SET status = 'verified' WHERE short_id = ${identity.data.id}`;
     await sql`
       INSERT INTO mail.sender_identity_bindings (
         sender_identity_id, binding_id, provider_principal, saves_sent_automatically,
         verified_at, verified_secret_revision
       )
-      VALUES (${identity.data.id}::uuid, ${bindingId}::uuid, ${identity.data.fromAddress}, true, now(), 1)
+      SELECT id, ${bindingId}::uuid, ${identity.data.fromAddress}, true, now(), 1
+      FROM mail.sender_identities WHERE short_id = ${identity.data.id}
     `;
 
     const providerManaged = await setupDefaultSender({
@@ -652,14 +670,14 @@ suite("mail lifecycle control plane", () => {
       FROM mail.provider_bindings
       WHERE id = ${bindingId}::uuid
     `;
-    const [sentFolder] = await sql<{ id: string }[]>`
-      INSERT INTO mail.folders (
+    const [sentFolder] = await sql<{ id: string; short_id: string }[]>`
+      INSERT INTO mail.folders (short_id,
         remote_resource_id, stable_key, name, role, selectable, selected_for_sync, sync_status
       )
-      VALUES (
+      VALUES (${newShortId()},
         ${resource!.id}::uuid, ${`sender-sent-${suffix}`}, 'Sent fixture', 'sent', true, true, 'current'
       )
-      RETURNING id
+      RETURNING id, short_id
     `;
     await sql`
       INSERT INTO mail.binding_folder_refs (
@@ -690,12 +708,13 @@ suite("mail lifecycle control plane", () => {
       expect(appended.ok).toBe(true);
       if (!appended.ok) return;
       expect(appended.data.id).toBe(identity.data.id);
-      expect(appended.data.sentFolderId).toBe(sentFolder!.id);
+      expect(appended.data.sentFolderId).toBe(sentFolder!.short_id);
 
       await sql`
         UPDATE mail.sender_identity_bindings
         SET saves_sent_automatically = true
-        WHERE sender_identity_id = ${identity.data.id}::uuid AND binding_id = ${bindingId}::uuid
+        WHERE sender_identity_id = (SELECT id FROM mail.sender_identities WHERE short_id = ${identity.data.id})
+          AND binding_id = ${bindingId}::uuid
       `;
       await sql`
         UPDATE mail.binding_folder_refs
@@ -726,7 +745,8 @@ suite("mail lifecycle control plane", () => {
       await sql`
         UPDATE mail.sender_identity_bindings
         SET saves_sent_automatically = false
-        WHERE sender_identity_id = ${identity.data.id}::uuid AND binding_id = ${bindingId}::uuid
+        WHERE sender_identity_id = (SELECT id FROM mail.sender_identities WHERE short_id = ${identity.data.id})
+          AND binding_id = ${bindingId}::uuid
       `;
       rejectVerification = true;
       const rejected = await setupDefaultSender({
@@ -736,7 +756,7 @@ suite("mail lifecycle control plane", () => {
       });
       expect(rejected.ok).toBe(false);
       const [rejectedIdentity] = await sql<{ status: string }[]>`
-        SELECT status FROM mail.sender_identities WHERE id = ${identity.data.id}::uuid
+        SELECT status FROM mail.sender_identities WHERE short_id = ${identity.data.id}
       `;
       expect(rejectedIdentity?.status).toBe("rejected");
 
@@ -771,13 +791,14 @@ suite("mail lifecycle control plane", () => {
         ambiguous: 0,
         rightsSources: { acl: 2 },
       });
-      const [inbox] = await sql<{ id: string }[]>`
-        SELECT folder.id
+      const [inbox] = await sql<{ id: string; short_id: string }[]>`
+        SELECT folder.id, folder.short_id
         FROM mail.folders folder
         JOIN mail.binding_folder_refs ref ON ref.folder_id = folder.id
         WHERE ref.binding_id = ${bindingId}::uuid AND ref.remote_path = 'INBOX'
       `;
       inboxFolderId = inbox!.id;
+      inboxFolderShortId = inbox!.short_id;
       const [project] = await sql<{ id: string; show_in_sidebar: boolean; subscribed: boolean }[]>`
         SELECT folder.id, folder.show_in_sidebar, ref.subscribed
         FROM mail.folders folder
@@ -843,11 +864,11 @@ suite("mail lifecycle control plane", () => {
         WHERE binding.id = ${bindingId}::uuid
       `;
       const [staleArchive] = await sql<{ id: string }[]>`
-        INSERT INTO mail.folders (
+        INSERT INTO mail.folders (short_id,
           remote_resource_id, stable_key, name, role, selectable, selected_for_sync,
           discovery_generation, discovery_state, missing_since, sync_status
         )
-        VALUES (
+        VALUES (${newShortId()},
           ${resource!.remote_resource_id}::uuid,
           ${sha256Json({ version: 1, relativePath: "Archive" })},
           'Archive',
@@ -1206,9 +1227,9 @@ suite("mail lifecycle control plane", () => {
       SELECT remote_resource_id AS id FROM mail.provider_bindings WHERE id = ${bindingId}::uuid
     `;
     const [folder] = await sql<{ id: string }[]>`
-      INSERT INTO mail.folders (
+      INSERT INTO mail.folders (short_id,
         remote_resource_id, stable_key, name, role, selected_for_sync, sync_status, envelope_cursor
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${resource!.id}::uuid,
         ${`uidvalidity-${suffix}`},
         'UIDVALIDITY fixture',
@@ -1247,9 +1268,9 @@ suite("mail lifecycle control plane", () => {
       )
     `;
     const [message] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid,
         ${`<uidvalidity-${suffix}@example.com>`},
         'UIDVALIDITY fixture',
@@ -1438,10 +1459,10 @@ suite("mail lifecycle control plane", () => {
     }
 
     const [pausedMessage] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status, hydration_attempt
       )
-      VALUES (
+      VALUES (${newShortId()},
         ${mailboxId}::uuid,
         ${`<paused-${suffix}@example.com>`},
         'Paused hydration',
@@ -1600,11 +1621,11 @@ suite("mail lifecycle control plane", () => {
     if (!denied.ok) expect(denied.error.code).toBe("FORBIDDEN");
 
     const [message] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, normalized_subject, internal_date, size_bytes,
         content_hash, hydration_status, plain_text
       )
-      VALUES (
+      VALUES (${newShortId()},
         ${mailboxId}::uuid,
         ${`<operator-${suffix}@example.com>`},
         'Operator projection fixture',
@@ -1622,6 +1643,8 @@ suite("mail lifecycle control plane", () => {
     const before = await getMailboxOperations(adminContext, mailboxId);
     expect(before.ok).toBe(true);
     if (!before.ok) return;
+    expect(before.data.mailboxId).toBe(mailboxShortId);
+    expect(before.data.folders.every((folder) => /^[0-9A-Za-z]{6}$/.test(folder.id))).toBe(true);
     expect(before.data.coverage.search.covered).toBeLessThan(before.data.coverage.search.total);
     expect(before.data.coverage.threads.covered).toBeLessThan(before.data.coverage.threads.total);
     expect(JSON.stringify(before.data)).not.toContain("Operator projection fixture");
@@ -1635,7 +1658,7 @@ suite("mail lifecycle control plane", () => {
     if (!platform.ok) return;
     expect(platform.data.mailboxes).toHaveLength(1);
     expect(platform.data.mailboxes[0]).toMatchObject({
-      mailboxId,
+      mailboxId: mailboxShortId,
       mailboxName: `Lifecycle ${suffix}`,
       coverage: before.data.coverage,
     });
@@ -1800,10 +1823,10 @@ suite("mail lifecycle control plane", () => {
 
   test("folder rebuild retains content while invalidating remote placement and hydration retry resets failures", async () => {
     const [message] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status, hydration_attempt
       )
-      VALUES (${mailboxId}::uuid, '<rebuild@example.com>', 'Rebuild', now(), 1, ${"a".repeat(64)}, 'complete', 0)
+      VALUES (${newShortId()}, ${mailboxId}::uuid, '<rebuild@example.com>', 'Rebuild', now(), 1, ${"a".repeat(64)}, 'complete', 0)
       RETURNING id
     `;
     const [remoteRef] = await sql<{ id: string }[]>`
@@ -1820,7 +1843,7 @@ suite("mail lifecycle control plane", () => {
       mailboxId,
       input: {
         kind: "rebuild_folder",
-        folderId: inboxFolderId,
+        folderId: inboxFolderShortId,
         idempotencyKey: `rebuild-${suffix}`,
       },
       enqueue: false,
@@ -1858,10 +1881,10 @@ suite("mail lifecycle control plane", () => {
     });
 
     const [failed] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status, hydration_attempt
       )
-      VALUES (${mailboxId}::uuid, '<hydrate@example.com>', 'Hydrate', now(), 1, ${"b".repeat(64)}, 'failed', 5)
+      VALUES (${newShortId()}, ${mailboxId}::uuid, '<hydrate@example.com>', 'Hydrate', now(), 1, ${"b".repeat(64)}, 'failed', 5)
       RETURNING id
     `;
     const hydrate = await createMailCommand({
@@ -1977,8 +2000,8 @@ suite("mail lifecycle control plane", () => {
       if (!created.ok) return;
       expect(await executeMutationCommand(created.data.id)).toBe("ambiguous");
       expect(await executeMutationCommand(created.data.id)).toBe("reconciled");
-      const [projected] = await sql<{ id: string; show_in_sidebar: boolean; subscribed: boolean }[]>`
-        SELECT folder.id, folder.show_in_sidebar, ref.subscribed
+      const [projected] = await sql<{ id: string; short_id: string; show_in_sidebar: boolean; subscribed: boolean }[]>`
+        SELECT folder.id, folder.short_id, folder.show_in_sidebar, ref.subscribed
         FROM mail.folders folder
         JOIN mail.binding_folder_refs ref ON ref.folder_id = folder.id
         WHERE ref.binding_id = ${bindingId}::uuid AND ref.remote_path = ${`Cloud Ops ${suffix}`}
@@ -2062,7 +2085,7 @@ suite("mail lifecycle control plane", () => {
         enqueue: false,
         input: {
           kind: "set_folder_subscription",
-          folderId: projected!.id,
+          folderId: projected!.short_id,
           subscribed: false,
           idempotencyKey: `folder-unsubscribe-${suffix}`,
         },
@@ -2077,7 +2100,7 @@ suite("mail lifecycle control plane", () => {
         enqueue: false,
         input: {
           kind: "rename_folder",
-          folderId: projected!.id,
+          folderId: projected!.short_id,
           name: `Cloud Renamed ${suffix}`,
           idempotencyKey: `folder-rename-${suffix}`,
         },
@@ -2103,7 +2126,7 @@ suite("mail lifecycle control plane", () => {
         enqueue: false,
         input: {
           kind: "delete_folder",
-          folderId: projected!.id,
+          folderId: projected!.short_id,
           idempotencyKey: `folder-delete-${suffix}`,
         },
       });
@@ -2116,9 +2139,9 @@ suite("mail lifecycle control plane", () => {
       expect(missing?.discovery_state).toBe("missing");
 
       const [historicalMessage] = await sql<{ id: string }[]>`
-        INSERT INTO mail.message_contents (
+        INSERT INTO mail.message_contents (short_id,
           mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
-        ) VALUES (
+        ) VALUES (${newShortId()},
           ${mailboxId}::uuid,
           ${`<dismissed-folder-${suffix}@example.com>`},
           'Dismissed folder history',
@@ -2226,8 +2249,8 @@ suite("mail lifecycle control plane", () => {
       verify.mockRestore();
     }
 
-    const [stateFolder] = await sql<{ id: string }[]>`
-      SELECT folder.id
+    const [stateFolder] = await sql<{ id: string; short_id: string }[]>`
+      SELECT folder.id, folder.short_id
       FROM mail.folders folder
       JOIN mail.remote_resources resource ON resource.id = folder.remote_resource_id
       WHERE resource.mailbox_id = ${mailboxId}::uuid
@@ -2239,9 +2262,9 @@ suite("mail lifecycle control plane", () => {
     expect(stateFolder).toBeDefined();
     if (!stateFolder) return;
     const [message] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid,
         ${`<state-${suffix}@example.com>`},
         'State mutation',
@@ -2291,14 +2314,28 @@ suite("mail lifecycle control plane", () => {
       };
     });
     try {
+      const stateMessageId = await publicMessageId(message!.id);
+      const missingPlacement = await createActorCommand({
+        context: adminContext,
+        mailboxId,
+        enqueue: false,
+        input: {
+          kind: "change_message_state",
+          messageId: newShortId(),
+          folderId: stateFolder.short_id,
+          change: { addFlags: ["seen"], removeFlags: [], addKeywords: [], removeKeywords: [] },
+          idempotencyKey: `message-state-missing-${suffix}`,
+        },
+      });
+      expect(missingPlacement).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
       const stale = await createActorCommand({
         context: adminContext,
         mailboxId,
         enqueue: false,
         input: {
           kind: "change_message_state",
-          remoteMessageRefId: remoteRef!.id,
-          folderId: stateFolder.id,
+          messageId: stateMessageId,
+          folderId: stateFolder.short_id,
           change: {
             addFlags: ["seen"],
             removeFlags: [],
@@ -2328,8 +2365,8 @@ suite("mail lifecycle control plane", () => {
         enqueue: false,
         input: {
           kind: "change_message_state",
-          remoteMessageRefId: remoteRef!.id,
-          folderId: stateFolder.id,
+          messageId: stateMessageId,
+          folderId: stateFolder.short_id,
           change: {
             addFlags: ["seen"],
             removeFlags: [],
@@ -2389,9 +2426,9 @@ suite("mail lifecycle control plane", () => {
 
   test("opposing message mutations execute in accepted order when the later worker starts first", async () => {
     const [message] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid,
         ${`<ordered-state-${suffix}@example.com>`},
         'Ordered state mutation',
@@ -2411,6 +2448,7 @@ suite("mail lifecycle control plane", () => {
       VALUES (${remoteRef!.id}::uuid, ${inboxFolderId}::uuid, ${message!.id}::uuid)
     `;
 
+    const messageShortId = await publicMessageId(message!.id);
     const createStateCommand = (change: { addFlags: ("answered" | "flagged")[]; removeFlags: ("answered" | "flagged")[] }, key: string) =>
       createActorCommand({
         context: adminContext,
@@ -2418,8 +2456,8 @@ suite("mail lifecycle control plane", () => {
         enqueue: false,
         input: {
           kind: "change_message_state",
-          remoteMessageRefId: remoteRef!.id,
-          folderId: inboxFolderId,
+          messageId: messageShortId,
+          folderId: inboxFolderShortId,
           change: { ...change, addKeywords: [], removeKeywords: [] },
           idempotencyKey: key,
         },
@@ -2497,8 +2535,8 @@ suite("mail lifecycle control plane", () => {
   });
 
   test("real command and hydration completion wake kernel dependencies before their deadlines", async () => {
-    const [dependencyFolder] = await sql<{ id: string }[]>`
-      SELECT folder.id
+    const [dependencyFolder] = await sql<{ id: string; short_id: string }[]>`
+      SELECT folder.id, folder.short_id
       FROM mail.folders folder
       JOIN mail.binding_folder_refs ref ON ref.folder_id = folder.id
       WHERE ref.binding_id = ${bindingId}::uuid
@@ -2584,9 +2622,9 @@ suite("mail lifecycle control plane", () => {
       };
 
       const [commandMessage] = await sql<{ id: string }[]>`
-        INSERT INTO mail.message_contents (
+        INSERT INTO mail.message_contents (short_id,
           mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
-        ) VALUES (
+        ) VALUES (${newShortId()},
           ${mailboxId}::uuid,
           ${`<dependency-command-${suffix}@example.com>`},
           'Dependency command',
@@ -2611,8 +2649,8 @@ suite("mail lifecycle control plane", () => {
         enqueue: false,
         input: {
           kind: "change_message_state",
-          remoteMessageRefId: commandRef!.id,
-          folderId: dependencyFolder.id,
+          messageId: await publicMessageId(commandMessage!.id),
+          folderId: dependencyFolder.short_id,
           change: { addFlags: ["seen"], removeFlags: [], addKeywords: [], removeKeywords: [] },
           idempotencyKey: `dependency-command-${suffix}`,
         },
@@ -2642,9 +2680,9 @@ suite("mail lifecycle control plane", () => {
       await expectWokenBeforeDeadline(commandRunId);
 
       const [hydrationMessage] = await sql<{ id: string }[]>`
-        INSERT INTO mail.message_contents (
+        INSERT INTO mail.message_contents (short_id,
           mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
-        ) VALUES (
+        ) VALUES (${newShortId()},
           ${mailboxId}::uuid,
           ${`<dependency-hydration-${suffix}@example.com>`},
           'Dependency hydration',
@@ -2693,9 +2731,9 @@ suite("mail lifecycle control plane", () => {
       await expectWokenBeforeDeadline(hydrationRunId);
 
       const [failedHydrationMessage] = await sql<{ id: string }[]>`
-        INSERT INTO mail.message_contents (
+        INSERT INTO mail.message_contents (short_id,
           mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status, hydration_attempt
-        ) VALUES (
+        ) VALUES (${newShortId()},
           ${mailboxId}::uuid,
           ${`<dependency-hydration-failed-${suffix}@example.com>`},
           'Terminal dependency hydration',
@@ -2746,18 +2784,19 @@ suite("mail lifecycle control plane", () => {
   }, 15_000);
 
   test("conversation triage creates its durable child commands atomically", async () => {
-    const [conversation] = await sql<{ id: string }[]>`
-      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_message_at)
-      VALUES (${mailboxId}::uuid, 'Atomic triage', 'fixture', now())
-      RETURNING id
+    const [conversation] = await sql<{ id: string; short_id: string }[]>`
+      INSERT INTO mail.conversations (short_id, mailbox_id, subject, participant_summary, latest_message_at)
+      VALUES (${newShortId()}, ${mailboxId}::uuid, 'Atomic triage', 'fixture', now())
+      RETURNING id, short_id
     `;
     const contentHashes = [`${"a".repeat(56)}${suffix}`, `${"b".repeat(56)}${suffix}`];
     const refs: string[] = [];
+    const messageIds: string[] = [];
     for (const [position, contentHash] of contentHashes.entries()) {
       const [message] = await sql<{ id: string }[]>`
-        INSERT INTO mail.message_contents (
+        INSERT INTO mail.message_contents (short_id,
           mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
-        ) VALUES (
+        ) VALUES (${newShortId()},
           ${mailboxId}::uuid,
           ${`<atomic-triage-${position}-${suffix}@example.com>`},
           'Atomic triage',
@@ -2781,6 +2820,7 @@ suite("mail lifecycle control plane", () => {
         VALUES (${conversation!.id}::uuid, ${message!.id}::uuid, ${position})
       `;
       refs.push(remoteRef!.id);
+      messageIds.push(await publicMessageId(message!.id));
     }
 
     const idempotencyKey = `atomic-triage-${suffix}`;
@@ -2790,8 +2830,8 @@ suite("mail lifecycle control plane", () => {
       enqueue: false,
       input: {
         kind: "change_message_state",
-        remoteMessageRefId: refs[1]!,
-        folderId: inboxFolderId,
+        messageId: messageIds[1]!,
+        folderId: inboxFolderShortId,
         change: {
           addFlags: ["flagged"],
           removeFlags: [],
@@ -2806,10 +2846,10 @@ suite("mail lifecycle control plane", () => {
     const triage = await createConversationTriageCommands({
       context: adminContext,
       mailboxId,
-      conversationId: conversation!.id,
+      conversationId: conversation!.short_id,
       input: {
         kind: "change_state",
-        sourceFolderId: inboxFolderId,
+        sourceFolderId: inboxFolderShortId,
         change: {
           addFlags: ["seen"],
           removeFlags: [],
@@ -2820,7 +2860,7 @@ suite("mail lifecycle control plane", () => {
       },
     });
     expect(triage.ok).toBe(false);
-    if (!triage.ok) expect(triage.error.code).toBe("CONFLICT");
+    if (!triage.ok) expect(triage.error.code).toBe("IDEMPOTENCY_CONFLICT");
     const [created] = await sql<{ count: number }[]>`
       SELECT COUNT(*)::int AS count
       FROM mail.commands
@@ -2840,9 +2880,9 @@ suite("mail lifecycle control plane", () => {
     });
     expect(promoted.ok).toBe(true);
     const [message] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid,
         ${`<command-replay-${suffix}@example.com>`},
         'Command replay',
@@ -2863,8 +2903,8 @@ suite("mail lifecycle control plane", () => {
     `;
     const input = {
       kind: "change_message_state" as const,
-      remoteMessageRefId: remoteRef!.id,
-      folderId: inboxFolderId,
+      messageId: await publicMessageId(message!.id),
+      folderId: inboxFolderShortId,
       change: {
         addFlags: ["seen" as const],
         removeFlags: [],
@@ -2887,7 +2927,7 @@ suite("mail lifecycle control plane", () => {
       enqueue: false,
     });
     expect(foreignReplay.ok).toBe(false);
-    if (!foreignReplay.ok) expect(foreignReplay.error.code).toBe("CONFLICT");
+    if (!foreignReplay.ok) expect(foreignReplay.error.code).toBe("IDEMPOTENCY_CONFLICT");
 
     const ownInput = { ...input, idempotencyKey: `revoked-replay-${suffix}` };
     const own = await createActorCommand({
@@ -2984,9 +3024,9 @@ suite("mail lifecycle control plane", () => {
 
   test("cancels a workflow command when its kernel execution generation is stale", async () => {
     const [message] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid,
         ${`<stale-workflow-command-${suffix}@example.com>`},
         'Stale workflow command',
@@ -3053,8 +3093,8 @@ suite("mail lifecycle control plane", () => {
       if (!claim) throw new Error("Workflow run was not claimable");
       const terminalInput = {
         kind: "change_message_state" as const,
-        remoteMessageRefId: remoteRef!.id,
-        folderId: inboxFolderId,
+        messageId: await publicMessageId(message!.id),
+        folderId: inboxFolderShortId,
         change: { addFlags: ["seen" as const], removeFlags: [], addKeywords: [], removeKeywords: [] },
         idempotencyKey: `terminal-workflow-command-${suffix}`,
         correlationId: runId,
@@ -3087,8 +3127,8 @@ suite("mail lifecycle control plane", () => {
         workflowVersionId: version.id,
         input: {
           kind: "change_message_state",
-          remoteMessageRefId: remoteRef!.id,
-          folderId: inboxFolderId,
+          messageId: await publicMessageId(message!.id),
+          folderId: inboxFolderShortId,
           change: { addFlags: ["seen"], removeFlags: [], addKeywords: [], removeKeywords: [] },
           idempotencyKey: `stale-workflow-command-${suffix}`,
           correlationId: runId,

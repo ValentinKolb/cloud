@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import type { MailSearchExpression } from "../contracts";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
@@ -107,17 +108,17 @@ suite("mail local tags and structured search", () => {
       RETURNING id
     `;
     const [folder] = await sql<{ id: string }[]>`
-      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
-      VALUES (${resource!.id}::uuid, 'priority-queue', 'Priority Queue', 'inbox', 'current')
+      INSERT INTO mail.folders (short_id, remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${newShortId()}, ${resource!.id}::uuid, 'priority-queue', 'Priority Queue', 'inbox', 'current')
       RETURNING id
     `;
     folderId = folder!.id;
     const internalDate = new Date(Date.now() - 60_000);
     const [message] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, normalized_subject, internal_date, sent_at, size_bytes,
         content_hash, hydration_status, plain_text
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid, ${`<local-tags-${suffix}@example.com>`}, 'Priority customer', 'priority customer',
         ${internalDate}, ${internalDate}, 4096, ${"b".repeat(64)}, 'complete', 'Structured search fixture body'
       )
@@ -152,14 +153,14 @@ suite("mail local tags and structured search", () => {
       RETURNING id
     `;
     await sql`
-      INSERT INTO mail.attachments (message_id, part_id, filename, content_type, disposition, size_bytes, blob_id)
-      VALUES (${messageId}::uuid, ${part!.id}::uuid, 'quarterly-invoice.pdf', 'application/pdf', 'attachment', 2048, ${blob!.id}::uuid)
+      INSERT INTO mail.attachments (short_id, message_id, part_id, filename, content_type, disposition, size_bytes, blob_id)
+      VALUES (${newShortId()}, ${messageId}::uuid, ${part!.id}::uuid, 'quarterly-invoice.pdf', 'application/pdf', 'attachment', 2048, ${blob!.id}::uuid)
     `;
     const [conversation] = await sql<{ id: string }[]>`
-      INSERT INTO mail.conversations (
+      INSERT INTO mail.conversations (short_id,
         mailbox_id, subject, participant_summary, latest_message_at, assignee_user_id,
         work_status, snoozed_until
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid, 'Priority customer', 'Customer', ${internalDate}, ${writer.id}::uuid,
         'waiting', ${new Date(Date.now() + 60 * 60_000)}
       )
@@ -171,8 +172,8 @@ suite("mail local tags and structured search", () => {
       VALUES (${conversationId}::uuid, ${messageId}::uuid, 1, 'headers')
     `;
     await sql`
-      INSERT INTO mail.conversation_comments (conversation_id, author_kind, author_id, body_markdown)
-      VALUES (${conversationId}::uuid, 'user', ${writer.id}::uuid, 'Internal context for priority customer')
+      INSERT INTO mail.conversation_comments (short_id, conversation_id, author_kind, author_id, body_markdown)
+      VALUES (${newShortId()}, ${conversationId}::uuid, 'user', ${writer.id}::uuid, 'Internal context for priority customer')
     `;
   });
 
@@ -301,8 +302,8 @@ suite("mail local tags and structured search", () => {
     expect(stateAfterDelete.ok && stateAfterDelete.data.conversationRevision).toBe(4);
 
     const [secondConversation] = await sql<{ id: string }[]>`
-      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_message_at)
-      VALUES (${mailboxId}::uuid, 'Second tagged conversation', 'Customer', now())
+      INSERT INTO mail.conversations (short_id, mailbox_id, subject, participant_summary, latest_message_at)
+      VALUES (${newShortId()}, ${mailboxId}::uuid, 'Second tagged conversation', 'Customer', now())
       RETURNING id
     `;
     const bulkTag = await createLocalTag({

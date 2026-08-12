@@ -2,7 +2,7 @@ import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { User } from "@valentinkolb/cloud/contracts";
 import { oauthTokens } from "@valentinkolb/cloud/services";
 import { generateSpecs } from "hono-openapi";
-import { conversationContext } from "../service";
+import { conversationContext, publicResources } from "../service";
 import app from ".";
 
 const base = "/mailboxes/{mailboxId}/conversations/{conversationId}";
@@ -48,16 +48,30 @@ describe("Mail conversation context OpenAPI contract", () => {
       message: "Contacts returned an invalid response",
       status: 503,
     });
+    spyOn(publicResources, "resolvePublicId").mockResolvedValue("22222222-2222-4222-8222-222222222222");
+    spyOn(publicResources, "resolveMailboxPublicId").mockResolvedValue("33333333-3333-4333-8333-333333333333");
 
-    const response = await app.request(
-      "/mailboxes/22222222-2222-4222-8222-222222222222/conversations/33333333-3333-4333-8333-333333333333/contacts/system/44444444-4444-4444-8444-444444444444/history",
-      { headers: { authorization: "Bearer related-mail-test" } },
-    );
+    const response = await app.request("/mailboxes/mbx123/conversations/cnv123/contacts/system/cnt123/history", {
+      headers: { authorization: "Bearer related-mail-test" },
+    });
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
       code: "INVALID_APP_RESPONSE",
       message: "Contacts returned an invalid response",
     });
+  });
+
+  test("rejects legacy UUID resource URLs", async () => {
+    spyOn(oauthTokens, "verifyAccessToken").mockResolvedValue({ kind: "user", payload: {}, user, scopes: [] });
+    const relatedMail = spyOn(conversationContext, "listRelatedMail");
+
+    const response = await app.request(
+      "/mailboxes/22222222-2222-4222-8222-222222222222/conversations/33333333-3333-4333-8333-333333333333/contacts/system/44444444-4444-4444-8444-444444444444/history",
+      { headers: { authorization: "Bearer related-mail-test" } },
+    );
+
+    expect(response.status).toBe(404);
+    expect(relatedMail).not.toHaveBeenCalled();
   });
 });

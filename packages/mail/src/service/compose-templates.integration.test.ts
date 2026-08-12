@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
@@ -74,6 +75,7 @@ suite("mail compose templates", () => {
   const accessIds: string[] = [];
   let mailboxId = "";
   let senderIdentityId = "";
+  let senderIdentityDbId = "";
   let delegatedServiceAccountId = "";
   let owner: MailRequestContext;
   let collaborator: MailRequestContext;
@@ -111,16 +113,17 @@ suite("mail compose templates", () => {
     if (!granted.ok) throw new Error(granted.error.message);
     accessIds.push(granted.data.id);
 
-    const [identity] = await sql<{ id: string }[]>`
-      INSERT INTO mail.sender_identities (
+    const [identity] = await sql<{ id: string; short_id: string }[]>`
+      INSERT INTO mail.sender_identities (short_id,
         mailbox_id, label, display_name, from_address, automation_policy, is_default, status
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid, 'Compose Test', 'Compose Test', ${`compose-${suffix}@example.test`}, 'disabled', true, 'verified'
       )
-      RETURNING id
+      RETURNING id, short_id
     `;
     if (!identity) throw new Error("Compose test sender identity was not created");
-    senderIdentityId = identity.id;
+    senderIdentityDbId = identity.id;
+    senderIdentityId = identity.short_id;
   });
 
   afterAll(async () => {
@@ -513,7 +516,7 @@ suite("mail compose templates", () => {
       SELECT revision
       FROM mail.compose_signature_defaults
       WHERE mailbox_id = ${mailboxId}::uuid
-        AND sender_identity_id = ${senderIdentityId}::uuid
+        AND sender_identity_id = ${senderIdentityDbId}::uuid
         AND user_id = ${owner.actor.kind === "user" ? owner.actor.user.id : ""}::uuid
     `;
     if (!current) throw new Error("Current signature default is missing");

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import { cleanupProviderOAuthFlows } from "./provider-oauth-cleanup";
 
@@ -23,8 +24,8 @@ suite("provider OAuth flow cleanup", () => {
     if (!user) throw new Error("Failed to create OAuth cleanup user");
     userId = user.id;
     const [mailbox] = await sql<{ id: string }[]>`
-      INSERT INTO mail.mailboxes (name, created_by_user_id)
-      VALUES (${`OAuth cleanup ${suffix}`}, ${userId}::uuid)
+      INSERT INTO mail.mailboxes (short_id, name, created_by_user_id)
+      VALUES (${newShortId()}, ${`OAuth cleanup ${suffix}`}, ${userId}::uuid)
       RETURNING id
     `;
     if (!mailbox) throw new Error("Failed to create OAuth cleanup mailbox");

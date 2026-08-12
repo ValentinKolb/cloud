@@ -9,6 +9,10 @@ import { z } from "zod";
 import { contactResolveMatchSchema, normalizedContactEmailSchema } from "./app-integration-contracts";
 
 export const DEFAULT_CONVERSATION_REFERENCE_PATTERN = "REF-{{ short_id }}";
+export const ResourceShortIdSchema = z
+  .string()
+  .regex(/^[0-9A-Za-z]{6}$/)
+  .describe("Stable 6-character resource ID");
 
 export const messageInspectorHeaderSchema = z
   .object({
@@ -19,8 +23,7 @@ export const messageInspectorHeaderSchema = z
 
 export const messageInspectorPlacementSchema = z
   .object({
-    remoteMessageRefId: z.uuid(),
-    folderId: z.uuid(),
+    folderId: ResourceShortIdSchema,
     folderName: z.string().max(4096),
     remotePath: z.string().max(4096),
     uidValidity: z.string().max(128),
@@ -33,7 +36,6 @@ export const messageInspectorPlacementSchema = z
 
 export const messageInspectorPartSchema = z
   .object({
-    id: z.uuid(),
     partPath: z.string().max(4096),
     contentType: z.string().max(4096),
     charset: z.string().max(4096).nullable(),
@@ -48,8 +50,7 @@ export const messageInspectorPartSchema = z
 
 export const messageInspectorAttachmentSchema = z
   .object({
-    id: z.uuid(),
-    partId: z.uuid(),
+    id: ResourceShortIdSchema,
     filename: z.string().max(8192).nullable(),
     contentType: z.string().max(4096),
     disposition: z.string().max(4096).nullable(),
@@ -79,7 +80,7 @@ export const messageInspectorSpamSchema = z
 
 export const messageInspectorSchema = z
   .object({
-    id: z.uuid(),
+    id: ResourceShortIdSchema,
     messageId: z.string().max(8192).nullable(),
     inReplyTo: z.string().max(8192).nullable(),
     referenceIds: z.array(z.string().max(8192)).max(10_000),
@@ -115,7 +116,7 @@ export type MessageInspector = z.infer<typeof messageInspectorSchema>;
 
 export const messageSourcePreviewSchema = z
   .object({
-    messageId: z.uuid(),
+    messageId: ResourceShortIdSchema,
     exact: z.literal(true),
     text: z.string().max(256 * 1024),
     byteLength: z.number().int().nonnegative(),
@@ -150,8 +151,8 @@ export const mailSubscriptionSummarySchema = z
     lastMessageAt: z.string().datetime(),
     lastSubject: z.string().max(32_768),
     lastSender: z.string().max(4096).nullable(),
-    lastMessageId: z.uuid(),
-    lastConversationId: z.uuid().nullable(),
+    lastMessageId: ResourceShortIdSchema,
+    lastConversationId: ResourceShortIdSchema.nullable(),
     unsubscribeRequestedAt: z.string().datetime().nullable(),
     unsubscribeErrorCode: z.string().max(200).nullable(),
   })
@@ -230,7 +231,7 @@ export const mailConversationParticipantSchema = z
 
 export const mailConversationContextSchema = z
   .object({
-    conversationId: z.uuid(),
+    conversationId: ResourceShortIdSchema,
     participants: z.array(mailConversationParticipantSchema).max(100),
     contacts: z.discriminatedUnion("status", [
       z
@@ -256,7 +257,7 @@ export type MailConversationContext = z.infer<typeof mailConversationContextSche
 
 export const relatedMailSummarySchema = z
   .object({
-    id: z.uuid(),
+    id: ResourceShortIdSchema,
     subject: z.string(),
     participantSummary: z.string(),
     latestMessageAt: z.string().datetime(),
@@ -406,7 +407,7 @@ export type ProviderTransportDiagnostics = z.infer<typeof providerTransportDiagn
 
 export const mailOAuthFlowResultSchema = z.object({
   id: z.string().uuid(),
-  mailboxId: z.string().uuid(),
+  mailboxId: ResourceShortIdSchema,
   status: z.enum(["pending", "exchanging", "completed", "failed"]),
   resultCode: z.string().nullable(),
   message: z.string().nullable(),
@@ -469,7 +470,7 @@ export const parseProviderLimitSnapshot = (value: unknown): ProviderLimitSnapsho
 
 export const providerConnectionSchema = z.object({
   id: z.string().uuid(),
-  mailboxId: z.string().uuid(),
+  mailboxId: ResourceShortIdSchema,
   name: z.string(),
   email: z.string(),
   username: z.string(),
@@ -498,7 +499,7 @@ export const providerConnectionSchema = z.object({
 export type ProviderConnection = z.infer<typeof providerConnectionSchema>;
 
 export const mailboxSchema = z.object({
-  id: z.string().uuid(),
+  id: ResourceShortIdSchema,
   name: z.string(),
   description: z.string().nullable(),
   health: mailboxHealthSchema,
@@ -524,7 +525,7 @@ export type DeletedMailboxPage = {
 const lifecycleCountsSchema = z.record(z.string(), z.number().int().nonnegative());
 
 export const mailboxOperationalHealthSchema = z.object({
-  mailboxId: z.string().uuid(),
+  mailboxId: ResourceShortIdSchema,
   health: mailboxHealthSchema,
   healthReason: z.string().nullable(),
   syncEnabled: z.boolean(),
@@ -572,9 +573,9 @@ export type MailboxOperationalHealth = z.infer<typeof mailboxOperationalHealthSc
 
 export const attachmentLinkSchema = z.object({
   id: z.string().uuid(),
-  mailboxId: z.string().uuid(),
+  mailboxId: ResourceShortIdSchema,
   sourceKind: z.enum(["message", "draft"]),
-  sourceId: z.string().uuid(),
+  sourceId: ResourceShortIdSchema,
   filename: z.string().nullable(),
   contentType: z.string(),
   byteLength: z
@@ -614,7 +615,7 @@ export const createdAttachmentLinkSchema = z.object({
 export type CreatedAttachmentLink = z.infer<typeof createdAttachmentLinkSchema>;
 
 export const mailboxStorageUsageSchema = z.object({
-  mailboxId: z.string().uuid(),
+  mailboxId: ResourceShortIdSchema,
   mailboxName: z.string(),
   messageCount: z.number().int().nonnegative(),
   messageBytes: z.number().int().nonnegative(),
@@ -645,7 +646,7 @@ export type BindingState = z.infer<typeof bindingStateSchema>;
 
 export const providerBindingSchema = z.object({
   id: z.string().uuid(),
-  mailboxId: z.string().uuid(),
+  mailboxId: ResourceShortIdSchema,
   connectionId: z.string().uuid(),
   state: bindingStateSchema,
   authenticatedPrincipal: z.string().nullable(),
@@ -741,7 +742,7 @@ export const mailSearchAllSchema = z.object({ type: z.literal("all").describe("M
 export const mailSearchFolderIdSchema = z
   .object({
     type: z.literal("folder_id").describe("Folder search expression."),
-    folderId: z.string().uuid().describe("Provider folder UUID."),
+    folderId: ResourceShortIdSchema.describe("Stable folder ID."),
   })
   .strict();
 export const mailSearchAssignedToMeSchema = z
@@ -918,7 +919,7 @@ const mailSearchExpressionOpenApi = {
       type: "object",
       properties: {
         type: { const: "folder_id" },
-        folderId: { type: "string", format: "uuid" },
+        folderId: { type: "string", pattern: "^[0-9A-Za-z]{6}$" },
       },
       required: ["type", "folderId"],
       additionalProperties: false,
@@ -1046,10 +1047,12 @@ export const commandStateSchema = z.enum([
 ]);
 export type CommandState = z.infer<typeof commandStateSchema>;
 
-const actorCommandBaseSchema = z.object({
-  idempotencyKey: z.string().trim().min(1).max(200),
-  correlationId: z.string().trim().max(200).optional(),
-});
+const actorCommandBaseSchema = z
+  .object({
+    idempotencyKey: z.string().trim().min(1).max(200),
+    correlationId: z.string().trim().max(200).optional(),
+  })
+  .strict();
 
 export const composeSafetyWarningIdSchema = z.enum([
   "missing_attachment",
@@ -1129,22 +1132,22 @@ export type MessageStateChange = z.infer<typeof messageStateChangeSchema>;
 export const conversationTriageInputSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("change_state"),
-    sourceFolderId: z.string().uuid(),
+    sourceFolderId: ResourceShortIdSchema,
     change: messageStateChangeSchema,
     idempotencyKey: z.string().trim().min(1).max(150),
     correlationId: z.string().trim().max(200).optional(),
   }),
   z.object({
     kind: z.literal("move_to_role"),
-    sourceFolderId: z.string().uuid(),
+    sourceFolderId: ResourceShortIdSchema,
     role: z.enum(["inbox", "archive", "trash", "junk"]),
     idempotencyKey: z.string().trim().min(1).max(150),
     correlationId: z.string().trim().max(200).optional(),
   }),
   z.object({
     kind: z.literal("move_to_folder"),
-    sourceFolderId: z.string().uuid(),
-    destinationFolderId: z.string().uuid(),
+    sourceFolderId: ResourceShortIdSchema,
+    destinationFolderId: ResourceShortIdSchema,
     idempotencyKey: z.string().trim().min(1).max(150),
     correlationId: z.string().trim().max(200).optional(),
   }),
@@ -1154,64 +1157,64 @@ export type ConversationTriageInput = z.infer<typeof conversationTriageInputSche
 export const actorCommandInputSchema = z.discriminatedUnion("kind", [
   actorCommandBaseSchema.extend({
     kind: z.literal("set_flags"),
-    remoteMessageRefId: z.string().uuid(),
-    folderId: z.string().uuid(),
+    messageId: ResourceShortIdSchema,
+    folderId: ResourceShortIdSchema,
     flags: z.array(z.string().trim().min(1).max(100)).max(100),
     expectedRemoteState: remoteMessagePreconditionSchema.optional(),
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("change_message_state"),
-    remoteMessageRefId: z.string().uuid(),
-    folderId: z.string().uuid(),
+    messageId: ResourceShortIdSchema,
+    folderId: ResourceShortIdSchema,
     change: messageStateChangeSchema,
     expectedRemoteState: remoteMessagePreconditionSchema.optional(),
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("move"),
-    remoteMessageRefId: z.string().uuid(),
-    sourceFolderId: z.string().uuid(),
-    destinationFolderId: z.string().uuid(),
+    messageId: ResourceShortIdSchema,
+    sourceFolderId: ResourceShortIdSchema,
+    destinationFolderId: ResourceShortIdSchema,
     expectedRemoteState: remoteMessagePreconditionSchema.optional(),
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("copy"),
-    remoteMessageRefId: z.string().uuid(),
-    sourceFolderId: z.string().uuid(),
-    destinationFolderId: z.string().uuid(),
+    messageId: ResourceShortIdSchema,
+    sourceFolderId: ResourceShortIdSchema,
+    destinationFolderId: ResourceShortIdSchema,
     expectedRemoteState: remoteMessagePreconditionSchema.optional(),
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("delete"),
-    remoteMessageRefId: z.string().uuid(),
-    folderId: z.string().uuid(),
+    messageId: ResourceShortIdSchema,
+    folderId: ResourceShortIdSchema,
     expectedRemoteState: remoteMessagePreconditionSchema.optional(),
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("create_folder"),
-    parentFolderId: z.string().uuid().nullable().optional(),
+    parentFolderId: ResourceShortIdSchema.nullable().optional(),
     name: folderLeafNameSchema,
     subscribe: z.boolean().default(true),
     showInSidebar: z.boolean().default(true),
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("rename_folder"),
-    folderId: z.string().uuid(),
+    folderId: ResourceShortIdSchema,
     name: folderLeafNameSchema,
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("delete_folder"),
-    folderId: z.string().uuid(),
+    folderId: ResourceShortIdSchema,
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("set_folder_subscription"),
-    folderId: z.string().uuid(),
+    folderId: ResourceShortIdSchema,
     subscribed: z.boolean(),
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("send"),
-    draftId: z.string().uuid(),
+    draftId: ResourceShortIdSchema,
     expectedDraftRevision: z.number().int().positive(),
-    senderIdentityId: z.string().uuid(),
+    senderIdentityId: ResourceShortIdSchema,
     scheduledAt: z.string().datetime().optional(),
     undoSeconds: z.number().int().min(0).max(60).default(10),
     safetyApproval: composeSafetyApprovalSchema.optional(),
@@ -1223,7 +1226,7 @@ export const maintenanceCommandInputSchema = z.discriminatedUnion("kind", [
   actorCommandBaseSchema.extend({ kind: z.literal("sync_mailbox") }),
   actorCommandBaseSchema.extend({
     kind: z.literal("sync_folder"),
-    folderId: z.string().uuid(),
+    folderId: ResourceShortIdSchema,
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("discover_folders"),
@@ -1235,7 +1238,7 @@ export const maintenanceCommandInputSchema = z.discriminatedUnion("kind", [
   }),
   actorCommandBaseSchema.extend({
     kind: z.literal("rebuild_folder"),
-    folderId: z.string().uuid(),
+    folderId: ResourceShortIdSchema,
   }),
   actorCommandBaseSchema.extend({ kind: z.literal("hydrate_missing") }),
   actorCommandBaseSchema.extend({ kind: z.literal("rebuild_search") }),
@@ -1260,7 +1263,7 @@ export type MailCommandInput = z.infer<typeof mailCommandInputSchema>;
 
 export const mailCommandSchema = z.object({
   id: z.string().uuid(),
-  mailboxId: z.string().uuid(),
+  mailboxId: ResourceShortIdSchema,
   kind: commandKindSchema,
   state: commandStateSchema,
   actor: z.lazy(() => actorRefSchema),
@@ -1331,7 +1334,7 @@ const operatorCoverageSchema = z.object({
 
 export const mailboxOperatorOperationsSchema = z
   .object({
-    mailboxId: z.string().uuid(),
+    mailboxId: ResourceShortIdSchema,
     mailboxName: z.string(),
     health: mailboxHealthSchema,
     syncEnabled: z.boolean(),
@@ -1371,7 +1374,7 @@ export const mailboxOperatorOperationsSchema = z
     }),
     folders: z.array(
       z.object({
-        id: z.string().uuid(),
+        id: ResourceShortIdSchema,
         name: z.string().min(1).max(1000),
         discoveryState: z.enum(["active", "missing", "ambiguous"]),
         syncStatus: z.string(),
@@ -1391,7 +1394,7 @@ export type MailboxOperatorOperations = z.infer<typeof mailboxOperatorOperations
 
 export const platformMailboxOperationSummarySchema = z
   .object({
-    mailboxId: z.string().uuid(),
+    mailboxId: ResourceShortIdSchema,
     mailboxName: z.string(),
     health: mailboxHealthSchema,
     syncEnabled: z.boolean(),
@@ -1650,7 +1653,7 @@ export type ConversationView = z.infer<typeof conversationViewSchema>;
 
 export const mergeConversationsInputSchema = z
   .object({
-    sourceConversationId: z.string().uuid(),
+    sourceConversationId: ResourceShortIdSchema,
     expectedTargetRevision: z.number().int().positive(),
     expectedSourceRevision: z.number().int().positive(),
     reason: z.string().trim().min(1).max(500).optional(),
@@ -1662,7 +1665,7 @@ export type MergeConversationsInput = z.infer<typeof mergeConversationsInputSche
 export const splitConversationInputSchema = z
   .object({
     messageIds: z
-      .array(z.string().uuid())
+      .array(ResourceShortIdSchema)
       .min(1)
       .max(5_000)
       .refine((ids) => new Set(ids).size === ids.length, "Message ids must be unique"),
@@ -1675,7 +1678,7 @@ export type SplitConversationInput = z.infer<typeof splitConversationInputSchema
 
 export const reassignConversationMessageInputSchema = z
   .object({
-    targetConversationId: z.string().uuid(),
+    targetConversationId: ResourceShortIdSchema,
     expectedSourceRevision: z.number().int().positive(),
     expectedTargetRevision: z.number().int().positive(),
     reason: z.string().trim().min(1).max(500).optional(),
@@ -1739,7 +1742,7 @@ export type DeleteLocalTag = z.infer<typeof deleteLocalTagSchema>;
 export const setConversationLocalTagsSchema = z
   .object({
     expectedRevision: z.number().int().positive(),
-    tagIds: z.array(z.string().uuid()).max(50),
+    tagIds: z.array(ResourceShortIdSchema).max(50),
   })
   .strict()
   .refine((input) => new Set(input.tagIds).size === input.tagIds.length, {
@@ -1750,8 +1753,8 @@ export type SetConversationLocalTags = z.infer<typeof setConversationLocalTagsSc
 
 export const addConversationLocalTagsSchema = z
   .object({
-    conversationIds: z.array(z.string().uuid()).min(1).max(50),
-    tagIds: z.array(z.string().uuid()).min(1).max(50),
+    conversationIds: z.array(ResourceShortIdSchema).min(1).max(50),
+    tagIds: z.array(ResourceShortIdSchema).min(1).max(50),
   })
   .strict()
   .superRefine((input, context) => {
@@ -1836,7 +1839,7 @@ export type AutomaticReplyInactiveBehavior = z.infer<typeof automaticReplyInacti
 const automaticReplyConfigurationFields = {
   name: z.string().trim().min(1).max(80),
   enabled: z.boolean(),
-  senderIdentityId: z.string().uuid(),
+  senderIdentityId: ResourceShortIdSchema,
   subject: z
     .string()
     .max(998)
@@ -1874,7 +1877,7 @@ export type UpdateAutomaticReplyConfiguration = z.infer<typeof updateAutomaticRe
 
 export const automaticReplyPreviewInputSchema = z
   .object({
-    senderIdentityId: z.string().uuid(),
+    senderIdentityId: ResourceShortIdSchema,
     subject: automaticReplyConfigurationFields.subject,
     body: automaticReplyConfigurationFields.body,
     format: automaticReplyConfigurationFields.format,
@@ -1983,8 +1986,8 @@ export const mailAutomationActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("trash") }).strict(),
   z.object({ kind: z.literal("mark_read") }).strict(),
   z.object({ kind: z.literal("add_keyword"), keyword: mailKeywordSchema }).strict(),
-  z.object({ kind: z.literal("move_to_folder"), folderId: z.string().uuid() }).strict(),
-  z.object({ kind: z.literal("add_local_tag"), tagId: z.string().uuid() }).strict(),
+  z.object({ kind: z.literal("move_to_folder"), folderId: ResourceShortIdSchema }).strict(),
+  z.object({ kind: z.literal("add_local_tag"), tagId: ResourceShortIdSchema }).strict(),
   z.object({ kind: z.literal("assign_user"), userId: z.string().uuid() }).strict(),
   z.object({ kind: z.literal("set_status"), status: conversationWorkStatusSchema }).strict(),
 ]);
@@ -2087,7 +2090,7 @@ export const mailAutomationStepSchema: z.ZodType<MailAutomationStep> = z.lazy(()
         id: automationStepIdSchema,
         kind: z.literal("create_reply_draft"),
         body: mailAutomationTextSourceSchema,
-        senderIdentityId: z.string().uuid(),
+        senderIdentityId: ResourceShortIdSchema,
       })
       .strict(),
     z.object({ id: automationStepIdSchema, kind: z.literal("add_comment"), body: mailAutomationTextSourceSchema }).strict(),
@@ -2348,7 +2351,7 @@ export type StartIncomingAutomationBackfillInput = z.infer<typeof startIncomingA
 export const incomingAutomationBackfillSchema = z
   .object({
     operationId: z.string().uuid(),
-    automationId: z.string().uuid(),
+    automationId: ResourceShortIdSchema,
     workflowVersionId: z.string().uuid(),
     state: z.enum(["queued", "running", "waiting", "completed", "failed", "canceled"]),
     candidateCount: z.number().int().nonnegative(),
@@ -2410,8 +2413,8 @@ const internalCommentBodySchema = z
 
 export const createConversationCommentSchema = z.object({
   body: internalCommentBodySchema,
-  parentCommentId: z.string().uuid().nullable().optional(),
-  referencedMessageId: z.string().uuid().nullable().optional(),
+  parentCommentId: ResourceShortIdSchema.nullable().optional(),
+  referencedMessageId: ResourceShortIdSchema.nullable().optional(),
 });
 export type CreateConversationComment = z.infer<typeof createConversationCommentSchema>;
 
@@ -2494,8 +2497,8 @@ export const composeTemplateShortcutSchema = z
   .regex(/^[a-z][a-z0-9_]*$/, "Shortcut must start with a letter and use lowercase letters, numbers, or underscores");
 
 export const composeTemplateSchema = z.object({
-  id: z.string().uuid(),
-  mailboxId: z.string().uuid(),
+  id: ResourceShortIdSchema,
+  mailboxId: ResourceShortIdSchema,
   kind: composeTemplateKindSchema,
   scope: composeTemplateScopeSchema,
   ownerUserId: z.string().uuid().nullable(),
@@ -2538,10 +2541,10 @@ export const archiveComposeTemplateInputSchema = z.object({ expectedRevision: z.
 export type ArchiveComposeTemplateInput = z.infer<typeof archiveComposeTemplateInputSchema>;
 
 export const composeSignatureDefaultSchema = z.object({
-  mailboxId: z.string().uuid(),
-  senderIdentityId: z.string().uuid(),
+  mailboxId: ResourceShortIdSchema,
+  senderIdentityId: ResourceShortIdSchema,
   userId: z.string().uuid().nullable(),
-  templateId: z.string().uuid(),
+  templateId: ResourceShortIdSchema,
   revision: z.number().int().positive(),
   updatedAt: z.string().datetime(),
 });
@@ -2550,14 +2553,14 @@ export type ComposeSignatureDefault = z.infer<typeof composeSignatureDefaultSche
 export const setComposeSignatureDefaultInputSchema = z
   .object({
     scope: z.enum(["private", "mailbox"]),
-    templateId: z.string().uuid().nullable(),
+    templateId: ResourceShortIdSchema.nullable(),
     expectedRevision: z.number().int().positive().nullable().default(null),
   })
   .strict();
 export type SetComposeSignatureDefaultInput = z.infer<typeof setComposeSignatureDefaultInputSchema>;
 
 export const mailboxComposeStyleSchema = z.object({
-  mailboxId: z.string().uuid(),
+  mailboxId: ResourceShortIdSchema,
   customCss: z.string(),
   revision: z.number().int().positive(),
   updatedAt: z.string().datetime(),
@@ -2643,8 +2646,8 @@ export const senderIdentityTransportSchema = z.object({
 export type SenderIdentityTransport = z.infer<typeof senderIdentityTransportSchema>;
 
 export const senderIdentitySchema = z.object({
-  id: z.string().uuid(),
-  mailboxId: z.string().uuid(),
+  id: ResourceShortIdSchema,
+  mailboxId: ResourceShortIdSchema,
   label: z.string(),
   displayName: z.string(),
   fromAddress: z.string().email(),
@@ -2657,11 +2660,11 @@ export const senderIdentitySchema = z.object({
   defaultReadReceipt: z.boolean(),
   vcard: senderIdentityVcardSchema.nullable(),
   envelopeSender: z.string().email().nullable(),
-  defaultSignatureTemplateId: z.string().uuid().nullable(),
+  defaultSignatureTemplateId: ResourceShortIdSchema.nullable(),
   transport: senderIdentityTransportSchema,
   authenticationPolicy: senderAuthenticationPolicySchema,
-  sentFolderId: z.string().uuid().nullable(),
-  draftsFolderId: z.string().uuid().nullable(),
+  sentFolderId: ResourceShortIdSchema.nullable(),
+  draftsFolderId: ResourceShortIdSchema.nullable(),
   isDefault: z.boolean(),
   status: z.enum(["unverified", "verified", "rejected", "disabled"]),
   createdAt: z.string().datetime(),
@@ -2682,12 +2685,12 @@ export const createSenderIdentityInputSchema = z.object({
   defaultReadReceipt: z.boolean().default(false),
   vcard: senderIdentityVcardSchema.nullable().optional(),
   envelopeSender: z.string().email().max(320).nullable().optional(),
-  defaultSignatureTemplateId: z.string().uuid().nullable().optional(),
+  defaultSignatureTemplateId: ResourceShortIdSchema.nullable().optional(),
   authenticationPolicy: senderAuthenticationPolicySchema.default({
     automation: "mailbox",
   }),
-  sentFolderId: z.string().uuid().nullable().optional(),
-  draftsFolderId: z.string().uuid().nullable().optional(),
+  sentFolderId: ResourceShortIdSchema.nullable().optional(),
+  draftsFolderId: ResourceShortIdSchema.nullable().optional(),
   isDefault: z.boolean().optional(),
 });
 export type CreateSenderIdentityInput = z.input<typeof createSenderIdentityInputSchema>;
@@ -2738,7 +2741,7 @@ export const defaultSenderSetupInputSchema = z.object({
 export type DefaultSenderSetupInput = z.infer<typeof defaultSenderSetupInputSchema>;
 
 export const draftAttachmentSchema = z.object({
-  id: z.string().uuid(),
+  id: ResourceShortIdSchema,
   filename: z.string(),
   contentType: z.string(),
   byteLength: z.number().int().nonnegative(),
@@ -2758,14 +2761,14 @@ export type DraftDeliveryClass = z.infer<typeof draftDeliveryClassSchema>;
 const draftActorRefSchema = actorRefSchema;
 
 export const draftSchema = z.object({
-  id: z.string().uuid(),
-  mailboxId: z.string().uuid(),
-  conversationId: z.string().uuid().nullable(),
+  id: ResourceShortIdSchema,
+  mailboxId: ResourceShortIdSchema,
+  conversationId: ResourceShortIdSchema.nullable(),
   intent: draftIntentSchema,
-  sourceMessageId: z.string().uuid().nullable(),
-  derivedFromMessageId: z.string().uuid().nullable(),
+  sourceMessageId: ResourceShortIdSchema.nullable(),
+  derivedFromMessageId: ResourceShortIdSchema.nullable(),
   derivationKind: draftDerivationKindSchema.nullable(),
-  senderIdentityId: z.string().uuid(),
+  senderIdentityId: ResourceShortIdSchema,
   to: z.array(mailAddressSchema),
   cc: z.array(mailAddressSchema),
   bcc: z.array(mailAddressSchema),
@@ -2795,10 +2798,10 @@ export type ConversationDraftSummary = Pick<MailDraft, "id" | "intent" | "subjec
 
 export const scheduledSendSchema = z
   .object({
-    id: z.string().uuid(),
+    id: ResourceShortIdSchema,
     commandId: z.string().uuid(),
-    draftId: z.string().uuid(),
-    conversationId: z.string().uuid().nullable(),
+    draftId: ResourceShortIdSchema,
+    conversationId: ResourceShortIdSchema.nullable(),
     intent: draftIntentSchema,
     to: z.array(mailAddressSchema),
     cc: z.array(mailAddressSchema),
@@ -2834,14 +2837,14 @@ export type CancelScheduledSendInput = z.infer<typeof cancelScheduledSendInputSc
 export const cancelScheduledSendResultSchema = z
   .object({
     disposition: z.enum(["draft", "discard"]),
-    draftId: z.string().uuid(),
+    draftId: ResourceShortIdSchema,
   })
   .strict();
 export type CancelScheduledSendResult = z.infer<typeof cancelScheduledSendResultSchema>;
 
 export const draftEditableContentInputSchema = z
   .object({
-    senderIdentityId: z.string().uuid().describe("Verified sender-identity UUID."),
+    senderIdentityId: ResourceShortIdSchema.describe("Verified sender-identity ID."),
     to: z.array(mailAddressSchema).max(200).default([]).describe("Primary recipients."),
     cc: z.array(mailAddressSchema).max(200).default([]).describe("Carbon-copy recipients."),
     bcc: z.array(mailAddressSchema).max(200).default([]).describe("Blind-carbon-copy recipients."),
@@ -2872,9 +2875,9 @@ export const draftContentInputSchema = draftEditableContentInputSchema
     priority: mailPrioritySchema.optional(),
     requestDeliveryReceipt: z.boolean().optional(),
     requestReadReceipt: z.boolean().optional(),
-    conversationId: z.string().uuid().nullable().optional(),
+    conversationId: ResourceShortIdSchema.nullable().optional(),
     intent: draftIntentSchema.optional(),
-    sourceMessageId: z.string().uuid().nullable().optional(),
+    sourceMessageId: ResourceShortIdSchema.nullable().optional(),
     includeSourceAttachments: z.boolean().optional(),
   });
 export type DraftContentInput = z.infer<typeof draftContentInputSchema>;
@@ -2882,7 +2885,7 @@ export type DraftContentInput = z.infer<typeof draftContentInputSchema>;
 export const deriveDraftFromMessageInputSchema = z
   .object({
     kind: draftDerivationKindSchema,
-    senderIdentityId: z.string().uuid(),
+    senderIdentityId: ResourceShortIdSchema,
     includeAttachments: z.boolean().default(true),
     idempotencyKey: z.string().trim().min(1).max(200),
   })
@@ -2899,7 +2902,7 @@ export const draftSeedOriginSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("derive"),
-      messageId: z.string().uuid(),
+      messageId: ResourceShortIdSchema,
       input: deriveDraftFromMessageInputSchema.omit({ idempotencyKey: true }),
     })
     .strict(),
@@ -2912,11 +2915,11 @@ export type PrepareDraftSeedInput = z.infer<typeof prepareDraftSeedInputSchema>;
 export const mailDraftSeedSchema = z
   .object({
     id: z.string().uuid(),
-    mailboxId: z.string().uuid(),
-    conversationId: z.string().uuid().nullable(),
+    mailboxId: ResourceShortIdSchema,
+    conversationId: ResourceShortIdSchema.nullable(),
     intent: draftIntentSchema,
-    sourceMessageId: z.string().uuid().nullable(),
-    derivedFromMessageId: z.string().uuid().nullable(),
+    sourceMessageId: ResourceShortIdSchema.nullable(),
+    derivedFromMessageId: ResourceShortIdSchema.nullable(),
     derivationKind: draftDerivationKindSchema.nullable(),
     content: draftEditableContentInputSchema,
     attachments: z.array(draftAttachmentSchema),
@@ -2950,7 +2953,7 @@ export type ComposeSafetyReviewInput = z.infer<typeof composeSafetyReviewInputSc
 
 export const composeSafetyReviewSchema = z
   .object({
-    draftId: z.string().uuid(),
+    draftId: ResourceShortIdSchema,
     revision: z.number().int().positive(),
     fingerprint: z.string().length(64),
     warnings: z.array(composeSafetyWarningSchema),
@@ -2961,7 +2964,7 @@ export type ComposeSafetyReview = z.infer<typeof composeSafetyReviewSchema>;
 export const composePreviewInputSchema = z
   .object({
     draft: draftEditableContentInputSchema,
-    conversationId: z.string().uuid().nullable().default(null),
+    conversationId: ResourceShortIdSchema.nullable().default(null),
   })
   .strict();
 export type ComposePreviewInput = z.input<typeof composePreviewInputSchema>;
@@ -2974,9 +2977,9 @@ export type ComposePreview = z.infer<typeof composePreviewSchema>;
 
 export const renderComposeSnippetInputSchema = z
   .object({
-    templateId: z.string().uuid(),
+    templateId: ResourceShortIdSchema,
     draft: draftEditableContentInputSchema,
-    conversationId: z.string().uuid().nullable().default(null),
+    conversationId: ResourceShortIdSchema.nullable().default(null),
   })
   .strict();
 export type RenderComposeSnippetInput = z.input<typeof renderComposeSnippetInputSchema>;
@@ -2985,13 +2988,13 @@ export const composeSuggestionsInputSchema = z
   .object({
     query: z.string().trim().max(40),
     draft: draftEditableContentInputSchema,
-    conversationId: z.string().uuid().nullable().default(null),
+    conversationId: ResourceShortIdSchema.nullable().default(null),
   })
   .strict();
 export type ComposeSuggestionsInput = z.input<typeof composeSuggestionsInputSchema>;
 
 export const composeSuggestionSchema = z.object({
-  templateId: z.string().uuid(),
+  templateId: ResourceShortIdSchema,
   name: z.string(),
   shortcut: composeTemplateShortcutSchema,
   kind: composeTemplateKindSchema,
@@ -3001,7 +3004,7 @@ export type ComposeSuggestion = z.infer<typeof composeSuggestionSchema>;
 
 export const draftRecoveryCopySchema = z.object({
   id: z.string().uuid(),
-  draftId: z.string().uuid(),
+  draftId: ResourceShortIdSchema,
   baseRevision: z.number().int().positive(),
   content: draftEditableContentInputSchema,
   createdBy: draftActorRefSchema,
@@ -3024,14 +3027,14 @@ export type CreateDraftAttachmentUpload = z.infer<typeof createDraftAttachmentUp
 
 export const draftAttachmentUploadSchema = z.object({
   id: z.string().uuid(),
-  draftId: z.string().uuid(),
+  draftId: ResourceShortIdSchema,
   filename: z.string(),
   contentType: z.string(),
   byteLength: z.number().int().nonnegative(),
   receivedBytes: z.number().int().nonnegative(),
   chunkSize: z.number().int().positive(),
   state: z.enum(["uploading", "uploaded", "attached", "cancelled"]),
-  attachmentId: z.string().uuid().nullable(),
+  attachmentId: ResourceShortIdSchema.nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

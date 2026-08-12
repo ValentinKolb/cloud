@@ -10,6 +10,7 @@ export type MailWorkspacePreferences = {
 };
 
 const MAIL_WORKSPACE_COOKIE = "cloud_mail_workspace";
+const isMailResourceId = (value: unknown): value is string => typeof value === "string" && /^[0-9A-Za-z]{6}$/.test(value);
 
 const normalizeMailWorkspacePreferences = (value: unknown): MailWorkspacePreferences => ({
   listCollapsed: Boolean(value && typeof value === "object" && (value as { listCollapsed?: unknown }).listCollapsed === true),
@@ -19,10 +20,7 @@ const normalizeMailWorkspacePreferences = (value: unknown): MailWorkspacePrefere
   ),
   listMode: value && typeof value === "object" && (value as { listMode?: unknown }).listMode === "messages" ? "messages" : "conversations",
   lastMailboxId:
-    value &&
-    typeof value === "object" &&
-    typeof (value as { lastMailboxId?: unknown }).lastMailboxId === "string" &&
-    (value as { lastMailboxId: string }).lastMailboxId.length > 0
+    value && typeof value === "object" && isMailResourceId((value as { lastMailboxId?: unknown }).lastMailboxId)
       ? (value as { lastMailboxId: string }).lastMailboxId
       : null,
 });

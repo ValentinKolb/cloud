@@ -28,6 +28,7 @@ import {
   type MaterializeDraftSeedInput,
   materializeDraftSeedInputSchema,
 } from "../contracts";
+import { withShortIdDb } from "../lib/short-id";
 import { deriveReplyAddressObjects } from "../reply-recipients";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
@@ -37,6 +38,7 @@ import { applyConversationReferenceToReplySubjectInTransaction } from "./convers
 import { withOwnedDraftLease } from "./draft-leases";
 import { enqueueDraftProjection, enqueueDraftProjectionSnapshot, queueDraftProjectionInTransaction } from "./draft-provider-projection";
 import type { AttachmentDownload } from "./messages";
+import { publicIds, requirePublicId, resolveMailboxPublicId } from "./public-resources";
 
 type DraftActor = Extract<ActorRef, { kind: "user" | "service_account" | "workflow" | "system" }>;
 type MutableActor = Extract<DraftActor, { kind: "user" | "service_account" }>;
@@ -101,6 +103,7 @@ type DbRecoveryCopy = {
 
 type DbConversationDraftSummary = {
   id: string;
+  short_id: string;
   intent: DraftIntent;
   subject: string;
   body_preview_source: string;
@@ -298,7 +301,7 @@ const validateIdentity = async (params: {
       default_delivery_receipt,
       default_read_receipt
     FROM mail.sender_identities
-    WHERE id = ${params.senderIdentityId}::uuid
+    WHERE short_id = ${params.senderIdentityId}
       AND mailbox_id = ${params.mailboxId}::uuid
       AND status = 'verified'
     FOR SHARE
@@ -361,21 +364,28 @@ const resolveDraftContext = async (params: {
     return ok({ conversationId: null, intent, sourceMessageId: null });
   }
   if (!conversationId) return fail(err.badInput(`${intent} drafts require a conversation`));
+  const internalConversationId = await resolveMailboxPublicId("conversations", params.mailboxId, conversationId, params.db);
+  const internalSourceMessageId = params.input.sourceMessageId
+    ? await resolveMailboxPublicId("messages", params.mailboxId, params.input.sourceMessageId, params.db)
+    : null;
+  if (!internalConversationId || (params.input.sourceMessageId && !internalSourceMessageId)) {
+    return fail(err.badInput("The draft source message does not belong to the selected conversation"));
+  }
 
   const [source] = await params.db<{ message_id: string }[]>`
     SELECT conversation_message.message_id
     FROM mail.conversation_messages conversation_message
     JOIN mail.conversations conversation ON conversation.id = conversation_message.conversation_id
     JOIN mail.message_contents message ON message.id = conversation_message.message_id
-    WHERE conversation_message.conversation_id = ${conversationId}::uuid
+    WHERE conversation_message.conversation_id = ${internalConversationId}::uuid
       AND conversation.mailbox_id = ${params.mailboxId}::uuid
-      AND (${params.input.sourceMessageId ?? null}::uuid IS NULL OR conversation_message.message_id = ${params.input.sourceMessageId ?? null}::uuid)
+      AND (${internalSourceMessageId}::uuid IS NULL OR conversation_message.message_id = ${internalSourceMessageId}::uuid)
     ORDER BY conversation_message.position DESC, message.internal_date DESC, message.id DESC
     LIMIT 1
     FOR SHARE OF conversation, message
   `;
   if (!source) return fail(err.badInput("The draft source message does not belong to the selected conversation"));
-  return ok({ conversationId, intent, sourceMessageId: source.message_id });
+  return ok({ conversationId: internalConversationId, intent, sourceMessageId: source.message_id });
 };
 
 const resolveInitialReplyRecipients = async (params: {
@@ -451,25 +461,36 @@ const copyForwardAttachments = async (params: { db: typeof sql; draftId: string;
     return fail(err.badInput("One or more original attachments cannot be forwarded"));
   }
 
-  const copied = await params.db<{ id: string }[]>`
-    INSERT INTO mail.draft_attachments (
-      draft_id, blob_id, filename, content_type, byte_length, content_hash, position
-    )
+  const source = await params.db<
+    { blob_id: string; filename: string; content_type: string; byte_length: string | number; content_hash: string; position: number }[]
+  >`
     SELECT
-      ${params.draftId}::uuid,
       attachment.blob_id,
-      left(COALESCE(NULLIF(attachment.filename, ''), 'attachment'), 255),
-      left(COALESCE(NULLIF(attachment.content_type, ''), 'application/octet-stream'), 255),
+      left(COALESCE(NULLIF(attachment.filename, ''), 'attachment'), 255) AS filename,
+      left(COALESCE(NULLIF(attachment.content_type, ''), 'application/octet-stream'), 255) AS content_type,
       blob.byte_length,
       blob.content_hash,
-      (row_number() OVER (ORDER BY attachment.id) - 1)::int
+      (row_number() OVER (ORDER BY attachment.id) - 1)::int AS position
     FROM mail.attachments attachment
     JOIN mail.message_part_blobs blob ON blob.id = attachment.blob_id AND blob.complete = true
     WHERE attachment.message_id = ${params.sourceMessageId}::uuid
     ORDER BY attachment.id
-    RETURNING id
   `;
-  return ok(copied.length);
+  for (const attachment of source) {
+    await withShortIdDb(
+      params.db,
+      "draftAttachment",
+      (db, shortId) => db`
+      INSERT INTO mail.draft_attachments (
+        short_id, draft_id, blob_id, filename, content_type, byte_length, content_hash, position
+      ) VALUES (
+        ${shortId}, ${params.draftId}::uuid, ${attachment.blob_id}::uuid, ${attachment.filename},
+        ${attachment.content_type}, ${attachment.byte_length}, ${attachment.content_hash}, ${attachment.position}
+      )
+    `,
+    );
+  }
+  return ok(source.length);
 };
 
 const storeRecoveryCopy = async (params: {
@@ -666,19 +687,25 @@ const insertComposeDraftInTransaction = async (params: {
     db: params.db,
   });
   if (!identity.ok) return identity;
-  const [row] = await params.db<DbDraft[]>`
+  const senderIdentityId = await resolveMailboxPublicId("senderIdentities", params.mailboxId, params.content.senderIdentityId, params.db);
+  if (!senderIdentityId) return fail(err.badInput("A verified sender identity is required"));
+  const rows = await withShortIdDb(
+    params.db,
+    "draft",
+    (db, shortId) => db<DbDraft[]>`
     INSERT INTO mail.drafts AS d (
-      mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
+      short_id, mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
       author_kind, author_id, last_editor_kind, last_editor_id,
       to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format,
       priority, request_delivery_receipt, request_read_receipt,
       materialization_key, materialization_request_hash
     ) VALUES (
+      ${shortId},
       ${params.mailboxId}::uuid,
       ${params.prepared.conversationId}::uuid,
       ${params.prepared.intent},
       ${params.prepared.sourceMessageId}::uuid,
-      ${params.content.senderIdentityId}::uuid,
+      ${senderIdentityId}::uuid,
       ${params.actor.kind},
       ${actorId(params.actor)}::uuid,
       ${params.actor.kind},
@@ -696,7 +723,9 @@ const insertComposeDraftInTransaction = async (params: {
       ${params.materializationRequestHash ?? null}
     )
     RETURNING ${draftColumns}
-  `;
+  `,
+  );
+  const [row] = rows;
   if (!row) return fail(err.internal("Draft insert returned no row"));
   let attachmentCount = 0;
   if (params.prepared.attachments.length > 0 && params.prepared.sourceMessageId) {
@@ -877,25 +906,33 @@ const insertDerivedDraftInTransaction = async (params: {
     db: params.db,
   });
   if (!identity.ok) return identity;
-  const [created] = await params.db<DbDraft[]>`
+  const senderIdentityId = await resolveMailboxPublicId("senderIdentities", params.mailboxId, params.content.senderIdentityId, params.db);
+  if (!senderIdentityId) return fail(err.badInput("A verified sender identity is required"));
+  const createdRows = await withShortIdDb(
+    params.db,
+    "draft",
+    (db, shortId) => db<DbDraft[]>`
     INSERT INTO mail.drafts AS d (
-      mailbox_id, conversation_id, intent, source_message_id,
+      short_id, mailbox_id, conversation_id, intent, source_message_id,
       derived_from_message_id, derivation_kind, derivation_key, derivation_request_hash,
       sender_identity_id,
       author_kind, author_id, last_editor_kind, last_editor_id,
       to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format,
       priority, request_delivery_receipt, request_read_receipt
     ) VALUES (
+      ${shortId},
       ${params.mailboxId}::uuid, NULL, 'new', NULL,
       ${params.prepared.messageId}::uuid, ${params.prepared.kind}, ${params.idempotencyKey}, ${params.requestHash},
-      ${params.content.senderIdentityId}::uuid,
+      ${senderIdentityId}::uuid,
       ${params.actor.kind}, ${actorId(params.actor)}::uuid, ${params.actor.kind}, ${actorId(params.actor)}::uuid,
       ${params.content.to}::jsonb, ${params.content.cc}::jsonb, ${params.content.bcc}::jsonb,
       ${params.content.subject}, ${params.content.body}, ${params.content.format},
       ${params.content.priority}, ${params.content.requestDeliveryReceipt}, ${params.content.requestReadReceipt}
     )
     RETURNING ${draftColumns}
-  `;
+  `,
+  );
+  const [created] = createdRows;
   if (!created) return fail(err.internal("Draft insert returned no row"));
   let attachmentCount = 0;
   if (params.prepared.attachments.length > 0) {
@@ -980,6 +1017,12 @@ const prepareDraftSeedOriginInTransaction = async (params: {
   });
 };
 
+const resolveDraftSeedOrigin = async (db: typeof sql, mailboxId: string, origin: DraftSeedOrigin): Promise<Result<DraftSeedOrigin>> => {
+  if (origin.kind === "compose") return ok(origin);
+  const messageId = await resolveMailboxPublicId("messages", mailboxId, origin.messageId, db);
+  return messageId ? ok({ ...origin, messageId } as DraftSeedOrigin) : fail(err.notFound("Message"));
+};
+
 export const prepareDraftSeed = async (params: {
   context: MailRequestContext;
   mailboxId: string;
@@ -990,11 +1033,13 @@ export const prepareDraftSeed = async (params: {
   if (!mutableActor(params.context)) return fail(err.forbidden("Draft author is invalid"));
   try {
     return await sql.begin(async (tx) => {
+      const internalOrigin = await resolveDraftSeedOrigin(tx, params.mailboxId, parsed.data);
+      if (!internalOrigin.ok) return internalOrigin;
       const prepared = await prepareDraftSeedOriginInTransaction({
         db: tx,
         context: params.context,
         mailboxId: params.mailboxId,
-        origin: parsed.data,
+        origin: internalOrigin.data,
       });
       if (!prepared.ok) return prepared;
       const seedOrigin: DraftSeedOrigin =
@@ -1090,11 +1135,13 @@ export const materializeDraftSeed = async (params: {
                 senderIdentityId: parsed.data.draft.senderIdentityId,
               },
             };
+      const internalValidationOrigin = await resolveDraftSeedOrigin(tx, params.mailboxId, validationOrigin);
+      if (!internalValidationOrigin.ok) return internalValidationOrigin;
       const preparedSeed = await prepareDraftSeedOriginInTransaction({
         db: tx,
         context: params.context,
         mailboxId: params.mailboxId,
-        origin: validationOrigin,
+        origin: internalValidationOrigin.data,
       });
       if (!preparedSeed.ok) return preparedSeed;
       if (parsed.data.origin.kind === "derive") {
@@ -1230,11 +1277,16 @@ const insertWorkflowReplyDraftInTransaction = async (params: {
   format: "plain" | "markdown";
   deliveryClass: DraftDeliveryClass;
 }): Promise<Result<WorkflowDraftResult>> => {
+  const [conversationIds, messageIds, senderIdentityIds] = await Promise.all([
+    publicIds("conversations", [params.conversationId], params.db),
+    publicIds("messages", [params.sourceMessageId], params.db),
+    publicIds("senderIdentities", [params.senderIdentityId], params.db),
+  ]);
   const content = draftContentInputSchema.safeParse({
-    conversationId: params.conversationId,
+    conversationId: requirePublicId(conversationIds, params.conversationId),
     intent: "reply",
-    sourceMessageId: params.sourceMessageId,
-    senderIdentityId: params.senderIdentityId,
+    sourceMessageId: requirePublicId(messageIds, params.sourceMessageId),
+    senderIdentityId: requirePublicId(senderIdentityIds, params.senderIdentityId),
     to: params.to,
     cc: params.cc,
     bcc: params.bcc,
@@ -1270,13 +1322,16 @@ const insertWorkflowReplyDraftInTransaction = async (params: {
     conversationId: params.conversationId,
     subject: content.data.subject,
   });
-  const [draft] = await params.db<{ id: string; revision: string | number }[]>`
+  const draftRows = await withShortIdDb(
+    params.db,
+    "draft",
+    (db, shortId) => db<{ id: string; revision: string | number }[]>`
     INSERT INTO mail.drafts (
-      id, mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
+      id, short_id, mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
       author_kind, author_id, last_editor_kind, last_editor_id, origin, delivery_class,
       to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format
     ) VALUES (
-      ${params.draftId}::uuid, ${params.mailboxId}::uuid, ${params.conversationId}::uuid, 'reply', ${params.sourceMessageId}::uuid,
+      ${params.draftId}::uuid, ${shortId}, ${params.mailboxId}::uuid, ${params.conversationId}::uuid, 'reply', ${params.sourceMessageId}::uuid,
       ${params.senderIdentityId}::uuid, 'workflow', ${params.workflowVersionId}::uuid, 'workflow', ${params.workflowVersionId}::uuid,
       ${params.deliveryClass === "normal" ? "user" : "workflow"}, ${params.deliveryClass},
       ${content.data.to}::jsonb, ${content.data.cc}::jsonb, ${content.data.bcc}::jsonb,
@@ -1284,7 +1339,9 @@ const insertWorkflowReplyDraftInTransaction = async (params: {
     )
     ON CONFLICT (id) DO NOTHING
     RETURNING id, revision
-  `;
+  `,
+  );
+  const [draft] = draftRows;
   if (draft) {
     return ok({
       id: draft.id,
@@ -1384,9 +1441,10 @@ export const createWorkflowDraftInTransaction = async (params: {
   body: string;
   format: "plain" | "markdown";
 }): Promise<Result<{ id: string; revision: number; senderIdentityId: string; deliveryClass: "normal" }>> => {
+  const senderIdentityIds = await publicIds("senderIdentities", [params.senderIdentityId], params.db);
   const content = draftContentInputSchema.safeParse({
     intent: "new",
-    senderIdentityId: params.senderIdentityId,
+    senderIdentityId: requirePublicId(senderIdentityIds, params.senderIdentityId),
     to: params.to,
     cc: params.cc,
     bcc: params.bcc,
@@ -1405,20 +1463,25 @@ export const createWorkflowDraftInTransaction = async (params: {
     FOR SHARE
   `;
   if (!identity) return fail(err.forbidden("Sender identity no longer permits mailbox automation"));
-  const [draft] = await params.db<{ id: string; revision: string | number }[]>`
+  const draftRows = await withShortIdDb(
+    params.db,
+    "draft",
+    (db, shortId) => db<{ id: string; revision: string | number }[]>`
     INSERT INTO mail.drafts (
-      id, mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
+      id, short_id, mailbox_id, conversation_id, intent, source_message_id, sender_identity_id,
       author_kind, author_id, last_editor_kind, last_editor_id, origin, delivery_class,
       to_addresses, cc_addresses, bcc_addresses, subject, body_markdown, body_format
     ) VALUES (
-      ${params.draftId}::uuid, ${params.mailboxId}::uuid, NULL, 'new', NULL, ${params.senderIdentityId}::uuid,
+      ${params.draftId}::uuid, ${shortId}, ${params.mailboxId}::uuid, NULL, 'new', NULL, ${params.senderIdentityId}::uuid,
       'workflow', ${params.workflowVersionId}::uuid, 'workflow', ${params.workflowVersionId}::uuid,
       'user', 'normal', ${content.data.to}::jsonb, ${content.data.cc}::jsonb, ${content.data.bcc}::jsonb,
       ${content.data.subject}, ${content.data.body}, ${content.data.format}
     )
     ON CONFLICT (id) DO NOTHING
     RETURNING id, revision
-  `;
+  `,
+  );
+  const [draft] = draftRows;
   if (draft) {
     return ok({ id: draft.id, revision: Number(draft.revision), senderIdentityId: params.senderIdentityId, deliveryClass: "normal" });
   }
@@ -1454,30 +1517,34 @@ export const updateDraft = async (params: {
     const result = await sql.begin(async (tx) => {
       const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
       if (!allowed.ok) return allowed;
+      const draftId = await resolveMailboxPublicId("drafts", params.mailboxId, params.draftId, tx);
+      if (!draftId) return fail(err.notFound("Draft"));
       const [current] = await tx<{ state: string; revision: string | number }[]>`
         SELECT state, revision
         FROM mail.drafts
-        WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user'
+        WHERE id = ${draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user'
         FOR UPDATE
       `;
       if (!current) return fail(err.notFound("Draft"));
       if (current.state !== "draft") {
-        await storeRecoveryCopy({ db: tx, draftId: params.draftId, baseRevision: params.expectedRevision, content: parsed.data, actor });
+        await storeRecoveryCopy({ db: tx, draftId, baseRevision: params.expectedRevision, content: parsed.data, actor });
         return conflict("Draft can no longer be edited; the submitted content was saved as a recovery copy");
       }
       if (Number(current.revision) !== params.expectedRevision) {
-        await storeRecoveryCopy({ db: tx, draftId: params.draftId, baseRevision: params.expectedRevision, content: parsed.data, actor });
+        await storeRecoveryCopy({ db: tx, draftId, baseRevision: params.expectedRevision, content: parsed.data, actor });
         return conflict("Draft changed; the submitted content was saved as a recovery copy");
       }
       const identity = await validateIdentity({ mailboxId: params.mailboxId, senderIdentityId: parsed.data.senderIdentityId, db: tx });
       if (!identity.ok) {
-        await storeRecoveryCopy({ db: tx, draftId: params.draftId, baseRevision: params.expectedRevision, content: parsed.data, actor });
+        await storeRecoveryCopy({ db: tx, draftId, baseRevision: params.expectedRevision, content: parsed.data, actor });
         return conflict("Sender identity is no longer available; the submitted content was saved as a recovery copy");
       }
+      const senderIdentityId = await resolveMailboxPublicId("senderIdentities", params.mailboxId, parsed.data.senderIdentityId, tx);
+      if (!senderIdentityId) return conflict("Sender identity is no longer available");
       const [row] = await tx<DbDraft[]>`
         UPDATE mail.drafts d
         SET
-          sender_identity_id = ${parsed.data.senderIdentityId}::uuid,
+          sender_identity_id = ${senderIdentityId}::uuid,
           to_addresses = ${parsed.data.to}::jsonb,
           cc_addresses = ${parsed.data.cc}::jsonb,
           bcc_addresses = ${parsed.data.bcc}::jsonb,
@@ -1490,7 +1557,7 @@ export const updateDraft = async (params: {
           last_editor_kind = ${actor.kind},
           last_editor_id = ${actorId(actor)}::uuid,
           revision = revision + 1
-        WHERE d.id = ${params.draftId}::uuid AND d.origin = 'user'
+        WHERE d.id = ${draftId}::uuid AND d.origin = 'user'
         RETURNING ${draftColumns}
       `;
       if (row) await queueDraftProjectionInTransaction({ db: tx, draftId: row.id });
@@ -1523,9 +1590,12 @@ export const listConversationDrafts = async (params: {
 }): Promise<Result<ConversationDraftSummary[]>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
+  const conversationId = await resolveMailboxPublicId("conversations", params.mailboxId, params.conversationId);
+  if (!conversationId) return fail(err.notFound("Conversation"));
   const rows = await sql<DbConversationDraftSummary[]>`
     SELECT
       d.id,
+      d.short_id,
       d.intent,
       d.subject,
       LEFT(d.body_markdown, ${DRAFT_BODY_PREVIEW_SOURCE_LENGTH}) AS body_preview_source,
@@ -1545,7 +1615,7 @@ export const listConversationDrafts = async (params: {
     LEFT JOIN auth.users author_user ON d.author_kind = 'user' AND author_user.id = d.author_id
     LEFT JOIN auth.service_accounts author_service ON d.author_kind = 'service_account' AND author_service.id = d.author_id
     WHERE d.mailbox_id = ${params.mailboxId}::uuid
-      AND d.conversation_id = ${params.conversationId}::uuid
+      AND d.conversation_id = ${conversationId}::uuid
       AND d.origin = 'user'
       AND d.state = 'draft'
     ORDER BY d.updated_at DESC, d.id DESC
@@ -1553,7 +1623,7 @@ export const listConversationDrafts = async (params: {
   `;
   return ok(
     rows.map((row) => ({
-      id: row.id,
+      id: row.short_id,
       intent: row.intent,
       subject: row.subject,
       bodyPreview: draftBodyPreview(row.body_preview_source),
@@ -1566,10 +1636,12 @@ export const listConversationDrafts = async (params: {
 export const getDraft = async (context: MailRequestContext, mailboxId: string, draftId: string): Promise<Result<MailDraft>> => {
   const allowed = await requireMailboxPermission(context, mailboxId, "read");
   if (!allowed.ok) return allowed;
+  const internalDraftId = await resolveMailboxPublicId("drafts", mailboxId, draftId);
+  if (!internalDraftId) return fail(err.notFound("Draft"));
   const [row] = await sql<DbDraft[]>`
     SELECT ${draftColumns}
     FROM mail.drafts d
-    WHERE d.id = ${draftId}::uuid AND d.mailbox_id = ${mailboxId}::uuid AND d.origin = 'user'
+    WHERE d.id = ${internalDraftId}::uuid AND d.mailbox_id = ${mailboxId}::uuid AND d.origin = 'user'
   `;
   return row ? ok(mapDraft(row)) : fail(err.notFound("Draft"));
 };
@@ -1581,11 +1653,13 @@ export const listDraftRecoveryCopies = async (params: {
 }): Promise<Result<DraftRecoveryCopy[]>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
+  const draftId = await resolveMailboxPublicId("drafts", params.mailboxId, params.draftId);
+  if (!draftId) return fail(err.notFound("Draft"));
   const rows = await sql<DbRecoveryCopy[]>`
     SELECT ${recoveryColumns}
     FROM mail.draft_recovery_copies recovery
     JOIN mail.drafts draft ON draft.id = recovery.draft_id
-    WHERE recovery.draft_id = ${params.draftId}::uuid
+    WHERE recovery.draft_id = ${draftId}::uuid
       AND draft.mailbox_id = ${params.mailboxId}::uuid
       AND draft.origin = 'user'
     ORDER BY recovery.created_at DESC, recovery.id DESC
@@ -1605,6 +1679,8 @@ export const restoreDraftRecoveryCopy = async (params: {
   if (!Number.isInteger(params.expectedRevision) || params.expectedRevision < 1) return fail(err.badInput("Invalid draft revision"));
   const actor = mutableActor(params.context);
   if (!actor) return fail(err.forbidden("Draft editor is invalid"));
+  const draftId = await resolveMailboxPublicId("drafts", params.mailboxId, params.draftId);
+  if (!draftId) return fail(err.notFound("Draft"));
   try {
     const result = await withOwnedDraftLease({
       context: params.context,
@@ -1618,7 +1694,7 @@ export const restoreDraftRecoveryCopy = async (params: {
           const [draft] = await tx<{ revision: string | number; state: string }[]>`
         SELECT revision, state
         FROM mail.drafts
-        WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user'
+        WHERE id = ${draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user'
         FOR UPDATE
       `;
           if (!draft) return fail(err.notFound("Draft"));
@@ -1629,7 +1705,7 @@ export const restoreDraftRecoveryCopy = async (params: {
         SELECT ${recoveryColumns}
         FROM mail.draft_recovery_copies recovery
         WHERE recovery.id = ${params.recoveryCopyId}::uuid
-          AND recovery.draft_id = ${params.draftId}::uuid
+          AND recovery.draft_id = ${draftId}::uuid
           AND recovery.restored_at IS NULL
         FOR UPDATE
       `;
@@ -1638,6 +1714,8 @@ export const restoreDraftRecoveryCopy = async (params: {
           if (!content.success) return fail(err.internal("Draft recovery copy is invalid"));
           const identity = await validateIdentity({ mailboxId: params.mailboxId, senderIdentityId: content.data.senderIdentityId, db: tx });
           if (!identity.ok) return identity;
+          const senderIdentityId = await resolveMailboxPublicId("senderIdentities", params.mailboxId, content.data.senderIdentityId, tx);
+          if (!senderIdentityId) return fail(err.badInput("A verified sender identity is required"));
           const recoveryAttachments = copy.has_attachment_snapshot
             ? await tx<
                 {
@@ -1656,13 +1734,17 @@ export const restoreDraftRecoveryCopy = async (params: {
               `
             : null;
           if (recoveryAttachments) {
-            await tx`DELETE FROM mail.draft_attachments WHERE draft_id = ${params.draftId}::uuid`;
+            await tx`DELETE FROM mail.draft_attachments WHERE draft_id = ${draftId}::uuid`;
             for (const attachment of recoveryAttachments) {
-              await tx`
+              await withShortIdDb(
+                tx,
+                "draftAttachment",
+                (db, shortId) => db`
                 INSERT INTO mail.draft_attachments (
-                  draft_id, blob_id, filename, content_type, byte_length, content_hash, position
+                  short_id, draft_id, blob_id, filename, content_type, byte_length, content_hash, position
                 ) VALUES (
-                  ${params.draftId}::uuid,
+                  ${shortId},
+                  ${draftId}::uuid,
                   ${attachment.blob_id}::uuid,
                   ${attachment.filename},
                   ${attachment.content_type},
@@ -1670,13 +1752,14 @@ export const restoreDraftRecoveryCopy = async (params: {
                   ${attachment.content_hash},
                   ${attachment.position}
                 )
-              `;
+              `,
+              );
             }
           }
           const [updated] = await tx<DbDraft[]>`
         UPDATE mail.drafts d
         SET
-          sender_identity_id = ${content.data.senderIdentityId}::uuid,
+          sender_identity_id = ${senderIdentityId}::uuid,
           to_addresses = ${content.data.to}::jsonb,
           cc_addresses = ${content.data.cc}::jsonb,
           bcc_addresses = ${content.data.bcc}::jsonb,
@@ -1689,7 +1772,7 @@ export const restoreDraftRecoveryCopy = async (params: {
           last_editor_kind = ${actor.kind},
           last_editor_id = ${actorId(actor)}::uuid,
           revision = revision + 1
-        WHERE d.id = ${params.draftId}::uuid AND d.origin = 'user'
+        WHERE d.id = ${draftId}::uuid AND d.origin = 'user'
         RETURNING ${draftColumns}
       `;
           if (!updated) return fail(err.internal("Draft recovery returned no row"));
@@ -1709,14 +1792,14 @@ export const restoreDraftRecoveryCopy = async (params: {
             actor,
             action: "draft.recovery_restored",
             targetType: "draft",
-            targetId: params.draftId,
+            targetId: draftId,
             metadata: { recoveryCopyId: copy.id, revision: Number(updated.revision) },
           });
           await queueDraftProjectionInTransaction({ db: tx, draftId: updated.id });
           const [refreshed] = await tx<DbDraft[]>`
         SELECT ${draftColumns}
         FROM mail.drafts d
-        WHERE d.id = ${params.draftId}::uuid AND d.origin = 'user'
+        WHERE d.id = ${draftId}::uuid AND d.origin = 'user'
       `;
           return refreshed ? ok(mapDraft(refreshed)) : fail(err.internal("Restored draft could not be reloaded"));
         }),
@@ -1752,9 +1835,12 @@ export const removeDraftAttachment = async (params: {
     const result = await sql.begin(async (tx) => {
       const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
       if (!allowed.ok) return allowed;
+      const draftId = await resolveMailboxPublicId("drafts", params.mailboxId, params.draftId, tx);
+      const attachmentId = await resolveMailboxPublicId("draftAttachments", params.mailboxId, params.attachmentId, tx);
+      if (!draftId || !attachmentId) return fail(err.notFound("Draft attachment"));
       const [draft] = await tx<{ revision: string | number; state: string }[]>`
         SELECT revision, state FROM mail.drafts
-        WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user'
+        WHERE id = ${draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user'
         FOR UPDATE
       `;
       if (!draft) return fail(err.notFound("Draft"));
@@ -1763,7 +1849,7 @@ export const removeDraftAttachment = async (params: {
       const [removed] = await tx<{ id: string }[]>`
         UPDATE mail.draft_attachments
         SET removed_at = now()
-        WHERE id = ${params.attachmentId}::uuid AND draft_id = ${params.draftId}::uuid AND removed_at IS NULL
+        WHERE id = ${attachmentId}::uuid AND draft_id = ${draftId}::uuid AND removed_at IS NULL
         RETURNING id
       `;
       if (!removed) return fail(err.notFound("Draft attachment"));
@@ -1773,7 +1859,7 @@ export const removeDraftAttachment = async (params: {
           revision = revision + 1,
           last_editor_kind = ${actor.kind},
           last_editor_id = ${actorId(actor)}::uuid
-        WHERE d.id = ${params.draftId}::uuid AND d.origin = 'user'
+        WHERE d.id = ${draftId}::uuid AND d.origin = 'user'
         RETURNING ${draftColumns}
       `;
       if (!updated) return fail(err.internal("Draft attachment removal returned no draft"));
@@ -1785,7 +1871,7 @@ export const removeDraftAttachment = async (params: {
         action: "draft.attachment_removed",
         targetType: "draft_attachment",
         targetId: removed.id,
-        metadata: { draftId: params.draftId, revision: Number(updated.revision) },
+        metadata: { draftId, revision: Number(updated.revision) },
       });
       await queueDraftProjectionInTransaction({ db: tx, draftId: updated.id });
       return ok(mapDraft(updated));
@@ -1804,6 +1890,11 @@ export const openDraftAttachment = async (params: {
 }): Promise<Result<AttachmentDownload>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
+  const [draftId, attachmentId] = await Promise.all([
+    resolveMailboxPublicId("drafts", params.mailboxId, params.draftId),
+    resolveMailboxPublicId("draftAttachments", params.mailboxId, params.attachmentId),
+  ]);
+  if (!draftId || !attachmentId) return fail(err.notFound("Draft attachment"));
   const [attachment] = await sql<
     {
       blob_id: string;
@@ -1826,8 +1917,8 @@ export const openDraftAttachment = async (params: {
     FROM mail.draft_attachments attachment
     JOIN mail.drafts draft ON draft.id = attachment.draft_id
     JOIN mail.message_part_blobs blob ON blob.id = attachment.blob_id AND blob.complete = true
-    WHERE attachment.id = ${params.attachmentId}::uuid
-      AND attachment.draft_id = ${params.draftId}::uuid
+    WHERE attachment.id = ${attachmentId}::uuid
+      AND attachment.draft_id = ${draftId}::uuid
       AND attachment.removed_at IS NULL
       AND draft.mailbox_id = ${params.mailboxId}::uuid
       AND draft.origin = 'user'
@@ -1862,6 +1953,8 @@ export const discardDraft = async (params: {
     const result = await sql.begin(async (tx) => {
       const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
       if (!allowed.ok) return allowed;
+      const draftId = await resolveMailboxPublicId("drafts", params.mailboxId, params.draftId, tx);
+      if (!draftId) return fail(err.notFound("Draft"));
       const [updated] = await tx<DbDraft[]>`
         UPDATE mail.drafts d
         SET
@@ -1869,7 +1962,7 @@ export const discardDraft = async (params: {
           revision = revision + 1,
           last_editor_kind = ${actor.kind},
           last_editor_id = ${actorId(actor)}::uuid
-        WHERE d.id = ${params.draftId}::uuid
+        WHERE d.id = ${draftId}::uuid
           AND d.mailbox_id = ${params.mailboxId}::uuid
           AND d.origin = 'user'
           AND d.state = 'draft'
@@ -1879,7 +1972,7 @@ export const discardDraft = async (params: {
       if (!updated) {
         const [current] = await tx<{ revision: string | number; state: string }[]>`
           SELECT revision, state FROM mail.drafts
-          WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user'
+          WHERE id = ${draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user'
         `;
         if (!current) return fail(err.notFound("Draft"));
         if (current.state !== "draft") return fail(err.badInput("Draft can no longer be discarded"));
@@ -1892,7 +1985,7 @@ export const discardDraft = async (params: {
         actor,
         action: "draft.discarded",
         targetType: "draft",
-        targetId: params.draftId,
+        targetId: draftId,
         metadata: { revision: Number(updated.revision) },
       });
       retirementSnapshotId = await queueDraftProjectionInTransaction({ db: tx, draftId: updated.id });

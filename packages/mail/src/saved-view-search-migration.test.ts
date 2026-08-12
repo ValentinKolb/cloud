@@ -4,7 +4,7 @@ import { canonicalizeSavedViewFilter, migrateLegacySavedViewFilter } from "./sav
 
 describe("saved view search migration", () => {
   test("preserves supported legacy filters while mapping the old state and dropping removed conditions", () => {
-    const folderId = crypto.randomUUID();
+    const folderId = "Fold01";
     const userId = crypto.randomUUID();
     const migrated = migrateLegacySavedViewFilter({
       folderId,

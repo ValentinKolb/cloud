@@ -1,6 +1,6 @@
 import { err, fail, isServiceError, ok, type Result } from "@k2b/stdlib";
 import { capabilityIdempotencyConflict } from "@valentinkolb/cloud/contracts";
-import { audit, logger, toPgTextArray } from "@valentinkolb/cloud/services";
+import { audit, logger, toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import {
   type ActorCommandInput,
@@ -14,6 +14,7 @@ import {
   maintenanceCommandInputSchema,
   smtpTransportCapabilitiesSchema,
 } from "../contracts";
+import { withShortIdDb } from "../lib/short-id";
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, durableCredentialSnapshot, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
@@ -28,6 +29,7 @@ import { BASE_MAINTENANCE_KINDS, getOperatorActionEligibility } from "./operator
 import { materializeOutboundMessage, type OutboundMessageProjection } from "./outbound-message-projection";
 import { measureMimeStream, outboundDraftSnapshotSchema } from "./outbound-mime";
 import { activeSmtpMessageLimit, assertProviderMessageSize, loadBindingProviderLimits } from "./provider-limits";
+import { publicIds, requirePublicId, resolveMailboxPublicId } from "./public-resources";
 
 const log = logger("mail:commands");
 
@@ -111,6 +113,87 @@ const mapCommand = (row: DbCommand): MailCommand => ({
   updatedAt: (row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at)).toISOString(),
 });
 
+const projectCommands = async (commands: MailCommand[], db: typeof sql = sql): Promise<MailCommand[]> => {
+  const remoteRefIds = commands.flatMap((command) => {
+    const id = command.target.remoteMessageRefId;
+    return typeof id === "string" ? [id] : [];
+  });
+  const remoteRefs =
+    remoteRefIds.length === 0
+      ? []
+      : await db<{ id: string; message_id: string }[]>`
+          SELECT id, message_id
+          FROM mail.remote_message_refs
+          WHERE id = ANY(${toPgUuidArray(remoteRefIds)}::uuid[])
+        `;
+  const messageIdByRemoteRef = new Map(remoteRefs.map((row) => [row.id, row.message_id]));
+  const relationIds = (key: string): string[] =>
+    commands.flatMap((command) => {
+      const values = [command.target[key], command.result[key]];
+      return values.filter((value): value is string => typeof value === "string");
+    });
+  const messageIds = [...remoteRefs.map((row) => row.message_id), ...relationIds("outboundMessageId")];
+  const [mailboxes, folders, drafts, senders, messages, conversations, deliveries] = await Promise.all([
+    publicIds(
+      "mailboxes",
+      commands.map((command) => command.mailboxId),
+      db,
+    ),
+    publicIds(
+      "folders",
+      [
+        ...relationIds("folderId"),
+        ...relationIds("sourceFolderId"),
+        ...relationIds("destinationFolderId"),
+        ...relationIds("parentFolderId"),
+      ],
+      db,
+    ),
+    publicIds("drafts", relationIds("draftId"), db),
+    publicIds("senderIdentities", relationIds("senderIdentityId"), db),
+    publicIds("messages", messageIds, db),
+    publicIds("conversations", relationIds("conversationId"), db),
+    publicIds("deliveries", relationIds("outboxSubmissionId"), db),
+  ]);
+  const replace = (record: Record<string, unknown>, key: string, ids: Map<string, string>): Record<string, unknown> => {
+    const value = record[key];
+    return typeof value === "string" ? { ...record, [key]: requirePublicId(ids, value) } : record;
+  };
+  return commands.map((command) => {
+    let target = command.target;
+    for (const [key, ids] of [
+      ["folderId", folders],
+      ["sourceFolderId", folders],
+      ["destinationFolderId", folders],
+      ["parentFolderId", folders],
+      ["draftId", drafts],
+      ["senderIdentityId", senders],
+    ] as const) {
+      target = replace(target, key, ids);
+    }
+    const remoteRefId = command.target.remoteMessageRefId;
+    if (typeof remoteRefId === "string") {
+      const messageId = messageIdByRemoteRef.get(remoteRefId);
+      if (!messageId) throw new Error(`Missing Mail message for provider reference ${remoteRefId}`);
+      const { remoteMessageRefId: _, ...publicTarget } = target;
+      target = { ...publicTarget, messageId: requirePublicId(messages, messageId) };
+    }
+    let result = command.result;
+    result = replace(result, "outboundMessageId", messages);
+    result = replace(result, "conversationId", conversations);
+    result = replace(result, "outboxSubmissionId", deliveries);
+    return {
+      ...command,
+      mailboxId: requirePublicId(mailboxes, command.mailboxId),
+      target,
+      result,
+    };
+  });
+};
+
+const projectCommand = async (command: MailCommand, db: typeof sql = sql): Promise<MailCommand> =>
+  (await projectCommands([command], db))[0]!;
+
 type PreparedActorCommand = {
   kind: ActorCommandInput["kind"];
   idempotencyKey: string;
@@ -145,6 +228,7 @@ type DraftForOutbox = {
   revision: string | number;
   intent: "new" | "reply" | "reply_all" | "forward";
   display_name: string;
+  sender_short_id: string;
   from_address: string;
   reply_to: string | null;
   envelope_sender: string | null;
@@ -167,10 +251,68 @@ const actorDatabaseId = (actor: ActorRef): string | null => {
 const commandActorMatches = (command: DbCommand, actor: ActorRef): boolean =>
   command.actor_kind === actor.kind && command.actor_id === actorDatabaseId(actor);
 
+const resolveActorCommandInput = async (
+  input: ActorCommandInput,
+  mailboxId: string,
+  db: typeof sql,
+): Promise<Result<ActorCommandInput & { remoteMessageRefId?: string }>> => {
+  const folder = (shortId: string) => resolveMailboxPublicId("folders", mailboxId, shortId, db);
+  const resolveProviderMessage = async (messageId: string, folderId: string): Promise<Result<string>> => {
+    const internalMessageId = await resolveMailboxPublicId("messages", mailboxId, messageId, db);
+    if (!internalMessageId) return fail(err.notFound("Message"));
+    const rows = await db<{ id: string }[]>`
+      SELECT DISTINCT remote_ref.id
+      FROM mail.remote_message_refs remote_ref
+      JOIN mail.message_placements placement ON placement.remote_message_ref_id = remote_ref.id
+      WHERE remote_ref.message_id = ${internalMessageId}::uuid
+        AND remote_ref.folder_id = ${folderId}::uuid
+        AND remote_ref.stale_at IS NULL
+        AND placement.deleted_at IS NULL
+      ORDER BY remote_ref.id
+      LIMIT 2
+    `;
+    if (rows.length === 0) return fail(err.notFound("Message placement"));
+    if (rows.length > 1) return fail(err.conflict("Message has more than one active placement in the selected folder"));
+    return ok(rows[0]!.id);
+  };
+  if (input.kind === "move" || input.kind === "copy") {
+    const [sourceFolderId, destinationFolderId] = await Promise.all([folder(input.sourceFolderId), folder(input.destinationFolderId)]);
+    if (!sourceFolderId || !destinationFolderId) return fail(err.notFound("Mail folder"));
+    const remoteMessageRefId = await resolveProviderMessage(input.messageId, sourceFolderId);
+    return remoteMessageRefId.ok
+      ? ok({ ...input, sourceFolderId, destinationFolderId, remoteMessageRefId: remoteMessageRefId.data })
+      : remoteMessageRefId;
+  }
+  if (["set_flags", "change_message_state", "delete"].includes(input.kind)) {
+    const folderId = await folder((input as { folderId: string }).folderId);
+    if (!folderId) return fail(err.notFound("Mail folder"));
+    const remoteMessageRefId = await resolveProviderMessage((input as { messageId: string }).messageId, folderId);
+    return remoteMessageRefId.ok
+      ? ok({ ...input, folderId, remoteMessageRefId: remoteMessageRefId.data } as ActorCommandInput & { remoteMessageRefId: string })
+      : remoteMessageRefId;
+  }
+  if (["rename_folder", "delete_folder", "set_folder_subscription"].includes(input.kind)) {
+    const folderId = await folder((input as { folderId: string }).folderId);
+    return folderId ? ok({ ...input, folderId } as ActorCommandInput) : fail(err.notFound("Mail folder"));
+  }
+  if (input.kind === "create_folder" && input.parentFolderId) {
+    const parentFolderId = await folder(input.parentFolderId);
+    return parentFolderId ? ok({ ...input, parentFolderId }) : fail(err.notFound("Mail folder"));
+  }
+  if (input.kind === "send") {
+    const [draftId, senderIdentityId] = await Promise.all([
+      resolveMailboxPublicId("drafts", mailboxId, input.draftId, db),
+      resolveMailboxPublicId("senderIdentities", mailboxId, input.senderIdentityId, db),
+    ]);
+    return draftId && senderIdentityId ? ok({ ...input, draftId, senderIdentityId }) : fail(err.notFound("Draft or sender identity"));
+  }
+  return ok(input);
+};
+
 const accessSubjectDatabaseId = (context: MailRequestContext): string =>
   context.accessSubject.type === "user" ? context.accessSubject.userId : context.accessSubject.serviceAccountId;
 
-const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorCommand> => {
+const prepareActorCommand = (input: ActorCommandInput & { remoteMessageRefId?: string }): Result<PreparedActorCommand> => {
   if ((input.kind === "move" || input.kind === "copy") && input.sourceFolderId === input.destinationFolderId) {
     return fail(err.badInput("Source and destination folders must differ"));
   }
@@ -189,6 +331,7 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
     requiredPermission: "write" as const,
   };
   if (input.kind === "set_flags") {
+    if (!input.remoteMessageRefId) return fail(err.internal("Provider message reference was not resolved"));
     return ok({
       ...base,
       target: {
@@ -203,6 +346,7 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
     });
   }
   if (input.kind === "change_message_state") {
+    if (!input.remoteMessageRefId) return fail(err.internal("Provider message reference was not resolved"));
     return ok({
       ...base,
       target: {
@@ -222,6 +366,7 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
     });
   }
   if (input.kind === "move" || input.kind === "copy") {
+    if (!input.remoteMessageRefId) return fail(err.internal("Provider message reference was not resolved"));
     return ok({
       ...base,
       target: {
@@ -240,6 +385,7 @@ const prepareActorCommand = (input: ActorCommandInput): Result<PreparedActorComm
     });
   }
   if (input.kind === "delete") {
+    if (!input.remoteMessageRefId) return fail(err.internal("Provider message reference was not resolved"));
     return ok({
       ...base,
       target: {
@@ -402,6 +548,7 @@ const createSendOutbox = async (params: {
       d.revision,
       d.intent,
       si.display_name,
+      si.short_id AS sender_short_id,
       si.from_address,
       si.reply_to,
       si.envelope_sender,
@@ -455,7 +602,7 @@ const createSendOutbox = async (params: {
   });
   if (!safety.ok) throw Object.assign(new Error(safety.error.message), safety.error);
   const content = draftEditableContentInputSchema.safeParse({
-    senderIdentityId: prepared.senderIdentityId,
+    senderIdentityId: draft.sender_short_id,
     to: draft.to_addresses,
     cc: draft.cc_addresses,
     bcc: draft.bcc_addresses,
@@ -553,8 +700,12 @@ const createSendOutbox = async (params: {
     const invalid = err.badInput(error instanceof Error ? error.message : "Message exceeds the provider limit");
     throw Object.assign(new Error(invalid.message), invalid);
   }
-  const [outbox] = await params.db<{ id: string }[]>`
+  const outboxRows = await withShortIdDb(
+    params.db,
+    "delivery",
+    (db, shortId) => db<{ id: string }[]>`
     INSERT INTO mail.outbox_submissions (
+      short_id,
       mailbox_id,
       draft_id,
       command_id,
@@ -574,6 +725,7 @@ const createSendOutbox = async (params: {
       selected_identity_transport_revision
     )
     VALUES (
+      ${shortId},
       ${params.mailboxId}::uuid,
       ${prepared.draftId}::uuid,
       ${params.commandId}::uuid,
@@ -603,7 +755,9 @@ const createSendOutbox = async (params: {
       ${draft.identity_transport_revision}
     )
     RETURNING id
-  `;
+  `,
+  );
+  const [outbox] = outboxRows;
   if (!outbox) throw new Error("Outbox submission insert returned no row");
   const projection = await materializeOutboundMessage({
     db: params.db,
@@ -640,7 +794,9 @@ type CreateActorCommandInternalParams = Omit<CreateActorCommandParams, "context"
 const createActorCommandInTransaction = async (params: CreateActorCommandInternalParams, tx: typeof sql): Promise<Result<MailCommand>> => {
   const parsed = actorCommandInputSchema.safeParse(params.input);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid mail command"));
-  const preparedResult = prepareActorCommand(parsed.data);
+  const resolved = await resolveActorCommandInput(parsed.data, params.mailboxId, tx);
+  if (!resolved.ok) return resolved;
+  const preparedResult = prepareActorCommand(resolved.data);
   if (!preparedResult.ok) return preparedResult;
   const prepared = preparedResult.data;
   const requestHash = sha256Json({ kind: prepared.kind, target: prepared.target, payload: prepared.payload });
@@ -853,13 +1009,15 @@ export const enqueueCreatedActorCommands = async (commands: MailCommand[]): Prom
   );
 };
 
-const invalidateSentDraftLeases = async (inputs: ActorCommandInput[]): Promise<void> => {
-  for (const input of inputs) {
-    if (input.kind !== "send") continue;
-    const invalidated = await invalidateDraftLeaseAfterSend(input.draftId);
+const invalidateSentDraftLeases = async (commands: MailCommand[]): Promise<void> => {
+  for (const command of commands) {
+    if (command.kind !== "send") continue;
+    const draftId = command.target.draftId;
+    if (typeof draftId !== "string") continue;
+    const invalidated = await invalidateDraftLeaseAfterSend(draftId);
     if (!invalidated.ok) {
       log.warn("Failed to invalidate a consumed Mail draft lease", {
-        draftId: input.draftId,
+        draftId,
         code: invalidated.error.code,
       });
     }
@@ -870,7 +1028,7 @@ const createActorCommandWithActor = async (params: CreateActorCommandInternalPar
   try {
     const result = await sql.begin((tx) => createActorCommandInTransaction(params, tx));
     if (result.ok) await notifyMailInvalidations();
-    if (result.ok) await invalidateSentDraftLeases([params.input]);
+    if (result.ok) await invalidateSentDraftLeases([result.data]);
     if (result.ok && params.enqueue !== false) await enqueueMailCommand(result.data.id, result.data.kind).catch(() => undefined);
     if (result.ok) await publishCreatedOutboundProjection(result.data);
     if (result.ok && params.input.kind === "send" && params.input.scheduledAt) {
@@ -882,7 +1040,7 @@ const createActorCommandWithActor = async (params: CreateActorCommandInternalPar
         activityId: `scheduled-send-created:${result.data.id}`,
       });
     }
-    return result;
+    return result.ok ? ok(await projectCommand(result.data)) : result;
   } catch (error) {
     if (isServiceError(error)) return fail(error);
     return fail(err.internal("Failed to create mail command"));
@@ -960,7 +1118,7 @@ export const createWorkflowCommand = async (params: {
   const result = await sql.begin((tx) => createWorkflowCommandInTransaction(params, tx));
   if (result.ok && params.enqueue === false) await notifyMailInvalidations();
   if (result.ok && params.enqueue !== false) await enqueueCreatedWorkflowCommand(result.data, params.input);
-  return result;
+  return result.ok ? ok(await projectCommand(result.data)) : result;
 };
 
 export const createActorCommands = async (params: {
@@ -974,9 +1132,9 @@ export const createActorCommands = async (params: {
       const commands = await createActorCommandsInTransaction(params, tx);
       return ok(commands);
     });
-    if (result.ok) await invalidateSentDraftLeases(params.inputs);
+    if (result.ok) await invalidateSentDraftLeases(result.data);
     if (result.ok) await enqueueCreatedActorCommands(result.data);
-    return result;
+    return result.ok ? ok(await projectCommands(result.data)) : result;
   } catch (error) {
     if (isServiceError(error)) return fail(error);
     return fail(err.internal("Failed to create mail commands"));
@@ -1020,9 +1178,6 @@ export const createMaintenanceCommand = async (params: {
 }): Promise<Result<MailCommand>> => {
   const parsed = maintenanceCommandInputSchema.safeParse(params.input);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid mail maintenance command"));
-  const input = parsed.data;
-  const prepared = prepareMaintenanceCommand(input);
-  const requestHash = sha256Json({ kind: input.kind, target: prepared.target, payload: prepared.payload });
   const actor = actorRefFromRequest(params.context);
   const credential = durableCredentialSnapshot(params.context);
   if (!credential) return fail(err.forbidden("Durable Mail work requires a current service credential"));
@@ -1035,6 +1190,14 @@ export const createMaintenanceCommand = async (params: {
       if (!mailbox) return fail(err.notFound("Mailbox"));
       const permission = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
       if (!permission.ok) return permission;
+      let input = parsed.data;
+      if (input.kind === "sync_folder" || input.kind === "rebuild_folder") {
+        const folderId = await resolveMailboxPublicId("folders", params.mailboxId, input.folderId, tx);
+        if (!folderId) return fail(err.notFound("Mail folder"));
+        input = { ...input, folderId };
+      }
+      const prepared = prepareMaintenanceCommand(input);
+      const requestHash = sha256Json({ kind: input.kind, target: prepared.target, payload: prepared.payload });
 
       const [existing] = await tx<DbCommand[]>`
         SELECT ${commandColumns}
@@ -1139,7 +1302,7 @@ export const getCommand = async (context: MailRequestContext, mailboxId: string,
     FROM mail.commands c
     WHERE c.id = ${commandId}::uuid AND c.mailbox_id = ${mailboxId}::uuid
   `;
-  return row ? ok(mapCommand(row)) : fail(err.notFound("Mail command"));
+  return row ? ok(await projectCommand(mapCommand(row))) : fail(err.notFound("Mail command"));
 };
 
 export const listCommands = async (context: MailRequestContext, mailboxId: string, limit = 50): Promise<Result<MailCommand[]>> => {
@@ -1153,5 +1316,5 @@ export const listCommands = async (context: MailRequestContext, mailboxId: strin
     ORDER BY c.created_at DESC, c.id DESC
     LIMIT ${boundedLimit}
   `;
-  return ok(rows.map(mapCommand));
+  return ok(await projectCommands(rows.map(mapCommand)));
 };

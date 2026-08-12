@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
@@ -81,10 +82,10 @@ suite("mailing-list subscriptions", () => {
         },
       };
       await sql`
-        INSERT INTO mail.message_contents (
+        INSERT INTO mail.message_contents (short_id,
           mailbox_id, message_id, subject, internal_date, size_bytes, content_hash,
           hydration_status, protocol_facts
-        ) VALUES (
+        ) VALUES (${newShortId()},
           ${mailboxId}::uuid,
           ${`<list-${index}-${suffix}@example.test>`},
           ${`List fixture ${index}`},

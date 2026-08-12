@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Readable } from "node:stream";
 import { sql } from "bun";
 import { publicAttachmentRoutes } from "../frontend/public-attachments";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import { grantMailboxAccess } from "./access";
 import {
@@ -49,7 +50,9 @@ suite("public attachment links", () => {
   let adminContext: MailRequestContext;
   let writerContext: MailRequestContext;
   let mailboxId: string;
+  let mailboxShortId: string;
   let messageId: string;
+  let messageShortId: string;
   let attachmentId: string;
 
   beforeAll(async () => {
@@ -71,6 +74,10 @@ suite("public attachment links", () => {
     const mailbox = await createMailbox(adminContext, { name: `Attachment links ${suffix}` });
     if (!mailbox.ok) throw new Error(mailbox.error.message);
     mailboxId = mailbox.data.id;
+    const [mailboxIdentity] = await sql<{ short_id: string }[]>`
+      SELECT short_id FROM mail.mailboxes WHERE id = ${mailboxId}::uuid
+    `;
+    mailboxShortId = mailboxIdentity!.short_id;
     const writerAccess = await grantMailboxAccess({
       context: adminContext,
       mailboxId,
@@ -82,17 +89,18 @@ suite("public attachment links", () => {
 
     const blob = await storeReadableBlob(Readable.from([bytes]), bytes.byteLength);
     blobIds.push(blob.id);
-    const [message] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+    const [message] = await sql<{ id: string; short_id: string }[]>`
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid, ${`<attachment-links-${suffix}@example.com>`}, 'Public attachment', now(),
         ${bytes.byteLength}, ${crypto.randomUUID().replaceAll("-", "").padEnd(64, "0")}, 'complete'
       )
-      RETURNING id
+      RETURNING id, short_id
     `;
     if (!message) throw new Error("Failed to create attachment-link message");
     messageId = message.id;
+    messageShortId = message.short_id;
     const [part] = await sql<{ id: string }[]>`
       INSERT INTO mail.message_parts (
         message_id, part_path, content_type, disposition, filename, size_bytes, blob_id, hydration_status
@@ -103,8 +111,8 @@ suite("public attachment links", () => {
       RETURNING id
     `;
     const [attachment] = await sql<{ id: string }[]>`
-      INSERT INTO mail.attachments (message_id, part_id, filename, content_type, disposition, size_bytes, blob_id)
-      VALUES (
+      INSERT INTO mail.attachments (short_id, message_id, part_id, filename, content_type, disposition, size_bytes, blob_id)
+      VALUES (${newShortId()},
         ${messageId}::uuid, ${part!.id}::uuid, 'private-name.txt', 'text/plain', 'attachment',
         ${bytes.byteLength}, ${blob.id}::uuid
       )
@@ -145,6 +153,7 @@ suite("public attachment links", () => {
     const third = await createLink();
     expect(first.ok && second.ok && third.ok).toBe(true);
     if (!first.ok || !second.ok || !third.ok) return;
+    expect(first.data.link).toMatchObject({ mailboxId: mailboxShortId, sourceKind: "message", sourceId: messageShortId });
 
     const denied = await createPublicAttachmentLink({
       context: writerContext,

@@ -1,0 +1,177 @@
+import { describe, expect, test } from "bun:test";
+import type { MailAutomationAccessData } from "../service/automation-workspace";
+import type { MailboxPageData } from "../service/workspace";
+import {
+  projectAutomationWorkspace,
+  projectComposeData,
+  projectMailboxPageData,
+  projectSsrPaths,
+  resolveSsrMailboxId,
+  resolveSsrMailboxResourceId,
+  resolveSsrWorkspaceUrl,
+} from "./ssr-public-boundary";
+
+const ids = {
+  mailbox: "00000000-0000-4000-8000-000000000001",
+  conversation: "00000000-0000-4000-8000-000000000002",
+  draft: "00000000-0000-4000-8000-000000000003",
+  attachment: "00000000-0000-4000-8000-000000000004",
+  automation: "00000000-0000-4000-8000-000000000005",
+  folder: "00000000-0000-4000-8000-000000000006",
+};
+const shorts = new Map([
+  [ids.mailbox, "Box001"],
+  [ids.conversation, "Conv01"],
+  [ids.draft, "Draft1"],
+  [ids.attachment, "Attach"],
+  [ids.automation, "Auto01"],
+  [ids.folder, "Fold01"],
+]);
+const loadIds = async (_table: string, values: Array<string | null | undefined>) =>
+  new Map(values.flatMap((id) => (id && shorts.has(id) ? [[id, shorts.get(id)!] as const] : [])));
+
+describe("Mail SSR public boundary", () => {
+  test("loads distinct public-ID tables concurrently", async () => {
+    const started: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const projection = projectSsrPaths(
+      { mailboxId: ids.mailbox, conversationId: ids.conversation },
+      [
+        { table: "mailboxes", segments: ["mailboxId"] },
+        { table: "conversations", segments: ["conversationId"] },
+      ],
+      async (table, values) => {
+        started.push(table);
+        await gate;
+        return new Map(values.map((id) => [id!, shorts.get(id!)!]));
+      },
+    );
+    await Promise.resolve();
+    expect(started).toEqual(["mailboxes", "conversations"]);
+    release();
+    await expect(projection).resolves.toEqual({ mailboxId: "Box001", conversationId: "Conv01" });
+  });
+
+  test("rejects legacy UUID route IDs before calling a resolver", async () => {
+    let calls = 0;
+    const resolve = async () => {
+      calls += 1;
+      return ids.mailbox;
+    };
+    expect(await resolveSsrMailboxId(ids.mailbox, resolve)).toBeNull();
+    expect(await resolveSsrMailboxResourceId("drafts", ids.mailbox, ids.draft, resolve)).toBeNull();
+    expect(calls).toBe(0);
+  });
+
+  test("projects workspace selection and nested list IDs", async () => {
+    const data = {
+      mailbox: { id: ids.mailbox },
+      folders: [],
+      identities: [],
+      savedViewId: null,
+      savedViews: [],
+      folderId: null,
+      selectedConversationId: ids.conversation,
+      selectedMessageId: null,
+      listItems: [
+        {
+          id: ids.conversation,
+          conversationId: ids.conversation,
+          selectionKind: "conversation",
+          sourceFolderId: null,
+          activeFolderIds: [],
+          unreadFolderIds: [],
+          localTags: [],
+        },
+      ],
+      detailMessages: [],
+      conversationDrafts: [],
+      localTags: [],
+      conversationLocalTags: null,
+      comments: [],
+      reminder: null,
+      collaborationState: null,
+      activity: [
+        {
+          conversationId: ids.conversation,
+          targetType: "conversation",
+          targetId: ids.conversation,
+          metadata: { conversationId: ids.conversation },
+        },
+      ],
+      scheduledPage: null,
+    } as unknown as MailboxPageData;
+    const projected = await projectMailboxPageData(data, loadIds);
+    expect(projected.mailbox.id).toBe("Box001");
+    expect(projected.selectedConversationId).toBe("Conv01");
+    expect(projected.listItems[0]).toMatchObject({ id: "Conv01", conversationId: "Conv01" });
+    expect(projected.activity[0]).toMatchObject({
+      conversationId: "Conv01",
+      targetId: "Conv01",
+      metadata: { conversationId: "Conv01" },
+    });
+  });
+
+  test("resolves short workspace URL state without changing the public URL", async () => {
+    const publicUrl = new URL(
+      'https://cloud.test/app/mail/Box001?conversation=Conv01&search={"expression":{"type":"folder_id","folderId":"Fold01"},"sort":"newest"}',
+    );
+    const resolved = await resolveSsrWorkspaceUrl(publicUrl, ids.mailbox, async (table, _mailboxId, values) =>
+      values.map((value) => (table === "conversations" && value === "Conv01" ? ids.conversation : "00000000-0000-4000-8000-000000000006")),
+    );
+    expect(publicUrl.searchParams.get("conversation")).toBe("Conv01");
+    expect(resolved?.searchParams.get("conversation")).toBe(ids.conversation);
+    expect(resolved?.searchParams.get("search")).toContain("00000000-0000-4000-8000-000000000006");
+  });
+
+  test("projects automation roots without touching technical workflow IDs", async () => {
+    const workflowId = "00000000-0000-4000-8000-000000000099";
+    const data = {
+      mailbox: { id: ids.mailbox },
+      permission: "admin",
+      incomingAutomations: [
+        {
+          id: ids.automation,
+          mailboxId: ids.mailbox,
+          workflowId,
+          steps: [{ id: workflowId, kind: "mail_action", action: { kind: "move_to_folder", folderId: ids.folder } }],
+        },
+      ],
+      recentActivity: [{ href: `/app/mail/${ids.mailbox}/automations/incoming` }],
+    } as unknown as MailAutomationAccessData & {
+      incomingAutomations: Array<{ id: string; mailboxId: string; workflowId: string; steps: unknown[] }>;
+      recentActivity: Array<{ href: string }>;
+    };
+    const projected = await projectAutomationWorkspace(data, loadIds);
+    expect(projected.mailbox.id).toBe("Box001");
+    expect(projected.incomingAutomations[0]).toMatchObject({
+      id: "Auto01",
+      mailboxId: "Box001",
+      workflowId,
+      steps: [{ id: workflowId, action: { folderId: "Fold01" } }],
+    });
+    expect(projected.recentActivity[0]?.href).toBe("/app/mail/Box001/automations/incoming");
+  });
+
+  test("projects compose mailbox, draft and nested attachment IDs", async () => {
+    const data = {
+      mailbox: { id: ids.mailbox },
+      identities: [],
+      draft: {
+        id: ids.draft,
+        conversationId: ids.conversation,
+        derivedFromMessageId: null,
+        senderIdentityId: null,
+        attachments: [{ id: ids.attachment }],
+      },
+    };
+    const projected = await projectComposeData(data, loadIds);
+    expect(projected).toMatchObject({
+      mailbox: { id: "Box001" },
+      draft: { id: "Draft1", conversationId: "Conv01", attachments: [{ id: "Attach" }] },
+    });
+  });
+});

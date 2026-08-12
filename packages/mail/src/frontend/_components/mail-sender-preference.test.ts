@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { SenderIdentity } from "../../contracts";
 import { readMailSenderPreference, selectComposeSenderIdentity, writeMailSenderPreference } from "./mail-sender-preference";
 
-const mailboxId = "10000000-0000-4000-8000-000000000001";
+const mailboxId = "Box001";
 
 const identity = (id: string, options: { isDefault?: boolean; status?: SenderIdentity["status"] } = {}): SenderIdentity => ({
   id,
@@ -59,9 +59,9 @@ const memoryStorage = (): Storage => {
 describe("mail sender preference", () => {
   test("round-trips a mailbox-scoped identity without making storage required", () => {
     const storage = memoryStorage();
-    writeMailSenderPreference(storage, mailboxId, "sender-a");
-    expect(readMailSenderPreference(storage, mailboxId)).toBe("sender-a");
-    expect(readMailSenderPreference(storage, "another-mailbox")).toBeNull();
+    writeMailSenderPreference(storage, mailboxId, "Send01");
+    expect(readMailSenderPreference(storage, mailboxId)).toBe("Send01");
+    expect(readMailSenderPreference(storage, "Box002")).toBeNull();
 
     const unavailable = {
       ...storage,
@@ -72,15 +72,18 @@ describe("mail sender preference", () => {
         throw new Error("unavailable");
       },
     };
-    expect(() => writeMailSenderPreference(unavailable, mailboxId, "sender-b")).not.toThrow();
+    expect(() => writeMailSenderPreference(unavailable, mailboxId, "Send02")).not.toThrow();
     expect(readMailSenderPreference(unavailable, mailboxId)).toBeNull();
+
+    storage.setItem("cloud:mail:last-sender:Box001", "00000000-0000-4000-8000-000000000001");
+    expect(readMailSenderPreference(storage, mailboxId)).toBeNull();
   });
 
   test("uses the last verified sender, then the default, then the explicit first fallback", () => {
-    const identities = [identity("sender-a"), identity("sender-b", { isDefault: true }), identity("sender-c", { status: "disabled" })];
-    expect(selectComposeSenderIdentity(identities, "sender-a", true)?.id).toBe("sender-a");
-    expect(selectComposeSenderIdentity(identities, "sender-c", true)?.id).toBe("sender-b");
-    expect(selectComposeSenderIdentity([identity("sender-a"), identity("sender-b")], null, false)).toBeNull();
-    expect(selectComposeSenderIdentity([identity("sender-a"), identity("sender-b")], null, true)?.id).toBe("sender-a");
+    const identities = [identity("Send01"), identity("Send02", { isDefault: true }), identity("Send03", { status: "disabled" })];
+    expect(selectComposeSenderIdentity(identities, "Send01", true)?.id).toBe("Send01");
+    expect(selectComposeSenderIdentity(identities, "Send03", true)?.id).toBe("Send02");
+    expect(selectComposeSenderIdentity([identity("Send01"), identity("Send02")], null, false)).toBeNull();
+    expect(selectComposeSenderIdentity([identity("Send01"), identity("Send02")], null, true)?.id).toBe("Send01");
   });
 });

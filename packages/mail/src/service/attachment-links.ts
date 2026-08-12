@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { audit, coreSettings } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { audit, coreSettings } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { z } from "zod";
 import type {
@@ -12,6 +12,7 @@ import type {
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import type { AttachmentDownload } from "./messages";
+import { publicIds, requirePublicId } from "./public-resources";
 
 export const MAX_ATTACHMENT_LINK_FILE_BYTES = 100 * 1024 * 1024;
 
@@ -203,22 +204,43 @@ const linkColumns = sql`
 const toIso = (value: Date | string | null): string | null =>
   value ? (value instanceof Date ? value : new Date(value)).toISOString() : null;
 
-const mapLink = (row: DbAttachmentLink): AttachmentLink => ({
-  id: row.id,
-  mailboxId: row.mailbox_id,
-  sourceKind: row.source_kind,
-  sourceId: row.source_id,
-  filename: row.filename,
-  contentType: row.content_type,
-  byteLength: Number(row.byte_length),
-  passwordProtected: row.password_hash !== null,
-  expiresAt: toIso(row.expires_at),
-  revokedAt: toIso(row.revoked_at),
-  downloadCount: Number(row.download_count),
-  maxDownloads: row.max_downloads == null ? null : Number(row.max_downloads),
-  lastDownloadedAt: toIso(row.last_downloaded_at),
-  createdAt: toIso(row.created_at)!,
-});
+const mapLinks = async (rows: DbAttachmentLink[], db: typeof sql = sql): Promise<AttachmentLink[]> => {
+  const [mailboxes, messages, drafts] = await Promise.all([
+    publicIds(
+      "mailboxes",
+      rows.map((row) => row.mailbox_id),
+      db,
+    ),
+    publicIds(
+      "messages",
+      rows.filter((row) => row.source_kind === "message").map((row) => row.source_id),
+      db,
+    ),
+    publicIds(
+      "drafts",
+      rows.filter((row) => row.source_kind === "draft").map((row) => row.source_id),
+      db,
+    ),
+  ]);
+  return rows.map((row) => ({
+    id: row.id,
+    mailboxId: requirePublicId(mailboxes, row.mailbox_id),
+    sourceKind: row.source_kind,
+    sourceId: requirePublicId(row.source_kind === "message" ? messages : drafts, row.source_id),
+    filename: row.filename,
+    contentType: row.content_type,
+    byteLength: Number(row.byte_length),
+    passwordProtected: row.password_hash !== null,
+    expiresAt: toIso(row.expires_at),
+    revokedAt: toIso(row.revoked_at),
+    downloadCount: Number(row.download_count),
+    maxDownloads: row.max_downloads == null ? null : Number(row.max_downloads),
+    lastDownloadedAt: toIso(row.last_downloaded_at),
+    createdAt: toIso(row.created_at)!,
+  }));
+};
+
+const mapLink = async (row: DbAttachmentLink, db: typeof sql = sql): Promise<AttachmentLink> => (await mapLinks([row], db))[0]!;
 
 const publicOrigin = (value: unknown): string => {
   const raw = typeof value === "string" ? value.trim() : "";
@@ -419,7 +441,7 @@ export const createPublicAttachmentLink = async (params: {
       );
       return created;
     });
-    return ok({ link: mapLink(row), url: publicUrl });
+    return ok({ link: await mapLink(row), url: publicUrl });
   } catch (error) {
     if ((error as { code?: string }).code === "ACCESS_REVOKED") return fail(err.forbidden("Mailbox access was revoked"));
     if ((error as { code?: string }).code === "ATTACHMENT_CHANGED") return fail(err.conflict("Attachment changed; retry link creation"));
@@ -449,7 +471,7 @@ export const listPublicAttachmentLinks = async (
     LIMIT ${limit + 1}
   `;
   const hasMore = rows.length > limit;
-  const items = (hasMore ? rows.slice(0, limit) : rows).map(mapLink);
+  const items = await mapLinks(hasMore ? rows.slice(0, limit) : rows);
   const last = items.at(-1);
   return ok({
     items,
@@ -488,7 +510,7 @@ export const revokePublicAttachmentLink = async (params: {
     );
     return updated;
   });
-  return row ? ok(mapLink(row)) : fail(err.notFound("Attachment link"));
+  return row ? ok(await mapLink(row)) : fail(err.notFound("Attachment link"));
 };
 
 const publicLinkByToken = async (publicToken: string): Promise<DbAttachmentLink | null> => {

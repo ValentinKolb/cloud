@@ -14,6 +14,7 @@ import {
 import { requireMailboxPermission } from "./access";
 import type { MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
+import { resolveMailboxPublicId } from "./public-resources";
 
 type SafetyDraft = {
   id: string;
@@ -226,7 +227,9 @@ export const reviewDraftComposeSafety = async (params: {
   return sql.begin(async (tx) => {
     const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write", tx);
     if (!allowed.ok) return allowed;
-    const source = await loadSafetySource({ db: tx, mailboxId: params.mailboxId, draftId: params.draftId });
+    const draftId = await resolveMailboxPublicId("drafts", params.mailboxId, params.draftId, tx);
+    if (!draftId) return fail(err.notFound("Draft"));
+    const source = await loadSafetySource({ db: tx, mailboxId: params.mailboxId, draftId });
     if (!source.ok) return source;
     if (source.data.revision !== params.expectedRevision) return fail(err.conflict("Draft changed before safety review"));
     return ok(evaluateComposeSafety(source.data));

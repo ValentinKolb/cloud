@@ -4,10 +4,13 @@ import { ssr } from "../../../../../config";
 import { calendarInvitations, type MailRequestContext, mailboxAccess, mailboxes, senderIdentities } from "../../../../../service";
 import MailDraftSeedComposerPage from "../../../../_components/MailDraftSeedComposerPage.island";
 import { mailDraftReturnHref } from "../../../../_components/mail-compose-route";
+import { projectComposeData, resolveSsrMailboxId } from "../../../../ssr-public-boundary";
 
 export default ssr<AuthContext>(async (c) => {
-  const mailboxId = c.req.param("mailboxId") ?? "";
+  const mailboxShortId = c.req.param("mailboxId") ?? "";
   const seedId = c.req.param("seedId") ?? "";
+  const mailboxId = await resolveSsrMailboxId(mailboxShortId);
+  if (!mailboxId) return c.redirect("/app/mail");
   const context: MailRequestContext = {
     actor: c.get("actor"),
     accessSubject: c.get("accessSubject"),
@@ -19,15 +22,16 @@ export default ssr<AuthContext>(async (c) => {
     senderIdentities.listSenderIdentities(context, mailboxId),
     calendarInvitations.composerIntegrationAvailable(),
   ]);
-  if (!mailbox.ok || (permission !== "write" && permission !== "admin")) return c.redirect(`/app/mail/${mailboxId}`);
-  const returnHref = mailDraftReturnHref(c.req.query("return") ?? "", mailboxId);
+  if (!mailbox.ok || (permission !== "write" && permission !== "admin")) return c.redirect(`/app/mail/${mailboxShortId}`);
+  const publicData = await projectComposeData({ mailbox: mailbox.data, identities: identities.ok ? identities.data : [] });
+  const returnHref = mailDraftReturnHref(c.req.query("return") ?? "", mailboxShortId);
   const popout = c.req.query("window") === "1";
   return () => (
     <Layout c={c} fullPage focusMode flushCanvas={popout} title={[{ title: "Mail", href: returnHref }, { title: "New message" }]}>
       <MailDraftSeedComposerPage
-        mailboxId={mailboxId}
+        mailboxId={mailboxShortId}
         seedId={seedId}
-        identities={identities.ok ? identities.data : []}
+        identities={publicData.identities}
         returnHref={returnHref}
         popout={popout}
         dateConfig={getDateConfig(c)}

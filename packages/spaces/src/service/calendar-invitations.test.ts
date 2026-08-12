@@ -61,8 +61,8 @@ describe("calendar invitation protocol", () => {
 
   test("builds a standards-compatible, deterministic RSVP envelope", () => {
     const result = buildCalendarResponse({
-      mailboxId: "11111111-1111-4111-8111-111111111111",
-      messageId: "22222222-2222-4222-8222-222222222222",
+      mailboxId: "mail01",
+      messageId: "msg001",
       calendar: request,
       attendee: { name: "Sam", address: "sam@example.com" },
       participationStatus: "tentative",

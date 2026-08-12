@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Readable } from "node:stream";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, revokeMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
@@ -51,7 +52,9 @@ suite("mail collaboration backend", () => {
   const userIds: string[] = [];
   const accessIds: string[] = [];
   let mailboxId = "";
+  let mailboxShortId = "";
   let conversationId = "";
+  let conversationShortId = "";
   let messageId = "";
   let remoteResourceId = "";
   let folderId = "";
@@ -94,6 +97,10 @@ suite("mail collaboration backend", () => {
     });
     if (!mailbox.ok) throw new Error(mailbox.error.message);
     mailboxId = mailbox.data.id;
+    const [mailboxIdentity] = await sql<{ short_id: string }[]>`
+      SELECT short_id FROM mail.mailboxes WHERE id = ${mailboxId}::uuid
+    `;
+    mailboxShortId = mailboxIdentity!.short_id;
     const writerAccess = await grantMailboxAccess({
       context: ownerContext,
       mailboxId,
@@ -119,16 +126,16 @@ suite("mail collaboration backend", () => {
     `;
     remoteResourceId = resource!.id;
     const [folder] = await sql<{ id: string }[]>`
-      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
-      VALUES (${remoteResourceId}::uuid, 'collaboration-inbox', 'Inbox', 'inbox', 'current')
+      INSERT INTO mail.folders (short_id, remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${newShortId()}, ${remoteResourceId}::uuid, 'collaboration-inbox', 'Inbox', 'inbox', 'current')
       RETURNING id
     `;
     folderId = folder!.id;
     const initialDate = new Date(Date.now() - 60 * 60_000);
     const [message] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, normalized_subject, internal_date, size_bytes, content_hash, hydration_status, plain_text
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid, ${`<collaboration-${suffix}@example.com>`}, 'Collaboration fixture', 'collaboration fixture',
         ${initialDate}, 128, ${"b".repeat(64)}, 'complete', 'Initial collaboration message'
       )
@@ -150,13 +157,14 @@ suite("mail collaboration backend", () => {
       INSERT INTO mail.message_placements (remote_message_ref_id, folder_id, message_id, flags, keywords)
       VALUES (${remoteRef!.id}::uuid, ${folderId}::uuid, ${messageId}::uuid, ARRAY[]::text[], ARRAY[]::text[])
     `;
-    const [conversation] = await sql<{ id: string }[]>`
-      INSERT INTO mail.conversations (
+    const [conversation] = await sql<{ id: string; short_id: string }[]>`
+      INSERT INTO mail.conversations (short_id,
         mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at
-      ) VALUES (${mailboxId}::uuid, 'Collaboration fixture', 'customer@example.com', ${initialDate}, ${initialDate})
-      RETURNING id
+      ) VALUES (${newShortId()}, ${mailboxId}::uuid, 'Collaboration fixture', 'customer@example.com', ${initialDate}, ${initialDate})
+      RETURNING id, short_id
     `;
     conversationId = conversation!.id;
+    conversationShortId = conversation!.short_id;
     await sql`
       INSERT INTO mail.conversation_messages (conversation_id, message_id, position, added_by)
       VALUES (${conversationId}::uuid, ${messageId}::uuid, ${initialDate.getTime()}, 'headers')
@@ -232,10 +240,12 @@ suite("mail collaboration backend", () => {
     expect(liveEvent.done).toBe(false);
     expect(liveEvent.value?.data).toMatchObject({
       type: "mail.invalidated",
-      mailboxId,
+      mailboxId: mailboxShortId,
       changeId: expect.any(String),
     });
-    expect([null, conversationId]).toContain(liveEvent.value?.data.conversationId);
+    expect([null, conversationShortId]).toContain(liveEvent.value?.data.conversationId);
+    expect(liveEvent.value?.data.mailboxId).not.toBe(mailboxId);
+    expect(liveEvent.value?.data.conversationId).not.toBe(conversationId);
 
     const stale = await updateConversationCollaboration({
       context: writerContext,
@@ -325,6 +335,17 @@ suite("mail collaboration backend", () => {
     `;
     expect(activityMetadata.map((row) => row.metadata).join(" ")).not.toContain(secretBody);
     expect(activityMetadata.map((row) => row.metadata).join(" ")).not.toContain("Edited internal context");
+    const publicActivity = await listActivity({ context: readerContext, mailboxId, conversationId, limit: 30 });
+    expect(publicActivity.ok).toBe(true);
+    if (!publicActivity.ok) return;
+    const commentCreated = publicActivity.data.items.find(
+      (item) => item.action === "conversation.comment_created" && item.metadata.referencedMessageId,
+    );
+    expect(commentCreated?.conversationId).toBe(conversationShortId);
+    expect(commentCreated?.targetId).toMatch(/^[A-Za-z0-9]{6}$/);
+    expect(commentCreated?.targetId).not.toBe(comment.data.id);
+    expect(commentCreated?.metadata.referencedMessageId).toMatch(/^[A-Za-z0-9]{6}$/);
+    expect(JSON.stringify(commentCreated)).not.toContain(messageId);
     const firstActivityPage = await listActivity({ context: readerContext, mailboxId, conversationId, limit: 2 });
     expect(firstActivityPage.ok && firstActivityPage.data.items).toHaveLength(2);
     expect(firstActivityPage.ok && firstActivityPage.data.nextCursor).not.toBeNull();

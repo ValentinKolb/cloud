@@ -19,11 +19,11 @@ process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 const { default: MailDetailsPanel } = await import("./MailDetailsPanel.tsx");
 
 const now = "2026-08-09T10:00:00.000Z";
-const mailboxId = "00000000-0000-4000-8000-000000000001";
-const conversationId = "00000000-0000-4000-8000-000000000002";
+const mailboxId = "Box001";
+const conversationId = "Conv01";
 
 const tag: LocalTag = {
-  id: "00000000-0000-4000-8000-000000000003",
+  id: "Tag001",
   mailboxId,
   name: "Important",
   color: "#2563eb",
@@ -52,7 +52,7 @@ const conversationTags: ConversationLocalTags = {
 };
 
 const comment: ConversationComment = {
-  id: "00000000-0000-4000-8000-000000000004",
+  id: "Comm01",
   conversationId,
   body: "**Check** the customer reply.",
   author: {
@@ -97,7 +97,7 @@ const presence: ConversationPresenceParticipant = {
 };
 
 const message: MessageDetail = {
-  id: "00000000-0000-4000-8000-000000000006",
+  id: "Msg001",
   subject: "Quarterly review",
   messageId: "<quarterly-review@example.com>",
   internalDate: now,
@@ -108,8 +108,7 @@ const message: MessageDetail = {
   keywords: [],
   hydrationStatus: "complete",
   remoteAvailable: true,
-  remoteMessageRefId: null,
-  folderId: "00000000-0000-4000-8000-000000000007",
+  folderId: "Fold01",
   contentType: "text/plain",
   sizeBytes: 4096,
   replyTo: [],
@@ -129,7 +128,7 @@ const message: MessageDetail = {
   delivery: null,
   attachments: [
     {
-      id: "00000000-0000-4000-8000-000000000008",
+      id: "Att001",
       filename: "review.pdf",
       contentType: "application/pdf",
       sizeBytes: 2048,
@@ -204,9 +203,7 @@ describe("Mail conversation detail panel", () => {
     expect(html).toContain('class="k2b-discussion');
     expect(html).toContain('class="k2b-discussion__item');
     expect(html).toContain('class="k2b-content-markdown');
-    expect(html).toContain(
-      'href="/api/mail/mailboxes/00000000-0000-4000-8000-000000000001/messages/00000000-0000-4000-8000-000000000006/attachments/00000000-0000-4000-8000-000000000008"',
-    );
+    expect(html).toContain('href="/api/mail/mailboxes/Box001/messages/Msg001/attachments/Att001"');
     expect(html).toContain('download="review.pdf"');
     expect(html).toContain("Recent activity");
     expect(html).toContain("Mail details");

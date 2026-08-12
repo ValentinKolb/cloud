@@ -14,6 +14,14 @@ export const enqueueCollaborationNotifications = async (params: {
   sourceRevision: number;
   availableAt?: string;
 }): Promise<void> => {
+  const [source] = await params.db<{ short_id: string }[]>`
+    SELECT short_id
+    FROM mail.conversation_reminders
+    WHERE id = ${params.sourceId}::uuid
+      AND mailbox_id = ${params.mailboxId}::uuid
+      AND conversation_id = ${params.conversationId}::uuid
+  `;
+  if (!source) throw new Error("Mail notification source has no public ID");
   for (const recipientUserId of new Set(params.recipientUserIds)) {
     await params.db`
       INSERT INTO mail.collaboration_notification_deliveries (
@@ -22,6 +30,7 @@ export const enqueueCollaborationNotifications = async (params: {
         conversation_id,
         recipient_user_id,
         source_id,
+        source_short_id,
         source_revision,
         available_at
       ) VALUES (
@@ -30,6 +39,7 @@ export const enqueueCollaborationNotifications = async (params: {
         ${params.conversationId}::uuid,
         ${recipientUserId}::uuid,
         ${params.sourceId}::uuid,
+        ${source.short_id},
         ${params.sourceRevision},
         ${params.availableAt ?? new Date().toISOString()}::timestamptz
       )

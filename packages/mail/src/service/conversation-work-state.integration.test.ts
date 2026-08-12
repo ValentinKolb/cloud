@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Readable } from "node:stream";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import type { MailRequestContext } from "./auth";
 import { releaseDueSnoozes } from "./collaboration";
@@ -74,15 +75,15 @@ suite("mail conversation work-state projection", () => {
       RETURNING id
     `;
     const [folder] = await sql<{ id: string }[]>`
-      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
-      VALUES (${resource!.id}::uuid, ${`work-state-${suffix}`}, 'Inbox', 'inbox', 'current')
+      INSERT INTO mail.folders (short_id, remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${newShortId()}, ${resource!.id}::uuid, ${`work-state-${suffix}`}, 'Inbox', 'inbox', 'current')
       RETURNING id
     `;
     remoteResourceId = resource!.id;
     folderId = folder!.id;
     const [identity] = await sql<{ id: string }[]>`
-      INSERT INTO mail.sender_identities (mailbox_id, label, display_name, from_address, is_default, status)
-      VALUES (${mailboxId}::uuid, 'Support', 'Support', 'support@example.test', true, 'verified')
+      INSERT INTO mail.sender_identities (short_id, mailbox_id, label, display_name, from_address, is_default, status)
+      VALUES (${newShortId()}, ${mailboxId}::uuid, 'Support', 'Support', 'support@example.test', true, 'verified')
       RETURNING id
     `;
     senderIdentityId = identity!.id;
@@ -286,9 +287,9 @@ suite("mail conversation work-state projection", () => {
 
   test("releases due snoozes once without changing their work state", async () => {
     const [conversation] = await sql<{ id: string; revision: number }[]>`
-      INSERT INTO mail.conversations (
+      INSERT INTO mail.conversations (short_id,
         mailbox_id, subject, participant_summary, latest_message_at, work_status, snoozed_until
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid,
         'Expired snooze',
         'customer@example.test',

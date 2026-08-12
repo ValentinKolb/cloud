@@ -65,7 +65,7 @@ const calendar = (uid: string, sequence: number, recurrenceRule?: string) =>
 suite("Spaces calendar invitation imports", () => {
   test("serializes source mutations and preserves authorization and recurrence invariants", async () => {
     const suffix = crypto.randomUUID();
-    const mailboxId = crypto.randomUUID();
+    const mailboxId = stdCrypto.common.readableId(6);
     const uid = `calendar-import-${suffix}@example.test`;
     let userId: string | null = null;
     let spaceId: string | null = null;
@@ -121,7 +121,7 @@ suite("Spaces calendar invitation imports", () => {
         importCalendarInvitation({
           input: {
             mailboxId,
-            messageId: crypto.randomUUID(),
+            messageId: stdCrypto.common.readableId(6),
             spaceId: spaceId!,
             calendar: calendar(uid, sequence, recurrenceRule),
           },
@@ -155,7 +155,7 @@ suite("Spaces calendar invitation imports", () => {
         SELECT source.sequence, source.message_id, item.title
         FROM spaces.calendar_invitation_sources source
         JOIN spaces.items item ON item.id = source.item_id
-        WHERE mailbox_id = ${mailboxId}::uuid AND calendar_uid = ${uid}
+        WHERE mailbox_id = ${mailboxId} AND calendar_uid = ${uid}
       `;
       expect(source?.sequence).toBe(5);
       expect(source?.title).toBe("Sequence 5");
@@ -175,7 +175,7 @@ suite("Spaces calendar invitation imports", () => {
           input: {
             mailboxId,
             messageId: source!.message_id,
-            draftId: crypto.randomUUID(),
+            draftId: stdCrypto.common.readableId(6),
             participationStatus: "accepted",
           },
           subject: inaccessibleSubject,
@@ -186,7 +186,7 @@ suite("Spaces calendar invitation imports", () => {
         SELECT source.item_id, item.short_id AS item_short_id, item.column_id
         FROM spaces.calendar_invitation_sources source
         JOIN spaces.items item ON item.id = source.item_id
-        WHERE source.mailbox_id = ${mailboxId}::uuid AND source.calendar_uid = ${uid}
+        WHERE source.mailbox_id = ${mailboxId} AND source.calendar_uid = ${uid}
       `;
 
       const outgoingUid = `${linked!.item_short_id}@spaces.cloud`;
@@ -198,7 +198,7 @@ suite("Spaces calendar invitation imports", () => {
       const competingImport = importCalendarInvitation({
         input: {
           mailboxId,
-          messageId: crypto.randomUUID(),
+          messageId: stdCrypto.common.readableId(6),
           spaceId,
           calendar: calendar(outgoingUid, 0),
         },
@@ -213,8 +213,8 @@ suite("Spaces calendar invitation imports", () => {
         subject,
         deliveryId: crypto.randomUUID(),
         mailboxId,
-        draftId: crypto.randomUUID(),
-        senderIdentityId: crypto.randomUUID(),
+        draftId: stdCrypto.common.readableId(6),
+        senderIdentityId: stdCrypto.common.readableId(6),
         organizer: { name: "Organizer", address: "organizer@example.test" },
         attendees: [{ name: "Attendee", address: "attendee@example.test" }],
       });

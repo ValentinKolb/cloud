@@ -241,6 +241,14 @@ steps:
 `;
     const result = await bindMailWorkflow(await compile(source), catalog());
     expect(result.ok).toBe(true);
+
+    const internalId = await bindMailWorkflow(await compile(source.replace("reference.value", "reference.id")), catalog());
+    expect(internalId.ok).toBe(false);
+    if (!internalId.ok) {
+      expect(internalId.diagnostics).toContainEqual(
+        expect.objectContaining({ code: "reference.path", path: ["steps", 1, "succeed", "message", "expression", 0] }),
+      );
+    }
   });
 
   test("binds literal catalog references and preserves expressions", async () => {

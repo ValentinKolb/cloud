@@ -16,10 +16,7 @@ describe("Mail workflow collaboration events", () => {
       ),
     ).toMatchObject({
       applied: true,
-      __mailCollaborationEvent: {
-        reason: "comment",
-        activityId: "activity",
-      },
+      __mailCollaborationEvent: true,
     });
   });
 });

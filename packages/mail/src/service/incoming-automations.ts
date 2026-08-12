@@ -30,6 +30,7 @@ import {
   type UpdateIncomingAutomation,
   updateIncomingAutomationSchema,
 } from "../contracts";
+import { withShortIdDb } from "../lib/short-id";
 import { type MailWorkflowCatalogSnapshot, snapshotMailWorkflowCatalog } from "../workflows/catalog";
 import { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "../workflows/events";
 import { requireMailboxPermission } from "./access";
@@ -750,6 +751,8 @@ export const markSenderMessagesRead = async (params: {
         {
           remote_message_ref_id: string;
           folder_id: string;
+          message_short_id: string;
+          folder_short_id: string;
           flags: string[];
           keywords: string[];
         }[]
@@ -757,6 +760,8 @@ export const markSenderMessagesRead = async (params: {
         SELECT DISTINCT
           remote_ref.id AS remote_message_ref_id,
           placement.folder_id,
+          message.short_id AS message_short_id,
+          folder.short_id AS folder_short_id,
           placement.flags,
           placement.keywords,
           message.internal_date
@@ -783,8 +788,8 @@ export const markSenderMessagesRead = async (params: {
           mailboxId: params.mailboxId,
           inputs: selected.map((target) => ({
             kind: "change_message_state",
-            remoteMessageRefId: target.remote_message_ref_id,
-            folderId: target.folder_id,
+            messageId: target.message_short_id,
+            folderId: target.folder_short_id,
             change: { addFlags: ["seen" as const], removeFlags: [], addKeywords: [], removeKeywords: [] },
             idempotencyKey: `sender-read:${sha256Json([parsed.data.idempotencyKey, target.remote_message_ref_id, target.folder_id])}`,
             correlationId,
@@ -964,7 +969,7 @@ const getIncomingAutomationBackfillPump = (): IncomingAutomationBackfillPump => 
               message: snapshot.source.message as unknown as WorkflowJsonValue,
               conversation: snapshot.source.conversation as unknown as WorkflowJsonValue,
             },
-            context: mailWorkflowEventContext(input.mailboxId, snapshot),
+            context: mailWorkflowEventContext(snapshot),
             dedupeKey: incomingAutomationExistingDedupeKey(automation.id, automation.workflowVersionId, snapshot.targetKey),
             occurredAt: new Date(snapshot.internalDate),
           },
@@ -1264,12 +1269,16 @@ export const createIncomingAutomation = async (params: {
           enabled: parsed.data.enabled,
         }),
       );
-      const [row] = await tx<IncomingAutomationRow[]>`
+      const rows = await withShortIdDb(
+        tx,
+        "incomingAutomation",
+        (db, shortId) => db<IncomingAutomationRow[]>`
         INSERT INTO mail.incoming_automations AS automation (
-          id, mailbox_id, workflow_id, name, normalized_name, scope,
+          id, short_id, mailbox_id, workflow_id, name, normalized_name, scope,
           steps, enabled, created_by_actor_kind, created_by_actor_id
         ) VALUES (
           ${automationId}::uuid,
+          ${shortId},
           ${params.mailboxId}::uuid,
           ${workflow.id}::uuid,
           ${name},
@@ -1281,7 +1290,9 @@ export const createIncomingAutomation = async (params: {
           ${actor.id}::uuid
         )
         RETURNING ${incomingAutomationColumns}
-      `;
+      `,
+      );
+      const [row] = rows;
       if (!row) throw new Error("Incoming automation insert returned no row");
       const automation = mapIncomingAutomation(row);
       const activityId = await recordActivity({ db: tx, context: params.context, automation, action: "incoming_automation.created" });

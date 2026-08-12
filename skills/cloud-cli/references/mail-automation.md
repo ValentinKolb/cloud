@@ -35,7 +35,7 @@ Create a configuration from JSON or YAML:
 ```yaml
 name: Out of office
 enabled: true
-senderIdentityId: 00000000-0000-4000-8000-000000000001
+senderIdentityId: Ident1
 subject: "Re: Your message"
 body: |
   Thank you for your message. I am away until 2026-08-03.
@@ -266,6 +266,7 @@ Activation reconciles schedules into the shared scheduler. Every delivered slot 
 Mail exposes two input types:
 
 - `mailMessage`: `id`, `conversationId`, `subject`, `sender`, `recipients`, `body`, `bodyText`, `bodyHtml`, `attachments`, `hasAttachments`, `folderId`, `flags`, `keywords`, `direction`, `internalDate`, and `receivedAt`.
+- Mail resource fields in workflow inputs and outputs use stable six-character Mail IDs; provider references and database UUIDs are not part of that workflow vocabulary.
 - `mailConversation`: `id`, `subject`, `summary`, `summaryRevision`, `assigneeUserId`, `workStatus`, and `latestMessageAt`.
 
 Use `${{ inputs.<name> }}` for a whole input and `${{ inputs.<name>.<field> }}` for a field. `${{ now() }}` resolves from the run clock. `context.mailboxId` is also available.

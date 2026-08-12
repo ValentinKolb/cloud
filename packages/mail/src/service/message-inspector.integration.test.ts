@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Readable } from "node:stream";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, revokeMailboxAccess } from "./access";
 import type { MailRequestContext } from "./auth";
@@ -39,6 +40,8 @@ suite("mail message inspector", () => {
   const accessIds: string[] = [];
   let mailboxId = "";
   let messageId = "";
+  let messageShortId = "";
+  let folderShortId = "";
   let missingSourceMessageId = "";
   let sourceBlobId = "";
   let readerAccessId = "";
@@ -101,14 +104,15 @@ suite("mail message inspector", () => {
       VALUES (${mailboxId}::uuid, '{}'::jsonb, '{}'::jsonb, ${"c".repeat(64)}, 'active')
       RETURNING id
     `;
-    const [folder] = await sql<{ id: string }[]>`
-      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
-      VALUES (${resource!.id}::uuid, ${`inspector-${suffix}`}, 'Inspector Inbox', 'inbox', 'current')
-      RETURNING id
+    const [folder] = await sql<{ id: string; short_id: string }[]>`
+      INSERT INTO mail.folders (short_id, remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${newShortId()}, ${resource!.id}::uuid, ${`inspector-${suffix}`}, 'Inspector Inbox', 'inbox', 'current')
+      RETURNING id, short_id
     `;
+    folderShortId = folder!.short_id;
     const internalDate = new Date("2026-07-23T12:00:00.000Z");
-    const [message] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+    const [message] = await sql<{ id: string; short_id: string }[]>`
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id,
         message_id,
         in_reply_to,
@@ -125,7 +129,7 @@ suite("mail message inspector", () => {
         content_hash,
         hydration_status,
         hydration_error_code
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid,
         ${`<inspector-${suffix}@example.test>`},
         '<parent@example.test>',
@@ -143,9 +147,10 @@ suite("mail message inspector", () => {
         'failed',
         'malformed_mime'
       )
-      RETURNING id
+      RETURNING id, short_id
     `;
     messageId = message!.id;
+    messageShortId = message!.short_id;
     const [remoteRef] = await sql<{ id: string }[]>`
       INSERT INTO mail.remote_message_refs (folder_id, message_id, uid_validity, uid, modseq)
       VALUES (${folder!.id}::uuid, ${messageId}::uuid, 42, 7, 9)
@@ -169,9 +174,9 @@ suite("mail message inspector", () => {
       )
     `;
     const [missingSource] = await sql<{ id: string }[]>`
-      INSERT INTO mail.message_contents (
+      INSERT INTO mail.message_contents (short_id,
         mailbox_id, message_id, subject, internal_date, size_bytes, content_hash, hydration_status
-      ) VALUES (
+      ) VALUES (${newShortId()},
         ${mailboxId}::uuid,
         ${`<missing-source-${suffix}@example.test>`},
         'Missing source',
@@ -215,7 +220,12 @@ suite("mail message inspector", () => {
     expect(inspection.data.headers.filter((header) => header.name === "Received")).toHaveLength(2);
     expect(inspection.data.headers.find((header) => header.name === "Subject")?.value).toBe("Inspector fixture folded continuation");
     expect(inspection.data.placements).toHaveLength(1);
+    expect(inspection.data).toMatchObject({ id: messageShortId });
+    expect(inspection.data.placements[0]).toMatchObject({ folderId: folderShortId });
+    expect(inspection.data.placements[0]).not.toHaveProperty("remoteMessageRefId");
     expect(inspection.data.parts).toHaveLength(1);
+    expect(inspection.data.parts[0]).not.toHaveProperty("id");
+    for (const attachment of inspection.data.attachments) expect(attachment).not.toHaveProperty("partId");
     expect(inspection.data.warnings).toContain("Message hydration failed (malformed_mime).");
     expect(inspection.data.source).toMatchObject({
       available: true,
@@ -227,6 +237,7 @@ suite("mail message inspector", () => {
     expect(preview.ok).toBe(true);
     if (!preview.ok) return;
     expect(preview.data.truncated).toBe(true);
+    expect(preview.data.messageId).toBe(messageShortId);
     expect(preview.data.previewByteLength).toBe(256 * 1024);
     expect(preview.data.byteLength).toBe(sourceBytes.byteLength);
 
@@ -252,6 +263,7 @@ suite("mail message inspector", () => {
     const opened = await openMessageSource({ context: readerContext, mailboxId, messageId });
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
+    expect(opened.data.messageId).toBe(messageShortId);
     let accessChecks = 0;
     let releaseNextAccessCheck: (() => void) | undefined;
     const nextAccessCheck = new Promise<void>((resolve) => {

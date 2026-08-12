@@ -3,7 +3,7 @@ import { mailDraftHref, mailDraftReturnHref, mailDraftSeedHref, mailtoHandlerTem
 
 describe("Mail compose routes", () => {
   test("keeps only same-mailbox workspace return locations", () => {
-    const mailboxId = "10000000-0000-4000-8000-000000000001";
+    const mailboxId = "Box001";
     expect(mailDraftReturnHref(`/app/mail/${mailboxId}?conversation=one#message`, mailboxId)).toBe(
       `/app/mail/${mailboxId}?conversation=one#message`,
     );
@@ -13,8 +13,8 @@ describe("Mail compose routes", () => {
   });
 
   test("builds canonical draft and pop-out URLs", () => {
-    const mailboxId = "10000000-0000-4000-8000-000000000001";
-    const draftId = "20000000-0000-4000-8000-000000000002";
+    const mailboxId = "Box001";
+    const draftId = "Draft1";
     expect(mailDraftHref(mailboxId, draftId, `/app/mail/${mailboxId}?view=mine`)).toBe(
       `/app/mail/${mailboxId}/compose/${draftId}?return=%2Fapp%2Fmail%2F${mailboxId}%3Fview%3Dmine`,
     );

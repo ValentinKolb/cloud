@@ -6,12 +6,17 @@ const object = (value: WorkflowJsonValue | undefined): Record<string, WorkflowJs
 
 export const mailWorkflowMessagePrecondition = (
   context: Record<string, WorkflowJsonValue> | undefined,
-  remoteMessageRefId: string,
+  target: { messageId: string; remoteMessageRefId: string; folderId: string },
 ): RemoteMessagePrecondition => {
-  const sourceMessage = object(object(context?.source)?.message);
   const preconditions = object(context?.preconditions);
+  const message = object(preconditions?.message);
   const parsed = remoteMessagePreconditionSchema.safeParse(preconditions?.remoteState);
-  if (sourceMessage?.remoteMessageRefId !== remoteMessageRefId || !parsed.success) {
+  if (
+    message?.id !== target.messageId ||
+    message?.remoteMessageRefId !== target.remoteMessageRefId ||
+    message?.folderId !== target.folderId ||
+    !parsed.success
+  ) {
     throw Object.assign(new Error("Frozen remote message preconditions are unavailable"), {
       code: "MAIL_WORKFLOW_PRECONDITION_MISSING",
     });

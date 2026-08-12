@@ -1,5 +1,6 @@
 import { toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { withShortIdDb } from "../lib/short-id";
 import { normalizeEmailAddress } from "./address-normalization";
 import { sha256Json } from "./canonical";
 import { normalizeMailSubject } from "./message-threading";
@@ -62,8 +63,12 @@ const ensureConversation = async (params: {
     if (!conversation) throw new Error("Outbound draft conversation does not exist");
     return conversation.id;
   }
-  const [conversation] = await params.db<{ id: string }[]>`
+  const conversationRows = await withShortIdDb(
+    params.db,
+    "conversation",
+    (db, shortId) => db<{ id: string }[]>`
     INSERT INTO mail.conversations (
+      short_id,
       mailbox_id,
       subject,
       participant_summary,
@@ -72,6 +77,7 @@ const ensureConversation = async (params: {
       work_status
     )
     VALUES (
+      ${shortId},
       ${params.mailboxId}::uuid,
       ${params.snapshot.subject},
       ${participantSummary(params.snapshot)},
@@ -80,7 +86,9 @@ const ensureConversation = async (params: {
       'needs_action'
     )
     RETURNING id
-  `;
+  `,
+  );
+  const [conversation] = conversationRows;
   if (!conversation) throw new Error("Outbound conversation insert returned no row");
   return conversation.id;
 };
@@ -111,8 +119,12 @@ const insertAttachments = async (params: { db: SqlClient; messageId: string; sna
       RETURNING id
     `;
     if (!part) throw new Error("Outbound message part insert returned no row");
-    await params.db`
+    await withShortIdDb(
+      params.db,
+      "attachment",
+      (db, shortId) => db`
       INSERT INTO mail.attachments (
+        short_id,
         message_id,
         part_id,
         filename,
@@ -123,6 +135,7 @@ const insertAttachments = async (params: { db: SqlClient; messageId: string; sna
         blob_id
       )
       VALUES (
+        ${shortId},
         ${params.messageId}::uuid,
         ${part.id}::uuid,
         ${attachment.filename},
@@ -132,7 +145,8 @@ const insertAttachments = async (params: { db: SqlClient; messageId: string; sna
         ${attachment.byteLength},
         ${attachment.blobId}::uuid
       )
-    `;
+    `,
+    );
   }
 };
 
@@ -162,8 +176,12 @@ export const materializeOutboundMessage = async (params: {
   byteLength: number;
 }): Promise<OutboundMessageProjection> => {
   const plainText = params.snapshot.renderedText ?? params.snapshot.body;
-  const [message] = await params.db<{ id: string }[]>`
+  const messageRows = await withShortIdDb(
+    params.db,
+    "message",
+    (db, shortId) => db<{ id: string }[]>`
     INSERT INTO mail.message_contents (
+      short_id,
       mailbox_id,
       message_id,
       in_reply_to,
@@ -178,6 +196,7 @@ export const materializeOutboundMessage = async (params: {
       hydration_status
     )
     VALUES (
+      ${shortId},
       ${params.mailboxId}::uuid,
       ${params.stableMessageId},
       ${params.snapshot.inReplyTo},
@@ -192,7 +211,9 @@ export const materializeOutboundMessage = async (params: {
       'body'
     )
     RETURNING id
-  `;
+  `,
+  );
+  const [message] = messageRows;
   if (!message) throw new Error("Outbound message insert returned no row");
 
   const addresses = addressRows(message.id, params.snapshot);

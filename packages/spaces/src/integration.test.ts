@@ -8,11 +8,12 @@ import {
   SpacesMailDestinationContextSchema,
 } from "./integration";
 
-const mailboxId = "11111111-1111-4111-8111-111111111111";
-const identityId = "22222222-2222-4222-8222-222222222222";
+const mailboxId = "mail01";
+const identityId = "ident1";
+const legacyUuid = "11111111-1111-4111-8111-111111111111";
 
 describe("Mail invitation integration contracts", () => {
-  test("uses short IDs for Spaces resources while preserving Mail UUIDs", () => {
+  test("uses short IDs for Spaces and Mail resources", () => {
     const existing = {
       invitation: {
         method: "request",
@@ -41,12 +42,12 @@ describe("Mail invitation integration contracts", () => {
     };
     expect(CalendarInvitationPreviewSchema.safeParse(existing).success).toBeTrue();
     expect(
-      CalendarInvitationPreviewSchema.safeParse({ ...existing, existing: { ...existing.existing, itemId: mailboxId } }).success,
+      CalendarInvitationPreviewSchema.safeParse({ ...existing, existing: { ...existing.existing, itemId: legacyUuid } }).success,
     ).toBeFalse();
     expect(
       CalendarInvitationPreviewSchema.safeParse({
         ...existing,
-        existing: { ...existing.existing, href: `/app/spaces/${mailboxId}?item=${mailboxId}` },
+        existing: { ...existing.existing, href: `/app/spaces/${legacyUuid}?item=${legacyUuid}` },
       }).success,
     ).toBeFalse();
     expect(
@@ -71,7 +72,7 @@ describe("Mail invitation integration contracts", () => {
         items: [{ id: "space1", name: "Planning", color: "#3b82f6" }],
       }).success,
     ).toBeTrue();
-    expect(SpacesMailDestinationContextSchema.safeParse({ selectedSpaceId: mailboxId, items: [] }).success).toBeFalse();
+    expect(SpacesMailDestinationContextSchema.safeParse({ selectedSpaceId: legacyUuid, items: [] }).success).toBeFalse();
   });
 
   test("exposes every verified sender choice explicitly", () => {
@@ -86,7 +87,7 @@ describe("Mail invitation integration contracts", () => {
           isDefault: true,
         },
         {
-          id: "33333333-3333-4333-8333-333333333333",
+          id: "ident2",
           label: "Billing",
           from: { name: "Billing", address: "billing@example.com" },
           isDefault: false,
@@ -95,6 +96,7 @@ describe("Mail invitation integration contracts", () => {
     });
     expect(mailbox.identities).toHaveLength(2);
     expect(mailbox.identities[0]?.isDefault).toBe(true);
+    expect(MailInvitationMailboxSchema.safeParse({ ...mailbox, id: legacyUuid }).success).toBeFalse();
   });
 
   test("requires a concrete sender identity for user and provider draft requests", () => {

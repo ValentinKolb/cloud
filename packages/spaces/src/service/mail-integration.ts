@@ -24,12 +24,13 @@ type IntegrationFailure = { ok: false; code: string; message: string; status: nu
 type IntegrationResult<T> = { ok: true; data: T } | IntegrationFailure;
 type CapabilityFailure = { code: string; message: string; status: number };
 
-const mailboxListSchema = z.array(z.object({ id: z.uuid(), name: z.string().min(1) }).passthrough()).max(100);
+const mailResourceIdSchema = z.string().regex(/^[0-9A-Za-z]{6}$/);
+const mailboxListSchema = z.array(z.object({ id: mailResourceIdSchema, name: z.string().min(1) }).passthrough()).max(100);
 const senderIdentityListSchema = z
   .array(
     z
       .object({
-        id: z.uuid(),
+        id: mailResourceIdSchema,
         label: z.string().min(1),
         displayName: z.string(),
         fromAddress: z.email(),
@@ -39,7 +40,7 @@ const senderIdentityListSchema = z
       .passthrough(),
   )
   .max(100);
-const draftDataSchema = z.object({ id: z.uuid() }).passthrough();
+const draftDataSchema = z.object({ id: mailResourceIdSchema }).passthrough();
 
 export const isMailInvitationIntegrationAvailable = async (): Promise<boolean> => {
   try {

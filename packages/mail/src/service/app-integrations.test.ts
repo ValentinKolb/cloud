@@ -79,7 +79,7 @@ describe("Mail Spaces integration resource IDs", () => {
     expect(calendarEventSchema.safeParse({ ...event, id: legacyUuid }).success).toBeFalse();
   });
 
-  test("keeps delivery IDs UUID-backed while Space and item IDs are short", () => {
+  test("keeps only the technical delivery ID UUID-backed", () => {
     expect(
       calendarInvitationImportResultSchema.safeParse({
         itemId: "event1",
@@ -100,7 +100,7 @@ describe("Mail Spaces integration resource IDs", () => {
       eventInvitationCommitDataSchema.safeParse({
         deliveryId: legacyUuid,
         itemId: "event1",
-        draftId: "22222222-2222-4222-8222-222222222222",
+        draftId: "draft1",
         state: "drafted",
       }).success,
     ).toBeTrue();
@@ -108,7 +108,7 @@ describe("Mail Spaces integration resource IDs", () => {
       eventInvitationCommitDataSchema.safeParse({
         deliveryId: "short1",
         itemId: legacyUuid,
-        draftId: "22222222-2222-4222-8222-222222222222",
+        draftId: legacyUuid,
         state: "drafted",
       }).success,
     ).toBeFalse();

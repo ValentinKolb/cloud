@@ -36,7 +36,9 @@ export type MailCollaborationEvent = MailConversationChangedEvent | MailMailboxC
 type OutboxRow = {
   id: string;
   mailbox_id: string;
+  mailbox_short_id: string;
   conversation_id: string | null;
+  conversation_short_id: string | null;
   attempts: number;
   created_at: Date | string;
 };
@@ -65,14 +67,14 @@ export const enqueueMailInvalidation = async (
 const publishMailInvalidation = (row: OutboxRow): Promise<unknown> => {
   const event: MailInvalidation = {
     type: "mail.invalidated",
-    mailboxId: row.mailbox_id,
-    conversationId: row.conversation_id,
+    mailboxId: row.mailbox_short_id,
+    conversationId: row.conversation_short_id,
     changeId: row.id,
     at: new Date(row.created_at).toISOString(),
   };
   return invalidationTopic.pub({
-    tenantId: event.mailboxId,
-    orderingKey: event.conversationId ?? event.mailboxId,
+    tenantId: row.mailbox_id,
+    orderingKey: row.conversation_id ?? row.mailbox_id,
     idempotencyKey: event.changeId,
     data: event,
   });
@@ -99,7 +101,9 @@ export const claimMailInvalidationBatch = async (limit = BATCH_SIZE): Promise<Ou
       RETURNING
         outbox.id::text,
         outbox.mailbox_id::text,
+        outbox.mailbox_short_id,
         outbox.conversation_id::text,
+        outbox.conversation_short_id,
         outbox.attempts,
         outbox.created_at
     `;

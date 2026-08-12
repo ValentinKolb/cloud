@@ -1,7 +1,8 @@
-import { logger } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { logger } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { MergeConversationsInput, ReassignConversationMessageInput, SplitConversationInput } from "../contracts";
+import { withShortIdDb } from "../lib/short-id";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
 import { requireMailboxCollaborationPermission } from "./collaboration";
 import { mergeConversationReferencesInTransaction } from "./conversation-reference";
@@ -239,9 +240,10 @@ const refreshCoreNotificationTargets = async (params: { db: SqlClient; conversat
   await params.db`
     UPDATE notifications.events event
     SET target_href =
-      '/api/mail/mailboxes/' || delivery.mailbox_id::text ||
-      '/notification-targets/' || delivery.kind || '/' || delivery.source_id::text
+      '/api/mail/mailboxes/' || mailbox.short_id ||
+      '/notification-targets/' || delivery.kind || '/' || delivery.source_short_id
     FROM mail.collaboration_notification_deliveries delivery
+    JOIN mail.mailboxes mailbox ON mailbox.id = delivery.mailbox_id
     WHERE delivery.conversation_id = ${params.conversationId}::uuid
       AND event.recipient_user_id = delivery.recipient_user_id
       AND event.definition_id = ${MAIL_NOTIFICATION_DEFINITION_IDS.reminder}
@@ -720,15 +722,20 @@ export const splitConversation = async (params: {
         return fail(err.badInput("A split must leave at least one message in the source conversation"));
       }
 
-      const [created] = await tx<{ id: string }[]>`
-        INSERT INTO mail.conversations (mailbox_id, latest_message_at)
-        SELECT ${params.mailboxId}::uuid, MAX(message.internal_date)
+      const createdRows = await withShortIdDb(
+        tx,
+        "conversation",
+        (db, shortId) => db<{ id: string }[]>`
+        INSERT INTO mail.conversations (short_id, mailbox_id, latest_message_at)
+        SELECT ${shortId}, ${params.mailboxId}::uuid, MAX(message.internal_date)
         FROM mail.message_contents message
         WHERE message.id IN (
           SELECT value::uuid FROM jsonb_array_elements_text(${params.input.messageIds}::jsonb)
         )
         RETURNING id
-      `;
+      `,
+      );
+      const [created] = createdRows;
       if (!created) return fail(err.internal("Split conversation insert returned no row"));
       const moved = await tx<{ message_id: string }[]>`
         UPDATE mail.conversation_messages

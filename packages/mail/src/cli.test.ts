@@ -4,32 +4,31 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 const servers: ReturnType<typeof Bun.serve>[] = [];
 const temporaryFiles: string[] = [];
 
-const MAILBOX_ID = "00000000-0000-4000-8000-000000000001";
+const MAILBOX_ID = "Mail01";
 const COMMAND_ID = "00000000-0000-4000-8000-000000000002";
-const IDENTITY_ID = "00000000-0000-4000-8000-000000000003";
-const DRAFT_ID = "00000000-0000-4000-8000-000000000004";
-const MESSAGE_ID = "00000000-0000-4000-8000-000000000005";
-const ATTACHMENT_ID = "00000000-0000-4000-8000-000000000006";
-const CONVERSATION_ID = "00000000-0000-4000-8000-000000000007";
+const IDENTITY_ID = "Ident1";
+const DRAFT_ID = "Draft1";
+const MESSAGE_ID = "Messg1";
+const ATTACHMENT_ID = "Attch1";
+const CONVERSATION_ID = "Convo1";
 const CONNECTION_ID = "00000000-0000-4000-8000-000000000008";
-const FOLDER_ID = "00000000-0000-4000-8000-000000000009";
-const REMOTE_MESSAGE_REF_ID = "00000000-0000-4000-8000-000000000010";
+const FOLDER_ID = "Foldr1";
 const USER_ID = "00000000-0000-4000-8000-000000000011";
-const COMMENT_ID = "00000000-0000-4000-8000-000000000012";
+const COMMENT_ID = "Commt1";
 const WORKFLOW_ID = "00000000-0000-4000-8000-000000000013";
 const WORKFLOW_VERSION_ID = "00000000-0000-4000-8000-000000000014";
-const SOURCE_CONVERSATION_ID = "00000000-0000-4000-8000-000000000016";
-const REMINDER_ID = "00000000-0000-4000-8000-000000000017";
-const SAVED_VIEW_ID = "00000000-0000-4000-8000-000000000018";
+const SOURCE_CONVERSATION_ID = "Convo2";
+const REMINDER_ID = "Remnd1";
+const SAVED_VIEW_ID = "View01";
 const UPLOAD_ID = "00000000-0000-4000-8000-000000000019";
 const BINDING_ID = "00000000-0000-4000-8000-000000000020";
-const TAG_ID = "00000000-0000-4000-8000-000000000021";
-const COMPOSE_TEMPLATE_ID = "00000000-0000-4000-8000-000000000023";
-const SCHEDULED_SEND_ID = "00000000-0000-4000-8000-000000000024";
-const AUTOMATIC_REPLY_ID = "00000000-0000-4000-8000-000000000025";
+const TAG_ID = "Tag001";
+const COMPOSE_TEMPLATE_ID = "Templ1";
+const SCHEDULED_SEND_ID = "Deliv1";
+const AUTOMATIC_REPLY_ID = "Reply1";
 const ATTACHMENT_LINK_ID = "00000000-0000-4000-8000-000000000026";
 const REMOTE_CONTENT_RULE_ID = "00000000-0000-4000-8000-000000000027";
-const INCOMING_AUTOMATION_ID = "00000000-0000-4000-8000-000000000028";
+const INCOMING_AUTOMATION_ID = "Autom1";
 const SECURITY_REPORT_ID = "00000000-0000-4000-8000-000000000029";
 const SECURITY_POLICY_ID = "00000000-0000-4000-8000-000000000030";
 
@@ -110,6 +109,7 @@ const withMailbox = (handler: (request: Request) => Response | Promise<Response>
     fetch: (request) => {
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/api/mail/mailboxes") return api([{ ...mailbox, permission: "admin" }]);
+      if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}`) return api(mailbox);
       return handler(request);
     },
   });
@@ -567,12 +567,17 @@ test("search preserves commas inside repeated free-text terms", async () => {
   });
 });
 
-test("mailbox UUID resolution falls back to the direct resource endpoint", async () => {
+test("mailbox short-id resolution uses the direct resource endpoint independently of the bounded list", async () => {
+  const requests: string[] = [];
   const server = Bun.serve({
     port: 0,
     fetch: (request) => {
       const url = new URL(request.url);
-      if (request.method === "GET" && url.pathname === "/api/mail/mailboxes") return api([]);
+      requests.push(`${url.pathname}${url.search}`);
+      if (request.method === "GET" && url.pathname === "/api/mail/mailboxes") {
+        if (url.searchParams.get("name") === MAILBOX_ID) return api([]);
+        return api({ message: "bounded mailbox list must not resolve an id" }, { status: 500 });
+      }
       if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}`) return api(mailbox);
       return api({ message: "unexpected" }, { status: 500 });
     },
@@ -585,6 +590,51 @@ test("mailbox UUID resolution falls back to the direct resource endpoint", async
   expect(result.stderr).toBe("");
   expect(result.stdout.trim().split("\n")).toHaveLength(1);
   expect(JSON.parse(result.stdout)).toMatchObject({ id: MAILBOX_ID, permission: null });
+  expect(requests).toEqual([
+    `/api/mail/mailboxes/${MAILBOX_ID}`,
+    `/api/mail/mailboxes?limit=2&name=${MAILBOX_ID}`,
+    `/api/mail/mailboxes/${MAILBOX_ID}`,
+  ]);
+});
+
+test("legacy mailbox UUIDs are rejected before any API request", async () => {
+  let requestCount = 0;
+  const server = Bun.serve({
+    port: 0,
+    fetch: () => {
+      requestCount += 1;
+      return api({ message: "unexpected" }, { status: 500 });
+    },
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, ["mail", "mailbox", "get", "00000000-0000-4000-8000-000000000001"]);
+
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stderr).toContain("legacy UUIDs are not supported");
+  expect(requestCount).toBe(0);
+});
+
+test("legacy UUIDs are rejected for public Mail resources", async () => {
+  let messageRequestCount = 0;
+  const server = withMailbox((request) => {
+    if (new URL(request.url).pathname.includes("/messages/")) messageRequestCount += 1;
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "mail",
+    "message",
+    "get",
+    "00000000-0000-4000-8000-000000000005",
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stderr).toContain("Message id must be an exact six-character Mail resource id");
+  expect(messageRequestCount).toBe(0);
 });
 
 test("mailbox name resolution uses an exact server-side lookup", async () => {
@@ -610,6 +660,68 @@ test("mailbox name resolution uses an exact server-side lookup", async () => {
   expect(result.stderr).toBe("");
   expect(requests[0]).toBe("/api/mail/mailboxes?limit=2&name=Support");
   expect(JSON.parse(result.stdout)).toMatchObject({ id: MAILBOX_ID, permission: "admin" });
+});
+
+test("six-character mailbox names remain exact selectors", async () => {
+  const server = Bun.serve({
+    port: 0,
+    fetch: (request) => {
+      const url = new URL(request.url);
+      if (request.method !== "GET" || url.pathname !== "/api/mail/mailboxes") {
+        if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}`) {
+          return api({ ...mailbox, name: "Shared" });
+        }
+        if (request.method === "GET" && url.pathname === "/api/mail/mailboxes/Shared") {
+          return api({ message: "not found" }, { status: 404 });
+        }
+        return api({ message: "unexpected" }, { status: 500 });
+      }
+      if (url.searchParams.get("name") === "Shared") return api([{ ...mailbox, name: "Shared", permission: "write" }]);
+      return api([]);
+    },
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, ["--json", "mail", "mailbox", "get", "Shared"]);
+
+  expect(result.exitCode).toBe(0);
+  expect(JSON.parse(result.stdout)).toMatchObject({ id: MAILBOX_ID, name: "Shared", permission: "write" });
+});
+
+test("mailbox resolution rejects a direct-id and exact-name collision outside a full bounded list", async () => {
+  const nameCollision = { ...mailbox, id: "Mail02", name: MAILBOX_ID, permission: "admin" };
+  const boundedMailboxes = Array.from({ length: 200 }, (_, index) => ({
+    ...mailbox,
+    id: `M${String(index).padStart(5, "0")}`,
+    name: `Mailbox ${index}`,
+    permission: "admin" as const,
+  }));
+  let directRequestCount = 0;
+  let boundedListRequestCount = 0;
+  const server = Bun.serve({
+    port: 0,
+    fetch: (request) => {
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/api/mail/mailboxes") {
+        if (url.searchParams.get("name") === MAILBOX_ID) return api([nameCollision]);
+        boundedListRequestCount += 1;
+        return api(boundedMailboxes);
+      }
+      if (url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}`) {
+        directRequestCount += 1;
+        return api(mailbox);
+      }
+      return api({ message: "unexpected" }, { status: 500 });
+    },
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, ["mail", "mailbox", "get", MAILBOX_ID]);
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain(`Mailbox "${MAILBOX_ID}" is ambiguous`);
+  expect(directRequestCount).toBe(1);
+  expect(boundedListRequestCount).toBe(0);
 });
 
 test("compose template and style commands preserve exact source input", async () => {
@@ -963,6 +1075,45 @@ test("reference config set preserves unspecified settings", async () => {
     includeInReplySubjects: false,
   });
   expect(JSON.parse(result.stdout)).toEqual(updated);
+});
+
+test("reference list and ensure expose the permanent value without a row id", async () => {
+  const reference = {
+    mailboxId: MAILBOX_ID,
+    conversationId: CONVERSATION_ID,
+    configurationRevision: 3,
+    patternSnapshot: "SUP-{{ year }}-{{ sequence }}",
+    value: "SUP-2026-42",
+    sequence: "42",
+    role: "primary",
+    allocatedBy: { kind: "user", id: USER_ID },
+    allocatedAt: "2026-07-12T00:00:00.000Z",
+  };
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    const path = `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/references`;
+    if (url.pathname !== path) return api({ message: "unexpected" }, { status: 500 });
+    if (request.method === "GET") return api([reference]);
+    if (request.method === "POST") return api({ reference, conversationRevision: 2, created: false });
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const listed = await runCli(`http://127.0.0.1:${server.port}`, ["mail", "reference", "list", CONVERSATION_ID, "--mailbox", MAILBOX_ID]);
+  const ensured = await runCli(`http://127.0.0.1:${server.port}`, [
+    "mail",
+    "reference",
+    "ensure",
+    CONVERSATION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+
+  expect(listed.exitCode).toBe(0);
+  expect(listed.stdout).toContain("SUP-2026-42");
+  expect(listed.stdout).not.toContain(USER_ID);
+  expect(ensured.exitCode).toBe(0);
+  expect(ensured.stdout).toContain("Found SUP-2026-42 (primary).");
 });
 
 test("deleted mailbox CLI lists, reads, and restores retained mailboxes", async () => {
@@ -1698,7 +1849,7 @@ test("admin mailbox list preserves server pagination and recovery counts", async
 });
 
 test("admin mailbox name resolution checks every page for ambiguity", async () => {
-  const secondMailboxId = "00000000-0000-4000-8000-000000000092";
+  const secondMailboxId = "Mail92";
   const requested: string[] = [];
   const server = withMailbox((request) => {
     const url = new URL(request.url);
@@ -1734,6 +1885,46 @@ test("admin mailbox name resolution checks every page for ambiguity", async () =
   ]);
 });
 
+test("admin mailbox resolution finds a short-id and exact-name collision on page two", async () => {
+  const requested: string[] = [];
+  let accessRequestCount = 0;
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    requested.push(`${url.pathname}${url.search}`);
+    if (url.pathname === `/api/mail/admin/mailboxes/${MAILBOX_ID}/access`) {
+      accessRequestCount += 1;
+      return api([]);
+    }
+    if (url.pathname !== "/api/mail/admin/operations") return api({ message: "unexpected" }, { status: 500 });
+    const firstPage = !url.searchParams.has("cursor");
+    return api({
+      mailboxes: [
+        {
+          ...platformMailboxSummary,
+          mailboxId: firstPage ? MAILBOX_ID : "Mail02",
+          mailboxName: firstPage ? "Support" : MAILBOX_ID,
+        },
+      ],
+      mailboxCount: 2,
+      withoutAdministratorCount: 0,
+      attentionCount: 0,
+      generatedAt: "2026-07-21T10:00:00.000Z",
+      nextCursor: firstPage ? "next-page" : null,
+    });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, ["mail", "admin", "mailbox", "access", "list", MAILBOX_ID]);
+
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain(`Mailbox "${MAILBOX_ID}" is ambiguous`);
+  expect(requested).toEqual([
+    `/api/mail/admin/operations?q=${MAILBOX_ID}&limit=100`,
+    `/api/mail/admin/operations?q=${MAILBOX_ID}&limit=100&cursor=next-page`,
+  ]);
+  expect(accessRequestCount).toBe(0);
+});
+
 test("admin mailbox access can repair a service-account grant without mailbox membership", async () => {
   const serviceAccountId = "00000000-0000-4000-8000-000000000090";
   let granted: unknown;
@@ -1741,6 +1932,16 @@ test("admin mailbox access can repair a service-account grant without mailbox me
     const url = new URL(request.url);
     const operationsPath = `/api/mail/admin/mailboxes/${MAILBOX_ID}/operations`;
     const accessPath = `/api/mail/admin/mailboxes/${MAILBOX_ID}/access`;
+    if (request.method === "GET" && url.pathname === "/api/mail/admin/operations") {
+      return api({
+        mailboxes: [platformMailboxSummary],
+        mailboxCount: 1,
+        withoutAdministratorCount: 0,
+        attentionCount: 0,
+        generatedAt: "2026-07-21T10:00:00.000Z",
+        nextCursor: null,
+      });
+    }
     if (request.method === "GET" && url.pathname === operationsPath) return api(platformMailboxSummary);
     if (request.method === "GET" && url.pathname === accessPath) return api([]);
     if (request.method === "POST" && url.pathname === accessPath) {
@@ -2933,7 +3134,7 @@ test("message read uses an additive state command", async () => {
     "mail",
     "message",
     "read",
-    REMOTE_MESSAGE_REF_ID,
+    MESSAGE_ID,
     "--mailbox",
     MAILBOX_ID,
     "--folder",
@@ -2945,11 +3146,129 @@ test("message read uses an additive state command", async () => {
   expect(result.exitCode).toBe(0);
   expect(body).toEqual({
     kind: "change_message_state",
-    remoteMessageRefId: REMOTE_MESSAGE_REF_ID,
+    messageId: MESSAGE_ID,
     folderId: FOLDER_ID,
     change: { addFlags: ["seen"] },
     idempotencyKey: "message-read-test",
   });
+});
+
+test("provider message mutations send public message ids", async () => {
+  const bodies: unknown[] = [];
+  const server = withMailbox(async (request) => {
+    if (request.method === "POST" && new URL(request.url).pathname === `/api/mail/mailboxes/${MAILBOX_ID}/commands`) {
+      bodies.push(await request.json());
+      return api({ ...mailCommand("queued"), kind: "move" });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+  const shared = ["--mailbox", MAILBOX_ID] as const;
+  const results = await Promise.all([
+    runCli(`http://127.0.0.1:${server.port}`, [
+      "--json",
+      "mail",
+      "message",
+      "flags",
+      MESSAGE_ID,
+      ...shared,
+      "--folder",
+      FOLDER_ID,
+      "--flag",
+      "\\Seen",
+      "--idempotency-key",
+      "flags-test",
+    ]),
+    runCli(`http://127.0.0.1:${server.port}`, [
+      "--json",
+      "mail",
+      "message",
+      "move",
+      MESSAGE_ID,
+      ...shared,
+      "--source",
+      FOLDER_ID,
+      "--destination",
+      "Foldr2",
+      "--idempotency-key",
+      "move-test",
+    ]),
+    runCli(`http://127.0.0.1:${server.port}`, [
+      "--json",
+      "mail",
+      "message",
+      "copy",
+      MESSAGE_ID,
+      ...shared,
+      "--source",
+      FOLDER_ID,
+      "--destination",
+      "Foldr2",
+      "--idempotency-key",
+      "copy-test",
+    ]),
+    runCli(`http://127.0.0.1:${server.port}`, [
+      "--json",
+      "mail",
+      "message",
+      "delete",
+      MESSAGE_ID,
+      ...shared,
+      "--folder",
+      FOLDER_ID,
+      "--idempotency-key",
+      "delete-test",
+      "--yes",
+    ]),
+  ]);
+
+  expect(results.map((result) => result.exitCode)).toEqual([0, 0, 0, 0]);
+  expect(bodies).toHaveLength(4);
+  expect(bodies).toEqual(
+    expect.arrayContaining([
+      { kind: "set_flags", messageId: MESSAGE_ID, folderId: FOLDER_ID, flags: ["\\Seen"], idempotencyKey: "flags-test" },
+      { kind: "move", messageId: MESSAGE_ID, sourceFolderId: FOLDER_ID, destinationFolderId: "Foldr2", idempotencyKey: "move-test" },
+      { kind: "copy", messageId: MESSAGE_ID, sourceFolderId: FOLDER_ID, destinationFolderId: "Foldr2", idempotencyKey: "copy-test" },
+      { kind: "delete", messageId: MESSAGE_ID, folderId: FOLDER_ID, idempotencyKey: "delete-test" },
+    ]),
+  );
+});
+
+test("conversation message table does not expose provider placement ids", async () => {
+  const placementId = "00000000-0000-4000-8000-000000000099";
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/messages`) {
+      return api({
+        items: [
+          {
+            id: MESSAGE_ID,
+            subject: "Public contract",
+            internalDate: "2026-07-12T00:00:00.000Z",
+            from: [{ name: null, address: "sender@example.test" }],
+            remoteMessageRefId: placementId,
+          },
+        ],
+        nextCursor: null,
+      });
+    }
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "mail",
+    "conversation",
+    "messages",
+    CONVERSATION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stdout).toContain(MESSAGE_ID);
+  expect(result.stdout).not.toContain(placementId);
+  expect(result.stdout).not.toContain("REMOTE REF");
 });
 
 test("conversation archive targets the configured semantic role", async () => {
@@ -3064,7 +3383,7 @@ test("conversation not-spam and provider keyword commands use the shared triage 
 
 test("conversation move targets an explicit provider folder", async () => {
   let body: unknown;
-  const destinationFolderId = "90000000-0000-4000-8000-000000000009";
+  const destinationFolderId = "Foldr2";
   const server = withMailbox(async (request) => {
     const expectedPath = `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/actions`;
     if (request.method === "POST" && new URL(request.url).pathname === expectedPath) {
@@ -4257,7 +4576,7 @@ test("incoming automation CRUD accepts complete mixed-flow definitions and prese
         id: "00000000-0000-4000-8000-000000000043",
         kind: "create_reply_draft",
         body: { kind: "step_output", sourceStepId: "00000000-0000-4000-8000-000000000041" },
-        senderIdentityId: "00000000-0000-4000-8000-000000000042",
+        senderIdentityId: IDENTITY_ID,
       },
     ],
   };

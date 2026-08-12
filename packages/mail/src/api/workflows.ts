@@ -1,4 +1,4 @@
-import { type AuthContext, respond, v } from "@valentinkolb/cloud/server";
+import { v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
 import { z } from "zod";
 import {
@@ -7,11 +7,13 @@ import {
   createWorkflowInputSchema,
   createWorkflowVersionInputSchema,
   deactivateWorkflowInputSchema,
+  ResourceShortIdSchema,
   restoreWorkflowVersionInputSchema,
   updateWorkflowMetadataInputSchema,
   validateWorkflowInputSchema,
 } from "../contracts";
 import { type MailRequestContext, workflows } from "../service";
+import { internalMailboxId, type MailApiContext, mailboxParamSchema, resolveMailboxParam, respondPublic } from "./public-resource-boundary";
 import {
   mailWorkflowDetailSchema,
   mailWorkflowSchema,
@@ -21,27 +23,31 @@ import {
   workflowValidationSchema,
 } from "./workflow-openapi";
 
-const mailboxParamSchema = z.object({ mailboxId: z.string().uuid() });
-const workflowParamSchema = z.object({ mailboxId: z.string().uuid(), workflowId: z.string().uuid() });
+const workflowParamSchema = z.object({ mailboxId: ResourceShortIdSchema, workflowId: z.string().uuid() });
 const workflowVersionParamSchema = workflowParamSchema.extend({ versionId: z.string().uuid() });
-const requestContext = (c: Context<AuthContext>): MailRequestContext => ({
+const requestContext = (c: Context<MailApiContext>): MailRequestContext => ({
   actor: c.get("actor"),
   accessSubject: c.get("accessSubject"),
   requestId: c.req.header("x-request-id") ?? null,
 });
+const workflowParams = <T extends { mailboxId: string }>(c: Context<MailApiContext>, params: T): T => ({
+  ...params,
+  mailboxId: internalMailboxId(c),
+});
 
-const workflowRoutes = new Hono<AuthContext>()
+const workflowRoutes = new Hono<MailApiContext>()
+  .use("/mailboxes/:mailboxId/*", resolveMailboxParam)
   .post(
     "/mailboxes/:mailboxId/workflows/autocomplete",
     workflowOperation("Complete Mail workflow YAML", workflowAutocompleteSchema, "Workflow completions and diagnostics"),
     v("param", mailboxParamSchema),
     v("json", autocompleteWorkflowInputSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         workflows.autocompleteWorkflow({
           context: requestContext(c),
-          mailboxId: c.req.valid("param").mailboxId,
+          mailboxId: internalMailboxId(c),
           input: c.req.valid("json"),
         }),
       ),
@@ -52,11 +58,11 @@ const workflowRoutes = new Hono<AuthContext>()
     v("param", mailboxParamSchema),
     v("json", validateWorkflowInputSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         workflows.validateWorkflow({
           context: requestContext(c),
-          mailboxId: c.req.valid("param").mailboxId,
+          mailboxId: internalMailboxId(c),
           source: c.req.valid("json").source,
         }),
       ),
@@ -65,7 +71,7 @@ const workflowRoutes = new Hono<AuthContext>()
     "/mailboxes/:mailboxId/workflows",
     workflowOperation("List Mail workflows", z.array(mailWorkflowSchema), "Mail workflows"),
     v("param", mailboxParamSchema),
-    async (c) => respond(c, workflows.listWorkflows(requestContext(c), c.req.valid("param").mailboxId)),
+    async (c) => respondPublic(c, workflows.listWorkflows(requestContext(c), internalMailboxId(c))),
   )
   .post(
     "/mailboxes/:mailboxId/workflows",
@@ -73,11 +79,11 @@ const workflowRoutes = new Hono<AuthContext>()
     v("param", mailboxParamSchema),
     v("json", createWorkflowInputSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         workflows.createWorkflow({
           context: requestContext(c),
-          mailboxId: c.req.valid("param").mailboxId,
+          mailboxId: internalMailboxId(c),
           input: c.req.valid("json"),
         }),
       ),
@@ -87,8 +93,8 @@ const workflowRoutes = new Hono<AuthContext>()
     workflowOperation("Get a Mail workflow", mailWorkflowDetailSchema, "Mail workflow", [404]),
     v("param", workflowParamSchema),
     async (c) => {
-      const params = c.req.valid("param");
-      return respond(c, workflows.getWorkflow(requestContext(c), params.mailboxId, params.workflowId));
+      const params = workflowParams(c, c.req.valid("param"));
+      return respondPublic(c, workflows.getWorkflow(requestContext(c), params.mailboxId, params.workflowId));
     },
   )
   .patch(
@@ -97,11 +103,11 @@ const workflowRoutes = new Hono<AuthContext>()
     v("param", workflowParamSchema),
     v("json", updateWorkflowMetadataInputSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         workflows.updateWorkflowMetadata({
           context: requestContext(c),
-          ...c.req.valid("param"),
+          ...workflowParams(c, c.req.valid("param")),
           input: c.req.valid("json"),
         }),
       ),
@@ -110,13 +116,14 @@ const workflowRoutes = new Hono<AuthContext>()
     "/mailboxes/:mailboxId/workflows/:workflowId/versions",
     workflowOperation("List Mail workflow versions", z.array(mailWorkflowVersionSchema), "Mail workflow versions", [404]),
     v("param", workflowParamSchema),
-    async (c) => respond(c, workflows.listWorkflowVersions({ context: requestContext(c), ...c.req.valid("param") })),
+    async (c) =>
+      respondPublic(c, workflows.listWorkflowVersions({ context: requestContext(c), ...workflowParams(c, c.req.valid("param")) })),
   )
   .get(
     "/mailboxes/:mailboxId/workflows/:workflowId/versions/:versionId",
     workflowOperation("Get a Mail workflow version", mailWorkflowVersionSchema, "Mail workflow version", [404]),
     v("param", workflowVersionParamSchema),
-    async (c) => respond(c, workflows.getWorkflowVersion({ context: requestContext(c), ...c.req.valid("param") })),
+    async (c) => respondPublic(c, workflows.getWorkflowVersion({ context: requestContext(c), ...workflowParams(c, c.req.valid("param")) })),
   )
   .post(
     "/mailboxes/:mailboxId/workflows/:workflowId/versions/:versionId/restore",
@@ -124,11 +131,11 @@ const workflowRoutes = new Hono<AuthContext>()
     v("param", workflowVersionParamSchema),
     v("json", restoreWorkflowVersionInputSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         workflows.restoreWorkflowVersion({
           context: requestContext(c),
-          ...c.req.valid("param"),
+          ...workflowParams(c, c.req.valid("param")),
           input: c.req.valid("json"),
         }),
       ),
@@ -139,11 +146,11 @@ const workflowRoutes = new Hono<AuthContext>()
     v("param", workflowParamSchema),
     v("json", createWorkflowVersionInputSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         workflows.createWorkflowVersion({
           context: requestContext(c),
-          ...c.req.valid("param"),
+          ...workflowParams(c, c.req.valid("param")),
           input: c.req.valid("json"),
         }),
       ),
@@ -154,11 +161,11 @@ const workflowRoutes = new Hono<AuthContext>()
     v("param", workflowParamSchema),
     v("json", activateWorkflowInputSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         workflows.activateWorkflow({
           context: requestContext(c),
-          ...c.req.valid("param"),
+          ...workflowParams(c, c.req.valid("param")),
           input: c.req.valid("json"),
         }),
       ),
@@ -169,11 +176,11 @@ const workflowRoutes = new Hono<AuthContext>()
     v("param", workflowParamSchema),
     v("json", deactivateWorkflowInputSchema),
     async (c) =>
-      respond(
+      respondPublic(
         c,
         workflows.deactivateWorkflow({
           context: requestContext(c),
-          ...c.req.valid("param"),
+          ...workflowParams(c, c.req.valid("param")),
           input: c.req.valid("json"),
         }),
       ),

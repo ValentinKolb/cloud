@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { encryptSecret } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import type { MailRequestContext } from "./auth";
 import { createMailbox } from "./mailboxes";
@@ -11,6 +12,12 @@ const enabled = process.env.MAIL_PERFORMANCE_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 const requestedMessageCount = Number.parseInt(process.env.MAIL_PERFORMANCE_MESSAGE_COUNT ?? "20000", 10);
 const MESSAGE_COUNT = Number.isFinite(requestedMessageCount) ? Math.min(Math.max(requestedMessageCount, 20_000), 100_000) : 20_000;
+
+const uniqueShortIds = (count: number): string[] => {
+  const ids = new Set<string>();
+  while (ids.size < count) ids.add(newShortId());
+  return [...ids];
+};
 
 suite("mail large-mailbox performance", () => {
   const suffix = crypto.randomUUID().slice(0, 8);
@@ -83,13 +90,15 @@ suite("mail large-mailbox performance", () => {
       )
     `;
     const [folder] = await sql<{ id: string }[]>`
-      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
-      VALUES (${resource!.id}::uuid, 'performance-inbox', 'Inbox', 'inbox', 'current')
+      INSERT INTO mail.folders (short_id, remote_resource_id, stable_key, name, role, sync_status)
+      VALUES (${newShortId()}, ${resource!.id}::uuid, 'performance-inbox', 'Inbox', 'inbox', 'current')
       RETURNING id
     `;
 
+    const messageShortIds = uniqueShortIds(MESSAGE_COUNT);
     await sql`
       INSERT INTO mail.message_contents (
+        short_id,
         mailbox_id,
         message_id,
         subject,
@@ -101,6 +110,7 @@ suite("mail large-mailbox performance", () => {
         normalized_subject
       )
       SELECT
+        short_id.value,
         ${mailbox.data.id}::uuid,
         '<bulk-' || item || '@example.com>',
         CASE WHEN item = 15000 THEN 'Quarterly cobalt invoice' ELSE 'Routine message ' || item END,
@@ -111,6 +121,8 @@ suite("mail large-mailbox performance", () => {
         CASE WHEN item = 15000 THEN 'The quarterly cobalt invoice is ready for review' ELSE 'Routine body ' || item END,
         CASE WHEN item = 15000 THEN 'quarterly cobalt invoice' ELSE 'routine message ' || item END
       FROM generate_series(1, ${MESSAGE_COUNT}) AS item
+      JOIN jsonb_array_elements_text(${messageShortIds}::jsonb) WITH ORDINALITY AS short_id(value, position)
+        ON short_id.position = item
     `;
     await sql`
       INSERT INTO mail.message_addresses (
@@ -150,9 +162,14 @@ suite("mail large-mailbox performance", () => {
       FROM mail.remote_message_refs rmr
       WHERE rmr.folder_id = ${folder!.id}::uuid
     `;
+    const conversationIds = uniqueShortIds(MESSAGE_COUNT);
+    const conversationShortIds = Object.fromEntries(
+      messageShortIds.map((messageShortId, index) => [messageShortId, conversationIds[index]]),
+    );
     await sql`
       INSERT INTO mail.conversations (
         id,
+        short_id,
         mailbox_id,
         subject,
         participant_summary,
@@ -161,12 +178,15 @@ suite("mail large-mailbox performance", () => {
       )
       SELECT
         mc.id,
+        public_id.conversation_short_id,
         mc.mailbox_id,
         mc.subject,
         'Bulk Sender',
         mc.internal_date,
         mc.internal_date
       FROM mail.message_contents mc
+      JOIN jsonb_each_text(${conversationShortIds}::jsonb) AS public_id(message_short_id, conversation_short_id)
+        ON public_id.message_short_id = mc.short_id
       WHERE mc.mailbox_id = ${mailbox.data.id}::uuid
     `;
     await sql`

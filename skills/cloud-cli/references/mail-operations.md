@@ -215,20 +215,20 @@ Supported roles are `sent`, `drafts`, `trash`, `archive`, and `junk`. Role chang
 
 ## Change one remote message
 
-Use `remoteMessageRefId` and `folderId` from `message get` or `conversation messages`. Additive commands preserve unrelated concurrent state:
+Use the public message `id` and source `folderId` from `message get` or `conversation messages`. The API resolves that exact active provider placement inside the mailbox; provider placement UUIDs are never public selectors. Additive commands preserve unrelated concurrent state:
 
 ```bash
-cld --json mail message read <remote-message-ref-id> --folder <folder-id> --wait
-cld --json mail message unread <remote-message-ref-id> --folder <folder-id> --wait
-cld --json mail message star <remote-message-ref-id> --folder <folder-id> --wait
-cld --json mail message unstar <remote-message-ref-id> --folder <folder-id> --wait
+cld --json mail message read <message-id> --folder <folder-id> --wait
+cld --json mail message unread <message-id> --folder <folder-id> --wait
+cld --json mail message star <message-id> --folder <folder-id> --wait
+cld --json mail message unstar <message-id> --folder <folder-id> --wait
 cld --json mail message keyword add \
-  <remote-message-ref-id> \
+  <message-id> \
   CloudReviewed \
   --folder <folder-id> \
   --wait
 cld --json mail message keyword remove \
-  <remote-message-ref-id> \
+  <message-id> \
   CloudReviewed \
   --folder <folder-id> \
   --wait
@@ -240,7 +240,7 @@ The Mail UI calls the standard `\Flagged` state **Flag**. The CLI uses `star` an
 
 ```bash
 cld --json mail message flags \
-  <remote-message-ref-id> \
+  <message-id> \
   --folder <folder-id> \
   --flag "\\Seen" \
   --flag "\\Flagged"
@@ -250,11 +250,11 @@ Copy or move one remote placement:
 
 ```bash
 cld --json mail message copy \
-  <remote-message-ref-id> \
+  <message-id> \
   --source <folder-id> \
   --destination <folder-id>
 cld --json mail message move \
-  <remote-message-ref-id> \
+  <message-id> \
   --source <folder-id> \
   --destination <folder-id>
 ```
@@ -262,7 +262,7 @@ cld --json mail message move \
 Remote deletion uses the provider's safe UID operation and requires confirmation:
 
 ```bash
-cld mail message delete <remote-message-ref-id> --folder <folder-id> --yes
+cld mail message delete <message-id> --folder <folder-id> --yes
 ```
 
 ## Change a conversation in one folder

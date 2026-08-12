@@ -407,8 +407,8 @@ describe("spaces capabilities", () => {
       data: {
         deliveryId: "88888888-8888-4888-8888-888888888888",
         itemId,
-        mailboxId: "99999999-9999-4999-8999-999999999999",
-        draftId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        mailboxId: "mail01",
+        draftId: "draft1",
         sequence: 0,
         filename: "invitation.ics",
         contentType: "text/calendar; method=REQUEST; charset=utf-8",
@@ -421,9 +421,9 @@ describe("spaces capabilities", () => {
     const result = await spacesCapabilities.actions["event.invitation.prepare"].run(
       {
         itemId,
-        mailboxId: "99999999-9999-4999-8999-999999999999",
-        draftId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        senderIdentityId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        mailboxId: "mail01",
+        draftId: "draft1",
+        senderIdentityId: "ident1",
         organizer: { name: "Organizer", address: "organizer@example.test" },
         attendees: [{ name: null, address: "attendee@example.test" }],
       },
@@ -443,7 +443,7 @@ describe("spaces capabilities", () => {
       data: {
         refs: [
           { type: "spaces.item", id: itemId },
-          { type: "mail.draft", id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+          { type: "mail.draft", id: "draft1" },
         ],
       },
     });
@@ -460,9 +460,9 @@ describe("spaces capabilities", () => {
     const result = await spacesCapabilities.actions["event.invitation.prepare"].run(
       {
         itemId,
-        mailboxId: "99999999-9999-4999-8999-999999999999",
-        draftId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        senderIdentityId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        mailboxId: "mail01",
+        draftId: "draft1",
+        senderIdentityId: "ident1",
         organizer: { name: "Organizer", address: "organizer@example.test" },
         attendees: [{ name: null, address: "attendee@example.test" }],
       },
@@ -561,10 +561,10 @@ describe("spaces capabilities", () => {
 
     const result = await spacesCapabilities.actions["calendar-invitation.response.commit"].review!(
       {
-        mailboxId: "99999999-9999-4999-8999-999999999999",
-        messageId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        mailboxId: "mail01",
+        messageId: "msg001",
         participationStatus: "accepted",
-        draftId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        draftId: "draft1",
       },
       userContext,
     );
@@ -610,8 +610,8 @@ describe("spaces capabilities", () => {
 
     const result = await spacesCapabilities.actions["calendar-invitation.import"].review!(
       {
-        mailboxId: "99999999-9999-4999-8999-999999999999",
-        messageId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        mailboxId: "mail01",
+        messageId: "msg001",
         calendar: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n",
         spaceId,
       },

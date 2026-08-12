@@ -1,14 +1,14 @@
-import { type AuthContext, respond, v } from "@valentinkolb/cloud/server";
 import { err, fail } from "@k2b/stdlib";
+import { v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
 import { mailOAuthStartInputSchema } from "../contracts";
 import type { MailRequestContext } from "../service";
-import { providerOAuth } from "../service";
+import { providerOAuth, publicResources } from "../service";
 import { sha256Text } from "../service/canonical";
+import { internalMailboxId, type MailApiContext, mailboxParamSchema, resolveMailboxParam, respondPublic } from "./public-resource-boundary";
 
-const mailboxParamSchema = z.object({ mailboxId: z.string().uuid() });
 const flowParamSchema = z.object({ flowId: z.string().uuid() });
 const callbackQuerySchema = z
   .object({
@@ -18,32 +18,33 @@ const callbackQuerySchema = z
   })
   .passthrough();
 
-const requestContext = (c: Context<AuthContext>): MailRequestContext => ({
+const requestContext = (c: Context<MailApiContext>): MailRequestContext => ({
   actor: c.get("actor"),
   accessSubject: c.get("accessSubject"),
   requestId: c.req.header("x-request-id") ?? null,
 });
 
-const requireBrowserSession = (c: Context<AuthContext>) => c.get("actor").kind === "user" && Boolean(c.get("sessionToken"));
+const requireBrowserSession = (c: Context<MailApiContext>) => c.get("actor").kind === "user" && Boolean(c.get("sessionToken"));
 
-const callbackHeaders = (c: Context<AuthContext>) => {
+const callbackHeaders = (c: Context<MailApiContext>) => {
   c.header("cache-control", "no-store");
   c.header("referrer-policy", "no-referrer");
 };
 
-export const providerOAuthApi = new Hono<AuthContext>()
+export const providerOAuthApi = new Hono<MailApiContext>()
+  .use("/mailboxes/:mailboxId/*", resolveMailboxParam)
   .get("/oauth/providers", async (c) => {
-    if (!requireBrowserSession(c)) return respond(c, fail(err.forbidden("Browser OAuth requires an active user session")));
+    if (!requireBrowserSession(c)) return respondPublic(c, fail(err.forbidden("Browser OAuth requires an active user session")));
     return c.json(await providerOAuth.listConfiguredOAuthProviders());
   })
   .post("/mailboxes/:mailboxId/oauth/start", v("param", mailboxParamSchema), v("json", mailOAuthStartInputSchema), async (c) => {
-    if (!requireBrowserSession(c)) return respond(c, fail(err.forbidden("Browser OAuth requires an active user session")));
+    if (!requireBrowserSession(c)) return respondPublic(c, fail(err.forbidden("Browser OAuth requires an active user session")));
     const result = await providerOAuth.startProviderOAuth({
       context: requestContext(c),
-      mailboxId: c.req.valid("param").mailboxId,
+      mailboxId: internalMailboxId(c),
       input: c.req.valid("json"),
     });
-    if (!result.ok) return respond(c, result);
+    if (!result.ok) return respondPublic(c, result);
     const callbackUri = await providerOAuth.providerOAuthCallbackUri();
     setCookie(c, result.data.cookieName, result.data.browserNonce, {
       httpOnly: true,
@@ -55,8 +56,8 @@ export const providerOAuthApi = new Hono<AuthContext>()
     return c.json({ authorizationUrl: result.data.authorizationUrl, expiresAt: result.data.expiresAt });
   })
   .get("/oauth/flows/:flowId", v("param", flowParamSchema), async (c) => {
-    if (!requireBrowserSession(c)) return respond(c, fail(err.forbidden("Browser OAuth requires an active user session")));
-    return respond(c, providerOAuth.getProviderOAuthFlowResult(requestContext(c), c.req.valid("param").flowId));
+    if (!requireBrowserSession(c)) return respondPublic(c, fail(err.forbidden("Browser OAuth requires an active user session")));
+    return respondPublic(c, providerOAuth.getProviderOAuthFlowResult(requestContext(c), c.req.valid("param").flowId));
   })
   .get("/oauth/callback", async (c) => {
     callbackHeaders(c);
@@ -74,7 +75,8 @@ export const providerOAuthApi = new Hono<AuthContext>()
       code: query.data.code ?? null,
       providerDenied: Boolean(query.data.error),
     });
-    const destination = result.mailboxId ? `/app/mail/${result.mailboxId}` : "/app/mail";
+    const mailboxIds = result.mailboxId ? await publicResources.publicIds("mailboxes", [result.mailboxId]) : new Map<string, string>();
+    const destination = result.mailboxId ? `/app/mail/${publicResources.requirePublicId(mailboxIds, result.mailboxId)}` : "/app/mail";
     const search = new URLSearchParams({ oauth: result.outcome });
     if (result.flowId) search.set("flow", result.flowId);
     return c.redirect(`${destination}?${search}`, 303);

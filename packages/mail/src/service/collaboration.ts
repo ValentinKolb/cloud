@@ -9,7 +9,9 @@ import type {
   UpdateConversationComment,
 } from "../contracts";
 import { createConversationCommentSchema } from "../contracts";
+import { withShortIdDb } from "../lib/short-id";
 import { requireMailboxPermission } from "./access";
+import { projectActivityItems } from "./activity-public";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
 import { listCurrentMailboxUsers } from "./collaborators";
 import { type MailConversationChangedEvent, publishMailCollaborationEvent } from "./events";
@@ -113,6 +115,8 @@ type ActivityRow = {
   outcome: MailActivityEvent["outcome"];
   target_type: string | null;
   target_id: string | null;
+  conversation_reference_value: string | null;
+  mailbox_short_id: string;
   metadata: Record<string, unknown> | string;
   created_at: Date | string;
 };
@@ -793,10 +797,14 @@ export const createConversationComment = async (params: {
       });
       if (!references.ok) return references;
       const actor = actorIdentity(params.context);
-      const [comment] = await tx<{ id: string }[]>`
+      const commentRows = await withShortIdDb(
+        tx,
+        "comment",
+        (db, shortId) => db<{ id: string }[]>`
         INSERT INTO mail.conversation_comments (
-          conversation_id, author_kind, author_id, body_markdown, parent_comment_id, referenced_message_id
+          short_id, conversation_id, author_kind, author_id, body_markdown, parent_comment_id, referenced_message_id
         ) VALUES (
+          ${shortId},
           ${params.conversationId}::uuid,
           ${actor.kind},
           ${actor.id}::uuid,
@@ -805,7 +813,9 @@ export const createConversationComment = async (params: {
           ${params.input.referencedMessageId ?? null}::uuid
         )
         RETURNING id
-      `;
+      `,
+      );
+      const [comment] = commentRows;
       if (!comment) return fail(err.internal("Comment insert returned no row"));
       await tx`
         INSERT INTO mail.conversation_comment_versions (
@@ -867,14 +877,19 @@ export const createWorkflowConversationCommentInTransaction = async (params: {
     FOR UPDATE
   `;
   if (!conversation) return fail(err.notFound("Conversation"));
-  const [comment] = await params.db<{ id: string }[]>`
+  const commentRows = await withShortIdDb(
+    params.db,
+    "comment",
+    (db, shortId) => db<{ id: string }[]>`
     INSERT INTO mail.conversation_comments (
-      conversation_id, author_kind, author_id, body_markdown
+      short_id, conversation_id, author_kind, author_id, body_markdown
     ) VALUES (
-      ${params.conversationId}::uuid, 'workflow', ${params.workflowVersionId}::uuid, ${parsed.data.body}
+      ${shortId}, ${params.conversationId}::uuid, 'workflow', ${params.workflowVersionId}::uuid, ${parsed.data.body}
     )
     RETURNING id
-  `;
+  `,
+  );
+  const [comment] = commentRows;
   if (!comment) return fail(err.internal("Comment insert returned no row"));
   await params.db`
     INSERT INTO mail.conversation_comment_versions (
@@ -1080,9 +1095,16 @@ export const listActivity = async (params: {
       activity.outcome,
       activity.target_type,
       activity.target_id,
+      activity_reference.value AS conversation_reference_value,
+      activity_mailbox.short_id AS mailbox_short_id,
       activity.metadata,
       activity.created_at
     FROM mail.activity_events activity
+    JOIN mail.mailboxes activity_mailbox ON activity_mailbox.id = activity.mailbox_id
+    LEFT JOIN mail.conversation_references activity_reference
+      ON activity.target_type = 'conversation_reference'
+      AND activity_reference.id = activity.target_id
+      AND activity_reference.mailbox_id = activity.mailbox_id
     LEFT JOIN auth.users actor_user ON activity.actor_kind = 'user' AND actor_user.id = activity.actor_id
     LEFT JOIN auth.service_accounts actor_service
       ON activity.actor_kind = 'service_account' AND actor_service.id = activity.actor_id
@@ -1094,22 +1116,29 @@ export const listActivity = async (params: {
   `;
   const hasMore = rows.length > limit;
   const pageRows = hasMore ? rows.slice(0, limit) : rows;
-  const items = pageRows.map((row) => ({
-    id: String(row.id),
-    conversationId: row.conversation_id,
-    actor: {
-      kind: row.actor_kind,
-      id: row.actor_id,
-      displayName: row.actor_display_name,
-      avatarHash: row.actor_avatar_hash,
-    },
-    action: row.action,
-    outcome: row.outcome,
-    targetType: row.target_type,
-    targetId: row.target_id,
-    metadata: parseMetadata(row.metadata),
-    createdAt: toIso(row.created_at),
-  }));
+  const items = await projectActivityItems(
+    pageRows.map((row) => ({
+      id: String(row.id),
+      conversationId: row.conversation_id,
+      actor: {
+        kind: row.actor_kind,
+        id: row.actor_id,
+        displayName: row.actor_display_name,
+        avatarHash: row.actor_avatar_hash,
+      },
+      action: row.action,
+      outcome: row.outcome,
+      targetType: row.target_type,
+      targetId:
+        row.target_type === "conversation_reference"
+          ? row.conversation_reference_value
+          : row.target_type === "reference_configuration"
+            ? row.mailbox_short_id
+            : row.target_id,
+      metadata: parseMetadata(row.metadata),
+      createdAt: toIso(row.created_at),
+    })),
+  );
   const last = items.at(-1);
   return ok({
     items,

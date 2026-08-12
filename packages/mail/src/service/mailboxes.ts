@@ -11,6 +11,7 @@ import {
   defaultComposeSafetyConfig,
   type Mailbox,
 } from "../contracts";
+import { withShortIdDb } from "../lib/short-id";
 import {
   getMailboxPermission,
   isCurrentActorActive,
@@ -178,14 +179,19 @@ export const createMailbox = async (context: MailRequestContext, input: CreateMa
   return tryCatch(
     () =>
       sql.begin(async (tx) => {
-        const [row] = await tx<DbMailbox[]>`
+        const rows = await withShortIdDb(
+          tx,
+          "mailbox",
+          (db, shortId) => db<DbMailbox[]>`
           INSERT INTO mail.mailboxes (
+            short_id,
             name,
             description,
             created_by_user_id,
             created_by_service_account_id
           )
           VALUES (
+            ${shortId},
             ${input.name.trim()},
             ${input.description?.trim() || null},
             ${owner.id}::uuid,
@@ -193,7 +199,9 @@ export const createMailbox = async (context: MailRequestContext, input: CreateMa
           )
           RETURNING id, name, description, health, health_reason, sync_enabled, search_backend,
             automatic_reply_management_permission, compose_safety, deleted_at, created_at, updated_at
-        `;
+        `,
+        );
+        const [row] = rows;
         if (!row) throw new Error("Mailbox insert returned no row");
 
         await tx`INSERT INTO mail.compose_styles (mailbox_id) VALUES (${row.id}::uuid)`;

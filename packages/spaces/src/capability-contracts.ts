@@ -330,8 +330,8 @@ export const CommentDeleteInputSchema = z
 
 export const CalendarInvitationPreviewCapabilityInputSchema = z
   .object({
-    mailboxId: UuidSchema.describe("Source Mail mailbox UUID."),
-    messageId: UuidSchema.describe("Source Mail message UUID."),
+    mailboxId: ResourceShortIdSchema.describe("Source Mail mailbox ID."),
+    messageId: ResourceShortIdSchema.describe("Source Mail message ID."),
     calendar: z
       .string()
       .min(1)
@@ -351,10 +351,10 @@ export const CalendarInvitationImportCapabilityInputSchema = CalendarInvitationP
 export const CalendarInvitationImportCapabilityDataSchema = CalendarInvitationImportResultSchema;
 export const CalendarInvitationResponseCommitCapabilityInputSchema = z
   .object({
-    mailboxId: UuidSchema.describe("Source Mail mailbox UUID."),
-    messageId: UuidSchema.describe("Source Mail message UUID."),
+    mailboxId: ResourceShortIdSchema.describe("Source Mail mailbox ID."),
+    messageId: ResourceShortIdSchema.describe("Source Mail message ID."),
     participationStatus: CalendarParticipationStatusSchema.describe("Response saved in Spaces."),
-    draftId: UuidSchema.describe("Mail draft UUID created from the prepared response."),
+    draftId: ResourceShortIdSchema.describe("Mail draft ID created from the prepared response."),
   })
   .strict();
 export const CalendarInvitationResponseCommitCapabilityDataSchema = CalendarInvitationResponseStateSchema;
@@ -365,9 +365,9 @@ export const CalendarDestinationListDataSchema = z
 export const EventInvitationPrepareInputSchema = z
   .object({
     itemId: ResourceShortIdSchema.describe("Writable event item ID."),
-    mailboxId: UuidSchema.describe("Mail mailbox owning the target draft."),
-    draftId: UuidSchema.describe("Existing Mail draft that will receive the invitation."),
-    senderIdentityId: UuidSchema.describe("Verified Mail sender identity used as organizer."),
+    mailboxId: ResourceShortIdSchema.describe("Mail mailbox owning the target draft."),
+    draftId: ResourceShortIdSchema.describe("Existing Mail draft that will receive the invitation."),
+    senderIdentityId: ResourceShortIdSchema.describe("Verified Mail sender identity used as organizer."),
     organizer: CalendarAddressSchema.describe("Organizer derived from the verified Mail sender identity."),
     attendees: z.array(CalendarAddressSchema).min(1).max(200).describe("Visible To and Cc recipients derived from the current Mail draft."),
   })
@@ -376,8 +376,8 @@ export const EventInvitationPrepareDataSchema = z
   .object({
     deliveryId: UuidSchema,
     itemId: ResourceShortIdSchema,
-    mailboxId: UuidSchema,
-    draftId: UuidSchema,
+    mailboxId: ResourceShortIdSchema,
+    draftId: ResourceShortIdSchema,
     sequence: z.number().int().nonnegative(),
     filename: z.string().min(1).max(255),
     contentType: z.string().min(1).max(255),
@@ -391,6 +391,6 @@ export const EventInvitationCommitInputSchema = z
   .object({ deliveryId: UuidSchema.describe("Prepared invitation delivery UUID.") })
   .strict();
 export const EventInvitationCommitDataSchema = z
-  .object({ deliveryId: UuidSchema, itemId: ResourceShortIdSchema, draftId: UuidSchema, state: z.literal("drafted") })
+  .object({ deliveryId: UuidSchema, itemId: ResourceShortIdSchema, draftId: ResourceShortIdSchema, state: z.literal("drafted") })
   .strict();
 export const CommentDeleteDataSchema = z.object({ commentId: ResourceShortIdSchema, deleted: z.literal(true) }).strict();

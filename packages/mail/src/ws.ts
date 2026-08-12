@@ -18,6 +18,7 @@ import {
 import type { MailRequestContext } from "./service/auth";
 import * as collaboration from "./service/collaboration";
 import { latestMailInvalidationCursor, liveMailInvalidations } from "./service/events";
+import { resolvePublicId } from "./service/public-resources";
 
 const log = logger("mail:websocket");
 const ACCESS_REFRESH_INTERVAL_MS = 8_000;
@@ -32,6 +33,7 @@ type WsContext = {
   requestId: string | null;
   phase: WsPhase;
   mailboxId: string | null;
+  internalMailboxId: string | null;
   streamAbort: AbortController | null;
   accessRefreshTimer: ReturnType<typeof setTimeout> | null;
 };
@@ -95,6 +97,7 @@ const createContext = (socket: ServerWebSocket<unknown>, sessionToken: string | 
   requestId,
   phase: "open",
   mailboxId: null,
+  internalMailboxId: null,
   streamAbort: null,
   accessRefreshTimer: null,
 });
@@ -123,6 +126,7 @@ const stopSubscription = (ctx: WsContext) => {
   stopAccessRefresh(ctx);
   stopStream(ctx);
   ctx.mailboxId = null;
+  ctx.internalMailboxId = null;
 };
 
 const closeWithError = (ctx: WsContext, code: MailLiveErrorCode, message: string, closeCode: number) => {
@@ -145,26 +149,26 @@ const revoke = (ctx: WsContext, mailboxId: string, access: Exclude<MailLiveAcces
   ctx.socket.close(1008, access.code);
 };
 
-const currentAccess = (ctx: WsContext, mailboxId: string) =>
-  evaluateMailLiveAccess({ sessionToken: ctx.sessionToken, requestId: ctx.requestId, mailboxId });
+const currentAccess = (ctx: WsContext, internalMailboxId: string) =>
+  evaluateMailLiveAccess({ sessionToken: ctx.sessionToken, requestId: ctx.requestId, mailboxId: internalMailboxId });
 
-const subscriptionIsCurrent = (ctx: WsContext, mailboxId: string, abort: AbortController): boolean =>
-  !abort.signal.aborted && ctx.phase === "subscribed" && ctx.mailboxId === mailboxId;
+const subscriptionIsCurrent = (ctx: WsContext, mailboxId: string, internalMailboxId: string, abort: AbortController): boolean =>
+  !abort.signal.aborted && ctx.phase === "subscribed" && ctx.mailboxId === mailboxId && ctx.internalMailboxId === internalMailboxId;
 
-const startAccessRefresh = (ctx: WsContext, mailboxId: string) => {
+const startAccessRefresh = (ctx: WsContext, mailboxId: string, internalMailboxId: string) => {
   stopAccessRefresh(ctx);
   ctx.accessRefreshTimer = setTimeout(async () => {
-    if (ctx.phase !== "subscribed" || ctx.mailboxId !== mailboxId) return;
+    if (ctx.phase !== "subscribed" || ctx.mailboxId !== mailboxId || ctx.internalMailboxId !== internalMailboxId) return;
     try {
-      const access = await currentAccess(ctx, mailboxId);
-      if (ctx.phase !== "subscribed" || ctx.mailboxId !== mailboxId) return;
+      const access = await currentAccess(ctx, internalMailboxId);
+      if (ctx.phase !== "subscribed" || ctx.mailboxId !== mailboxId || ctx.internalMailboxId !== internalMailboxId) return;
       if (!access.ok) {
         revoke(ctx, mailboxId, access);
         return;
       }
-      startAccessRefresh(ctx, mailboxId);
+      startAccessRefresh(ctx, mailboxId, internalMailboxId);
     } catch (error) {
-      if (ctx.phase !== "subscribed" || ctx.mailboxId !== mailboxId) return;
+      if (ctx.phase !== "subscribed" || ctx.mailboxId !== mailboxId || ctx.internalMailboxId !== internalMailboxId) return;
       log.error("Mail WebSocket access refresh failed", {
         mailboxId,
         error: error instanceof Error ? error.message : String(error),
@@ -177,12 +181,13 @@ const startAccessRefresh = (ctx: WsContext, mailboxId: string) => {
 const deliverReplayEvent = async (
   ctx: WsContext,
   mailboxId: string,
+  internalMailboxId: string,
   abort: AbortController,
   event: { cursor: string; data: unknown },
 ): Promise<boolean> => {
-  if (!subscriptionIsCurrent(ctx, mailboxId, abort)) return false;
-  const access = await currentAccess(ctx, mailboxId);
-  if (!subscriptionIsCurrent(ctx, mailboxId, abort)) return false;
+  if (!subscriptionIsCurrent(ctx, mailboxId, internalMailboxId, abort)) return false;
+  const access = await currentAccess(ctx, internalMailboxId);
+  if (!subscriptionIsCurrent(ctx, mailboxId, internalMailboxId, abort)) return false;
   if (!access.ok) {
     revoke(ctx, mailboxId, access);
     return false;
@@ -199,17 +204,17 @@ const deliverReplayEvent = async (
   return false;
 };
 
-const startStream = (ctx: WsContext, mailboxId: string, after: string) => {
+const startStream = (ctx: WsContext, mailboxId: string, internalMailboxId: string, after: string) => {
   stopStream(ctx);
   const abort = new AbortController();
   ctx.streamAbort = abort;
 
   void (async () => {
     try {
-      for await (const event of liveMailInvalidations({ mailboxId, after, signal: abort.signal })) {
-        if (!(await deliverReplayEvent(ctx, mailboxId, abort, event))) break;
+      for await (const event of liveMailInvalidations({ mailboxId: internalMailboxId, after, signal: abort.signal })) {
+        if (!(await deliverReplayEvent(ctx, mailboxId, internalMailboxId, abort, event))) break;
       }
-      if (subscriptionIsCurrent(ctx, mailboxId, abort)) {
+      if (subscriptionIsCurrent(ctx, mailboxId, internalMailboxId, abort)) {
         log.warn("Mail WebSocket event stream ended unexpectedly", { mailboxId });
         closeWithError(ctx, "stream_failed", "Mail event stream ended", 1012);
       }
@@ -228,7 +233,13 @@ const startStream = (ctx: WsContext, mailboxId: string, after: string) => {
 
 const handleSubscribe = async (ctx: WsContext, mailboxId: string, fromCursor: string | null) => {
   if (isClosing(ctx)) return;
-  const access = await currentAccess(ctx, mailboxId);
+  const internalMailboxId = await resolvePublicId("mailboxes", mailboxId);
+  if (!internalMailboxId) {
+    ctx.mailboxId = mailboxId;
+    revoke(ctx, mailboxId, { ok: false, code: "not_found", message: "Mailbox not found" });
+    return;
+  }
+  const access = await currentAccess(ctx, internalMailboxId);
   if (isClosing(ctx)) return;
   if (!access.ok) {
     ctx.mailboxId = mailboxId;
@@ -238,7 +249,7 @@ const handleSubscribe = async (ctx: WsContext, mailboxId: string, fromCursor: st
 
   let cursor: string;
   try {
-    cursor = await resolveMailLiveCursor(mailboxId, fromCursor);
+    cursor = await resolveMailLiveCursor(internalMailboxId, fromCursor);
   } catch (error) {
     log.error("Mail WebSocket cursor resolution failed", {
       mailboxId,
@@ -252,12 +263,13 @@ const handleSubscribe = async (ctx: WsContext, mailboxId: string, fromCursor: st
   stopSubscription(ctx);
   ctx.phase = "subscribed";
   ctx.mailboxId = mailboxId;
+  ctx.internalMailboxId = internalMailboxId;
   if (!send(ctx.socket, { type: MAIL_LIVE_WS_TYPE.ready, payload: { mailboxId, cursor } })) {
     closeWithError(ctx, "backpressure", "Mail updates exceeded the connection capacity", 1013);
     return;
   }
-  startStream(ctx, mailboxId, cursor);
-  startAccessRefresh(ctx, mailboxId);
+  startStream(ctx, mailboxId, internalMailboxId, cursor);
+  startAccessRefresh(ctx, mailboxId, internalMailboxId);
 };
 
 const handleMessage = async (ctx: WsContext, raw: string) => {

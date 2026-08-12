@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { MailDraftSeed } from "../../contracts";
 import { mailDraftSeedKey, readMailDraftSeed, removeMailDraftSeed, storeMailDraftSeed } from "./mail-draft-seed-store";
 
-const mailboxId = "10000000-0000-4000-8000-000000000001";
+const mailboxId = "Box001";
 const seedId = "20000000-0000-4000-8000-000000000002";
 
 const seed = (createdAt = new Date().toISOString()): MailDraftSeed => ({
@@ -14,7 +14,7 @@ const seed = (createdAt = new Date().toISOString()): MailDraftSeed => ({
   derivedFromMessageId: null,
   derivationKind: null,
   content: {
-    senderIdentityId: "30000000-0000-4000-8000-000000000003",
+    senderIdentityId: "Send01",
     to: [],
     cc: [],
     bcc: [],
@@ -30,7 +30,7 @@ const seed = (createdAt = new Date().toISOString()): MailDraftSeed => ({
   origin: {
     kind: "compose",
     input: {
-      senderIdentityId: "30000000-0000-4000-8000-000000000003",
+      senderIdentityId: "Send01",
       to: [],
       cc: [],
       bcc: [],

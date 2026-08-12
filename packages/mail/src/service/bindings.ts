@@ -1,7 +1,8 @@
-import { audit, isUniqueViolation, logger, toPgTextArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { audit, isUniqueViolation, logger, toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { ConnectorVerification, ProviderBinding, RemoteFolder, RemoteNamespace } from "../contracts";
+import { withShortIdDb } from "../lib/short-id";
 import { requireMailboxPermission } from "./access";
 import { auditActorFromRequest, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
@@ -323,12 +324,16 @@ const upsertProjectedFolder = async (params: {
     return updated.id;
   }
   const readable = params.folder.selectable && params.folder.rights.includes("read");
-  const [created] = await params.db<{ id: string }[]>`
+  const createdRows = await withShortIdDb(
+    params.db,
+    "folder",
+    (db, shortId) => db<{ id: string }[]>`
     INSERT INTO mail.folders (
-      remote_resource_id, stable_key, name, role, selectable, selected_for_sync,
+      short_id, remote_resource_id, stable_key, name, role, selectable, selected_for_sync,
       show_in_sidebar, discovery_generation, discovery_state, sync_status
     )
     VALUES (
+      ${shortId},
       ${params.remoteResourceId}::uuid,
       ${params.stableKey},
       ${params.folder.name},
@@ -341,7 +346,9 @@ const upsertProjectedFolder = async (params: {
       ${readable ? "pending" : "excluded"}
     )
     RETURNING id
-  `;
+  `,
+  );
+  const [created] = createdRows;
   if (!created) throw new Error("Discovered folder insert returned no row");
   return created.id;
 };

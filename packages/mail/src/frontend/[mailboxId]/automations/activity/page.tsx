@@ -4,19 +4,23 @@ import { ssr } from "../../../../config";
 import type { MailRequestContext } from "../../../../service";
 import { loadMailAutomationActivity } from "../../../../service/automation-workspace";
 import MailAutomationActivityPage from "../../../MailAutomationActivityPage.island";
+import { projectAutomationWorkspace, resolveSsrMailboxId } from "../../../ssr-public-boundary";
 
 export default ssr<AuthContext>(async (c) => {
-  const mailboxId = c.req.param("mailboxId") ?? "";
+  const mailboxShortId = c.req.param("mailboxId") ?? "";
   const actor = c.get("actor");
   const user = actor.kind === "user" ? actor.user : actor.delegatedUser;
-  if (!mailboxId || !user) return c.redirect("/app/mail");
+  if (!mailboxShortId || !user) return c.redirect("/app/mail");
+  const mailboxId = await resolveSsrMailboxId(mailboxShortId);
+  if (!mailboxId) return c.redirect("/app/mail");
   const context: MailRequestContext = {
     actor,
     accessSubject: c.get("accessSubject"),
     requestId: c.req.header("x-request-id") ?? null,
   };
   const result = await loadMailAutomationActivity(context, mailboxId);
-  if (!result.ok) return c.redirect(`/app/mail/${mailboxId}/automations`);
+  if (!result.ok) return c.redirect(`/app/mail/${mailboxShortId}/automations`);
+  const data = await projectAutomationWorkspace(result.data);
   return () => (
     <Layout
       c={c}
@@ -25,12 +29,12 @@ export default ssr<AuthContext>(async (c) => {
       title={[
         { title: "Start", href: "/" },
         { title: "Mail", href: "/app/mail" },
-        { title: result.data.mailbox.name, href: `/app/mail/${mailboxId}` },
-        { title: "Automations", href: `/app/mail/${mailboxId}/automations` },
+        { title: data.mailbox.name, href: `/app/mail/${mailboxShortId}` },
+        { title: "Automations", href: `/app/mail/${mailboxShortId}/automations` },
         { title: "Activity" },
       ]}
     >
-      <MailAutomationActivityPage data={result.data} currentUserEmail={user.mail} />
+      <MailAutomationActivityPage data={data} currentUserEmail={user.mail} />
     </Layout>
   );
 });

@@ -45,9 +45,12 @@ describe("Mail workspace preferences", () => {
   });
 
   test("reads the last opened mailbox id", () => {
+    const value = encodeURIComponent(JSON.stringify({ lastMailboxId: "Box001" }));
+    expect(readMailWorkspacePreferences(`cloud_mail_workspace=${value}`).lastMailboxId).toBe("Box001");
+  });
+
+  test("drops storage-backed UUID mailbox identities", () => {
     const value = encodeURIComponent(JSON.stringify({ lastMailboxId: "00000000-0000-4000-8000-000000000002" }));
-    expect(readMailWorkspacePreferences(`cloud_mail_workspace=${value}`).lastMailboxId).toBe(
-      "00000000-0000-4000-8000-000000000002",
-    );
+    expect(readMailWorkspacePreferences(`cloud_mail_workspace=${value}`).lastMailboxId).toBeNull();
   });
 });

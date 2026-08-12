@@ -12,6 +12,7 @@ import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { evaluateWorkflowTriggerInputs } from "@valentinkolb/cloud/workflows/runtime";
 import { emitWorkflowEvent } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
+import { withShortIdDb } from "../lib/short-id";
 import { MAIL_WORKFLOW_APP_ID, MAIL_WORKFLOW_EVENT } from "../workflows/events";
 import { normalizeEmailAddress } from "./address-normalization";
 import { cleanupPublicAttachmentLinks } from "./attachment-links";
@@ -368,8 +369,12 @@ export const ingestEnvelope = async (params: {
       message: params.message,
     }));
   if (!messageContentId) {
-    const [messageRow] = await params.db<{ id: string }[]>`
+    const messageRows = await withShortIdDb(
+      params.db,
+      "message",
+      (db, shortId) => db<{ id: string }[]>`
       INSERT INTO mail.message_contents (
+        short_id,
         mailbox_id,
         message_id,
         in_reply_to,
@@ -386,6 +391,7 @@ export const ingestEnvelope = async (params: {
         hydration_status
       )
       VALUES (
+        ${shortId},
         ${params.mailboxId}::uuid,
         ${params.message.messageId},
         ${params.message.inReplyTo},
@@ -414,7 +420,9 @@ export const ingestEnvelope = async (params: {
         mime_structure = EXCLUDED.mime_structure,
         protocol_facts = EXCLUDED.protocol_facts
       RETURNING id
-    `;
+    `,
+    );
+    const [messageRow] = messageRows;
     if (!messageRow) throw new Error("Message envelope insert returned no row");
     messageContentId = messageRow.id;
   }
@@ -519,8 +527,12 @@ export const ingestEnvelope = async (params: {
   `;
   const participantLabels = counterpartyLabels(params.message, Boolean(outbound[0]?.outbound));
   if (!conversationId) {
-    const [conversation] = await params.db<{ id: string }[]>`
+    const conversationRows = await withShortIdDb(
+      params.db,
+      "conversation",
+      (db, shortId) => db<{ id: string }[]>`
       INSERT INTO mail.conversations (
+        short_id,
         mailbox_id,
         subject,
         participant_summary,
@@ -530,6 +542,7 @@ export const ingestEnvelope = async (params: {
         work_status
       )
       VALUES (
+        ${shortId},
         ${params.mailboxId}::uuid,
         ${params.message.subject},
         ${participantLabels.slice(0, 20).join(", ")},
@@ -545,7 +558,9 @@ export const ingestEnvelope = async (params: {
         }
       )
       RETURNING id
-    `;
+    `,
+    );
+    const [conversation] = conversationRows;
     if (!conversation) throw new Error("Conversation insert returned no row");
     conversationId = conversation.id;
   }
@@ -627,7 +642,7 @@ export const ingestEnvelope = async (params: {
           type: MAIL_WORKFLOW_EVENT.messageReceived,
           targetWorkflowId: activation.workflow_id,
           data: evaluateWorkflowTriggerInputs(triggerValues, withValues, occurredAt),
-          context: mailWorkflowEventContext(params.mailboxId, snapshot),
+          context: mailWorkflowEventContext(snapshot),
           dedupeKey: `${deliveryKey}:${activation.workflow_id}`,
           occurredAt: new Date(occurredAt),
         },

@@ -7,6 +7,7 @@ import {
   emitWorkflowEvent,
 } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import type { MailRequestContext } from "./auth";
 import { cancelPendingAutomaticRepliesInTransaction, prepareAutomaticReplyInTransaction } from "./automatic-reply";
@@ -45,10 +46,12 @@ suite("Mail shared workflow kernel", () => {
   let userId = "";
   let deniedUserId = "";
   let mailboxId = "";
+  let mailboxShortId = "";
   let remoteResourceId = "";
   let inboxFolderId = "";
   let copyFolderId = "";
   let senderIdentityId = "";
+  let senderIdentityShortId = "";
   let context: MailRequestContext;
   let deniedContext: MailRequestContext;
 
@@ -112,6 +115,10 @@ suite("Mail shared workflow kernel", () => {
     const mailbox = await createMailbox(context, { name: `Workflow kernel ${suffix}` });
     if (!mailbox.ok) throw new Error(mailbox.error.message);
     mailboxId = mailbox.data.id;
+    const [mailboxPublic] = await sql<{ short_id: string }[]>`
+      SELECT short_id FROM mail.mailboxes WHERE id = ${mailboxId}::uuid
+    `;
+    mailboxShortId = mailboxPublic!.short_id;
     const [resource] = await sql<{ id: string }[]>`
       INSERT INTO mail.remote_resources (mailbox_id, remote_locator, server_identity, scope_fingerprint, status)
       VALUES (${mailboxId}::uuid, '{}'::jsonb, '{}'::jsonb, ${"d".repeat(64)}, 'active')
@@ -120,22 +127,23 @@ suite("Mail shared workflow kernel", () => {
     if (!resource) throw new Error("Failed to create Mail workflow remote resource");
     remoteResourceId = resource.id;
     const folders = await sql<{ id: string; stable_key: string }[]>`
-      INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
+      INSERT INTO mail.folders (short_id, remote_resource_id, stable_key, name, role, sync_status)
       VALUES
-        (${remoteResourceId}::uuid, ${`workflow-inbox-${suffix}`}, 'Inbox', 'inbox', 'current'),
-        (${remoteResourceId}::uuid, ${`workflow-copy-${suffix}`}, 'Archive', 'archive', 'current')
+        (${newShortId()}, ${remoteResourceId}::uuid, ${`workflow-inbox-${suffix}`}, 'Inbox', 'inbox', 'current'),
+        (${newShortId()}, ${remoteResourceId}::uuid, ${`workflow-copy-${suffix}`}, 'Archive', 'archive', 'current')
       RETURNING id, stable_key
     `;
     inboxFolderId = folders.find((folder) => folder.stable_key === `workflow-inbox-${suffix}`)?.id ?? "";
     copyFolderId = folders.find((folder) => folder.stable_key === `workflow-copy-${suffix}`)?.id ?? "";
     if (!inboxFolderId || !copyFolderId) throw new Error("Failed to create Mail workflow folders");
-    const [identity] = await sql<{ id: string }[]>`
-      INSERT INTO mail.sender_identities (mailbox_id, label, display_name, from_address, is_default, status)
-      VALUES (${mailboxId}::uuid, 'Support', 'Support', 'support@example.test', true, 'verified')
-      RETURNING id
+    const [identity] = await sql<{ id: string; short_id: string }[]>`
+      INSERT INTO mail.sender_identities (short_id, mailbox_id, label, display_name, from_address, is_default, status)
+      VALUES (${newShortId()}, ${mailboxId}::uuid, 'Support', 'Support', 'support@example.test', true, 'verified')
+      RETURNING id, short_id
     `;
     if (!identity) throw new Error("Failed to create Mail workflow sender identity");
     senderIdentityId = identity.id;
+    senderIdentityShortId = identity.short_id;
     const [deniedUser] = await sql<{ id: string; uid: string }[]>`
       INSERT INTO auth.users (uid, provider, profile, display_name, admin)
       VALUES (${`mail-workflow-denied-${suffix}`}, 'local', 'user', 'Mail workflow denied', false)
@@ -567,8 +575,8 @@ steps:
         RETURNING id
       `;
       const [folder] = await sql<{ id: string }[]>`
-        INSERT INTO mail.folders (remote_resource_id, stable_key, name, role, sync_status)
-        VALUES (${resource!.id}::uuid, ${`scale-inbox-${suffix}`}, 'Inbox', 'inbox', 'current')
+        INSERT INTO mail.folders (short_id, remote_resource_id, stable_key, name, role, sync_status)
+        VALUES (${newShortId()}, ${resource!.id}::uuid, ${`scale-inbox-${suffix}`}, 'Inbox', 'inbox', 'current')
         RETURNING id
       `;
 
@@ -683,11 +691,19 @@ steps:
     if (!reference) throw new Error("Failed to load workflow reply source");
     const snapshot = await getWorkflowSnapshot({ mailboxId, remoteMessageRefId: reference.id });
     if (!snapshot?.source.conversation) throw new Error("Workflow reply source has no conversation");
+    expect(snapshot.mailboxShortId).toBe(mailboxShortId);
+    expect(snapshot.source.message.id).toMatch(/^[0-9A-Za-z]{6}$/);
+    expect(snapshot.source.message.folderId).toMatch(/^[0-9A-Za-z]{6}$/);
+    expect(snapshot.source.conversation.id).toMatch(/^[0-9A-Za-z]{6}$/);
+    expect(snapshot.source.message).not.toHaveProperty("remoteMessageRefId");
+    expect(snapshot.source.message).not.toHaveProperty("messageId");
+    expect(snapshot.preconditions.message.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(snapshot.preconditions.message.remoteMessageRefId).toBe(reference.id);
     expect(snapshot.source.message.bodyAvailable).toBe(false);
     await sql`
       UPDATE mail.message_contents
       SET hydration_status = 'body', plain_text = 'A reviewable response'
-      WHERE id = ${snapshot.source.message.id}::uuid
+      WHERE id = ${snapshot.preconditions.message.id}::uuid
     `;
 
     const created = await createWorkflow({
@@ -717,7 +733,7 @@ steps:
       - createReplyDraft:
           message: inputs.message
           conversation: inputs.conversation
-          sender: ${senderIdentityId}
+          sender: ${senderIdentityShortId}
           body: A reviewable response
           format: plain
           saveAs: draft
@@ -740,7 +756,7 @@ steps:
         type: "mail.messageReceived",
         targetWorkflowId: created.data.id,
         data: { message: snapshot.source.message, conversation: snapshot.source.conversation },
-        context: mailWorkflowEventContext(mailboxId, snapshot),
+        context: mailWorkflowEventContext(snapshot),
         dedupeKey: `mail-workflow-reply-draft-${suffix}`,
         occurredAt: new Date(snapshot.internalDate),
       },
@@ -767,9 +783,9 @@ steps:
         AND author_id = ${created.data.currentVersion.id}::uuid
     `;
     expect(draft).toMatchObject({
-      conversation_id: snapshot.source.conversation.id,
+      conversation_id: snapshot.preconditions.conversation!.id,
       intent: "reply",
-      source_message_id: snapshot.source.message.id,
+      source_message_id: snapshot.preconditions.message.id,
       subject: `Re: ${incoming.subject}`,
       body_markdown: "A reviewable response",
       delivery_class: "normal",
@@ -780,7 +796,11 @@ steps:
     ]);
     const visibleDraft = await getDraft(context, mailboxId, draft!.id);
     expect(visibleDraft.ok).toBe(true);
-    const conversationDrafts = await listConversationDrafts({ context, mailboxId, conversationId: snapshot.source.conversation.id });
+    const conversationDrafts = await listConversationDrafts({
+      context,
+      mailboxId,
+      conversationId: snapshot.preconditions.conversation!.id,
+    });
     expect(conversationDrafts.ok && conversationDrafts.data.some((item) => item.id === draft!.id)).toBe(true);
   });
 
@@ -809,9 +829,9 @@ steps:
       });
     const createSource = async (key: string) => {
       const [message] = await sql<{ id: string }[]>`
-        INSERT INTO mail.message_contents (
+        INSERT INTO mail.message_contents (short_id,
           mailbox_id, message_id, subject, normalized_subject, internal_date, size_bytes, content_hash, hydration_status
-        ) VALUES (
+        ) VALUES (${newShortId()},
           ${mailboxId}::uuid,
           ${`<automatic-reply-${key}-${suffix}@example.test>`},
           ${`Automatic reply ${key}`},
@@ -824,8 +844,8 @@ steps:
         RETURNING id
       `;
       const [conversation] = await sql<{ id: string }[]>`
-        INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at)
-        VALUES (${mailboxId}::uuid, ${`Automatic reply ${key}`}, 'Customer', now(), now())
+        INSERT INTO mail.conversations (short_id, mailbox_id, subject, participant_summary, latest_inbound_at, latest_message_at)
+        VALUES (${newShortId()}, ${mailboxId}::uuid, ${`Automatic reply ${key}`}, 'Customer', now(), now())
         RETURNING id
       `;
       await sql`
@@ -976,12 +996,14 @@ steps:
 
     const target = {
       targetKey: crypto.randomUUID(),
+      mailboxShortId,
       source: {
-        message: { id: crypto.randomUUID(), remoteMessageRefId: crypto.randomUUID() },
+        message: { id: newShortId() },
         conversation: null,
       },
       preconditions: {
         sourceHash: "event-context-test",
+        message: { id: crypto.randomUUID(), remoteMessageRefId: crypto.randomUUID(), folderId: crypto.randomUUID() },
         remoteState: { modseq: "42", flags: ["seen"], keywords: ["review"] },
         conversation: null,
         triggerKind: "messageReceived",
@@ -995,7 +1017,7 @@ steps:
         type: "mail.messageReceived",
         targetWorkflowId: created.data.id,
         data: {},
-        context: mailWorkflowEventContext(mailboxId, target),
+        context: mailWorkflowEventContext(target),
         dedupeKey: `mail-workflow-kernel-${suffix}`,
         occurredAt: new Date(),
       },
@@ -1016,10 +1038,10 @@ steps:
   });
 
   test("restores projected conversation revisions after a lost worker lease", async () => {
-    const [conversation] = await sql<{ id: string; revision: number }[]>`
-      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_message_at)
-      VALUES (${mailboxId}::uuid, 'Recovery test', 'Sender', now())
-      RETURNING id, revision
+    const [conversation] = await sql<{ id: string; short_id: string; revision: number }[]>`
+      INSERT INTO mail.conversations (short_id, mailbox_id, subject, participant_summary, latest_message_at)
+      VALUES (${newShortId()}, ${mailboxId}::uuid, 'Recovery test', 'Sender', now())
+      RETURNING id, short_id, revision
     `;
     if (!conversation) throw new Error("Failed to create workflow conversation");
 
@@ -1070,13 +1092,13 @@ steps:
 
     const snapshot = {
       targetKey: crypto.randomUUID(),
+      mailboxShortId,
       source: {
         message: {
-          id: crypto.randomUUID(),
-          remoteMessageRefId: crypto.randomUUID(),
+          id: newShortId(),
         },
         conversation: {
-          id: conversation.id,
+          id: conversation.short_id,
           subject: "Recovery test",
           assigneeUserId: null,
           workStatus: "needs_action",
@@ -1086,6 +1108,7 @@ steps:
       },
       preconditions: {
         sourceHash: "recovery-test",
+        message: { id: crypto.randomUUID(), remoteMessageRefId: crypto.randomUUID(), folderId: crypto.randomUUID() },
         remoteState: { modseq: "1", flags: [], keywords: [] },
         conversation: { id: conversation.id, revision: conversation.revision },
         triggerKind: "messageReceived",
@@ -1099,7 +1122,7 @@ steps:
         type: "mail.messageReceived",
         targetWorkflowId: created.data.id,
         data: { conversation: snapshot.source.conversation },
-        context: mailWorkflowEventContext(mailboxId, snapshot),
+        context: mailWorkflowEventContext(snapshot),
         dedupeKey: `mail-workflow-recovery-${suffix}`,
         occurredAt: new Date(),
       },
@@ -1134,10 +1157,10 @@ steps:
   });
 
   test("replaces the editable conversation summary through a normal Mail action", async () => {
-    const [conversation] = await sql<{ id: string; revision: string; summary_revision: string }[]>`
-      INSERT INTO mail.conversations (mailbox_id, subject, participant_summary, latest_message_at)
-      VALUES (${mailboxId}::uuid, 'Summary action test', 'Sender', now())
-      RETURNING id, revision, summary_revision
+    const [conversation] = await sql<{ id: string; short_id: string; revision: string; summary_revision: string }[]>`
+      INSERT INTO mail.conversations (short_id, mailbox_id, subject, participant_summary, latest_message_at)
+      VALUES (${newShortId()}, ${mailboxId}::uuid, 'Summary action test', 'Sender', now())
+      RETURNING id, short_id, revision, summary_revision
     `;
     if (!conversation) throw new Error("Failed to create summary workflow conversation");
 
@@ -1173,7 +1196,7 @@ steps:
     if (!activated.ok) throw new Error(activated.error.message);
 
     const frozenConversation = {
-      id: conversation.id,
+      id: conversation.short_id,
       subject: "Summary action test",
       summary: null,
       summaryRevision: Number(conversation.summary_revision),
@@ -1184,6 +1207,7 @@ steps:
     };
     const snapshot = {
       targetKey: crypto.randomUUID(),
+      mailboxShortId,
       source: { message: null, conversation: frozenConversation },
       preconditions: {
         sourceHash: "summary-action-test",
@@ -1200,7 +1224,7 @@ steps:
         type: "mail.messageReceived",
         targetWorkflowId: created.data.id,
         data: { conversation: frozenConversation },
-        context: mailWorkflowEventContext(mailboxId, snapshot),
+        context: mailWorkflowEventContext(snapshot),
         dedupeKey: `mail-workflow-summary-${suffix}`,
         occurredAt: new Date(snapshot.internalDate),
       },

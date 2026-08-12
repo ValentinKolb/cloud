@@ -17,15 +17,16 @@ import {
   mailSearchSnoozedSchema,
   mailSearchTermSchema,
   mailSearchWorkStatusSchema,
+  ResourceShortIdSchema,
 } from "./contracts";
 
 const TimestampSchema = z.string().datetime({ offset: true });
 const NullableTimestampSchema = TimestampSchema.nullable();
 const NullableTextSchema = z.string().nullable();
 const UuidSchema = z.uuid();
-const MailboxIdInputSchema = UuidSchema.describe("Mailbox UUID that scopes the operation.");
-const ConversationIdInputSchema = UuidSchema.describe("Conversation UUID.");
-const DraftIdInputSchema = UuidSchema.describe("Draft UUID.");
+const MailboxIdInputSchema = ResourceShortIdSchema.describe("Mailbox ID that scopes the operation.");
+const ConversationIdInputSchema = ResourceShortIdSchema.describe("Conversation ID.");
+const DraftIdInputSchema = ResourceShortIdSchema.describe("Draft ID.");
 const ExpectedRevisionInputSchema = z.number().int().positive().describe("Current resource revision used for optimistic concurrency.");
 const CursorSchema = z.string().min(1).max(2048).optional().describe("Opaque cursor returned by the previous page.");
 const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maximum number of results to return.");
@@ -76,7 +77,7 @@ const CapabilityMailSearchExpressionSchema: z.ZodType<MailSearchExpression> = z.
 
 export const MailboxDataSchema = z
   .object({
-    id: UuidSchema,
+    id: ResourceShortIdSchema,
     name: z.string().min(1).max(160),
     description: z.string().max(2000).nullable(),
     descriptionTruncated: z.boolean(),
@@ -107,12 +108,12 @@ export const MailboxListInputSchema = z
     limit: LimitSchema,
   })
   .strict();
-export const ResourceReadInputSchema = z.object({ id: UuidSchema.describe("Stable resource UUID.") }).strict();
+export const ResourceReadInputSchema = z.object({ id: ResourceShortIdSchema.describe("Stable resource ID.") }).strict();
 
 export const SenderIdentityDataSchema = z
   .object({
-    id: UuidSchema,
-    mailboxId: UuidSchema,
+    id: ResourceShortIdSchema,
+    mailboxId: ResourceShortIdSchema,
     label: z.string().min(1).max(200),
     displayName: z.string().max(200),
     fromAddress: z.email(),
@@ -154,8 +155,8 @@ export const MailboxMemberListInputSchema = z
 
 export const FolderDataSchema = z
   .object({
-    id: UuidSchema,
-    parentId: UuidSchema.nullable(),
+    id: ResourceShortIdSchema,
+    parentId: ResourceShortIdSchema.nullable(),
     name: z.string().min(1).max(500),
     nameTruncated: z.boolean(),
     role: z.string().min(1),
@@ -171,8 +172,8 @@ export const FolderListInputSchema = z.object({ mailboxId: MailboxIdInputSchema,
 
 export const ConversationDataSchema = z
   .object({
-    id: UuidSchema,
-    mailboxId: UuidSchema,
+    id: ResourceShortIdSchema,
+    mailboxId: ResourceShortIdSchema,
     primaryReference: z.string().max(500).nullable(),
     subject: z.string().max(500),
     subjectTruncated: z.boolean(),
@@ -187,7 +188,7 @@ export const ConversationDataSchema = z
     revision: z.number().int().positive(),
     updatedAt: TimestampSchema,
     unread: z.boolean(),
-    activeFolderIds: z.array(UuidSchema).max(20),
+    activeFolderIds: z.array(ResourceShortIdSchema).max(20),
     activeFolderIdsTruncated: z.boolean(),
     flagged: z.boolean(),
     hasAttachments: z.boolean(),
@@ -201,7 +202,7 @@ export const ConversationListDataSchema = z.array(ConversationDataSchema).max(10
 export const ConversationListInputSchema = z
   .object({
     mailboxId: MailboxIdInputSchema,
-    folderId: UuidSchema.nullable().optional().describe("Optional provider folder UUID filter."),
+    folderId: ResourceShortIdSchema.nullable().optional().describe("Optional provider folder ID filter."),
     workStatus: z.enum(["needs_action", "waiting", "done"]).nullable().optional().describe("Optional collaboration work-status filter."),
     unread: z.boolean().nullable().optional().describe("Optional unread-state filter; true returns only conversations with unread mail."),
     view: z
@@ -228,7 +229,7 @@ export const ConversationSearchDataSchema = z.array(ConversationDataSchema).max(
 const AddressDataSchema = z.object({ name: z.string().max(200).nullable(), address: z.email() }).strict();
 export const AttachmentDataSchema = z
   .object({
-    id: UuidSchema,
+    id: ResourceShortIdSchema,
     filename: z.string().max(255).nullable(),
     contentType: z.string().min(1).max(255),
     sizeBytes: z.number().int().nonnegative(),
@@ -243,9 +244,9 @@ const HeaderDataSchema = z
   .strict();
 export const MessageSummaryDataSchema = z
   .object({
-    id: UuidSchema,
-    mailboxId: UuidSchema,
-    conversationId: UuidSchema.nullable(),
+    id: ResourceShortIdSchema,
+    mailboxId: ResourceShortIdSchema,
+    conversationId: ResourceShortIdSchema.nullable(),
     subject: z.string().max(998),
     subjectTruncated: z.boolean(),
     messageId: z.string().max(998).nullable(),
@@ -291,7 +292,7 @@ export const MessageDataSchema = MessageSummaryDataSchema.extend({
   attachmentsTruncated: z.boolean(),
   delivery: z
     .object({
-      id: UuidSchema,
+      id: ResourceShortIdSchema,
       state: z.string().min(1),
       scheduledAt: TimestampSchema,
       undoUntil: NullableTimestampSchema,
@@ -305,7 +306,7 @@ export const MessageDataSchema = MessageSummaryDataSchema.extend({
 
 export const ConversationGetDataSchema = z
   .object({
-    conversationId: UuidSchema,
+    conversationId: ResourceShortIdSchema,
     collaboration: z
       .object({
         assignee: z
@@ -318,7 +319,7 @@ export const ConversationGetDataSchema = z
       })
       .strict(),
     tags: z
-      .array(z.object({ id: UuidSchema, name: z.string(), color: z.string(), revision: z.number().int().positive() }).strict())
+      .array(z.object({ id: ResourceShortIdSchema, name: z.string(), color: z.string(), revision: z.number().int().positive() }).strict())
       .max(100),
     messages: z.array(NavigableMessageSummaryDataSchema).max(100),
     messagesTruncated: z.boolean(),
@@ -327,7 +328,7 @@ export const ConversationGetDataSchema = z
 
 const DraftAttachmentDataSchema = z
   .object({
-    id: UuidSchema,
+    id: ResourceShortIdSchema,
     filename: z.string().max(255),
     contentType: z.string().max(255),
     byteLength: z.number().int().nonnegative(),
@@ -338,12 +339,12 @@ const DraftAttachmentDataSchema = z
   .strict();
 export const DraftDataSchema = z
   .object({
-    id: UuidSchema,
-    mailboxId: UuidSchema,
-    conversationId: UuidSchema.nullable(),
+    id: ResourceShortIdSchema,
+    mailboxId: ResourceShortIdSchema,
+    conversationId: ResourceShortIdSchema.nullable(),
     intent: z.enum(["new", "reply", "reply_all", "forward"]),
-    sourceMessageId: UuidSchema.nullable(),
-    senderIdentityId: UuidSchema,
+    sourceMessageId: ResourceShortIdSchema.nullable(),
+    senderIdentityId: ResourceShortIdSchema,
     to: z.array(mailAddressSchema).max(50),
     cc: z.array(mailAddressSchema).max(50),
     bcc: z.array(mailAddressSchema).max(50),
@@ -367,11 +368,11 @@ export const DraftDataSchema = z
   .strict();
 export const DraftSummaryDataSchema = z
   .object({
-    id: UuidSchema,
-    mailboxId: UuidSchema,
-    conversationId: UuidSchema.nullable(),
+    id: ResourceShortIdSchema,
+    mailboxId: ResourceShortIdSchema,
+    conversationId: ResourceShortIdSchema.nullable(),
     intent: z.enum(["new", "reply", "reply_all", "forward"]),
-    senderIdentityId: UuidSchema,
+    senderIdentityId: ResourceShortIdSchema,
     subject: z.string().max(500),
     subjectTruncated: z.boolean(),
     bodyPreview: z.string().max(1000),
@@ -407,7 +408,7 @@ const InlineAttachmentInputSchema = z
 export const DraftCreateInputSchema = z
   .object({
     mailboxId: MailboxIdInputSchema,
-    senderIdentityId: UuidSchema.describe("Verified sender-identity UUID."),
+    senderIdentityId: ResourceShortIdSchema.describe("Verified sender-identity ID."),
     to: z.array(mailAddressSchema).max(200).default([]).describe("Primary recipients."),
     cc: z.array(mailAddressSchema).max(200).default([]).describe("Carbon-copy recipients."),
     bcc: z.array(mailAddressSchema).max(200).default([]).describe("Blind-carbon-copy recipients."),
@@ -422,8 +423,8 @@ export const DraftCreateInputSchema = z
     requestDeliveryReceipt: z.boolean().default(false).describe("Whether to request a delivery receipt."),
     requestReadReceipt: z.boolean().default(false).describe("Whether to request a read receipt."),
     intent: z.enum(["new", "reply", "reply_all", "forward"]).default("new").describe("Compose intent."),
-    conversationId: UuidSchema.nullable().optional().describe("Conversation UUID for a reply or forward."),
-    sourceMessageId: UuidSchema.nullable().optional().describe("Source message UUID for a reply or forward."),
+    conversationId: ResourceShortIdSchema.nullable().optional().describe("Conversation ID for a reply or forward."),
+    sourceMessageId: ResourceShortIdSchema.nullable().optional().describe("Source message ID for a reply or forward."),
     includeSourceAttachments: z.boolean().default(false).describe("Whether to copy eligible source attachments."),
     attachments: z.array(InlineAttachmentInputSchema).max(1).default([]).describe("Optional small inline attachment to add to the draft."),
   })
@@ -451,7 +452,7 @@ export const DraftAttachmentRemoveInputSchema = z
   .object({
     mailboxId: MailboxIdInputSchema,
     draftId: DraftIdInputSchema,
-    attachmentId: UuidSchema.describe("Draft attachment UUID."),
+    attachmentId: ResourceShortIdSchema.describe("Draft attachment ID."),
     expectedRevision: ExpectedRevisionInputSchema,
   })
   .strict();
@@ -460,22 +461,27 @@ export const DraftSendInputSchema = z
     mailboxId: MailboxIdInputSchema,
     draftId: DraftIdInputSchema,
     expectedRevision: ExpectedRevisionInputSchema,
-    senderIdentityId: UuidSchema.describe("Verified sender-identity UUID."),
+    senderIdentityId: ResourceShortIdSchema.describe("Verified sender-identity ID."),
     scheduledAt: TimestampSchema.optional().describe("Optional future delivery time."),
     undoSeconds: z.number().int().min(0).max(60).default(10).describe("Undo-send window in seconds."),
     safetyApproval: composeSafetyApprovalSchema.optional().describe("Exact approval returned by draft.send.review when warnings exist."),
   })
   .strict();
 export const DraftSendDataSchema = z
-  .object({ commandId: UuidSchema, state: z.string().min(1), draftId: UuidSchema, conversationId: UuidSchema.nullable() })
+  .object({
+    commandId: UuidSchema,
+    state: z.string().min(1),
+    draftId: ResourceShortIdSchema,
+    conversationId: ResourceShortIdSchema.nullable(),
+  })
   .strict();
 
 export const DeliveryDataSchema = z
   .object({
-    id: UuidSchema,
+    id: ResourceShortIdSchema,
     commandId: UuidSchema,
-    draftId: UuidSchema,
-    conversationId: UuidSchema.nullable(),
+    draftId: ResourceShortIdSchema,
+    conversationId: ResourceShortIdSchema.nullable(),
     subject: z.string().max(998),
     scheduledAt: TimestampSchema,
     nextAttemptAt: NullableTimestampSchema,
@@ -490,16 +496,16 @@ export const DeliveryListInputSchema = z.object({ mailboxId: MailboxIdInputSchem
 export const DeliveryCancelInputSchema = z
   .object({
     mailboxId: MailboxIdInputSchema,
-    deliveryId: UuidSchema.describe("Scheduled-delivery UUID."),
+    deliveryId: ResourceShortIdSchema.describe("Scheduled-delivery ID."),
     disposition: z.enum(["draft", "discard"]).default("draft").describe("Whether cancellation restores or discards the draft."),
   })
   .strict();
-export const DeliveryCancelDataSchema = z.object({ disposition: z.enum(["draft", "discard"]), draftId: UuidSchema }).strict();
+export const DeliveryCancelDataSchema = z.object({ disposition: z.enum(["draft", "discard"]), draftId: ResourceShortIdSchema }).strict();
 
 const ConversationTargetSchema = z
   .object({
     conversationId: ConversationIdInputSchema,
-    sourceFolderId: UuidSchema.describe("Provider folder UUID from which the conversation is being changed."),
+    sourceFolderId: ResourceShortIdSchema.describe("Provider folder ID from which the conversation is being changed."),
   })
   .strict();
 export const ConversationMarkInputSchema = z
@@ -526,7 +532,7 @@ export const ConversationMoveInputSchema = z
         z
           .object({
             kind: z.literal("folder").describe("Move to a provider folder."),
-            folderId: UuidSchema.describe("Destination provider folder UUID."),
+            folderId: ResourceShortIdSchema.describe("Destination provider folder ID."),
           })
           .strict(),
       ])
@@ -535,7 +541,7 @@ export const ConversationMoveInputSchema = z
   .strict();
 export const ConversationMutationItemDataSchema = z
   .object({
-    conversationId: UuidSchema,
+    conversationId: ResourceShortIdSchema,
     correlationId: z.string().min(1),
     commands: z.array(z.object({ id: UuidSchema, state: z.string().min(1) }).strict()).max(500),
   })
@@ -544,8 +550,8 @@ export const ConversationMutationDataSchema = ConversationMutationItemDataSchema
 
 export const TagDataSchema = z
   .object({
-    id: UuidSchema,
-    mailboxId: UuidSchema,
+    id: ResourceShortIdSchema,
+    mailboxId: ResourceShortIdSchema,
     name: z.string().min(1),
     color: z.string().regex(/^#[0-9a-f]{6}$/),
     revision: z.number().int().positive(),
@@ -560,13 +566,17 @@ export const ConversationTagUpdateInputSchema = z
     mailboxId: MailboxIdInputSchema,
     conversationId: ConversationIdInputSchema,
     expectedRevision: ExpectedRevisionInputSchema,
-    addTagIds: z.array(UuidSchema).max(100).default([]).describe("Tag UUIDs to add."),
-    removeTagIds: z.array(UuidSchema).max(100).default([]).describe("Tag UUIDs to remove."),
+    addTagIds: z.array(ResourceShortIdSchema).max(100).default([]).describe("Tag IDs to add."),
+    removeTagIds: z.array(ResourceShortIdSchema).max(100).default([]).describe("Tag IDs to remove."),
   })
   .strict()
   .refine((value) => value.addTagIds.length > 0 || value.removeTagIds.length > 0, "At least one tag change is required");
 export const ConversationTagDataSchema = z
-  .object({ conversationId: UuidSchema, conversationRevision: z.number().int().positive(), tags: z.array(TagDataSchema).max(100) })
+  .object({
+    conversationId: ResourceShortIdSchema,
+    conversationRevision: z.number().int().positive(),
+    tags: z.array(TagDataSchema).max(100),
+  })
   .strict();
 export const TagCreateInputSchema = z
   .object({
@@ -581,7 +591,7 @@ export const TagCreateInputSchema = z
 export const TagUpdateInputSchema = z
   .object({
     mailboxId: MailboxIdInputSchema,
-    tagId: UuidSchema.describe("Tag UUID."),
+    tagId: ResourceShortIdSchema.describe("Tag ID."),
     expectedRevision: ExpectedRevisionInputSchema,
     name: z.string().trim().min(1).max(80).optional().describe("Replacement tag name."),
     color: z
@@ -593,7 +603,11 @@ export const TagUpdateInputSchema = z
   .strict()
   .refine((value) => value.name !== undefined || value.color !== undefined, "At least one tag field is required");
 export const TagDeleteInputSchema = z
-  .object({ mailboxId: MailboxIdInputSchema, tagId: UuidSchema.describe("Tag UUID."), expectedRevision: ExpectedRevisionInputSchema })
+  .object({
+    mailboxId: MailboxIdInputSchema,
+    tagId: ResourceShortIdSchema.describe("Tag ID."),
+    expectedRevision: ExpectedRevisionInputSchema,
+  })
   .strict();
 export const DeletedDataSchema = z.object({ deleted: z.literal(true) }).strict();
 
@@ -602,7 +616,7 @@ const CollaboratorDataSchema = z
   .strict();
 export const CollaborationDataSchema = z
   .object({
-    conversationId: UuidSchema,
+    conversationId: ResourceShortIdSchema,
     assignee: CollaboratorDataSchema.nullable(),
     workStatus: z.enum(["needs_action", "waiting", "done"]),
     snoozedUntil: NullableTimestampSchema,
@@ -626,8 +640,8 @@ export const CollaborationUpdateInputSchema = z
 
 export const ReminderDataSchema = z
   .object({
-    id: UuidSchema,
-    conversationId: UuidSchema,
+    id: ResourceShortIdSchema,
+    conversationId: ResourceShortIdSchema,
     userId: UuidSchema,
     dueAt: TimestampSchema,
     state: z.enum(["pending", "sent", "canceled"]),
@@ -656,8 +670,8 @@ export const ReminderCancelInputSchema = z
 
 export const CommentDataSchema = z
   .object({
-    id: UuidSchema,
-    conversationId: UuidSchema,
+    id: ResourceShortIdSchema,
+    conversationId: ResourceShortIdSchema,
     body: NullableTextSchema,
     author: z
       .object({
@@ -667,8 +681,8 @@ export const CommentDataSchema = z
         avatarHash: NullableTextSchema,
       })
       .strict(),
-    parentCommentId: UuidSchema.nullable(),
-    referencedMessageId: UuidSchema.nullable(),
+    parentCommentId: ResourceShortIdSchema.nullable(),
+    referencedMessageId: ResourceShortIdSchema.nullable(),
     revision: z.number().int().positive(),
     editedAt: NullableTimestampSchema,
     deletedAt: NullableTimestampSchema,
@@ -694,15 +708,15 @@ export const CommentCreateInputSchema = z
     mailboxId: MailboxIdInputSchema,
     conversationId: ConversationIdInputSchema,
     body: z.string().trim().min(1).max(50_000).describe("Internal comment body."),
-    parentCommentId: UuidSchema.nullable().optional().describe("Optional parent comment UUID."),
-    referencedMessageId: UuidSchema.nullable().optional().describe("Optional referenced message UUID."),
+    parentCommentId: ResourceShortIdSchema.nullable().optional().describe("Optional parent comment ID."),
+    referencedMessageId: ResourceShortIdSchema.nullable().optional().describe("Optional referenced message ID."),
   })
   .strict();
 export const CommentUpdateInputSchema = z
   .object({
     mailboxId: MailboxIdInputSchema,
     conversationId: ConversationIdInputSchema,
-    commentId: UuidSchema.describe("Comment UUID."),
+    commentId: ResourceShortIdSchema.describe("Comment ID."),
     expectedRevision: ExpectedRevisionInputSchema,
     body: z.string().trim().min(1).max(50_000).describe("Replacement internal comment body."),
   })
@@ -711,7 +725,7 @@ export const CommentDeleteInputSchema = z
   .object({
     mailboxId: MailboxIdInputSchema,
     conversationId: ConversationIdInputSchema,
-    commentId: UuidSchema.describe("Comment UUID."),
+    commentId: ResourceShortIdSchema.describe("Comment ID."),
     expectedRevision: ExpectedRevisionInputSchema,
   })
   .strict();
@@ -719,7 +733,7 @@ export const CommentDeleteInputSchema = z
 export const ActivityDataSchema = z
   .object({
     id: z.string().min(1),
-    conversationId: UuidSchema.nullable(),
+    conversationId: ResourceShortIdSchema.nullable(),
     actor: z
       .object({
         kind: z.enum(["user", "service_account", "workflow", "system"]),
@@ -730,8 +744,10 @@ export const ActivityDataSchema = z
       .strict(),
     action: z.string().min(1),
     outcome: z.enum(["requested", "confirmed", "failed", "reconciled"]),
-    targetType: NullableTextSchema,
-    targetId: NullableTextSchema,
+    targetType: NullableTextSchema.describe("Activity target kind."),
+    targetId: NullableTextSchema.describe(
+      "Public target ID. Conversation references use their domain value; reference configuration uses the mailbox ID.",
+    ),
     metadata: z.record(z.string(), z.unknown()),
     createdAt: TimestampSchema,
   })
@@ -740,7 +756,7 @@ export const ActivityListDataSchema = z.array(ActivityDataSchema).max(100);
 export const ActivityListInputSchema = z
   .object({
     mailboxId: MailboxIdInputSchema,
-    conversationId: ConversationIdInputSchema.optional().describe("Optional conversation UUID filter."),
+    conversationId: ConversationIdInputSchema.optional().describe("Optional conversation ID filter."),
     ...PageInputShape,
   })
   .strict();

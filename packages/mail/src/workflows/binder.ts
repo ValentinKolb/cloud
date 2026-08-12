@@ -51,7 +51,6 @@ const referenceResult: WorkflowValuePathDescriptor = {
   kind: "object",
   type: "mail.reference",
   properties: {
-    id: textValue,
     value: textValue,
     created: booleanValue,
     conversationId: textValue,

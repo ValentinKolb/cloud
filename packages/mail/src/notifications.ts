@@ -1,3 +1,4 @@
+import { job, scheduler } from "@k2b/sync";
 import { type BoundNotificationMap, notification } from "@valentinkolb/cloud";
 import {
   coreSettings,
@@ -9,9 +10,9 @@ import {
   stopRuntimeResources,
   trace,
 } from "@valentinkolb/cloud/services";
-import { job, scheduler } from "@k2b/sync";
 import { sql } from "bun";
 import { z } from "zod";
+import { SHORT_ID_REGEX } from "./lib/short-id";
 import { hasCurrentMailboxUserPermission } from "./service/collaborators";
 import type { CollaborationNotificationKind } from "./service/notification-outbox";
 import { mailNotificationTargetHref } from "./service/notification-targets";
@@ -24,14 +25,15 @@ const STALE_CLAIM_SECONDS = 10 * 60;
 
 const log = logger("mail:collaboration-notifications");
 
+const publicResourceId = z.string().regex(SHORT_ID_REGEX);
 const notificationData = z.object({
-  mailboxId: z.uuid(),
-  conversationId: z.uuid(),
-  sourceId: z.uuid(),
+  mailboxId: publicResourceId,
+  conversationId: publicResourceId,
+  sourceId: publicResourceId,
   subject: z.string(),
 });
 const workflowNotificationData = z.object({
-  mailboxId: z.uuid(),
+  mailboxId: publicResourceId,
   title: z.string().min(1).max(160),
   body: z.string().min(1).max(2_000),
 });
@@ -149,10 +151,22 @@ const loadSendInput = async (delivery: DeliveryRow): Promise<MailNotificationSen
   if (!(await hasCurrentReadAccess(delivery))) return null;
   const idempotencyKey = `mail:reminder:${delivery.source_id}:${delivery.source_revision}:${delivery.recipient_user_id}`;
 
-  const [row] = await sql<{ subject: string }[]>`
-    SELECT conversation.subject
+  const [row] = await sql<
+    {
+      mailbox_short_id: string;
+      conversation_short_id: string;
+      reminder_short_id: string;
+      subject: string;
+    }[]
+  >`
+    SELECT
+      mailbox.short_id AS mailbox_short_id,
+      conversation.short_id AS conversation_short_id,
+      reminder.short_id AS reminder_short_id,
+      conversation.subject
     FROM mail.conversation_reminders reminder
     JOIN mail.conversations conversation ON conversation.id = reminder.conversation_id
+    JOIN mail.mailboxes mailbox ON mailbox.id = reminder.mailbox_id
     WHERE reminder.id = ${delivery.source_id}::uuid
       AND reminder.conversation_id = ${delivery.conversation_id}::uuid
       AND reminder.mailbox_id = ${delivery.mailbox_id}::uuid
@@ -165,9 +179,9 @@ const loadSendInput = async (delivery: DeliveryRow): Promise<MailNotificationSen
     ? {
         kind: "reminder",
         recipientUserId: delivery.recipient_user_id,
-        mailboxId: delivery.mailbox_id,
-        conversationId: delivery.conversation_id,
-        sourceId: delivery.source_id,
+        mailboxId: row.mailbox_short_id,
+        conversationId: row.conversation_short_id,
+        sourceId: row.reminder_short_id,
         subject: row.subject,
         idempotencyKey,
       }
