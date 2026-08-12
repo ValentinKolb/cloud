@@ -5,6 +5,13 @@ uses accessible interaction patterns, scoped precompiled styles, configurable
 design tokens, and separate browser and server builds. Use it inside Cloud or
 in another Solid application.
 
+```css
+@import "@k2b/ui/global.css";
+```
+
+Or load only the component styles when the application provides its own fonts
+and icons:
+
 ```ts
 import "@k2b/ui/styles.css";
 import { Button, DatePicker, StatusBadge, prompts } from "@k2b/ui";

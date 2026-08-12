@@ -3,8 +3,6 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 const packageRoot = resolve(import.meta.dir, "..");
-const repositoryRoot = resolve(packageRoot, "../..");
-const workspaceNodeModules = resolve(repositoryRoot, "node_modules");
 const temporaryRoot = mkdtempSync(join(tmpdir(), "k2b-ui-packed-consumer-"));
 
 const run = (cmd: string[], cwd: string, env = process.env): string => {
@@ -59,7 +57,7 @@ try {
   for (const dependency of ["@k2b/ssr", "@k2b/stdlib", "marked", "solid-js"]) {
     const link = join(consumer, "node_modules", dependency);
     mkdirSync(dirname(link), { recursive: true });
-    symlinkSync(realpathSync(join(workspaceNodeModules, dependency)), link, "dir");
+    symlinkSync(realpathSync(join(packageRoot, "node_modules", dependency)), link, "dir");
   }
 
   const serverSmoke = `
@@ -87,6 +85,26 @@ try {
   `;
   run([process.execPath, "--no-install", "--conditions=browser", "-e", browserSmoke], consumer);
 
+  const globalStyles = import.meta.resolve("@k2b/ui/global.css", join(consumer, "index.ts"));
+  if (!globalStyles.includes("/node_modules/@k2b/ui/dist/global.css")) {
+    throw new Error(`global stylesheet did not resolve from packed dist: ${globalStyles}`);
+  }
+  const cssEntry = join(consumer, "global.css");
+  const cssOut = join(consumer, "css-dist");
+  await Bun.write(cssEntry, '@import "@k2b/ui/global.css";\n');
+  const cssBuild = await Bun.build({ entrypoints: [cssEntry], outdir: cssOut });
+  if (!cssBuild.success) {
+    throw new Error(`packed global stylesheet build failed\n${cssBuild.logs.join("\n")}`);
+  }
+  const cssOutput = await Bun.file(join(cssOut, "global.css")).text();
+  for (const [label, pattern] of [
+    ["UI scope", /\.k2b-ui/],
+    ["IBM Plex preset", /IBM Plex Sans/],
+    ["Tabler preset", /font-family:\s*tabler-icons/],
+  ] as const) {
+    if (!pattern.test(cssOutput)) throw new Error(`packed global stylesheet is missing ${label}`);
+  }
+
   const browserEntry = join(consumer, "browser-entry.ts");
   const browserOut = join(consumer, "browser-dist");
   await Bun.write(browserEntry, 'export { Button, DatePicker } from "@k2b/ui";\n');
@@ -113,7 +131,9 @@ try {
     }
   }
 
-  console.log(`Packed @k2b/ui imports and renders via SSR; browser tree-shaking produced ${browserOutput.length} bytes`);
+  console.log(
+    `Packed @k2b/ui imports and renders via SSR; global CSS bundles; browser tree-shaking produced ${browserOutput.length} bytes`,
+  );
 } finally {
   rmSync(temporaryRoot, { recursive: true, force: true });
 }

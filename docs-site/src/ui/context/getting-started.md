@@ -14,10 +14,11 @@ bun add @k2b/ui
 
 ## Load the styles
 
-Import the component stylesheet once from your application entry point:
+Import the complete UI stylesheet once from your application's global CSS
+entry point:
 
-```ts
-import "@k2b/ui/styles.css";
+```css
+@import "@k2b/ui/global.css";
 ```
 
 The stylesheet only applies below `.k2b-ui`, so it does not reset the surrounding page. Add the class to the application root or to the subtree that renders UI components:
@@ -42,14 +43,15 @@ Portalled surfaces such as prompts, menus, and tooltips preserve the scope autom
 
 ## Fonts and icons
 
-The default theme uses system fonts. IBM Plex and the bundled Tabler icon font are optional:
+`global.css` includes IBM Plex and the supported Tabler icon font. Applications
+that provide their own fonts or icons can import only the required layers:
 
 ```ts
 import "@k2b/ui/fonts/plex.css";
 import "@k2b/ui/icons/tabler.css";
 ```
 
-Omit either import when your application already provides its own font or Tabler icon assets.
+Omit either preset when your application already provides that asset.
 
 ## Theme the package
 

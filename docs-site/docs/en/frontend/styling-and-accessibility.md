@@ -77,9 +77,12 @@ normal navigation look destructive. Status color must not identify an app.
 
 ## Use shared components first
 
-Import `@k2b/ui/styles.css` once through the application build and render shared
-components below a `.k2b-ui` scope. Do this in the third-party application's
-own browser bundle; do not depend on styles or source files from a built-in app.
+Import `@k2b/ui/global.css` once through the application build and render shared
+components below a `.k2b-ui` scope. It includes the component styles and the
+supported font and icon presets. Applications with their own assets may use the
+granular `styles.css`, `fonts/plex.css`, and `icons/tabler.css` exports instead.
+Do this in the third-party application's own browser bundle; do not depend on
+styles or source files from a built-in app.
 
 Choose the public component that owns the required appearance and behavior:
 

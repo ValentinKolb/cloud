@@ -1,4 +1,2 @@
 /* Portable catalog pages load only the package-owned scoped stylesheet. */
-@import "@k2b/ui/styles.css";
-@import "@k2b/ui/fonts/plex.css";
-@import "@k2b/ui/icons/tabler.css";
+@import "@k2b/ui/global.css";

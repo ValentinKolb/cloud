@@ -3,7 +3,7 @@
 `@k2b/ui` is a standalone, production-ready component library for SolidJS. It combines accessible interaction patterns, scoped precompiled styles, configurable design tokens, and separate browser and server builds. Use it inside Cloud or in another Solid application. Cloud-specific integrations are documented separately.
 
 ```tsx
-import "@k2b/ui/styles.css";
+import "@k2b/ui/global.css";
 import { Button, Placeholder } from "@k2b/ui";
 
 export function EmptyProject() {
@@ -16,7 +16,10 @@ export function EmptyProject() {
 }
 ```
 
-The `.k2b-ui` scope keeps component styles isolated from the host page. Fonts and semantic color stacks use CSS variables, so each product can provide its own typography and visual identity. IBM Plex and Tabler icons are available as optional assets.
+The `.k2b-ui` scope keeps component styles isolated from the host page. Fonts
+and semantic color stacks use CSS variables, so each product can provide its
+own typography and visual identity. Use the granular stylesheet, font, and icon
+exports when the application does not want the complete preset.
 
 ## Portable components
 

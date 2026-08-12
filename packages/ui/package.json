@@ -21,6 +21,7 @@
       "import": "./dist/ssr/index.js",
       "default": "./dist/ssr/index.js"
     },
+    "./global.css": "./dist/global.css",
     "./styles.css": "./dist/styles.css",
     "./fonts/plex.css": "./dist/plex.css",
     "./icons/tabler.css": "./dist/tabler.css",

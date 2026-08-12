@@ -13,11 +13,12 @@ document's global `body`.
 
 ## Import
 
-```ts
-import "@k2b/ui/styles.css";
+```css
+@import "@k2b/ui/global.css";
 ```
 
-Optional IBM Plex and Tabler presets are separate assets:
+For applications with their own fonts or icons, the same layers remain
+available separately:
 
 ```ts
 import "@k2b/ui/fonts/plex.css";

@@ -1,7 +1,7 @@
-import { transformAsync } from "@babel/core";
-import tsPreset from "@babel/preset-typescript";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, relative, resolve } from "node:path";
+import { transformAsync } from "@babel/core";
+import tsPreset from "@babel/preset-typescript";
 import solidPreset from "babel-preset-solid";
 import tailwind from "bun-plugin-tailwind";
 
@@ -88,6 +88,8 @@ for (const build of builds) {
     throw new Error(`@k2b/ui ${build.name} stylesheet build failed`);
   }
 }
+
+await writeFile(resolve(dist, "global.css"), '@import "./styles.css";\n@import "./plex.css";\n@import "./tabler.css";\n');
 
 const tablerPath = resolve(dist, "tabler.css");
 const tablerCss = await readFile(tablerPath, "utf8");

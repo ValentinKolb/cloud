@@ -41,15 +41,9 @@ const ThemeDemo = () => {
   return (
     <DemoCard
       id="theme"
-      chip={[
-        { kind: "asset", name: "styles.css", from: "@k2b/ui/styles.css" },
-        { kind: "asset", name: "plex.css", from: "@k2b/ui/fonts/plex.css" },
-        { kind: "asset", name: "tabler.css", from: "@k2b/ui/icons/tabler.css" },
-      ]}
+      chip={[{ kind: "asset", name: "global.css", from: "@k2b/ui/global.css" }]}
       description="Switch the local accent stack. The nested .k2b-ui scope updates its semantic tokens and components without changing the surrounding page."
-      code={`import "@k2b/ui/styles.css";
-import "@k2b/ui/fonts/plex.css";
-import "@k2b/ui/icons/tabler.css";
+      code={`import "@k2b/ui/global.css";
 
 const [violet, setViolet] = createSignal(false);
 const violetTheme = { /* --k2b-accent-50 through --k2b-accent-950 */ };
