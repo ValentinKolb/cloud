@@ -3,6 +3,7 @@ import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { Field } from "../contracts";
 import { customAppPageRecordFieldIds } from "../custom-apps/conditions";
+import { customAppGlobalContextKeys } from "../custom-apps/context-keys";
 import {
   type CustomAppBlock,
   type CustomAppCapabilities,
@@ -168,7 +169,7 @@ const representativeQueryContext = (
   page: CustomAppDefinition["pages"][number],
   baseName: string,
 ): DslQueryContextValues => ({
-  "auth.id": null,
+  "auth.id": "00000000-0000-4000-8000-000000000001",
   "auth.name": "Reader",
   "auth.username": "reader",
   "auth.email": "reader@example.test",
@@ -188,6 +189,24 @@ const representativeQueryContext = (
   ),
 });
 
+const representativeGlobalQueryContext = (definition: CustomAppDefinition, baseName: string): DslQueryContextValues => ({
+  "auth.id": "00000000-0000-4000-8000-000000000001",
+  "auth.name": "Reader",
+  "auth.username": "reader",
+  "auth.email": "reader@example.test",
+  "page.id": "global",
+  "page.title": definition.name,
+  "page.url": `/apps/${definition.shortId ?? definition.id}`,
+  "app.id": definition.id,
+  "app.shortId": definition.shortId ?? "draft",
+  "app.name": definition.name,
+  "base.id": definition.baseId,
+  "base.name": baseName,
+  "time.now": "2000-01-01T00:00:00.000Z",
+  "time.today": "2000-01-01",
+  "time.timeZone": "UTC",
+});
+
 export const compile = async (input: unknown, client: SqlClient = sql): Promise<CustomAppCompilation> => {
   const parsed = CustomAppDefinitionSchema.safeParse(input);
   if (!parsed.success) return { ok: false, diagnostics: zodDiagnostics(parsed.error) };
@@ -195,13 +214,15 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const recordsBlocks = blocksByType(definition, "records");
   const insightBlocks = [...blocksByType(definition, "metrics"), ...blocksByType(definition, "chart")];
   const formBlocks = blocksByType(definition, "form");
+  const sidebarFormActions = (definition.sidebar?.actions ?? []).filter((action) => action.kind === "form");
+  const sidebarWorkflowActions = (definition.sidebar?.actions ?? []).filter((action) => action.kind === "workflow");
   const commentBlocks = blocksByType(definition, "comments");
   const actionBlocks = blocksByType(definition, "actions");
   const scannerBlocks = blocksByType(definition, "scanner");
   if (recordsBlocks.length > 4) {
     return { ok: false, diagnostics: [{ path: ["pages"], message: "A Grids App may contain at most 4 Records blocks" }] };
   }
-  if (formBlocks.length > 24) {
+  if (formBlocks.length + sidebarFormActions.length > 24) {
     return { ok: false, diagnostics: [{ path: ["pages"], message: "A Grids App may contain at most 24 Form blocks" }] };
   }
   if (insightBlocks.length > 24) {
@@ -248,39 +269,34 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     return fields;
   };
 
-  const availabilitySources = definition.pages.flatMap((page) => [
-    ...(page.availableWhen ? [{ page, query: page.availableWhen.query, target: { target: "page" as const, pageId: page.id } }] : []),
-    ...page.rows.flatMap((row) =>
-      row.columns.flatMap((column) =>
-        column.blocks.flatMap((block) => [
-          ...(block.availableWhen
-            ? [
-                {
-                  page,
-                  query: block.availableWhen.query,
-                  target: { target: "block" as const, pageId: page.id, blockId: block.id },
-                },
-              ]
-            : []),
-          ...(block.type === "actions"
-            ? block.actions.flatMap((action) =>
-                action.availableWhen
-                  ? [
-                      {
-                        page,
-                        query: action.availableWhen.query,
-                        target: {
-                          target: "action" as const,
-                          pageId: page.id,
-                          blockId: block.id,
-                          actionId: action.id,
-                        },
-                      },
-                    ]
-                  : [],
-              )
-            : block.type === "records"
-              ? (block.rowActions ?? []).flatMap((action) =>
+  const availabilitySources = [
+    ...(definition.sidebar?.actions ?? []).flatMap((action) =>
+      action.availableWhen
+        ? [
+            {
+              page: undefined,
+              query: action.availableWhen.query,
+              target: { target: "sidebarAction" as const, actionId: action.id },
+            },
+          ]
+        : [],
+    ),
+    ...definition.pages.flatMap((page) => [
+      ...(page.availableWhen ? [{ page, query: page.availableWhen.query, target: { target: "page" as const, pageId: page.id } }] : []),
+      ...page.rows.flatMap((row) =>
+        row.columns.flatMap((column) =>
+          column.blocks.flatMap((block) => [
+            ...(block.availableWhen
+              ? [
+                  {
+                    page,
+                    query: block.availableWhen.query,
+                    target: { target: "block" as const, pageId: page.id, blockId: block.id },
+                  },
+                ]
+              : []),
+            ...(block.type === "actions"
+              ? block.actions.flatMap((action) =>
                   action.availableWhen
                     ? [
                         {
@@ -296,11 +312,29 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
                       ]
                     : [],
                 )
-              : []),
-        ]),
+              : block.type === "records"
+                ? (block.rowActions ?? []).flatMap((action) =>
+                    action.availableWhen
+                      ? [
+                          {
+                            page,
+                            query: action.availableWhen.query,
+                            target: {
+                              target: "action" as const,
+                              pageId: page.id,
+                              blockId: block.id,
+                              actionId: action.id,
+                            },
+                          },
+                        ]
+                      : [],
+                  )
+                : []),
+          ]),
+        ),
       ),
-    ),
-  ]);
+    ]),
+  ];
   if (availabilitySources.length > 256) {
     return { ok: false, diagnostics: [{ path: ["pages"], message: "A Grids App may contain at most 256 availability queries" }] };
   }
@@ -308,15 +342,21 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     const compiled = await compileCustomAppQuery({
       baseId: definition.baseId,
       source: source.query,
-      context: representativeQueryContext(definition, source.page, base.name),
+      context: source.page
+        ? representativeQueryContext(definition, source.page, base.name)
+        : representativeGlobalQueryContext(definition, base.name),
+      ...(source.page ? {} : { allowedContextKeys: customAppGlobalContextKeys() }),
     });
-    const targetPath = [
-      "pages",
-      source.target.pageId,
-      ...(source.target.target === "page" ? [] : ["blocks", source.target.blockId]),
-      ...(source.target.target === "action" ? ["actions", source.target.actionId] : []),
-      "availableWhen",
-    ];
+    const targetPath =
+      source.target.target === "sidebarAction"
+        ? ["sidebar", "actions", source.target.actionId, "availableWhen"]
+        : [
+            "pages",
+            source.target.pageId,
+            ...(source.target.target === "page" ? [] : ["blocks", source.target.blockId]),
+            ...(source.target.target === "action" ? ["actions", source.target.actionId] : []),
+            "availableWhen",
+          ];
     if (!compiled.ok) {
       diagnostics.push({ path: targetPath, message: compiled.error });
       continue;
@@ -597,7 +637,21 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     });
   }
 
-  for (const { page, block } of formBlocks) {
+  const formOwners = [
+    ...formBlocks.map(({ page, block }) => ({
+      page,
+      block,
+      formPath: ["pages", page.id, "blocks", block.id] as Array<string | number>,
+      capabilityIdentity: { pageId: page.id, blockId: block.id },
+    })),
+    ...sidebarFormActions.map((block) => ({
+      page: undefined,
+      block,
+      formPath: ["sidebar", "actions", block.id] as Array<string | number>,
+      capabilityIdentity: { sidebarActionId: block.id },
+    })),
+  ];
+  for (const { page, block, formPath, capabilityIdentity } of formOwners) {
     const [formRow] = await client<Array<{ table_id: string; base_id: string; config: unknown; is_active: boolean }>>`
       SELECT f.table_id, t.base_id, f.config, f.is_active
       FROM grids.forms f
@@ -606,7 +660,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     `;
     if (!formRow || formRow.base_id !== definition.baseId || !formRow.is_active) {
       diagnostics.push({
-        path: ["pages", page.id, "blocks", block.id, "formId"],
+        path: [...formPath, "formId"],
         message: "Form is missing, inactive, or belongs to another base",
       });
       continue;
@@ -621,14 +675,14 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     const fixedFieldIds = Object.keys(block.fixedValues).sort();
     if (userInputFieldIds.length > 100) {
       diagnostics.push({
-        path: ["pages", page.id, "blocks", block.id, "formId"],
+        path: [...formPath, "formId"],
         message: "A Grids App Form may expose at most 100 input fields",
       });
       continue;
     }
     if (fixedFieldIds.length > 30) {
       diagnostics.push({
-        path: ["pages", page.id, "blocks", block.id, "fixedValues"],
+        path: [...formPath, "fixedValues"],
         message: "A Grids App Form may bind at most 30 fixed fields",
       });
       continue;
@@ -668,7 +722,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       const field = fieldsById.get(fieldId);
       if (!field || field.deletedAt || !isRecordWritableFieldType(field.type)) {
         diagnostics.push({
-          path: ["pages", page.id, "blocks", block.id, "formId"],
+          path: [...formPath, "formId"],
           message: `Form field ${fieldId} is missing, deleted, unwritable, or belongs to another table`,
         });
       }
@@ -682,7 +736,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
           : null;
       if (typeof targetTableId !== "string" || (entry.inlineCreate.fields ?? []).length === 0) {
         diagnostics.push({
-          path: ["pages", page.id, "blocks", block.id, "formId"],
+          path: [...formPath, "formId"],
           message: `Inline-create field ${entry.fieldId} has no valid relation target or target fields`,
         });
       }
@@ -723,7 +777,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       const field = inlineFieldsByKey.get(`${reference.tableId}\0${reference.fieldId}`);
       if (!field || field.deletedAt || !isRecordWritableFieldType(field.type) || field.type === "relation") {
         diagnostics.push({
-          path: ["pages", page.id, "blocks", block.id, "formId"],
+          path: [...formPath, "formId"],
           message: `Inline-create field ${reference.fieldId} is missing, deleted, unwritable, or belongs to another table`,
         });
       }
@@ -732,7 +786,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       const field = fieldsById.get(fieldId);
       if (!userInputFieldIdSet.has(fieldId)) {
         diagnostics.push({
-          path: ["pages", page.id, "blocks", block.id, "fixedValues", fieldId],
+          path: [...formPath, "fixedValues", fieldId],
           message: "A fixed value must target a user-input field in the referenced Form",
         });
         continue;
@@ -743,7 +797,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
         const normalized = handler?.validate(value.value, field.config, field.required);
         if (!normalized?.ok || normalized.value === undefined) {
           diagnostics.push({
-            path: ["pages", page.id, "blocks", block.id, "fixedValues", fieldId, "value"],
+            path: [...formPath, "fixedValues", fieldId, "value"],
             message: `Fixed value is invalid for Form field ${fieldId}${normalized && !normalized.ok ? `: ${normalized.error}` : ""}`,
           });
         } else {
@@ -754,12 +808,12 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       const fieldConfig = parseJsonbRow<{ targetTableId?: unknown }>(field?.config, {});
       if (field?.type !== "relation" || typeof fieldConfig.targetTableId !== "string") {
         diagnostics.push({
-          path: ["pages", page.id, "blocks", block.id, "fixedValues", fieldId],
+          path: [...formPath, "fixedValues", fieldId],
           message: "Record sources may only bind compatible relation fields",
         });
-      } else if (fieldConfig.targetTableId !== customAppBindingRecordTableId(value, page)) {
+      } else if (!page || fieldConfig.targetTableId !== customAppBindingRecordTableId(value, page)) {
         diagnostics.push({
-          path: ["pages", page.id, "blocks", block.id, "fixedValues", fieldId],
+          path: [...formPath, "fixedValues", fieldId],
           message: "Fixed relation field and record source must reference the same table",
         });
       }
@@ -770,7 +824,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       for (const [parameterId, value] of Object.entries(block.onSuccessNavigate.params)) {
         if (value.source === "RESULT" && targetPage.parameters[parameterId]?.tableId !== formRow.table_id) {
           diagnostics.push({
-            path: ["pages", page.id, "blocks", block.id, "onSuccessNavigate", "params", parameterId],
+            path: [...formPath, "onSuccessNavigate", "params", parameterId],
             message: "RESULT.recordId may only populate a record parameter for the Form table",
           });
         }
@@ -778,8 +832,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     }
 
     forms.push({
-      pageId: page.id,
-      blockId: block.id,
+      ...capabilityIdentity,
       formId: block.formId,
       tableId: formRow.table_id,
       userInputFieldIds,
@@ -797,19 +850,32 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     ...actionBlocks.flatMap(({ page, block }) =>
       block.actions
         .filter((action) => action.kind === "workflow")
-        .map((action) => ({ page, block, action, segment: "actions" as const, rowTableId: undefined })),
+        .map((action) => ({
+          page,
+          action,
+          actionPath: ["pages", page.id, "blocks", block.id, "actions", action.id] as Array<string | number>,
+          capabilityIdentity: { pageId: page.id, blockId: block.id, actionId: action.id },
+          rowTableId: undefined,
+        })),
     ),
     ...recordsBlocks.flatMap(({ page, block }) =>
       (block.rowActions ?? []).map((action) => ({
         page,
-        block,
         action,
-        segment: "rowActions" as const,
+        actionPath: ["pages", page.id, "blocks", block.id, "rowActions", action.id] as Array<string | number>,
+        capabilityIdentity: { pageId: page.id, blockId: block.id, actionId: action.id },
         rowTableId: recordsPrimaryTableIds.get(`${page.id}\0${block.id}`),
       })),
     ),
+    ...sidebarWorkflowActions.map((action) => ({
+      page: undefined,
+      action,
+      actionPath: ["sidebar", "actions", action.id] as Array<string | number>,
+      capabilityIdentity: { sidebarActionId: action.id },
+      rowTableId: undefined,
+    })),
   ];
-  for (const { page, block, action, segment, rowTableId } of workflowActionOwners) {
+  for (const { page, action, actionPath, capabilityIdentity, rowTableId } of workflowActionOwners) {
     const launcher = await getLauncher(action.launcherId, client);
     if (
       !launcher ||
@@ -820,7 +886,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       launcher.config.kind !== "customApp"
     ) {
       diagnostics.push({
-        path: ["pages", page.id, "blocks", block.id, segment, action.id, "launcherId"],
+        path: [...actionPath, "launcherId"],
         message: "Workflow launcher is missing, disabled, invalid, unsupported, or belongs to another base",
       });
       continue;
@@ -835,14 +901,14 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       workflow.diagnostics.some((item) => item.severity === "error")
     ) {
       diagnostics.push({
-        path: ["pages", page.id, "blocks", block.id, segment, action.id, "launcherId"],
+        path: [...actionPath, "launcherId"],
         message: "Workflow launcher does not reference a ready workflow revision",
       });
       continue;
     }
     if (launcher.config.inputMode === "fixed" && Object.keys(action.inputs).length > 0) {
       diagnostics.push({
-        path: ["pages", page.id, "blocks", block.id, segment, action.id, "inputs"],
+        path: [...actionPath, "inputs"],
         message: "Fixed workflow launchers do not accept Grids App inputs",
       });
       continue;
@@ -852,7 +918,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       for (const inputName of Object.keys(action.inputs)) {
         if (!inputsByName.has(inputName)) {
           diagnostics.push({
-            path: ["pages", page.id, "blocks", block.id, segment, action.id, "inputs", inputName],
+            path: [...actionPath, "inputs", inputName],
             message: `Unknown workflow input "${inputName}"`,
           });
         }
@@ -863,7 +929,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
           const message = workflowInputShapeError(input, undefined);
           if (message) {
             diagnostics.push({
-              path: ["pages", page.id, "blocks", block.id, segment, action.id, "inputs", input.name],
+              path: [...actionPath, "inputs", input.name],
               message: `Workflow input "${input.name}" ${message}`,
             });
           }
@@ -873,26 +939,24 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
           const message = workflowInputShapeError(input, value.value);
           if (message) {
             diagnostics.push({
-              path: ["pages", page.id, "blocks", block.id, segment, action.id, "inputs", input.name],
+              path: [...actionPath, "inputs", input.name],
               message: `Workflow input "${input.name}" ${message}`,
             });
           }
           continue;
         }
-        const sourceTableId = customAppBindingRecordTableId(value, page, rowTableId);
+        const sourceTableId = page ? customAppBindingRecordTableId(value, page, rowTableId) : null;
         const boundTableId = workflow.plan.bindings[`inputs.${input.name}.table`];
         if (input.type !== "record" || typeof boundTableId !== "string" || sourceTableId !== boundTableId) {
           diagnostics.push({
-            path: ["pages", page.id, "blocks", block.id, segment, action.id, "inputs", input.name],
+            path: [...actionPath, "inputs", input.name],
             message: `Workflow input "${input.name}" must be a record input bound to the referenced table`,
           });
         }
       }
     }
     workflowLaunchers.push({
-      pageId: page.id,
-      blockId: block.id,
-      actionId: action.id,
+      ...capabilityIdentity,
       launcherId: launcher.id,
       workflowId: workflow.id,
       revision: workflow.revision,
@@ -955,7 +1019,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const capabilities = CustomAppCapabilitiesSchema.parse({
     availability: availability.sort(
       (left, right) =>
-        left.pageId.localeCompare(right.pageId) ||
+        ("pageId" in left ? left.pageId : "").localeCompare("pageId" in right ? right.pageId : "") ||
         ("blockId" in left ? left.blockId : "").localeCompare("blockId" in right ? right.blockId : "") ||
         ("actionId" in left ? left.actionId : "").localeCompare("actionId" in right ? right.actionId : ""),
     ),
@@ -965,12 +1029,17 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       (left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId),
     ),
     records: pageRecords.sort((left, right) => left.pageId.localeCompare(right.pageId)),
-    forms: forms.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
+    forms: forms.sort((left, right) =>
+      ("pageId" in left ? `${left.pageId}\0${left.blockId}` : left.sidebarActionId).localeCompare(
+        "pageId" in right ? `${right.pageId}\0${right.blockId}` : right.sidebarActionId,
+      ),
+    ),
     comments: comments.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
     documents: documents.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
-    workflowLaunchers: workflowLaunchers.sort(
-      (left, right) =>
-        left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId) || left.actionId.localeCompare(right.actionId),
+    workflowLaunchers: workflowLaunchers.sort((left, right) =>
+      ("pageId" in left ? `${left.pageId}\0${left.blockId}\0${left.actionId}` : left.sidebarActionId).localeCompare(
+        "pageId" in right ? `${right.pageId}\0${right.blockId}\0${right.actionId}` : right.sidebarActionId,
+      ),
     ),
     scannerLaunchers: scannerLaunchers.sort(
       (left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId),

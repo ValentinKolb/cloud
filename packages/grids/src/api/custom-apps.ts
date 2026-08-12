@@ -11,10 +11,12 @@ import {
   customAppFormSuccessHref,
   customAppPageHref,
   customAppScannerRunUrl,
+  customAppSidebarActionStatusUrl,
+  customAppSidebarFormSuccessHref,
   resolveCustomAppPage,
   resolveCustomAppPageParams,
 } from "../custom-apps/routing";
-import { buildCustomAppRuntimeContext } from "../custom-apps/runtime-context";
+import { buildCustomAppGlobalRuntimeContext, buildCustomAppRuntimeContext } from "../custom-apps/runtime-context";
 import { resolveCustomAppValueBinding } from "../custom-apps/value-bindings";
 import { isRecordWritableFieldType } from "../field-types";
 import { toWorkflowRunEventSummary } from "../lib/workflow-run-events";
@@ -112,6 +114,40 @@ const resolvePublishedRuntime = async (c: Context<AuthContext>) => {
 
 type PublishedRuntime = NonNullable<Awaited<ReturnType<typeof resolvePublishedRuntime>>>;
 
+const resolvePublishedSidebarRuntime = async (c: Context<AuthContext>) => {
+  const app = await gridsService.customApp.getPublishedByShortId(c.req.param("shortId") ?? "");
+  if (!app?.publishedDefinition || !app.publishedCapabilities) return null;
+  const access = gridsAccessContext(c);
+  if (!(await gateCustomAppAtAccess(access, app.id)).ok) return null;
+  const action = app.publishedDefinition.sidebar?.actions.find((candidate) => candidate.id === c.req.param("actionId"));
+  if (!action) return null;
+  const base = await gridsService.base.get(app.baseId);
+  if (!base) return null;
+  const dateConfig = getDateConfig(c);
+  const runtimeContext = buildCustomAppGlobalRuntimeContext({ access, app, base, dateConfig });
+  const viewer = { ...actorViewerFor(access), isAdmin: true };
+  if (action.availableWhen) {
+    const capability = app.publishedCapabilities.availability.find(
+      (candidate) => candidate.target === "sidebarAction" && candidate.actionId === action.id,
+    );
+    if (
+      !capability ||
+      !(await publishedCustomAppAvailability({
+        baseId: app.baseId,
+        source: action.availableWhen.query,
+        capability,
+        context: runtimeContext.query,
+        signal: c.req.raw.signal,
+        timeZone: runtimeContext.query["time.timeZone"],
+        viewer,
+      }))
+    ) {
+      return null;
+    }
+  }
+  return { app, action, access, dateConfig, runtimeContext, viewer } as const;
+};
+
 const loadRuntimeBindingContext = async (runtime: PublishedRuntime) => {
   const parameterRecords = new Map<string, GridRecord>();
   for (const [parameterId, parameter] of Object.entries(runtime.page.parameters)) {
@@ -199,7 +235,8 @@ const submitPublishedCustomAppForm = async (c: Context<AuthContext>, submitted: 
   }
 
   const capability = capabilities.forms.find(
-    (candidate) => candidate.pageId === page.id && candidate.blockId === block.id && candidate.formId === block.formId,
+    (candidate) =>
+      "pageId" in candidate && candidate.pageId === page.id && candidate.blockId === block.id && candidate.formId === block.formId,
   );
   const form = capability ? await gridsService.form.get(block.formId) : null;
   const fields = form ? await gridsService.field.listByTable(form.tableId, true) : [];
@@ -237,6 +274,44 @@ const submitPublishedCustomAppForm = async (c: Context<AuthContext>, submitted: 
   if (!result.ok) return respond(c, () => Promise.resolve(result));
   const navigateTo = block.onSuccessNavigate
     ? customAppFormSuccessHref(app.shortId, block.onSuccessNavigate, pageParams, result.data.recordId)
+    : undefined;
+  return c.json({ recordId: result.data.recordId, navigateTo }, 201);
+};
+
+const submitPublishedSidebarForm = async (c: Context<AuthContext>, submitted: Record<string, unknown>) => {
+  const runtime = await resolvePublishedSidebarRuntime(c);
+  if (!runtime || runtime.action.kind !== "form") return c.json({ message: "Form not found" }, 404);
+  const { app, action, dateConfig, viewer } = runtime;
+  const capability = app.publishedCapabilities!.forms.find(
+    (candidate) => "sidebarActionId" in candidate && candidate.sidebarActionId === action.id && candidate.formId === action.formId,
+  );
+  const form = capability ? await gridsService.form.get(action.formId) : null;
+  const fields = form ? await gridsService.field.listByTable(form.tableId, true) : [];
+  const inlineTargetFields = form
+    ? (
+        await Promise.all(
+          customAppFormInlineTargetTableIds(form.config, fields).map((tableId) => gridsService.field.listByTable(tableId, true)),
+        )
+      ).flat()
+    : [];
+  if (!capability || !form || !customAppFormMatchesPublishedCapability({ block: action, form, fields, inlineTargetFields, capability })) {
+    return c.json({ message: "Form not found" }, 404);
+  }
+  const submission = parseFormSubmission(submitted);
+  if (!submission) return c.json({ message: "Invalid form submission" }, 400);
+  const fixedValues = Object.fromEntries(Object.entries(action.fixedValues).map(([fieldId, binding]) => [fieldId, binding.value]));
+  const result = await gridsService.form.submit({
+    form,
+    submission,
+    actorId: currentActorUserId(c),
+    dateConfig,
+    fixedValues,
+    recordAccess: ALL_RECORD_ACCESS,
+    viewer,
+  });
+  if (!result.ok) return respond(c, () => Promise.resolve(result));
+  const navigateTo = action.onSuccessNavigate
+    ? customAppSidebarFormSuccessHref(app.shortId, action.onSuccessNavigate, result.data.recordId)
     : undefined;
   return c.json({ recordId: result.data.recordId, navigateTo }, 201);
 };
@@ -306,6 +381,12 @@ export const createCustomAppsApi = (
       v("json", FormSubmitSchema),
       (c) => submitPublishedCustomAppForm(c, c.req.valid("json")),
     )
+    .post(
+      "/runtime/:shortId/sidebar/forms/:actionId/submit",
+      rateLimit({ keyBy: "ip", limitPerSecond: 3, windowSecs: 60 }),
+      v("json", FormSubmitSchema),
+      (c) => submitPublishedSidebarForm(c, c.req.valid("json")),
+    )
     .get(
       "/runtime/:shortId/:pageId/:blockId/documents/:runId/download",
       rateLimit({ keyBy: "ip", limitPerSecond: 8, windowSecs: 60 }),
@@ -355,6 +436,77 @@ export const createCustomAppsApi = (
       },
     )
     .use(deps.requireAuthenticated ?? auth.requireRole("authenticated"))
+    .post("/runtime/:shortId/sidebar/actions/:actionId", v("json", CustomAppActionInvocationSchema), async (c) => {
+      const runtime = await resolvePublishedSidebarRuntime(c);
+      if (!runtime || runtime.action.kind !== "workflow") return c.json({ message: "Action not found" }, 404);
+      const { app, action } = runtime;
+      const capability = app.publishedCapabilities!.workflowLaunchers.find(
+        (candidate) =>
+          "sidebarActionId" in candidate && candidate.sidebarActionId === action.id && candidate.launcherId === action.launcherId,
+      );
+      if (!capability) return c.json({ message: "Action not found" }, 404);
+      const inputs = Object.fromEntries(Object.entries(action.inputs).map(([name, binding]) => [name, binding.value]));
+      const result = await invokeCustomAppLauncher({
+        launcherId: action.launcherId,
+        operationId: c.req.valid("json").operationId,
+        mode: "execute",
+        expectedRevision: capability.revision,
+        principal: currentWorkflowPrincipal(c),
+        inputs,
+        authorization: {
+          kind: "custom-app-sidebar-action",
+          customAppId: app.id,
+          actionId: action.id,
+          revision: capability.revision,
+        },
+      });
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json(
+        {
+          runId: result.data.runId,
+          workflowId: result.data.workflowId,
+          status: result.data.status,
+          statusUrl: customAppSidebarActionStatusUrl(app.shortId, action.id, result.data.runId),
+        },
+        202,
+      );
+    })
+    .get("/runtime/:shortId/sidebar/actions/:actionId/runs/:runId", requireUuidParam("runId", "Workflow run"), async (c) => {
+      const runtime = await resolvePublishedSidebarRuntime(c);
+      const action = runtime?.action.kind === "workflow" ? runtime.action : null;
+      const capability = action
+        ? runtime!.app.publishedCapabilities!.workflowLaunchers.find(
+            (candidate) =>
+              "sidebarActionId" in candidate && candidate.sidebarActionId === action.id && candidate.launcherId === action.launcherId,
+          )
+        : null;
+      const principal = currentWorkflowPrincipal(c);
+      const [scope, run] = capability
+        ? await Promise.all([loadWorkflowRunScope(c.req.param("runId")!), getWorkflowRun(c.req.param("runId")!)])
+        : [null, null];
+      if (
+        !runtime ||
+        !action ||
+        !capability ||
+        !scope ||
+        !run ||
+        scope.principal.userId !== principal.userId ||
+        scope.principal.serviceAccountId !== principal.serviceAccountId ||
+        (scope.principal.actorServiceAccountId ?? null) !== (principal.actorServiceAccountId ?? null) ||
+        scope.launcherId !== capability.launcherId ||
+        scope.workflow.id !== capability.workflowId ||
+        run.workflowRevision !== capability.revision ||
+        scope.authorization.kind !== "custom-app-sidebar-action" ||
+        scope.authorization.customAppId !== runtime.app.id ||
+        scope.authorization.actionId !== action.id ||
+        scope.authorization.revision !== capability.revision
+      ) {
+        return c.json({ message: "Workflow run not found" }, 404);
+      }
+      const status =
+        run.status === "succeeded" ? "succeeded" : ["failed", "canceled", "needs_attention"].includes(run.status) ? "failed" : "running";
+      return c.json({ status, message: run.resultMessage });
+    })
     .post("/runtime/:shortId/:pageId/:blockId/scanner", v("json", ScannerLauncherRequestSchema), async (c) => {
       const resolved = await resolveRuntimeScanner(c);
       if (!resolved) return c.json({ message: "Scanner not found" }, 404);
@@ -532,6 +684,7 @@ export const createCustomAppsApi = (
 
       const capability = capabilities.workflowLaunchers.find(
         (candidate) =>
+          "pageId" in candidate &&
           candidate.pageId === page.id &&
           candidate.blockId === block.id &&
           candidate.actionId === action.id &&
@@ -591,6 +744,7 @@ export const createCustomAppsApi = (
       }
       const capability = capabilities.workflowLaunchers.find(
         (candidate) =>
+          "pageId" in candidate &&
           candidate.pageId === page.id &&
           candidate.blockId === block.id &&
           candidate.actionId === action.id &&
@@ -666,6 +820,7 @@ export const createCustomAppsApi = (
       const capability = workflowAction
         ? runtime.capabilities.workflowLaunchers.find(
             (candidate) =>
+              "pageId" in candidate &&
               candidate.pageId === runtime.page.id &&
               candidate.blockId === block!.id &&
               candidate.actionId === workflowAction.id &&

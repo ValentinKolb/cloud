@@ -77,6 +77,7 @@ const pageSize = (limit: number | null | undefined): number => Math.min(Math.max
 export type GridsWorkflowAuthorization =
   | { kind: "workflow" }
   | { kind: "custom-app-action"; customAppId: string; pageId: string; blockId: string; actionId: string; revision: number }
+  | { kind: "custom-app-sidebar-action"; customAppId: string; actionId: string; revision: number }
   | {
       kind: "custom-app-scanner";
       customAppId: string;

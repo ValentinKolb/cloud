@@ -15,6 +15,23 @@ export type CustomAppRuntimeContext = {
   now: Date;
 };
 
+type GlobalRuntimeContextParams = {
+  access: GridsAccessContext;
+  app: RuntimeApp;
+  base: RuntimeBase;
+  dateConfig: DateContext;
+  now?: Date;
+};
+
+/** Build app-global context. Page values are inert sentinels and are rejected by the global compiler contract. */
+export const buildCustomAppGlobalRuntimeContext = (params: GlobalRuntimeContextParams): CustomAppRuntimeContext =>
+  buildCustomAppRuntimeContext({
+    ...params,
+    page: { id: "global", title: params.app.name },
+    pageUrl: `/apps/${encodeURIComponent(params.app.shortId)}`,
+    pageParams: {},
+  });
+
 /** Capture every implicit GQL value once so all work in one request observes the same clock and URL. */
 export const buildCustomAppRuntimeContext = (params: {
   access: GridsAccessContext;

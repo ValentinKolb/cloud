@@ -258,6 +258,32 @@ describe("Grids App lifecycle", () => {
         baseId,
         name: "Request portal",
         startPageId: "home",
+        sidebar: {
+          actions: [
+            {
+              id: "create-request",
+              kind: "form",
+              label: "New request",
+              tone: "success",
+              formId,
+              fixedValues: { [fieldId]: { source: "LITERAL", value: "New request" } },
+              onSuccessNavigate: {
+                kind: "navigate",
+                pageId: "request",
+                params: { request_id: { source: "RESULT", path: "recordId" } },
+              },
+              availableWhen: { query: `from table {${tableId}}\nwhere {${fieldId}} = @auth.id\nlimit 1` },
+            },
+            {
+              id: "approve-global",
+              kind: "workflow",
+              label: "Approve request",
+              tone: "default",
+              launcherId,
+              inputs: { request: { source: "LITERAL", value: appId } },
+            },
+          ],
+        },
         pages: [
           {
             id: "home",
@@ -418,6 +444,12 @@ describe("Grids App lifecycle", () => {
       }).toEqual({
         availability: [
           {
+            target: "sidebarAction",
+            actionId: "create-request",
+            sourceHash: customAppViewSourceHash(baseId, `from table {${tableId}}\nwhere {${fieldId}} = @auth.id\nlimit 1`),
+            tableIds: [tableId],
+          },
+          {
             target: "page",
             pageId: "home",
             sourceHash: customAppViewSourceHash(baseId, `from table {${tableId}}\nwhere {${fieldId}} = @auth.id\nlimit 1`),
@@ -480,6 +512,13 @@ describe("Grids App lifecycle", () => {
         documents: [{ pageId: "request", blockId: "request-details", tableId, templateIds: [documentTemplateId] }],
         forms: [
           {
+            sidebarActionId: "create-request",
+            formId,
+            tableId,
+            userInputFieldIds: [fieldId, relationFieldId].sort(),
+            fixedFieldIds: [fieldId],
+          },
+          {
             pageId: "home",
             blockId: "apply",
             formId,
@@ -497,6 +536,7 @@ describe("Grids App lifecycle", () => {
           },
         ],
         workflowLaunchers: [
+          { sidebarActionId: "approve-global", launcherId, workflowId, revision: 1 },
           { pageId: "home", blockId: "requests", actionId: "approve-row", launcherId, workflowId, revision: 1 },
           { pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 },
         ],
@@ -559,6 +599,17 @@ describe("Grids App lifecycle", () => {
         launcherId,
       };
       expect(await canExecuteWorkflow(executionClaim)).toBe(true);
+      expect(
+        await canExecuteWorkflow({
+          ...executionClaim,
+          authorization: {
+            kind: "custom-app-sidebar-action",
+            customAppId: appId,
+            actionId: "approve-global",
+            revision: 1,
+          },
+        }),
+      ).toBe(true);
       const scannerExecutionClaim = {
         baseId,
         workflowId,
@@ -622,6 +673,16 @@ describe("Grids App lifecycle", () => {
         ],
       });
       expect(invalid.ok).toBe(false);
+
+      const invalidGlobalContext = structuredClone(definition);
+      invalidGlobalContext.sidebar!.actions[0]!.availableWhen = {
+        query: `from table {${tableId}}\nwhere {${fieldId}} = @page.id\nlimit 1`,
+      };
+      const invalidGlobalContextResult = await compile({ ...invalidGlobalContext, id: testUuid() });
+      expect(invalidGlobalContextResult.ok).toBe(false);
+      if (!invalidGlobalContextResult.ok) {
+        expect(invalidGlobalContextResult.diagnostics.some((diagnostic) => diagnostic.message.includes("@page.id"))).toBe(true);
+      }
 
       const computedEdit = structuredClone(definition);
       const computedRecord = computedEdit.pages[1]!.rows[0]!.columns[0]!.blocks.find((block) => block.type === "record")!;

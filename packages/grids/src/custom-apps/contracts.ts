@@ -84,6 +84,8 @@ export const CustomAppValueBindingSchema = z.discriminatedUnion("source", [
   CustomAppRecordIdValueSchema,
 ]);
 
+export const CustomAppLiteralValueBindingSchema = z.object({ source: z.literal("LITERAL"), value: z.json() }).strict();
+
 export const CustomAppRowValueBindingSchema = z.discriminatedUnion("source", [
   z.object({ source: z.literal("LITERAL"), value: z.json() }).strict(),
   CustomAppParamValueSchema,
@@ -167,6 +169,49 @@ const CustomAppFormSuccessNavigationSchema = z
     params: z.record(CustomAppParameterIdSchema, CustomAppFormSuccessValueSchema),
   })
   .strict();
+
+const CustomAppGlobalFormSuccessNavigationSchema = z
+  .object({
+    kind: z.literal("navigate"),
+    pageId: CustomAppLocalIdSchema,
+    params: z.record(CustomAppParameterIdSchema, z.object({ source: z.literal("RESULT"), path: z.literal("recordId") }).strict()),
+  })
+  .strict();
+
+const CustomAppSidebarActionShape = {
+  id: CustomAppLocalIdSchema,
+  label: z.string().trim().min(1).max(120),
+  icon: z
+    .string()
+    .trim()
+    .min(1)
+    .max(120)
+    .regex(/^[a-z0-9-]+$/, "Use a Tabler icon slug")
+    .optional(),
+  tone: z.enum(["default", "success", "danger"]).default("default"),
+  ...CustomAppAvailabilityShape,
+};
+
+export const CustomAppSidebarActionSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      ...CustomAppSidebarActionShape,
+      kind: z.literal("form"),
+      formId: z.string().uuid(),
+      fixedValues: z.record(z.string().uuid(), CustomAppLiteralValueBindingSchema).default({}),
+      onSuccessNavigate: CustomAppGlobalFormSuccessNavigationSchema.optional(),
+    })
+    .strict(),
+  z
+    .object({
+      ...CustomAppSidebarActionShape,
+      kind: z.literal("workflow"),
+      launcherId: z.string().uuid(),
+      inputs: z.record(z.string().trim().min(1).max(120), CustomAppLiteralValueBindingSchema).default({}),
+      confirm: z.string().trim().min(1).max(240).optional(),
+    })
+    .strict(),
+]);
 
 export const CustomAppMarkdownBlockSchema = z
   .object({
@@ -369,6 +414,13 @@ const CustomAppPageSchema = z
       .object({
         visible: z.boolean().default(true),
         order: z.number().int().min(-1_000).max(1_000).default(0),
+        icon: z
+          .string()
+          .trim()
+          .min(1)
+          .max(120)
+          .regex(/^[a-z0-9-]+$/, "Use a Tabler icon slug")
+          .optional(),
       })
       .strict()
       .default({ visible: true, order: 0 }),
@@ -420,11 +472,47 @@ export const CustomAppDefinitionSchema = z
       .max(120)
       .regex(/^[a-z0-9-]+$/, "Use a Tabler icon slug")
       .optional(),
+    sidebar: z
+      .object({
+        actions: z.array(CustomAppSidebarActionSchema).max(12).default([]),
+      })
+      .strict()
+      .optional(),
     startPageId: CustomAppLocalIdSchema,
     pages: z.array(CustomAppPageSchema).min(1).max(12),
   })
   .strict()
   .superRefine((definition, ctx) => {
+    const sidebarActionIds = new Set<string>();
+    for (const [actionIndex, action] of (definition.sidebar?.actions ?? []).entries()) {
+      if (sidebarActionIds.has(action.id)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Duplicate sidebar action id "${action.id}"`,
+          path: ["sidebar", "actions", actionIndex, "id"],
+        });
+      }
+      sidebarActionIds.add(action.id);
+      if (action.kind !== "form" || !action.onSuccessNavigate) continue;
+      const targetPage = definition.pages.find((page) => page.id === action.onSuccessNavigate!.pageId);
+      if (!targetPage) {
+        ctx.addIssue({
+          code: "custom",
+          message: "onSuccessNavigate.pageId must reference a page",
+          path: ["sidebar", "actions", actionIndex, "onSuccessNavigate", "pageId"],
+        });
+        continue;
+      }
+      const expected = Object.keys(targetPage.parameters).sort();
+      const supplied = Object.keys(action.onSuccessNavigate.params).sort();
+      if (expected.join("\0") !== supplied.join("\0")) {
+        ctx.addIssue({
+          code: "custom",
+          message: "onSuccessNavigate.params must provide every target page parameter exactly once",
+          path: ["sidebar", "actions", actionIndex, "onSuccessNavigate", "params"],
+        });
+      }
+    }
     const pageIds = new Set<string>();
     for (const [pageIndex, page] of definition.pages.entries()) {
       if (pageIds.has(page.id)) {
@@ -670,6 +758,15 @@ export const CustomAppCapabilitiesSchema = z
               tableIds: z.array(z.string().uuid()).min(1).max(24),
             })
             .strict(),
+          z
+            .object({
+              target: z.literal("sidebarAction"),
+              actionId: CustomAppLocalIdSchema,
+              sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+              planHash: z.string().regex(/^[a-f0-9]{64}$/),
+              tableIds: z.array(z.string().uuid()).min(1).max(24),
+            })
+            .strict(),
         ]),
       )
       .max(256)
@@ -784,18 +881,31 @@ export const CustomAppCapabilitiesSchema = z
       .default([]),
     forms: z
       .array(
-        z
-          .object({
-            pageId: CustomAppLocalIdSchema,
-            blockId: CustomAppLocalIdSchema,
-            formId: z.string().uuid(),
-            tableId: z.string().uuid(),
-            userInputFieldIds: z.array(z.string().uuid()).max(100),
-            fixedFieldIds: z.array(z.string().uuid()).max(30),
-            fieldHash: z.string().regex(/^[a-f0-9]{64}$/),
-            formSecurityHash: z.string().regex(/^[a-f0-9]{64}$/),
-          })
-          .strict(),
+        z.union([
+          z
+            .object({
+              pageId: CustomAppLocalIdSchema,
+              blockId: CustomAppLocalIdSchema,
+              formId: z.string().uuid(),
+              tableId: z.string().uuid(),
+              userInputFieldIds: z.array(z.string().uuid()).max(100),
+              fixedFieldIds: z.array(z.string().uuid()).max(30),
+              fieldHash: z.string().regex(/^[a-f0-9]{64}$/),
+              formSecurityHash: z.string().regex(/^[a-f0-9]{64}$/),
+            })
+            .strict(),
+          z
+            .object({
+              sidebarActionId: CustomAppLocalIdSchema,
+              formId: z.string().uuid(),
+              tableId: z.string().uuid(),
+              userInputFieldIds: z.array(z.string().uuid()).max(100),
+              fixedFieldIds: z.array(z.string().uuid()).max(30),
+              fieldHash: z.string().regex(/^[a-f0-9]{64}$/),
+              formSecurityHash: z.string().regex(/^[a-f0-9]{64}$/),
+            })
+            .strict(),
+        ]),
       )
       .max(24)
       .default([]),
@@ -826,16 +936,26 @@ export const CustomAppCapabilitiesSchema = z
       .default([]),
     workflowLaunchers: z
       .array(
-        z
-          .object({
-            pageId: CustomAppLocalIdSchema,
-            blockId: CustomAppLocalIdSchema,
-            actionId: CustomAppLocalIdSchema,
-            launcherId: z.string().uuid(),
-            workflowId: z.string().uuid(),
-            revision: z.number().int().positive(),
-          })
-          .strict(),
+        z.union([
+          z
+            .object({
+              pageId: CustomAppLocalIdSchema,
+              blockId: CustomAppLocalIdSchema,
+              actionId: CustomAppLocalIdSchema,
+              launcherId: z.string().uuid(),
+              workflowId: z.string().uuid(),
+              revision: z.number().int().positive(),
+            })
+            .strict(),
+          z
+            .object({
+              sidebarActionId: CustomAppLocalIdSchema,
+              launcherId: z.string().uuid(),
+              workflowId: z.string().uuid(),
+              revision: z.number().int().positive(),
+            })
+            .strict(),
+        ]),
       )
       .max(288)
       .default([]),
@@ -873,6 +993,7 @@ export type CustomAppAction = CustomAppActionsBlock["actions"][number];
 export type CustomAppValueBinding = z.infer<typeof CustomAppValueBindingSchema>;
 export type CustomAppRowValueBinding = z.infer<typeof CustomAppRowValueBindingSchema>;
 export type CustomAppRowAction = z.infer<typeof CustomAppRowActionSchema>;
+export type CustomAppSidebarAction = z.infer<typeof CustomAppSidebarActionSchema>;
 
 export type CustomAppDiagnostic = { path: Array<string | number>; message: string };
 
@@ -921,9 +1042,14 @@ export const CUSTOM_APP_REFERENCE = {
     scannerBlocks: 24,
   },
   pages: {
-    navigation: "Set visible to false for route-only parameterized pages",
+    navigation: "Set visible to false for route-only parameterized pages; visible pages use optional icon and order in AppWorkspace",
     parameters: "This release supports required same-base record parameters",
     record: "Bind one authorized page record from PARAMS",
+  },
+  sidebar: {
+    actions: "Up to 12 app-global Form or Workflow launchers, independent from pages",
+    inputs: "Global fixed Form values and Workflow inputs are LITERAL only",
+    availability: "Global availability may use auth, app, base, and time context; page and params context is rejected",
   },
   availability: {
     availableWhen: "Optional bounded GQL query on pages, blocks, and individual actions",

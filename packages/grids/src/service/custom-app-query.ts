@@ -3,7 +3,7 @@ import {
   customAppQueryPlanHash,
   customAppQueryPlanRelationTargetTableIds,
 } from "../custom-apps/query-plan-hash";
-import { bindDslQueryContext, type DslQueryContextValues } from "../query-dsl/parameters";
+import { bindDslQueryContext, type DslQueryContextKey, type DslQueryContextValues, dslQueryContextKeys } from "../query-dsl/parameters";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { type DslResolvedSqlQueryPlan, resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
 import { collectDslPlanExtraFieldTableIds } from "../query-dsl/source-plan";
@@ -28,9 +28,15 @@ export const compileCustomAppQuery = async (params: {
   source: string;
   currentTableId?: string;
   context: DslQueryContextValues;
+  allowedContextKeys?: readonly DslQueryContextKey[];
 }): Promise<CompileCustomAppQueryResult> => {
   const parsed = parseGridsQueryDsl(params.source);
   if (!parsed.ok) return { ok: false, error: diagnosticMessage(parsed.diagnostics, "invalid GQL source") };
+  if (params.allowedContextKeys) {
+    const allowed = new Set(params.allowedContextKeys);
+    const forbidden = dslQueryContextKeys(parsed.ast).find((key) => !allowed.has(key));
+    if (forbidden) return { ok: false, error: `Query context reference "@${forbidden}" is not available here` };
+  }
   const bound = bindDslQueryContext(parsed.ast, params.context);
   if (!bound.ok) return { ok: false, error: bound.error };
   const canonicalBound = bindDslQueryContext(parsed.ast, canonicalCustomAppQueryContext(params.context));

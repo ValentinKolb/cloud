@@ -76,6 +76,45 @@ describe("Grids App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse({ ...definition(), script: "alert(1)" }).success).toBe(false);
   });
 
+  test("accepts page-independent sidebar Forms and Workflows with literal-only inputs", () => {
+    const app = {
+      ...definition(),
+      sidebar: {
+        actions: [
+          {
+            id: "create-request",
+            kind: "form",
+            label: "New request",
+            icon: "plus",
+            tone: "success",
+            formId: uuid(20),
+            fixedValues: { [uuid(21)]: { source: "LITERAL", value: "draft" } },
+          },
+          {
+            id: "refresh",
+            kind: "workflow",
+            label: "Refresh",
+            tone: "default",
+            launcherId: uuid(22),
+            inputs: { mode: { source: "LITERAL", value: "safe" } },
+            availableWhen: { query: `from table {${uuid(23)}}\nwhere CreatedBy = @auth.id` },
+          },
+        ],
+      },
+    };
+    expect(CustomAppDefinitionSchema.safeParse(app).success).toBe(true);
+    const unsafe = {
+      ...app,
+      sidebar: {
+        actions: [
+          { ...app.sidebar.actions[0]!, fixedValues: { [uuid(21)]: { source: "PARAMS", path: "request_id" } } },
+          ...app.sidebar.actions.slice(1),
+        ],
+      },
+    };
+    expect(CustomAppDefinitionSchema.safeParse(unsafe).success).toBe(false);
+  });
+
   test("keeps legacy stored definitions recoverable without parsing them as live v3", () => {
     const legacy = { ...definition(), schemaVersion: 1, legacyMarker: { keep: true } };
     const inspected = parseStoredCustomAppDefinition(legacy, "draft");

@@ -53,6 +53,8 @@ shortId: a1b2c
 name: Certificate requests
 icon: certificate
 startPageId: home
+sidebar:
+  actions: []
 pages:
   - id: home
     title: Home
@@ -79,6 +81,7 @@ pages:
 | `name` | Required visible name. |
 | `icon` | Optional supported icon name. |
 | `startPageId` | Required local ID of an existing page. |
+| `sidebar.actions` | Optional ordered app-global Form and Workflow launchers. Values are literal-only and availability has no page or params context. |
 | `pages` | At least one page. |
 
 Unknown keys, duplicate IDs, aliases, custom YAML tags, invalid UUIDs, and implicit type coercion fail validation.

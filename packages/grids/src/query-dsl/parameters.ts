@@ -71,6 +71,37 @@ const contextPath = (expression: Extract<Expr, { kind: "call" }>): string | null
   return path?.kind === "literal" && typeof path.value === "string" ? path.value : null;
 };
 
+const collectExpressionContextKeys = (expression: Expr, keys: Set<DslQueryContextKey>): void => {
+  if (expression.kind === "call") {
+    if (expression.fn === "@") {
+      const path = contextPath(expression);
+      if (path && isDslQueryContextKey(path)) keys.add(path);
+    }
+    for (const argument of expression.args) collectExpressionContextKeys(argument, keys);
+    return;
+  }
+  if (expression.kind === "binop") {
+    collectExpressionContextKeys(expression.left, keys);
+    collectExpressionContextKeys(expression.right, keys);
+    return;
+  }
+  if (expression.kind === "unop") collectExpressionContextKeys(expression.operand, keys);
+};
+
+/** Return every valid implicit context reference used by one parsed GQL query. */
+export const dslQueryContextKeys = (ast: DslQueryAst): DslQueryContextKey[] => {
+  const keys = new Set<DslQueryContextKey>();
+  for (const item of ast.select) if (item.kind === "formula") collectExpressionContextKeys(item.expression, keys);
+  for (const item of ast.aggregations) {
+    if (item.argument !== "*" && "kind" in item.argument && item.argument.kind === "formula") {
+      collectExpressionContextKeys(item.argument.expression, keys);
+    }
+  }
+  if (ast.where) collectExpressionContextKeys(ast.where.expression, keys);
+  if (ast.having) collectExpressionContextKeys(ast.having.expression, keys);
+  return [...keys].sort();
+};
+
 const bindExpression = (expression: Expr, values: DslQueryContextInput): Expr | string => {
   if (expression.kind === "call" && expression.fn === "PARAM") {
     return "param() is not supported; use @params.<name>";

@@ -1,5 +1,12 @@
 import { z } from "zod";
-import type { CustomAppAction, CustomAppDefinition, CustomAppFormBlock, CustomAppPage, CustomAppRowNavigation } from "./contracts";
+import type {
+  CustomAppAction,
+  CustomAppDefinition,
+  CustomAppFormBlock,
+  CustomAppPage,
+  CustomAppRowNavigation,
+  CustomAppSidebarAction,
+} from "./contracts";
 
 const RecordIdSchema = z.string().uuid();
 
@@ -41,6 +48,15 @@ export const customAppFormSubmitUrl = (shortId: string, pageId: string, blockId:
   const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
   return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/submit${query}`;
 };
+
+export const customAppSidebarFormSubmitUrl = (shortId: string, actionId: string): string =>
+  `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/sidebar/forms/${encodeURIComponent(actionId)}/submit`;
+
+export const customAppSidebarActionUrl = (shortId: string, actionId: string): string =>
+  `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/sidebar/actions/${encodeURIComponent(actionId)}`;
+
+export const customAppSidebarActionStatusUrl = (shortId: string, actionId: string, runId: string): string =>
+  `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/sidebar/actions/${encodeURIComponent(actionId)}/runs/${encodeURIComponent(runId)}`;
 
 export const customAppCommentsUrl = (shortId: string, pageId: string, blockId: string, params: Record<string, string>): string => {
   const pageHref = customAppPageHref(shortId, pageId, params);
@@ -164,4 +180,15 @@ export const customAppFormSuccessHref = (
         value.source === "RESULT" ? recordId : pageParams[value.path]!,
       ]),
     ),
+  );
+
+export const customAppSidebarFormSuccessHref = (
+  shortId: string,
+  navigation: NonNullable<Extract<CustomAppSidebarAction, { kind: "form" }>["onSuccessNavigate"]>,
+  recordId: string,
+): string =>
+  customAppPageHref(
+    shortId,
+    navigation.pageId,
+    Object.fromEntries(Object.keys(navigation.params).map((parameterId) => [parameterId, recordId])),
   );

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bindDslQueryContext, type DslQueryContextValues, isDslQueryContextKey } from "./parameters";
+import { bindDslQueryContext, type DslQueryContextValues, dslQueryContextKeys, isDslQueryContextKey } from "./parameters";
 import { parseGridsQueryDsl } from "./parser";
 
 const parse = (source: string) => {
@@ -29,6 +29,10 @@ const context = (overrides: Partial<DslQueryContextValues> = {}): DslQueryContex
 });
 
 describe("GQL query context binding", () => {
+  test("reports context references for surface-specific admission", () => {
+    const ast = parse("from table Articles\nwhere Owner = @auth.id and List = @params.list_id\nselect formula(@time.today) as today");
+    expect(dslQueryContextKeys(ast)).toEqual(["auth.id", "params.list_id", "time.today"]);
+  });
   test("keeps context-free GQL usable without a synthetic runtime context", () => {
     const ast = parse("from table Articles\nwhere Published = true");
     expect(bindDslQueryContext(ast)).toEqual({ ok: true, ast });

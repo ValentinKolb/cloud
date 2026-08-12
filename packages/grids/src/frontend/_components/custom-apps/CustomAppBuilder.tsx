@@ -26,13 +26,14 @@ import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { DslQueryPreviewResponse } from "../../../contracts";
-import { customAppContextKeys } from "../../../custom-apps/context-keys";
+import { customAppContextKeys, customAppGlobalContextKeys } from "../../../custom-apps/context-keys";
 import type {
   CustomAppAction,
   CustomAppBlock,
   CustomAppDefinition,
   CustomAppDiagnostic,
   CustomAppRowAction,
+  CustomAppSidebarAction,
 } from "../../../custom-apps/contracts";
 import type { CustomApp, Field, View } from "../../../service";
 import type { CustomAppDraftSave } from "../../../service/custom-apps";
@@ -652,6 +653,63 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       icon: "ti ti-forms",
     })),
   );
+  const sidebarActions = createMemo(() => draft.draft().sidebar?.actions ?? []);
+  const updateSidebarAction = (actionId: string, update: (action: CustomAppSidebarAction) => CustomAppSidebarAction) =>
+    setDefinition((definition) => ({
+      ...definition,
+      sidebar: {
+        actions: (definition.sidebar?.actions ?? []).map((action) => (action.id === actionId ? update(action) : action)),
+      },
+    }));
+  const removeSidebarAction = (actionId: string) =>
+    setDefinition((definition) => ({
+      ...definition,
+      sidebar: { actions: (definition.sidebar?.actions ?? []).filter((action) => action.id !== actionId) },
+    }));
+  const addSidebarForm = () => {
+    const form = forms()[0];
+    if (!form) return;
+    setDefinition((definition) => ({
+      ...definition,
+      sidebar: {
+        actions: [
+          ...(definition.sidebar?.actions ?? []),
+          { id: localId("form"), kind: "form", label: form.name, icon: "forms", tone: "success", formId: form.id, fixedValues: {} },
+        ],
+      },
+    }));
+  };
+  const addSidebarWorkflow = () => {
+    const launcher = workflowLaunchers()[0];
+    if (!launcher) return;
+    setDefinition((definition) => ({
+      ...definition,
+      sidebar: {
+        actions: [
+          ...(definition.sidebar?.actions ?? []),
+          {
+            id: localId("workflow"),
+            kind: "workflow",
+            label: launcher.config.label || launcher.name,
+            icon: "bolt",
+            tone: "default",
+            launcherId: launcher.id,
+            inputs: {},
+          },
+        ],
+      },
+    }));
+  };
+  const formBindingOptions = (formId: string) => {
+    const form = formsById().get(formId);
+    if (!form) return [];
+    const fields = new Map((props.catalog.fieldsByTable[form.tableId] ?? []).map((field) => [field.id, field]));
+    return form.config.fields.flatMap((entry) => {
+      if (entry.kind !== "user_input") return [];
+      const field = fields.get(entry.fieldId);
+      return field && field.deletedAt === null ? [{ field, label: entry.label || field.name }] : [];
+    });
+  };
   const selectedRecordsView = createMemo(() => {
     const block = selectedBlock()?.block;
     return block?.type === "records" && block.source.kind === "view" ? (viewsById().get(block.source.viewId) ?? null) : null;
@@ -1724,6 +1782,20 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
               definition={draft.draft()}
               page={selectedPage()}
               shortId={app().shortId}
+              hasSidebarActions={sidebarActions().length > 0}
+              sidebarActions={
+                <For each={sidebarActions()}>
+                  {(action) => (
+                    <AppWorkspace.SidebarItem
+                      icon={`ti ti-${action.icon ?? (action.kind === "form" ? "forms" : "bolt")}`}
+                      tone={action.tone}
+                      disabled
+                    >
+                      <AppWorkspace.SidebarItemLabel>{action.label}</AppWorkspace.SidebarItemLabel>
+                    </AppWorkspace.SidebarItem>
+                  )}
+                </For>
+              }
               editor={{
                 selectedBlockId,
                 onSelectBlock: selectBlock,
@@ -1814,6 +1886,276 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                   </div>
                 </DetailPanel.Section>
                 <DetailPanel.Section
+                  title="App sidebar"
+                  icon="ti ti-layout-sidebar-left"
+                  description="Add app-wide Forms and Workflows. They do not receive page, route, record, or row values."
+                  collapsible
+                  defaultOpen={sidebarActions().length > 0}
+                >
+                  <div class="flex flex-col gap-4">
+                    <InlineGuidance>
+                      Pages appear automatically. These launchers stay available while readers move through the app; availability can use
+                      auth, app, Base, and time context.
+                    </InlineGuidance>
+                    <For each={sidebarActions()}>
+                      {(sidebarAction) => {
+                        const selectedForm = () => (sidebarAction.kind === "form" ? formsById().get(sidebarAction.formId) : undefined);
+                        const selectedLauncher = () =>
+                          sidebarAction.kind === "workflow"
+                            ? workflowLaunchers().find((launcher) => launcher.id === sidebarAction.launcherId)
+                            : undefined;
+                        const selectedWorkflow = () => {
+                          const launcher = selectedLauncher();
+                          return launcher ? workflowsById().get(launcher.workflowId) : undefined;
+                        };
+                        return (
+                          <div class="rounded-xl border border-subtle bg-surface p-3">
+                            <div class="flex flex-col gap-3">
+                              <div class="flex items-center gap-2">
+                                <strong class="min-w-0 flex-1 truncate text-sm">{sidebarAction.label}</strong>
+                                <StatusBadge tone="neutral" label={sidebarAction.kind === "form" ? "Form" : "Workflow"} variant="text" />
+                                <IconButton
+                                  size="sm"
+                                  label={`Remove ${sidebarAction.label}`}
+                                  onClick={() => removeSidebarAction(sidebarAction.id)}
+                                >
+                                  <i class="ti ti-trash" aria-hidden="true" />
+                                </IconButton>
+                              </div>
+                              <TextInput
+                                label="Label"
+                                value={() => sidebarAction.label}
+                                onValueChange={(label) => updateSidebarAction(sidebarAction.id, (action) => ({ ...action, label }))}
+                                required
+                              />
+                              <div class="grid gap-3 sm:grid-cols-2">
+                                <IconInput
+                                  label="Icon"
+                                  value={() => iconInputValue(sidebarAction.icon)}
+                                  onValueChange={(value) =>
+                                    updateSidebarAction(sidebarAction.id, (action) => ({ ...action, icon: iconSlug(value) }))
+                                  }
+                                  clearable
+                                />
+                                <Select
+                                  label="Tone"
+                                  value={() => sidebarAction.tone}
+                                  options={[
+                                    { id: "default", label: "Default" },
+                                    { id: "success", label: "Positive" },
+                                    { id: "danger", label: "Danger" },
+                                  ]}
+                                  onValueChange={(tone) =>
+                                    (tone === "default" || tone === "success" || tone === "danger") &&
+                                    updateSidebarAction(sidebarAction.id, (action) => ({ ...action, tone }))
+                                  }
+                                />
+                              </div>
+                              <Show when={sidebarAction.kind === "form"}>
+                                <Select
+                                  label="Form"
+                                  searchable
+                                  value={() => (sidebarAction.kind === "form" ? sidebarAction.formId : null)}
+                                  options={formOptions()}
+                                  onValueChange={(formId) =>
+                                    formId &&
+                                    updateSidebarAction(sidebarAction.id, (action) =>
+                                      action.kind === "form"
+                                        ? { ...action, formId, fixedValues: {}, onSuccessNavigate: undefined }
+                                        : action,
+                                    )
+                                  }
+                                />
+                                <For each={sidebarAction.kind === "form" ? formBindingOptions(sidebarAction.formId) : []}>
+                                  {(binding) => {
+                                    const current = () =>
+                                      sidebarAction.kind === "form" ? sidebarAction.fixedValues[binding.field.id] : undefined;
+                                    return (
+                                      <div class="flex flex-col gap-2">
+                                        <Switch
+                                          label={`Supply ${binding.label}`}
+                                          description="Hide this input and inject one trusted fixed value on the server."
+                                          value={() => Boolean(current())}
+                                          onValueChange={(enabled) =>
+                                            updateSidebarAction(sidebarAction.id, (action) => {
+                                              if (action.kind !== "form") return action;
+                                              const fixedValues = { ...action.fixedValues };
+                                              if (enabled) fixedValues[binding.field.id] = { source: "LITERAL", value: null };
+                                              else delete fixedValues[binding.field.id];
+                                              return { ...action, fixedValues };
+                                            })
+                                          }
+                                        />
+                                        <Show when={current()}>
+                                          {(value) => (
+                                            <JsonValueInput
+                                              label={`${binding.label} value`}
+                                              value={value().value}
+                                              onValueChange={(next) =>
+                                                updateSidebarAction(sidebarAction.id, (action) =>
+                                                  action.kind === "form"
+                                                    ? {
+                                                        ...action,
+                                                        fixedValues: {
+                                                          ...action.fixedValues,
+                                                          [binding.field.id]: { source: "LITERAL", value: next },
+                                                        },
+                                                      }
+                                                    : action,
+                                                )
+                                              }
+                                            />
+                                          )}
+                                        </Show>
+                                      </div>
+                                    );
+                                  }}
+                                </For>
+                                <Select
+                                  label="After submission"
+                                  description="Optionally open a record page for the newly created record."
+                                  placeholder="Stay on the current page"
+                                  clearable
+                                  value={() => (sidebarAction.kind === "form" ? (sidebarAction.onSuccessNavigate?.pageId ?? null) : null)}
+                                  options={draft
+                                    .draft()
+                                    .pages.filter((page) => {
+                                      const form = selectedForm();
+                                      return (
+                                        form && Object.values(page.parameters).every((parameter) => parameter.tableId === form.tableId)
+                                      );
+                                    })
+                                    .map((page) => ({ id: page.id, label: page.title }))}
+                                  onValueChange={(pageId) =>
+                                    updateSidebarAction(sidebarAction.id, (action) => {
+                                      if (action.kind !== "form") return action;
+                                      const page = pageId ? draft.draft().pages.find((candidate) => candidate.id === pageId) : undefined;
+                                      return {
+                                        ...action,
+                                        onSuccessNavigate: page
+                                          ? {
+                                              kind: "navigate",
+                                              pageId: page.id,
+                                              params: Object.fromEntries(
+                                                Object.keys(page.parameters).map((parameterId) => [
+                                                  parameterId,
+                                                  { source: "RESULT" as const, path: "recordId" as const },
+                                                ]),
+                                              ),
+                                            }
+                                          : undefined,
+                                      };
+                                    })
+                                  }
+                                />
+                              </Show>
+                              <Show when={sidebarAction.kind === "workflow"}>
+                                <Select
+                                  label="App run option"
+                                  searchable
+                                  value={() => (sidebarAction.kind === "workflow" ? sidebarAction.launcherId : null)}
+                                  options={workflowLauncherOptions()}
+                                  onValueChange={(launcherId) =>
+                                    launcherId &&
+                                    updateSidebarAction(sidebarAction.id, (action) =>
+                                      action.kind === "workflow" ? { ...action, launcherId, inputs: {} } : action,
+                                    )
+                                  }
+                                />
+                                <Show when={selectedLauncher()?.config.inputMode === "prompt"}>
+                                  <For each={selectedWorkflow()?.plan.inputs ?? []}>
+                                    {(input) => {
+                                      const value = () =>
+                                        sidebarAction.kind === "workflow" ? sidebarAction.inputs[input.name] : undefined;
+                                      return (
+                                        <div class="flex flex-col gap-2">
+                                          <Switch
+                                            label={typeof input.config.label === "string" ? input.config.label : input.name}
+                                            description="Supply a fixed value to this global workflow launcher."
+                                            value={() => Boolean(value())}
+                                            onValueChange={(enabled) =>
+                                              updateSidebarAction(sidebarAction.id, (action) => {
+                                                if (action.kind !== "workflow") return action;
+                                                const inputs = { ...action.inputs };
+                                                if (enabled) inputs[input.name] = { source: "LITERAL", value: null };
+                                                else delete inputs[input.name];
+                                                return { ...action, inputs };
+                                              })
+                                            }
+                                          />
+                                          <Show when={value()}>
+                                            {(literal) => (
+                                              <JsonValueInput
+                                                label={`${input.name} value`}
+                                                value={literal().value}
+                                                onValueChange={(next) =>
+                                                  updateSidebarAction(sidebarAction.id, (action) =>
+                                                    action.kind === "workflow"
+                                                      ? {
+                                                          ...action,
+                                                          inputs: { ...action.inputs, [input.name]: { source: "LITERAL", value: next } },
+                                                        }
+                                                      : action,
+                                                  )
+                                                }
+                                              />
+                                            )}
+                                          </Show>
+                                        </div>
+                                      );
+                                    }}
+                                  </For>
+                                </Show>
+                                <TextInput
+                                  label="Confirmation message"
+                                  clearable
+                                  value={() => (sidebarAction.kind === "workflow" ? (sidebarAction.confirm ?? "") : "")}
+                                  onValueChange={(confirm) =>
+                                    updateSidebarAction(sidebarAction.id, (action) =>
+                                      action.kind === "workflow" ? { ...action, confirm: confirm || undefined } : action,
+                                    )
+                                  }
+                                />
+                              </Show>
+                              <CustomAppAvailabilitySection
+                                baseId={draft.draft().baseId}
+                                contextKeys={customAppGlobalContextKeys()}
+                                targetLabel={sidebarAction.label}
+                                value={() => sidebarAction.availableWhen?.query ?? ""}
+                                onValueChange={(query) =>
+                                  updateSidebarAction(sidebarAction.id, (action) => ({
+                                    ...action,
+                                    availableWhen: query.trim() ? { query } : undefined,
+                                  }))
+                                }
+                                error={() => diagnosticFor(sidebarAction.id, "availableWhen")}
+                              />
+                            </div>
+                          </div>
+                        );
+                      }}
+                    </For>
+                    <div class="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={forms().length === 0 || sidebarActions().length >= 12}
+                        onClick={addSidebarForm}
+                      >
+                        <i class="ti ti-plus" aria-hidden="true" /> Add Form
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={workflowLaunchers().length === 0 || sidebarActions().length >= 12}
+                        onClick={addSidebarWorkflow}
+                      >
+                        <i class="ti ti-plus" aria-hidden="true" /> Add Workflow
+                      </Button>
+                    </div>
+                  </div>
+                </DetailPanel.Section>
+                <DetailPanel.Section
                   title="Access"
                   icon="ti ti-shield"
                   description="Who can open the published app. This is separate from availability rules."
@@ -1849,6 +2191,12 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
               <DetailPanel.Summary title="Page">
                 <div class="flex flex-col gap-3">
                   <TextInput label="Title" value={() => selectedPage().title} onValueChange={(title) => patchPage({ title })} required />
+                  <IconInput
+                    label="Navigation icon"
+                    value={() => iconInputValue(selectedPage().navigation.icon)}
+                    onValueChange={(value) => patchPage({ navigation: { ...selectedPage().navigation, icon: iconSlug(value) } })}
+                    clearable
+                  />
                   <Switch
                     label="Show in app navigation"
                     description={

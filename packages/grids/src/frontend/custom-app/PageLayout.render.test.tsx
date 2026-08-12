@@ -48,7 +48,8 @@ describe("CustomAppPageLayout", () => {
     );
 
     expect(html).toContain('class="custom-app-page ');
-    expect(html).toContain("min-h-0 flex-1 overflow-y-auto overscroll-y-contain");
+    expect(html).toContain("k2b-app-workspace__main");
+    expect(html).toContain("min-h-full");
     expect(html.match(/max-w-\[96rem\]/g)).toHaveLength(2);
     expect(html).toContain('class="custom-app-row ');
     expect(html).toContain('class="custom-app-column ');
@@ -61,5 +62,26 @@ describe("CustomAppPageLayout", () => {
     expect(html).not.toContain("custom-app-editor-label");
     expect(html).not.toContain("custom-app-drop-indicator");
     expect(html).not.toContain("custom-app-pair-indicator");
+  });
+
+  test("uses AppWorkspace navigation only when another page or global action exists", () => {
+    const withNavigation = {
+      ...definition,
+      pages: [
+        ...definition.pages,
+        { ...definition.pages[0]!, id: "reports", title: "Reports", navigation: { visible: true, order: 20, icon: "chart-bar" } },
+      ],
+    };
+    const html = renderToString(() =>
+      createComponent(CustomAppPageLayout, {
+        definition: withNavigation,
+        page: withNavigation.pages[0]!,
+        shortId: "APP1",
+        renderBlock: () => "Rendered content",
+      }),
+    );
+    expect(html).toContain("k2b-app-workspace__sidebar");
+    expect(html).toContain("Reports");
+    expect(html).toContain("ti-chart-bar");
   });
 });

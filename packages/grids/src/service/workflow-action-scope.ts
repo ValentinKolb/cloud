@@ -108,7 +108,7 @@ export const canExecuteWorkflow = async (claim: GridsWorkflowExecutionClaim, cli
     : await revalidateWorkflowPrincipal(claim.principal, claim.baseId);
   if (!revalidated.ok || !workflowPermissionAllows(revalidated.permissionCap, "write")) return false;
   if (!claim.launcherId) return false;
-  if (authorization.kind === "custom-app-action") {
+  if (authorization.kind === "custom-app-action" || authorization.kind === "custom-app-sidebar-action") {
     const [app, launcher] = await Promise.all([getCustomApp(authorization.customAppId, client), getLauncher(claim.launcherId, client)]);
     if (
       !app?.publishedDefinition ||
@@ -131,6 +131,20 @@ export const canExecuteWorkflow = async (claim: GridsWorkflowExecutionClaim, cli
     ) {
       return false;
     }
+    if (authorization.kind === "custom-app-sidebar-action") {
+      const action = app.publishedDefinition.sidebar?.actions.find(
+        (candidate) => candidate.id === authorization.actionId && candidate.kind === "workflow",
+      );
+      if (!action || action.kind !== "workflow" || action.launcherId !== claim.launcherId) return false;
+      return app.publishedCapabilities.workflowLaunchers.some(
+        (capability) =>
+          "sidebarActionId" in capability &&
+          capability.sidebarActionId === action.id &&
+          capability.launcherId === claim.launcherId &&
+          capability.workflowId === claim.workflowId &&
+          capability.revision === authorization.revision,
+      );
+    }
     const page = app.publishedDefinition.pages.find((candidate) => candidate.id === authorization.pageId);
     const block = page?.rows
       .flatMap((row) => row.columns.flatMap((column) => column.blocks))
@@ -144,6 +158,7 @@ export const canExecuteWorkflow = async (claim: GridsWorkflowExecutionClaim, cli
     if (!action || action.kind !== "workflow" || action.launcherId !== claim.launcherId) return false;
     return app.publishedCapabilities.workflowLaunchers.some(
       (capability) =>
+        "pageId" in capability &&
         capability.pageId === page!.id &&
         capability.blockId === block!.id &&
         capability.actionId === action.id &&

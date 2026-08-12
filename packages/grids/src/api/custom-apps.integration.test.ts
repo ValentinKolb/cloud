@@ -146,6 +146,23 @@ describe("Grids App Form runtime", () => {
           baseId,
           name: "Request portal",
           startPageId: "home",
+          sidebar: {
+            actions: [
+              {
+                id: "new-request",
+                kind: "form",
+                label: "New request",
+                tone: "success",
+                formId,
+                fixedValues: { [suppliedFieldId]: { source: "LITERAL", value: "Sidebar" } },
+                onSuccessNavigate: {
+                  kind: "navigate",
+                  pageId: "request",
+                  params: { request_id: { source: "RESULT", path: "recordId" } },
+                },
+              },
+            ],
+          },
           pages: [
             {
               id: "home",
@@ -281,6 +298,20 @@ describe("Grids App Form runtime", () => {
         expect(record?.value).toBe("Certificate request");
         expect(record?.supplied).toBe("App portal");
 
+        const sidebarResponse = await publicApi.request(`/apps/runtime/${applied.data.shortId}/sidebar/forms/new-request/submit`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-sidebar-${baseId}` },
+          body: JSON.stringify({ [fieldId]: "Sidebar request" }),
+        });
+        expect(sidebarResponse.status).toBe(201);
+        const sidebarBody = (await sidebarResponse.json()) as { recordId: string; navigateTo: string };
+        expect(sidebarBody.navigateTo).toBe(`/apps/${applied.data.shortId}/request?request_id=${sidebarBody.recordId}`);
+        const [sidebarRecord] = await sql<Array<{ value: string; supplied: string }>>`
+          SELECT data ->> ${fieldId} AS value, data ->> ${suppliedFieldId} AS supplied
+          FROM grids.records WHERE id = ${sidebarBody.recordId}::uuid
+        `;
+        expect(sidebarRecord).toEqual({ value: "Sidebar request", supplied: "Sidebar" });
+
         const snapshotId = testUuid();
         const documentRunId = testUuid();
         const otherDocumentRunId = testUuid();
@@ -398,7 +429,7 @@ describe("Grids App Form runtime", () => {
         FROM grids.records
         WHERE table_id = ${tableId}::uuid AND deleted_at IS NULL
       `;
-        expect(afterDrift).toEqual({ count: 2, hidden_count: 0 });
+        expect(afterDrift).toEqual({ count: 3, hidden_count: 0 });
         await sql`
         UPDATE grids.forms
         SET config = ${{
@@ -474,6 +505,14 @@ describe("Grids App Form runtime", () => {
               availableWhen: { query: actionAvailability },
             },
           ],
+        });
+        actionDefinition.sidebar!.actions.push({
+          id: "approve-global",
+          kind: "workflow",
+          label: "Approve request",
+          tone: "default",
+          launcherId,
+          inputs: { request: { source: "LITERAL", value: body.recordId } },
         });
         const viewSource = `from table {${tableId}}\nselect {${fieldId}}`;
         actionDefinition.pages[1]!.rows[0]!.columns[0]!.blocks.push({
@@ -563,6 +602,7 @@ describe("Grids App Form runtime", () => {
                 },
               ],
               workflowLaunchers: [
+                { sidebarActionId: "approve-global", launcherId, workflowId, revision: 1 },
                 { pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 },
                 { pageId: "request", blockId: "requests", actionId: "approve-row", launcherId, workflowId, revision: 1 },
               ],
@@ -685,6 +725,23 @@ describe("Grids App Form runtime", () => {
             pageId: "request",
             blockId: "actions",
             actionId: "approve",
+            revision: 1,
+          },
+        });
+        const sidebarActionResponse = await api.request(`/apps/runtime/${applied.data.shortId}/sidebar/actions/approve-global`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ operationId: testUuid() }),
+        });
+        expect(sidebarActionResponse.status).toBe(202);
+        expect(actionInvocation).toMatchObject({
+          launcherId,
+          expectedRevision: 1,
+          inputs: { request: body.recordId },
+          authorization: {
+            kind: "custom-app-sidebar-action",
+            customAppId: appId,
+            actionId: "approve-global",
             revision: 1,
           },
         });

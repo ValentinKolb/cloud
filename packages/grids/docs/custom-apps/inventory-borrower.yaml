@@ -5,12 +5,27 @@ baseId: 30000000-0000-4000-8000-000000000001
 name: Inventory lending
 icon: package
 startPageId: inventory
+sidebar:
+  actions:
+    - id: new-loan
+      kind: form
+      label: New loan
+      icon: plus
+      tone: success
+      formId: 30000000-0000-4000-8000-000000000501
+      fixedValues: {}
+      onSuccessNavigate:
+        kind: navigate
+        pageId: loan
+        params:
+          loan_id: { source: RESULT, path: recordId }
 pages:
   - id: inventory
     title: Inventory
     navigation:
       visible: true
       order: 10
+      icon: package
     parameters: {}
     rows:
       - id: inventory
@@ -22,7 +37,7 @@ pages:
                 type: markdown
                 markdown: |
                   ## Find equipment
-                  Browse the equipment catalogue, then start a request to choose a period.
+                  Browse the equipment catalogue, or use **New loan** in the sidebar to start a request for a specific period.
               - id: available-items
                 type: records
                 searchable: true
@@ -37,44 +52,13 @@ pages:
                     - 30000000-0000-4000-8000-000000000301
                     - 30000000-0000-4000-8000-000000000302
                     - 30000000-0000-4000-8000-000000000303
-              - id: start-loan
-                type: actions
-                actions:
-                  - id: start
-                    label: Start a loan request
-                    icon: plus
-                    kind: navigate
-                    pageId: new-loan
-                    history: push
-                    params: {}
-
-  - id: new-loan
-    title: New loan
-    navigation:
-      visible: false
-      order: 20
-    parameters: {}
-    rows:
-      - id: form
-        columns:
-          - id: content
-            span: 12
-            blocks:
-              - id: loan-form
-                type: form
-                formId: 30000000-0000-4000-8000-000000000501
-                fixedValues: {}
-                onSuccessNavigate:
-                  kind: navigate
-                  pageId: loan
-                  params:
-                    loan_id: { source: RESULT, path: recordId }
 
   - id: loans
     title: My loans
     navigation:
       visible: true
       order: 30
+      icon: clipboard-list
     parameters: {}
     rows:
       - id: loans

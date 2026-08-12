@@ -573,6 +573,8 @@ Saved-view Records blocks require explicit `display.columnIds`. GQL Records bloc
 
 Pages, blocks, Forms, and actions may use one `availableWhen.query`. At least one returned row means available. An empty result, invalid query, missing context, timeout, or cancellation means unavailable. The server rechecks Forms and actions before execution.
 
+The optional root `sidebar.actions` list adds ordered app-global Form and Workflow launchers to the AppWorkspace navigation. Global Form fixed values and Workflow inputs accept `LITERAL` only; they never inherit `PARAMS`, page `RECORD`, or `ROW`. Global availability receives only `@auth.*`, `@app.*`, `@base.*`, and `@time.*`. Form launchers can serve public app readers in a large dialog, while Workflow launchers require sign-in. Visible pages use `navigation.order` and an optional `navigation.icon`; the runtime hides the whole sidebar when it would contain neither another page nor an action.
+
 ```bash
 cld grids apps reference
 cld grids apps create Bookshop --name "Request overview" --json

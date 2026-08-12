@@ -11,7 +11,14 @@ Grids Apps do not copy data. A publication stores an immutable definition and a 
 
 ## Pages and blocks {icon="layout"}
 
-An app may contain up to 12 responsive pages. Set `startPageId` to the page shown at `/apps/<shortId>`. Pages with `navigation.visible: true` appear in the app navigation.
+An app may contain up to 12 responsive pages. Set `startPageId` to the page shown at `/apps/<shortId>`. Pages with `navigation.visible: true` appear in the AppWorkspace sidebar in `order`, with an optional Tabler `icon`. If the current page has no other available page and the app has no available global action, the sidebar is omitted.
+
+The optional root `sidebar.actions` list adds app-global launchers that are independent from every page:
+
+- a **Form** opens in a large dialog and may be available to public app readers;
+- a **Workflow** runs directly from the sidebar and requires a signed-in reader.
+
+Global launchers deliberately receive no page, route, record, or selected-row values. Their fixed Form values and Workflow inputs are `LITERAL` values. Their `availableWhen` GQL may use `@auth.*`, `@app.*`, `@base.*`, and `@time.*`; `@page.*` and `@params.*` fail validation. The server rechecks the exact published Form or Workflow capability and availability immediately before execution.
 
 A column may contain:
 
@@ -43,6 +50,15 @@ baseId: 00000000-0000-4000-8000-000000000002
 name: Request overview
 icon: app-window
 startPageId: home
+sidebar:
+  actions:
+    - id: create-request
+      kind: form
+      label: New request
+      icon: plus
+      tone: success
+      formId: 00000000-0000-4000-8000-000000000006
+      fixedValues: {}
 pages:
   - id: home
     title: My requests

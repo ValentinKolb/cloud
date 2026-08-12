@@ -21,11 +21,16 @@ describe("published App page routes", () => {
     const source = await Bun.file(new URL("../../api/custom-apps.ts", import.meta.url)).text();
     const download = source.indexOf('/documents/:runId/download"');
     const authenticated = source.indexOf('.use(deps.requireAuthenticated ?? auth.requireRole("authenticated"))');
+    const sidebarForm = source.indexOf('/sidebar/forms/:actionId/submit"');
+    const sidebarWorkflow = source.indexOf('/sidebar/actions/:actionId"');
     const rowAction = source.indexOf('/row-actions/:actionId"');
     const scanner = source.indexOf('/:blockId/scanner"');
 
     expect(download).toBeGreaterThan(0);
     expect(download).toBeLessThan(authenticated);
+    expect(sidebarForm).toBeGreaterThan(0);
+    expect(sidebarForm).toBeLessThan(authenticated);
+    expect(sidebarWorkflow).toBeGreaterThan(authenticated);
     expect(rowAction).toBeGreaterThan(authenticated);
     expect(scanner).toBeGreaterThan(authenticated);
     expect(source).toContain("executePublishedCustomAppRecords");

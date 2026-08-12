@@ -20,10 +20,16 @@ import {
   customAppRecordUpdateUrl,
   customAppRowActionUrl,
   customAppScannerUrl,
+  customAppSidebarActionUrl,
+  customAppSidebarFormSubmitUrl,
   resolveCustomAppPage,
   resolveCustomAppPageParams,
 } from "../../custom-apps/routing";
-import { buildCustomAppRuntimeContext, customAppDefinitionWithAvailableNavigation } from "../../custom-apps/runtime-context";
+import {
+  buildCustomAppGlobalRuntimeContext,
+  buildCustomAppRuntimeContext,
+  customAppDefinitionWithAvailableNavigation,
+} from "../../custom-apps/runtime-context";
 import { customAppScannerConfigHash } from "../../custom-apps/scanner-capability";
 import type { DslQueryContextValues } from "../../query-dsl/parameters";
 import { gridsService } from "../../service";
@@ -52,6 +58,7 @@ import { CustomAppPageLayout } from "./PageLayout";
 import RecordDetails from "./RecordDetails.island";
 import RecordsTable, { type CustomAppRenderedRowAction } from "./RecordsTable.island";
 import Scanner from "./Scanner.island";
+import SidebarActions, { type CustomAppRenderedSidebarAction } from "./SidebarActions.island";
 import { formatCustomAppValue } from "./value-format";
 
 type RecordsBlock = Extract<CustomAppBlock, { type: "records" }>;
@@ -232,6 +239,7 @@ const CustomAppPage = (props: {
   dateConfig: ReturnType<typeof getDateConfig>;
   markdownContext: DslQueryContextValues;
   scanners: Map<string, { state: WorkflowScannerState; endpoint: string }>;
+  sidebarActions: CustomAppRenderedSidebarAction[];
   signedIn: boolean;
 }) => {
   return (
@@ -239,6 +247,8 @@ const CustomAppPage = (props: {
       definition={props.definition}
       page={props.page}
       shortId={props.shortId}
+      hasSidebarActions={props.sidebarActions.length > 0}
+      sidebarActions={<SidebarActions actions={props.sidebarActions} />}
       renderBlock={(block) =>
         block.type === "markdown" ? (
           <MarkdownView markdown={renderCustomAppMarkdown(block.markdown, props.markdownContext)} smallHeadings />
@@ -323,6 +333,13 @@ export default ssr<AuthContext>(async (c) => {
     pageParams,
     dateConfig,
   });
+  const globalRuntimeContext = buildCustomAppGlobalRuntimeContext({
+    access: requestAccess,
+    app,
+    base,
+    dateConfig,
+    now: runtimeContext.now,
+  });
   const viewer = {
     ...actorViewerFor(requestAccess),
     isAdmin: true,
@@ -379,6 +396,23 @@ export default ssr<AuthContext>(async (c) => {
     },
   );
   const runtimeDefinition = customAppDefinitionWithAvailableNavigation(definition, availableNavigationPageIds);
+  const availableSidebarActionIds = await availableIdsInBatches(definition.sidebar?.actions ?? [], async (action) => {
+    if (!action.availableWhen) return true;
+    const capability = capabilities.availability.find(
+      (candidate) => candidate.target === "sidebarAction" && candidate.actionId === action.id,
+    );
+    if (!capability) return false;
+    return publishedCustomAppAvailability({
+      baseId: app.baseId,
+      source: action.availableWhen.query,
+      capability,
+      context: globalRuntimeContext.query,
+      signal: c.req.raw.signal,
+      timeZone: globalRuntimeContext.query["time.timeZone"],
+      viewer,
+    });
+  });
+  const availableSidebarActions = (definition.sidebar?.actions ?? []).filter((action) => availableSidebarActionIds.has(action.id));
 
   const visibleBlockIds = await availableIdsInBatches(
     page.rows.flatMap((row) => row.columns.flatMap((column) => column.blocks)),
@@ -605,7 +639,8 @@ export default ssr<AuthContext>(async (c) => {
   const formEntries = await Promise.all(
     formBlocks.map(async (block): Promise<[string, FormBlockData]> => {
       const capability = capabilities.forms.find(
-        (candidate) => candidate.pageId === page.id && candidate.blockId === block.id && candidate.formId === block.formId,
+        (candidate) =>
+          "pageId" in candidate && candidate.pageId === page.id && candidate.blockId === block.id && candidate.formId === block.formId,
       );
       const form = capability ? await gridsService.form.get(block.formId) : null;
       const liveFields = form ? await gridsService.field.listByTable(form.tableId, true) : [];
@@ -669,6 +704,88 @@ export default ssr<AuthContext>(async (c) => {
     }),
   );
   const forms = new Map(formEntries);
+  const sidebarActions: CustomAppRenderedSidebarAction[] = [];
+  for (const action of availableSidebarActions) {
+    if (action.kind === "workflow") {
+      if (!accessActorUser(requestAccess)) continue;
+      const capability = capabilities.workflowLaunchers.find(
+        (candidate) =>
+          "sidebarActionId" in candidate && candidate.sidebarActionId === action.id && candidate.launcherId === action.launcherId,
+      );
+      if (capability) {
+        sidebarActions.push({
+          id: action.id,
+          kind: "workflow",
+          label: action.label,
+          icon: action.icon,
+          tone: action.tone,
+          endpoint: customAppSidebarActionUrl(app.shortId, action.id),
+          confirm: action.confirm,
+        });
+      }
+      continue;
+    }
+    const capability = capabilities.forms.find(
+      (candidate) => "sidebarActionId" in candidate && candidate.sidebarActionId === action.id && candidate.formId === action.formId,
+    );
+    const form = capability ? await gridsService.form.get(action.formId) : null;
+    const liveFields = form ? await gridsService.field.listByTable(form.tableId, true) : [];
+    const securityTargetFields = form
+      ? (
+          await Promise.all(
+            customAppFormInlineTargetTableIds(form.config, liveFields).map((tableId) => gridsService.field.listByTable(tableId, true)),
+          )
+        ).flat()
+      : [];
+    if (
+      !capability ||
+      !form ||
+      !customAppFormMatchesPublishedCapability({
+        block: action,
+        form,
+        fields: liveFields,
+        inlineTargetFields: securityTargetFields,
+        capability,
+      })
+    ) {
+      continue;
+    }
+    const fixed = new Set(Object.keys(action.fixedValues));
+    const renderable = gridsService.form.toPublicRenderableForm(form);
+    renderable.config = {
+      ...renderable.config,
+      redirectUrl: null,
+      fields: renderable.config.fields.filter((entry) => !fixed.has(entry.fieldId)),
+    };
+    const visibleFieldIds = new Set(renderable.config.fields.map((entry) => entry.fieldId));
+    const fields = liveFields.filter((field) => visibleFieldIds.has(field.id));
+    if (fields.length !== visibleFieldIds.size) continue;
+    const fieldsById = new Map(liveFields.map((field) => [field.id, field]));
+    const inlineTargetFields: Record<string, Field[]> = {};
+    for (const entry of renderable.config.fields) {
+      if (entry.kind !== "user_input" || !entry.inlineCreate?.enabled) continue;
+      const relationField = fieldsById.get(entry.fieldId);
+      if (relationField?.type !== "relation") continue;
+      const targetTableId = (relationField.config as { targetTableId?: unknown }).targetTableId;
+      if (typeof targetTableId !== "string") continue;
+      const allowedIds = new Set((entry.inlineCreate.fields ?? []).map((field) => field.fieldId));
+      inlineTargetFields[targetTableId] = securityTargetFields.filter(
+        (field) => field.tableId === targetTableId && !field.deletedAt && allowedIds.has(field.id),
+      );
+    }
+    sidebarActions.push({
+      id: action.id,
+      kind: "form",
+      label: action.label,
+      icon: action.icon,
+      tone: action.tone,
+      submitUrl: customAppSidebarFormSubmitUrl(app.shortId, action.id),
+      form: renderable,
+      fields,
+      inlineTargetFields,
+      dateConfig,
+    });
+  }
   const actionBlocks = runtimePage.rows.flatMap((row) =>
     row.columns.flatMap((column) => column.blocks.filter((block): block is ActionsBlock => block.type === "actions")),
   );
@@ -685,6 +802,7 @@ export default ssr<AuthContext>(async (c) => {
       if (!accessActorUser(requestAccess)) continue;
       const capability = capabilities.workflowLaunchers.find(
         (candidate) =>
+          "pageId" in candidate &&
           candidate.pageId === page.id &&
           candidate.blockId === block.id &&
           candidate.actionId === action.id &&
@@ -713,6 +831,7 @@ export default ssr<AuthContext>(async (c) => {
         if (!(await available("action", action.availableWhen?.query, block.id, action.id))) continue;
         const capability = capabilities.workflowLaunchers.find(
           (candidate) =>
+            "pageId" in candidate &&
             candidate.pageId === page.id &&
             candidate.blockId === block.id &&
             candidate.actionId === action.id &&
@@ -781,7 +900,7 @@ export default ssr<AuthContext>(async (c) => {
     }
   }
   return () => (
-    <Layout c={c} fullWidth title={[{ title: definition.name, href: `/apps/${app.shortId}` }, { title: page.title }]}>
+    <Layout c={c} fullWidth fullPage title={[{ title: definition.name, href: `/apps/${app.shortId}` }, { title: page.title }]}>
       <CustomAppPage
         definition={runtimeDefinition}
         page={runtimePage}
@@ -800,6 +919,7 @@ export default ssr<AuthContext>(async (c) => {
         dateConfig={dateConfig}
         markdownContext={runtimeContext.query}
         scanners={scanners}
+        sidebarActions={sidebarActions}
         signedIn={Boolean(accessActorUser(requestAccess))}
       />
     </Layout>

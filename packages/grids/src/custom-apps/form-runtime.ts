@@ -1,7 +1,7 @@
 import type { Field } from "../contracts";
 import { getRecordWritableFieldType } from "../field-types";
 import type { Form } from "../service/forms";
-import type { CustomAppCapabilities, CustomAppFormBlock, CustomAppPage } from "./contracts";
+import type { CustomAppCapabilities, CustomAppFormBlock, CustomAppPage, CustomAppSidebarAction } from "./contracts";
 import { customAppFormFieldHash, customAppFormSecurityHash } from "./form-capability";
 import { customAppBindingRecordTableId } from "./value-bindings";
 
@@ -11,8 +11,8 @@ const sameStrings = (left: string[], right: string[]) =>
   left.length === right.length && left.every((value, index) => value === right[index]);
 
 export const customAppFormMatchesPublishedCapability = (input: {
-  block: CustomAppFormBlock;
-  page: CustomAppPage;
+  block: CustomAppFormBlock | Extract<CustomAppSidebarAction, { kind: "form" }>;
+  page?: CustomAppPage;
   form: Form;
   fields: Field[];
   inlineTargetFields: Field[];
@@ -47,6 +47,6 @@ export const customAppFormMatchesPublishedCapability = (input: {
       return validated?.ok === true && validated.value !== undefined;
     }
     const targetTableId = field?.type === "relation" ? (field.config as { targetTableId?: unknown }).targetTableId : null;
-    return typeof targetTableId === "string" && targetTableId === customAppBindingRecordTableId(value, page);
+    return Boolean(page) && typeof targetTableId === "string" && targetTableId === customAppBindingRecordTableId(value, page!);
   });
 };

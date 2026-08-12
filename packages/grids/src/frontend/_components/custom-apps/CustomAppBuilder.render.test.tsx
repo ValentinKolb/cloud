@@ -554,6 +554,33 @@ describe("CustomAppBuilder", () => {
     expect(html).not.toContain('label="Published"');
   });
 
+  test("previews and authors page-independent sidebar Forms", async () => {
+    const sidebarApp = app();
+    sidebarApp.draftDefinition!.sidebar = {
+      actions: [
+        {
+          id: "new-request",
+          kind: "form",
+          label: "New request",
+          tone: "default",
+          formId: "77777777-7777-7777-8777-777777777777",
+          fixedValues: {},
+        },
+      ],
+    };
+
+    const html = renderToString(() =>
+      createComponent(CustomAppBuilder, { app: sidebarApp, baseShortId: "BASE1", catalog: catalogWithAuthoringResources() }),
+    );
+    const source = await Bun.file(resolve(import.meta.dir, "CustomAppBuilder.tsx")).text();
+
+    expect(html).toContain("New request");
+    expect(source).toContain('title="App sidebar"');
+    expect(source).toContain("Add Form");
+    expect(source).toContain("Add Workflow");
+    expect(source).toContain("Hide this input and inject one trusted fixed value on the server.");
+  });
+
   test("uses shared large editors and documented DetailPanel groups", async () => {
     const source = await Bun.file(resolve(import.meta.dir, "CustomAppBuilder.tsx")).text();
     const gqlFieldSource = await Bun.file(resolve(import.meta.dir, "CustomAppGqlField.tsx")).text();

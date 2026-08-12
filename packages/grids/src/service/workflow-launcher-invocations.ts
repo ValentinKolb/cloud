@@ -50,6 +50,14 @@ const launcherAuthorizationSchema = z.discriminatedUnion("kind", [
     .strict(),
   z
     .object({
+      kind: z.literal("custom-app-sidebar-action"),
+      customAppId: z.string().uuid(),
+      actionId: z.string().min(1),
+      revision: z.number().int().positive(),
+    })
+    .strict(),
+  z
+    .object({
       kind: z.literal("custom-app-scanner"),
       customAppId: z.string().uuid(),
       pageId: z.string().min(1),
