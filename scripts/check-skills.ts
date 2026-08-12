@@ -355,15 +355,17 @@ if (!isDirectory(publishedSkillsRoot)) {
 
       for (const required of [
         "cloud-dev-mcp",
+        "https://cloud.k2b.dev/_fibel/mcp",
         "list_collections",
         "search_docs",
         "read_doc",
         "actor",
         "accessSubject",
-        "git status",
-        "canonical Fibel page",
-        "Styling and accessibility",
-        "<hr>",
+        "@k2b/stdlib",
+        "@k2b/ssr",
+        "@k2b/sync",
+        "@k2b/ui",
+        "@valentinkolb/cloud/workflows",
       ]) {
         if (!source.includes(required)) {
           violations.push({ file: skillMd, message: `Published skill is missing required guidance: '${required}'.` });

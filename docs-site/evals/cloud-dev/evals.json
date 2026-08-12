@@ -60,16 +60,14 @@
     },
     {
       "id": 6,
-      "prompt": "Update a Cloud public setting option in a dirty monorepo. The cloud-dev-mcp tools are absent and http://localhost:4187 is initially unreachable.",
-      "expected_output": "Starts the current checkout's Fibel container itself, verifies its health, separates endpoint availability from MCP configuration and session refresh, enters reduced mode only if those paths fail, preserves unrelated work, and updates the canonical settings documentation.",
+      "prompt": "Add an authenticated route to a standalone Cloud app, but the Cloud documentation MCP is missing from the agent session.",
+      "expected_output": "Stops before implementation, asks the application author to configure cloud-dev-mcp with https://cloud.k2b.dev/_fibel/mcp and restart the agent session, and enters reduced mode only when the author cannot connect it.",
       "files": [],
       "expectations": [
-        "The agent runs bun run dev:fibel when the local health endpoint is unreachable and verifies health afterward.",
-        "The agent does not change Codex MCP configuration without permission.",
-        "The response distinguishes a healthy endpoint from tools missing until the agent session is refreshed.",
-        "Reduced documentation mode is explicit and used only when endpoint, configuration, and session refresh paths cannot expose the local MCP tools.",
-        "Unrelated working-tree changes are preserved.",
-        "The canonical Fibel settings page is updated for the public contract change."
+        "The agent asks the application author to configure the Cloud documentation MCP instead of silently implementing from memory.",
+        "The response names cloud-dev-mcp, https://cloud.k2b.dev/_fibel/mcp, and an agent-session restart.",
+        "Reduced documentation mode is explicit and used only when the application author cannot connect the MCP.",
+        "No product change is proposed before the documentation path is resolved."
       ]
     },
     {

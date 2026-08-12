@@ -59,7 +59,9 @@ export const app = defineApp({
 export const { ssr, plugin } = app;
 ```
 
-That example uses Bun + SolidJS because the shared helpers (UI, auth, services) are TypeScript. Other languages work too — any HTTP service that talks Redis and Postgres can register with the gateway.
+Cloud applications use Bun and the published TypeScript package so
+registration, identity, services, and UI stay on the supported public
+contract.
 
 ## How it works
 
@@ -169,7 +171,7 @@ Install the CLI operator skill directly from the repository:
 bunx skills add github.com/ValentinKolb/cloud
 ```
 
-- `cloud-dev` — building and maintaining Cloud applications with current documentation through Fibel MCP
+- [`cloud-dev`](docs-site/agent-skills/cloud-dev/SKILL.md) — public application contract for standalone and built-in Cloud apps; repository maintainers also follow [`AGENTS.md`](AGENTS.md)
 - [`cloud-cli`](skills/cloud-cli/SKILL.md) — using a Cloud instance from the terminal with `cld`
 
 ## License

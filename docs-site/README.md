@@ -28,23 +28,25 @@ Set `FIBEL_PORT=4199` on the start command when port `4187` is occupied.
 
 Production builds require `CLOUD_DOCS_SITE_URL`. Set it to the public origin,
 without a trailing path, so canonical links, social metadata, `robots.txt`, and
-the sitemap use absolute URLs.
+the sitemap use absolute URLs. The intended public origin is
+[https://cloud.k2b.dev](https://cloud.k2b.dev), with the documentation MCP at
+`https://cloud.k2b.dev/_fibel/mcp`.
 
 ```bash
 bun run typecheck
-CLOUD_DOCS_SITE_URL=https://cloud.example bun run build
-CLOUD_DOCS_SITE_URL=https://cloud.example bun run start
+CLOUD_DOCS_SITE_URL=https://cloud.k2b.dev bun run build
+CLOUD_DOCS_SITE_URL=https://cloud.k2b.dev bun run start
 ```
 
 Build the deployable container from the repository root:
 
 ```bash
 docker build \
-  --build-arg CLOUD_DOCS_SITE_URL=https://cloud.example \
+  --build-arg CLOUD_DOCS_SITE_URL=https://cloud.k2b.dev \
   -f docs-site/Dockerfile \
   -t cloud-website .
 docker run --rm \
-  -e CLOUD_DOCS_SITE_URL=https://cloud.example \
+  -e CLOUD_DOCS_SITE_URL=https://cloud.k2b.dev \
   -p 3000:3000 \
   cloud-website
 ```

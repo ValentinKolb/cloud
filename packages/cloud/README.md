@@ -53,20 +53,27 @@ export default await app.start({
 
 A standard app declares four prefixes (`/api/<id>`, `/app/<id>`, `/admin/<id>`, `/public/<id>`); the gateway routes them to your container by URL prefix from a Redis-backed registry.
 
-## Subpath exports
+## Public building blocks
 
 | Import | Use for |
 |---|---|
 | `@valentinkolb/cloud` | `defineApp`, common types |
 | `@valentinkolb/cloud/server` | server context, auth, route helpers |
+| `@valentinkolb/cloud/browser` | typed browser client |
+| `@valentinkolb/cloud/services` | settings, logging, notifications, search |
+| `@valentinkolb/cloud/contracts` | shared public contracts |
+| `@valentinkolb/cloud/ssr` | Cloud SSR helpers and islands |
+| `@valentinkolb/cloud/workflows` | durable, inspectable application workflows |
+| `@valentinkolb/cloud/ai` | AI and tool-calling contracts |
+| `@valentinkolb/cloud/cli` | application CLI commands |
+| `@valentinkolb/cloud/config` | documented configuration helpers |
 | `@k2b/ui` | Portable UI components and application layouts |
+| `@k2b/stdlib/solid` | owner-local queries, mutations, and interaction primitives |
+| `@k2b/ssr` | portable SolidJS SSR, islands, and navigation |
+| `@k2b/sync` | distributed coordination, jobs, queues, and schedulers |
 | `@valentinkolb/cloud/access/ui` | Cloud access and resource-key controls |
 | `@valentinkolb/cloud/account/ui` | Cloud account selectors and avatars |
 | `@valentinkolb/cloud/ai/ui` | Cloud AI protocol adapters |
-| `@valentinkolb/cloud/ssr` | SSR helpers, islands, plugin registration |
-| `@valentinkolb/cloud/services` | settings, logging, notifications, search |
-| `@valentinkolb/cloud/api` | typed clients for the platform's own APIs |
-| `@valentinkolb/cloud/contracts` | shared TS contracts |
 | `@valentinkolb/cloud/styles/global.css` | base Tailwind stylesheet |
 
 ## Documentation

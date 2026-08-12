@@ -47,9 +47,9 @@ raw Markdown routes, and `llms.txt`. Do not recover documentation from rendered
 component HTML.
 
 Fibel publishes one self-contained `cloud-dev` skill from
-`docs-site/agent-skills/cloud-dev/SKILL.md`. The skill contains the stable work
-process and platform invariants. Detailed contracts stay in the canonical
-documentation and are read through MCP.
+`docs-site/agent-skills/cloud-dev/SKILL.md`. The skill contains the stable
+public application workflow and cross-cutting boundaries. Detailed contracts
+stay in the canonical documentation and are read through MCP.
 
 ## Use the local documentation MCP
 
@@ -153,8 +153,8 @@ UI context should also state:
 
 Do not copy API details from a changed guide into the published skill. Fibel
 search, MCP, raw Markdown, and `llms.txt` expose the canonical page directly.
-Change the skill only when the stable Cloud work process or a cross-cutting
-invariant changes. Add or update its cases in
+Change the skill only when the stable public application workflow or a
+cross-cutting application invariant changes. Add or update its cases in
 `docs-site/evals/cloud-dev/evals.json` when that workflow changes.
 
 ## Run the relevant checks

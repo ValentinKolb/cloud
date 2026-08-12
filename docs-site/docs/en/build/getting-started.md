@@ -24,6 +24,18 @@ The first direct request proves the application package and process. A later
 request through the gateway proves that deployment networking, registration,
 and route discovery agree.
 
+## Work with a coding agent
+
+Fibel publishes the `cloud-dev` Agent Skill for standalone and built-in Cloud
+applications. Open the **Agents** dialog in the documentation footer to install
+it for your agent. The skill supplies stable application boundaries and routes
+the agent to current documentation instead of duplicating API details.
+
+For documentation access, configure a streamable HTTP MCP server named
+`cloud-dev-mcp` at `https://cloud.k2b.dev/_fibel/mcp`, then restart the agent
+session. The agent should call `list_collections`, `search_docs`, and `read_doc`
+before choosing an implementation.
+
 ## Prepare a standalone project
 
 Install [Bun](https://bun.sh/) and create a repository:
