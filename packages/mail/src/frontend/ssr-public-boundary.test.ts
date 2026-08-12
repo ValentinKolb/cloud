@@ -5,6 +5,7 @@ import {
   projectAutomationWorkspace,
   projectComposeData,
   projectMailboxPageData,
+  projectSsrMailboxList,
   projectSsrPaths,
   resolveSsrMailboxId,
   resolveSsrMailboxResourceId,
@@ -31,6 +32,19 @@ const loadIds = async (_table: string, values: Array<string | null | undefined>)
   new Map(values.flatMap((id) => (id && shorts.has(id) ? [[id, shorts.get(id)!] as const] : [])));
 
 describe("Mail SSR public boundary", () => {
+  test("projects active and deleted overview mailbox IDs for browser links", async () => {
+    const active = await projectSsrMailboxList([{ id: ids.mailbox, name: "Inbox" }], loadIds);
+    const deleted = await projectSsrMailboxList([{ id: ids.mailbox, name: "Deleted" }], loadIds);
+
+    expect(active[0]?.id).toBe("Box001");
+    expect(deleted[0]?.id).toBe("Box001");
+    expect(`/app/mail/${active[0]?.id}`).toBe("/app/mail/Box001");
+    expect(JSON.stringify({ active, deleted })).not.toContain(ids.mailbox);
+
+    const composeMailboxes = await projectSsrMailboxList([{ id: ids.mailbox, name: "Inbox" }], loadIds);
+    expect(composeMailboxes).toEqual([{ id: "Box001", name: "Inbox" }]);
+  });
+
   test("loads distinct public-ID tables concurrently", async () => {
     const started: string[] = [];
     let release!: () => void;

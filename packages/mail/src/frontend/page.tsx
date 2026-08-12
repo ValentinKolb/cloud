@@ -5,6 +5,7 @@ import type { MailRequestContext } from "../service";
 import { mailboxes } from "../service";
 import { readMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
 import MailOverview from "./MailOverview.island";
+import { projectSsrMailboxList } from "./ssr-public-boundary";
 
 export default ssr<AuthContext>(async (c) => {
   const actor = c.get("actor");
@@ -20,18 +21,20 @@ export default ssr<AuthContext>(async (c) => {
   const list = result.ok
     ? result.data.filter((mailbox): mailbox is typeof mailbox & { permission: "read" | "write" | "admin" } => mailbox.permission !== "none")
     : [];
+  const publicMailboxes = await projectSsrMailboxList(list);
   if (c.req.query("recent") === "true") {
     const lastMailboxId = readMailWorkspacePreferences(c.req.header("cookie")).lastMailboxId;
-    if (lastMailboxId && list.some((mailbox) => mailbox.id === lastMailboxId)) {
+    if (lastMailboxId && publicMailboxes.some((mailbox) => mailbox.id === lastMailboxId)) {
       return c.redirect(`/app/mail/${lastMailboxId}`);
     }
   }
   const deletedResult = await mailboxes.listDeletedMailboxes(context, { limit: 200 });
+  const deletedMailboxes = await projectSsrMailboxList(deletedResult.ok ? deletedResult.data.items : []);
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Mail" }]}>
       <MailOverview
-        mailboxes={list}
-        deletedMailboxes={deletedResult.ok ? deletedResult.data.items : []}
+        mailboxes={publicMailboxes}
+        deletedMailboxes={deletedMailboxes}
         initialDeletedCursor={deletedResult.ok ? deletedResult.data.nextCursor : null}
         initialQuery={query ?? ""}
         currentUserEmail={user.mail}

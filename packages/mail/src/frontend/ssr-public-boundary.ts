@@ -52,6 +52,12 @@ export const projectSsrPaths = async <T>(value: T, paths: Path[], loadPublicIds:
   return projected;
 };
 
+export const projectSsrMailboxList = async <T extends { id: string }>(mailboxes: T[], loadPublicIds?: LoadPublicIds): Promise<T[]> => {
+  const paths: Path[] = [];
+  addResourceList(paths, "mailboxes", [], mailboxes);
+  return projectSsrPaths(mailboxes, paths, loadPublicIds);
+};
+
 export const resolveSsrMailboxId = async (
   shortId: string,
   resolve: typeof publicResources.resolvePublicId = publicResources.resolvePublicId,

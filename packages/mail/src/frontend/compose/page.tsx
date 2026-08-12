@@ -3,6 +3,7 @@ import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../config";
 import { type MailRequestContext, mailboxes } from "../../service";
 import MailComposeIntentPage from "../_components/MailComposeIntentPage.island";
+import { projectSsrMailboxList } from "../ssr-public-boundary";
 
 export default ssr<AuthContext>(async (c) => {
   const context: MailRequestContext = {
@@ -11,7 +12,7 @@ export default ssr<AuthContext>(async (c) => {
     requestId: c.req.header("x-request-id") ?? null,
   };
   const result = await mailboxes.listMailboxes(context, 200);
-  const writableMailboxes = result.ok
+  const internalWritableMailboxes = result.ok
     ? result.data
         .filter((mailbox) => mailbox.permission === "write" || mailbox.permission === "admin")
         .map((mailbox) => ({
@@ -20,6 +21,7 @@ export default ssr<AuthContext>(async (c) => {
           description: mailbox.description,
         }))
     : [];
+  const writableMailboxes = await projectSsrMailboxList(internalWritableMailboxes);
   const requestedMailboxId = c.req.query("mailbox");
   const initialMailboxId = writableMailboxes.some((mailbox) => mailbox.id === requestedMailboxId)
     ? requestedMailboxId!
