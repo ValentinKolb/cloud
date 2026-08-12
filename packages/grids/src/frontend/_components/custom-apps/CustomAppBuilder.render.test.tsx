@@ -294,7 +294,7 @@ describe("CustomAppBuilder", () => {
       }),
     );
 
-    expect(html).toContain("Return items");
+    expect(html).not.toContain("Return items");
     expect(html).toContain("Open the published app to use the camera");
     expect(html).toContain("k2b-placeholder");
   });
@@ -634,6 +634,8 @@ describe("CustomAppBuilder", () => {
     const css = await Bun.file(resolve(import.meta.dir, "../../../styles/app.css")).text();
 
     expect(css).toMatch(/\.grids-workspace-editing\s*\{[^}]*--grids-edit-accent:/);
+    expect(css).toMatch(/\.custom-app-page\s*\{[^}]*border-radius:\s*var\(--ui-radius-frame\);/);
+    expect(css).toMatch(/\.custom-app-page\s*\{[^}]*box-shadow:\s*var\(--ui-shadow-frame\);/);
     expect(css).toMatch(
       /\.custom-app-block\[data-editing="true"\]\s*\{[^}]*min-height:\s*var\(--ui-control-sm\);[^}]*outline:\s*1px dashed/,
     );
@@ -728,6 +730,7 @@ describe("CustomAppBuilder", () => {
       {
         id: "request-form",
         type: "form",
+        title: "Request a loan",
         formId: "77777777-7777-7777-8777-777777777777",
         fixedValues: {},
       },
@@ -738,7 +741,11 @@ describe("CustomAppBuilder", () => {
     );
 
     expect(html).toContain('aria-label="Select and move Form"');
-    expect(html).toContain("Request item");
+    expect(html).toContain("Request a loan");
+    expect(html).not.toContain(">Request item<");
+    expect(html).toContain("k2b-panel-header");
+    expect(html).toContain('class="w-full flex flex-col gap-4"');
+    expect(html).not.toContain("max-w-xl");
     expect(html).toContain("data-grids-public-form-ready");
     expect(html).toMatch(/type="submit"[^>]*disabled/);
     expect(html).not.toContain('class="paper');

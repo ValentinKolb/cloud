@@ -148,6 +148,7 @@ export default function RecordsTable(props: {
 
   return (
     <DataTable.Panel class="overflow-hidden">
+      <DataTable.Header title={props.title} as="h2" size="md" />
       <Show when={props.searchable && !props.preview}>
         <DataTable.Controls>
           <TextInput

@@ -106,7 +106,14 @@ const Records = (props: {
   rowActions: CustomAppRenderedRowAction[];
 }) => {
   if (!props.data.ok) {
-    return <Placeholder variant="compact" align="left" title="Records unavailable" description={props.data.message} />;
+    return (
+      <Placeholder
+        variant="compact"
+        align="left"
+        title={`${props.block.title ?? "Records"} unavailable`}
+        description={props.data.message}
+      />
+    );
   }
   return (
     <RecordsTable
@@ -164,7 +171,14 @@ const Record = (props: {
   dateConfig: ReturnType<typeof getDateConfig>;
 }) => {
   if (!props.pageRecord) {
-    return <Placeholder variant="compact" align="left" description={props.block.emptyText ?? "Record not found."} />;
+    return (
+      <Placeholder
+        variant="compact"
+        align="left"
+        title={props.block.title ?? "Record"}
+        description={props.block.emptyText ?? "Record not found."}
+      />
+    );
   }
   return (
     <RecordDetails
@@ -194,6 +208,8 @@ const Form = (props: { block: FormBlock; data: FormBlockData; dateConfig: Return
       inlineTargetFields={props.data.inlineTargetFields}
       dateConfig={props.dateConfig}
       surface="bare"
+      showTitle={!props.block.title}
+      titleAs="h2"
     />
   );
 };
@@ -765,7 +781,7 @@ export default ssr<AuthContext>(async (c) => {
     }
   }
   return () => (
-    <Layout c={c} title={[{ title: definition.name, href: `/apps/${app.shortId}` }, { title: page.title }]}>
+    <Layout c={c} fullWidth title={[{ title: definition.name, href: `/apps/${app.shortId}` }, { title: page.title }]}>
       <CustomAppPage
         definition={runtimeDefinition}
         page={runtimePage}

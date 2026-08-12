@@ -693,7 +693,7 @@ const DiscussionDemo = () => {
       description="Compact notes and comments with Markdown composition, clear content hierarchy, optional reply context, and progressive item actions."
       code={`const [draft, setDraft] = createSignal("");
 
-<Discussion label="Notes" count={3}>
+<Discussion label="Notes" as="h2" surface="bare" count={3}>
   <Discussion.Composer
     onSubmit={postNote}
     actions={<><Button>Cancel</Button><Button>Post note</Button></>}
@@ -718,6 +718,8 @@ const DiscussionDemo = () => {
       <div class="ui-discussion-showcase">
         <Discussion
           label="Notes"
+          as="h2"
+          surface="bare"
           icon="ti ti-note"
           count="3 notes"
           actions={

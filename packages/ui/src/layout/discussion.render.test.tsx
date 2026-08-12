@@ -32,6 +32,7 @@ describe("Discussion", () => {
                 return createComponent(Discussion.Item, {
                   author: "Mara Klein",
                   avatar: "MK",
+                  "aria-busy": "true",
                   timestamp: "18 min ago",
                   meta: "edited",
                   replyContext: "Reply to Alex Smith",
@@ -50,8 +51,29 @@ describe("Discussion", () => {
     expect(html).toContain('class="k2b-discussion__composer');
     expect(html).toContain('class="k2b-discussion__list"');
     expect(html).toContain('data-has-avatar="true"');
+    expect(html).toContain('aria-busy="true"');
     expect(html).toContain('data-visibility="progressive"');
     expect(html).toContain("Reply to Alex Smith");
+  });
+
+  test("supports a bare page section without changing the default surface", async () => {
+    const html = renderToString(() =>
+      createComponent(Discussion, {
+        label: "Questions and updates",
+        as: "h2",
+        surface: "bare",
+        children: createComponent(Discussion.List, { children: "No comments yet." }),
+      }),
+    );
+    const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
+    const bareRule = css.match(/\.k2b-ui \.k2b-discussion\[data-surface="bare"\] \{([^}]*)\}/)?.[1];
+
+    expect(html).toContain('data-surface="bare"');
+    expect(html).toContain("<h2 id=");
+    expect(bareRule).toContain("padding: 0");
+    expect(bareRule).toContain("border: 0");
+    expect(bareRule).toContain("background: transparent");
+    expect(css).toContain('.k2b-discussion[data-surface="bare"] .k2b-discussion__header :is(h2, h3)');
   });
 
   test("keeps item actions visible on touch and progressive on fine pointers", async () => {

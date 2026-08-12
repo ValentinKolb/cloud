@@ -27,7 +27,7 @@ const definition: CustomAppDefinition = {
             {
               id: "main-column",
               span: 12,
-              blocks: [{ id: "intro", type: "markdown", markdown: "Hello" }],
+              blocks: [{ id: "intro", type: "markdown", title: "Introduction", markdown: "Hello" }],
             },
           ],
         },
@@ -48,9 +48,13 @@ describe("CustomAppPageLayout", () => {
     );
 
     expect(html).toContain('class="custom-app-page ');
+    expect(html).toContain("min-h-0 flex-1 overflow-y-auto overscroll-y-contain");
+    expect(html.match(/max-w-\[96rem\]/g)).toHaveLength(2);
     expect(html).toContain('class="custom-app-row ');
     expect(html).toContain('class="custom-app-column ');
     expect(html).toContain('class="custom-app-block ');
+    expect(html).toContain("k2b-panel-header");
+    expect(html).toContain("Introduction");
     expect(html).toContain("Rendered content");
     expect(html).not.toContain("paper");
     expect(html).not.toContain("data-editing");

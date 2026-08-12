@@ -12,7 +12,9 @@ import { Discussion, MarkdownEditor, MarkdownView } from "@k2b/ui";
 
 Pass `label`, optional `icon`, `count`, and header `actions` to `Discussion`. Use `Discussion.Composer` for an editor plus its submit/cancel controls, `Discussion.List` for the ordered entries, and `Discussion.Item` for each author row.
 
-The root uses the same normal surface as `DetailPanel.Summary` and grouped sections. Author avatars and names stay deliberately compact so the discussion content remains the strongest visual element.
+The default root uses the same normal surface as `DetailPanel.Summary` and grouped sections. Set `surface="bare"` when the discussion is already placed in a page section and should not add another border, background, or layer of padding. Bare discussions use normal section-title typography; pass `as="h2"` when the discussion is a top-level page block. Author avatars and names stay deliberately compact so the discussion content remains the strongest visual element.
+
+Keep long threads bounded at the application layer by adding a maximum height and vertical overflow to `Discussion.List`. The discussion heading and composer then remain visible without turning the whole discussion into a second page-level scroll owner.
 
 ## Example
 

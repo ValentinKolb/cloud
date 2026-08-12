@@ -189,6 +189,8 @@ export default function CustomAppBlockPreview(props: {
           fields={formFields()}
           dateConfig={props.dateConfig}
           surface="bare"
+          showTitle={!props.block.title}
+          titleAs="h2"
         />
       )}
     </Show>
@@ -207,7 +209,7 @@ export default function CustomAppBlockPreview(props: {
     <Placeholder
       align="left"
       icon="ti ti-scan"
-      title={props.block.title ?? "Scanner"}
+      title={props.block.title ? undefined : "Scanner"}
       description="Signed-in readers can scan codes here. Open the published app to use the camera."
     />
   ) : (

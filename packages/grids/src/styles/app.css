@@ -14,7 +14,9 @@
 }
 
 .custom-app-page {
+  border-radius: var(--ui-radius-frame);
   background: var(--ui-surface);
+  box-shadow: var(--ui-shadow-frame);
 }
 
 .custom-app-block[data-editing="true"] {
@@ -116,7 +118,7 @@
 .custom-app-block-stack {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 1.5rem;
+  gap: 2rem;
 }
 
 .custom-app-block-stack > .custom-app-block {

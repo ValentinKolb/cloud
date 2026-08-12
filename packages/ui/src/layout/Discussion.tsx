@@ -6,6 +6,8 @@ export type DiscussionProps = Omit<JSX.HTMLAttributes<HTMLElement>, "children" |
   icon?: string | false;
   count?: JSX.Element;
   actions?: JSX.Element;
+  as?: "h2" | "h3";
+  surface?: "default" | "bare";
   class?: string;
 };
 
@@ -20,7 +22,7 @@ export type DiscussionListProps = {
   class?: string;
 };
 
-export type DiscussionItemProps = {
+export type DiscussionItemProps = Omit<JSX.LiHTMLAttributes<HTMLLIElement>, "children" | "class"> & {
   author: JSX.Element;
   children: JSX.Element;
   avatar?: JSX.Element;
@@ -42,10 +44,15 @@ const classNames = (base: string, extra?: string): string => (extra ? `${base} $
 
 const DiscussionRoot = (props: DiscussionProps): JSX.Element => {
   const headingId = `k2b-discussion-${createUniqueId()}`;
-  const [local, sectionProps] = splitProps(props, ["label", "children", "icon", "count", "actions", "class"]);
+  const [local, sectionProps] = splitProps(props, ["label", "children", "icon", "count", "actions", "as", "surface", "class"]);
 
   return (
-    <section {...sectionProps} class={classNames("k2b-discussion", local.class)} aria-labelledby={headingId}>
+    <section
+      {...sectionProps}
+      class={classNames("k2b-discussion", local.class)}
+      data-surface={local.surface ?? "default"}
+      aria-labelledby={headingId}
+    >
       <header class="k2b-discussion__header">
         <Show when={local.icon !== false && local.icon}>
           {(icon) => (
@@ -54,7 +61,9 @@ const DiscussionRoot = (props: DiscussionProps): JSX.Element => {
             </span>
           )}
         </Show>
-        <h3 id={headingId}>{local.label}</h3>
+        <Show when={local.as === "h2"} fallback={<h3 id={headingId}>{local.label}</h3>}>
+          <h2 id={headingId}>{local.label}</h2>
+        </Show>
         <Show when={local.count !== undefined}>
           <span class="k2b-discussion__count">{local.count}</span>
         </Show>
@@ -81,33 +90,50 @@ const DiscussionList = (props: DiscussionListProps): JSX.Element => (
   <ol class={classNames("k2b-discussion__list", props.class)}>{props.children}</ol>
 );
 
-const DiscussionItem = (props: DiscussionItemProps): JSX.Element => (
-  <li class={classNames("k2b-discussion__item", props.class)} data-has-avatar={props.avatar !== undefined ? "true" : undefined}>
-    <Show when={props.avatar !== undefined}>
-      <div class="k2b-discussion__avatar">{props.avatar}</div>
-    </Show>
-    <div class="k2b-discussion__entry">
-      <header>
-        <strong>{props.author}</strong>
-        <Show when={props.timestamp !== undefined}>
-          <span class="k2b-discussion__timestamp">{props.timestamp}</span>
-        </Show>
-        <Show when={props.meta !== undefined}>
-          <span class="k2b-discussion__meta">{props.meta}</span>
-        </Show>
-        <Show when={props.actions !== undefined}>
-          <div class="k2b-discussion__item-actions" data-visibility={props.actionVisibility ?? "progressive"}>
-            {props.actions}
-          </div>
-        </Show>
-      </header>
-      <Show when={props.replyContext !== undefined}>
-        <div class="k2b-discussion__reply-context">{props.replyContext}</div>
+const DiscussionItem = (props: DiscussionItemProps): JSX.Element => {
+  const [local, itemProps] = splitProps(props, [
+    "author",
+    "children",
+    "avatar",
+    "timestamp",
+    "meta",
+    "replyContext",
+    "actions",
+    "actionVisibility",
+    "class",
+  ]);
+  return (
+    <li
+      {...itemProps}
+      class={classNames("k2b-discussion__item", local.class)}
+      data-has-avatar={local.avatar !== undefined ? "true" : undefined}
+    >
+      <Show when={local.avatar !== undefined}>
+        <div class="k2b-discussion__avatar">{local.avatar}</div>
       </Show>
-      <div class="k2b-discussion__content">{props.children}</div>
-    </div>
-  </li>
-);
+      <div class="k2b-discussion__entry">
+        <header>
+          <strong>{local.author}</strong>
+          <Show when={local.timestamp !== undefined}>
+            <span class="k2b-discussion__timestamp">{local.timestamp}</span>
+          </Show>
+          <Show when={local.meta !== undefined}>
+            <span class="k2b-discussion__meta">{local.meta}</span>
+          </Show>
+          <Show when={local.actions !== undefined}>
+            <div class="k2b-discussion__item-actions" data-visibility={local.actionVisibility ?? "progressive"}>
+              {local.actions}
+            </div>
+          </Show>
+        </header>
+        <Show when={local.replyContext !== undefined}>
+          <div class="k2b-discussion__reply-context">{local.replyContext}</div>
+        </Show>
+        <div class="k2b-discussion__content">{local.children}</div>
+      </div>
+    </li>
+  );
+};
 
 const Discussion = DiscussionRoot as DiscussionComponent;
 Discussion.Composer = DiscussionComposer;

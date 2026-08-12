@@ -1,4 +1,5 @@
 import type { DndController } from "@k2b/stdlib/solid";
+import { PanelHeader } from "@k2b/ui";
 import { For, type JSX, Show } from "solid-js";
 import type { CustomAppBlock, CustomAppDefinition, CustomAppPage } from "../../custom-apps/contracts";
 import { customAppPageHref } from "../../custom-apps/routing";
@@ -53,6 +54,9 @@ const blockLabel: Record<CustomAppBlock["type"], string> = {
   records: "Records",
   scanner: "Scanner",
 };
+
+const blockOwnsHeading = (block: CustomAppBlock): boolean =>
+  block.type === "comments" || block.type === "record" || block.type === "records";
 
 const intentTargets = (intent: CustomAppBlockDropIntent | null, activeBlockId: string | null) => {
   if (!activeBlockId || !intent) return false;
@@ -149,10 +153,10 @@ export function CustomAppPageLayout(props: {
 
   return (
     <main
-      class="custom-app-page mx-auto flex w-full max-w-[96rem] flex-col gap-8 p-4 sm:p-6 lg:p-8"
+      class={`custom-app-page flex w-full flex-col gap-10 ${props.editor ? "min-h-full" : "min-h-0 flex-1 overflow-y-auto overscroll-y-contain"}`}
       data-dnd-dragging={props.editor?.dnd.isDragging() ? "true" : undefined}
     >
-      <header class="flex flex-wrap items-center justify-between gap-4">
+      <header class="mx-auto flex w-full max-w-[96rem] flex-wrap items-center justify-between gap-4 px-5 pt-5 sm:px-7 sm:pt-7 lg:px-10 lg:pt-10">
         <div class="flex items-center gap-3">
           {props.definition.icon ? <i class={`ti ti-${props.definition.icon} text-2xl text-accent`} aria-hidden="true" /> : null}
           <div>
@@ -188,7 +192,7 @@ export function CustomAppPageLayout(props: {
         </Show>
       </header>
 
-      <div class="flex flex-col gap-8">
+      <div class="mx-auto flex w-full max-w-[96rem] flex-col gap-10 px-5 pb-5 sm:px-7 sm:pb-7 lg:px-10 lg:pb-10">
         <For each={props.page.rows}>
           {(row, rowIndex) => {
             const multiColumnRow = row.columns.length > 1;
@@ -277,7 +281,7 @@ export function CustomAppPageLayout(props: {
                                         handleSelector: '[data-custom-app-dnd-handle="block"]',
                                       }));
                                     }}
-                                    class="custom-app-block relative min-w-0"
+                                    class="custom-app-block relative flex min-w-0 flex-col gap-4"
                                     style={{ "grid-row": `${blockIndex() + 1}` }}
                                     data-editing={props.editor ? "true" : undefined}
                                     data-selected={props.editor?.selectedBlockId() === block.id ? "true" : undefined}
@@ -334,9 +338,7 @@ export function CustomAppPageLayout(props: {
                                         ) : null}
                                       </>
                                     ) : null}
-                                    {block.title && block.type !== "comments" ? (
-                                      <h2 class="mb-3 text-base font-semibold">{block.title}</h2>
-                                    ) : null}
+                                    {block.title && !blockOwnsHeading(block) ? <PanelHeader title={block.title} as="h2" size="md" /> : null}
                                     {props.renderBlock(block)}
                                   </article>
                                   {props.editor && !multiColumnRow && nextBlock() ? (

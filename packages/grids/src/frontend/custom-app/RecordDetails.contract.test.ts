@@ -5,10 +5,14 @@ describe("App record details", () => {
     const source = await Bun.file(new URL("./RecordDetails.island.tsx", import.meta.url)).text();
 
     expect(source).toContain("DescriptionList");
+    expect(source).toContain("PanelHeader");
     expect(source).toContain("<FieldValue");
     expect(source).toContain('mode="detail"');
     expect(source).not.toContain("formatFieldValueText");
     expect(source).not.toContain('class="divide-y rounded-xl border"');
+    expect(source).not.toContain('class="rounded-xl border p-4"');
+    expect(source).not.toContain("divide-y");
+    expect(source).toContain('<ul class="flex flex-col gap-1">');
     expect(source).toContain("fetch(run.downloadUrl");
     expect(source).not.toContain("requestDocumentRunDownload");
   });

@@ -1,5 +1,5 @@
 import type { DateContext } from "@k2b/stdlib";
-import { Button, NoticeCard } from "@k2b/ui";
+import { Button, NoticeCard, PanelHeader } from "@k2b/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field } from "../../../service";
@@ -15,6 +15,8 @@ type Props = {
   inlineTargetFields?: Record<string, Field[]>;
   dateConfig?: DateContext;
   surface?: "bare" | "paper";
+  showTitle?: boolean;
+  titleAs?: "h1" | "h2";
 } & (
   | { publicToken: string; submitUrl?: never; preview?: never }
   | { publicToken?: never; submitUrl: string; preview?: never }
@@ -46,6 +48,7 @@ export default function FormSubmit(props: Props) {
   const setInlineDrafts = (fieldId: string, drafts: InlineCreateState[string]) =>
     setInlineCreates((current) => ({ ...current, [fieldId]: drafts }));
   const hasInlineCreate = () => entries.some((entry) => entry.inlineCreate?.enabled);
+  const surfaceClass = () => (props.surface === "bare" ? "w-full" : "paper mx-auto max-w-xl p-6");
 
   onMount(() => setClientReady(true));
 
@@ -102,7 +105,7 @@ export default function FormSubmit(props: Props) {
   };
 
   return (
-    <div class={`${props.surface === "bare" ? "" : "paper p-6"} mx-auto flex max-w-xl flex-col gap-4`}>
+    <div class={`${surfaceClass()} flex flex-col gap-4`}>
       {/* Optional title image — banner above the form. Compact
           max-h (96 px) + object-contain matches FormSubmitModal so
           the public page and the in-app preview render the same
@@ -110,12 +113,21 @@ export default function FormSubmit(props: Props) {
       <Show when={props.form.config.titleImage}>
         {(src) => <img src={src()} alt="" class="w-full max-h-24 rounded-md object-contain" />}
       </Show>
-      <header class="flex flex-col gap-1">
-        <h1 class="text-lg font-semibold text-primary">{props.form.config.title ?? props.form.name}</h1>
-        <Show when={props.form.config.description}>
-          <p class="text-sm text-dimmed">{props.form.config.description}</p>
-        </Show>
-      </header>
+      <Show
+        when={props.showTitle !== false}
+        fallback={
+          <Show when={props.form.config.description}>
+            <p class="text-sm text-dimmed">{props.form.config.description}</p>
+          </Show>
+        }
+      >
+        <PanelHeader
+          title={props.form.config.title ?? props.form.name}
+          subtitle={props.form.config.description}
+          as={props.titleAs ?? "h1"}
+          size="md"
+        />
+      </Show>
 
       <Show
         when={!done()}

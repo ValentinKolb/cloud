@@ -11,6 +11,12 @@ describe("published App page routes", () => {
     expect(routes).not.toContain("auth.redirectToLogin");
   });
 
+  test("delegates the published page scroll owner to the App surface", async () => {
+    const source = await Bun.file(new URL("./page.tsx", import.meta.url)).text();
+
+    expect(source).toContain("<Layout c={c} fullWidth");
+  });
+
   test("keeps App document downloads public-capable and mutations authenticated", async () => {
     const source = await Bun.file(new URL("../../api/custom-apps.ts", import.meta.url)).text();
     const download = source.indexOf('/documents/:runId/download"');

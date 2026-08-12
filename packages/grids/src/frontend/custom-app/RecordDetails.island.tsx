@@ -1,5 +1,5 @@
 import type { DateContext } from "@k2b/stdlib";
-import { Button, DescriptionList, Placeholder, prompts } from "@k2b/ui";
+import { Button, DescriptionList, PanelHeader, Placeholder, prompts } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import type { DocumentRunSummary, RecordMutationAudit, TableAuditPolicy } from "../../contracts";
 import type { CustomAppBlock } from "../../custom-apps/contracts";
@@ -99,15 +99,20 @@ export default function RecordDetails(props: {
   };
 
   return (
-    <div class="flex flex-col gap-3">
-      <Show when={props.updateEndpoint && editableFields.length > 0}>
-        <div class="flex justify-end">
-          <Button variant="secondary" size="sm" disabled={saving()} onClick={() => void edit()}>
-            <i class="ti ti-pencil" aria-hidden="true" />
-            Edit
-          </Button>
-        </div>
-      </Show>
+    <div class="flex flex-col gap-5">
+      <PanelHeader
+        title={props.block.title ?? props.tableName}
+        as="h2"
+        size="md"
+        actions={
+          <Show when={props.updateEndpoint && editableFields.length > 0}>
+            <Button variant="secondary" size="sm" disabled={saving()} onClick={() => void edit()}>
+              <i class="ti ti-pencil" aria-hidden="true" />
+              Edit
+            </Button>
+          </Show>
+        }
+      />
       <DescriptionList
         columns={1}
         size="sm"
@@ -128,36 +133,36 @@ export default function RecordDetails(props: {
         }))}
       />
       <Show when={props.block.documents}>
-        <section class="rounded-xl border p-4" aria-labelledby={`${props.block.id}-documents`}>
-          <h3 id={`${props.block.id}-documents`} class="text-sm font-semibold">
-            Documents
-          </h3>
+        <section class="flex min-w-0 flex-col gap-3" aria-labelledby={`${props.block.id}-documents`}>
+          <PanelHeader title={<span id={`${props.block.id}-documents`}>Documents</span>} as="h3" size="md" />
           <Show
             when={props.documentRuns.length > 0}
-            fallback={<Placeholder align="left" class="px-0 pb-0 pt-3" description="No generated documents yet." />}
+            fallback={<Placeholder align="left" class="px-0 py-1" description="No generated documents yet." />}
           >
-            <div class="mt-2 divide-y">
+            <ul class="flex flex-col gap-1">
               <For each={props.documentRuns}>
                 {(run) => (
-                  <button
-                    type="button"
-                    class="group flex w-full min-w-0 items-center gap-2 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                    aria-label={`Download ${run.filename}`}
-                    onClick={() => void download(run)}
-                    disabled={Boolean(downloadingId())}
-                    aria-busy={downloadingId() === run.id}
-                  >
-                    <i
-                      class={`ti ${downloadingId() === run.id ? "ti-loader-2 animate-spin" : "ti-file-type-pdf"} shrink-0 text-base text-secondary`}
-                      aria-hidden="true"
-                    />
-                    <span class="min-w-0 flex-1 truncate text-primary">{run.filename}</span>
-                    <span class="shrink-0 text-xs text-dimmed">{formatRecordRelativeTime(run.generatedAt, props.dateConfig)}</span>
-                    <i class="ti ti-download shrink-0 text-secondary group-hover:text-primary" aria-hidden="true" />
-                  </button>
+                  <li>
+                    <button
+                      type="button"
+                      class="group flex w-full min-w-0 items-center gap-2 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      aria-label={`Download ${run.filename}`}
+                      onClick={() => void download(run)}
+                      disabled={Boolean(downloadingId())}
+                      aria-busy={downloadingId() === run.id}
+                    >
+                      <i
+                        class={`ti ${downloadingId() === run.id ? "ti-loader-2 animate-spin" : "ti-file-type-pdf"} shrink-0 text-base text-secondary`}
+                        aria-hidden="true"
+                      />
+                      <span class="min-w-0 flex-1 truncate text-primary">{run.filename}</span>
+                      <span class="shrink-0 text-xs text-dimmed">{formatRecordRelativeTime(run.generatedAt, props.dateConfig)}</span>
+                      <i class="ti ti-download shrink-0 text-secondary group-hover:text-primary" aria-hidden="true" />
+                    </button>
+                  </li>
                 )}
               </For>
-            </div>
+            </ul>
           </Show>
         </section>
       </Show>
