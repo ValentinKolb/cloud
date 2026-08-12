@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { NoticeCard, Button, prompts, TextInput, toast } from "@k2b/ui";
+import { Button, NoticeCard, prompts, TextInput, toast } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 
@@ -8,15 +8,15 @@ const readError = async (res: Response, fallback: string): Promise<string> => {
   return body?.message ?? fallback;
 };
 
-function FeedbackForm(props: { slug: string; accentColor: string; onSubmitted: () => void }) {
+function FeedbackForm(props: { venueId: string; accentColor: string; onSubmitted: () => void }) {
   const [rating, setRating] = createSignal(4);
   const [hoverRating, setHoverRating] = createSignal<number | null>(null);
   const [comment, setComment] = createSignal("");
 
   const submit = mutation.create<void, void>({
     mutation: async () => {
-      const res = await apiClient.public[":slug"].feedback.$post({
-        param: { slug: props.slug },
+      const res = await apiClient.public[":id"].feedback.$post({
+        param: { id: props.venueId },
         json: { rating: rating(), comment: comment().trim() || null },
       });
       if (!res.ok) throw new Error(await readError(res, "Failed to submit feedback."));
@@ -84,10 +84,10 @@ function FeedbackForm(props: { slug: string; accentColor: string; onSubmitted: (
   );
 }
 
-export default function PublicFeedbackForm(props: { slug: string; accentColor: string; variant?: "button" | "page" }) {
+export default function PublicFeedbackForm(props: { venueId: string; accentColor: string; variant?: "button" | "page" }) {
   const [submitted, setSubmitted] = createSignal(false);
   const openFeedback = () => {
-    void prompts.dialog<void>((close) => <FeedbackForm slug={props.slug} accentColor={props.accentColor} onSubmitted={close} />, {
+    void prompts.dialog<void>((close) => <FeedbackForm venueId={props.venueId} accentColor={props.accentColor} onSubmitted={close} />, {
       title: "Share feedback",
       icon: "ti ti-star",
       size: "small",
@@ -113,7 +113,7 @@ export default function PublicFeedbackForm(props: { slug: string; accentColor: s
           </div>
         }
       >
-        <FeedbackForm slug={props.slug} accentColor={props.accentColor} onSubmitted={() => setSubmitted(true)} />
+        <FeedbackForm venueId={props.venueId} accentColor={props.accentColor} onSubmitted={() => setSubmitted(true)} />
       </Show>
     );
   }

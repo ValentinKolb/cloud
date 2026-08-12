@@ -1,6 +1,24 @@
 // fallow-ignore-file unused-file
 import { describe, expect, test } from "bun:test";
-import { PublicSectionInputSchema, ShiftTemplateInputSchema } from "./contracts";
+import {
+  FeedbackEntrySchema,
+  PublicSectionInputSchema,
+  ShiftTemplateInputSchema,
+  UpcomingSlotSchema,
+  VenueResourceIdSchema,
+} from "./contracts";
+
+describe("Venue public identities", () => {
+  test("accepts only six-character public resource IDs", () => {
+    expect(VenueResourceIdSchema.safeParse("Venu01").success).toBeTrue();
+    expect(VenueResourceIdSchema.safeParse(crypto.randomUUID()).success).toBeFalse();
+  });
+
+  test("does not publish feedback row IDs or virtual occurrence keys", () => {
+    expect(FeedbackEntrySchema.keyof().options).not.toContain("id");
+    expect(UpcomingSlotSchema.keyof().options).not.toContain("key");
+  });
+});
 
 describe("ShiftTemplateInputSchema", () => {
   test("accepts an optional max people value above the target", () => {

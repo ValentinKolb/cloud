@@ -132,10 +132,11 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
     { id: "created", header: "Submitted", value: (entry) => entry.createdAt, headerClass: "w-px", cellClass: "w-px whitespace-nowrap" },
   ];
   const selectedSection = createMemo(() => dashboard().sections.find((section) => section.id === selectedSectionId()) ?? null);
-  const slotByKey = createMemo(() => new Map(dashboard().slots.map((slot) => [slot.key, slot])));
+  const slotOccurrenceKey = (slot: UpcomingSlot) => `${slot.template.id}:${slot.date}`;
+  const slotByKey = createMemo(() => new Map(dashboard().slots.map((slot) => [slotOccurrenceKey(slot), slot])));
   const shiftEvents = createMemo<CalendarEvent[]>(() =>
     dashboard().slots.map((slot) => ({
-      id: slot.key,
+      id: slotOccurrenceKey(slot),
       title: slot.template.title,
       start: slot.startsAt,
       end: slot.endsAt,
@@ -177,7 +178,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
       },
     );
   };
-  const openPublicPage = () => openVenuePublicDisplayDialog(venue().slug);
+  const openPublicPage = () => openVenuePublicDisplayDialog(venue().id);
 
   const calendarSignup = mutation.create<void, { venueId: string; templateId: string; date: string }>({
     mutation: async ({ venueId, templateId, date }, { abortSignal }) => {
@@ -849,7 +850,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                     action={
                       <Show when={venue().feedbackEnabled}>
                         <ButtonLink
-                          href={`/app/venue/public/${venue().slug}/feedback`}
+                          href={`/app/venue/public/${venue().id}/feedback`}
                           target="_blank"
                           rel="noreferrer"
                           variant="secondary"
@@ -921,7 +922,7 @@ export default function VenueWorkspace(props: VenueWorkspaceProps) {
                     <DataTable
                       rows={filteredFeedbackEntries()}
                       columns={feedbackColumns}
-                      getRowId={(entry) => entry.id}
+                      getRowId={(entry) => `${entry.createdAt}:${entry.rating}:${entry.comment ?? ""}`}
                       hoverRows
                       highlightColumns={false}
                       class="overflow-x-auto"

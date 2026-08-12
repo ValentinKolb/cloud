@@ -24,16 +24,14 @@ describe("Venue public page runtime", () => {
   });
 
   test("keeps the default public URL clean", () => {
-    expect(buildPublicVenueUrl("https://cloud.example", "student-cafe")).toBe("https://cloud.example/app/venue/public/student-cafe");
+    expect(buildPublicVenueUrl("https://cloud.example", "Venu01")).toBe("https://cloud.example/app/venue/public/Venu01");
   });
 
   test("adds the full display query and builds a dedicated feedback URL", () => {
-    expect(buildPublicVenueUrl("https://cloud.example", "student-cafe", { height: "full", refresh: true })).toBe(
-      "https://cloud.example/app/venue/public/student-cafe?height=full&refresh=true",
+    expect(buildPublicVenueUrl("https://cloud.example", "Venu01", { height: "full", refresh: true })).toBe(
+      "https://cloud.example/app/venue/public/Venu01?height=full&refresh=true",
     );
-    expect(buildPublicVenueFeedbackUrl("https://cloud.example", "student-cafe")).toBe(
-      "https://cloud.example/app/venue/public/student-cafe/feedback",
-    );
+    expect(buildPublicVenueFeedbackUrl("https://cloud.example", "Venu01")).toBe("https://cloud.example/app/venue/public/Venu01/feedback");
   });
 
   test("backs off failed refreshes without exceeding one minute", () => {

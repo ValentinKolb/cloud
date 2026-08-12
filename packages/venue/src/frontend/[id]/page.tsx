@@ -30,21 +30,6 @@ type ResolvedView = {
   redirectTo?: string;
 };
 
-const legacyRedirect = (url: URL, venueId: string): string | null => {
-  const legacySectionId = url.searchParams.get("section");
-  const legacyView = url.searchParams.get("view");
-  if (legacySectionId) {
-    url.searchParams.delete("section");
-    url.searchParams.delete("view");
-    return `/app/venue/${venueId}/public-sections/${legacySectionId}${url.search}`;
-  }
-  if (legacyView === "my-shifts" || legacyView === "feedback" || legacyView === "shifts") {
-    url.searchParams.delete("view");
-    return `${viewPath(venueId, legacyView)}${url.search}`;
-  }
-  return null;
-};
-
 const resolveView = (venueId: string, pathView: string | undefined, sectionId: string | undefined, search: string): ResolvedView => {
   const initialSectionId = sectionId ?? null;
   if (!pathView && !initialSectionId)
@@ -59,7 +44,7 @@ export default ssr<AuthContext>(async (c) => {
   if (!id) return c.redirect("/app/venue");
   const url = new URL(c.req.raw.url);
   const user = expectUserBackedActor(c);
-  const venue = await venueService.venues.get(id, user);
+  const venue = await venueService.venues.getByShortId(id, user);
 
   if (!venue) {
     return () => (
@@ -72,11 +57,8 @@ export default ssr<AuthContext>(async (c) => {
   const access = await venueService.access.require(venue.id, user, "read");
   if (!access.ok) return c.redirect("/app/venue");
 
-  const legacyTarget = legacyRedirect(url, venue.id);
-  if (legacyTarget) return c.redirect(legacyTarget);
-
   const pathView = c.req.param("view");
-  const resolved = resolveView(venue.id, pathView, c.req.param("sectionId"), url.search);
+  const resolved = resolveView(id, pathView, c.req.param("sectionId"), url.search);
   if (resolved.redirectTo) return c.redirect(resolved.redirectTo);
   const calendarViewParam = url.searchParams.get("cv") as CalendarView | null;
   const initialCalendarView = calendarViewParam && calendarViews.includes(calendarViewParam) ? calendarViewParam : "week";
@@ -84,14 +66,14 @@ export default ssr<AuthContext>(async (c) => {
   const initialFeedbackDays = parseFeedbackDays(url.searchParams.get("days"));
   const initialFeedbackSearch = (url.searchParams.get("search") ?? "").trim();
   const dashboardScope = venueDashboardRouteScope({
-    venueId: venue.id,
+    venueId: id,
     view: resolved.initialView,
     calendarView: initialCalendarView,
     calendarDate: initialCalendarDate,
     feedbackDays: initialFeedbackDays,
     feedbackSearch: initialFeedbackSearch,
   });
-  const [dashboard, icalToken, accessEntries, apiKeyOverview] = await Promise.all([
+  const [internalDashboard, icalToken, accessEntries, apiKeyOverview] = await Promise.all([
     venueService.dashboard(venue, user, dashboardScope.options),
     venueService.ical.getOrCreateToken(user.id),
     venue.permission === "admin" ? venueService.access.list(venue.id) : Promise.resolve([]),
@@ -108,6 +90,7 @@ export default ssr<AuthContext>(async (c) => {
         })
       : Promise.resolve({ items: [] }),
   ]);
+  const dashboard = await venueService.publicResources.projectDashboard(internalDashboard);
   const permissionByServiceAccountId = new Map(
     accessEntries
       .filter((entry) => entry.principal.type === "service_account")

@@ -9,6 +9,8 @@ import {
 import { sql } from "bun";
 import { venueCapabilities } from "./capabilities";
 import { VenueListDataSchema } from "./capability-contracts";
+import { newShortId } from "./lib/short-id";
+import { venueService } from "./service";
 
 const testUser = (id: string, suffix: string): User => ({
   id,
@@ -95,7 +97,7 @@ const postgresTest = (await canUseDatabase()) ? test : test.skip;
 describe("Venue capabilities", () => {
   test("declares the curated agent surface", () => {
     expect(venueCapabilities.protocolVersion).toBe(1);
-    expect(Object.keys(venueCapabilities.types ?? {}).sort()).toEqual(["assignment", "shift", "venue"]);
+    expect(Object.keys(venueCapabilities.types ?? {}).sort()).toEqual(["assignment", "venue"]);
     expect(Object.keys(venueCapabilities.queries ?? {}).sort()).toEqual([
       "assignment.mine",
       "assignment.read",
@@ -118,16 +120,17 @@ describe("Venue capabilities", () => {
     expect(venueCapabilities.actions["assignment.signup_free"].review).toBeFunction();
     expect(
       venueCapabilities.queries["shift.list"].input.safeParse({
-        venueId: crypto.randomUUID(),
+        venueId: newShortId(),
         startDate: "2026-02-30",
         days: 1,
         limit: 25,
       }).success,
     ).toBeFalse();
+    expect(venueCapabilities.queries["venue.read"].input.safeParse({ id: crypto.randomUUID() }).success).toBeFalse();
   });
 
   test("accepts item-local links for navigable Venue lists", () => {
-    const venueId = crypto.randomUUID();
+    const venueId = newShortId();
     const links = [{ rel: "open" as const, href: `/app/venue/${venueId}` }];
     expect(
       VenueListDataSchema.safeParse([
@@ -159,6 +162,10 @@ describe("Venue capabilities", () => {
       const publicVenueId = crypto.randomUUID();
       const templateId = crypto.randomUUID();
       const secondTemplateId = crypto.randomUUID();
+      const venueShortId = newShortId();
+      const publicVenueShortId = newShortId();
+      const templateShortId = newShortId();
+      const secondTemplateShortId = newShortId();
       const [userRow] = await sql<{ id: string }[]>`
       INSERT INTO auth.users (uid, provider, profile, display_name, mail)
       VALUES (${`venue-capability-${suffix}`}, 'local', 'user', 'Venue capability test', ${`venue-capability-${suffix}@example.test`})
@@ -178,12 +185,12 @@ describe("Venue capabilities", () => {
 
       try {
         await sql`
-        INSERT INTO venue.venues (id, slug, name, description, timezone, signup_mode, public_enabled, feedback_enabled)
-        VALUES (${venueId}::uuid, ${`agent-venue-${suffix}`}, 'Agent Venue', 'Private capability fixture', 'Europe/Berlin', 'both', false, true)
+        INSERT INTO venue.venues (id, short_id, slug, name, description, timezone, signup_mode, public_enabled, feedback_enabled)
+        VALUES (${venueId}::uuid, ${venueShortId}, ${`agent-venue-${suffix}`}, 'Agent Venue', 'Private capability fixture', 'Europe/Berlin', 'both', false, true)
       `;
         await sql`
-        INSERT INTO venue.venues (id, slug, name, description, timezone, public_enabled)
-        VALUES (${publicVenueId}::uuid, ${`public-agent-venue-${suffix}`}, 'Public Agent Venue', 'Public capability fixture', 'Europe/Berlin', true)
+        INSERT INTO venue.venues (id, short_id, slug, name, description, timezone, public_enabled)
+        VALUES (${publicVenueId}::uuid, ${publicVenueShortId}, ${`public-agent-venue-${suffix}`}, 'Public Agent Venue', 'Public capability fixture', 'Europe/Berlin', true)
       `;
         const [access] = await sql<{ id: string }[]>`
         INSERT INTO auth.access (user_id, permission) VALUES (${user.id}::uuid, 'write') RETURNING id
@@ -192,14 +199,14 @@ describe("Venue capabilities", () => {
         accessId = access.id;
         await sql`INSERT INTO venue.venue_access (venue_id, access_id) VALUES (${venueId}::uuid, ${access.id}::uuid)`;
         await sql`
-        INSERT INTO venue.opening_rules (venue_id, weekday, start_time, end_time, note)
-        VALUES (${venueId}::uuid, 1, '09:00', '17:00', 'Capability hours')
+        INSERT INTO venue.opening_rules (short_id, venue_id, weekday, start_time, end_time, note)
+        VALUES (${newShortId()}, ${venueId}::uuid, 1, '09:00', '17:00', 'Capability hours')
       `;
         await sql`
-        INSERT INTO venue.shift_templates (id, venue_id, weekday, title, start_time, end_time, min_people, max_people, active)
+        INSERT INTO venue.shift_templates (id, short_id, venue_id, weekday, title, start_time, end_time, min_people, max_people, active)
         VALUES
-          (${templateId}::uuid, ${venueId}::uuid, 1, 'Agent shift', '10:00', '11:00', 1, 2, true),
-          (${secondTemplateId}::uuid, ${venueId}::uuid, 1, 'Second agent shift', '10:00', '11:00', 1, 2, true)
+          (${templateId}::uuid, ${templateShortId}, ${venueId}::uuid, 1, 'Agent shift', '10:00', '11:00', 1, 2, true),
+          (${secondTemplateId}::uuid, ${secondTemplateShortId}, ${venueId}::uuid, 1, 'Second agent shift', '10:00', '11:00', 1, 2, true)
       `;
         await sql`
         INSERT INTO venue.feedback_entries (venue_id, rating, comment)
@@ -209,78 +216,106 @@ describe("Venue capabilities", () => {
         const search = await invokeQuery("venue.search", { query: "Agent Venue", tags: [], limit: 10 }, context);
         expect(search.ok && search.data.data).toEqual(
           expect.arrayContaining([
-            expect.objectContaining({ ref: { type: "venue.venue", id: venueId } }),
-            expect.objectContaining({ ref: { type: "venue.venue", id: publicVenueId } }),
+            expect.objectContaining({ ref: { type: "venue.venue", id: venueShortId } }),
+            expect.objectContaining({ ref: { type: "venue.venue", id: publicVenueShortId } }),
           ]),
         );
         const list = await invokeQuery("venue.list", { limit: 25 }, context);
         expect(list.ok && list.data.data).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
-              id: venueId,
-              links: [{ rel: "open", href: `/app/venue/${venueId}` }],
+              id: venueShortId,
+              links: [{ rel: "open", href: `/app/venue/${venueShortId}` }],
             }),
           ]),
         );
-        expect(list.ok && list.data.data).toEqual([expect.objectContaining({ id: venueId, permission: "write" })]);
+        expect(list.ok && list.data.data).toEqual([expect.objectContaining({ id: venueShortId, permission: "write" })]);
         const hiddenList = await invokeQuery("venue.list", { limit: 25 }, otherContext);
         expect(hiddenList.ok && hiddenList.data.data).toEqual([]);
 
-        const publicVenue = await invokeQuery("venue.read", { id: publicVenueId }, otherContext);
-        expect(publicVenue.ok && publicVenue.data.data).toMatchObject({ id: publicVenueId, permission: null, publicEnabled: true });
+        const publicVenue = await invokeQuery("venue.read", { id: publicVenueShortId }, otherContext);
+        expect(publicVenue.ok && publicVenue.data.data).toMatchObject({ id: publicVenueShortId, permission: null, publicEnabled: true });
         if (publicVenue.ok) {
           expect(publicVenue.data.data).not.toHaveProperty("icalToken");
           expect(publicVenue.data.data).not.toHaveProperty("logoBase64");
-          expect(publicVenue.data.links).toEqual([{ rel: "open", href: `/app/venue/public/public-agent-venue-${suffix}` }]);
+          expect(publicVenue.data.links).toEqual([{ rel: "open", href: `/app/venue/public/${publicVenueShortId}` }]);
         }
-        const hiddenVenue = await invokeQuery("venue.read", { id: venueId }, otherContext);
-        const missingVenue = await invokeQuery("venue.read", { id: crypto.randomUUID() }, otherContext);
+        const hiddenVenue = await invokeQuery("venue.read", { id: venueShortId }, otherContext);
+        const missingVenue = await invokeQuery("venue.read", { id: newShortId() }, otherContext);
         expect(hiddenVenue).toMatchObject({ ok: false, error: { code: "NOT_FOUND", status: 404 } });
         expect(missingVenue).toMatchObject({ ok: false, error: { code: "NOT_FOUND", status: 404 } });
-        const status = await invokeQuery("venue.status", { venueId }, context);
-        expect(status.ok && status.data.data).toMatchObject({ venueId, timezone: "Europe/Berlin" });
+        const status = await invokeQuery("venue.status", { venueId: venueShortId }, context);
+        expect(status.ok && status.data.data).toMatchObject({ venueId: venueShortId, timezone: "Europe/Berlin" });
 
-        const shifts = await invokeQuery("shift.list", { venueId, startDate: shiftDate, days: 1, limit: 25 }, context);
+        const shifts = await invokeQuery("shift.list", { venueId: venueShortId, startDate: shiftDate, days: 1, limit: 25 }, context);
         expect(shifts.ok && shifts.data.data).toEqual(
           expect.arrayContaining([
-            expect.objectContaining({ id: `${templateId}:${shiftDate}`, assignedCount: 0, currentUserAssignmentId: null }),
-            expect.objectContaining({ id: `${secondTemplateId}:${shiftDate}`, assignedCount: 0, currentUserAssignmentId: null }),
+            expect.objectContaining({ templateId: templateShortId, date: shiftDate, assignedCount: 0, currentUserAssignmentId: null }),
+            expect.objectContaining({
+              templateId: secondTemplateShortId,
+              date: shiftDate,
+              assignedCount: 0,
+              currentUserAssignmentId: null,
+            }),
           ]),
         );
         if (shifts.ok) expect(shifts.data.data[0]).not.toHaveProperty("assignments");
-        expect((await invokeQuery("shift.read", { id: `${templateId}:${shiftDate}` }, context)).ok).toBe(true);
+        expect((await invokeQuery("shift.read", { venueId: venueShortId, templateId: templateShortId, date: shiftDate }, context)).ok).toBe(
+          true,
+        );
 
-        const firstShiftPage = await invokeQuery("shift.list", { venueId, startDate: shiftDate, days: 1, limit: 1 }, context);
+        const firstShiftPage = await invokeQuery("shift.list", { venueId: venueShortId, startDate: shiftDate, days: 1, limit: 1 }, context);
         if (!firstShiftPage.ok || !firstShiftPage.data.page?.hasMore) throw new Error("Expected a second shift page");
         const secondShiftPage = await invokeQuery(
           "shift.list",
-          { venueId, startDate: shiftDate, days: 1, limit: 1, cursor: firstShiftPage.data.page.nextCursor },
+          { venueId: venueShortId, startDate: shiftDate, days: 1, limit: 1, cursor: firstShiftPage.data.page.nextCursor },
           context,
         );
-        expect([firstShiftPage.data.data[0]?.id, secondShiftPage.ok ? secondShiftPage.data.data[0]?.id : undefined]).toEqual(
-          [templateId, secondTemplateId].sort().map((id) => `${id}:${shiftDate}`),
-        );
+        expect(
+          [firstShiftPage.data.data[0]?.templateId, secondShiftPage.ok ? secondShiftPage.data.data[0]?.templateId : undefined].sort(),
+        ).toEqual([templateShortId, secondTemplateShortId].sort());
 
         const wrongDay = futureDateForWeekday(2);
-        const rejectedWrongDay = await invokeAction("assignment.signup", { venueId, shiftId: `${templateId}:${wrongDay}` }, context);
+        const rejectedWrongDay = await invokeAction(
+          "assignment.signup",
+          { venueId: venueShortId, templateId: templateShortId, date: wrongDay },
+          context,
+        );
         expect(rejectedWrongDay.ok).toBe(false);
 
-        const deniedSignup = await invokeAction("assignment.signup", { venueId, shiftId: `${templateId}:${shiftDate}` }, otherContext);
+        const deniedSignup = await invokeAction(
+          "assignment.signup",
+          { venueId: venueShortId, templateId: templateShortId, date: shiftDate },
+          otherContext,
+        );
         expect(deniedSignup.ok).toBe(false);
 
         const signupReview = venueCapabilities.actions["assignment.signup"].review;
         if (!signupReview) throw new Error("Template signup review missing");
-        const reviewedSignup = await signupReview({ venueId, shiftId: `${templateId}:${shiftDate}` }, context);
+        const reviewedSignup = await signupReview({ venueId: venueShortId, templateId: templateShortId, date: shiftDate }, context);
         expect(reviewedSignup).toMatchObject({ ok: true, data: { message: "Sign up for Agent shift at Agent Venue." } });
 
-        const signup = await invokeAction("assignment.signup", { venueId, shiftId: `${templateId}:${shiftDate}` }, context);
-        expect(signup.ok && signup.data.data).toMatchObject({ venueId, templateId, venueName: "Agent Venue" });
+        const signup = await invokeAction(
+          "assignment.signup",
+          { venueId: venueShortId, templateId: templateShortId, date: shiftDate },
+          context,
+        );
+        expect(signup.ok && signup.data.data).toMatchObject({
+          venueId: venueShortId,
+          templateId: templateShortId,
+          venueName: "Agent Venue",
+        });
         if (!signup.ok) throw new Error(signup.error.message);
-        const assignedShifts = await invokeQuery("shift.list", { venueId, startDate: shiftDate, days: 1, limit: 25 }, context);
+        const assignedShifts = await invokeQuery(
+          "shift.list",
+          { venueId: venueShortId, startDate: shiftDate, days: 1, limit: 25 },
+          context,
+        );
         expect(assignedShifts.ok && assignedShifts.data.data).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
-              id: `${templateId}:${shiftDate}`,
+              templateId: templateShortId,
+              date: shiftDate,
               assignedCount: 1,
               currentUserAssignmentId: signup.data.data.id,
             }),
@@ -293,40 +328,53 @@ describe("Venue capabilities", () => {
         const freeSignupReview = venueCapabilities.actions["assignment.signup_free"].review;
         if (!freeSignupReview) throw new Error("Free signup review missing");
         const reviewedFreeSignup = await freeSignupReview(
-          { venueId, startsAt: freeStart.toISOString(), endsAt: freeEnd.toISOString(), note: "Agent-created shift" },
+          { venueId: venueShortId, startsAt: freeStart.toISOString(), endsAt: freeEnd.toISOString(), note: "Agent-created shift" },
           context,
         );
         expect(reviewedFreeSignup).toMatchObject({ ok: true, data: { message: "Create a free shift assignment at Agent Venue." } });
         const freeSignup = await invokeAction(
           "assignment.signup_free",
-          { venueId, startsAt: freeStart.toISOString(), endsAt: freeEnd.toISOString(), note: "Agent-created shift" },
+          { venueId: venueShortId, startsAt: freeStart.toISOString(), endsAt: freeEnd.toISOString(), note: "Agent-created shift" },
           context,
         );
-        expect(freeSignup.ok && freeSignup.data.data).toMatchObject({ venueId, templateId: null, note: "Agent-created shift" });
+        expect(freeSignup.ok && freeSignup.data.data).toMatchObject({
+          venueId: venueShortId,
+          templateId: null,
+          note: "Agent-created shift",
+        });
         const duplicateFree = await invokeAction(
           "assignment.signup_free",
-          { venueId, startsAt: freeStart.toISOString(), endsAt: freeEnd.toISOString(), note: "Duplicate" },
+          { venueId: venueShortId, startsAt: freeStart.toISOString(), endsAt: freeEnd.toISOString(), note: "Duplicate" },
           context,
         );
         expect(duplicateFree.ok).toBe(false);
 
-        const mine = await invokeQuery("assignment.mine", { venueId, days: 366, limit: 25 }, context);
-        expect(mine.ok && mine.data.links).toEqual([{ rel: "open", href: `/app/venue/${venueId}/my-shifts` }]);
+        const mine = await invokeQuery("assignment.mine", { venueId: venueShortId, days: 366, limit: 25 }, context);
+        expect(mine.ok && mine.data.links).toEqual([{ rel: "open", href: `/app/venue/${venueShortId}/my-shifts` }]);
         if (signup.ok) expect((await invokeQuery("assignment.read", { id: signup.data.data.id }, context)).ok).toBe(true);
         expect(mine.ok && mine.data.data).toEqual(
           expect.arrayContaining([
-            expect.objectContaining({ id: signup.data.data.id, venueId }),
-            expect.objectContaining({ id: freeSignup.ok ? freeSignup.data.data.id : "missing", venueId }),
+            expect.objectContaining({ id: signup.data.data.id, venueId: venueShortId }),
+            expect.objectContaining({ id: freeSignup.ok ? freeSignup.data.data.id : "missing", venueId: venueShortId }),
           ]),
         );
 
-        const feedback = await invokeQuery("feedback.summary", { venueId }, context);
-        expect(feedback.ok && feedback.data.data).toMatchObject({ venueId, count: 1, averageRating: 5 });
+        const feedback = await invokeQuery("feedback.summary", { venueId: venueShortId }, context);
+        expect(feedback.ok && feedback.data.data).toMatchObject({ venueId: venueShortId, count: 1, averageRating: 5 });
         if (feedback.ok) expect(feedback.data.data).not.toHaveProperty("entries");
 
-        const cancelled = await invokeAction("assignment.cancel", { venueId, assignmentId: signup.data.data.id }, context);
+        const calendar = await venueService.ical.generateUser(user.id, "https://cloud.example");
+        expect(calendar).toContain(`URL:https://cloud.example/app/venue/${venueShortId}`);
+        expect(calendar).toContain(`UID:venue-${signup.data.data.id}@stuve.cloud`);
+        expect(calendar).not.toContain(venueId);
+
+        const cancelled = await invokeAction("assignment.cancel", { venueId: venueShortId, assignmentId: signup.data.data.id }, context);
         expect(cancelled.ok && cancelled.data.data).toEqual({ assignmentId: signup.data.data.id, cancelled: true });
-        const cancelledAgain = await invokeAction("assignment.cancel", { venueId, assignmentId: signup.data.data.id }, context);
+        const cancelledAgain = await invokeAction(
+          "assignment.cancel",
+          { venueId: venueShortId, assignmentId: signup.data.data.id },
+          context,
+        );
         expect(cancelledAgain.ok).toBe(false);
       } finally {
         await sql`DELETE FROM venue.venues WHERE id IN (${venueId}::uuid, ${publicVenueId}::uuid)`;
@@ -341,6 +389,8 @@ describe("Venue capabilities", () => {
     const suffix = crypto.randomUUID();
     const boundVenueId = crypto.randomUUID();
     const otherVenueId = crypto.randomUUID();
+    const boundVenueShortId = newShortId();
+    const otherVenueShortId = newShortId();
     const accessIds: string[] = [];
     const [serviceAccount] = await sql<{ id: string; createdAt: string }[]>`
       INSERT INTO auth.service_accounts (name, kind, app_id, resource_type, resource_id)
@@ -351,10 +401,10 @@ describe("Venue capabilities", () => {
 
     try {
       await sql`
-        INSERT INTO venue.venues (id, slug, name, public_enabled)
+        INSERT INTO venue.venues (id, short_id, slug, name, public_enabled)
         VALUES
-          (${boundVenueId}::uuid, ${`bound-agent-venue-${suffix}`}, 'Bound Agent Venue', false),
-          (${otherVenueId}::uuid, ${`other-agent-venue-${suffix}`}, 'Other Public Agent Venue', true)
+          (${boundVenueId}::uuid, ${boundVenueShortId}, ${`bound-agent-venue-${suffix}`}, 'Bound Agent Venue', false),
+          (${otherVenueId}::uuid, ${otherVenueShortId}, ${`other-agent-venue-${suffix}`}, 'Other Public Agent Venue', true)
       `;
       for (const venueId of [boundVenueId, otherVenueId]) {
         const [access] = await sql<{ id: string }[]>`
@@ -391,15 +441,15 @@ describe("Venue capabilities", () => {
       };
 
       const listed = await invokeQuery("venue.list", { limit: 25 }, context);
-      expect(listed.ok && listed.data.data).toEqual([expect.objectContaining({ id: boundVenueId, permission: "read" })]);
+      expect(listed.ok && listed.data.data).toEqual([expect.objectContaining({ id: boundVenueShortId, permission: "read" })]);
       const searched = await invokeQuery("venue.search", { query: "Agent Venue", tags: [], limit: 25 }, context);
-      expect(searched.ok && searched.data.data).toEqual([expect.objectContaining({ ref: { type: "venue.venue", id: boundVenueId } })]);
-      const crossVenue = await invokeQuery("venue.read", { id: otherVenueId }, context);
+      expect(searched.ok && searched.data.data).toEqual([expect.objectContaining({ ref: { type: "venue.venue", id: boundVenueShortId } })]);
+      const crossVenue = await invokeQuery("venue.read", { id: otherVenueShortId }, context);
       expect(crossVenue).toMatchObject({ ok: false, error: { code: "FORBIDDEN", status: 403 } });
       const userOnlyAction = await invokeAction(
         "assignment.signup_free",
         {
-          venueId: boundVenueId,
+          venueId: boundVenueShortId,
           startsAt: new Date(Date.now() + 86_400_000).toISOString(),
           endsAt: new Date(Date.now() + 90_000_000).toISOString(),
         },

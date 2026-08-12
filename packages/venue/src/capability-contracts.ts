@@ -5,13 +5,17 @@ const TimestampSchema = z.string().datetime({ offset: true });
 const DateKeySchema = z.iso.date();
 const CursorSchema = z.string().min(1).max(256).optional().describe("Opaque cursor returned by the previous page.");
 const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maximum number of results to return.");
-const VenueIdSchema = z.uuid().describe("Stable Venue UUID.");
+const ResourceIdSchema = z
+  .string()
+  .regex(/^[0-9A-Za-z]{6}$/)
+  .describe("Stable 6-character resource ID.");
+const VenueIdSchema = ResourceIdSchema.describe("Stable Venue ID.");
 const PageInputShape = { cursor: CursorSchema, limit: LimitSchema };
 const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
 
 export const VenueDataSchema = z
   .object({
-    id: z.uuid(),
+    id: ResourceIdSchema,
     slug: z.string().min(1).max(80),
     name: z.string().min(1).max(160),
     icon: z.string().min(1).max(120),
@@ -47,7 +51,7 @@ const PublicOpeningDataSchema = z
   .strict();
 export const VenueStatusDataSchema = z
   .object({
-    venueId: z.uuid(),
+    venueId: VenueIdSchema,
     timezone: z.string().min(1).max(80),
     open: z.boolean(),
     spontaneousOpen: z.boolean(),
@@ -61,9 +65,8 @@ export const VenueStatusDataSchema = z
 
 export const ShiftDataSchema = z
   .object({
-    id: z.string().min(1).max(512),
-    venueId: z.uuid(),
-    templateId: z.uuid(),
+    venueId: VenueIdSchema,
+    templateId: ResourceIdSchema,
     title: z.string().min(1).max(160),
     date: DateKeySchema,
     startsAt: TimestampSchema,
@@ -73,7 +76,7 @@ export const ShiftDataSchema = z
     maxPeople: z.number().int().nonnegative().nullable(),
     missingPeople: z.number().int().nonnegative(),
     full: z.boolean(),
-    currentUserAssignmentId: z.uuid().nullable(),
+    currentUserAssignmentId: ResourceIdSchema.nullable(),
   })
   .strict();
 export const ShiftListInputSchema = z
@@ -85,15 +88,21 @@ export const ShiftListInputSchema = z
   })
   .strict();
 export const ShiftListDataSchema = z.array(ShiftDataSchema).max(100);
-export const ShiftReadInputSchema = z.object({ id: z.string().min(1).max(512).describe("Stable dated shift ID.") }).strict();
+export const ShiftReadInputSchema = z
+  .object({
+    venueId: VenueIdSchema,
+    templateId: ResourceIdSchema.describe("Shift-template ID returned by shift.list."),
+    date: DateKeySchema.describe("Venue-local occurrence date returned by shift.list."),
+  })
+  .strict();
 
 export const AssignmentDataSchema = z
   .object({
-    id: z.uuid(),
-    venueId: z.uuid(),
+    id: ResourceIdSchema,
+    venueId: VenueIdSchema,
     venueName: z.string().min(1).max(160),
     venueTimezone: z.string().min(1).max(80),
-    templateId: z.uuid().nullable(),
+    templateId: ResourceIdSchema.nullable(),
     startsAt: TimestampSchema,
     endsAt: TimestampSchema,
     note: z.string().max(500).nullable(),
@@ -103,21 +112,21 @@ export const AssignmentDataSchema = z
   .strict();
 export const AssignmentMineInputSchema = z
   .object({
-    venueId: z.uuid().optional().describe("Optional Venue UUID filter."),
+    venueId: VenueIdSchema.optional().describe("Optional Venue ID filter."),
     from: TimestampSchema.optional().describe("Range start; defaults to now."),
     days: z.number().int().min(1).max(366).default(90).describe("Number of 24-hour periods after from to include."),
     ...PageInputShape,
   })
   .strict();
 export const AssignmentListDataSchema = z.array(AssignmentDataSchema).max(100);
-export const AssignmentReadInputSchema = z.object({ id: z.uuid().describe("Stable personal assignment UUID.") }).strict();
+export const AssignmentReadInputSchema = z.object({ id: ResourceIdSchema.describe("Stable personal assignment ID.") }).strict();
 
 const FeedbackBucketDataSchema = z
   .object({ date: DateKeySchema, count: z.number().int().nonnegative(), averageRating: z.number().min(1).max(5).nullable() })
   .strict();
 export const FeedbackSummaryDataSchema = z
   .object({
-    venueId: z.uuid(),
+    venueId: VenueIdSchema,
     count: z.number().int().nonnegative(),
     averageRating: z.number().min(1).max(5).nullable(),
     buckets: z.array(FeedbackBucketDataSchema).max(31),
@@ -127,7 +136,8 @@ export const FeedbackSummaryDataSchema = z
 export const AssignmentSignupInputSchema = z
   .object({
     venueId: VenueIdSchema,
-    shiftId: z.string().min(1).max(512).describe("Dated shift ID returned by shift.list."),
+    templateId: ResourceIdSchema.describe("Shift-template ID returned by shift.list."),
+    date: DateKeySchema.describe("Venue-local occurrence date returned by shift.list."),
   })
   .strict();
 export const AssignmentFreeSignupInputSchema = z
@@ -139,7 +149,7 @@ export const AssignmentFreeSignupInputSchema = z
   })
   .strict();
 export const AssignmentCancelInputSchema = z
-  .object({ venueId: VenueIdSchema, assignmentId: z.uuid().describe("Own assignment UUID returned by assignment.mine.") })
+  .object({ venueId: VenueIdSchema, assignmentId: ResourceIdSchema.describe("Own assignment ID returned by assignment.mine.") })
   .strict();
 export const AssignmentActionDataSchema = AssignmentDataSchema;
-export const AssignmentCancelDataSchema = z.object({ assignmentId: z.uuid(), cancelled: z.literal(true) }).strict();
+export const AssignmentCancelDataSchema = z.object({ assignmentId: ResourceIdSchema, cancelled: z.literal(true) }).strict();

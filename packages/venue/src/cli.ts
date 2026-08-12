@@ -40,6 +40,7 @@ type VenueApiKeyCreateResponse = {
 
 const VENUE_DEFAULT_KEY = "venue.venue";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SHORT_ID_PATTERN = /^[0-9A-Za-z]{6}$/;
 
 const apiPath = (path = "") => `/api/venue${path}`;
 
@@ -75,14 +76,18 @@ const resolveVenueRef = async (ctx: CloudCliContext, ref?: string): Promise<Venu
   const venueRef = ref ?? (await ctx.getDefault(VENUE_DEFAULT_KEY));
   if (!venueRef) throw new Error("Missing venue. Pass <venue> or run `cld venue use <venue>`.");
 
-  if (UUID_PATTERN.test(venueRef)) {
-    return (await apiGet<VenueDashboard>(ctx, `/venues/${encode(venueRef)}/dashboard`)).venue;
-  }
+  if (UUID_PATTERN.test(venueRef)) throw new Error("Legacy Venue UUIDs are not accepted. Use the 6-character Venue ID.");
 
   const venues = await listVenues(ctx);
   const matches = venues.filter((venue) => venue.slug === venueRef || venue.name === venueRef);
-  if (matches.length === 1) return matches[0]!;
-  if (matches.length > 1) throw new Error(`Venue "${venueRef}" is ambiguous. Use one of: ${matches.map((item) => item.id).join(", ")}`);
+  if (SHORT_ID_PATTERN.test(venueRef)) {
+    const response = await ctx.fetch(apiPath(`/venues/${encode(venueRef)}/dashboard`));
+    if (response.ok) matches.push((await ctx.readJson<VenueDashboard>(response)).venue);
+    else if (response.status !== 404) await ctx.readJson(response);
+  }
+  const unique = [...new Map(matches.map((venue) => [venue.id, venue])).values()];
+  if (unique.length === 1) return unique[0]!;
+  if (unique.length > 1) throw new Error(`Venue "${venueRef}" is ambiguous. Use one of: ${unique.map((item) => item.id).join(", ")}`);
   throw new Error(`Venue "${venueRef}" was not found by id, slug, or exact name.`);
 };
 
@@ -174,7 +179,7 @@ const sectionRows = (sections: PublicSection[]) =>
 
 const slotRows = (slots: UpcomingSlot[]) =>
   slots.map((slot) => ({
-    key: slot.key,
+    templateId: slot.template.id,
     date: slot.date,
     title: slot.template.title,
     time: `${slot.template.startTime}-${slot.template.endTime}`,
@@ -287,7 +292,7 @@ export default defineCliCommands({
       args: { venue: arg.optional({ valueLabel: "venue-or-slug" }) },
       async run({ ctx, args }) {
         const venue = await resolveVenueRef(ctx, args.venue);
-        const status = await apiGet<PublicStatus>(ctx, `/public/${encode(venue.slug)}/status`);
+        const status = await apiGet<PublicStatus>(ctx, `/public/${encode(venue.id)}/status`);
         if (!printStructured(ctx, status)) {
           ctx.table(
             [
@@ -555,7 +560,7 @@ export default defineCliCommands({
           { key: "assigned" },
           { key: "missing" },
           { key: "full" },
-          { key: "key" },
+          { key: "templateId" },
         ]);
       },
     }),

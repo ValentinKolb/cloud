@@ -30,3 +30,7 @@ The venue workspace separates daily staffing, personal assignments, public conte
 :::note Permissions
 Read users can view the venue and cancel their own listed shifts. Staff users can sign up for shifts. Admin users can change settings, access, schedule, public sections, and cancel any shift assignment.
 :::
+
+:::note Stable links
+Venue links use the venue's immutable short ID. Editing the display slug changes discovery metadata, not the public or staff URL.
+:::

@@ -7,11 +7,12 @@ import { buildPublicVenueUrl, resolveVenuePublicOrigin } from "../../../public-r
 export default ssr(async (c) => {
   c.header("Referrer-Policy", "no-referrer");
   c.header("X-Robots-Tag", "noindex");
-  const slug = c.req.param("slug");
-  const status = slug ? await venueService.publicStatus(slug) : null;
+  const id = c.req.param("id");
+  const internalStatus = id ? await venueService.publicStatus(id) : null;
+  const status = internalStatus ? await venueService.publicResources.projectPublicStatus(internalStatus) : null;
   const requestOrigin = new URL(c.req.raw.url).origin;
   const appUrl = await coreSettings.get<string>("app.url").catch(() => "");
-  const publicUrl = slug ? buildPublicVenueUrl(resolveVenuePublicOrigin(appUrl, requestOrigin), slug) : "/app/venue";
+  const publicUrl = id ? buildPublicVenueUrl(resolveVenuePublicOrigin(appUrl, requestOrigin), id) : "/app/venue";
   c.get("page").title = status ? `Feedback · ${status.venue.name}` : "Feedback unavailable";
 
   if (!status || !status.venue.feedbackEnabled) {
@@ -51,7 +52,7 @@ export default ssr(async (c) => {
             <h2 class="text-2xl font-semibold">How was your visit?</h2>
             <p class="mt-2 text-sm leading-relaxed text-zinc-600">Share a rating and an optional comment. No account is required.</p>
           </div>
-          <PublicFeedbackForm slug={status.venue.slug} accentColor={status.venue.accentColor} variant="page" />
+          <PublicFeedbackForm venueId={status.venue.id} accentColor={status.venue.accentColor} variant="page" />
         </section>
 
         <footer class="pt-4">

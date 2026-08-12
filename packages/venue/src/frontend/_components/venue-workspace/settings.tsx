@@ -1021,7 +1021,7 @@ export function SettingsDialog(props: {
             <SettingsGroup title="Venue links" description="Open the public display or subscribe to the personal calendar feed.">
               <SettingsGroup.Action>
                 <div class="flex flex-wrap gap-2">
-                  <Button type="button" variant="secondary" size="sm" onClick={() => openVenuePublicDisplayDialog(currentVenue().slug)}>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => openVenuePublicDisplayDialog(currentVenue().id)}>
                     <i class="ti ti-device-tv" />
                     Public page
                   </Button>

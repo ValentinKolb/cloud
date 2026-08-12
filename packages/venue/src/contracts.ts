@@ -4,12 +4,13 @@ const WeekdaySchema = z.number().int().min(0).max(6);
 const TimeSchema = z.string().regex(/^\d{2}:\d{2}$/, "Expected HH:MM");
 const DateKeySchema = z.iso.date();
 const HexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color must be a #RRGGBB hex value");
+export const VenueResourceIdSchema = z.string().regex(/^[0-9A-Za-z]{6}$/, "Expected a 6-character Venue resource ID");
 
 const VenueOpenModeSchema = z.enum(["regular", "staffed", "combined"]);
 const VenueSignupModeSchema = z.enum(["templates", "free", "both"]);
 
 export const VenueSchema = z.object({
-  id: z.string(),
+  id: VenueResourceIdSchema,
   slug: z.string(),
   name: z.string(),
   icon: z.string(),
@@ -71,8 +72,8 @@ export const VenueTemplateCreateInputSchema = z.object({
 export type VenueTemplateCreateInput = z.infer<typeof VenueTemplateCreateInputSchema>;
 
 const OpeningRuleSchema = z.object({
-  id: z.string(),
-  venueId: z.string(),
+  id: VenueResourceIdSchema,
+  venueId: VenueResourceIdSchema,
   weekday: WeekdaySchema,
   startTime: TimeSchema,
   endTime: TimeSchema,
@@ -92,8 +93,8 @@ export const OpeningRuleInputSchema = z.object({
 export type OpeningRuleInput = z.infer<typeof OpeningRuleInputSchema>;
 
 const DateOverrideSchema = z.object({
-  id: z.string(),
-  venueId: z.string(),
+  id: VenueResourceIdSchema,
+  venueId: VenueResourceIdSchema,
   date: DateKeySchema,
   kind: z.enum(["closed", "open"]),
   startTime: TimeSchema.nullable(),
@@ -121,8 +122,8 @@ export const DateOverrideInputSchema = z.discriminatedUnion("kind", [
 export type DateOverrideInput = z.infer<typeof DateOverrideInputSchema>;
 
 const ShiftTemplateSchema = z.object({
-  id: z.string(),
-  venueId: z.string(),
+  id: VenueResourceIdSchema,
+  venueId: VenueResourceIdSchema,
   weekday: WeekdaySchema,
   title: z.string(),
   startTime: TimeSchema,
@@ -158,9 +159,9 @@ export const ShiftTemplateInputSchema = z
 export type ShiftTemplateInput = z.infer<typeof ShiftTemplateInputSchema>;
 
 export const ShiftAssignmentSchema = z.object({
-  id: z.string(),
-  venueId: z.string(),
-  templateId: z.string().nullable(),
+  id: VenueResourceIdSchema,
+  venueId: VenueResourceIdSchema,
+  templateId: VenueResourceIdSchema.nullable(),
   userId: z.string(),
   userDisplayName: z.string(),
   startsAt: z.string(),
@@ -172,7 +173,6 @@ export const ShiftAssignmentSchema = z.object({
 export type ShiftAssignment = z.infer<typeof ShiftAssignmentSchema>;
 
 export const UpcomingSlotSchema = z.object({
-  key: z.string(),
   date: DateKeySchema,
   template: ShiftTemplateSchema,
   startsAt: z.string(),
@@ -215,8 +215,8 @@ export const PublicMenuItemSchema = z
 export type PublicMenuItem = z.infer<typeof PublicMenuItemSchema>;
 
 const PublicSectionSchema = z.object({
-  id: z.string(),
-  venueId: z.string(),
+  id: VenueResourceIdSchema,
+  venueId: VenueResourceIdSchema,
   kind: z.enum(["markdown", "menu", "notice", "links"]),
   title: z.string(),
   content: z.record(z.string(), z.unknown()),
@@ -253,8 +253,7 @@ export const PublicSectionInputSchema = z
 export type PublicSectionInput = z.infer<typeof PublicSectionInputSchema>;
 
 export const FeedbackEntrySchema = z.object({
-  id: z.string(),
-  venueId: z.string(),
+  venueId: VenueResourceIdSchema,
   rating: z.number().int().min(1).max(5),
   comment: z.string().nullable(),
   createdAt: z.string(),

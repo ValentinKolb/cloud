@@ -27,14 +27,14 @@ export const resolveVenuePublicOrigin = (rawAppUrl: string | null | undefined, r
 
 export const buildPublicVenueUrl = (
   origin: string,
-  slug: string,
+  venueId: string,
   options: { height?: VenuePublicDisplayHeight; refresh?: boolean } = {},
 ): string => {
-  const url = new URL(`/app/venue/public/${encodeURIComponent(slug)}`, origin);
+  const url = new URL(`/app/venue/public/${encodeURIComponent(venueId)}`, origin);
   if (options.height === "full") url.searchParams.set("height", "full");
   if (options.refresh) url.searchParams.set("refresh", "true");
   return url.toString();
 };
 
-export const buildPublicVenueFeedbackUrl = (origin: string, slug: string): string =>
-  new URL(`/app/venue/public/${encodeURIComponent(slug)}/feedback`, origin).toString();
+export const buildPublicVenueFeedbackUrl = (origin: string, venueId: string): string =>
+  new URL(`/app/venue/public/${encodeURIComponent(venueId)}/feedback`, origin).toString();

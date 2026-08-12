@@ -43,7 +43,10 @@ import type {
   VenueTemplateCreateInput,
   VenueTemplateSummary,
 } from "./contracts";
+import { withShortIdDb } from "./lib/short-id";
 import { filterPublicMenuSections } from "./public-menu";
+import * as publicProjection from "./service/public-projection";
+import { resolvePublicId, resolveVenuePublicId } from "./service/public-resources";
 import { getVenueTemplate, templates as venueTemplates } from "./templates";
 
 const log = logger("venue:service");
@@ -52,6 +55,7 @@ const VENUE_RESOURCE_TYPE = "venue";
 
 type DbVenue = {
   id: string;
+  short_id: string;
   slug: string;
   name: string;
   icon: string;
@@ -71,6 +75,7 @@ type DbVenue = {
 
 type DbOpeningRule = {
   id: string;
+  short_id: string;
   venue_id: string;
   weekday: number;
   start_time: string;
@@ -83,6 +88,7 @@ type DbOpeningRule = {
 
 type DbDateOverride = {
   id: string;
+  short_id: string;
   venue_id: string;
   date: string | Date;
   kind: "closed" | "open";
@@ -95,6 +101,7 @@ type DbDateOverride = {
 
 type DbShiftTemplate = {
   id: string;
+  short_id: string;
   venue_id: string;
   weekday: number;
   title: string;
@@ -110,6 +117,7 @@ type DbShiftTemplate = {
 
 type DbShiftAssignment = {
   id: string;
+  short_id: string;
   venue_id: string;
   template_id: string | null;
   user_id: string;
@@ -137,12 +145,16 @@ export type ShiftAssignmentSummary = {
   currentUserAssignmentId: string | null;
 };
 
+type InternalUpcomingSlot = UpcomingSlot & { key: string };
+export type InternalVenueDashboard = Omit<VenueDashboard, "slots"> & { slots: InternalUpcomingSlot[] };
 export type UpcomingSlotSummary = Omit<UpcomingSlot, "assignments"> & {
+  key: string;
   currentUserAssignmentId: string | null;
 };
 
 type DbPublicSection = {
   id: string;
+  short_id: string;
   venue_id: string;
   kind: PublicSection["kind"];
   title: string;
@@ -292,7 +304,6 @@ const mapSection = (row: DbPublicSection): PublicSection => ({
 });
 
 const mapFeedback = (row: DbFeedbackEntry): FeedbackEntry => ({
-  id: row.id,
   venueId: row.venue_id,
   rating: row.rating,
   comment: row.comment,
@@ -558,25 +569,30 @@ const getVenueSummary = async (id: string, subject?: UserLike | VenueAccessSubje
   return mapVenue(row, subject ? await getPermission(row.id, subject) : undefined);
 };
 
-const getVenueBySlug = async (slug: string): Promise<Venue | null> => {
-  const [row] = await sql<DbVenue[]>`SELECT * FROM venue.venues WHERE slug = ${slug}`;
-  return row ? mapVenue(row) : null;
+const getVenueByShortId = async (shortId: string, subject?: UserLike | VenueAccessSubject): Promise<Venue | null> => {
+  const id = await resolvePublicId("venues", shortId);
+  return id ? getVenue(id, subject) : null;
 };
 
 const createVenueInTx = async (tx: SqlClient, input: VenueInput, user: UserLike): Promise<Result<Venue>> => {
-  const [row] = await tx<DbVenue[]>`
+  const rows = await withShortIdDb(
+    tx,
+    "venue",
+    (db, shortId) => db<DbVenue[]>`
       INSERT INTO venue.venues (
-        slug, name, icon, description, timezone, open_mode, signup_mode, public_enabled,
+        short_id, slug, name, icon, description, timezone, open_mode, signup_mode, public_enabled,
         feedback_enabled, accent_color, logo_base64, banner_base64
       )
       VALUES (
-        ${slugify(input.slug)}, ${input.name.trim()}, ${input.icon || "ti ti-building-carousel"}, ${input.description?.trim() || null},
+        ${shortId}, ${slugify(input.slug)}, ${input.name.trim()}, ${input.icon || "ti ti-building-carousel"}, ${input.description?.trim() || null},
         ${input.timezone || "Europe/Berlin"}, ${input.openMode}, ${input.signupMode},
         ${input.publicEnabled}, ${input.feedbackEnabled}, ${input.accentColor},
         ${input.logoBase64 || null}, ${input.bannerBase64 || null}
       )
       RETURNING *
-    `;
+    `,
+  );
+  const row = rows[0];
   if (!row) return fail(err.internal("Failed to create venue"));
 
   const access = await createOwnerAccessInTx(tx, user.id);
@@ -649,35 +665,50 @@ const instantiateVenueTemplate = async (templateId: string, input: VenueTemplate
 };
 
 const createOpeningRuleInTx = async (tx: SqlClient, venueId: string, input: OpeningRuleInput): Promise<Result<OpeningRule>> => {
-  const [row] = await tx<DbOpeningRule[]>`
-    INSERT INTO venue.opening_rules (venue_id, weekday, start_time, end_time, note)
-    VALUES (${venueId}::uuid, ${input.weekday}, ${input.startTime}::time, ${input.endTime}::time, ${input.note?.trim() || null})
+  const rows = await withShortIdDb(
+    tx,
+    "openingRule",
+    (db, shortId) => db<DbOpeningRule[]>`
+    INSERT INTO venue.opening_rules (short_id, venue_id, weekday, start_time, end_time, note)
+    VALUES (${shortId}, ${venueId}::uuid, ${input.weekday}, ${input.startTime}::time, ${input.endTime}::time, ${input.note?.trim() || null})
     RETURNING *
-  `;
+  `,
+  );
+  const row = rows[0];
   return row ? ok(mapOpeningRule(row)) : fail(err.internal("Failed to create opening rule"));
 };
 
 const createTemplateInTx = async (tx: SqlClient, venueId: string, input: ShiftTemplateInput): Promise<Result<ShiftTemplate>> => {
-  const [row] = await tx<DbShiftTemplate[]>`
+  const rows = await withShortIdDb(
+    tx,
+    "template",
+    (db, shortId) => db<DbShiftTemplate[]>`
     INSERT INTO venue.shift_templates (
-      venue_id, weekday, title, start_time, end_time, min_people, max_people,
+      short_id, venue_id, weekday, title, start_time, end_time, min_people, max_people,
       require_target_for_opening, active
     )
     VALUES (
-      ${venueId}::uuid, ${input.weekday}, ${input.title.trim()}, ${input.startTime}::time, ${input.endTime}::time,
+      ${shortId}, ${venueId}::uuid, ${input.weekday}, ${input.title.trim()}, ${input.startTime}::time, ${input.endTime}::time,
       ${input.minPeople}, ${input.maxPeople ?? null}, ${input.requireTargetForOpening}, ${input.active}
     )
     RETURNING *
-  `;
+  `,
+  );
+  const row = rows[0];
   return row ? ok(mapTemplate(row)) : fail(err.internal("Failed to create shift"));
 };
 
 const createSectionInTx = async (tx: SqlClient, venueId: string, input: PublicSectionInput): Promise<Result<PublicSection>> => {
-  const [row] = await tx<DbPublicSection[]>`
-    INSERT INTO venue.public_sections (venue_id, kind, title, content, enabled, position)
-    VALUES (${venueId}::uuid, ${input.kind}, ${input.title.trim()}, ${JSON.stringify(input.content)}::jsonb, ${input.enabled}, ${input.position})
+  const rows = await withShortIdDb(
+    tx,
+    "section",
+    (db, shortId) => db<DbPublicSection[]>`
+    INSERT INTO venue.public_sections (short_id, venue_id, kind, title, content, enabled, position)
+    VALUES (${shortId}, ${venueId}::uuid, ${input.kind}, ${input.title.trim()}, ${JSON.stringify(input.content)}::jsonb, ${input.enabled}, ${input.position})
     RETURNING *
-  `;
+  `,
+  );
+  const row = rows[0];
   return row ? ok(mapSection(row)) : fail(err.internal("Failed to create public section"));
 };
 
@@ -814,10 +845,13 @@ const listOverridesForDateRange = async (venueId: string, startDate: string, end
 };
 
 const upsertOverride = async (venueId: string, input: DateOverrideInput): Promise<Result<DateOverride>> => {
-  const [row] = await sql<DbDateOverride[]>`
-    INSERT INTO venue.date_overrides (venue_id, date, kind, start_time, end_time, note)
+  const rows = await withShortIdDb(
+    sql,
+    "override",
+    (db, shortId) => db<DbDateOverride[]>`
+    INSERT INTO venue.date_overrides (short_id, venue_id, date, kind, start_time, end_time, note)
     VALUES (
-      ${venueId}::uuid, ${input.date}::date, ${input.kind},
+      ${shortId}, ${venueId}::uuid, ${input.date}::date, ${input.kind},
       ${input.kind === "open" ? input.startTime : null}::time,
       ${input.kind === "open" ? input.endTime : null}::time,
       ${input.note?.trim() || null}
@@ -825,7 +859,9 @@ const upsertOverride = async (venueId: string, input: DateOverrideInput): Promis
     ON CONFLICT (venue_id, date)
     DO UPDATE SET kind = EXCLUDED.kind, start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time, note = EXCLUDED.note, updated_at = now()
     RETURNING *
-  `;
+  `,
+  );
+  const row = rows[0];
   return row ? ok(mapOverride(row)) : fail(err.internal("Failed to save override"));
 };
 
@@ -992,7 +1028,7 @@ const assignmentsByTemplateSlot = (assignments: ShiftAssignment[]): Map<string, 
   return grouped;
 };
 
-const slotForTemplate = (venue: Venue, template: ShiftTemplate, date: string, slotAssignments: ShiftAssignment[]): UpcomingSlot => {
+const slotForTemplate = (venue: Venue, template: ShiftTemplate, date: string, slotAssignments: ShiftAssignment[]): InternalUpcomingSlot => {
   const startsAt = instantFor(date, template.startTime, venue.timezone).toISOString();
   const endsAt = endInstantFor(date, template.startTime, template.endTime, venue.timezone).toISOString();
   const assignedCount = slotAssignments.length;
@@ -1011,7 +1047,7 @@ const slotForTemplate = (venue: Venue, template: ShiftTemplate, date: string, sl
   };
 };
 
-const upcomingSlots = async (venue: Venue, options: number | UpcomingSlotsOptions = 14): Promise<UpcomingSlot[]> => {
+const upcomingSlots = async (venue: Venue, options: number | UpcomingSlotsOptions = 14): Promise<InternalUpcomingSlot[]> => {
   const config = typeof options === "number" ? { days: options } : options;
   const days = Math.max(0, config.days ?? 14);
   if (days === 0) return [];
@@ -1026,7 +1062,7 @@ const upcomingSlots = async (venue: Venue, options: number | UpcomingSlotsOption
   const templatesForWeekday = templatesByWeekday(templates);
   const assignmentsBySlot = assignmentsByTemplateSlot(assignments);
 
-  const slots: UpcomingSlot[] = [];
+  const slots: InternalUpcomingSlot[] = [];
   for (let offset = 0; offset < days; offset++) {
     const date = dateKeyAfterDays(startDate, offset, venue.timezone);
     const weekdayTemplates = templatesForWeekday.get(localWeekday(date));
@@ -1122,9 +1158,12 @@ const signupTemplate = async (
     `;
     if (existing) return fail(err.badInput("You are already signed up for this shift"));
 
-    const [row] = await tx<DbShiftAssignment[]>`
-      INSERT INTO venue.shift_assignments (venue_id, template_id, user_id, starts_at, ends_at)
-      SELECT ${venue.id}::uuid, t.id, ${user.id}::uuid, ${start}, ${end}
+    const rows = await withShortIdDb(
+      tx,
+      "assignment",
+      (db, shortId) => db<DbShiftAssignment[]>`
+      INSERT INTO venue.shift_assignments (short_id, venue_id, template_id, user_id, starts_at, ends_at)
+      SELECT ${shortId}, ${venue.id}::uuid, t.id, ${user.id}::uuid, ${start}, ${end}
       FROM venue.shift_templates t
       WHERE t.id = ${templateId}::uuid
         AND t.venue_id = ${venue.id}::uuid
@@ -1138,7 +1177,9 @@ const signupTemplate = async (
           ) < t.max_people
         )
       RETURNING *, NULL::text AS user_display_name
-    `;
+    `,
+    );
+    const row = rows[0];
     if (!row) return fail(err.badInput("This shift is already full"));
     return ok((await assignmentsForRange(venue.id, start, end)).find((entry) => entry.id === row.id) ?? mapAssignment(row));
   });
@@ -1172,12 +1213,17 @@ const signupFree = async (
   if (!(start < end)) return fail(err.badInput("Start must be before end"));
   if (end < new Date()) return fail(err.badInput("This shift has already ended"));
 
-  const [row] = await sql<DbShiftAssignment[]>`
-    INSERT INTO venue.shift_assignments (venue_id, user_id, starts_at, ends_at, note)
-    VALUES (${venueId}::uuid, ${user.id}::uuid, ${start}, ${end}, ${input.note?.trim() || null})
+  const rows = await withShortIdDb(
+    sql,
+    "assignment",
+    (db, shortId) => db<DbShiftAssignment[]>`
+    INSERT INTO venue.shift_assignments (short_id, venue_id, user_id, starts_at, ends_at, note)
+    VALUES (${shortId}, ${venueId}::uuid, ${user.id}::uuid, ${start}, ${end}, ${input.note?.trim() || null})
     ON CONFLICT (venue_id, user_id, starts_at, ends_at) DO NOTHING
     RETURNING *, NULL::text AS user_display_name
-  `;
+  `,
+  );
+  const row = rows[0];
   return row
     ? ok((await assignmentsForRange(venueId, start, end)).find((entry) => entry.id === row.id) ?? mapAssignment(row))
     : fail(err.badInput("You are already signed up for this time range"));
@@ -1337,8 +1383,8 @@ const statusForVenue = async (venue: Venue, now = new Date(), includeSections = 
   };
 };
 
-const publicStatus = async (slug: string, now = new Date()): Promise<PublicStatus | null> => {
-  const venue = await getVenueBySlug(slug);
+const publicStatus = async (shortId: string, now = new Date()): Promise<PublicStatus | null> => {
+  const venue = await getVenueByShortId(shortId);
   return venue?.publicEnabled ? statusForVenue(venue, now) : null;
 };
 
@@ -1350,7 +1396,7 @@ export type VenueDashboardOptions = {
   feedbackSearch?: string;
 };
 
-const dashboard = async (venue: Venue, user: UserLike | null, options: VenueDashboardOptions = {}): Promise<VenueDashboard> => {
+const dashboard = async (venue: Venue, user: UserLike | null, options: VenueDashboardOptions = {}): Promise<InternalVenueDashboard> => {
   const start = new Date();
   const end = new Date(start.getTime() + 30 * 86_400_000);
   const slotDays = Math.max(0, options.slotDays ?? 14);
@@ -1412,8 +1458,8 @@ const getUserIdByIcalToken = async (token: string): Promise<string | null> => {
 };
 
 const generateUserIcs = async (userId: string, baseUrl: string): Promise<string> => {
-  const rows = await sql<(DbShiftAssignment & { venue_name: string; venue_slug: string })[]>`
-    SELECT sa.*, u.display_name AS user_display_name, v.name AS venue_name, v.slug AS venue_slug
+  const rows = await sql<(DbShiftAssignment & { venue_name: string; venue_short_id: string })[]>`
+    SELECT sa.*, u.display_name AS user_display_name, v.name AS venue_name, v.short_id AS venue_short_id
     FROM venue.shift_assignments sa
     JOIN venue.venues v ON v.id = sa.venue_id
     JOIN auth.users u ON u.id = sa.user_id
@@ -1425,13 +1471,13 @@ const generateUserIcs = async (userId: string, baseUrl: string): Promise<string>
   for (const row of rows) {
     lines.push(
       "BEGIN:VEVENT",
-      `UID:venue-${row.id}@stuve.cloud`,
+      `UID:venue-${row.short_id}@stuve.cloud`,
       `DTSTAMP:${icsDate(new Date())}`,
       `DTSTART:${icsDate(row.starts_at)}`,
       `DTEND:${icsDate(row.ends_at)}`,
       `SUMMARY:${escapeIcs(`Shift at ${row.venue_name}`)}`,
       `DESCRIPTION:${escapeIcs(row.note ?? "Venue shift")}`,
-      `URL:${escapeIcs(`${baseUrl}/app/venue/${row.venue_id}`)}`,
+      `URL:${escapeIcs(`${baseUrl}/app/venue/${row.venue_short_id}`)}`,
       "END:VEVENT",
     );
   }
@@ -1447,7 +1493,7 @@ export const venueService = {
     discoverPublic: discoverPublicVenues,
     get: getVenue,
     getSummary: getVenueSummary,
-    getBySlug: getVenueBySlug,
+    getByShortId: getVenueByShortId,
     create: createVenue,
     update: updateVenue,
     delete: deleteVenue,
@@ -1471,5 +1517,6 @@ export const venueService = {
   status: statusForVenue,
   publicStatus,
   dashboard,
+  publicResources: { resolve: resolvePublicId, resolveOwned: resolveVenuePublicId, ...publicProjection },
   ical: { getOrCreateToken: getOrCreateIcalToken, getUserIdByToken: getUserIdByIcalToken, generateUser: generateUserIcs },
 } as const;

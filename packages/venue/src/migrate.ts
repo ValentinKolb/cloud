@@ -1,4 +1,5 @@
 import { sql } from "bun";
+import { backfillShortIds, finalizeShortIds, type ShortIdTable, shortIdsFinalized } from "./lib/short-id";
 
 export const migrate = async (): Promise<void> => {
   await sql`CREATE SCHEMA IF NOT EXISTS venue`.simple();
@@ -7,6 +8,7 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS venue.venues (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT,
       slug TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
       icon TEXT NOT NULL DEFAULT 'ti ti-building-carousel',
@@ -25,6 +27,8 @@ export const migrate = async (): Promise<void> => {
     )
   `.simple();
   await sql`ALTER TABLE IF EXISTS venue.venues ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT 'ti ti-building-carousel'`.simple();
+  await sql`ALTER TABLE venue.venues ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_venue_venues_short_id ON venue.venues(short_id)`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_venue_venues_slug ON venue.venues(slug)`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_venue_venues_ical_token ON venue.venues(ical_token)`.simple();
   console.log("  ✓ venue.venues table");
@@ -42,6 +46,7 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS venue.opening_rules (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT,
       venue_id UUID NOT NULL REFERENCES venue.venues(id) ON DELETE CASCADE,
       weekday INT NOT NULL CHECK (weekday BETWEEN 0 AND 6),
       start_time TIME NOT NULL,
@@ -53,12 +58,15 @@ export const migrate = async (): Promise<void> => {
       CHECK (start_time < end_time)
     )
   `.simple();
+  await sql`ALTER TABLE venue.opening_rules ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_venue_opening_rules_short_id ON venue.opening_rules(short_id)`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_venue_opening_rules_venue_weekday ON venue.opening_rules(venue_id, weekday, start_time)`.simple();
   console.log("  ✓ venue.opening_rules table");
 
   await sql`
     CREATE TABLE IF NOT EXISTS venue.date_overrides (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT,
       venue_id UUID NOT NULL REFERENCES venue.venues(id) ON DELETE CASCADE,
       date DATE NOT NULL,
       kind TEXT NOT NULL CHECK (kind IN ('closed', 'open')),
@@ -74,12 +82,15 @@ export const migrate = async (): Promise<void> => {
       )
     )
   `.simple();
+  await sql`ALTER TABLE venue.date_overrides ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_venue_date_overrides_short_id ON venue.date_overrides(short_id)`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_venue_date_overrides_venue_date ON venue.date_overrides(venue_id, date)`.simple();
   console.log("  ✓ venue.date_overrides table");
 
   await sql`
     CREATE TABLE IF NOT EXISTS venue.shift_templates (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT,
       venue_id UUID NOT NULL REFERENCES venue.venues(id) ON DELETE CASCADE,
       weekday INT NOT NULL CHECK (weekday BETWEEN 0 AND 6),
       title TEXT NOT NULL,
@@ -94,6 +105,8 @@ export const migrate = async (): Promise<void> => {
       CHECK (start_time < end_time)
     )
   `.simple();
+  await sql`ALTER TABLE venue.shift_templates ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_venue_shift_templates_short_id ON venue.shift_templates(short_id)`.simple();
   await sql`
     ALTER TABLE IF EXISTS venue.shift_templates
     ADD COLUMN IF NOT EXISTS require_target_for_opening BOOLEAN NOT NULL DEFAULT false
@@ -104,6 +117,7 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS venue.shift_assignments (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT,
       venue_id UUID NOT NULL REFERENCES venue.venues(id) ON DELETE CASCADE,
       template_id UUID REFERENCES venue.shift_templates(id) ON DELETE SET NULL,
       user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -115,6 +129,8 @@ export const migrate = async (): Promise<void> => {
       CHECK (starts_at < ends_at)
     )
   `.simple();
+  await sql`ALTER TABLE venue.shift_assignments ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_venue_shift_assignments_short_id ON venue.shift_assignments(short_id)`.simple();
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_venue_shift_assignments_user_slot
     ON venue.shift_assignments(venue_id, user_id, starts_at, ends_at)
@@ -137,6 +153,7 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS venue.public_sections (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT,
       venue_id UUID NOT NULL REFERENCES venue.venues(id) ON DELETE CASCADE,
       kind TEXT NOT NULL CHECK (kind IN ('markdown', 'menu', 'notice', 'links')),
       title TEXT NOT NULL,
@@ -147,6 +164,8 @@ export const migrate = async (): Promise<void> => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
+  await sql`ALTER TABLE venue.public_sections ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_venue_public_sections_short_id ON venue.public_sections(short_id)`.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_venue_public_sections_venue_position ON venue.public_sections(venue_id, position, created_at)`.simple();
   console.log("  ✓ venue.public_sections table");
 
@@ -171,4 +190,11 @@ export const migrate = async (): Promise<void> => {
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_venue_user_ical_tokens_token ON venue.user_ical_tokens(token)`.simple();
   console.log("  ✓ venue.user_ical_tokens table");
+
+  const shortIdTables: ShortIdTable[] = ["venue", "openingRule", "override", "template", "assignment", "section"];
+  for (const table of shortIdTables) {
+    const filled = await backfillShortIds(table);
+    if (filled > 0) console.log(`  ✓ venue short_id backfill: ${filled} ${table}(s)`);
+  }
+  if (!(await shortIdsFinalized())) await finalizeShortIds();
 };

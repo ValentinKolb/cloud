@@ -68,7 +68,7 @@ const providers: ReadonlyArray<{
     types: ["comment", "item", "space"],
     searches: ["item.search", "space.search"],
   },
-  { appId: "venue", definitions: venueCapabilities, types: ["assignment", "shift", "venue"], searches: ["venue.search"] },
+  { appId: "venue", definitions: venueCapabilities, types: ["assignment", "venue"], searches: ["venue.search"] },
   { appId: "weather", definitions: weatherCapabilities, types: ["location"], searches: ["location.search"] },
 ];
 

@@ -300,7 +300,7 @@ function ScrollablePage(props: { status: PublicStatus } & RefreshDiagnostics) {
         <aside class="flex flex-col gap-4 lg:sticky lg:top-4 lg:self-start">
           <RegularHours status={status()} />
           <UpcomingOpenings status={status()} />
-          {status().venue.feedbackEnabled && <PublicFeedbackForm slug={status().venue.slug} accentColor={status().venue.accentColor} />}
+          {status().venue.feedbackEnabled && <PublicFeedbackForm venueId={status().venue.id} accentColor={status().venue.accentColor} />}
         </aside>
       </div>
     </main>
@@ -334,7 +334,7 @@ const readResponseError = async (response: Response): Promise<string> => {
 
 const PUBLIC_REFRESH_REQUEST_TIMEOUT_MS = 10_000;
 
-const fetchPublicStatus = async (slug: string, parentSignal: AbortSignal): Promise<PublicStatus | null> => {
+const fetchPublicStatus = async (venueId: string, parentSignal: AbortSignal): Promise<PublicStatus | null> => {
   const request = new AbortController();
   let timedOut = false;
   const abort = () => request.abort();
@@ -346,8 +346,8 @@ const fetchPublicStatus = async (slug: string, parentSignal: AbortSignal): Promi
   }, PUBLIC_REFRESH_REQUEST_TIMEOUT_MS);
 
   try {
-    const response = await apiClient.public[":slug"].status.$get(
-      { param: { slug } },
+    const response = await apiClient.public[":id"].status.$get(
+      { param: { id: venueId } },
       { init: { cache: "no-store", signal: request.signal } },
     );
     if (response.status === 404) return null;
@@ -363,7 +363,7 @@ const fetchPublicStatus = async (slug: string, parentSignal: AbortSignal): Promi
 };
 
 type PublicVenuePageProps = {
-  slug: string;
+  venueId: string;
   initialStatus: PublicStatus | null;
   displayHeight: VenuePublicDisplayHeight;
   feedbackUrl: string;
@@ -379,10 +379,10 @@ export default function PublicVenuePage(props: PublicVenuePageProps) {
   let visibilityHandler: (() => void) | undefined;
 
   const statusQuery = query.create({
-    source: () => props.slug,
-    initial: { source: props.slug, data: props.initialStatus },
+    source: () => props.venueId,
+    initial: { source: props.venueId, data: props.initialStatus },
     enabled: () => props.refresh && visible(),
-    load: (slug, { abortSignal }) => fetchPublicStatus(slug, abortSignal),
+    load: (venueId, { abortSignal }) => fetchPublicStatus(venueId, abortSignal),
   });
 
   const nextDelay = () => Math.max(1_000, Math.min(60_000, timing.jitter(venuePublicRefreshBackoffMs(failures), 350)));

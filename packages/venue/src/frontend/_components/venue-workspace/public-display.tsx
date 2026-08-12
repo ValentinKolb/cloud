@@ -3,14 +3,14 @@ import { Button, prompts, SegmentedControl, Switch, toast } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { buildPublicVenueUrl, VENUE_PUBLIC_REFRESH_SECONDS, type VenuePublicDisplayHeight } from "../../public-runtime";
 
-export const openVenuePublicDisplayDialog = async (slug: string): Promise<void> => {
+export const openVenuePublicDisplayDialog = async (venueId: string): Promise<void> => {
   try {
     await prompts.dialog<void>(
       (close) => {
         const [height, setHeight] = createSignal<VenuePublicDisplayHeight>("scroll");
         const [refresh, setRefresh] = createSignal(false);
         const [busy, setBusy] = createSignal<"copy" | "open" | null>(null);
-        const resolveLink = () => buildPublicVenueUrl(window.location.origin, slug, { height: height(), refresh: refresh() });
+        const resolveLink = () => buildPublicVenueUrl(window.location.origin, venueId, { height: height(), refresh: refresh() });
         const setLayout = (value: VenuePublicDisplayHeight) => {
           setHeight(value);
           if (value === "full") setRefresh(true);

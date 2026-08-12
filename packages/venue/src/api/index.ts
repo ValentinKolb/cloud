@@ -8,7 +8,19 @@ import {
   ServiceAccountCredentialSchema,
   UpdateAccessSchema,
 } from "@valentinkolb/cloud/contracts";
-import { type AuthContext, auth, err, fail, jsonResponse, ok, rateLimit, respond, respondMessage, v } from "@valentinkolb/cloud/server";
+import {
+  type AuthContext,
+  auth,
+  err,
+  fail,
+  jsonResponse,
+  ok,
+  type Result,
+  rateLimit,
+  respond,
+  respondMessage,
+  v,
+} from "@valentinkolb/cloud/server";
 import { coreSettings, serviceAccountCredentials, serviceAccounts } from "@valentinkolb/cloud/services";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
@@ -29,19 +41,20 @@ import {
   VenueDashboardQuerySchema,
   VenueDashboardSchema,
   VenueInputSchema,
+  VenueResourceIdSchema,
   VenueSchema,
   VenueTemplateCreateInputSchema,
   VenueTemplateSummarySchema,
 } from "../contracts";
 import { venueService } from "../service";
 
-const VenueIdParamSchema = z.object({ id: z.string().uuid() });
-const AccessParamSchema = z.object({ id: z.string().uuid(), accessId: z.string().uuid() });
-const ApiKeyParamSchema = z.object({ id: z.string().uuid(), credentialId: z.string().uuid() });
-const ResourceParamSchema = z.object({ id: z.string().uuid(), resourceId: z.string().uuid() });
-const TemplateParamSchema = z.object({ id: z.string().uuid(), templateId: z.string().uuid() });
-const AssignmentParamSchema = z.object({ id: z.string().uuid(), assignmentId: z.string().uuid() });
-const PublicSlugParamSchema = z.object({ slug: z.string().min(1).max(80) });
+const VenueIdParamSchema = z.object({ id: VenueResourceIdSchema });
+const AccessParamSchema = z.object({ id: VenueResourceIdSchema, accessId: z.string().uuid() });
+const ApiKeyParamSchema = z.object({ id: VenueResourceIdSchema, credentialId: z.string().uuid() });
+const ResourceParamSchema = z.object({ id: VenueResourceIdSchema, resourceId: VenueResourceIdSchema });
+const TemplateParamSchema = z.object({ id: VenueResourceIdSchema, templateId: VenueResourceIdSchema });
+const AssignmentParamSchema = z.object({ id: VenueResourceIdSchema, assignmentId: VenueResourceIdSchema });
+const PublicVenueParamSchema = z.object({ id: VenueResourceIdSchema });
 const TokenParamSchema = z.object({ token: z.string().min(16).max(128) });
 const VenueTemplateParamSchema = z.object({ templateId: z.string().min(1).max(80) });
 const TemplateWeeksInputSchema = TemplateSignupInputSchema.extend({ weeks: z.number().int().min(1).max(12).default(4) });
@@ -91,14 +104,28 @@ const getVenueAccessSubject = (c: Context<AuthContext>, venueId?: string) => {
 };
 
 const requireVenue = async (c: Context<AuthContext>, id: string, permission: PermissionLevel) => {
-  const subject = getVenueAccessSubject(c, id);
+  const internalId = await venueService.publicResources.resolve("venues", id);
+  if (!internalId) return fail(err.notFound("Venue"));
+  const subject = getVenueAccessSubject(c, internalId);
   if (!subject.ok) return subject;
-  const venue = await venueService.venues.get(id, subject.data);
+  const venue = await venueService.venues.get(internalId, subject.data);
   if (!venue) return fail(err.notFound("Venue"));
   const allowed = await venueService.access.require(id, subject.data, permission);
   if (!allowed.ok) return allowed;
   return ok(venue);
 };
+
+const resolveOwned = async (
+  table: "openingRules" | "overrides" | "templates" | "assignments" | "sections",
+  venueId: string,
+  id: string,
+) => {
+  const internalId = await venueService.publicResources.resolveOwned(table, venueId, id);
+  return internalId ? ok(internalId) : fail(err.notFound("Venue resource"));
+};
+
+const projectResult = async <T, U>(result: Result<T>, project: (value: T) => Promise<U>): Promise<Result<U>> =>
+  result.ok ? ok(await project(result.data)) : result;
 
 const readVenue = async (c: Context<AuthContext>, id: string) => requireVenue(c, id, "read");
 const writeVenue = async (c: Context<AuthContext>, id: string) => requireVenue(c, id, "write");
@@ -145,15 +172,16 @@ const widgetRoutes = new Hono<AuthContext>().get("/today", auth.requireRole("aut
   const venue = venues[0];
   if (!venue) return c.body(null, 204);
 
-  const status = await venueService.publicStatus(venue.slug);
   const dashboard = await venueService.dashboard(venue, user);
+  const [publicVenue] = await venueService.publicResources.projectVenues([venue]);
+  const status = await venueService.publicStatus(publicVenue!.id);
   const nextShift = dashboard.myUpcomingShifts[0];
   const missing = dashboard.slots.reduce((sum, slot) => sum + slot.missingPeople, 0);
 
   const response: WidgetResponse = {
     title: venue.name,
     icon: venue.icon || "ti ti-building-carousel",
-    href: `/app/venue/${venue.id}`,
+    href: `/app/venue/${publicVenue!.id}`,
     meta: status?.statusLabel ?? "Venue",
     blocks: [
       {
@@ -178,7 +206,7 @@ const widgetRoutes = new Hono<AuthContext>().get("/today", auth.requireRole("aut
                 icon: "ti ti-calendar-event",
                 label: "Your next shift",
                 sub: new Date(nextShift.startsAt).toLocaleString(),
-                href: `/app/venue/${venue.id}`,
+                href: `/app/venue/${publicVenue!.id}`,
               },
             ],
           }
@@ -235,9 +263,10 @@ const venueTemplateRoutes = new Hono<AuthContext>()
     async (c) => {
       const user = requireUserBackedActor(c);
       if (!user.ok) return respond(c, user);
+      const created = await venueService.venueTemplates.instantiate(c.req.valid("param").templateId, c.req.valid("json"), user.data);
       return respond(
         c,
-        () => venueService.venueTemplates.instantiate(c.req.valid("param").templateId, c.req.valid("json"), user.data),
+        await projectResult(created, async (venue) => (await venueService.publicResources.projectVenues([venue]))[0]!),
         201,
       );
     },
@@ -245,7 +274,7 @@ const venueTemplateRoutes = new Hono<AuthContext>()
 
 const publicRoutes = new Hono<AuthContext>()
   .get(
-    "/:slug/status",
+    "/:id/status",
     describeRoute({
       tags: ["Public"],
       summary: "Get public venue status",
@@ -254,22 +283,29 @@ const publicRoutes = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Venue not found"),
       },
     }),
-    v("param", PublicSlugParamSchema),
+    v("param", PublicVenueParamSchema),
     async (c) => {
       c.header("Cache-Control", "no-store");
-      const status = await venueService.publicStatus(c.req.valid("param").slug);
-      return status ? respond(c, ok(status)) : respond(c, fail(err.notFound("Venue")));
+      const status = await venueService.publicStatus(c.req.valid("param").id);
+      return status
+        ? respond(c, ok(await venueService.publicResources.projectPublicStatus(status)))
+        : respond(c, fail(err.notFound("Venue")));
     },
   )
   .post(
-    "/:slug/feedback",
+    "/:id/feedback",
     rateLimit({ limitPerSecond: 1, windowSecs: 60, keyBy: "ip" }),
-    v("param", PublicSlugParamSchema),
+    v("param", PublicVenueParamSchema),
     v("json", FeedbackInputSchema),
     async (c) => {
-      const venue = await venueService.venues.getBySlug(c.req.valid("param").slug);
+      const venue = await venueService.venues.getByShortId(c.req.valid("param").id);
       if (!venue || !venue.publicEnabled) return respond(c, fail(err.notFound("Venue")));
-      return respond(c, () => venueService.feedback.create(venue.id, c.req.valid("json")), 201);
+      const created = await venueService.feedback.create(venue.id, c.req.valid("json"));
+      return respond(
+        c,
+        await projectResult(created, async (entry) => (await venueService.publicResources.projectFeedbackEntries([entry]))[0]!),
+        201,
+      );
     },
   );
 
@@ -285,7 +321,7 @@ const venueRoutes = new Hono<AuthContext>()
     async (c) => {
       const subject = getVenueAccessSubject(c);
       if (!subject.ok) return respond(c, subject);
-      return respond(c, ok({ venues: await venueService.venues.list(subject.data) }));
+      return respond(c, ok({ venues: await venueService.publicResources.projectVenues(await venueService.venues.list(subject.data)) }));
     },
   )
   .post(
@@ -299,13 +335,25 @@ const venueRoutes = new Hono<AuthContext>()
     async (c) => {
       const user = requireUserBackedActor(c);
       if (!user.ok) return respond(c, user);
-      return respond(c, () => venueService.venues.create(c.req.valid("json"), user.data), 201);
+      const created = await venueService.venues.create(c.req.valid("json"), user.data);
+      return respond(
+        c,
+        await projectResult(created, async (venue) => (await venueService.publicResources.projectVenues([venue]))[0]!),
+        201,
+      );
     },
   )
   .get("/:id/dashboard", v("param", VenueIdParamSchema), v("query", VenueDashboardQuerySchema), async (c) => {
     const venue = await readVenue(c, c.req.valid("param").id);
     if (!venue.ok) return respond(c, venue);
-    return respond(c, ok(await venueService.dashboard(venue.data, getUserBackedActor(c), c.req.valid("query"))));
+    return respond(
+      c,
+      ok(
+        await venueService.publicResources.projectDashboard(
+          await venueService.dashboard(venue.data, getUserBackedActor(c), c.req.valid("query")),
+        ),
+      ),
+    );
   })
   .get(
     "/:id/settings-context",
@@ -329,10 +377,10 @@ const venueRoutes = new Hono<AuthContext>()
       return respond(
         c,
         ok({
-          venue: venue.data,
-          openingRules,
-          overrides,
-          templates,
+          venue: (await venueService.publicResources.projectVenues([venue.data]))[0]!,
+          openingRules: await venueService.publicResources.projectOpeningRules(openingRules),
+          overrides: await venueService.publicResources.projectOverrides(overrides),
+          templates: await venueService.publicResources.projectTemplates(templates),
           accessEntries,
           apiKeys,
         }),
@@ -342,7 +390,8 @@ const venueRoutes = new Hono<AuthContext>()
   .patch("/:id", v("param", VenueIdParamSchema), v("json", VenueInputSchema), async (c) => {
     const venue = await adminVenue(c, c.req.valid("param").id);
     if (!venue.ok) return respond(c, venue);
-    return respond(c, () => venueService.venues.update(venue.data.id, c.req.valid("json")));
+    const updated = await venueService.venues.update(venue.data.id, c.req.valid("json"));
+    return respond(c, await projectResult(updated, async (value) => (await venueService.publicResources.projectVenues([value]))[0]!));
   })
   .delete(
     "/:id",
@@ -507,53 +556,79 @@ const venueRoutes = new Hono<AuthContext>()
   .post("/:id/opening-rules", v("param", VenueIdParamSchema), v("json", OpeningRuleInputSchema), async (c) => {
     const venue = await adminVenue(c, c.req.valid("param").id);
     if (!venue.ok) return respond(c, venue);
-    return respond(c, () => venueService.openingRules.create(venue.data.id, c.req.valid("json")), 201);
+    const created = await venueService.openingRules.create(venue.data.id, c.req.valid("json"));
+    return respond(
+      c,
+      await projectResult(created, async (value) => (await venueService.publicResources.projectOpeningRules([value]))[0]!),
+      201,
+    );
   })
   .patch("/:id/opening-rules/:resourceId", v("param", ResourceParamSchema), v("json", OpeningRuleInputSchema), async (c) => {
     const param = c.req.valid("param");
     const venue = await adminVenue(c, param.id);
     if (!venue.ok) return respond(c, venue);
-    return respond(c, () => venueService.openingRules.update(venue.data.id, param.resourceId, c.req.valid("json")));
+    const resource = await resolveOwned("openingRules", venue.data.id, param.resourceId);
+    if (!resource.ok) return respond(c, resource);
+    const updated = await venueService.openingRules.update(venue.data.id, resource.data, c.req.valid("json"));
+    return respond(c, await projectResult(updated, async (value) => (await venueService.publicResources.projectOpeningRules([value]))[0]!));
   })
   .delete("/:id/opening-rules/:resourceId", v("param", ResourceParamSchema), async (c) => {
     const param = c.req.valid("param");
     const venue = await adminVenue(c, param.id);
     if (!venue.ok) return respond(c, venue);
-    return respond(c, () => venueService.openingRules.delete(venue.data.id, param.resourceId));
+    const resource = await resolveOwned("openingRules", venue.data.id, param.resourceId);
+    if (!resource.ok) return respond(c, resource);
+    return respond(c, () => venueService.openingRules.delete(venue.data.id, resource.data));
   })
   .post("/:id/overrides", v("param", VenueIdParamSchema), v("json", DateOverrideInputSchema), async (c) => {
     const venue = await adminVenue(c, c.req.valid("param").id);
     if (!venue.ok) return respond(c, venue);
-    return respond(c, () => venueService.overrides.upsert(venue.data.id, c.req.valid("json")), 201);
+    const saved = await venueService.overrides.upsert(venue.data.id, c.req.valid("json"));
+    return respond(c, await projectResult(saved, async (value) => (await venueService.publicResources.projectOverrides([value]))[0]!), 201);
   })
   .patch("/:id/overrides/:resourceId", v("param", ResourceParamSchema), v("json", DateOverrideInputSchema), async (c) => {
     const param = c.req.valid("param");
     const venue = await adminVenue(c, param.id);
     if (!venue.ok) return respond(c, venue);
-    return respond(c, () => venueService.overrides.update(venue.data.id, param.resourceId, c.req.valid("json")));
+    const resource = await resolveOwned("overrides", venue.data.id, param.resourceId);
+    if (!resource.ok) return respond(c, resource);
+    const updated = await venueService.overrides.update(venue.data.id, resource.data, c.req.valid("json"));
+    return respond(c, await projectResult(updated, async (value) => (await venueService.publicResources.projectOverrides([value]))[0]!));
   })
   .delete("/:id/overrides/:resourceId", v("param", ResourceParamSchema), async (c) => {
     const param = c.req.valid("param");
     const venue = await adminVenue(c, param.id);
     if (!venue.ok) return respond(c, venue);
-    return respond(c, () => venueService.overrides.delete(venue.data.id, param.resourceId));
+    const resource = await resolveOwned("overrides", venue.data.id, param.resourceId);
+    if (!resource.ok) return respond(c, resource);
+    return respond(c, () => venueService.overrides.delete(venue.data.id, resource.data));
   })
   .post("/:id/templates", v("param", VenueIdParamSchema), v("json", ShiftTemplateInputSchema), async (c) => {
     const venue = await adminVenue(c, c.req.valid("param").id);
     if (!venue.ok) return respond(c, venue);
-    return respond(c, () => venueService.templates.create(venue.data.id, c.req.valid("json")), 201);
+    const created = await venueService.templates.create(venue.data.id, c.req.valid("json"));
+    return respond(
+      c,
+      await projectResult(created, async (value) => (await venueService.publicResources.projectTemplates([value]))[0]!),
+      201,
+    );
   })
   .patch("/:id/templates/:resourceId", v("param", ResourceParamSchema), v("json", ShiftTemplateInputSchema), async (c) => {
     const param = c.req.valid("param");
     const venue = await adminVenue(c, param.id);
     if (!venue.ok) return respond(c, venue);
-    return respond(c, () => venueService.templates.update(venue.data.id, param.resourceId, c.req.valid("json")));
+    const resource = await resolveOwned("templates", venue.data.id, param.resourceId);
+    if (!resource.ok) return respond(c, resource);
+    const updated = await venueService.templates.update(venue.data.id, resource.data, c.req.valid("json"));
+    return respond(c, await projectResult(updated, async (value) => (await venueService.publicResources.projectTemplates([value]))[0]!));
   })
   .delete("/:id/templates/:resourceId", v("param", ResourceParamSchema), async (c) => {
     const param = c.req.valid("param");
     const venue = await adminVenue(c, param.id);
     if (!venue.ok) return respond(c, venue);
-    return respond(c, () => venueService.templates.delete(venue.data.id, param.resourceId));
+    const resource = await resolveOwned("templates", venue.data.id, param.resourceId);
+    if (!resource.ok) return respond(c, resource);
+    return respond(c, () => venueService.templates.delete(venue.data.id, resource.data));
   })
   .post("/:id/templates/:templateId/signup", v("param", TemplateParamSchema), v("json", TemplateSignupInputSchema), async (c) => {
     const user = requireUserBackedActor(c);
@@ -562,7 +637,14 @@ const venueRoutes = new Hono<AuthContext>()
     const venue = await writeVenue(c, param.id);
     if (!venue.ok) return respond(c, venue);
     if (venue.data.signupMode === "free") return respond(c, fail(err.badInput("Shift signup is disabled for this venue")));
-    return respond(c, () => venueService.assignments.signupTemplate(venue.data, param.templateId, c.req.valid("json"), user.data), 201);
+    const template = await resolveOwned("templates", venue.data.id, param.templateId);
+    if (!template.ok) return respond(c, template);
+    const created = await venueService.assignments.signupTemplate(venue.data, template.data, c.req.valid("json"), user.data);
+    return respond(
+      c,
+      await projectResult(created, async (value) => (await venueService.publicResources.projectAssignments([value]))[0]!),
+      201,
+    );
   })
   .post("/:id/templates/:templateId/signup-weeks", v("param", TemplateParamSchema), v("json", TemplateWeeksInputSchema), async (c) => {
     const user = requireUserBackedActor(c);
@@ -571,12 +653,11 @@ const venueRoutes = new Hono<AuthContext>()
     const venue = await writeVenue(c, param.id);
     if (!venue.ok) return respond(c, venue);
     if (venue.data.signupMode === "free") return respond(c, fail(err.badInput("Shift signup is disabled for this venue")));
+    const template = await resolveOwned("templates", venue.data.id, param.templateId);
+    if (!template.ok) return respond(c, template);
     const body = c.req.valid("json");
-    return respond(
-      c,
-      () => venueService.assignments.signupTemplateWeeks(venue.data, param.templateId, body.date, body.weeks, user.data),
-      201,
-    );
+    const created = await venueService.assignments.signupTemplateWeeks(venue.data, template.data, body.date, body.weeks, user.data);
+    return respond(c, await projectResult(created, (values) => venueService.publicResources.projectAssignments(values)), 201);
   })
   .post("/:id/free-signup", v("param", VenueIdParamSchema), v("json", FreeSignupInputSchema), async (c) => {
     const user = requireUserBackedActor(c);
@@ -584,7 +665,12 @@ const venueRoutes = new Hono<AuthContext>()
     const venue = await writeVenue(c, c.req.valid("param").id);
     if (!venue.ok) return respond(c, venue);
     if (venue.data.signupMode === "templates") return respond(c, fail(err.badInput("Free signup is disabled for this venue")));
-    return respond(c, () => venueService.assignments.signupFree(venue.data.id, c.req.valid("json"), user.data), 201);
+    const created = await venueService.assignments.signupFree(venue.data.id, c.req.valid("json"), user.data);
+    return respond(
+      c,
+      await projectResult(created, async (value) => (await venueService.publicResources.projectAssignments([value]))[0]!),
+      201,
+    );
   })
   .delete("/:id/assignments/:assignmentId", v("param", AssignmentParamSchema), async (c) => {
     const user = requireUserBackedActor(c);
@@ -592,25 +678,37 @@ const venueRoutes = new Hono<AuthContext>()
     const param = c.req.valid("param");
     const venue = await readVenue(c, param.id);
     if (!venue.ok) return respond(c, venue);
+    const assignment = await resolveOwned("assignments", venue.data.id, param.assignmentId);
+    if (!assignment.ok) return respond(c, assignment);
     const canAdmin = hasAdminPermission(venue.data.permission);
-    return respond(c, () => venueService.assignments.cancel(venue.data.id, param.assignmentId, user.data, canAdmin));
+    return respond(c, () => venueService.assignments.cancel(venue.data.id, assignment.data, user.data, canAdmin));
   })
   .post("/:id/sections", v("param", VenueIdParamSchema), v("json", PublicSectionInputSchema), async (c) => {
     const venue = await adminVenue(c, c.req.valid("param").id);
     if (!venue.ok) return respond(c, venue);
-    return respond(c, () => venueService.sections.create(venue.data.id, c.req.valid("json")), 201);
+    const created = await venueService.sections.create(venue.data.id, c.req.valid("json"));
+    return respond(
+      c,
+      await projectResult(created, async (value) => (await venueService.publicResources.projectSections([value]))[0]!),
+      201,
+    );
   })
   .patch("/:id/sections/:resourceId", v("param", ResourceParamSchema), v("json", PublicSectionInputSchema), async (c) => {
     const param = c.req.valid("param");
     const venue = await adminVenue(c, param.id);
     if (!venue.ok) return respond(c, venue);
-    return respond(c, () => venueService.sections.update(venue.data.id, param.resourceId, c.req.valid("json")));
+    const resource = await resolveOwned("sections", venue.data.id, param.resourceId);
+    if (!resource.ok) return respond(c, resource);
+    const updated = await venueService.sections.update(venue.data.id, resource.data, c.req.valid("json"));
+    return respond(c, await projectResult(updated, async (value) => (await venueService.publicResources.projectSections([value]))[0]!));
   })
   .delete("/:id/sections/:resourceId", v("param", ResourceParamSchema), async (c) => {
     const param = c.req.valid("param");
     const venue = await adminVenue(c, param.id);
     if (!venue.ok) return respond(c, venue);
-    return respond(c, () => venueService.sections.delete(venue.data.id, param.resourceId));
+    const resource = await resolveOwned("sections", venue.data.id, param.resourceId);
+    if (!resource.ok) return respond(c, resource);
+    return respond(c, () => venueService.sections.delete(venue.data.id, resource.data));
   });
 
 const hasAdminPermission = (permission: PermissionLevel | undefined): boolean => permission === "admin";
