@@ -1,4 +1,5 @@
 import type { PulseResourceRef } from "./contracts";
+import { validateResourceIdentity } from "./telemetry-contract";
 
 export type PulseResourceIdentity = {
   key: string;
@@ -15,16 +16,17 @@ type ResourceInput = {
   dimensions: Record<string, string>;
 };
 
-const pulseResourceKey = (type: string | null | undefined, id: string): string => `${type?.trim() || "resource"}:${id}`;
+const pulseResourceKey = (type: string | null | undefined, id: string): string | null => {
+  const normalizedType = type?.trim() || "resource";
+  return validateResourceIdentity(normalizedType, id) ? null : `${normalizedType}:${id}`;
+};
 
 const compact = (values: Array<string | null | undefined>, separator = "/") => values.filter(Boolean).join(separator);
 
-const identity = (type: string, id: string, label = id): PulseResourceIdentity => ({
-  key: pulseResourceKey(type, id),
-  id,
-  label,
-  type,
-});
+const identity = (type: string, id: string, label = id): PulseResourceIdentity | null => {
+  const key = pulseResourceKey(type, id);
+  return key ? { key, id, label, type } : null;
+};
 
 export const explicitPulseResource = (resource: PulseResourceRef | null | undefined): PulseResourceIdentity | null => {
   if (!resource) return null;
@@ -82,7 +84,6 @@ const deriveFallbackResource = (input: ResourceInput): PulseResourceIdentity | n
   if (input.entityId) return identity(input.entityType ?? "entity", input.entityId);
   if (host) return identity("host", host);
   if (dimensions.service) return identity("service", dimensions.service);
-  if (input.sourceId) return identity("source", input.sourceId);
   return null;
 };
 

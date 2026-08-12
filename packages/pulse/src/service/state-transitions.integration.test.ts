@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import type { PulseState } from "../contracts";
+import { newShortId } from "../lib/short-id";
 import { ingestBatch, setState } from "./ingest-writer";
 
 const runDbSmoke = process.env.PULSE_STATE_TRANSITIONS_DB_TEST === "1";
@@ -18,10 +19,10 @@ describe("Pulse state transition Postgres smoke", () => {
     async () => {
       const baseId = crypto.randomUUID();
       const sourceId = crypto.randomUUID();
-      await sql`INSERT INTO pulse.bases (id, name) VALUES (${baseId}::uuid, 'State transition smoke')`;
+      await sql`INSERT INTO pulse.bases (id, short_id, name) VALUES (${baseId}::uuid, ${newShortId()}, 'State transition smoke')`;
       await sql`
-      INSERT INTO pulse.sources (id, base_id, kind, name)
-      VALUES (${sourceId}::uuid, ${baseId}::uuid, 'http_ingest'::pulse.source_kind, 'State transition source')
+      INSERT INTO pulse.sources (id, short_id, base_id, kind, name)
+      VALUES (${sourceId}::uuid, ${newShortId()}, ${baseId}::uuid, 'http_ingest'::pulse.source_kind, 'State transition source')
     `;
 
       const at = (seconds: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, seconds)).toISOString();

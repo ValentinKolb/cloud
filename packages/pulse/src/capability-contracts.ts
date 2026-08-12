@@ -8,10 +8,15 @@ const LimitSchema = z.number().int().min(1).max(100).default(25).describe("Maxim
 const QuerySchema = z.string().trim().max(500).optional().describe("Optional text search.");
 const PageInputShape = { cursor: CursorSchema, limit: LimitSchema };
 const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
+const ShortIdSchema = z.string().regex(/^[0-9A-Za-z]{6}$/);
+const ResourceRefIdSchema = z
+  .string()
+  .regex(/^[0-9A-Za-z]{6}\/[\s\S]+$/)
+  .max(512);
 
 export const BaseDataSchema = z
   .object({
-    id: z.uuid(),
+    id: ShortIdSchema,
     name: z.string().min(1).max(120),
     description: z.string().max(1_000).nullable(),
     createdAt: TimestampSchema,
@@ -21,12 +26,12 @@ export const BaseDataSchema = z
   .strict();
 export const BaseListDataSchema = z.array(BaseDataSchema).max(100);
 export const BaseListInputSchema = z.object({ query: QuerySchema, ...PageInputShape }).strict();
-export const BaseReadInputSchema = z.object({ id: z.uuid().describe("Stable readable Pulse Base UUID.") }).strict();
+export const BaseReadInputSchema = z.object({ id: ShortIdSchema.describe("Stable readable Pulse Base ID.") }).strict();
 
 export const SourceDataSchema = z
   .object({
-    id: z.uuid(),
-    baseId: z.uuid(),
+    id: ShortIdSchema,
+    baseId: ShortIdSchema,
     kind: z.enum(SOURCE_KINDS),
     name: z.string().min(1).max(120),
     enabled: z.boolean(),
@@ -39,16 +44,16 @@ export const SourceDataSchema = z
   .strict();
 export const SourceListDataSchema = z.array(SourceDataSchema).max(100);
 export const SourceListInputSchema = z
-  .object({ baseId: z.uuid().describe("Readable Pulse Base UUID."), query: QuerySchema, ...PageInputShape })
+  .object({ baseId: ShortIdSchema.describe("Readable Pulse Base ID."), query: QuerySchema, ...PageInputShape })
   .strict();
-export const SourceReadInputSchema = z.object({ id: z.uuid().describe("Stable readable Pulse Source UUID.") }).strict();
+export const SourceReadInputSchema = z.object({ id: ShortIdSchema.describe("Stable readable Pulse Source ID.") }).strict();
 
 export const ResourceDataSchema = z
   .object({
-    id: z.uuid(),
-    baseId: z.uuid(),
+    id: ResourceRefIdSchema,
+    baseId: ShortIdSchema,
     baseName: z.string().min(1).max(120),
-    key: z.string().min(1).max(500),
+    key: z.string().min(1).max(505),
     resourceId: z.string().min(1).max(500),
     label: z.string().min(1).max(500),
     type: z.string().max(120).nullable(),
@@ -56,7 +61,7 @@ export const ResourceDataSchema = z
     links: ResourceLinksSchema,
   })
   .strict();
-export const ResourceReadInputSchema = z.object({ id: z.uuid().describe("Stable observed-resource UUID.") }).strict();
+export const ResourceReadInputSchema = z.object({ id: ResourceRefIdSchema.describe("Stable Base ID and resource key.") }).strict();
 
 const MetricDataSchema = z
   .object({
@@ -71,7 +76,7 @@ const MetricDataSchema = z
 export const MetricSearchDataSchema = z.array(MetricDataSchema).max(100);
 export const MetricSearchInputSchema = z
   .object({
-    baseId: z.uuid().describe("Readable Pulse Base UUID."),
+    baseId: ShortIdSchema.describe("Readable Pulse Base ID."),
     query: QuerySchema,
     type: z.enum(METRIC_TYPES).optional().describe("Optional metric type filter."),
     ...PageInputShape,
@@ -80,7 +85,7 @@ export const MetricSearchInputSchema = z
 
 const FieldDataSchema = z
   .object({
-    sourceId: z.uuid(),
+    sourceId: ShortIdSchema,
     scope: z.enum(["metric", "event", "state"]),
     signalName: z.string().min(1).max(240),
     role: z.enum(["dimension", "attribute"]),
@@ -95,7 +100,7 @@ const FieldDataSchema = z
 export const FieldSearchDataSchema = z.array(FieldDataSchema).max(100);
 export const FieldSearchInputSchema = z
   .object({
-    baseId: z.uuid().describe("Readable Pulse Base UUID."),
+    baseId: ShortIdSchema.describe("Readable Pulse Base ID."),
     query: QuerySchema,
     scope: z.enum(["metric", "event", "state"]).optional().describe("Optional signal kind filter."),
     role: z.enum(["dimension", "attribute"]).default("dimension").describe("Field role to discover; sensitive fields are excluded."),
@@ -105,7 +110,7 @@ export const FieldSearchInputSchema = z
 
 export const QueryTextInputSchema = z
   .object({
-    baseId: z.uuid().describe("Readable Pulse Base UUID."),
+    baseId: ShortIdSchema.describe("Readable Pulse Base ID."),
     query: z.string().trim().min(1).max(2_000).describe("Pulse query DSL text."),
   })
   .strict();
@@ -129,7 +134,7 @@ const EventDataSchema = z
     kind: z.string().min(1).max(240),
     ts: TimestampSchema,
     value: z.number().finite().nullable(),
-    sourceId: z.uuid().nullable(),
+    sourceId: ShortIdSchema.nullable(),
     entityId: z.string().max(500).nullable(),
     entityType: z.string().max(120).nullable(),
     dimensions: DimensionsDataSchema,
@@ -140,7 +145,7 @@ const StateDataSchema = z
   .object({
     key: z.string().min(1).max(240),
     value: StateValueSchema,
-    sourceId: z.uuid().nullable(),
+    sourceId: ShortIdSchema.nullable(),
     entityId: z.string().max(500),
     entityType: z.string().max(120).nullable(),
     dimensions: DimensionsDataSchema,
@@ -161,8 +166,8 @@ export const QueryExecutionDataSchema = z
 
 export const SavedQueryDataSchema = z
   .object({
-    id: z.uuid(),
-    baseId: z.uuid(),
+    id: ShortIdSchema,
+    baseId: ShortIdSchema,
     name: z.string().min(1).max(120),
     description: z.string().max(1_000).nullable(),
     query: z.string().min(1).max(2_000),
@@ -172,12 +177,12 @@ export const SavedQueryDataSchema = z
   .strict();
 export const SavedQueryListDataSchema = z.array(SavedQueryDataSchema).max(100);
 export const SavedQueryListInputSchema = z
-  .object({ baseId: z.uuid().describe("Readable Pulse Base UUID."), query: QuerySchema, ...PageInputShape })
+  .object({ baseId: ShortIdSchema.describe("Readable Pulse Base ID."), query: QuerySchema, ...PageInputShape })
   .strict();
-export const SavedQueryReadInputSchema = z.object({ id: z.uuid().describe("Stable saved-query UUID.") }).strict();
+export const SavedQueryReadInputSchema = z.object({ id: ShortIdSchema.describe("Stable saved-query ID.") }).strict();
 export const SavedQueryExecuteInputSchema = z
   .object({
-    baseId: z.uuid().describe("Readable Pulse Base UUID."),
-    queryId: z.uuid().describe("Stable saved-query UUID returned by saved_query.list."),
+    baseId: ShortIdSchema.describe("Readable Pulse Base ID."),
+    queryId: ShortIdSchema.describe("Stable saved-query ID returned by saved_query.list."),
   })
   .strict();

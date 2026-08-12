@@ -1,6 +1,7 @@
 import { err, fail, ok, type Result } from "@valentinkolb/cloud/server";
 import type { Aggregation, EventAggregation, EventQuery, MetricQuery, PulseExplorerQuery, StateQuery } from "../contracts";
 import { AGGREGATIONS } from "../contracts";
+import { SHORT_ID_REGEX } from "../lib/short-id";
 import { PULSE_DIMENSION_KEY_LIMIT } from "../telemetry-contract";
 
 const MAX_DURATION_MS = 90 * 24 * 60 * 60_000;
@@ -100,9 +101,6 @@ const readQueryLimit = (value: string | undefined, fallback: number): Result<num
   return ok(limit);
 };
 
-const validateUuid = (value: string | null): boolean =>
-  !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-
 type SharedClauses = {
   since: string;
   sourceId: string | null;
@@ -170,7 +168,7 @@ const SHARED_CLAUSE_READERS: Record<string, SharedClauseReader> = {
   },
   source: (tokens, state) => {
     state.sourceId = tokens[state.index + 1] ?? null;
-    if (!validateUuid(state.sourceId)) return fail(err.badInput("Source must be a valid UUID"));
+    if (!state.sourceId || !SHORT_ID_REGEX.test(state.sourceId)) return fail(err.badInput("Source must be a 6-character short ID"));
     state.index += 2;
     return ok(undefined);
   },

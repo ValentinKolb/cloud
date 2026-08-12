@@ -9,6 +9,7 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.bases (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       name TEXT NOT NULL,
       description TEXT,
       retention_days INTEGER NOT NULL DEFAULT 30,
@@ -18,6 +19,15 @@ export const migrate = async (): Promise<void> => {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
+  `.simple();
+  await sql`ALTER TABLE pulse.bases ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`ALTER TABLE pulse.bases ALTER COLUMN short_id SET NOT NULL`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_pulse_bases_short_id ON pulse.bases(short_id)`.simple();
+  await sql`
+    DO $$ BEGIN
+      ALTER TABLE pulse.bases ADD CONSTRAINT pulse_bases_short_id_check CHECK (short_id ~ '^[0-9A-Za-z]{6}$');
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$
   `.simple();
   await sql`ALTER TABLE pulse.bases ADD COLUMN IF NOT EXISTS retention_days INTEGER NOT NULL DEFAULT 30`.simple();
   await sql`ALTER TABLE pulse.bases ADD COLUMN IF NOT EXISTS rollup_retention_days INTEGER NOT NULL DEFAULT 365`.simple();
@@ -111,6 +121,7 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.sources (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       base_id UUID NOT NULL REFERENCES pulse.bases(id) ON DELETE CASCADE,
       kind pulse.source_kind NOT NULL,
       name TEXT NOT NULL,
@@ -126,6 +137,15 @@ export const migrate = async (): Promise<void> => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CONSTRAINT pulse_sources_scrape_interval_check CHECK (scrape_interval_seconds IS NULL OR scrape_interval_seconds >= 10)
     )
+  `.simple();
+  await sql`ALTER TABLE pulse.sources ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`ALTER TABLE pulse.sources ALTER COLUMN short_id SET NOT NULL`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_pulse_sources_short_id ON pulse.sources(short_id)`.simple();
+  await sql`
+    DO $$ BEGIN
+      ALTER TABLE pulse.sources ADD CONSTRAINT pulse_sources_short_id_check CHECK (short_id ~ '^[0-9A-Za-z]{6}$');
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$
   `.simple();
   await sql`ALTER TABLE pulse.sources ADD COLUMN IF NOT EXISTS last_error TEXT`.simple();
   await sql`ALTER TABLE pulse.sources ADD COLUMN IF NOT EXISTS last_error_at TIMESTAMPTZ`.simple();
@@ -417,6 +437,7 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.dashboards (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       base_id UUID NOT NULL REFERENCES pulse.bases(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       config JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -427,6 +448,15 @@ export const migrate = async (): Promise<void> => {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
+  `.simple();
+  await sql`ALTER TABLE pulse.dashboards ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`ALTER TABLE pulse.dashboards ALTER COLUMN short_id SET NOT NULL`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_pulse_dashboards_short_id ON pulse.dashboards(short_id)`.simple();
+  await sql`
+    DO $$ BEGIN
+      ALTER TABLE pulse.dashboards ADD CONSTRAINT pulse_dashboards_short_id_check CHECK (short_id ~ '^[0-9A-Za-z]{6}$');
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$
   `.simple();
   await sql`ALTER TABLE pulse.dashboards ADD COLUMN IF NOT EXISTS public_enabled BOOLEAN NOT NULL DEFAULT false`.simple();
   await sql`ALTER TABLE pulse.dashboards ADD COLUMN IF NOT EXISTS public_token_encrypted TEXT`.simple();
@@ -439,6 +469,7 @@ export const migrate = async (): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS pulse.saved_queries (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       base_id UUID NOT NULL REFERENCES pulse.bases(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT,
@@ -447,6 +478,15 @@ export const migrate = async (): Promise<void> => {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
+  `.simple();
+  await sql`ALTER TABLE pulse.saved_queries ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`ALTER TABLE pulse.saved_queries ALTER COLUMN short_id SET NOT NULL`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_pulse_saved_queries_short_id ON pulse.saved_queries(short_id)`.simple();
+  await sql`
+    DO $$ BEGIN
+      ALTER TABLE pulse.saved_queries ADD CONSTRAINT pulse_saved_queries_short_id_check CHECK (short_id ~ '^[0-9A-Za-z]{6}$');
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END $$
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_pulse_saved_queries_base_updated ON pulse.saved_queries(base_id, updated_at DESC)`.simple();
 

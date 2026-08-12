@@ -32,7 +32,7 @@ metric <metric> <aggregation>
   [reduce <sum|avg|min|max>]
   [group by <resource|dimension>]
   [since <duration>]
-  [source <uuid>]
+  [source <source-id>]
   [entity <id>]
   [entity_type <type>]
   [where <key>=<value>, ...]
@@ -46,7 +46,7 @@ events [<kind>|*]
   [every <duration>]
   [group by <dimension>, ...]
   [since <duration>]
-  [source <uuid>]
+  [source <source-id>]
   [entity <id>]
   [entity_type <type>]
   [where <key>=<value>, ...]
@@ -58,7 +58,7 @@ events [<kind>|*]
 ```text
 states [<key>|*]
   [since <duration>]
-  [source <uuid>]
+  [source <source-id>]
   [entity <id>]
   [entity_type <type>]
   [where <key>=<value>, ...]
@@ -158,7 +158,7 @@ Use states for current truth. Add since only when stale values should disappear.
 | `states [<key>\|*]` | states | Return current state rows by key. Omit the key or use * for all states. States default to limit 500 with no stale-time filter. | `states host.online` |
 | `every <duration>` | metric, summarized events | Group metric values or summarized events into fixed time windows. Use compact durations such as 5m, 1h, or 7d. | `every 15m` |
 | `since <duration>` | metric, events, states | Limit by time. Durations use m, h, or d and may not exceed 90 days. For states, since hides stale current values. | `since 7d` |
-| `source <uuid>` | all | Restrict results to one source. The value must be a valid source UUID copied from Pulse. | `source 00000000-0000-4000-8000-000000000000` |
+| `source <source-id>` | all | Restrict results to one source. The value must be a valid source ID copied from Pulse. | `source Src001` |
 | `entity <id>` | all | Restrict results to one resource identifier. The UI calls this a resource; Query DSL calls it an entity. | `entity container:app-core` |
 | `entity_type <type>` | all | Restrict results to one resource class such as host, container, service, device, order, or customer. | `entity_type container` |
 | `where <key>=<value>` | all | Filter dimensions by exact equality. Separate multiple filters with commas; one query accepts up to 32 filters. | `where env=prod, region=eu` |
@@ -215,7 +215,7 @@ Pulse first applies the metric aggregation independently to every matched varian
 :::
 
 :::info Names and values
-Use `*` or omit the name for all events or all states. `source` accepts a source UUID, while `entity` accepts the exact resource identifier shown by Pulse.
+Use `*` or omit the name for all events or all states. `source` accepts a six-character Source ID, while `entity` accepts the exact resource identifier shown by Pulse.
 :::
 
 :::warning Performance limits

@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { EventMapQueryTextSchema, IngestBatchSchema, UpdateBaseSchema } from "./schemas";
+import {
+  BaseSchema,
+  DashboardSnapshotSchema,
+  EventMapQueryTextSchema,
+  IngestBatchSchema,
+  MetricQuerySchema,
+  ResourceEventQuerySchema,
+  ResourceListQuerySchema,
+  ResourceMetricQuerySchema,
+  ResourceStateQuerySchema,
+  UpdateBaseSchema,
+} from "./schemas";
 
 describe("Pulse ingest API limits", () => {
   test("accepts explicit resources for every ingest signal kind", () => {
@@ -11,6 +22,23 @@ describe("Pulse ingest API limits", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+
+  test("rejects explicit resources whose composite public ref would exceed the platform limit", () => {
+    const result = IngestBatchSchema.safeParse({
+      metrics: [{ name: "system.cpu.usage", value: 42, resource: { type: "service", id: "a".repeat(498) } }],
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues[0]?.message).toBe("Resource key cannot exceed 505 characters");
+  });
+
+  test("rejects per-signal source IDs because the endpoint owns source attribution", () => {
+    const result = IngestBatchSchema.safeParse({
+      metrics: [{ name: "system.cpu.usage", value: 42, sourceId: "019185c8-7cc1-7000-8000-000000000001" }],
+    });
+
+    expect(result.success).toBe(false);
   });
 
   test("accepts the documented external maximum", () => {
@@ -58,7 +86,7 @@ describe("Pulse ingest API limits", () => {
 describe("Pulse event map API limits", () => {
   test("accepts public field selectors and rejects malformed or sensitive selectors", () => {
     const input = {
-      baseId: "00000000-0000-4000-8000-000000000000",
+      baseId: "Base01",
       query: "events qr.opened since 24h",
       latitude: { role: "attribute", path: "geo.latitude" },
       longitude: { role: "dimension", path: "longitude" },
@@ -76,6 +104,67 @@ describe("Pulse event map API limits", () => {
       EventMapQueryTextSchema.safeParse({
         ...input,
         latitude: { role: "sensitive", path: "geo.latitude" },
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("Pulse public resource IDs", () => {
+  test("accepts the full observed resource key budget across REST readers", () => {
+    const resourceKey = "r".repeat(505);
+    expect(ResourceListQuerySchema.safeParse({ ref: resourceKey }).success).toBe(true);
+    expect(ResourceMetricQuerySchema.safeParse({ resourceKey }).success).toBe(true);
+    expect(ResourceEventQuerySchema.safeParse({ resourceKey }).success).toBe(true);
+    expect(ResourceStateQuerySchema.safeParse({ resourceKey }).success).toBe(true);
+  });
+
+  test("accepts short control-plane IDs and rejects legacy UUIDs", () => {
+    expect(
+      BaseSchema.safeParse({
+        id: "Base01",
+        name: "Operations",
+        description: null,
+        rawRetentionDays: 30,
+        rollupRetentionDays: 365,
+        sensitiveRetentionHours: 24,
+        createdBy: null,
+        deletionStartedAt: null,
+        deletionFailedAt: null,
+        deletionError: null,
+        dataClearStartedAt: null,
+        dataClearCompletedAt: null,
+        dataClearFailedAt: null,
+        dataClearError: null,
+        createdAt: "2026-08-12T00:00:00.000Z",
+        updatedAt: "2026-08-12T00:00:00.000Z",
+      }).success,
+    ).toBe(true);
+    expect(BaseSchema.safeParse({ id: crypto.randomUUID() }).success).toBe(false);
+    expect(
+      MetricQuerySchema.safeParse({
+        baseId: crypto.randomUUID(),
+        metric: "cpu.usage",
+        aggregation: "avg",
+        bucket: "5m",
+        since: "1h",
+      }).success,
+    ).toBe(false);
+  });
+
+  test("requires a short dashboard ID in public snapshots", () => {
+    const snapshot = {
+      dashboard: { id: "Dash01", name: "Operations", config: { layout: null } },
+      points: {},
+      events: {},
+      states: {},
+      maps: {},
+    };
+
+    expect(DashboardSnapshotSchema.safeParse(snapshot).success).toBe(true);
+    expect(
+      DashboardSnapshotSchema.safeParse({
+        ...snapshot,
+        dashboard: { ...snapshot.dashboard, id: crypto.randomUUID() },
       }).success,
     ).toBe(false);
   });

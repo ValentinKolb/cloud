@@ -1,6 +1,7 @@
-import { getDateConfig, type AuthContext } from "@valentinkolb/cloud/server";
+import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { ssr } from "../config";
 import { pulseService } from "../service";
+import { projectDashboardSnapshot } from "../service/public-resources";
 import PublicPulseDashboard from "./PublicPulseDashboard.island";
 import { parsePublicDashboardDisplayHeight, parsePublicDashboardTheme } from "./public-dashboard-runtime";
 
@@ -23,8 +24,9 @@ export default ssr<AuthContext>(async (c) => {
   }
 
   const dateConfig = getDateConfig(c);
+  const publicSnapshot = await projectDashboardSnapshot(snapshot.data);
 
   return () => (
-    <PublicPulseDashboard token={token} initialSnapshot={snapshot.data} initialDateConfig={dateConfig} displayHeight={displayHeight} />
+    <PublicPulseDashboard token={token} initialSnapshot={publicSnapshot} initialDateConfig={dateConfig} displayHeight={displayHeight} />
   );
 });

@@ -101,7 +101,7 @@ export const openPulseDashboardSettingsDialog = (options: DashboardSettingsDialo
                 id="public-link"
                 title="Public link"
                 icon="ti ti-link"
-                description="Anyone with the UUID link can view this dashboard's included data."
+                description="Anyone with the public link can view this dashboard's included data."
               >
                 <SettingsGroup title="Public access" description="Changes apply immediately.">
                   <NoticeCard tone={options.currentDashboard().publicEnabled ? "success" : "info"} icon={false}>

@@ -6,9 +6,7 @@ export type SourceFilterFlags = { source?: string; sourceId?: string };
 
 export const PULSE_BASE_DEFAULT_KEY = "pulse.base";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-const ensureUuid = (value: string): boolean => UUID_RE.test(value);
+const SHORT_ID_RE = /^[0-9A-Za-z]{6}$/;
 
 export const requireDefaultBaseRef = async (ctx: CloudCliContext): Promise<string> => {
   const ref = await ctx.getDefault(PULSE_BASE_DEFAULT_KEY);
@@ -36,7 +34,13 @@ export const requireRestArg = (args: string[], index: number, label: string): st
 const listBases = (ctx: CloudCliContext): Promise<PulseBase[]> => readApi<PulseBase[]>(ctx, "/bases");
 
 export const resolveBase = async (ctx: CloudCliContext, ref: string): Promise<PulseBase> => {
-  if (ensureUuid(ref)) return readApi<PulseBase>(ctx, `/bases/${encodeURIComponent(ref)}`);
+  if (SHORT_ID_RE.test(ref)) {
+    try {
+      return await readApi<PulseBase>(ctx, `/bases/${encodeURIComponent(ref)}`);
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.startsWith("404 ")) throw error;
+    }
+  }
   return exactMatch(await listBases(ctx), ref, [(base) => base.id, (base) => base.name], "Pulse base");
 };
 
@@ -67,14 +71,19 @@ export const listSavedQueries = (ctx: CloudCliContext, baseId: string): Promise<
 export const resolveSavedQuery = async (ctx: CloudCliContext, baseId: string, ref: string): Promise<PulseSavedQuery> =>
   exactMatch(await listSavedQueries(ctx, baseId), ref, [(query) => query.id, (query) => query.name], "saved query");
 
+export const resolveSavedQueryId = async (ctx: CloudCliContext, baseId: string, ref: string): Promise<string> =>
+  SHORT_ID_RE.test(ref) ? ref : (await resolveSavedQuery(ctx, baseId, ref)).id;
+
 export const resolveSourceFilter = async (
   ctx: CloudCliContext,
   baseId: string,
   filters: SourceFilterFlags,
 ): Promise<string | undefined> => {
   if (filters.source && filters.sourceId) throw new Error("Pass either --source or --source-id, not both.");
-  if (filters.sourceId) return filters.sourceId;
+  if (filters.sourceId) {
+    if (!SHORT_ID_RE.test(filters.sourceId)) throw new Error("Source ID must be a 6-character short ID.");
+    return filters.sourceId;
+  }
   if (!filters.source) return undefined;
-  if (ensureUuid(filters.source)) return filters.source;
   return (await resolveSource(ctx, baseId, filters.source)).id;
 };

@@ -35,6 +35,7 @@ import {
   normalizeVisual,
   parseDashboardJson,
 } from "./dashboard-config-primitives";
+import { resolveBasePublicIds } from "./public-resources";
 
 export { dashboardEventsWidgets, dashboardMapWidgets, dashboardMetricWidgets, dashboardStatesWidgets } from "./dashboard-widget-selectors";
 
@@ -436,6 +437,24 @@ export const compileDashboardConfigForSave = (baseId: string, config: unknown): 
     ...normalizeDashboardConfig(compiled.data),
     refreshIntervalSeconds: normalized.refreshIntervalSeconds,
   });
+};
+
+export const validateDashboardSources = async (baseId: string, config: PulseDashboardConfig): Promise<Result<PulseDashboardConfig>> => {
+  const sourceIds: string[] = [];
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    for (const [key, nested] of Object.entries(value)) {
+      if (key === "sourceId" && typeof nested === "string") sourceIds.push(nested);
+      else visit(nested);
+    }
+  };
+  visit(config.layout);
+  const sources = await resolveBasePublicIds("sources", baseId, sourceIds);
+  return sources ? ok(config) : fail(err.badInput("Dashboard references an unknown Source ID"));
 };
 
 export const dashboardRenderConfig = (dashboard: PulseDashboard): PulseDashboardConfig => {

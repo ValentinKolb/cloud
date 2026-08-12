@@ -7,6 +7,8 @@ order: 135
 ---
 Use this reference to build queries and dashboards. Read the syntax sections for the available statements, then use Inventory to copy the exact names, source ids, resource ids, and dimensions from the current base.
 
+Pulse bases, sources, dashboards, and saved queries use stable six-character IDs. Observed resources keep their domain identity; events, samples, series, and run records are telemetry data rather than independently addressable short-ID resources.
+
 ## What this reference covers {icon="layout-grid"}
 
 :::info Query DSL

@@ -34,6 +34,8 @@ Read Pulse data from broad context to specific values:
 
 The UI calls an observed object a resource. Query DSL calls its identifier `entity` and its class `entity_type`.
 
+Pulse bases, sources, dashboards, and saved queries use immutable six-character IDs in CLI output, APIs, URLs, and Capability refs. Internal database UUIDs are not accepted as public selectors. Observed resources keep their domain `resource_key`; a cross-base resource ref combines the Base ID and resource key as `<base-id>/<resource-key>`. High-volume events, samples, series, state history, scrape runs, and credentials keep technical identities and are not promoted to short-ID resources. See [Public resource identifiers](/en/docs/data/public-resource-identifiers).
+
 - A **metric** is a numeric sample over time, such as memory usage or sales volume.
 - An **event** is something that happened at a point in time, such as a deployment or completed order.
 - A **state** is the latest known value of a fact, such as online status or current version.
@@ -88,7 +90,7 @@ cld pulse resources states "container:app-core" --json
 cld pulse resources events "container:app-core" --limit 50 --json
 ```
 
-Use IDs from JSON output when names are ambiguous. Source filters accept `--source <name-or-id>` or `--source-id <uuid>`, but not both.
+Use IDs from JSON output when names are ambiguous. Source filters accept `--source <name-or-id>` or `--source-id <source-id>`, but not both.
 
 ### 4. Agree on the intended view
 
@@ -174,7 +176,7 @@ Resource commands resolve an exact resource key, ID, or label. Filters include:
 
 - `--q <text>` for server-side search.
 - `--type <resource-type>` on `resources list`.
-- `--source <name-or-id>` or `--source-id <uuid>`.
+- `--source <name-or-id>` or `--source-id <source-id>`.
 - `--limit <1-500>` and `--offset <number>`.
 
 ### Signals and variants
@@ -345,7 +347,7 @@ Use `--json` whenever another command or agent consumes one complete result. Use
 
 ```json
 {
-  "id": "base-uuid",
+  "id": "Base01",
   "name": "Operations",
   "description": "Production telemetry",
   "rawRetentionDays": 30,
@@ -365,7 +367,7 @@ Use `--json` whenever another command or agent consumes one complete result. Use
 
 ```json
 {
-  "base": { "id": "base-uuid", "name": "Operations" },
+  "base": { "id": "Base01", "name": "Operations" },
   "summary": {
     "base": "Operations",
     "sources": 2,
@@ -389,8 +391,8 @@ With `--include-inventory`, the same object additionally contains `inventory` an
 
 ```json
 {
-  "id": "source-uuid",
-  "baseId": "base-uuid",
+  "id": "Src001",
+  "baseId": "Base01",
   "kind": "http_ingest",
   "name": "Warehouse importer",
   "enabled": true,
@@ -411,7 +413,7 @@ With `--include-inventory`, the same object additionally contains `inventory` an
   "id": "app-core",
   "label": "app-core",
   "type": "container",
-  "sourceIds": ["source-uuid"],
+  "sourceIds": ["Src001"],
   "metricCount": 12,
   "stateCount": 8,
   "eventCount": 2,
@@ -423,7 +425,7 @@ With `--include-inventory`, the same object additionally contains `inventory` an
 {
   "id": "series-uuid",
   "metric": "docker.container.cpu.usage",
-  "sourceId": "source-uuid",
+  "sourceId": "Src001",
   "entityId": "container:app-core",
   "entityType": "container",
   "dimensions": { "compose_service": "app-core" },
@@ -436,7 +438,7 @@ With `--include-inventory`, the same object additionally contains `inventory` an
 
 ```json
 {
-  "sourceId": "source-uuid",
+  "sourceId": "Src001",
   "scope": "event",
   "signalName": "page.viewed",
   "role": "attribute",
@@ -480,7 +482,7 @@ Individual event rows include `id`, `kind`, `ts`, `value`, `sourceId`, `entityId
 ```json
 {
   "dashboard": {
-    "id": "dashboard-uuid",
+    "id": "Dash01",
     "name": "Operations",
     "config": { "layout": {}, "refreshIntervalSeconds": 5 }
   },
@@ -601,7 +603,7 @@ cld pulse states [base] [--q <text>] [--key <key>] [resource filter] [source fil
 Reusable filter groups:
 
 ```text
-source filter   = [--source <name-or-id> | --source-id <uuid>]
+source filter   = [--source <name-or-id> | --source-id <source-id>]
 resource filter = [--resource <key-or-id-or-label>] [--entity <id>] [--entity-type <type>]
 page            = [--limit <1-500>] [--offset <non-negative>]
 ```

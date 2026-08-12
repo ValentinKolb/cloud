@@ -86,7 +86,7 @@ dashboard "Name" {
 
   controls {
     range "Range" variable range default 24h options 1h, 6h, 24h, 7d
-    source "Source" variable source_id default 00000000-0000-4000-8000-000000000000
+    source "Source" variable source_id default Src001
     entity "Entity" variable entity_id type container default container:app-core
     label "Region" variable region default eu options eu, us
     text "Search" variable search default ""

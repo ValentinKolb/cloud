@@ -3,21 +3,23 @@ import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { getRuntimeContext } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
 import { pulseService } from "../../../service";
+import { projectPublicRelations, projectSources, resolvePublicId } from "../../../service/public-resources";
 import PulseQueryReferenceWindow from "../../PulseQueryReferenceWindow.island";
 import { readReferenceTab } from "../../query-reference-tabs";
 
 export default ssr<AuthContext>(async (c) => {
   c.get("page").title = "Pulse query reference";
   const user = expectUserBackedActor(c);
-  const baseId = c.req.param("baseId") ?? "";
+  const publicBaseId = c.req.param("baseId") ?? "";
+  const baseId = await resolvePublicId("bases", publicBaseId);
   const includeDashboardDsl = c.req.query("dashboardDsl") === "1";
   const initialTab = readReferenceTab(c.req.query("tab") ?? null, includeDashboardDsl);
-  const baseResult = await pulseService.base.get(baseId, user);
+  const baseResult = baseId ? await pulseService.base.get(baseId, user) : null;
 
-  if (!baseResult.ok) {
+  if (!baseResult?.ok) {
     return () => (
       <main class="min-h-screen bg-zinc-50 p-6 dark:bg-zinc-950">
-        <div class="paper mx-auto mt-16 max-w-md p-8 text-center text-dimmed">{baseResult.error.message}</div>
+        <div class="paper mx-auto mt-16 max-w-md p-8 text-center text-dimmed">Pulse base not found</div>
       </main>
     );
   }
@@ -34,6 +36,13 @@ export default ssr<AuthContext>(async (c) => {
     metrics.map((metric) => pulseService.query.series(baseResult.data.id, user, { metric: metric.name })),
   );
   const series = seriesResults.flatMap((result) => (result.ok ? result.data : []));
+  const [sources, publicEvents, publicStates, publicSeries, publicFields] = await Promise.all([
+    projectSources(sourcesResult.ok ? sourcesResult.data : []),
+    projectPublicRelations(eventsResult.ok ? eventsResult.data : []),
+    projectPublicRelations(statesResult.ok ? statesResult.data : []),
+    projectPublicRelations(series),
+    projectPublicRelations(fieldsResult.ok ? fieldsResult.data : []),
+  ]);
   const helpDocuments = getRuntimeContext(c).apps.find((registeredApp) => registeredApp.id === "pulse")?.help?.documents ?? [];
 
   return () => (
@@ -42,11 +51,11 @@ export default ssr<AuthContext>(async (c) => {
       includeDashboardDsl={includeDashboardDsl}
       initialTab={initialTab}
       metrics={metrics}
-      events={eventsResult.ok ? eventsResult.data : []}
-      states={statesResult.ok ? statesResult.data : []}
-      sources={sourcesResult.ok ? sourcesResult.data : []}
-      series={series}
-      fields={fieldsResult.ok ? fieldsResult.data : []}
+      events={publicEvents}
+      states={publicStates}
+      sources={sources}
+      series={publicSeries}
+      fields={publicFields}
       documents={helpDocuments}
     />
   );

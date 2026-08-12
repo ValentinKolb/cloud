@@ -1,8 +1,9 @@
-import { jsonResponse, respond, v, type AuthContext } from "@valentinkolb/cloud/server";
+import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { pulseService } from "../../service";
+import { projectPublicRelations, projectSources } from "../../service/public-resources";
 import {
   CreateSourceApiKeySchema,
   CreateSourceSchema,
@@ -11,7 +12,14 @@ import {
   SourceScrapeSchema,
   UpdateSourceSchema,
 } from "../schemas";
-import { requestAccessScope, requireUserBackedActor, requireUuidParam } from "../shared";
+import {
+  projectResult,
+  requestAccessScope,
+  requireBaseResourceParam,
+  requirePublicIdParam,
+  requireUserBackedActor,
+  requireUuidParam,
+} from "../shared";
 
 const routes = new Hono<AuthContext>()
   .get(
@@ -22,9 +30,12 @@ const routes = new Hono<AuthContext>()
       responses: { 200: jsonResponse(z.array(SourceSchema), "Pulse sources") },
     }),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.source.list(baseId.value, requestAccessScope(c)));
+      return respond(
+        c,
+        projectResult(pulseService.source.list(baseId.value, requestAccessScope(c)), (items) => projectSources(items)),
+      );
     },
   )
   .post(
@@ -35,25 +46,22 @@ const routes = new Hono<AuthContext>()
       responses: { 201: jsonResponse(SourceSchema, "Created Pulse source") },
     }),
     v("json", CreateSourceSchema),
-    async (c) =>
-      respond(
+    async (c) => {
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
+      if (!baseId.ok) return respond(c, baseId.result);
+      return respond(
         c,
-        (() => {
-          const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
-          if (!baseId.ok) return baseId.result;
-          return pulseService.source.create({
-            baseId: baseId.value,
-            user: requestAccessScope(c),
-            ...c.req.valid("json"),
-          });
-        })(),
+        projectResult(pulseService.source.create({ baseId: baseId.value, user: requestAccessScope(c), ...c.req.valid("json") }), (item) =>
+          projectSources([item]).then(([value]) => value!),
+        ),
         201,
-      ),
+      );
+    },
   )
   .post("/bases/:baseId/sources/:sourceId/scrape", async (c) => {
-    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+    const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
     if (!baseId.ok) return respond(c, baseId.result);
-    const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
+    const sourceId = await requireBaseResourceParam(c.req.param("sourceId"), "source ID", "sources", baseId.value);
     if (!sourceId.ok) return respond(c, sourceId.result);
     return respond(c, pulseService.source.scrape({ baseId: baseId.value, sourceId: sourceId.value, user: requestAccessScope(c) }));
   })
@@ -65,11 +73,17 @@ const routes = new Hono<AuthContext>()
       responses: { 200: jsonResponse(z.array(SourceScrapeSchema), "Recent source scrape attempts") },
     }),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
-      const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
+      const sourceId = await requireBaseResourceParam(c.req.param("sourceId"), "source ID", "sources", baseId.value);
       if (!sourceId.ok) return respond(c, sourceId.result);
-      return respond(c, pulseService.source.scrapes({ baseId: baseId.value, sourceId: sourceId.value, user: requestAccessScope(c) }));
+      return respond(
+        c,
+        projectResult(
+          pulseService.source.scrapes({ baseId: baseId.value, sourceId: sourceId.value, user: requestAccessScope(c) }),
+          projectPublicRelations,
+        ),
+      );
     },
   )
   .get(
@@ -82,9 +96,9 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const user = requireUserBackedActor(c);
       if (!user.ok) return respond(c, user);
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
-      const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
+      const sourceId = await requireBaseResourceParam(c.req.param("sourceId"), "source ID", "sources", baseId.value);
       if (!sourceId.ok) return respond(c, sourceId.result);
       return respond(c, pulseService.source.apiKeys.list({ baseId: baseId.value, sourceId: sourceId.value, user: user.data }));
     },
@@ -100,9 +114,9 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const user = requireUserBackedActor(c);
       if (!user.ok) return respond(c, user);
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
-      const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
+      const sourceId = await requireBaseResourceParam(c.req.param("sourceId"), "source ID", "sources", baseId.value);
       if (!sourceId.ok) return respond(c, sourceId.result);
       return respond(
         c,
@@ -119,9 +133,9 @@ const routes = new Hono<AuthContext>()
   .delete("/bases/:baseId/sources/:sourceId/api-keys/:credentialId", async (c) => {
     const user = requireUserBackedActor(c);
     if (!user.ok) return respond(c, user);
-    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+    const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
     if (!baseId.ok) return respond(c, baseId.result);
-    const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
+    const sourceId = await requireBaseResourceParam(c.req.param("sourceId"), "source ID", "sources", baseId.value);
     if (!sourceId.ok) return respond(c, sourceId.result);
     const credentialId = requireUuidParam(c.req.param("credentialId"), "API key ID");
     if (!credentialId.ok) return respond(c, credentialId.result);
@@ -144,25 +158,28 @@ const routes = new Hono<AuthContext>()
     }),
     v("json", UpdateSourceSchema),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
-      const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
+      const sourceId = await requireBaseResourceParam(c.req.param("sourceId"), "source ID", "sources", baseId.value);
       if (!sourceId.ok) return respond(c, sourceId.result);
       return respond(
         c,
-        pulseService.source.update({
-          baseId: baseId.value,
-          sourceId: sourceId.value,
-          user: requestAccessScope(c),
-          ...c.req.valid("json"),
-        }),
+        projectResult(
+          pulseService.source.update({
+            baseId: baseId.value,
+            sourceId: sourceId.value,
+            user: requestAccessScope(c),
+            ...c.req.valid("json"),
+          }),
+          (item) => projectSources([item]).then(([value]) => value!),
+        ),
       );
     },
   )
   .delete("/bases/:baseId/sources/:sourceId", async (c) => {
-    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+    const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
     if (!baseId.ok) return respond(c, baseId.result);
-    const sourceId = requireUuidParam(c.req.param("sourceId"), "source ID");
+    const sourceId = await requireBaseResourceParam(c.req.param("sourceId"), "source ID", "sources", baseId.value);
     if (!sourceId.ok) return respond(c, sourceId.result);
     return respond(c, pulseService.source.remove({ baseId: baseId.value, sourceId: sourceId.value, user: requestAccessScope(c) }));
   });

@@ -39,6 +39,18 @@ import type { PulseBase, PulseCurrentState, PulseRecordedEvent, PulseSavedQuery,
 import { pulseBaseHref, pulseExplorerHref, pulseResourceHref, pulseSignalHref, pulseSourceHref } from "./resource-hrefs";
 import { pulseService } from "./service";
 import { accessScopeFor } from "./service/access-control";
+import {
+  buildResourceRefId,
+  parseResourceRefId,
+  projectBases,
+  projectPublicRelations,
+  projectSavedQueries,
+  projectSources,
+  requireShortId,
+  resolveBasePublicId,
+  resolvePublicId,
+  shortIds,
+} from "./service/public-resources";
 
 const QUERY_ROW_LIMIT = 100;
 const QUERY_POINT_LIMIT = 500;
@@ -59,6 +71,11 @@ const decodeCursor = (cursor: string | undefined) => {
 };
 
 const scopeFor = (context: CapabilityExecutionContext) => accessScopeFor(context.actor, context.accessSubject);
+
+const internalId = async (table: "bases" | "sources" | "saved_queries", id: string) => {
+  const value = await resolvePublicId(table, id);
+  return value ? ok(value) : fail(err.notFound("Pulse resource"));
+};
 
 const mapBase = (base: PulseBase) => ({
   id: base.id,
@@ -102,7 +119,8 @@ const runBaseSearch = async (input: UniversalSearchInput, context: CapabilityExe
   if (!scope.ok) return ok({ data: [] });
   const result = await pulseService.base.list(scope.data, { query: input.query, limit: input.limit });
   if (!result.ok) return result;
-  const data: CloudResourceView[] = result.data.map((base) => ({
+  const bases = await projectBases(result.data);
+  const data: CloudResourceView[] = bases.map((base) => ({
     ref: { type: "pulse.base", id: base.id },
     title: base.name.slice(0, 500),
     preview: base.description?.slice(0, 2_000),
@@ -122,7 +140,7 @@ const runBaseList = async (input: z.infer<typeof BaseListInputSchema>, context: 
   const result = await pulseService.base.list(scope.data, { query: input.query, limit: input.limit + 1, offset: cursor.data });
   if (!result.ok) return result;
   const page = pageResult(
-    result.data.map((base) => ({
+    (await projectBases(result.data)).map((base) => ({
       ...mapBase(base),
       links: [{ rel: "open" as const, href: pulseBaseHref(base.id) }],
     })),
@@ -138,12 +156,15 @@ const runBaseList = async (input: z.infer<typeof BaseListInputSchema>, context: 
 const runBaseRead = async (input: z.infer<typeof BaseReadInputSchema>, context: CapabilityExecutionContext) => {
   const scope = scopeFor(context);
   if (!scope.ok) return scope;
-  const result = await pulseService.base.get(input.id, scope.data);
+  const id = await internalId("bases", input.id);
+  if (!id.ok) return id;
+  const result = await pulseService.base.get(id.data, scope.data);
   if (!result.ok) return result;
+  const [base] = await projectBases([result.data]);
   return ok({
-    data: mapBase(result.data),
-    refs: [{ type: "pulse.base", id: result.data.id }],
-    links: [{ rel: "open" as const, href: pulseBaseHref(result.data.id) }],
+    data: mapBase(base!),
+    refs: [{ type: "pulse.base", id: base!.id }],
+    links: [{ rel: "open" as const, href: pulseBaseHref(base!.id) }],
   });
 };
 
@@ -152,13 +173,15 @@ const runSourceList = async (input: z.infer<typeof SourceListInputSchema>, conte
   if (!cursor.ok) return cursor;
   const scope = scopeFor(context);
   if (!scope.ok) return scope;
-  const result = await pulseService.source.list(input.baseId, scope.data, {
+  const baseId = await internalId("bases", input.baseId);
+  if (!baseId.ok) return baseId;
+  const result = await pulseService.source.list(baseId.data, scope.data, {
     query: input.query,
     limit: input.limit + 1,
     offset: cursor.data,
   });
   if (!result.ok) return result;
-  const page = pageResult(result.data.map(mapSource), cursor.data, input.limit);
+  const page = pageResult((await projectSources(result.data)).map(mapSource), cursor.data, input.limit);
   return ok({
     ...page,
     refs: page.data.map((source) => ({ type: "pulse.source" as const, id: source.id })),
@@ -168,9 +191,12 @@ const runSourceList = async (input: z.infer<typeof SourceListInputSchema>, conte
 const runSourceRead = async (input: z.infer<typeof SourceReadInputSchema>, context: CapabilityExecutionContext) => {
   const scope = scopeFor(context);
   if (!scope.ok) return scope;
-  const result = await pulseService.source.get(input.id, scope.data);
+  const id = await internalId("sources", input.id);
+  if (!id.ok) return id;
+  const result = await pulseService.source.get(id.data, scope.data);
   if (!result.ok) return result;
-  return ok({ data: mapSource(result.data), refs: [{ type: "pulse.source", id: result.data.id }] });
+  const [source] = await projectSources([result.data]);
+  return ok({ data: mapSource(source!), refs: [{ type: "pulse.source", id: source!.id }] });
 };
 
 const runResourceSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {
@@ -181,41 +207,52 @@ const runResourceSearch = async (input: UniversalSearchInput, context: Capabilit
     limit: input.limit,
   });
   if (!result.ok) return result;
-  const data: CloudResourceView[] = result.data.map((resource) => ({
-    ref: { type: "pulse.resource", id: resource.refId },
-    title: resource.label.slice(0, 500),
-    preview: [resource.type, resource.id].filter(Boolean).join(" · "),
-    icon: "ti ti-box",
-    priority: 6,
-    metadata: [
-      { label: "Base", value: resource.baseName.slice(0, 1_000) },
-      { label: "Base ID", value: resource.baseId },
-      { label: "Resource key", value: resource.key },
-    ],
-    links: [{ rel: "open", href: pulseResourceHref(resource.baseId, resource.key) }],
-  }));
+  const baseIds = await shortIds(
+    "bases",
+    result.data.map((resource) => resource.baseId),
+  );
+  const data: CloudResourceView[] = result.data.map((resource) => {
+    const baseId = requireShortId(baseIds, resource.baseId);
+    return {
+      ref: { type: "pulse.resource", id: buildResourceRefId(baseId, resource.key) },
+      title: resource.label.slice(0, 500),
+      preview: [resource.type, resource.id].filter(Boolean).join(" · "),
+      icon: "ti ti-box",
+      priority: 6,
+      metadata: [
+        { label: "Base", value: resource.baseName.slice(0, 1_000) },
+        { label: "Base ID", value: baseId },
+        { label: "Resource key", value: resource.key },
+      ],
+      links: [{ rel: "open", href: pulseResourceHref(baseId, resource.key) }],
+    };
+  });
   return ok({ data });
 };
 
 const runResourceRead = async (input: z.infer<typeof ResourceReadInputSchema>, context: CapabilityExecutionContext) => {
   const scope = scopeFor(context);
   if (!scope.ok) return scope;
-  const result = await pulseService.query.resource(input.id, scope.data);
+  const ref = parseResourceRefId(input.id);
+  if (!ref) return fail(err.badInput("Invalid Pulse resource ID"));
+  const baseId = await resolvePublicId("bases", ref.baseShortId);
+  if (!baseId) return fail(err.notFound("Pulse resource"));
+  const result = await pulseService.query.resource(baseId, ref.resourceKey, scope.data);
   if (!result.ok) return result;
   const resource = result.data;
   return ok({
     data: {
-      id: resource.refId,
-      baseId: resource.baseId,
+      id: input.id,
+      baseId: ref.baseShortId,
       baseName: resource.baseName.slice(0, 120),
-      key: resource.key.slice(0, 500),
+      key: resource.key.slice(0, 505),
       resourceId: resource.id.slice(0, 500),
       label: resource.label.slice(0, 500),
       type: resource.type?.slice(0, 120) ?? null,
       lastSeenAt: resource.lastSeenAt,
-      links: [{ rel: "open" as const, href: pulseResourceHref(resource.baseId, resource.key) }],
+      links: [{ rel: "open" as const, href: pulseResourceHref(ref.baseShortId, resource.key) }],
     },
-    refs: [{ type: "pulse.resource", id: resource.refId }],
+    refs: [{ type: "pulse.resource", id: input.id }],
   });
 };
 
@@ -224,7 +261,9 @@ const runMetricSearch = async (input: z.infer<typeof MetricSearchInputSchema>, c
   if (!cursor.ok) return cursor;
   const scope = scopeFor(context);
   if (!scope.ok) return scope;
-  const result = await pulseService.query.metrics(input.baseId, scope.data, {
+  const baseId = await internalId("bases", input.baseId);
+  if (!baseId.ok) return baseId;
+  const result = await pulseService.query.metrics(baseId.data, scope.data, {
     q: input.query,
     type: input.type,
     limit: input.limit + 1,
@@ -247,8 +286,12 @@ const runMetricSearch = async (input: z.infer<typeof MetricSearchInputSchema>, c
 const runSavedQueryRead = async (input: z.infer<typeof SavedQueryReadInputSchema>, context: CapabilityExecutionContext) => {
   const scope = scopeFor(context);
   if (!scope.ok) return scope;
-  const result = await pulseService.savedQuery.read(input.id, scope.data);
-  return result.ok ? ok({ data: mapSavedQuery(result.data), refs: [{ type: "pulse.saved_query", id: result.data.id }] }) : result;
+  const id = await internalId("saved_queries", input.id);
+  if (!id.ok) return id;
+  const result = await pulseService.savedQuery.read(id.data, scope.data);
+  if (!result.ok) return result;
+  const [query] = await projectSavedQueries([result.data]);
+  return ok({ data: mapSavedQuery(query!), refs: [{ type: "pulse.saved_query", id: query!.id }] });
 };
 
 const runFieldSearch = async (input: z.infer<typeof FieldSearchInputSchema>, context: CapabilityExecutionContext) => {
@@ -256,7 +299,9 @@ const runFieldSearch = async (input: z.infer<typeof FieldSearchInputSchema>, con
   if (!cursor.ok) return cursor;
   const scope = scopeFor(context);
   if (!scope.ok) return scope;
-  const result = await pulseService.query.fields(input.baseId, scope.data, {
+  const baseId = await internalId("bases", input.baseId);
+  if (!baseId.ok) return baseId;
+  const result = await pulseService.query.fields(baseId.data, scope.data, {
     q: input.query,
     scope: input.scope,
     role: input.role,
@@ -264,8 +309,9 @@ const runFieldSearch = async (input: z.infer<typeof FieldSearchInputSchema>, con
     offset: cursor.data,
   });
   if (!result.ok) return result;
+  const fields = await projectPublicRelations(result.data);
   const page = pageResult(
-    result.data.map((field) => ({
+    fields.map((field) => ({
       ...field,
       signalName: field.signalName.slice(0, 240),
       links: [{ rel: "open" as const, href: pulseSignalHref(input.baseId, field.scope, field.signalName) }],
@@ -279,7 +325,9 @@ const runFieldSearch = async (input: z.infer<typeof FieldSearchInputSchema>, con
 const runQueryCompile = async (input: z.infer<typeof QueryTextInputSchema>, context: CapabilityExecutionContext) => {
   const scope = scopeFor(context);
   if (!scope.ok) return scope;
-  const result = await pulseService.query.compileText({ ...input, user: scope.data });
+  const baseId = await internalId("bases", input.baseId);
+  if (!baseId.ok) return baseId;
+  const result = await pulseService.query.compileText({ ...input, baseId: baseId.data, user: scope.data });
   if (!result.ok) return result;
   return ok({
     data: {
@@ -373,37 +421,38 @@ const executeQuery = async (
   input: z.infer<typeof QueryTextInputSchema>,
   context: CapabilityExecutionContext,
   extraRefs: CloudResourceRef[] = [],
+  resolvedBaseId?: string,
 ) => {
   const scope = scopeFor(context);
   if (!scope.ok) return scope;
-  const compiled = await pulseService.query.compileText({ ...input, user: scope.data });
-  if (!compiled.ok) return compiled;
-  if (!compiled.data.ok || !compiled.data.compiled) {
-    return fail(err.badInput(compiled.data.diagnostics[0]?.message ?? "Invalid Pulse query"));
-  }
-  const result = await pulseService.query.executeCompiled(compiled.data.compiled, scope.data, {
-    maxMetricPoints: QUERY_POINT_LIMIT,
-    maxAggregatePoints: QUERY_POINT_LIMIT,
-    maxRows: QUERY_ROW_LIMIT + 1,
-  });
+  const baseId = resolvedBaseId ? ok(resolvedBaseId) : await internalId("bases", input.baseId);
+  if (!baseId.ok) return baseId;
+  const result = await pulseService.query.metricText(
+    { ...input, baseId: baseId.data, user: scope.data },
+    {
+      maxMetricPoints: QUERY_POINT_LIMIT,
+      maxAggregatePoints: QUERY_POINT_LIMIT,
+      maxRows: QUERY_ROW_LIMIT + 1,
+    },
+  );
   if (!result.ok) return result;
   const rowQuery =
-    compiled.data.compiled.kind === "events" && (compiled.data.compiled.aggregation ?? "rows") === "rows"
-      ? compiled.data.compiled
-      : compiled.data.compiled.kind === "states"
-        ? compiled.data.compiled
+    result.data.compiled.kind === "events" && (result.data.compiled.aggregation ?? "rows") === "rows"
+      ? result.data.compiled
+      : result.data.compiled.kind === "states"
+        ? result.data.compiled
         : null;
   const returnedRows = result.data.events.length + result.data.states.length;
   return fitQueryResult(
     {
-      kind: compiled.data.compiled.kind,
+      kind: result.data.compiled.kind,
       query: input.query,
       points: result.data.points.map((point) => ({
         ...point,
         value: point.value === null || Number.isFinite(point.value) ? point.value : null,
       })),
-      events: result.data.events.slice(0, QUERY_ROW_LIMIT).map(compactEvent),
-      states: result.data.states.slice(0, QUERY_ROW_LIMIT).map(compactState),
+      events: (await projectPublicRelations(result.data.events.slice(0, QUERY_ROW_LIMIT))).map(compactEvent),
+      states: (await projectPublicRelations(result.data.states.slice(0, QUERY_ROW_LIMIT))).map(compactState),
       limitApplied: rowQuery ? Math.min(rowQuery.limit, QUERY_ROW_LIMIT) : QUERY_POINT_LIMIT,
       truncated: Boolean(rowQuery && rowQuery.limit > QUERY_ROW_LIMIT && returnedRows > QUERY_ROW_LIMIT),
     },
@@ -416,13 +465,15 @@ const runSavedQueryList = async (input: z.infer<typeof SavedQueryListInputSchema
   if (!cursor.ok) return cursor;
   const scope = scopeFor(context);
   if (!scope.ok) return scope;
-  const result = await pulseService.savedQuery.list(input.baseId, scope.data, {
+  const baseId = await internalId("bases", input.baseId);
+  if (!baseId.ok) return baseId;
+  const result = await pulseService.savedQuery.list(baseId.data, scope.data, {
     query: input.query,
     limit: input.limit + 1,
     offset: cursor.data,
   });
   if (!result.ok) return result;
-  const page = pageResult(result.data.map(mapSavedQuery), cursor.data, input.limit);
+  const page = pageResult((await projectSavedQueries(result.data)).map(mapSavedQuery), cursor.data, input.limit);
   return ok({
     ...page,
     refs: page.data.map((query) => ({ type: "pulse.saved_query" as const, id: query.id })),
@@ -433,9 +484,18 @@ const runSavedQueryList = async (input: z.infer<typeof SavedQueryListInputSchema
 const runSavedQueryExecute = async (input: z.infer<typeof SavedQueryExecuteInputSchema>, context: CapabilityExecutionContext) => {
   const scope = scopeFor(context);
   if (!scope.ok) return scope;
-  const saved = await pulseService.savedQuery.get(input.baseId, input.queryId, scope.data);
+  const baseId = await internalId("bases", input.baseId);
+  if (!baseId.ok) return baseId;
+  const queryId = await resolveBasePublicId("saved_queries", baseId.data, input.queryId);
+  if (!queryId) return fail(err.notFound("Saved query"));
+  const saved = await pulseService.savedQuery.get(baseId.data, queryId, scope.data);
   if (!saved.ok) return saved;
-  return executeQuery({ baseId: input.baseId, query: saved.data.query }, context, [{ type: "pulse.saved_query", id: saved.data.id }]);
+  return executeQuery(
+    { baseId: input.baseId, query: saved.data.query },
+    context,
+    [{ type: "pulse.saved_query", id: input.queryId }],
+    baseId.data,
+  );
 };
 
 export const pulseCapabilities = defineCapabilities({

@@ -1,11 +1,12 @@
 import { AccessEntrySchema } from "@valentinkolb/cloud/contracts";
-import { jsonResponse, respond, respondMessage, v, type AuthContext } from "@valentinkolb/cloud/server";
+import { type AuthContext, jsonResponse, respond, respondMessage, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { pulseService } from "../../service";
+import { projectBases } from "../../service/public-resources";
 import { BaseSchema, CreateBaseSchema, GrantBaseAccessSchema, MessageSchema, UpdateBaseAccessSchema, UpdateBaseSchema } from "../schemas";
-import { requestAccessScope, requireUserBackedActor, requireUuidParam } from "../shared";
+import { projectResult, requestAccessScope, requirePublicIdParam, requireUserBackedActor, requireUuidParam } from "../shared";
 
 const routes = new Hono<AuthContext>()
   .get(
@@ -29,7 +30,11 @@ const routes = new Hono<AuthContext>()
       summary: "List accessible Pulse bases",
       responses: { 200: jsonResponse(z.array(BaseSchema), "Pulse bases") },
     }),
-    async (c) => respond(c, pulseService.base.list(requestAccessScope(c))),
+    async (c) =>
+      respond(
+        c,
+        projectResult(pulseService.base.list(requestAccessScope(c)), (items) => projectBases(items)),
+      ),
   )
   .post(
     "/bases",
@@ -42,13 +47,22 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const user = requireUserBackedActor(c);
       if (!user.ok) return respond(c, user);
-      return respond(c, pulseService.base.create({ ...c.req.valid("json"), user: user.data }), 201);
+      return respond(
+        c,
+        projectResult(pulseService.base.create({ ...c.req.valid("json"), user: user.data }), (item) =>
+          projectBases([item]).then(([value]) => value!),
+        ),
+        201,
+      );
     },
   )
   .get("/bases/:baseId", async (c) => {
-    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+    const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
     if (!baseId.ok) return respond(c, baseId.result);
-    return respond(c, pulseService.base.get(baseId.value, requestAccessScope(c)));
+    return respond(
+      c,
+      projectResult(pulseService.base.get(baseId.value, requestAccessScope(c)), (item) => projectBases([item]).then(([value]) => value!)),
+    );
   })
   .patch(
     "/bases/:baseId",
@@ -59,13 +73,18 @@ const routes = new Hono<AuthContext>()
     }),
     v("json", UpdateBaseSchema),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.base.update({ baseId: baseId.value, user: requestAccessScope(c), ...c.req.valid("json") }));
+      return respond(
+        c,
+        projectResult(pulseService.base.update({ baseId: baseId.value, user: requestAccessScope(c), ...c.req.valid("json") }), (item) =>
+          projectBases([item]).then(([value]) => value!),
+        ),
+      );
     },
   )
   .delete("/bases/:baseId", async (c) => {
-    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+    const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
     if (!baseId.ok) return respond(c, baseId.result);
     return respondMessage(
       c,
@@ -74,7 +93,7 @@ const routes = new Hono<AuthContext>()
     );
   })
   .post("/bases/:baseId/clear-data", async (c) => {
-    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+    const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
     if (!baseId.ok) return respond(c, baseId.result);
     return respondMessage(
       c,
@@ -90,7 +109,7 @@ const routes = new Hono<AuthContext>()
       responses: { 200: jsonResponse(z.array(AccessEntrySchema), "Pulse base access entries") },
     }),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
       return respond(c, pulseService.base.access.list(baseId.value, requestAccessScope(c)));
     },
@@ -104,7 +123,7 @@ const routes = new Hono<AuthContext>()
     }),
     v("json", GrantBaseAccessSchema),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
       return respond(c, pulseService.base.access.grant({ baseId: baseId.value, user: requestAccessScope(c), ...c.req.valid("json") }), 201);
     },
@@ -118,7 +137,7 @@ const routes = new Hono<AuthContext>()
     }),
     v("json", UpdateBaseAccessSchema),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
       const accessId = requireUuidParam(c.req.param("accessId"), "access ID");
       if (!accessId.ok) return respond(c, accessId.result);
@@ -135,7 +154,7 @@ const routes = new Hono<AuthContext>()
     },
   )
   .delete("/bases/:baseId/access/:accessId", async (c) => {
-    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+    const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
     if (!baseId.ok) return respond(c, baseId.result);
     const accessId = requireUuidParam(c.req.param("accessId"), "access ID");
     if (!accessId.ok) return respond(c, accessId.result);

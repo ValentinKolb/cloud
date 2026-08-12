@@ -3,8 +3,9 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { pulseService } from "../../service";
+import { projectDashboardSnapshot } from "../../service/public-resources";
 import { DashboardSnapshotSchema, IngestBatchSchema, MessageSchema } from "../schemas";
-import { requireParam } from "../shared";
+import { projectResult, requireParam } from "../shared";
 
 const routes = new Hono<AuthContext>()
   .post(
@@ -43,7 +44,7 @@ const routes = new Hono<AuthContext>()
     async (c) => {
       const token = requireParam(c.req.param("token"), "public dashboard token");
       if (!token.ok) return respond(c, token.result);
-      return respond(c, pulseService.dashboard.publicSnapshot(token.value));
+      return respond(c, projectResult(pulseService.dashboard.publicSnapshot(token.value), projectDashboardSnapshot));
     },
   );
 

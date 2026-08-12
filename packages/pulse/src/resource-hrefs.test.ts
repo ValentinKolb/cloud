@@ -3,7 +3,7 @@ import { pulseBaseHref, pulseExplorerHref, pulseResourceHref, pulseSignalHref, p
 
 describe("Pulse resource hrefs", () => {
   test("builds canonical encoded workspace resource paths", () => {
-    const baseId = "810db53e-e756-4db5-9a40-9091f04a0abd";
+    const baseId = "Base01";
 
     expect(pulseBaseHref(baseId)).toBe(`/app/pulse/${baseId}`);
     expect(pulseSourceHref(baseId, "source/one")).toBe(`/app/pulse/${baseId}/sources/source%2Fone`);

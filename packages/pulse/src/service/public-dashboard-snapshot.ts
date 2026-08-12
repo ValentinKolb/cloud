@@ -45,9 +45,19 @@ import {
 } from "./dashboard-config";
 import type { EventMapQuery } from "./event-map-query";
 import { publicDashboardTokenHash } from "./public-dashboard-tokens";
+import { resolveExistingBasePublicIds } from "./public-resources";
 import { iso } from "./telemetry-values";
 
 const MAX_PUBLIC_EXECUTED_WIDGETS = 36;
+const MISSING_SOURCE_ID = "00000000-0000-4000-8000-000000000000";
+
+export const internalDashboardSourceId = (
+  sources: ReadonlyMap<string, string>,
+  sourceId: string | null | undefined,
+): string | null | undefined => {
+  if (!sourceId) return sourceId;
+  return sources.get(sourceId) ?? MISSING_SOURCE_ID;
+};
 
 type DashboardRow = {
   id: string;
@@ -343,12 +353,36 @@ const collectPublicWidgetResults = async (dashboard: PulseDashboard, deps: Publi
   const eventWidgets = takePublicWidgets(dashboardEventsWidgets(config), metrics.remaining);
   const stateWidgets = takePublicWidgets(dashboardStatesWidgets(config), eventWidgets.remaining);
   const mapWidgets = takePublicWidgets(dashboardMapWidgets(config), stateWidgets.remaining);
+  const sourceSelectors = [
+    ...metrics.widgets.map((widget) => metricWidgetQuery(dashboard.baseId, widget).sourceId),
+    ...eventWidgets.widgets.map((widget) => widget.query.sourceId),
+    ...stateWidgets.widgets.map((widget) => widget.query.sourceId),
+    ...mapWidgets.widgets.map((widget) => widget.query.sourceId),
+  ].filter((value): value is string => Boolean(value));
+  const sources = await resolveExistingBasePublicIds("sources", dashboard.baseId, sourceSelectors);
+  const internalMetrics = metrics.widgets.map((widget) => ({
+    ...widget,
+    sourceId: internalDashboardSourceId(sources, widget.sourceId),
+    query: widget.query ? { ...widget.query, sourceId: internalDashboardSourceId(sources, widget.query.sourceId) } : widget.query,
+  }));
+  const internalEvents = eventWidgets.widgets.map((widget) => ({
+    ...widget,
+    query: { ...widget.query, sourceId: internalDashboardSourceId(sources, widget.query.sourceId) },
+  }));
+  const internalStates = stateWidgets.widgets.map((widget) => ({
+    ...widget,
+    query: { ...widget.query, sourceId: internalDashboardSourceId(sources, widget.query.sourceId) },
+  }));
+  const internalMaps = mapWidgets.widgets.map((widget) => ({
+    ...widget,
+    query: { ...widget.query, sourceId: internalDashboardSourceId(sources, widget.query.sourceId) },
+  }));
 
   const [points, events, states, maps] = await Promise.all([
-    runPublicMetricWidgets(dashboard.baseId, metrics.widgets, deps),
-    runPublicEventsWidgets(dashboard.baseId, eventWidgets.widgets, deps),
-    runPublicStatesWidgets(dashboard.baseId, stateWidgets.widgets, deps),
-    runPublicMapWidgets(dashboard.baseId, mapWidgets.widgets, deps),
+    runPublicMetricWidgets(dashboard.baseId, internalMetrics, deps),
+    runPublicEventsWidgets(dashboard.baseId, internalEvents, deps),
+    runPublicStatesWidgets(dashboard.baseId, internalStates, deps),
+    runPublicMapWidgets(dashboard.baseId, internalMaps, deps),
   ]);
   return { points, events, states, maps, metricUnitByName };
 };

@@ -2,10 +2,12 @@ import { describe, expect, test } from "bun:test";
 import {
   PULSE_EVENT_ATTRIBUTES_MAX_BYTES,
   PULSE_EVENT_SENSITIVE_MAX_BYTES,
+  PULSE_RESOURCE_KEY_MAX_LENGTH,
   validateDimensions,
   validateEventAttributes,
   validateEventPayload,
   validateEventSensitive,
+  validateResourceIdentity,
 } from "./telemetry-contract";
 
 describe("Pulse telemetry contract", () => {
@@ -35,5 +37,12 @@ describe("Pulse telemetry contract", () => {
       }),
     ).toBeNull();
     expect(validateEventSensitive({ ip: "x".repeat(PULSE_EVENT_SENSITIVE_MAX_BYTES) })).toContain("cannot exceed");
+  });
+
+  test("bounds observed resource keys for composite Cloud resource refs", () => {
+    const type = "service";
+    const allowedId = "a".repeat(PULSE_RESOURCE_KEY_MAX_LENGTH - type.length - 1);
+    expect(validateResourceIdentity(type, allowedId)).toBeNull();
+    expect(validateResourceIdentity(type, `${allowedId}a`)).toBe("Resource key cannot exceed 505 characters");
   });
 });

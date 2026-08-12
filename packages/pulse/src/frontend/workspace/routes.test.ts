@@ -23,7 +23,7 @@ describe("Pulse workspace routes", () => {
   });
 
   test("reads workspace path state from canonical paths", () => {
-    const baseId = "810db53e-e756-4db5-9a40-9091f04a0abd";
+    const baseId = "Base01";
 
     expect(readWorkspacePathState(`/app/pulse/${baseId}/resources/container%3Aapp-core`, baseId)).toEqual({
       view: "resource-detail",
@@ -41,7 +41,7 @@ describe("Pulse workspace routes", () => {
   });
 
   test("builds hrefs with scoped query state", () => {
-    const baseId = "810db53e-e756-4db5-9a40-9091f04a0abd";
+    const baseId = "Base01";
 
     expect(
       buildPulseWorkspaceHref({

@@ -1,8 +1,17 @@
 import { describe, expect, test } from "bun:test";
+import type { User } from "@valentinkolb/cloud/contracts";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
+import { listBaseIdsVisibleTo, type ResourceScope, requireBaseAccess } from "./access-control";
 import { grantBaseAccess, listBaseAccess } from "./base-management";
-import { listBaseIdsVisibleTo, requireBaseAccess, type ResourceScope } from "./access-control";
+import {
+  createSourceApiKey,
+  listSourceApiKeys,
+  removeSource,
+  removeSourceApiKey,
+  resolveIngestSourceForServiceAccount,
+} from "./source-management";
 
 const canUseDatabase = async (): Promise<boolean> => {
   try {
@@ -36,6 +45,26 @@ const insertGroup = async (suffix: string, label: string): Promise<string> => {
   return row!.id;
 };
 
+const testUser = (id: string, suffix: string): User => ({
+  id,
+  uid: `pulse-access-${suffix}`,
+  roles: ["user", "local", "local/user"],
+  provider: "local",
+  profile: "user",
+  givenname: "Pulse",
+  sn: "Access",
+  displayName: "Pulse access test",
+  mail: `pulse-access-${suffix}@example.test`,
+  avatarHash: null,
+  accountExpires: null,
+  lastLoginLocal: null,
+  memberofGroup: [],
+  memberofGroupIds: [],
+  manages: [],
+  managesGroupIds: [],
+  ipa: null,
+});
+
 const insertServiceAccount = async (params: { suffix: string; resourceType: string; resourceId: string }): Promise<string> => {
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO auth.service_accounts (name, kind, app_id, resource_type, resource_id)
@@ -67,21 +96,29 @@ const resourceScope = (params: {
 });
 
 suite("Pulse base access", () => {
-  test("uses effective groups and caps resource service accounts by binding and scopes", async () => {
+  test("uses effective groups and rejects unsupported resource service-account scopes", async () => {
     const suffix = crypto.randomUUID();
     const baseId = crypto.randomUUID();
+    const baseShortId = newShortId();
     const noneBaseId = crypto.randomUUID();
+    const sourceId = crypto.randomUUID();
+    const sourceShortId = newShortId();
     const userId = await insertUser(suffix);
+    const user = testUser(userId, suffix);
     const parentGroupId = await insertGroup(suffix, "parent");
     const childGroupId = await insertGroup(suffix, "child");
-    const baseServiceAccountId = await insertServiceAccount({ suffix, resourceType: "pulse_base", resourceId: baseId });
-    const sourceServiceAccountId = await insertServiceAccount({ suffix, resourceType: "pulse_source", resourceId: crypto.randomUUID() });
+    const baseServiceAccountId = await insertServiceAccount({ suffix, resourceType: "pulse_base", resourceId: baseShortId });
+    const sourceServiceAccountId = crypto.randomUUID();
     const accessIds: string[] = [];
 
     try {
       await sql`
-        INSERT INTO pulse.bases (id, name)
-        VALUES (${baseId}::uuid, 'Pulse access test'), (${noneBaseId}::uuid, 'Pulse none access test')
+        INSERT INTO pulse.bases (id, short_id, name)
+        VALUES (${baseId}::uuid, ${baseShortId}, 'Pulse access test'), (${noneBaseId}::uuid, ${newShortId()}, 'Pulse none access test')
+      `;
+      await sql`
+        INSERT INTO pulse.sources (id, short_id, base_id, kind, name)
+        VALUES (${sourceId}::uuid, ${sourceShortId}, ${baseId}::uuid, 'http_ingest'::pulse.source_kind, 'Pulse access source')
       `;
       await sql`INSERT INTO auth.user_groups_v2 (user_id, group_id) VALUES (${userId}::uuid, ${childGroupId}::uuid)`;
       await sql`
@@ -122,19 +159,47 @@ suite("Pulse base access", () => {
       const readableBaseAccount = resourceScope({
         serviceAccountId: baseServiceAccountId,
         resourceType: "pulse_base",
-        resourceId: baseId,
+        resourceId: baseShortId,
         scopes: ["read"],
       });
       expect((await requireBaseAccess(baseId, readableBaseAccount, "read")).ok).toBe(true);
       expect((await requireBaseAccess(baseId, readableBaseAccount, "write")).ok).toBe(false);
+      expect(await listBaseIdsVisibleTo(readableBaseAccount)).toEqual([baseId]);
+      expect(
+        (
+          await requireBaseAccess(
+            baseId,
+            { ...readableBaseAccount, serviceAccount: { ...readableBaseAccount.serviceAccount, resourceId: baseId } },
+            "read",
+          )
+        ).ok,
+      ).toBe(false);
 
       const sourceAccount = resourceScope({
         serviceAccountId: sourceServiceAccountId,
         resourceType: "pulse_source",
-        resourceId: crypto.randomUUID(),
+        resourceId: sourceShortId,
         scopes: ["admin"],
       });
       expect((await requireBaseAccess(baseId, sourceAccount, "read")).ok).toBe(false);
+
+      const serviceAccount = {
+        id: sourceServiceAccountId,
+        name: "Pulse source ingest",
+        kind: "resource_bound" as const,
+        status: "active" as const,
+        delegatedUserId: null,
+        appId: "pulse",
+        resourceType: "pulse_source",
+        resourceId: sourceShortId,
+        createdBy: userId,
+        createdAt: new Date().toISOString(),
+      };
+      expect(await resolveIngestSourceForServiceAccount(serviceAccount)).toEqual({
+        ok: true,
+        data: { id: sourceId, baseId },
+      });
+      expect((await resolveIngestSourceForServiceAccount({ ...serviceAccount, resourceId: sourceId })).ok).toBe(false);
 
       const [adminAccess] = await sql<{ id: string }[]>`
         INSERT INTO auth.access (user_id, permission) VALUES (${userId}::uuid, 'admin') RETURNING id
@@ -147,12 +212,14 @@ suite("Pulse base access", () => {
 
       const granted = await grantBaseAccess({
         baseId,
-        user: { id: userId },
+        user,
         principal: { type: "service_account", serviceAccountId: baseServiceAccountId },
         permission: "read",
       });
       expect(granted.ok).toBe(true);
       if (granted.ok) accessIds.push(granted.data.id);
+      expect((await requireBaseAccess(baseId, readableBaseAccount, "read")).ok).toBe(true);
+      expect(await listBaseIdsVisibleTo(readableBaseAccount)).toEqual([baseId]);
 
       const entries = await listBaseAccess(baseId, { id: userId });
       expect(entries.ok).toBe(true);
@@ -163,6 +230,58 @@ suite("Pulse base access", () => {
           ),
         ).toBe(true);
       }
+
+      const createdKey = await createSourceApiKey({
+        baseId,
+        sourceId,
+        user,
+        name: "Pulse short ID test key",
+        permission: "write",
+      });
+      expect(createdKey.ok).toBe(true);
+      if (!createdKey.ok) throw new Error(createdKey.error.message);
+      const [boundSourceAccount] = await sql<{ id: string; resource_id: string }[]>`
+        SELECT id, resource_id
+        FROM auth.service_accounts
+        WHERE kind = 'resource_bound'
+          AND app_id = 'pulse'
+          AND resource_type = 'pulse_source'
+          AND resource_id = ${sourceShortId}
+      `;
+      expect(boundSourceAccount?.resource_id).toBe(sourceShortId);
+
+      const keys = await listSourceApiKeys({ baseId, sourceId, user });
+      expect(keys.ok).toBe(true);
+      if (keys.ok) expect(keys.data.map((key) => key.id)).toContain(createdKey.data.credential.id);
+
+      const removedKey = await removeSourceApiKey({
+        baseId,
+        sourceId,
+        credentialId: createdKey.data.credential.id,
+        user,
+      });
+      expect(removedKey.ok).toBe(true);
+
+      const replacementKey = await createSourceApiKey({
+        baseId,
+        sourceId,
+        user,
+        name: "Pulse source cleanup test key",
+        permission: "write",
+      });
+      expect(replacementKey.ok).toBe(true);
+
+      const removedSource = await removeSource({ baseId, sourceId, user });
+      if (!removedSource.ok) throw new Error(removedSource.error.message);
+      const [remainingSourceAccount] = await sql<{ count: number }[]>`
+        SELECT count(*)::int AS count
+        FROM auth.service_accounts
+        WHERE kind = 'resource_bound'
+          AND app_id = 'pulse'
+          AND resource_type = 'pulse_source'
+          AND resource_id = ${sourceShortId}
+      `;
+      expect(remainingSourceAccount?.count).toBe(0);
     } finally {
       await sql`DELETE FROM pulse.bases WHERE id IN (${baseId}::uuid, ${noneBaseId}::uuid)`;
       await sql`DELETE FROM auth.access WHERE id = ANY(${toPgUuidArray(accessIds)}::uuid[])`;

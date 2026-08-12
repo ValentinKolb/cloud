@@ -107,7 +107,7 @@ Controls appear only at the dashboard root:
 ```text
 controls {
   range "Range" variable range default 24h options 1h, 6h, 24h, 7d
-  source "Source" variable source_id default 11111111-1111-4111-8111-111111111111
+  source "Source" variable source_id default Src001
   entity "Container" variable entity_id type container default container:app-core
   entity_type "Resource type" variable entity_type default container
   label "Region" variable region default eu options eu, us
@@ -364,7 +364,7 @@ Compile output:
 
 ```json
 {
-  "dashboard": { "id": "dashboard-uuid", "name": "Operations", "config": { "layout": {} } },
+  "dashboard": { "id": "Dash01", "name": "Operations", "config": { "layout": {} } },
   "points": { "metric-request-rate": [{ "bucket": "2026-07-12T12:00:00.000Z", "value": 42 }] },
   "events": { "events-recent-deploys": [] },
   "states": { "states-checkout-enabled": [] },

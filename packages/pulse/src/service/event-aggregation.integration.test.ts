@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import type { EventQuery } from "../contracts";
+import { newShortId } from "../lib/short-id";
 import { queryEventAggregateData } from "./query-execution";
 
 const runDbSmoke = process.env.PULSE_EVENT_AGGREGATION_DB_TEST === "1";
@@ -15,7 +16,7 @@ beforeAll(async () => {
 describe("Pulse event aggregation Postgres smoke", () => {
   postgresTest("groups event counts and counts unique actors in SQL", async () => {
     const baseId = crypto.randomUUID();
-    await sql`INSERT INTO pulse.bases (id, name) VALUES (${baseId}::uuid, 'Event aggregation smoke')`;
+    await sql`INSERT INTO pulse.bases (id, short_id, name) VALUES (${baseId}::uuid, ${newShortId()}, 'Event aggregation smoke')`;
     try {
       const events = [
         { campaign: "summer", country: "DE", actor: "visitor-a", session: "session-a" },

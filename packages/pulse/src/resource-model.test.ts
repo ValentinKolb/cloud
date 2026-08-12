@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { derivePulseResource, pulseSignalSubject } from "./resource-model";
+import { derivePulseResource, explicitPulseResource, pulseSignalSubject } from "./resource-model";
+import { PULSE_RESOURCE_KEY_MAX_LENGTH } from "./telemetry-contract";
 
 describe("Pulse resource model", () => {
   test("derives Docker container resources from host and container dimensions", () => {
@@ -36,7 +37,7 @@ describe("Pulse resource model", () => {
     });
   });
 
-  test("uses explicit business entities before source fallback", () => {
+  test("uses explicit business entities when present", () => {
     const resource = derivePulseResource({
       signalName: "sales.orders.created",
       entityId: "shop:kolb-antik",
@@ -55,19 +56,38 @@ describe("Pulse resource model", () => {
     });
   });
 
-  test("falls back to source resources when no entity or dimensions identify a resource", () => {
+  test("does not expose an internal Source ID as a resource identity", () => {
     const resource = derivePulseResource({
       signalName: "custom.metric",
-      sourceId: "source-a",
+      sourceId: "11111111-1111-4111-8111-111111111111",
       dimensions: {},
     });
 
-    expect(resource).toEqual({
-      key: "source:source-a",
-      id: "source-a",
-      label: "source-a",
-      type: "source",
-    });
+    expect(resource).toBeNull();
+  });
+
+  test("keeps observed resource keys within the CloudResourceRef budget", () => {
+    const type = "service";
+    const allowedId = "a".repeat(PULSE_RESOURCE_KEY_MAX_LENGTH - type.length - 1);
+
+    expect(explicitPulseResource({ type, id: allowedId })?.key).toHaveLength(PULSE_RESOURCE_KEY_MAX_LENGTH);
+    expect(explicitPulseResource({ type, id: `${allowedId}a` })).toBeNull();
+    expect(
+      derivePulseResource({
+        signalName: "custom.metric",
+        entityType: type,
+        entityId: `${allowedId}a`,
+        dimensions: {},
+      }),
+    ).toBeNull();
+    expect(
+      derivePulseResource({
+        signalName: "custom.metric",
+        entityType: type,
+        entityId: ` ${allowedId}`,
+        dimensions: {},
+      }),
+    ).toBeNull();
   });
 
   test("formats signal subjects from the derived resource", () => {

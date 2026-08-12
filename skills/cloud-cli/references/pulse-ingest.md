@@ -66,7 +66,7 @@ Successful response:
 }
 ```
 
-The token determines the base and source. Any `sourceId` fields in the payload are ignored and cannot be used to impersonate another source.
+The token determines the base and source. Omit `sourceId` from every signal; Pulse rejects payload-level source attribution.
 
 For a one-off signed-in import:
 
@@ -116,7 +116,6 @@ All three collections are optional, but the batch must contain at least one item
 | `entityId` | No | Stable observed-object identifier. |
 | `entityType` | No | Resource class such as `host`, `container`, `store`, or `customer`. |
 | `dimensions` | No | Exact-match labels distinguishing variants. |
-| `sourceId` | No | Accepted for schema compatibility but overridden by the authenticated ingest path. |
 
 A metric variant is identified by metric name, authenticated source, resource identity, and normalized dimensions. Sending the same variant and timestamp again updates that sample rather than creating a second sample. Keep type and unit stable for one metric name: the first observed type remains the metric definition, while a later non-null unit can update its unit.
 
@@ -171,7 +170,6 @@ One metric may have at most 10,000 variants in one base. Values such as visitor 
 | `attributes` | No | Discoverable, returned JSON for irregular or unique event fields. |
 | `sensitive` | No | Classified JSON with independent short retention; never returned by normal event queries. |
 | `payload` | No | Event-specific JSON returned with individual event rows but not listed by field. |
-| `sourceId` | No | Overridden by the authenticated ingest path. |
 
 Query DSL can count unique `actorId` and `sessionId` values without using them as dimensions. Individual event rows intentionally omit actor, session, and correlation identities.
 
@@ -241,7 +239,6 @@ Pulse lists observed event field names, roles, value types, and counts. It does 
 | `ts` | No | State-change ISO datetime; server time is used when omitted. |
 | `entityId`, `entityType` | No | Resource whose current state is being set. |
 | `dimensions` | No | Labels distinguishing independently current state variants. |
-| `sourceId` | No | Overridden by the authenticated ingest path. |
 
 States represent current truth. Sending the same key, resource identity, and dimensions replaces the current value. Pulse records state history only for the initial value and real value changes; repeated equal snapshots update the current row without adding another transition. Source is not part of current-state identity, so a matching update from another source also becomes the current value. Query DSL `states` returns current rows, not the state-change history.
 

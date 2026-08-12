@@ -49,13 +49,7 @@ const scopedPermission = (scope: AccessScope): PermissionLevel => {
   return "none";
 };
 
-const isBoundToBase = (baseId: string, scope: AccessScope): boolean =>
-  !isResourceScope(scope) ||
-  (scope.serviceAccount.appId === "pulse" &&
-    scope.serviceAccount.resourceType === PULSE_BASE_RESOURCE_TYPE &&
-    scope.serviceAccount.resourceId === baseId);
-
-const boundBaseIdForScope = (scope: AccessScope): string | null => {
+const boundBaseShortId = (scope: AccessScope): string | null => {
   if (!isResourceScope(scope)) return null;
   return scope.serviceAccount.appId === "pulse" && scope.serviceAccount.resourceType === PULSE_BASE_RESOURCE_TYPE
     ? scope.serviceAccount.resourceId
@@ -65,17 +59,17 @@ const boundBaseIdForScope = (scope: AccessScope): string | null => {
 const canRequestPermission = (scope: AccessScope, required: PermissionLevel): boolean =>
   PERMISSION_RANK[scopedPermission(scope)] >= PERMISSION_RANK[required];
 
-export const readableScopeFilter = (scope: AccessScope): { subject: AccessSubject; boundBaseId: string | null } | null => {
+export const readableScopeFilter = (scope: AccessScope): { subject: AccessSubject; boundBaseShortId: string | null } | null => {
   if (!canRequestPermission(scope, "read")) return null;
-  const boundBaseId = boundBaseIdForScope(scope);
-  if (isResourceScope(scope) && !boundBaseId) return null;
-  return { subject: subjectForScope(scope), boundBaseId };
+  const bound = boundBaseShortId(scope);
+  if (isResourceScope(scope) && !bound) return null;
+  return { subject: subjectForScope(scope), boundBaseShortId: bound };
 };
 
 export const requireBaseAccess = async (baseId: string, scope: AccessScope, required: PermissionLevel): Promise<Result<void>> => {
-  if (!isBoundToBase(baseId, scope) || !canRequestPermission(scope, required)) {
-    return fail(err.forbidden("Access denied"));
-  }
+  if (!canRequestPermission(scope, required)) return fail(err.forbidden("Access denied"));
+  const bound = boundBaseShortId(scope);
+  if (isResourceScope(scope) && !bound) return fail(err.forbidden("Access denied"));
 
   const principalMatch = buildAccessPrincipalCondition({
     subject: subjectForScope(scope),
@@ -89,8 +83,10 @@ export const requireBaseAccess = async (baseId: string, scope: AccessScope, requ
   const [row] = await sql<{ permission: PermissionLevel }[]>`
     SELECT MAX(a.permission)::text AS permission
     FROM pulse.base_access ba
+    JOIN pulse.bases b ON b.id = ba.base_id
     JOIN auth.access a ON a.id = ba.access_id
     WHERE ba.base_id = ${baseId}::uuid
+      AND (${bound}::text IS NULL OR b.short_id = ${bound})
       AND ${principalMatch}
   `;
   const level = row?.permission ?? "none";
@@ -126,7 +122,7 @@ export const listBaseIdsVisibleTo = async (
       JOIN pulse.bases b ON b.id = ba.base_id
       WHERE ${principalMatch}
         AND a.permission <> 'none'
-        AND (${visibility.boundBaseId}::text IS NULL OR ba.base_id::text = ${visibility.boundBaseId})
+        AND (${visibility.boundBaseShortId}::text IS NULL OR b.short_id = ${visibility.boundBaseShortId})
         AND b.deletion_started_at IS NULL
         AND (${pattern}::text IS NULL OR b.name ILIKE ${pattern} ESCAPE '\\' OR b.description ILIKE ${pattern} ESCAPE '\\')
     ) visible

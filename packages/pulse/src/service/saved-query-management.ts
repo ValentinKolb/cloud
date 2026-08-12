@@ -1,8 +1,10 @@
 import { err, fail, ok, type Result } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import type { PulseSavedQuery } from "../contracts";
+import { withShortId } from "../lib/short-id";
 import { compilePulseQueryText } from "../query-dsl";
 import { type AccessScope, requireBaseAccess, requireBaseActive, userIdForScope } from "./access-control";
+import { resolveBasePublicId } from "./public-resources";
 import { iso } from "./telemetry-values";
 
 type SavedQueryRow = {
@@ -88,11 +90,17 @@ export const createSavedQuery = async (params: {
   if (!query) return fail(err.badInput("Query is required"));
   const compiled = compilePulseQueryText(params.baseId, query);
   if (!compiled.ok) return fail(compiled.error);
-  const [row] = await sql<SavedQueryRow[]>`
-    INSERT INTO pulse.saved_queries (base_id, name, description, query, created_by)
-    VALUES (${params.baseId}::uuid, ${name}, ${params.description?.trim() || null}, ${query}, ${userIdForScope(params.user)}::uuid)
-    RETURNING id, base_id, name, description, query, created_at, updated_at
-  `;
+  if (compiled.data.sourceId && !(await resolveBasePublicId("sources", params.baseId, compiled.data.sourceId))) {
+    return fail(err.badInput("Query references an unknown Source ID"));
+  }
+  const row = await withShortId("saved_query", async (shortId) => {
+    const [created] = await sql<SavedQueryRow[]>`
+      INSERT INTO pulse.saved_queries (short_id, base_id, name, description, query, created_by)
+      VALUES (${shortId}, ${params.baseId}::uuid, ${name}, ${params.description?.trim() || null}, ${query}, ${userIdForScope(params.user)}::uuid)
+      RETURNING id, base_id, name, description, query, created_at, updated_at
+    `;
+    return created;
+  });
   if (!row) return fail(err.internal("Failed to save query"));
   return ok(mapSavedQuery(row));
 };

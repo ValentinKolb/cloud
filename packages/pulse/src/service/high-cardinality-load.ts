@@ -1,11 +1,12 @@
 import type { ServiceAccount } from "@valentinkolb/cloud/contracts";
 import { sql } from "bun";
 import type { EventQuery, PulseEvent } from "../contracts";
+import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
-import { queryEventAggregateData } from "./query-execution";
 import { ingestByApiKey } from "./ingest-writer";
-import { PULSE_APP_ID, PULSE_INGEST_SCOPE, PULSE_SOURCE_RESOURCE_TYPE } from "./source-management";
+import { queryEventAggregateData } from "./query-execution";
 import { runRetentionBatch } from "./runtime";
+import { PULSE_APP_ID, PULSE_INGEST_SCOPE, PULSE_SOURCE_RESOURCE_TYPE } from "./source-management";
 
 // Destructive production-scale gate. Point DATABASE_URL at a dedicated
 // `pulse_load_test` database, set REDIS_URL, then run `bun run test:load`.
@@ -123,7 +124,7 @@ const prepareSchema = async (): Promise<void> => {
   if (!timescale?.enabled) throw new Error("The full Pulse load gate requires TimescaleDB");
 };
 
-const seedThroughWriter = async (baseId: string, sourceId: string): Promise<void> => {
+const seedThroughWriter = async (baseId: string, sourceId: string, sourceShortId: string): Promise<void> => {
   const serviceAccount: ServiceAccount = {
     id: crypto.randomUUID(),
     name: "Pulse load source",
@@ -132,7 +133,7 @@ const seedThroughWriter = async (baseId: string, sourceId: string): Promise<void
     delegatedUserId: null,
     appId: PULSE_APP_ID,
     resourceType: PULSE_SOURCE_RESOURCE_TYPE,
-    resourceId: sourceId,
+    resourceId: sourceShortId,
     createdBy: null,
     createdAt: new Date().toISOString(),
   };
@@ -233,17 +234,18 @@ const main = async (): Promise<void> => {
 
   const baseId = crypto.randomUUID();
   const sourceId = crypto.randomUUID();
+  const sourceShortId = newShortId();
   await sql`
-    INSERT INTO pulse.bases (id, name, retention_days, rollup_retention_days, sensitive_retention_hours)
-    VALUES (${baseId}::uuid, 'High-cardinality load', 1, 365, 1)
+    INSERT INTO pulse.bases (id, short_id, name, retention_days, rollup_retention_days, sensitive_retention_hours)
+    VALUES (${baseId}::uuid, ${newShortId()}, 'High-cardinality load', 1, 365, 1)
   `;
   await sql`
-    INSERT INTO pulse.sources (id, base_id, kind, name)
-    VALUES (${sourceId}::uuid, ${baseId}::uuid, 'http_ingest'::pulse.source_kind, 'Load source')
+    INSERT INTO pulse.sources (id, short_id, base_id, kind, name)
+    VALUES (${sourceId}::uuid, ${sourceShortId}, ${baseId}::uuid, 'http_ingest'::pulse.source_kind, 'Load source')
   `;
 
   try {
-    await seedThroughWriter(baseId, sourceId);
+    await seedThroughWriter(baseId, sourceId, sourceShortId);
     const insertDurationMs = await insertScaleRows(baseId, sourceId, eventCount);
     const [counts] = await sql<CountRow[]>`
       SELECT

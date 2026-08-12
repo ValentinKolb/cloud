@@ -1,23 +1,24 @@
 import {
+  type AccessEntry,
   err,
   fail,
   ok,
-  resolveDisplayNames,
-  type AccessEntry,
   type PermissionLevel,
   type Principal,
   type Result,
+  resolveDisplayNames,
 } from "@valentinkolb/cloud/server";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { PulseBase } from "../contracts";
+import { withShortId } from "../lib/short-id";
 import {
+  type AccessScope,
   listBaseIdsVisibleTo,
   PULSE_BASE_RESOURCE_TYPE,
   requireBaseAccess,
-  userIdForScope,
-  type AccessScope,
   type UserScope,
+  userIdForScope,
 } from "./access-control";
 import { submitBaseDataClearJob, submitBaseDeletionJob } from "./base-lifecycle";
 import { PULSE_APP_ID, PULSE_SOURCE_RESOURCE_TYPE } from "./source-management";
@@ -25,6 +26,7 @@ import { iso, isoNullable } from "./telemetry-values";
 
 type BaseRow = {
   id: string;
+  short_id: string;
   name: string;
   description: string | null;
   retention_days: number;
@@ -108,11 +110,14 @@ const deleteBoundServiceAccounts = async (baseId: string, db: typeof sql = sql):
     WHERE kind = 'resource_bound'
       AND app_id = ${PULSE_APP_ID}
       AND (
-        (resource_type = ${PULSE_BASE_RESOURCE_TYPE} AND resource_id = ${baseId})
+        (
+          resource_type = ${PULSE_BASE_RESOURCE_TYPE}
+          AND resource_id = (SELECT short_id FROM pulse.bases WHERE id = ${baseId}::uuid)
+        )
         OR (
           resource_type = ${PULSE_SOURCE_RESOURCE_TYPE}
           AND resource_id IN (
-            SELECT id::text
+            SELECT short_id
             FROM pulse.sources
             WHERE base_id = ${baseId}::uuid
           )
@@ -141,26 +146,28 @@ export const createBase = async (params: { name: string; description?: string | 
   const name = params.name.trim();
   if (!name) return fail(err.badInput("Base name is required"));
 
-  const created = await sql.begin(async (tx): Promise<Result<BaseRow>> => {
-    const [base] = await tx<BaseRow[]>`
-      INSERT INTO pulse.bases (name, description, created_by)
-      VALUES (${name}, ${params.description?.trim() || null}, ${params.user.id}::uuid)
+  const created = await withShortId("base", (shortId) =>
+    sql.begin(async (tx): Promise<Result<BaseRow>> => {
+      const [base] = await tx<BaseRow[]>`
+      INSERT INTO pulse.bases (short_id, name, description, created_by)
+      VALUES (${shortId}, ${name}, ${params.description?.trim() || null}, ${params.user.id}::uuid)
       RETURNING *
     `;
-    if (!base) return fail(err.internal("Failed to create Pulse base"));
+      if (!base) return fail(err.internal("Failed to create Pulse base"));
 
-    const [access] = await tx<{ id: string }[]>`
+      const [access] = await tx<{ id: string }[]>`
       INSERT INTO auth.access (user_id, permission)
       VALUES (${params.user.id}::uuid, 'admin'::auth.permission_level)
       RETURNING id
     `;
-    if (!access) return fail(err.internal("Failed to create base access"));
-    await tx`
+      if (!access) return fail(err.internal("Failed to create base access"));
+      await tx`
       INSERT INTO pulse.base_access (base_id, access_id)
       VALUES (${base.id}::uuid, ${access.id}::uuid)
     `;
-    return ok(base);
-  });
+      return ok(base);
+    }),
+  );
 
   if (!created.ok) return created;
   return ok(mapBase(created.data));
@@ -364,7 +371,7 @@ export const deleteBase = async (params: { baseId: string; user: AccessScope }):
 
   if (existing.deletion_started_at) {
     await deleteBoundServiceAccounts(params.baseId);
-    await submitBaseDeletionJob(params.baseId);
+    await submitBaseDeletionJob(params.baseId, existing.short_id);
     return ok();
   }
 
@@ -398,7 +405,7 @@ export const deleteBase = async (params: { baseId: string; user: AccessScope }):
   });
 
   if (!queued.ok) return fail(queued.error);
-  await submitBaseDeletionJob(params.baseId);
+  await submitBaseDeletionJob(params.baseId, existing.short_id);
   return ok();
 };
 
@@ -411,7 +418,7 @@ export const clearBaseData = async (params: { baseId: string; user: AccessScope 
 
   if (existing.deletion_started_at) return fail(err.conflict("Pulse base is being deleted"));
   if (existing.data_clear_started_at && !existing.data_clear_completed_at && !existing.data_clear_failed_at) {
-    await submitBaseDataClearJob(params.baseId);
+    await submitBaseDataClearJob(params.baseId, existing.short_id);
     return ok();
   }
 
@@ -463,6 +470,6 @@ export const clearBaseData = async (params: { baseId: string; user: AccessScope 
   });
 
   if (!queued.ok) return fail(queued.error);
-  await submitBaseDataClearJob(params.baseId);
+  await submitBaseDataClearJob(params.baseId, existing.short_id);
   return ok();
 };

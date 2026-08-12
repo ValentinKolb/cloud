@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import type { PulseMetric } from "../contracts";
+import { newShortId } from "../lib/short-id";
 import { ingestBatch, recordMetric } from "./ingest-writer";
 import { PULSE_METRIC_SERIES_LIMIT } from "./metric-cardinality";
 
@@ -20,10 +21,10 @@ describe("Pulse metric cardinality Postgres smoke", () => {
       const baseId = crypto.randomUUID();
       const sourceId = crypto.randomUUID();
       const metricName = "cardinality.concurrent";
-      await sql`INSERT INTO pulse.bases (id, name) VALUES (${baseId}::uuid, 'Metric cardinality smoke')`;
+      await sql`INSERT INTO pulse.bases (id, short_id, name) VALUES (${baseId}::uuid, ${newShortId()}, 'Metric cardinality smoke')`;
       await sql`
-      INSERT INTO pulse.sources (id, base_id, kind, name)
-      VALUES (${sourceId}::uuid, ${baseId}::uuid, 'http_ingest'::pulse.source_kind, 'Metric cardinality source')
+      INSERT INTO pulse.sources (id, short_id, base_id, kind, name)
+      VALUES (${sourceId}::uuid, ${newShortId()}, ${baseId}::uuid, 'http_ingest'::pulse.source_kind, 'Metric cardinality source')
     `;
 
       try {

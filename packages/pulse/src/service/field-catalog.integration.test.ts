@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 import { prepareIngestBatch, writePreparedIngestBatchInTransaction } from "./ingest-bulk";
 import { recordEvent } from "./ingest-writer";
 import { queryEventsData } from "./query-execution";
@@ -19,10 +20,10 @@ describe("Pulse field catalog Postgres smoke", () => {
     async () => {
       const baseId = crypto.randomUUID();
       const sourceId = crypto.randomUUID();
-      await sql`INSERT INTO pulse.bases (id, name) VALUES (${baseId}::uuid, 'Field catalog smoke')`;
+      await sql`INSERT INTO pulse.bases (id, short_id, name) VALUES (${baseId}::uuid, ${newShortId()}, 'Field catalog smoke')`;
       await sql`
-      INSERT INTO pulse.sources (id, base_id, kind, name)
-      VALUES (${sourceId}::uuid, ${baseId}::uuid, 'http_ingest'::pulse.source_kind, 'Field catalog source')
+      INSERT INTO pulse.sources (id, short_id, base_id, kind, name)
+      VALUES (${sourceId}::uuid, ${newShortId()}, ${baseId}::uuid, 'http_ingest'::pulse.source_kind, 'Field catalog source')
     `;
 
       try {

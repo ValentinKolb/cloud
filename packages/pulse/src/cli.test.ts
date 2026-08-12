@@ -10,9 +10,9 @@ type FetchCall = {
   init?: RequestInit;
 };
 
-const baseId = "810db53e-e756-4db5-9a40-9091f04a0abd";
-const sourceId = "11111111-1111-4111-8111-111111111111";
-const dashboardId = "22222222-2222-4222-8222-222222222222";
+const baseId = "Base01";
+const sourceId = "Src001";
+const dashboardId = "Dash01";
 const userId = "33333333-3333-4333-8333-333333333333";
 const accessId = "44444444-4444-4444-8444-444444444444";
 
@@ -39,7 +39,7 @@ const createContext = (args: string[], flags: CloudCliFlags = {}, responses: Res
     },
     readJson: async (response) => {
       const value = await response.json();
-      if (!response.ok) throw new Error(typeof value?.message === "string" ? value.message : response.statusText);
+      if (!response.ok) throw new Error(`${response.status} ${typeof value?.message === "string" ? value.message : response.statusText}`);
       return value;
     },
     print: (value = "") => lines.push(value),
@@ -172,6 +172,44 @@ const inventory = {
 };
 
 describe("pulse CLI", () => {
+  test("resolves an exact six-character base name after an ID miss", async () => {
+    const namedBase = { ...base, name: "Ops123" };
+    const { ctx, calls, lines } = createContext(["get", "Ops123"], {}, [
+      jsonResponse({ message: "Pulse resource not found" }, 404),
+      jsonResponse([namedBase]),
+    ]);
+
+    await pulseCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual(["/api/pulse/bases/Ops123", "/api/pulse/bases"]);
+    expect(lines[0]).toBe(`Ops123 (${baseId})`);
+  });
+
+  test("rejects an ambiguous exact six-character base name after an ID miss", async () => {
+    const matches = [
+      { ...base, id: "Base02", name: "Ops123" },
+      { ...base, id: "Base03", name: "Ops123" },
+    ];
+    const { ctx } = createContext(["get", "Ops123"], {}, [
+      jsonResponse({ message: "Pulse resource not found" }, 404),
+      jsonResponse(matches),
+    ]);
+
+    await expect(pulseCli.run(ctx)).rejects.toThrow('Ambiguous Pulse base "Ops123". Use an ID.');
+  });
+
+  test("deletes a saved query by short ID without listing saved queries", async () => {
+    const { ctx, calls } = createContext(["query", "delete", baseId, "Query1"], { yes: true }, [
+      jsonResponse(base),
+      jsonResponse({ message: "Query removed" }),
+    ]);
+
+    await pulseCli.run(ctx);
+
+    expect(calls.map((call) => call.path)).toEqual([`/api/pulse/bases/${baseId}`, `/api/pulse/bases/${baseId}/saved-queries/Query1`]);
+    expect(calls[1]?.init?.method).toBe("DELETE");
+  });
+
   test("updates all V1 retention classes explicitly", async () => {
     const updated = {
       ...base,
@@ -228,7 +266,7 @@ describe("pulse CLI", () => {
       principal: { type: "user", userId },
       permission: "write",
     });
-    expect(lines).toEqual(["Granted write on Test (810db53e) to Valentin Kolb."]);
+    expect(lines).toEqual(["Granted write on Test (Base01) to Valentin Kolb."]);
   });
 
   test("updates Pulse base access through the base access endpoint", async () => {
@@ -242,7 +280,7 @@ describe("pulse CLI", () => {
     expect(calls.map((call) => call.path)).toEqual([`/api/pulse/bases/${baseId}`, `/api/pulse/bases/${baseId}/access/${accessId}`]);
     expect(calls[1]?.init?.method).toBe("PATCH");
     expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ permission: "admin" });
-    expect(lines).toEqual([`Updated ${accessId} to admin on Test (810db53e).`]);
+    expect(lines).toEqual([`Updated ${accessId} to admin on Test (Base01).`]);
   });
 
   test("revokes Pulse base access through the base access endpoint", async () => {
@@ -255,7 +293,7 @@ describe("pulse CLI", () => {
 
     expect(calls.map((call) => call.path)).toEqual([`/api/pulse/bases/${baseId}`, `/api/pulse/bases/${baseId}/access/${accessId}`]);
     expect(calls[1]?.init?.method).toBe("DELETE");
-    expect(lines).toEqual([`Revoked access for ${accessId} on Test (810db53e).`]);
+    expect(lines).toEqual([`Revoked access for ${accessId} on Test (Base01).`]);
   });
 
   test("lists source ingest tokens with explicit source-token command naming", async () => {
@@ -344,7 +382,7 @@ describe("pulse CLI", () => {
         metric: "system.memory.usage",
         type: "gauge",
         unit: "percent",
-        source: "11111111",
+        source: "Src001",
         resource: "host:macbook",
         value: "61.2",
         lastSeenAt: "2026-07-07T12:00:00.000Z",
@@ -406,7 +444,7 @@ describe("pulse CLI", () => {
         role: "attribute",
         field: "request_id",
         type: "string",
-        source: "11111111",
+        source: "Src001",
         observations: 42,
         lastSeenAt: "2026-07-07T12:00:00.000Z",
       },
@@ -456,7 +494,7 @@ describe("pulse CLI", () => {
       {
         key: "system.host.online",
         value: "true",
-        source: "11111111",
+        source: "Src001",
         entity: "host:macbook",
         entityType: "host",
         updatedAt: "2026-07-07T12:00:00.000Z",
@@ -484,7 +522,7 @@ describe("pulse CLI", () => {
         metric: "system.memory.usage",
         type: "gauge",
         unit: "percent",
-        source: "11111111",
+        source: "Src001",
         resource: "host:macbook",
         value: "61.2",
         lastSeenAt: "2026-07-07T12:00:00.000Z",
@@ -560,7 +598,7 @@ describe("pulse CLI", () => {
       {
         key: "system.host.online",
         value: "true",
-        source: "11111111",
+        source: "Src001",
         entity: "host:macbook",
         entityType: "host",
         updatedAt: "2026-07-07T12:00:00.000Z",

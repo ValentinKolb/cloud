@@ -1,8 +1,9 @@
 import { err, fail, ok, type Result } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import type { PulseDashboard } from "../contracts";
-import { requireBaseAccess, requireBaseActive, userIdForScope, type AccessScope } from "./access-control";
-import { compileDashboardConfigForSave, normalizeDashboardConfig } from "./dashboard-config";
+import { withShortId } from "../lib/short-id";
+import { type AccessScope, requireBaseAccess, requireBaseActive, userIdForScope } from "./access-control";
+import { compileDashboardConfigForSave, normalizeDashboardConfig, validateDashboardSources } from "./dashboard-config";
 import { resolvePublicDashboardToken } from "./public-dashboard-tokens";
 import { iso } from "./telemetry-values";
 
@@ -54,12 +55,17 @@ export const createDashboard = async (params: {
   if (!name) return fail(err.badInput("Dashboard name is required"));
   const configResult = compileDashboardConfigForSave(params.baseId, params.config ?? {});
   if (!configResult.ok) return fail(configResult.error);
-  const config = configResult.data;
-  const [row] = await sql<DashboardRow[]>`
-    INSERT INTO pulse.dashboards (base_id, name, config, created_by)
-    VALUES (${params.baseId}::uuid, ${name}, ${JSON.stringify(config)}::jsonb, ${userIdForScope(params.user)}::uuid)
-    RETURNING *
-  `;
+  const validated = await validateDashboardSources(params.baseId, configResult.data);
+  if (!validated.ok) return fail(validated.error);
+  const config = validated.data;
+  const row = await withShortId("dashboard", async (shortId) => {
+    const [created] = await sql<DashboardRow[]>`
+      INSERT INTO pulse.dashboards (short_id, base_id, name, config, created_by)
+      VALUES (${shortId}, ${params.baseId}::uuid, ${name}, ${JSON.stringify(config)}::jsonb, ${userIdForScope(params.user)}::uuid)
+      RETURNING *
+    `;
+    return created;
+  });
   if (!row) return fail(err.internal("Failed to create Pulse dashboard"));
   return ok(mapDashboard(row));
 };
@@ -83,7 +89,9 @@ export const updateDashboard = async (params: {
   const name = params.name?.trim() || existing.name;
   const configResult = compileDashboardConfigForSave(existing.base_id, params.config ?? existing.config);
   if (!configResult.ok) return fail(configResult.error);
-  const config = configResult.data;
+  const validated = await validateDashboardSources(existing.base_id, configResult.data);
+  if (!validated.ok) return fail(validated.error);
+  const config = validated.data;
   const [row] = await sql<DashboardRow[]>`
     UPDATE pulse.dashboards
     SET name = ${name}, config = ${JSON.stringify(config)}::jsonb, updated_at = now()

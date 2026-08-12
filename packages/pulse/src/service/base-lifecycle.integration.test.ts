@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
+import { newShortId } from "../lib/short-id";
 
 const runDbSmoke = process.env.PULSE_LIFECYCLE_DB_TEST === "1";
 const postgresTest = runDbSmoke ? test : test.skip;
@@ -21,8 +22,8 @@ type RetentionPolicy = {
 const createBase = async (name: string, policy: RetentionPolicy = {}): Promise<string> => {
   const baseId = uuid();
   await sql`
-    INSERT INTO pulse.bases (id, name, retention_days, rollup_retention_days, sensitive_retention_hours)
-    VALUES (${baseId}::uuid, ${name}, ${policy.rawDays ?? 30}, ${policy.rollupDays ?? 365}, ${policy.sensitiveHours ?? 24})
+    INSERT INTO pulse.bases (id, short_id, name, retention_days, rollup_retention_days, sensitive_retention_hours)
+    VALUES (${baseId}::uuid, ${newShortId()}, ${name}, ${policy.rawDays ?? 30}, ${policy.rollupDays ?? 365}, ${policy.sensitiveHours ?? 24})
   `;
   return baseId;
 };
@@ -32,6 +33,7 @@ const createSource = async (baseId: string): Promise<string> => {
   await sql`
     INSERT INTO pulse.sources (
       id,
+      short_id,
       base_id,
       kind,
       name,
@@ -41,6 +43,7 @@ const createSource = async (baseId: string): Promise<string> => {
     )
     VALUES (
       ${sourceId}::uuid,
+      ${newShortId()},
       ${baseId}::uuid,
       'http_ingest'::pulse.source_kind,
       'Lifecycle smoke source',
@@ -221,12 +224,12 @@ const insertTelemetryFixture = async (baseId: string, sourceId: string, age: "ac
 
 const insertDashboardAndSavedQuery = async (baseId: string) => {
   await sql`
-    INSERT INTO pulse.dashboards (base_id, name, config)
-    VALUES (${baseId}::uuid, 'Lifecycle dashboard', '{}'::jsonb)
+    INSERT INTO pulse.dashboards (short_id, base_id, name, config)
+    VALUES (${newShortId()}, ${baseId}::uuid, 'Lifecycle dashboard', '{}'::jsonb)
   `;
   await sql`
-    INSERT INTO pulse.saved_queries (base_id, name, query)
-    VALUES (${baseId}::uuid, 'Lifecycle query', 'metric lifecycle.metric latest since 1h')
+    INSERT INTO pulse.saved_queries (short_id, base_id, name, query)
+    VALUES (${newShortId()}, ${baseId}::uuid, 'Lifecycle query', 'metric lifecycle.metric latest since 1h')
   `;
 };
 

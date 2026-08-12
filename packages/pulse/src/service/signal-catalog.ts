@@ -48,7 +48,7 @@ type ObservedResourceRow = {
   last_seen_at: Date | string | null;
 };
 
-type SearchResourceRow = ObservedResourceRow & {
+type SearchResourceRow = Omit<ObservedResourceRow, "id"> & {
   base_id: string;
   base_name: string;
 };
@@ -240,19 +240,19 @@ export const listMetrics = async (
   );
 };
 
-export const getResource = async (id: string, user: AccessScope): Promise<Result<PulseResourceSearchResult>> => {
+export const getResource = async (baseId: string, resourceKey: string, user: AccessScope): Promise<Result<PulseResourceSearchResult>> => {
   const [row] = await sql<SearchResourceRow[]>`
-    SELECT resource.id, resource.base_id, base.name AS base_name, resource.resource_key, resource.resource_id,
+    SELECT resource.base_id, base.name AS base_name, resource.resource_key, resource.resource_id,
            resource.resource_type, resource.label, resource.source_ids, resource.dimensions, resource.last_seen_at
     FROM pulse.observed_resources resource
     JOIN pulse.bases base ON base.id = resource.base_id AND base.deletion_started_at IS NULL
-    WHERE resource.id = ${id}::uuid
+    WHERE resource.base_id = ${baseId}::uuid
+      AND resource.resource_key = ${resourceKey}
   `;
   if (!row) return fail(err.notFound("Resource"));
   const access = await requireBaseAccess(row.base_id, user, "read");
   if (!access.ok) return fail(access.error);
   return ok({
-    refId: row.id,
     baseId: row.base_id,
     baseName: row.base_name,
     key: row.resource_key,
@@ -282,7 +282,6 @@ export const searchResources = async (
   const pattern = searchPattern(params.query);
   const rows = await sql<SearchResourceRow[]>`
     SELECT
-      resource.id,
       resource.base_id,
       base.name AS base_name,
       resource.resource_key,
@@ -295,7 +294,7 @@ export const searchResources = async (
     FROM pulse.observed_resources resource
     JOIN pulse.bases base ON base.id = resource.base_id
     WHERE base.deletion_started_at IS NULL
-      AND (${visibility.boundBaseId}::text IS NULL OR resource.base_id::text = ${visibility.boundBaseId})
+      AND (${visibility.boundBaseShortId}::text IS NULL OR base.short_id = ${visibility.boundBaseShortId})
       AND EXISTS (
         SELECT 1
         FROM pulse.base_access base_access
@@ -310,7 +309,6 @@ export const searchResources = async (
   `;
   return ok(
     rows.map((row) => ({
-      refId: row.id,
       baseId: row.base_id,
       baseName: row.base_name,
       key: row.resource_key,

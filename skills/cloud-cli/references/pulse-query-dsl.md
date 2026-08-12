@@ -30,7 +30,7 @@ Start with Inventory, Resources, Metrics, Events, or States to discover exact si
 metric <metric> <aggregation>
   [every <duration>]
   [since <duration>]
-  [source <uuid>]
+  [source <source-id>]
   [entity <id>]
   [entity_type <type>]
   [where <key>=<value>, ...]
@@ -77,7 +77,7 @@ events [<kind>|*]
   [every <duration>]
   [group by <dimension>, ...]
   [since <duration>]
-  [source <uuid>]
+  [source <source-id>]
   [entity <id>]
   [entity_type <type>]
   [where <key>=<value>, ...]
@@ -127,7 +127,7 @@ Use `actorId` and `sessionId` for unique counts. Do not duplicate unique identit
 ```text
 states [<key>|*]
   [since <duration>]
-  [source <uuid>]
+  [source <source-id>]
   [entity <id>]
   [entity_type <type>]
   [where <key>=<value>, ...]
@@ -153,15 +153,15 @@ State rows include the key, current value, source and resource identifiers, dime
 
 Filters may appear after the statement-specific fields in any order. Each clause may appear at most once.
 
-### `source <uuid>`
+### `source <source-id>`
 
-Restricts the query to one source. Query DSL requires a UUID; unlike CLI `--source`, it does not resolve source names.
+Restricts the query to one source. Query DSL requires the source's six-character ID; unlike CLI `--source`, it does not resolve source names.
 
 ```text
-source 11111111-1111-4111-8111-111111111111
+source Src001
 ```
 
-Resolve the UUID first:
+Resolve the ID first:
 
 ```bash
 cld pulse sources list --json
@@ -269,7 +269,7 @@ Run output always contains `compiled`, `points`, `events`, and `states`. Exactly
       "kind": "deploy.finished",
       "ts": "2026-07-12T12:00:00.000Z",
       "value": null,
-      "sourceId": "source-uuid",
+      "sourceId": "Src001",
       "entityId": "service:checkout",
       "entityType": "service",
       "dimensions": { "env": "prod" },

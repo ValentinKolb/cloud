@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import type { MetricQuery } from "../contracts";
+import { newShortId } from "../lib/short-id";
 import { queryMetricData } from "./query-execution";
 
 const runDbSmoke = process.env.PULSE_METRIC_QUERY_DB_TEST === "1";
@@ -16,10 +17,10 @@ describe("Pulse grouped metric query Postgres smoke", () => {
   postgresTest("aggregates per series before grouping and reducing", async () => {
     const baseId = crypto.randomUUID();
     const sourceId = crypto.randomUUID();
-    await sql`INSERT INTO pulse.bases (id, name) VALUES (${baseId}::uuid, 'Metric query smoke')`;
+    await sql`INSERT INTO pulse.bases (id, short_id, name) VALUES (${baseId}::uuid, ${newShortId()}, 'Metric query smoke')`;
     await sql`
-      INSERT INTO pulse.sources (id, base_id, kind, name)
-      VALUES (${sourceId}::uuid, ${baseId}::uuid, 'http_ingest'::pulse.source_kind, 'Metric query source')
+      INSERT INTO pulse.sources (id, short_id, base_id, kind, name)
+      VALUES (${sourceId}::uuid, ${newShortId()}, ${baseId}::uuid, 'http_ingest'::pulse.source_kind, 'Metric query source')
     `;
 
     try {

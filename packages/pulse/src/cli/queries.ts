@@ -1,6 +1,6 @@
 import { arg, type CloudCliContext, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
 import type { MetricQueryPoint, PulseCurrentState, PulseQueryCompileResult, PulseRecordedEvent, PulseSavedQuery } from "../contracts";
-import { listSavedQueries, requireRestArg, resolveBaseFromCommand, resolveSavedQuery } from "./context";
+import { listSavedQueries, requireRestArg, resolveBaseFromCommand, resolveSavedQueryId } from "./context";
 import { baseFlag, QUERY_INPUT } from "./flags";
 import { eventRows, stateRows } from "./inventory";
 import { savedQueryRows } from "./rows";
@@ -105,10 +105,10 @@ export const queryCommands = [
     async run({ ctx, args, flags }) {
       if (!flags.yes) throw new Error("Refusing to delete without --yes.");
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, 1);
-      const query = await resolveSavedQuery(ctx, base.id, requireRestArg(rest, 0, "saved query"));
+      const queryId = await resolveSavedQueryId(ctx, base.id, requireRestArg(rest, 0, "saved query"));
       const result = await readApi<MessageResult>(
         ctx,
-        `/bases/${encodeURIComponent(base.id)}/saved-queries/${encodeURIComponent(query.id)}`,
+        `/bases/${encodeURIComponent(base.id)}/saved-queries/${encodeURIComponent(queryId)}`,
         jsonRequest("DELETE"),
       );
       printMessage(ctx, result, result.message);

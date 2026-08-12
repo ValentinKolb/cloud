@@ -1,8 +1,9 @@
-import { jsonResponse, respond, v, type AuthContext } from "@valentinkolb/cloud/server";
+import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { pulseService } from "../../service";
+import { projectPublicRelations } from "../../service/public-resources";
 import {
   ActivitySearchQuerySchema,
   CurrentStateSchema,
@@ -21,13 +22,18 @@ import {
   SignalFieldQuerySchema,
   SignalFieldSchema,
 } from "../schemas";
-import { requestAccessScope, requireUuidParam } from "../shared";
+import { projectResult, requestAccessScope, requirePublicIdParam, withResolvedSource } from "../shared";
 
 const routes = new Hono<AuthContext>()
   .get("/bases/:baseId/metrics", v("query", MetricsQuerySchema), async (c) => {
-    const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+    const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
     if (!baseId.ok) return respond(c, baseId.result);
-    return respond(c, pulseService.query.metrics(baseId.value, requestAccessScope(c), c.req.valid("query")));
+    return respond(
+      c,
+      withResolvedSource(baseId.value, c.req.valid("query"), (query) =>
+        pulseService.query.metrics(baseId.value, requestAccessScope(c), query),
+      ),
+    );
   })
   .get(
     "/bases/:baseId/resources",
@@ -38,9 +44,17 @@ const routes = new Hono<AuthContext>()
     }),
     v("query", ResourceListQuerySchema),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.resources(baseId.value, requestAccessScope(c), c.req.valid("query")));
+      return respond(
+        c,
+        projectResult(
+          withResolvedSource(baseId.value, c.req.valid("query"), (query) =>
+            pulseService.query.resources(baseId.value, requestAccessScope(c), query),
+          ),
+          projectPublicRelations,
+        ),
+      );
     },
   )
   .get(
@@ -52,9 +66,17 @@ const routes = new Hono<AuthContext>()
     }),
     v("query", SignalFieldQuerySchema),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.fields(baseId.value, requestAccessScope(c), c.req.valid("query")));
+      return respond(
+        c,
+        projectResult(
+          withResolvedSource(baseId.value, c.req.valid("query"), (query) =>
+            pulseService.query.fields(baseId.value, requestAccessScope(c), query),
+          ),
+          projectPublicRelations,
+        ),
+      );
     },
   )
   .get(
@@ -65,9 +87,9 @@ const routes = new Hono<AuthContext>()
       responses: { 200: jsonResponse(InventorySchema, "Pulse resource inventory") },
     }),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.inventory(baseId.value, requestAccessScope(c)));
+      return respond(c, projectResult(pulseService.query.inventory(baseId.value, requestAccessScope(c)), projectPublicRelations));
     },
   )
   .get(
@@ -79,9 +101,17 @@ const routes = new Hono<AuthContext>()
     }),
     v("query", ResourceMetricQuerySchema),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.resourceMetrics(baseId.value, requestAccessScope(c), c.req.valid("query")));
+      return respond(
+        c,
+        projectResult(
+          withResolvedSource(baseId.value, c.req.valid("query"), (query) =>
+            pulseService.query.resourceMetrics(baseId.value, requestAccessScope(c), query),
+          ),
+          projectPublicRelations,
+        ),
+      );
     },
   )
   .get(
@@ -93,9 +123,17 @@ const routes = new Hono<AuthContext>()
     }),
     v("query", ResourceEventQuerySchema),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.resourceEvents(baseId.value, requestAccessScope(c), c.req.valid("query")));
+      return respond(
+        c,
+        projectResult(
+          withResolvedSource(baseId.value, c.req.valid("query"), (query) =>
+            pulseService.query.resourceEvents(baseId.value, requestAccessScope(c), query),
+          ),
+          projectPublicRelations,
+        ),
+      );
     },
   )
   .get(
@@ -107,9 +145,17 @@ const routes = new Hono<AuthContext>()
     }),
     v("query", ResourceStateQuerySchema),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.resourceStates(baseId.value, requestAccessScope(c), c.req.valid("query")));
+      return respond(
+        c,
+        projectResult(
+          withResolvedSource(baseId.value, c.req.valid("query"), (query) =>
+            pulseService.query.resourceStates(baseId.value, requestAccessScope(c), query),
+          ),
+          projectPublicRelations,
+        ),
+      );
     },
   )
   .get(
@@ -121,9 +167,17 @@ const routes = new Hono<AuthContext>()
     }),
     v("query", ActivitySearchQuerySchema),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.recentEvents(baseId.value, requestAccessScope(c), c.req.valid("query")));
+      return respond(
+        c,
+        projectResult(
+          withResolvedSource(baseId.value, c.req.valid("query"), (query) =>
+            pulseService.query.recentEvents(baseId.value, requestAccessScope(c), query),
+          ),
+          projectPublicRelations,
+        ),
+      );
     },
   )
   .get(
@@ -135,9 +189,17 @@ const routes = new Hono<AuthContext>()
     }),
     v("query", ActivitySearchQuerySchema),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.currentStates(baseId.value, requestAccessScope(c), c.req.valid("query")));
+      return respond(
+        c,
+        projectResult(
+          withResolvedSource(baseId.value, c.req.valid("query"), (query) =>
+            pulseService.query.currentStates(baseId.value, requestAccessScope(c), query),
+          ),
+          projectPublicRelations,
+        ),
+      );
     },
   )
   .get(
@@ -149,9 +211,17 @@ const routes = new Hono<AuthContext>()
     }),
     v("query", MetricSeriesQuerySchema),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
-      return respond(c, pulseService.query.series(baseId.value, requestAccessScope(c), c.req.valid("query")));
+      return respond(
+        c,
+        projectResult(
+          withResolvedSource(baseId.value, c.req.valid("query"), (query) =>
+            pulseService.query.series(baseId.value, requestAccessScope(c), query),
+          ),
+          projectPublicRelations,
+        ),
+      );
     },
   )
   .post(
@@ -163,7 +233,7 @@ const routes = new Hono<AuthContext>()
     }),
     v("json", IngestBatchSchema),
     async (c) => {
-      const baseId = requireUuidParam(c.req.param("baseId"), "base ID");
+      const baseId = await requirePublicIdParam(c.req.param("baseId"), "base ID", "bases");
       if (!baseId.ok) return respond(c, baseId.result);
       const gate = await pulseService.base.access.require(baseId.value, requestAccessScope(c), "write");
       if (!gate.ok) return respond(c, gate);

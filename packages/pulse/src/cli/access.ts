@@ -33,7 +33,7 @@ export const pulseAccessCommands = createAccessCommands({
     );
   },
   examples: {
-    list: ['cld pulse access list "Ops telemetry"', "cld pulse access list --base 810db53e-e756-4db5-9a40-9091f04a0abd"],
+    list: ['cld pulse access list "Ops telemetry"', "cld pulse access list --base Base01"],
     grant: [
       'cld pulse access grant "Ops telemetry" --user valentin.kolb --permission read',
       'cld pulse access grant "Ops telemetry" --group "Sysadmins" --permission admin',
@@ -41,11 +41,11 @@ export const pulseAccessCommands = createAccessCommands({
     ],
     set: [
       'cld pulse access set "Ops telemetry" --group "Sysadmins" --permission write',
-      "cld pulse access set --base 810db53e-e756-4db5-9a40-9091f04a0abd --access-id 00000000-0000-4000-8000-000000000000 --permission admin",
+      "cld pulse access set --base Base01 --access-id 00000000-0000-4000-8000-000000000000 --permission admin",
     ],
     revoke: [
       'cld pulse access revoke "Ops telemetry" --user valentin.kolb --yes',
-      "cld pulse access revoke --base 810db53e-e756-4db5-9a40-9091f04a0abd --access-id 00000000-0000-4000-8000-000000000000 --yes",
+      "cld pulse access revoke --base Base01 --access-id 00000000-0000-4000-8000-000000000000 --yes",
     ],
     searchPrincipals: [
       "cld pulse access search-principals val --kind user,group",

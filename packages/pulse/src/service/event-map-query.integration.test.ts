@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import type { EventQuery } from "../contracts";
+import { newShortId } from "../lib/short-id";
 import { queryEventMapData } from "./event-map-query";
 
 const runDbSmoke = process.env.PULSE_EVENT_MAP_DB_TEST === "1";
@@ -15,7 +16,7 @@ beforeAll(async () => {
 describe("Pulse event map Postgres smoke", () => {
   postgresTest("aggregates valid event coordinates without exposing sensitive fields", async () => {
     const baseId = crypto.randomUUID();
-    await sql`INSERT INTO pulse.bases (id, name) VALUES (${baseId}::uuid, 'Event map smoke')`;
+    await sql`INSERT INTO pulse.bases (id, short_id, name) VALUES (${baseId}::uuid, ${newShortId()}, 'Event map smoke')`;
     try {
       const longCity = "M".repeat(300);
       const events = [

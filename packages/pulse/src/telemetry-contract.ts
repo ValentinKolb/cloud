@@ -11,6 +11,12 @@ export const PULSE_EVENT_SENSITIVE_MAX_DEPTH = 4;
 export const PULSE_EVENT_PAYLOAD_MAX_BYTES = 64 * 1024;
 export const PULSE_EVENT_PAYLOAD_MAX_DEPTH = 8;
 export const PULSE_EXTERNAL_INGEST_MAX_BYTES = 5 * 1024 * 1024;
+export const PULSE_RESOURCE_KEY_MAX_LENGTH = 505;
+
+export const validateResourceIdentity = (type: string, id: string): string | null =>
+  `${type.trim() || "resource"}:${id}`.length > PULSE_RESOURCE_KEY_MAX_LENGTH
+    ? `Resource key cannot exceed ${PULSE_RESOURCE_KEY_MAX_LENGTH} characters`
+    : null;
 
 export const jsonBytes = (value: unknown): number | null => {
   try {

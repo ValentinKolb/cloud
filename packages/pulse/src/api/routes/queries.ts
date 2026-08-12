@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { pulseService } from "../../service";
+import { projectPublicRelations } from "../../service/public-resources";
 import {
   CompileTextQuerySchema,
   EventMapQueryTextSchema,
@@ -12,7 +13,14 @@ import {
   QueryCompileResultSchema,
   QueryTextSchema,
 } from "../schemas";
-import { requestAccessScope } from "../shared";
+import { projectResult, requestAccessScope, requirePublicIdParam, resolveSourceInput } from "../shared";
+
+const resolveQueryInput = async <T extends { baseId: string }>(input: T) => {
+  const base = await requirePublicIdParam(input.baseId, "base ID", "bases");
+  if (!base.ok) return base;
+  const source = await resolveSourceInput(base.value, input);
+  return source.ok ? { ok: true as const, value: { ...source.data, baseId: base.value } } : { ok: false as const, result: source };
+};
 
 const routes = new Hono<AuthContext>()
   .post(
@@ -23,7 +31,12 @@ const routes = new Hono<AuthContext>()
       responses: { 200: jsonResponse(EventMapResultSchema, "Map series") },
     }),
     v("json", EventMapQueryTextSchema),
-    async (c) => respond(c, pulseService.query.eventMapText({ ...c.req.valid("json"), user: requestAccessScope(c) })),
+    async (c) => {
+      const input = await resolveQueryInput(c.req.valid("json"));
+      return input.ok
+        ? respond(c, pulseService.query.eventMapText({ ...input.value, user: requestAccessScope(c) }))
+        : respond(c, input.result);
+    },
   )
   .post(
     "/query/metric",
@@ -33,7 +46,12 @@ const routes = new Hono<AuthContext>()
       responses: { 200: jsonResponse(z.array(z.object({ bucket: z.string(), value: z.number().nullable() })), "Query points") },
     }),
     v("json", MetricQuerySchema),
-    async (c) => respond(c, pulseService.query.metric({ kind: "metric", ...c.req.valid("json") }, requestAccessScope(c))),
+    async (c) => {
+      const input = await resolveQueryInput(c.req.valid("json"));
+      return input.ok
+        ? respond(c, pulseService.query.metric({ kind: "metric", ...input.value }, requestAccessScope(c)))
+        : respond(c, input.result);
+    },
   )
   .post(
     "/query/metric-text",
@@ -43,7 +61,12 @@ const routes = new Hono<AuthContext>()
       responses: { 200: jsonResponse(MetricQueryResultSchema, "Compiled query and results") },
     }),
     v("json", QueryTextSchema),
-    async (c) => respond(c, pulseService.query.metricText({ ...c.req.valid("json"), user: requestAccessScope(c) })),
+    async (c) => {
+      const input = await resolveQueryInput(c.req.valid("json"));
+      return input.ok
+        ? respond(c, projectResult(pulseService.query.metricText({ ...input.value, user: requestAccessScope(c) }), projectPublicRelations))
+        : respond(c, input.result);
+    },
   )
   .post(
     "/query/compile-text",
@@ -53,7 +76,12 @@ const routes = new Hono<AuthContext>()
       responses: { 200: jsonResponse(QueryCompileResultSchema, "Query diagnostics") },
     }),
     v("json", CompileTextQuerySchema),
-    async (c) => respond(c, pulseService.query.compileText({ ...c.req.valid("json"), user: requestAccessScope(c) })),
+    async (c) => {
+      const input = await resolveQueryInput(c.req.valid("json"));
+      return input.ok
+        ? respond(c, projectResult(pulseService.query.compileText({ ...input.value, user: requestAccessScope(c) }), projectPublicRelations))
+        : respond(c, input.result);
+    },
   );
 
 export default routes;

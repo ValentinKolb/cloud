@@ -1,5 +1,5 @@
-import { logger, trace } from "@valentinkolb/cloud/services";
 import { job } from "@k2b/sync";
+import { logger, trace } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 
 const BASE_DELETE_BATCH_SIZE = 50_000;
@@ -9,6 +9,11 @@ type BaseDeletionBatch = {
   phase: string;
   deletedRows: number;
   done: boolean;
+};
+
+type BaseJobInput = {
+  baseId: string;
+  publicBaseId: string;
 };
 
 const recordBaseDeletionProgress = async (params: {
@@ -440,14 +445,14 @@ export const purgeBaseDataClearBatch = async (baseId: string): Promise<BaseDelet
   return { phase: "completed", deletedRows: 0, done: true };
 };
 
-const baseDeletionJob = job<{ baseId: string }, BaseDeletionBatch>({
+const baseDeletionJob = job<BaseJobInput, BaseDeletionBatch>({
   id: "pulse:base-delete",
   defaults: { leaseMs: 2 * 60_000 },
-  trace: trace.fromSyncJob<{ baseId: string }, BaseDeletionBatch>({
+  trace: trace.fromSyncJob<BaseJobInput, BaseDeletionBatch>({
     name: "Pulse base deletion",
     source: "pulse:base-delete",
     appId: "pulse",
-    attributes: (event) => ("input" in event && event.input ? { "cloud.pulse.base_id": event.input.baseId } : {}),
+    attributes: (event) => ("input" in event && event.input ? { "cloud.pulse.base_id": event.input.publicBaseId } : {}),
     summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
   }),
   process: async ({ ctx }) => purgeBaseDeletionBatch(ctx.input.baseId),
@@ -470,21 +475,26 @@ const baseDeletionJob = job<{ baseId: string }, BaseDeletionBatch>({
         WHERE id = ${ctx.input.baseId}::uuid
       `;
       if (!failed) ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 5 * 60_000 }) });
-      else log.error("Pulse base deletion exhausted retries", { baseId: ctx.input.baseId, error: message, failureCount: ctx.failureCount });
+      else
+        log.error("Pulse base deletion exhausted retries", {
+          baseId: ctx.input.publicBaseId,
+          error: message,
+          failureCount: ctx.failureCount,
+        });
       return;
     }
     if (ctx.data && !ctx.data.done) ctx.reschedule({ delayMs: 0 });
   },
 });
 
-const baseDataClearJob = job<{ baseId: string }, BaseDeletionBatch>({
+const baseDataClearJob = job<BaseJobInput, BaseDeletionBatch>({
   id: "pulse:base-data-clear",
   defaults: { leaseMs: 2 * 60_000 },
-  trace: trace.fromSyncJob<{ baseId: string }, BaseDeletionBatch>({
+  trace: trace.fromSyncJob<BaseJobInput, BaseDeletionBatch>({
     name: "Pulse base data clear",
     source: "pulse:base-data-clear",
     appId: "pulse",
-    attributes: (event) => ("input" in event && event.input ? { "cloud.pulse.base_id": event.input.baseId } : {}),
+    attributes: (event) => ("input" in event && event.input ? { "cloud.pulse.base_id": event.input.publicBaseId } : {}),
     summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
   }),
   process: async ({ ctx }) => purgeBaseDataClearBatch(ctx.input.baseId),
@@ -507,47 +517,54 @@ const baseDataClearJob = job<{ baseId: string }, BaseDeletionBatch>({
         WHERE id = ${ctx.input.baseId}::uuid
       `;
       if (!failed) ctx.reschedule({ delayMs: ctx.expBackoff({ baseMs: 5_000, maxMs: 5 * 60_000 }) });
-      else log.error("Pulse data clear exhausted retries", { baseId: ctx.input.baseId, error: message, failureCount: ctx.failureCount });
+      else
+        log.error("Pulse data clear exhausted retries", {
+          baseId: ctx.input.publicBaseId,
+          error: message,
+          failureCount: ctx.failureCount,
+        });
       return;
     }
     if (ctx.data && !ctx.data.done) ctx.reschedule({ delayMs: 0 });
   },
 });
 
-export const submitBaseDeletionJob = async (baseId: string): Promise<void> => {
+export const submitBaseDeletionJob = async (baseId: string, publicBaseId: string): Promise<void> => {
   await baseDeletionJob.submit({
     key: `base:${baseId}`,
-    input: { baseId },
+    input: { baseId, publicBaseId },
   });
 };
 
-export const submitBaseDataClearJob = async (baseId: string): Promise<void> => {
+export const submitBaseDataClearJob = async (baseId: string, publicBaseId: string): Promise<void> => {
   await baseDataClearJob.submit({
     key: `base:${baseId}`,
-    input: { baseId },
+    input: { baseId, publicBaseId },
   });
 };
 
 export const resumePulseBaseDeletionJobs = async (): Promise<void> => {
-  const rows = await sql<{ base_id: string }[]>`
-    SELECT base_id
-    FROM pulse.base_deletions
-    WHERE status IN ('queued', 'deleting')
-    ORDER BY updated_at ASC
+  const rows = await sql<{ base_id: string; public_base_id: string }[]>`
+    SELECT deletion.base_id, base.short_id AS public_base_id
+    FROM pulse.base_deletions deletion
+    JOIN pulse.bases base ON base.id = deletion.base_id
+    WHERE deletion.status IN ('queued', 'deleting')
+    ORDER BY deletion.updated_at ASC
     LIMIT 100
   `;
-  for (const row of rows) await submitBaseDeletionJob(row.base_id);
+  for (const row of rows) await submitBaseDeletionJob(row.base_id, row.public_base_id);
 };
 
 export const resumePulseBaseDataClearJobs = async (): Promise<void> => {
-  const rows = await sql<{ base_id: string }[]>`
-    SELECT base_id
-    FROM pulse.base_data_clears
-    WHERE status IN ('queued', 'clearing')
-    ORDER BY updated_at ASC
+  const rows = await sql<{ base_id: string; public_base_id: string }[]>`
+    SELECT clear.base_id, base.short_id AS public_base_id
+    FROM pulse.base_data_clears clear
+    JOIN pulse.bases base ON base.id = clear.base_id
+    WHERE clear.status IN ('queued', 'clearing')
+    ORDER BY clear.updated_at ASC
     LIMIT 100
   `;
-  for (const row of rows) await submitBaseDataClearJob(row.base_id);
+  for (const row of rows) await submitBaseDataClearJob(row.base_id, row.public_base_id);
 };
 
 export const stopPulseBaseDeletionJob = (): void => baseDeletionJob.stop();

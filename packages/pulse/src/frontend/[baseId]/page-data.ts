@@ -21,8 +21,19 @@ import type {
   PulseSource,
   PulseSourceScrape,
 } from "../../contracts";
+import { SHORT_ID_REGEX } from "../../lib/short-id";
 import { pulseService } from "../../service";
 import type { UserScope } from "../../service/access-control";
+import {
+  projectBases,
+  projectDashboards,
+  projectPublicRelations,
+  projectSavedQueries,
+  projectSources,
+  resolveBasePublicId,
+  resolvePublicId,
+} from "../../service/public-resources";
+import type { DashboardTextQuery } from "../../service/query-management";
 import { metricWidgetQueryText } from "../workspace/dashboard-runtime";
 import {
   dashboardEventsWidgets,
@@ -36,6 +47,7 @@ import { DASHBOARD_EDITOR_PANES_KEY, QUERY_EXPLORER_PANES_KEY, readPulsePanesSta
 import {
   readActivityQueryState,
   readDashboardControlQueryState,
+  readResourceQueryState,
   readWorkspacePathState,
   type WorkspaceRouteState,
 } from "../workspace/routes";
@@ -252,55 +264,45 @@ const loadDashboardWidgetData = async (
     };
   }
 
-  const [metricWidgetPointEntries, eventEntries, stateEntries, mapEntries] = await Promise.all([
-    Promise.all(
-      dashboardMetricWidgets(selectedDashboard.config).map(async (widget): Promise<[string, MetricQueryPoint[], boolean]> => {
-        const result = await pulseService.query.metricText({
-          baseId,
-          query: resolveDashboardQueryText(metricWidgetQueryText(widget), selectedDashboard.config, controlValues),
-          user,
-        });
-        return [widget.id, result.ok ? result.data.points : [], result.ok];
-      }),
-    ),
-    Promise.all(
-      dashboardEventsWidgets(selectedDashboard.config).map(async (widget): Promise<[string, PulseRecordedEvent[], boolean]> => {
-        const result = await pulseService.query.metricText({
-          baseId,
-          query: widgetQueryText(widget, selectedDashboard, controlValues),
-          user,
-        });
-        return [widget.id, result.ok ? result.data.events : [], result.ok];
-      }),
-    ),
-    Promise.all(
-      dashboardStatesWidgets(selectedDashboard.config).map(async (widget): Promise<[string, PulseCurrentState[], boolean]> => {
-        const result = await pulseService.query.metricText({
-          baseId,
-          query: widgetQueryText(widget, selectedDashboard, controlValues),
-          user,
-        });
-        return [widget.id, result.ok ? result.data.states : [], result.ok];
-      }),
-    ),
-    Promise.all(
-      dashboardMapWidgets(selectedDashboard.config).map(
-        async (widget: PulseDashboardMapWidget): Promise<[string, PulseMapSeries[], boolean]> => {
-          const result = await pulseService.query.eventMapText({
-            baseId,
-            query: resolveDashboardQueryText(widget.queryText, selectedDashboard.config, controlValues),
-            latitude: widget.latitude,
-            longitude: widget.longitude,
-            label: widget.label,
-            series: widget.series,
-            size: widget.size,
-            user,
-          });
-          return [widget.id, result.ok ? result.data : [], result.ok];
-        },
-      ),
-    ),
-  ]);
+  const metricWidgets = dashboardMetricWidgets(selectedDashboard.config);
+  const eventWidgets = dashboardEventsWidgets(selectedDashboard.config);
+  const stateWidgets = dashboardStatesWidgets(selectedDashboard.config);
+  const mapWidgets = dashboardMapWidgets(selectedDashboard.config);
+  const requests: DashboardTextQuery[] = [
+    ...metricWidgets.map((widget) => ({
+      kind: "query" as const,
+      query: resolveDashboardQueryText(metricWidgetQueryText(widget), selectedDashboard.config, controlValues),
+    })),
+    ...eventWidgets.map((widget) => ({ kind: "query" as const, query: widgetQueryText(widget, selectedDashboard, controlValues) })),
+    ...stateWidgets.map((widget) => ({ kind: "query" as const, query: widgetQueryText(widget, selectedDashboard, controlValues) })),
+    ...mapWidgets.map((widget: PulseDashboardMapWidget) => ({
+      kind: "map" as const,
+      query: resolveDashboardQueryText(widget.queryText, selectedDashboard.config, controlValues),
+      latitude: widget.latitude,
+      longitude: widget.longitude,
+      label: widget.label,
+      series: widget.series,
+      size: widget.size,
+    })),
+  ];
+  const results = await pulseService.query.dashboardTexts({ baseId, requests, user });
+  let offset = 0;
+  const metricWidgetPointEntries = metricWidgets.map((widget): [string, MetricQueryPoint[], boolean] => {
+    const result = results[offset++];
+    return [widget.id, result?.ok && result.data.kind === "query" ? result.data.data.points : [], result?.ok === true];
+  });
+  const eventEntries = eventWidgets.map((widget): [string, PulseRecordedEvent[], boolean] => {
+    const result = results[offset++];
+    return [widget.id, result?.ok && result.data.kind === "query" ? result.data.data.events : [], result?.ok === true];
+  });
+  const stateEntries = stateWidgets.map((widget): [string, PulseCurrentState[], boolean] => {
+    const result = results[offset++];
+    return [widget.id, result?.ok && result.data.kind === "query" ? result.data.data.states : [], result?.ok === true];
+  });
+  const mapEntries = mapWidgets.map((widget): [string, PulseMapSeries[], boolean] => {
+    const result = results[offset++];
+    return [widget.id, result?.ok && result.data.kind === "map" ? result.data.data : [], result?.ok === true];
+  });
 
   return {
     initialMetricWidgetPoints: Object.fromEntries(metricWidgetPointEntries.map(([id, data]) => [id, data])),
@@ -313,6 +315,33 @@ const loadDashboardWidgetData = async (
 
 const exactResourceMatch = (resources: PulseResourceSummary[], ref: string): PulseResourceSummary | null =>
   resources.find((resource) => resource.key === ref || resource.id === ref || resource.label === ref) ?? resources[0] ?? null;
+
+const projectSourceKeyed = <T>(value: Record<string, T[]> | undefined, sourceIds: Map<string, string>): Record<string, T[]> | undefined =>
+  value ? Object.fromEntries(Object.entries(value).map(([sourceId, rows]) => [sourceIds.get(sourceId) ?? sourceId, rows])) : undefined;
+
+const projectWorkspaceProps = async (
+  props: Partial<PulseWorkspaceProps> & Pick<PulseWorkspaceProps, "initialQueryCoverage">,
+): Promise<Partial<PulseWorkspaceProps> & Pick<PulseWorkspaceProps, "initialQueryCoverage">> => {
+  const internalSources = props.initialSources ?? [];
+  const [sources, dashboards, savedQueries] = await Promise.all([
+    projectSources(internalSources),
+    projectDashboards(props.initialDashboards ?? []),
+    projectSavedQueries(props.initialSavedQueries ?? []),
+  ]);
+  const sourceIds = new Map(internalSources.map((source, index) => [source.id, sources[index]!.id]));
+  return projectPublicRelations({
+    ...props,
+    initialSources: sources,
+    initialSourceScrapes: projectSourceKeyed(props.initialSourceScrapes, sourceIds),
+    initialSourceApiKeys: props.initialSourceApiKeys
+      ? Object.fromEntries(
+          Object.entries(props.initialSourceApiKeys).map(([sourceId, rows]) => [sourceIds.get(sourceId) ?? sourceId, rows]),
+        )
+      : undefined,
+    initialDashboards: dashboards,
+    initialSavedQueries: savedQueries,
+  });
+};
 
 const loadResourceInitialData = async (
   baseId: string,
@@ -379,7 +408,33 @@ const loadResourceInitialData = async (
 export async function loadPulseWorkspacePageData<T extends AuthContext>(c: PulseWorkspacePageContext<T>): Promise<PulseWorkspacePageData> {
   const user = expectUserBackedActor(c);
   const url = new URL(c.req.raw.url);
-  const baseId = c.req.param("baseId") ?? "";
+  const publicBaseId = c.req.param("baseId") ?? "";
+  if (!SHORT_ID_REGEX.test(publicBaseId)) return { kind: "not_found", errorMessage: "Pulse base not found" };
+  const baseId = await resolvePublicId("bases", publicBaseId);
+  if (!baseId) return { kind: "not_found", errorMessage: "Pulse base not found" };
+  const publicRouteState = readWorkspacePathState(url.pathname, publicBaseId);
+  const routeState: WorkspaceRouteState = { ...publicRouteState };
+  if (routeState.sourceId) {
+    const sourceId = await resolveBasePublicId("sources", baseId, routeState.sourceId);
+    if (!sourceId) return { kind: "not_found", errorMessage: "Pulse source not found" };
+    routeState.sourceId = sourceId;
+  }
+  if (routeState.dashboardId) {
+    const dashboardId = await resolveBasePublicId("dashboards", baseId, routeState.dashboardId);
+    if (!dashboardId) return { kind: "not_found", errorMessage: "Pulse dashboard not found" };
+    routeState.dashboardId = dashboardId;
+  }
+  const publicResourceQuery = readResourceQueryState(url.search);
+  const internalSearchParams = new URLSearchParams(url.searchParams);
+  const sourceFilter = internalSearchParams.get("source")?.trim();
+  if (sourceFilter) {
+    const sourceId = await resolveBasePublicId("sources", baseId, sourceFilter);
+    if (sourceId) internalSearchParams.set("source", sourceId);
+    else {
+      internalSearchParams.delete("source");
+      publicResourceQuery.sourceId = "";
+    }
+  }
   const [basesResult, baseResult, capabilitiesResult] = await Promise.all([
     pulseService.base.list(user),
     pulseService.base.get(baseId, user),
@@ -391,7 +446,6 @@ export async function loadPulseWorkspacePageData<T extends AuthContext>(c: Pulse
   }
 
   const base = baseResult.data;
-  const routeState = readWorkspacePathState(url.pathname, base.id);
   const activityQuery = readActivityQueryState(url.search);
   const dashboardControlValues = readDashboardControlQueryState(url.search);
   const [appUrl, workspaceData] = await Promise.all([
@@ -402,28 +456,31 @@ export async function loadPulseWorkspacePageData<T extends AuthContext>(c: Pulse
       routeState,
       activityQuery,
       dashboardControlValues,
-      searchParams: url.searchParams,
+      searchParams: internalSearchParams,
     }),
   ]);
 
+  const projectedBases = basesResult.ok ? await projectBases(basesResult.data) : [];
+  const projected = await projectWorkspaceProps(workspaceData);
   return {
     kind: "ok",
     baseName: base.name,
     workspaceProps: {
-      initialBases: dataOr(basesResult, []),
+      initialBases: projectedBases,
       initialCapabilities: dataOr(capabilitiesResult, null),
-      initialBaseId: base.id,
+      initialBaseId: publicBaseId,
       initialPath: url.pathname,
       initialSearch: url.search,
-      initialRouteState: routeState,
+      initialRouteState: publicRouteState,
       initialActivityQuery: activityQuery,
+      initialResourceQuery: publicResourceQuery,
       initialDashboardControlValues: dashboardControlValues,
       initialExplorerPanesValue: readPulsePanesStateCookie(c.req.header("Cookie"), QUERY_EXPLORER_PANES_KEY),
       initialDashboardEditorPanesValue: readPulsePanesStateCookie(c.req.header("Cookie"), DASHBOARD_EDITOR_PANES_KEY),
       initialDateConfig: getDateConfig(c),
       initialNow: new Date().toISOString(),
       initialOrigin: publicOrigin(appUrl, url.origin),
-      ...workspaceData,
+      ...projected,
       initialQueryCoverage: { ...workspaceData.initialQueryCoverage, bases: basesResult.ok },
     },
   };

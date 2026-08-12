@@ -3,6 +3,7 @@ import { err, fail, ok, type PermissionLevel, type Result } from "@valentinkolb/
 import { encryptSecret, serviceAccountCredentials, serviceAccounts } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { PulseSource, PulseSourceScrape, SourceKind } from "../contracts";
+import { withShortId } from "../lib/short-id";
 import { type AccessScope, requireBaseAccess, requireBaseActive, type UserScope } from "./access-control";
 import { iso, isoNullable } from "./telemetry-values";
 
@@ -12,6 +13,7 @@ export const PULSE_INGEST_SCOPE = "pulse:ingest";
 
 type SourceRow = {
   id: string;
+  short_id: string;
   base_id: string;
   kind: SourceKind;
   name: string;
@@ -109,7 +111,9 @@ const sourceApiKeyPermission = (scopes: string[]): PermissionLevel => {
   return "none";
 };
 
-const ensureHttpIngestSource = async (params: { baseId: string; sourceId: string }): Promise<Result<PulseSource>> => {
+type HttpIngestSource = { source: PulseSource; shortId: string };
+
+const ensureHttpIngestSource = async (params: { baseId: string; sourceId: string }): Promise<Result<HttpIngestSource>> => {
   const [source] = await sql<SourceRow[]>`
     SELECT *
     FROM pulse.sources
@@ -117,7 +121,7 @@ const ensureHttpIngestSource = async (params: { baseId: string; sourceId: string
       AND base_id = ${params.baseId}::uuid
       AND kind = 'http_ingest'::pulse.source_kind
   `;
-  return source ? ok(mapSource(source)) : fail(err.notFound("Ingest source"));
+  return source ? ok({ source: mapSource(source), shortId: source.short_id }) : fail(err.notFound("Ingest source"));
 };
 
 export const listSources = async (
@@ -186,8 +190,10 @@ export const createSource = async (params: {
   const endpointUrl = normalizeEndpointUrl(params.endpointUrl);
   if (params.kind === "metrics" && !endpointUrl) return fail(err.badInput("A valid metrics endpoint URL is required"));
 
-  const [row] = await sql<SourceRow[]>`
+  const row = await withShortId("source", async (shortId) => {
+    const [created] = await sql<SourceRow[]>`
     INSERT INTO pulse.sources (
+      short_id,
       base_id,
       kind,
       name,
@@ -196,6 +202,7 @@ export const createSource = async (params: {
       scrape_interval_seconds
     )
     VALUES (
+      ${shortId},
       ${params.baseId}::uuid,
       ${params.kind}::pulse.source_kind,
       ${params.name.trim()},
@@ -205,6 +212,8 @@ export const createSource = async (params: {
     )
     RETURNING *
   `;
+    return created;
+  });
   if (!row) return fail(err.internal("Failed to create Pulse source"));
   return ok(mapSource(row));
 };
@@ -214,12 +223,25 @@ export const removeSource = async (params: { baseId: string; sourceId: string; u
   if (!access.ok) return fail(access.error);
   const active = await requireBaseActive(params.baseId);
   if (!active.ok) return fail(active.error);
-  const result = await sql`
-    DELETE FROM pulse.sources
-    WHERE id = ${params.sourceId}::uuid
-      AND base_id = ${params.baseId}::uuid
-  `;
-  if ((result.count ?? 0) === 0) return fail(err.notFound("Pulse source"));
+  const result = await sql.begin(async (tx) => {
+    await tx`
+      DELETE FROM auth.service_accounts account
+      USING pulse.sources source
+      WHERE source.id = ${params.sourceId}::uuid
+        AND source.base_id = ${params.baseId}::uuid
+        AND account.kind = 'resource_bound'
+        AND account.app_id = ${PULSE_APP_ID}
+        AND account.resource_type = ${PULSE_SOURCE_RESOURCE_TYPE}
+        AND account.resource_id = source.short_id
+    `;
+    const deleted = await tx`
+      DELETE FROM pulse.sources
+      WHERE id = ${params.sourceId}::uuid
+        AND base_id = ${params.baseId}::uuid
+    `;
+    return deleted.count ?? 0;
+  });
+  if (result === 0) return fail(err.notFound("Pulse source"));
   return ok();
 };
 
@@ -296,7 +318,7 @@ export const listSourceApiKeys = async (params: {
       credentialStatus: "active",
       appId: PULSE_APP_ID,
       resourceType: PULSE_SOURCE_RESOURCE_TYPE,
-      resourceId: params.sourceId,
+      resourceId: source.data.shortId,
     },
   });
 
@@ -327,10 +349,10 @@ export const createSourceApiKey = async (params: {
   if (params.permission !== "write") return fail(err.badInput("Source API keys can only use ingest permission"));
 
   const serviceAccount = await serviceAccounts.getOrCreateResourceBound({
-    name: `${source.data.name} ingest API keys`,
+    name: `${source.data.source.name} ingest API keys`,
     appId: PULSE_APP_ID,
     resourceType: PULSE_SOURCE_RESOURCE_TYPE,
-    resourceId: params.sourceId,
+    resourceId: source.data.shortId,
     createdBy: params.user.id,
   });
   if (!serviceAccount.ok) return fail(serviceAccount.error);
@@ -384,7 +406,7 @@ export const resolveIngestSourceForServiceAccount = async (
     SELECT s.id, s.base_id
     FROM pulse.sources s
     JOIN pulse.bases b ON b.id = s.base_id
-    WHERE s.id = ${serviceAccount.resourceId}::uuid
+    WHERE s.short_id = ${serviceAccount.resourceId}
       AND s.kind = 'http_ingest'::pulse.source_kind
       AND s.enabled = TRUE
       AND b.deletion_started_at IS NULL

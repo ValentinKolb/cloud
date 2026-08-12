@@ -1,5 +1,5 @@
-import { logger, trace } from "@valentinkolb/cloud/services";
 import { job, scheduler } from "@k2b/sync";
+import { logger, trace } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import {
   resumePulseBaseDataClearJobs,
@@ -13,7 +13,9 @@ const log = logger("pulse:runtime");
 
 type ScrapeInput = {
   baseId: string;
+  publicBaseId: string;
   sourceId: string;
+  publicSourceId: string;
 };
 
 const RETENTION_DELETE_BATCH_SIZE = 50_000;
@@ -66,8 +68,8 @@ const scrapeJob = job<ScrapeInput, { metrics: number; events: number; states: nu
     attributes: (event) =>
       "input" in event && event.input
         ? {
-            "cloud.pulse.base_id": event.input.baseId,
-            "cloud.pulse.source_id": event.input.sourceId,
+            "cloud.pulse.base_id": event.input.publicBaseId,
+            "cloud.pulse.source_id": event.input.publicSourceId,
           }
         : {},
     summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
@@ -84,8 +86,8 @@ const scrapeJob = job<ScrapeInput, { metrics: number; events: number; states: nu
     }
     if (ctx.error) {
       log.error("Pulse metrics scrape exhausted retries", {
-        baseId: ctx.input.baseId,
-        sourceId: ctx.input.sourceId,
+        baseId: ctx.input.publicBaseId,
+        sourceId: ctx.input.publicSourceId,
         failureCount: ctx.failureCount,
         error: ctx.error.message,
       });
@@ -331,8 +333,8 @@ const pulseScheduler = scheduler({ id: "pulse" });
 let started = false;
 
 const submitDueScrapes = async (slotTs: number): Promise<{ submitted: number }> => {
-  const rows = await sql<{ id: string; base_id: string }[]>`
-    SELECT s.id, s.base_id
+  const rows = await sql<{ id: string; short_id: string; base_id: string; base_short_id: string }[]>`
+    SELECT s.id, s.short_id, s.base_id, b.short_id AS base_short_id
     FROM pulse.sources s
     JOIN pulse.bases b ON b.id = s.base_id
     WHERE s.kind = 'metrics'::pulse.source_kind
@@ -363,7 +365,12 @@ const submitDueScrapes = async (slotTs: number): Promise<{ submitted: number }> 
   for (const row of rows) {
     await scrapeJob.submit({
       key: `source:${row.id}:slot:${slotTs}`,
-      input: { baseId: row.base_id, sourceId: row.id },
+      input: {
+        baseId: row.base_id,
+        publicBaseId: row.base_short_id,
+        sourceId: row.id,
+        publicSourceId: row.short_id,
+      },
     });
   }
 

@@ -10,7 +10,7 @@ export default ssr<AuthContext>(async (c) => {
 
   if (data.kind === "not_found") {
     return () => (
-      <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Pulse", href: "/app/pulse" }, { title: "Base not found" }]}>
+      <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Pulse", href: "/app/pulse" }, { title: "Not found" }]}>
         <div class="mx-auto flex max-w-4xl flex-col items-center gap-4 py-12">
           <p class="flex items-center gap-1.5 text-xs text-dimmed">
             <i class="ti ti-alert-circle text-sm" />

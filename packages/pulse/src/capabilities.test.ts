@@ -10,7 +10,14 @@ import {
 } from "@valentinkolb/cloud/contracts";
 import { sql } from "bun";
 import { pulseCapabilities } from "./capabilities";
-import { BaseListDataSchema } from "./capability-contracts";
+import {
+  BaseListDataSchema,
+  BaseReadInputSchema,
+  ResourceReadInputSchema,
+  SavedQueryReadInputSchema,
+  SourceReadInputSchema,
+} from "./capability-contracts";
+import { newShortId } from "./lib/short-id";
 
 const userContext = (user: User): CapabilityExecutionContext => ({
   actor: { kind: "user", user },
@@ -94,6 +101,11 @@ describe("Pulse capabilities", () => {
     expect(pulseCapabilities.queries?.["base.search"]?.data).toBe(UniversalSearchDataSchema);
     expect(pulseCapabilities.queries?.["resource.search"]?.input).toBe(UniversalSearchInputSchema);
     expect(pulseCapabilities.queries?.["resource.search"]?.data).toBe(UniversalSearchDataSchema);
+    const uuid = crypto.randomUUID();
+    expect(BaseReadInputSchema.safeParse({ id: uuid }).success).toBe(false);
+    expect(SourceReadInputSchema.safeParse({ id: uuid }).success).toBe(false);
+    expect(SavedQueryReadInputSchema.safeParse({ id: uuid }).success).toBe(false);
+    expect(ResourceReadInputSchema.safeParse({ id: uuid }).success).toBe(false);
     expect(
       pulseCapabilities.queries?.["query.execute"]?.input.safeParse({ baseId: crypto.randomUUID(), query: "states *", extra: true })
         .success,
@@ -104,7 +116,7 @@ describe("Pulse capabilities", () => {
     expect(
       BaseListDataSchema.safeParse([
         {
-          id: crypto.randomUUID(),
+          id: "Base01",
           name: "Telemetry",
           description: null,
           createdAt: "2026-08-04T00:00:00.000Z",
@@ -122,6 +134,9 @@ describe("Pulse capabilities", () => {
     const metricId = crypto.randomUUID();
     const seriesId = crypto.randomUUID();
     const savedQueryId = crypto.randomUUID();
+    const baseShortId = newShortId();
+    const sourceShortId = newShortId();
+    const savedQueryShortId = newShortId();
     const resourceKey = `service:agent-${suffix}`;
     const [userRow] = await sql<{ id: string }[]>`
       INSERT INTO auth.users (uid, provider, profile, display_name, mail)
@@ -140,7 +155,7 @@ describe("Pulse capabilities", () => {
     let accessId: string | null = null;
 
     try {
-      await sql`INSERT INTO pulse.bases (id, name, description) VALUES (${baseId}::uuid, 'Agent telemetry', 'Capability fixture')`;
+      await sql`INSERT INTO pulse.bases (id, short_id, name, description) VALUES (${baseId}::uuid, ${baseShortId}, 'Agent telemetry', 'Capability fixture')`;
       const [access] = await sql<{ id: string }[]>`
         INSERT INTO auth.access (user_id, permission) VALUES (${user.id}::uuid, 'admin') RETURNING id
       `;
@@ -148,8 +163,8 @@ describe("Pulse capabilities", () => {
       accessId = access.id;
       await sql`INSERT INTO pulse.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${access.id}::uuid)`;
       await sql`
-        INSERT INTO pulse.sources (id, base_id, kind, name, last_seen_at)
-        VALUES (${sourceId}::uuid, ${baseId}::uuid, 'http_ingest'::pulse.source_kind, 'Agent source', now())
+        INSERT INTO pulse.sources (id, short_id, base_id, kind, name, last_seen_at)
+        VALUES (${sourceId}::uuid, ${sourceShortId}, ${baseId}::uuid, 'http_ingest'::pulse.source_kind, 'Agent source', now())
       `;
       await sql`
         INSERT INTO pulse.metric_defs (id, base_id, name, unit, type)
@@ -211,71 +226,88 @@ describe("Pulse capabilities", () => {
           (${JSON.stringify({ env: "test" })}::jsonb #>> '{}')::jsonb
         )
       `;
-      const query = "metric agent.cpu avg every 1h since 1h";
+      const query = `metric agent.cpu avg every 1h since 1h source ${sourceShortId}`;
       await sql`
-        INSERT INTO pulse.saved_queries (id, base_id, name, description, query, created_by)
-        VALUES (${savedQueryId}::uuid, ${baseId}::uuid, 'Agent CPU', 'Capability fixture', ${query}, ${user.id}::uuid)
+        INSERT INTO pulse.saved_queries (id, short_id, base_id, name, description, query, created_by)
+        VALUES (${savedQueryId}::uuid, ${savedQueryShortId}, ${baseId}::uuid, 'Agent CPU', 'Capability fixture', ${query}, ${user.id}::uuid)
       `;
 
       const bases = await invoke("base.list", { query: "Agent", limit: 25 }, context);
       expect(bases.ok && bases.data.data).toEqual([
         expect.objectContaining({
-          id: baseId,
+          id: baseShortId,
           name: "Agent telemetry",
-          links: [{ rel: "open", href: `/app/pulse/${baseId}` }],
+          links: [{ rel: "open", href: `/app/pulse/${baseShortId}` }],
         }),
       ]);
       const hiddenBases = await invoke("base.list", { limit: 25 }, otherContext);
       expect(hiddenBases.ok && hiddenBases.data.data).toEqual([]);
-      expect((await invoke("base.read", { id: baseId }, context)).ok).toBe(true);
+      const baseRead = await invoke("base.read", { id: baseShortId }, context);
+      expect(baseRead.ok && baseRead.data).toMatchObject({
+        data: { id: baseShortId },
+        refs: [{ type: "pulse.base", id: baseShortId }],
+      });
 
-      const sources = await invoke("source.list", { baseId, limit: 25 }, context);
+      const sources = await invoke("source.list", { baseId: baseShortId, limit: 25 }, context);
       expect(sources.ok && sources.data.data).toEqual([
         expect.objectContaining({
-          id: sourceId,
+          id: sourceShortId,
           name: "Agent source",
-          links: [{ rel: "open", href: `/app/pulse/${baseId}/sources/${sourceId}` }],
+          links: [{ rel: "open", href: `/app/pulse/${baseShortId}/sources/${sourceShortId}` }],
         }),
       ]);
-      expect((await invoke("source.read", { id: sourceId }, context)).ok).toBe(true);
+      const sourceRead = await invoke("source.read", { id: sourceShortId }, context);
+      expect(sourceRead.ok && sourceRead.data).toMatchObject({
+        data: { id: sourceShortId, baseId: baseShortId },
+        refs: [{ type: "pulse.source", id: sourceShortId }],
+      });
       const resources = await invoke("resource.search", { query: "Agent service", tags: [], limit: 10 }, context);
       expect(resources.ok && resources.data.data).toEqual([
-        expect.objectContaining({ title: "Agent service", metadata: expect.arrayContaining([{ label: "Base ID", value: baseId }]) }),
+        expect.objectContaining({
+          ref: { type: "pulse.resource", id: `${baseShortId}/${resourceKey}` },
+          title: "Agent service",
+          metadata: expect.arrayContaining([{ label: "Base ID", value: baseShortId }]),
+        }),
       ]);
-      expect((await invoke("resource.read", { id: resourceRefId }, context)).ok).toBe(true);
-      const metrics = await invoke("metric.search", { baseId, query: "agent", limit: 25 }, context);
+      const resourceRead = await invoke("resource.read", { id: `${baseShortId}/${resourceKey}` }, context);
+      expect(resourceRead.ok && resourceRead.data).toMatchObject({
+        data: { id: `${baseShortId}/${resourceKey}`, baseId: baseShortId, key: resourceKey },
+        refs: [{ type: "pulse.resource", id: `${baseShortId}/${resourceKey}` }],
+      });
+      const metrics = await invoke("metric.search", { baseId: baseShortId, query: "agent", limit: 25 }, context);
       expect(metrics.ok && metrics.data.data).toEqual([
         expect.objectContaining({
           name: "agent.cpu",
           seriesCount: 1,
-          links: [{ rel: "open", href: `/app/pulse/${baseId}/metrics/agent.cpu` }],
+          links: [{ rel: "open", href: `/app/pulse/${baseShortId}/metrics/agent.cpu` }],
         }),
       ]);
-      const fields = await invoke("field.search", { baseId, query: "env", role: "dimension", limit: 25 }, context);
+      const fields = await invoke("field.search", { baseId: baseShortId, query: "env", role: "dimension", limit: 25 }, context);
       expect(fields.ok && fields.data.data).toEqual([
         expect.objectContaining({
           signalName: "agent.cpu",
           key: "env",
-          links: [{ rel: "open", href: `/app/pulse/${baseId}/metrics/agent.cpu` }],
+          links: [{ rel: "open", href: `/app/pulse/${baseShortId}/metrics/agent.cpu` }],
         }),
       ]);
 
-      const compiled = await invoke("query.compile", { baseId, query }, context);
+      const compiled = await invoke("query.compile", { baseId: baseShortId, query }, context);
       expect(compiled.ok && compiled.data.data).toMatchObject({ valid: true, kind: "metric" });
-      const executed = await invoke("query.execute", { baseId, query }, context);
+      const executed = await invoke("query.execute", { baseId: baseShortId, query }, context);
       expect(executed.ok && executed.data.data).toMatchObject({ kind: "metric", points: [expect.objectContaining({ value: 42 })] });
-      const tooBroad = await invoke("query.execute", { baseId, query: "metric agent.cpu avg every 1m since 1d" }, context);
+      const tooBroad = await invoke("query.execute", { baseId: baseShortId, query: "metric agent.cpu avg every 1m since 1d" }, context);
       expect(tooBroad.ok).toBe(false);
       if (!tooBroad.ok) expect(tooBroad.error.message).toContain("too many grouped points");
-      const events = await invoke("query.execute", { baseId, query: "events agent.event since 1h limit 1000" }, context);
+      const events = await invoke("query.execute", { baseId: baseShortId, query: "events agent.event since 1h limit 1000" }, context);
       expect(events.ok && events.data.data.events).toHaveLength(100);
       if (events.ok) {
         expect(events.data.data.limitApplied).toBe(100);
         expect(events.data.data.truncated).toBe(true);
+        expect(events.data.data.events[0]?.sourceId).toBe(sourceShortId);
         expect(events.data.data.events[0]).not.toHaveProperty("payload");
         expect(events.data.data.events[0]).not.toHaveProperty("attributes");
       }
-      const largeEvents = await invoke("query.execute", { baseId, query: "events agent.large since 1h limit 100" }, context);
+      const largeEvents = await invoke("query.execute", { baseId: baseShortId, query: "events agent.large since 1h limit 100" }, context);
       expect(largeEvents.ok).toBe(true);
       if (largeEvents.ok) {
         expect(largeEvents.data.data.events.length).toBeGreaterThan(0);
@@ -283,12 +315,16 @@ describe("Pulse capabilities", () => {
         expect(largeEvents.data.data.truncated).toBe(true);
         expect(new TextEncoder().encode(JSON.stringify(largeEvents.data)).byteLength).toBeLessThan(CAPABILITY_MAX_RESULT_BYTES);
       }
-      const nonfinite = await invoke("query.execute", { baseId, query: "events agent.nonfinite since 1h limit 10" }, context);
+      const nonfinite = await invoke("query.execute", { baseId: baseShortId, query: "events agent.nonfinite since 1h limit 10" }, context);
       expect(nonfinite.ok && nonfinite.data.data.events[0]?.value).toBeNull();
-      const saved = await invoke("saved_query.list", { baseId, limit: 25 }, context);
-      expect(saved.ok && saved.data.data).toEqual([expect.objectContaining({ id: savedQueryId, query })]);
-      expect((await invoke("saved_query.read", { id: savedQueryId }, context)).ok).toBe(true);
-      const savedExecution = await invoke("saved_query.execute", { baseId, queryId: savedQueryId }, context);
+      const saved = await invoke("saved_query.list", { baseId: baseShortId, limit: 25 }, context);
+      expect(saved.ok && saved.data.data).toEqual([expect.objectContaining({ id: savedQueryShortId, query })]);
+      const savedRead = await invoke("saved_query.read", { id: savedQueryShortId }, context);
+      expect(savedRead.ok && savedRead.data).toMatchObject({
+        data: { id: savedQueryShortId, baseId: baseShortId },
+        refs: [{ type: "pulse.saved_query", id: savedQueryShortId }],
+      });
+      const savedExecution = await invoke("saved_query.execute", { baseId: baseShortId, queryId: savedQueryShortId }, context);
       expect(savedExecution.ok && savedExecution.data.data).toMatchObject({
         kind: "metric",
         points: [expect.objectContaining({ value: 42 })],

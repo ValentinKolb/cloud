@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { compilePulseQueryText, durationToInterval, tokenizeQueryText } from ".";
 
 const baseId = "00000000-0000-4000-8000-000000000000";
-const sourceId = "11111111-1111-4111-8111-111111111111";
+const sourceId = "Src001";
 
 describe("Pulse query DSL", () => {
   test("tokenizes quoted filters", () => {
