@@ -8,7 +8,7 @@
   <em>Modular Hono+SolidJS framework for building per-app docker services behind a dynamic gateway.</em>
 </p>
 
-The runtime that powers [github.com/ValentinKolb/cloud](https://github.com/ValentinKolb/cloud) — a self-hosted application platform where every feature ships as its own Bun container, registers with a gateway through Redis, and inherits a shared session, UI kit, settings store, search, logging, email, websockets, and admin surface.
+The runtime that powers [github.com/ValentinKolb/cloud](https://github.com/ValentinKolb/cloud) — an application platform that runs on infrastructure you operate, where every feature ships as its own Bun container, registers with a gateway through Redis, and inherits a shared session, UI kit, settings store, search, logging, email, websockets, and admin surface.
 
 ## Install
 

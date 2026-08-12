@@ -1,4 +1,4 @@
-# Infrastructure services – run with: bun run infra
+# Infrastructure services – run with: bun run dev:infra
 services:
   postgres:
     image: postgres:15-alpine

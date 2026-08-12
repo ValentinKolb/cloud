@@ -24,10 +24,14 @@ const p = (s = "") => lines.push(s);
 p(`${color.bold}Dev commands${color.reset}`);
 p("");
 p(`${color.bold}Stack-level${color.reset} (whole compose project)`);
-p(`  ${color.cyan}bun run dev${color.reset}                  start core stack (${coreServices.length} services)`);
-p(`  ${color.cyan}bun run dev:full${color.reset}             start core + ${extraCount} extras (${services.length} services)`);
-p(`  ${color.cyan}bun run dev:down${color.reset}             stop everything`);
-p(`  ${color.cyan}bun run dev:rebuild:all${color.reset}      rebuild the whole stack`);
+p(`  ${color.cyan}bun run dev${color.reset}                  start infra + core stack (${coreServices.length} app services)`);
+p(`  ${color.cyan}bun run dev:full${color.reset}             start infra + ${services.length} app services (${extraCount} extras)`);
+p(`  ${color.cyan}bun run dev:down${color.reset}             stop app stack; keep infrastructure`);
+p(`  ${color.cyan}bun run dev:rebuild:all${color.reset}      rebuild all app services`);
+p("");
+p(`${color.bold}Infrastructure${color.reset}`);
+p(`  ${color.cyan}bun run dev:infra${color.reset}            start Postgres, Valkey, Geo, Filegate, Gotenberg`);
+p(`  ${color.cyan}bun run dev:infra:down${color.reset}       stop development infrastructure`);
 p("");
 p(`${color.bold}Per-app${color.reset} (one or more apps, space-separated)`);
 p(`  ${color.cyan}bun run dev:start <app...>${color.reset}   start app(s) — joins running stack`);
@@ -37,6 +41,12 @@ p(`  ${color.cyan}bun run dev:logs <app>${color.reset}       follow one app's lo
 p(`  ${color.cyan}bun run dev:status${color.reset}           list all apps + state`);
 p(`  ${color.cyan}bun run dev:status <app>${color.reset}     detail + recent logs for one app`);
 p(`  ${color.cyan}bun run dev:help${color.reset}             this catalog`);
+p("");
+p(`${color.bold}Checkout tools${color.reset}`);
+p(`  ${color.cyan}bun run dev:cld -- <args>${color.reset}   run checkout CLI against local Cloud`);
+p(`  ${color.cyan}bun run dev:fibel${color.reset}            start isolated documentation`);
+p(`  ${color.cyan}bun run dev:fibel:logs${color.reset}       follow documentation logs`);
+p(`  ${color.cyan}bun run dev:fibel:down${color.reset}       stop isolated documentation`);
 p("");
 p(`${color.bold}Addressable services${color.reset} (apps + gateway)`);
 // Wrap at ~70 chars for readability without breaking grep-ability.
@@ -55,5 +65,6 @@ p(`  bun run dev:start notebooks`);
 p(`  bun run dev:rebuild notebooks files grids   # parallel`);
 p(`  bun run dev:logs notebooks`);
 p(`  bun run dev:status notebooks`);
+p(`  bun run dev:cld -- apps list --json`);
 
 console.log(lines.join("\n"));

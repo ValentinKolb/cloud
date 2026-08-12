@@ -5,7 +5,7 @@
 <h1 align="center">Cloud</h1>
 
 <p align="center">
-  <em>Self-hosted application platform.</em>
+  <em>Open-source application platform for your infrastructure.</em>
 </p>
 
 Cloud bundles a set of apps that cover the common operational needs of an organisation — accounts, settings, observability, notifications, files, notebooks, calendars, OAuth — and is built around the custom apps you write yourself. Custom apps get the same session, UI kit, search hooks, and admin pages as the apps in the box.
@@ -97,8 +97,7 @@ Apps share the Postgres instance (each owns its own schema) and the Redis instan
 
 ```bash
 bun install --frozen-lockfile
-bun run infra      # postgres, valkey, geo, filegate, gotenberg
-bun run dev        # core 6-container set
+bun run dev        # infrastructure + core 6-container set
 open http://localhost:3000
 ```
 
@@ -108,15 +107,18 @@ Dev admin login: open `/auth/login?method=admin` and paste `dev-admin` into the 
 
 | Command | What it does |
 |---|---|
-| `bun run dev` | Core 6 services (gateway, gateway-ops, core, dashboard, accounts, assistant) |
-| `bun run dev:full` | Core + 17 dev extras via the `extra` profile (23 services total) |
+| `bun run dev` | Start infrastructure and the core 6 services |
+| `bun run dev:full` | Start infrastructure, core, and all 17 extras |
+| `bun run dev:infra` | Start Postgres, Valkey, Geo, Filegate, and Gotenberg |
+| `bun run dev:infra:down` | Stop the development infrastructure |
 | `bun run dev:start <app...>` | Add one or more extra apps to the running stack |
 | `bun run dev:stop <app...>` | Stop one or more apps |
 | `bun run dev:rebuild <app...>` | Rebuild image + restart (parallel for multiple) |
 | `bun run dev:logs <app>` | Follow one app's logs |
 | `bun run dev:status` | Plain-text inventory of all apps (state, uptime, image age) |
 | `bun run dev:help` | Catalog of every dev command |
-| `bun run dev:down` | Tear the dev stack down |
+| `bun run dev:cld -- <args>` | Run the current checkout's CLI against the local development server |
+| `bun run dev:down` | Tear down the app stack while keeping infrastructure running |
 | `bun run typecheck` | skills + boundaries + cycles + biome + tsc |
 
 ## Agent-assisted development

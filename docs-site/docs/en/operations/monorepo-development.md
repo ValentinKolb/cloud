@@ -19,7 +19,6 @@ mounted into the containers and Bun watches for changes.
 
 ```bash
 bun install
-bun run infra
 bun run dev
 ```
 
@@ -28,10 +27,15 @@ Open `http://localhost:3000`.
 The local administrator login is `/auth/login?method=admin` with token
 `dev-admin`.
 
-`bun run dev` stays in the foreground and runs the gateway, Gateway Ops, Core,
-Dashboard, Accounts, and Assistant.
+`bun run dev` starts Postgres, Valkey, Geo, Filegate, and Gotenberg in the
+background. It then stays in the foreground and runs the gateway, Gateway Ops,
+Core, Dashboard, Accounts, and Assistant.
 
 Use `bun run dev:full` only when you need every optional application.
+
+`bun run dev:down` removes the application stack but keeps the infrastructure
+available for quick restarts. Stop it explicitly with
+`bun run dev:infra:down` when it is no longer needed.
 
 ## Work on one application
 
@@ -53,6 +57,23 @@ bun run dev:status grids
 
 Rebuild after dependency, package-manifest, or Dockerfile changes. Source edits
 normally use the watch process already running in the container.
+
+## Use the current CLI
+
+Run the CLI from this checkout when testing the development server:
+
+```bash
+bun run dev:cld -- apps list --json
+bun run dev:cld -- notebooks list
+```
+
+The alias executes `packages/cloud-cli/src/index.ts` and targets
+`http://localhost:3000` by default. Pass another `--server` when the development
+gateway uses a different origin.
+
+Do not use an installed `cld` for development verification because its release
+may lag behind the checkout. Use the installed CLI when operating a deployed
+Cloud installation.
 
 ## Manage dependencies
 

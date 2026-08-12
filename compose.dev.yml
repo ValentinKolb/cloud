@@ -3,7 +3,7 @@
 #   bun run dev:full     (core + extras, 23 containers; --profile extra)
 #   bun run dev:start FOO  (ad-hoc: start a single extra app in the running stack)
 #
-# Requires infra running: bun run infra
+# `bun run dev` and `bun run dev:full` start the infrastructure automatically.
 #
 # Gateway replaces Traefik — routes are discovered dynamically from the Redis
 # app registry, so ad-hoc containers joining the same docker network (= same
