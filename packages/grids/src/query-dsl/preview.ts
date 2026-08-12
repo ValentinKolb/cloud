@@ -39,6 +39,13 @@ type DslQueryPreviewOptions = {
   cursorFingerprint?: string;
   cursorSigningKey?: string;
   maxRows?: number;
+  /** Additional reader-controlled search compiled as a parameterized SQL
+   * predicate after the published query plan has been verified. */
+  runtimeSearch?: {
+    q: string;
+    primaryFieldIds: string[];
+    joined: Array<{ tableId: string; joinAlias: string; fieldIds: string[] }>;
+  };
   /** Optional serialized response budget used by bounded public consumers. */
   maxResultBytes?: number;
   /** Viewer for `search` over relation fields (target-table read scoping). */
@@ -99,6 +106,7 @@ const queryExecutionKey = (
         ? [...options.authorizedRecordAccessByTableId].sort(([left], [right]) => left.localeCompare(right))
         : null,
       primaryRecordAccess: options.primaryRecordAccess ?? null,
+      runtimeSearch: options.runtimeSearch ?? null,
       timeZone: options.timeZone ?? null,
       viewer: viewer
         ? {
@@ -485,6 +493,48 @@ const compileDslSearchClause = async (
   return { clause: sql`(${joinOr(clauses)})` };
 };
 
+const compileRuntimeSearchClause = async (
+  plan: DslResolvedSqlQueryPlan,
+  options: DslQueryPreviewOptions,
+  relationSource: "links" | "recordData",
+  recordSourcesByTableId: Map<string, DslSqlRecordSource>,
+): Promise<{ clause: unknown } | undefined> => {
+  const search = options.runtimeSearch;
+  if (!search?.q.trim()) return undefined;
+  const clauses: unknown[] = [];
+  if (search.primaryFieldIds.length > 0) {
+    clauses.push(
+      (
+        await compileSearchClause({
+          search: { q: search.q, fieldIds: search.primaryFieldIds },
+          fields: options.fieldsByTableId[plan.tableId] ?? [],
+          viewer: options.viewer,
+          relationSource,
+          recordSourcesByTableId,
+        })
+      ).clause,
+    );
+  }
+  for (const joined of search.joined) {
+    const joinIndex = (plan.joins ?? []).findIndex((join) => join.alias === joined.joinAlias && join.tableId === joined.tableId);
+    if (joinIndex < 0) continue;
+    clauses.push(
+      (
+        await compileSearchClause({
+          search: { q: search.q, fieldIds: joined.fieldIds },
+          fields: options.fieldsByTableId[joined.tableId] ?? [],
+          alias: dslJoinRecordAlias(joinIndex),
+          viewer: options.viewer,
+          relationSource: recordSourcesByTableId.has(joined.tableId) ? "recordData" : "links",
+          recordSourcesByTableId,
+        })
+      ).clause,
+    );
+  }
+  if (clauses.length === 0) return { clause: sql`FALSE` };
+  return { clause: sql`(${joinOr(clauses)})` };
+};
+
 export const previewDslQuery = async (
   plan: DslResolvedSqlQueryPlan,
   options: DslQueryPreviewOptions,
@@ -560,8 +610,16 @@ export const previewDslQuery = async (
     // Full-text search compiles async (relation search batch-reads target
     // labels with the viewer's read scope), so it's built once here and handed
     // to the synchronous SQL compilers as a ready predicate.
-    const searchClause = (await compileDslSearchClause(plan, options, recordSource ? "recordData" : "links", recordSourcesByTableId))
-      ?.clause;
+    const publishedSearchClause = (
+      await compileDslSearchClause(plan, options, recordSource ? "recordData" : "links", recordSourcesByTableId)
+    )?.clause;
+    const runtimeSearchClause = (
+      await compileRuntimeSearchClause(plan, options, recordSource ? "recordData" : "links", recordSourcesByTableId)
+    )?.clause;
+    const searchClause =
+      publishedSearchClause && runtimeSearchClause
+        ? sql`(${publishedSearchClause}) AND (${runtimeSearchClause})`
+        : (publishedSearchClause ?? runtimeSearchClause);
     const viewSourceSearch = plan.viewSourceQuery?.search ?? plan.derivedViewSource?.query.search;
     const viewSourceSearchClause = viewSourceSearch
       ? (

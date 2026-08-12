@@ -40,7 +40,14 @@ const DefinitionBaseSchema = z.object({ baseId: z.string().uuid() });
 const CustomAppCreateSchema = z.object({ name: z.string().trim().min(1).max(200) }).strict();
 const RecordCommentBodySchema = z.object({ body: z.string().max(10_000) }).strict();
 const CustomAppActionInvocationSchema = z.object({ operationId: z.string().uuid() }).strict();
-const CustomAppRowActionInvocationSchema = CustomAppActionInvocationSchema.extend({ rowId: z.string().uuid() }).strict();
+const CustomAppRowActionInvocationSchema = CustomAppActionInvocationSchema.extend({
+  rowId: z.string().uuid(),
+  search: z.string().max(200).optional(),
+  cursor: z.string().max(16_384).optional(),
+}).strict();
+const CustomAppRecordsQuerySchema = z
+  .object({ q: z.string().max(200).optional(), cursor: z.string().max(16_384).optional() })
+  .passthrough();
 const RecordCommentListQuerySchema = z
   .object({
     cursor: z.string().max(2_000).optional(),
@@ -263,6 +270,36 @@ export const createCustomAppsApi = (
   const loadWorkflowRunScope = deps.getWorkflowRunScope ?? getWorkflowRunScope;
   const getWorkflowRun = deps.getWorkflowRun ?? gridsService.workflow.getRun;
   return new Hono<AuthContext>()
+    .get(
+      "/runtime/:shortId/:pageId/:blockId/records",
+      rateLimit({ keyBy: "ip", limitPerSecond: 12, windowSecs: 60 }),
+      v("query", CustomAppRecordsQuerySchema),
+      async (c) => {
+        const runtime = await resolvePublishedRuntime(c);
+        if (!runtime) return c.json({ message: "Records not found" }, 404);
+        const block = runtime.page.rows
+          .flatMap((row) => row.columns.flatMap((column) => column.blocks))
+          .find((candidate) => candidate.id === c.req.param("blockId") && candidate.type === "records");
+        if (!block || block.type !== "records" || !(await runtime.available("block", block.availableWhen?.query, block.id))) {
+          return c.json({ message: "Records not found" }, 404);
+        }
+        const query = c.req.valid("query");
+        const published = await executePublishedCustomAppRecords({
+          baseId: runtime.app.baseId,
+          page: runtime.page,
+          block,
+          capabilities: runtime.capabilities,
+          context: runtime.runtimeContext.query,
+          signal: c.req.raw.signal,
+          timeZone: runtime.runtimeContext.query["time.timeZone"],
+          viewer: runtime.viewer,
+          search: query.q,
+          cursor: query.cursor,
+        }).catch(() => null);
+        if (!published) return c.json({ message: "Records not found" }, 404);
+        return c.json(published.response, published.response.ok ? 200 : 400);
+      },
+    )
     .post(
       "/runtime/:shortId/:pageId/:blockId/submit",
       rateLimit({ keyBy: "ip", limitPerSecond: 3, windowSecs: 60 }),
@@ -570,6 +607,8 @@ export const createCustomAppsApi = (
         signal: c.req.raw.signal,
         timeZone: runtime.runtimeContext.query["time.timeZone"],
         viewer: runtime.viewer,
+        search: c.req.valid("json").search,
+        cursor: c.req.valid("json").cursor,
       }).catch(() => null);
       const rowId = c.req.valid("json").rowId;
       if (!published?.response.ok || !published.response.rows.some((row) => row.recordId === rowId)) {

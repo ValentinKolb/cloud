@@ -65,7 +65,6 @@ const CustomAppGqlSourceSchema = z
   .object({
     kind: z.literal("gql"),
     query: z.string().trim().min(1).max(20_000),
-    maxRows: z.number().int().min(1).max(100),
   })
   .strict();
 
@@ -195,6 +194,8 @@ export const CustomAppRecordsBlockSchema = z
         columnIds: z.array(z.string().uuid()).max(30),
       })
       .strict(),
+    searchable: z.boolean().default(true),
+    pageSize: z.number().int().min(5).max(100).default(25),
     rowNavigate: CustomAppRowNavigationSchema.optional(),
     rowActions: z.array(CustomAppRowActionSchema).max(6).optional(),
     ...CustomAppAvailabilityShape,
@@ -406,7 +407,7 @@ const CustomAppPageSchema = z
 
 export const CustomAppDefinitionSchema = z
   .object({
-    schemaVersion: z.literal(2),
+    schemaVersion: z.literal(3),
     kind: z.literal("grids.custom-app"),
     id: z.string().uuid(),
     baseId: z.string().uuid(),
@@ -880,11 +881,11 @@ export const parseStoredCustomAppDefinition = (raw: unknown, version: "draft" | 
   if (parsed.success) return { definition: parsed.data, diagnostics: [] };
   const schemaVersion = raw && typeof raw === "object" && "schemaVersion" in raw ? raw.schemaVersion : undefined;
   const recovery =
-    schemaVersion === 1
-      ? `Stored ${version} uses unsupported Grids App schemaVersion 1; replace it with a schemaVersion 2 definition${
+    schemaVersion === 1 || schemaVersion === 2
+      ? `Stored ${version} uses unsupported Grids App schemaVersion ${schemaVersion}; replace it with a schemaVersion 3 definition${
           version === "draft" ? " or restore a valid published version" : ""
         }.`
-      : `Stored ${version} is not a valid Grids App schemaVersion 2 definition; replace it with a valid definition${
+      : `Stored ${version} is not a valid Grids App schemaVersion 3 definition; replace it with a valid definition${
           version === "draft" ? " or restore a valid published version" : ""
         }.`;
   const diagnostics: CustomAppDiagnostic[] = [
@@ -898,7 +899,7 @@ export const parseStoredCustomAppDefinition = (raw: unknown, version: "draft" | 
 };
 
 export const CUSTOM_APP_REFERENCE = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   kind: "grids.custom-app",
   identity: {
     id: "Stable UUID chosen by the author",
@@ -912,7 +913,7 @@ export const CUSTOM_APP_REFERENCE = {
     columnsPerRow: 12,
     blocksPerColumn: 24,
     recordsBlocks: 4,
-    recordsPerBlock: 100,
+    recordsPageSize: 100,
     rowActionsPerRecordsBlock: 6,
     insightBlocks: 24,
     metricsPerBlock: 12,
@@ -932,21 +933,23 @@ export const CUSTOM_APP_REFERENCE = {
   blocks: {
     markdown: { required: ["id", "type", "markdown"] },
     records: {
-      required: ["id", "type", "source", "display"],
-      source: "Saved view or bounded inline GQL with implicit typed request context",
+      required: ["id", "type", "source", "display", "searchable", "pageSize"],
+      source: "Saved view or inline GQL with implicit typed request context",
       display: "Saved views require explicit field UUIDs; GQL displays its selected result columns",
+      search: "Optional server-side PostgreSQL search over displayed result fields",
+      pagination: "Cursor-paged from 5 to 100 rows per request; a GQL limit caps the complete result",
       rowNavigate: "Optionally navigate a row id into a target page record parameter",
       rowActions: "Optionally invoke plural workflow actions with ROW.id and accessible label/icon presentation",
     },
     metrics: {
       required: ["id", "type", "source"],
-      source: "Saved view or inline GQL with maxRows from 1 to 100",
+      source: "Saved view or inline aggregate GQL",
       note: "Renders up to 12 named scalar aggregations from one bounded source row",
     },
     chart: {
       required: ["id", "type", "chartType", "source"],
       chartTypes: ["donut", "bar", "line", "sparkline", "scatter"],
-      source: "Grouped aggregate saved view or inline GQL with maxRows from 1 to 100",
+      source: "Grouped aggregate saved view or inline GQL",
       note: "Renders grouped, aggregated output with at most 100 buckets",
     },
     record: {
@@ -971,7 +974,7 @@ export const CUSTOM_APP_REFERENCE = {
     },
   },
   example: {
-    schemaVersion: 2,
+    schemaVersion: 3,
     kind: "grids.custom-app",
     id: "00000000-0000-4000-8000-000000000001",
     baseId: "00000000-0000-4000-8000-000000000002",
@@ -1006,6 +1009,8 @@ export const CUSTOM_APP_REFERENCE = {
                   {
                     id: "requests",
                     type: "records",
+                    searchable: true,
+                    pageSize: 25,
                     source: { kind: "view", viewId: "00000000-0000-4000-8000-000000000003" },
                     display: { kind: "table", columnIds: ["00000000-0000-4000-8000-000000000004"] },
                     rowNavigate: {

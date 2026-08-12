@@ -32,7 +32,7 @@ export const withInitialGqlResults = async <T extends GridsWorkspaceState>(c: Co
     );
     const entries = await Promise.all(
       sourceBlocks.map(async ({ page, block }) => {
-        const maxRows = block.type === "chart" ? block.limit : block.source.kind === "gql" ? block.source.maxRows : 100;
+        const maxRows = block.type === "records" ? block.pageSize : block.type === "metrics" ? 1 : block.limit;
         try {
           const runtime = buildCustomAppRuntimeContext({
             access: gridsAccessContext(authContext),

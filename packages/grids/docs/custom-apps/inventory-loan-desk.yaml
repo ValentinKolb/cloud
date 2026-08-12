@@ -1,4 +1,4 @@
-schemaVersion: 2
+schemaVersion: 3
 kind: grids.custom-app
 id: 30000000-0000-4000-8000-000000000102
 baseId: 30000000-0000-4000-8000-000000000001
@@ -20,6 +20,8 @@ pages:
             blocks:
               - id: loans
                 type: records
+                searchable: true
+                pageSize: 25
                 source:
                   kind: view
                   viewId: 30000000-0000-4000-8000-000000000402
@@ -69,6 +71,8 @@ pages:
                     - 30000000-0000-4000-8000-000000000602
               - id: loan-items
                 type: records
+                searchable: true
+                pageSize: 25
                 source:
                   kind: gql
                   query: |
@@ -77,7 +81,6 @@ pages:
                     where Loan = @params.loan_id
                     sort record.createdAt asc
                     limit 100
-                  maxRows: 100
                 display:
                   kind: table
                   columnIds:

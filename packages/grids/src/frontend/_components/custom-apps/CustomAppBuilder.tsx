@@ -95,8 +95,8 @@ export const customAppStarterGqlSources = (
   for (const table of catalog.tables) {
     const fields = (catalog.fieldsByTable[table.id] ?? []).filter((field) => field.deletedAt === null);
     if (fields.length === 0) continue;
-    records ??= { kind: "gql", query: `from table {${table.id}}`, maxRows: 100 };
-    metrics ??= { kind: "gql", query: `from table {${table.id}}\naggregate count(*) as total`, maxRows: 1 };
+    records ??= { kind: "gql", query: `from table {${table.id}}` };
+    metrics ??= { kind: "gql", query: `from table {${table.id}}\naggregate count(*) as total` };
     const chartField = fields.find(isStarterChartGroupField);
     if (chartField) {
       return {
@@ -105,7 +105,6 @@ export const customAppStarterGqlSources = (
         chart: {
           kind: "gql",
           query: `from table {${table.id}}\ngroup by {${chartField.id}}\naggregate count(*) as total`,
-          maxRows: 100,
         },
       };
     }
@@ -159,7 +158,7 @@ export const isCustomAppAvailabilityDiagnostic = (diagnostic: CustomAppDiagnosti
   diagnostic.path.includes(targetId) && diagnostic.path.includes("availableWhen");
 
 export const blankCustomAppDefinition = (app: CustomApp): CustomAppDefinition => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   kind: "grids.custom-app",
   id: app.id,
   shortId: app.shortId,
@@ -378,7 +377,7 @@ function InvalidCustomAppDraft(props: { app: CustomApp; baseShortId: string }) {
   const replaceMutation = mutations.create<void, void>({
     mutation: async (_, { abortSignal }) => {
       const confirmed = await prompts.confirm(
-        "Replace the stored draft with a new blank schema v2 definition? Download the stored JSON first if you still need it.",
+        "Replace the stored draft with a new blank schema v3 definition? Download the stored JSON first if you still need it.",
         {
           title: "Replace incompatible draft",
           icon: "ti ti-file-plus",
@@ -411,7 +410,7 @@ function InvalidCustomAppDraft(props: { app: CustomApp; baseShortId: string }) {
         <NoticeCard
           tone="danger"
           title="This draft cannot be opened"
-          detail="The stored definition is preserved, but this editor only accepts App schema v2. Nothing will run or publish until you choose a recovery action."
+          detail="The stored definition is preserved, but this editor only accepts App schema v3. Nothing will run or publish until you choose a recovery action."
           role="alert"
         >
           <ul class="list-disc space-y-1 pl-4 text-sm">
@@ -438,7 +437,7 @@ function InvalidCustomAppDraft(props: { app: CustomApp; baseShortId: string }) {
             disabled={restoreMutation.loading()}
             onClick={() => replaceMutation.mutate(undefined)}
           >
-            <i class="ti ti-file-plus" aria-hidden="true" /> Replace with blank schema v2 draft
+            <i class="ti ti-file-plus" aria-hidden="true" /> Replace with blank schema v3 draft
           </Button>
         </div>
         <NoticeCard
@@ -864,6 +863,8 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
         type: "records",
         source: { kind: "view", viewId: resource.view.id },
         display: { kind: "table", columnIds: resource.fields.map((field) => field.id) },
+        searchable: true,
+        pageSize: 25,
       });
       return;
     }
@@ -874,6 +875,8 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       type: "records",
       source,
       display: { kind: "table", columnIds: [] },
+      searchable: true,
+      pageSize: 25,
     });
   };
   const addFormBlock = () => {
@@ -1122,7 +1125,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
         if (!response.ok) throw new Error(await errorMessage(response, "Could not save the App draft."));
         const saved = (await response.json()) as CustomAppDraftSave;
         if (!saved.app.draftDefinition) {
-          throw new Error(saved.app.draftDiagnostics[0]?.message ?? "The saved draft is not a valid schema v2 definition.");
+          throw new Error(saved.app.draftDiagnostics[0]?.message ?? "The saved draft is not a valid schema v3 definition.");
         }
         setApp(saved.app);
         setDiagnostics(saved.diagnostics);
@@ -1214,7 +1217,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     },
     onSuccess: (published) => {
       if (!published.draftDefinition) {
-        prompts.error(published.draftDiagnostics[0]?.message ?? "The published draft is not a valid schema v2 definition.");
+        prompts.error(published.draftDiagnostics[0]?.message ?? "The published draft is not a valid schema v3 definition.");
         return;
       }
       setApp(published);
@@ -1548,7 +1551,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     },
     onSuccess: (restored) => {
       if (!restored.draftDefinition) {
-        prompts.error(restored.draftDiagnostics[0]?.message ?? "The live version is not a valid schema v2 definition.");
+        prompts.error(restored.draftDiagnostics[0]?.message ?? "The live version is not a valid schema v3 definition.");
         return;
       }
       saveQueued = false;
@@ -2267,28 +2270,6 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                                 )
                               }
                             />
-                            <NumberInput
-                              label="Maximum rows"
-                              min={1}
-                              max={100}
-                              step={1}
-                              value={() => {
-                                const block = selected().block;
-                                return (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
-                                  block.source.kind === "gql"
-                                  ? block.source.maxRows
-                                  : null;
-                              }}
-                              onValueChange={(maxRows) => {
-                                if (maxRows === null) return;
-                                updateSelectedBlock((block) =>
-                                  (block.type === "records" || block.type === "metrics" || block.type === "chart") &&
-                                  block.source.kind === "gql"
-                                    ? { ...block, source: { ...block.source, maxRows } }
-                                    : block,
-                                );
-                              }}
-                            />
                           </Show>
                           <Show
                             when={
@@ -2331,6 +2312,26 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                           defaultOpen
                         >
                           <div class="flex flex-col gap-4">
+                            <Switch
+                              label="Search"
+                              description="Let readers search the displayed result fields. Filtering runs securely in PostgreSQL."
+                              value={() => selectedRecordsBlock()?.searchable ?? true}
+                              onValueChange={(searchable) =>
+                                updateSelectedBlock((block) => (block.type === "records" ? { ...block, searchable } : block))
+                              }
+                            />
+                            <NumberInput
+                              label="Rows per page"
+                              description="Readers can move through additional pages. A GQL limit still caps the whole result."
+                              min={5}
+                              max={100}
+                              step={5}
+                              value={() => selectedRecordsBlock()?.pageSize ?? 25}
+                              onValueChange={(pageSize) =>
+                                pageSize !== null &&
+                                updateSelectedBlock((block) => (block.type === "records" ? { ...block, pageSize } : block))
+                              }
+                            />
                             <Show when={selectedSourceBlock()?.type === "records" && selectedSourceBlock()?.source.kind === "view"}>
                               <Select
                                 label="Saved view"

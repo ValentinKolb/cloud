@@ -5,7 +5,7 @@ import { customAppScannerConfigHash } from "./scanner-capability";
 const uuid = (suffix: number) => `00000000-0000-4000-8000-${String(suffix).padStart(12, "0")}`;
 
 const definition = () => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   kind: "grids.custom-app",
   id: uuid(1),
   baseId: uuid(2),
@@ -27,6 +27,8 @@ const definition = () => ({
                 {
                   id: "requests",
                   type: "records",
+                  searchable: true,
+                  pageSize: 25,
                   source: { kind: "view", viewId: uuid(3) },
                   display: { kind: "table", columnIds: [uuid(4)] },
                 },
@@ -49,7 +51,7 @@ describe("Grids App definition contract", () => {
     const gql = CustomAppDefinitionSchema.parse(definition());
     const records = gql.pages[0]!.rows[0]!.columns[1]!.blocks[0]!;
     if (records.type !== "records") throw new Error("Expected Records block");
-    records.source = { kind: "gql", query: "from table Requests\nselect Name, Status", maxRows: 100 };
+    records.source = { kind: "gql", query: "from table Requests\nselect Name, Status" };
     records.display.columnIds = [];
     expect(CustomAppDefinitionSchema.safeParse(gql).success).toBe(true);
 
@@ -74,7 +76,7 @@ describe("Grids App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse({ ...definition(), script: "alert(1)" }).success).toBe(false);
   });
 
-  test("keeps legacy stored definitions recoverable without parsing them as live v2", () => {
+  test("keeps legacy stored definitions recoverable without parsing them as live v3", () => {
     const legacy = { ...definition(), schemaVersion: 1, legacyMarker: { keep: true } };
     const inspected = parseStoredCustomAppDefinition(legacy, "draft");
     expect(inspected.definition).toBeNull();
@@ -417,7 +419,7 @@ describe("Grids App definition contract", () => {
       {
         id: "totals",
         type: "metrics",
-        source: { kind: "gql", query: 'from table "Requests"\naggregate count(*) as requests', maxRows: 1 },
+        source: { kind: "gql", query: 'from table "Requests"\naggregate count(*) as requests' },
       } as never,
       {
         id: "requests-by-state",
@@ -441,10 +443,11 @@ describe("Grids App definition contract", () => {
     source.pages[0]!.rows[0]!.columns[0]!.blocks.push({
       id: "children",
       type: "records",
+      searchable: true,
+      pageSize: 25,
       source: {
         kind: "gql",
         query: "from table Children\nwhere Parent = @params.parent_id",
-        maxRows: 100,
         inputs: { parent_id: { source: "PARAMS", path: "missing" } },
       },
       display: { kind: "table", columnIds: [uuid(20)] },
@@ -452,21 +455,28 @@ describe("Grids App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(false);
   });
 
-  test("rejects unbounded or oversized insight sources", () => {
+  test("uses type-specific insight bounds without an author-facing maxRows", () => {
     const source = definition();
     source.pages[0]!.rows[0]!.columns[0]!.blocks.push({
       id: "totals",
       type: "metrics",
       source: { kind: "gql", query: 'from table "Requests"\naggregate count(*) as requests' },
     } as never);
-    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(false);
+    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
+
+    const legacy = structuredClone(source);
+    const legacyMetric = legacy.pages[0]!.rows[0]!.columns[0]!.blocks.at(-1)!;
+    if (legacyMetric.type !== "metrics" || !("source" in legacyMetric)) throw new Error("Expected Metrics block");
+    (legacyMetric.source as never) = { ...legacyMetric.source, maxRows: 1 } as never;
+    expect(CustomAppDefinitionSchema.safeParse(legacy).success).toBe(false);
 
     const oversized = definition();
     oversized.pages[0]!.rows[0]!.columns[0]!.blocks.push({
       id: "requests-by-state",
       type: "chart",
       chartType: "line",
-      source: { kind: "gql", query: 'from table "Requests"\ngroup by Status\naggregate count(*) as requests', maxRows: 101 },
+      source: { kind: "gql", query: 'from table "Requests"\ngroup by Status\naggregate count(*) as requests' },
+      limit: 101,
     } as never);
     expect(CustomAppDefinitionSchema.safeParse(oversized).success).toBe(false);
   });

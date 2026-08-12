@@ -645,7 +645,6 @@ const migrateViews = async (sql: SQL): Promise<void> => {
     WHERE deleted_at IS NULL
   `.simple();
   console.log("  ✓ grids.views");
-
 };
 
 const migrateDocumentTemplates = async (sql: SQL): Promise<void> => {
@@ -1243,6 +1242,62 @@ const migrateCustomApps = async (sql: SQL): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_grids_custom_apps_base
     ON grids.custom_apps(base_id, name) WHERE deleted_at IS NULL
   `.simple();
+  // v3 makes Records paging an explicit presentation concern and removes the
+  // old author-facing execution cap. Rewrite stored JSON losslessly before
+  // strict v3 parsing; no compatibility parser remains in the runtime.
+  await sql`
+    CREATE OR REPLACE FUNCTION grids.custom_app_definition_v3(value JSONB)
+    RETURNS JSONB
+    LANGUAGE plpgsql
+    IMMUTABLE
+    AS $$
+    DECLARE
+      result JSONB;
+      legacy_page_size INTEGER;
+    BEGIN
+      IF jsonb_typeof(value) = 'array' THEN
+        SELECT COALESCE(jsonb_agg(grids.custom_app_definition_v3(item)), '[]'::jsonb)
+        INTO result
+        FROM jsonb_array_elements(value) AS entries(item);
+      ELSIF jsonb_typeof(value) = 'object' THEN
+        legacy_page_size := CASE
+          WHEN value->>'type' = 'records' AND value#>>'{source,maxRows}' ~ '^[0-9]+$'
+            THEN LEAST(100, GREATEST(5, (value#>>'{source,maxRows}')::integer))
+          ELSE 100
+        END;
+        SELECT COALESCE(jsonb_object_agg(key, grids.custom_app_definition_v3(item)), '{}'::jsonb)
+        INTO result
+        FROM jsonb_each(value) AS entries(key, item)
+        WHERE key <> 'maxRows';
+
+        IF result->>'type' = 'records' THEN
+          result := jsonb_build_object('searchable', false, 'pageSize', legacy_page_size) || result;
+        END IF;
+        IF result->>'kind' = 'grids.custom-app' AND result->>'schemaVersion' = '2' THEN
+          result := jsonb_set(result, '{schemaVersion}', '3'::jsonb, false);
+        END IF;
+      ELSE
+        result := value;
+      END IF;
+      RETURN result;
+    END
+    $$
+  `.simple();
+  await sql`
+    UPDATE grids.custom_apps
+    SET
+      draft_definition = CASE
+        WHEN draft_definition->>'schemaVersion' = '2' THEN grids.custom_app_definition_v3(draft_definition)
+        ELSE draft_definition
+      END,
+      published_definition = CASE
+        WHEN published_definition->>'schemaVersion' = '2' THEN grids.custom_app_definition_v3(published_definition)
+        ELSE published_definition
+      END
+    WHERE draft_definition->>'schemaVersion' = '2'
+       OR published_definition->>'schemaVersion' = '2'
+  `.simple();
+  await sql`DROP FUNCTION grids.custom_app_definition_v3(JSONB)`.simple();
   await sql`
     CREATE TABLE IF NOT EXISTS grids.custom_app_access (
       custom_app_id UUID NOT NULL REFERENCES grids.custom_apps(id) ON DELETE CASCADE,

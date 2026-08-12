@@ -4,7 +4,7 @@ import type { CustomAppDefinition } from "../../../custom-apps/contracts";
 import { createCustomAppBuilderState } from "./custom-app-builder-state";
 
 const definition = (): CustomAppDefinition => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   kind: "grids.custom-app",
   id: "10000000-0000-4000-8000-000000000001",
   baseId: "10000000-0000-4000-8000-000000000002",
@@ -28,6 +28,8 @@ const definition = (): CustomAppDefinition => ({
                 {
                   id: "records",
                   type: "records",
+                  searchable: true,
+                  pageSize: 25,
                   source: { kind: "view", viewId: "10000000-0000-4000-8000-000000000003" },
                   display: { kind: "table", columnIds: ["10000000-0000-4000-8000-000000000004"] },
                 },

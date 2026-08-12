@@ -1,13 +1,7 @@
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import type { GridsWorkflowLauncherConfig } from "../workflows/contracts";
 
-type TemplateRefKind =
-  | "table"
-  | "field"
-  | "record"
-  | "view"
-  | "form"
-  | "launcher";
+type TemplateRefKind = "table" | "field" | "record" | "view" | "form" | "launcher";
 
 export type TemplateRef = {
   $ref: TemplateRefKind;
@@ -90,6 +84,8 @@ type TemplateCustomAppBlock = {
   valueFormat?: unknown;
   xAxisLabel?: string;
   yAxisLabel?: string;
+  searchable?: boolean;
+  pageSize?: number;
   span: number;
 };
 
@@ -168,13 +164,8 @@ export const launcher = (key: string): TemplateRef => ({
   $ref: "launcher",
   key,
 });
-export const formula = (
-  ...parts: Array<string | TemplateRef>
-): TemplateFormulaExpression => ({ $formula: parts });
-export const currentMonthDate = (
-  day: number,
-  monthOffset = 0
-): TemplateDateExpression => ({
+export const formula = (...parts: Array<string | TemplateRef>): TemplateFormulaExpression => ({ $formula: parts });
+export const currentMonthDate = (day: number, monthOffset = 0): TemplateDateExpression => ({
   $date: "current_month",
   day,
   ...(monthOffset === 0 ? {} : { monthOffset }),

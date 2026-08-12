@@ -1,21 +1,10 @@
 import { createMockCover } from "@valentinkolb/cloud/shared";
-import {
-  currentMonthDate,
-  field,
-  form,
-  formula,
-  type GridTemplate,
-  launcher,
-  record,
-  table,
-  view,
-} from "./types";
+import { currentMonthDate, field, form, formula, type GridTemplate, launcher, record, table, view } from "./types";
 
 export const inventoryTemplate: GridTemplate = {
   id: "inventory",
   name: "Inventory",
-  description:
-    "Track assets, storage locations, equipment loans, agreements, and repairs.",
+  description: "Track assets, storage locations, equipment loans, agreements, and repairs.",
   highlights: [
     "Assets, kits, locations, and loan requests",
     "Availability and loan workload overview",
@@ -41,8 +30,7 @@ export const inventoryTemplate: GridTemplate = {
         {
           key: "description",
           name: "Description",
-          description:
-            "Optional notes that explain what belongs in this category.",
+          description: "Optional notes that explain what belongs in this category.",
           type: "longtext",
           config: { markdown: true },
           icon: "ti ti-align-left",
@@ -154,8 +142,7 @@ export const inventoryTemplate: GridTemplate = {
         {
           key: "status",
           name: "Status",
-          description:
-            "Availability state used for filtering and loan planning.",
+          description: "Availability state used for filtering and loan planning.",
           type: "select",
           icon: "ti ti-traffic-lights",
           config: {
@@ -187,8 +174,7 @@ export const inventoryTemplate: GridTemplate = {
         {
           key: "serial_no",
           name: "Serial number",
-          description:
-            "Manufacturer serial number or other external identifier.",
+          description: "Manufacturer serial number or other external identifier.",
           type: "text",
           icon: "ti ti-barcode",
         },
@@ -237,11 +223,7 @@ export const inventoryTemplate: GridTemplate = {
           description: "Quantity multiplied by replacement value.",
           type: "formula",
           config: {
-            expression: formula(
-              field("items.quantity"),
-              " * ",
-              field("items.replacement_value")
-            ),
+            expression: formula(field("items.quantity"), " * ", field("items.replacement_value")),
             format: {
               kind: "decimal",
               precision: 2,
@@ -436,15 +418,10 @@ export const inventoryTemplate: GridTemplate = {
         {
           key: "schedule_valid",
           name: "Schedule valid",
-          description:
-            "Whether the return date is on or after the requested start date.",
+          description: "Whether the return date is on or after the requested start date.",
           type: "formula",
           config: {
-            expression: formula(
-              field("loans.start_date"),
-              " <= ",
-              field("loans.due_date")
-            ),
+            expression: formula(field("loans.start_date"), " <= ", field("loans.due_date")),
           },
           icon: "ti ti-calendar-check",
         },
@@ -476,8 +453,7 @@ export const inventoryTemplate: GridTemplate = {
         {
           key: "availability_confirmed",
           name: "Availability confirmed",
-          description:
-            "An admin has checked the selected kits, their items, and the requested dates before approval.",
+          description: "An admin has checked the selected kits, their items, and the requested dates before approval.",
           type: "boolean",
           defaultValue: false,
           icon: "ti ti-calendar-check",
@@ -485,8 +461,7 @@ export const inventoryTemplate: GridTemplate = {
         {
           key: "agreement_sent",
           name: "Agreement sent",
-          description:
-            "Set once the agreement workflow has succeeded, so it is not replayed.",
+          description: "Set once the agreement workflow has succeeded, so it is not replayed.",
           type: "boolean",
           defaultValue: false,
           icon: "ti ti-mail-check",
@@ -617,15 +592,10 @@ export const inventoryTemplate: GridTemplate = {
       values: {
         name: "Video interview kit",
         category: [record("categories.cameras")],
-        items: [
-          record("items.camera"),
-          record("items.mic"),
-          record("items.hdmi"),
-        ],
+        items: [record("items.camera"), record("items.mic"), record("items.hdmi")],
         status: ["available"],
         requestable: true,
-        description:
-          "Camera body, wireless mic set, and HDMI cable for interviews.",
+        description: "Camera body, wireless mic set, and HDMI cable for interviews.",
       },
     },
     {
@@ -685,7 +655,7 @@ export const inventoryTemplate: GridTemplate = {
         field("items.total_value"),
         "\nwhere ",
         field("items.status"),
-        " = 'available'"
+        " = 'available'",
       ),
       ui: {
         columns: [
@@ -745,7 +715,7 @@ export const inventoryTemplate: GridTemplate = {
         field("loans.status"),
         ", 'requested', 'approved', 'active')\nsort ",
         field("loans.due_date"),
-        " asc"
+        " asc",
       ),
       ui: {
         columns: [
@@ -875,8 +845,7 @@ export const inventoryTemplate: GridTemplate = {
       isPublic: true,
       config: {
         title: "Request kit loan",
-        description:
-          "Choose one or more kits. An admin reviews and approves the request.",
+        description: "Choose one or more kits. An admin reviews and approves the request.",
         submitLabel: "Request loan",
         successMessage: "Loan requested.",
         fields: [
@@ -963,11 +932,7 @@ export const inventoryTemplate: GridTemplate = {
               span: 3,
               source: {
                 kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("items"),
-                  "\naggregate count(*) as item_count"
-                ),
+                query: formula("from table ", table("items"), "\naggregate count(*) as item_count"),
               },
             },
             {
@@ -978,11 +943,7 @@ export const inventoryTemplate: GridTemplate = {
               span: 3,
               source: {
                 kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("kits"),
-                  "\naggregate count(*) as kit_count"
-                ),
+                query: formula("from table ", table("kits"), "\naggregate count(*) as kit_count"),
               },
             },
             {
@@ -998,7 +959,7 @@ export const inventoryTemplate: GridTemplate = {
                   table("loans"),
                   "\nwhere oneof(",
                   field("loans.status"),
-                  ", 'requested', 'approved', 'active')\naggregate count(*) as open_loan_count"
+                  ", 'requested', 'approved', 'active')\naggregate count(*) as open_loan_count",
                 ),
               },
             },
@@ -1022,7 +983,7 @@ export const inventoryTemplate: GridTemplate = {
                   field("items.quantity"),
                   " * ",
                   field("items.replacement_value"),
-                  ")) as inventory_value"
+                  ")) as inventory_value",
                 ),
               },
             },
@@ -1034,6 +995,8 @@ export const inventoryTemplate: GridTemplate = {
             {
               id: "w_available",
               type: "records",
+              searchable: true,
+              pageSize: 25,
               title: "Available items",
               source: { kind: "view", viewId: view("available_items") },
               span: 7,
@@ -1071,7 +1034,7 @@ export const inventoryTemplate: GridTemplate = {
                   field("categories.name"),
                   "\naggregate sum(",
                   field("items.quantity"),
-                  ") as available_units, count(*) as item_count\nhaving available_units > 0\nsort available_units desc nulls last"
+                  ") as available_units, count(*) as item_count\nhaving available_units > 0\nsort available_units desc nulls last",
                 ),
               },
               span: 12,
@@ -1084,6 +1047,8 @@ export const inventoryTemplate: GridTemplate = {
             {
               id: "w_open",
               type: "records",
+              searchable: true,
+              pageSize: 25,
               title: "Open loans",
               source: { kind: "view", viewId: view("open_loans") },
               span: 12,
@@ -1128,8 +1093,7 @@ export const inventoryTemplate: GridTemplate = {
       table: "items",
       starterId: "label",
       name: "Asset label",
-      description:
-        "Printable inventory label used to identify and scan one item.",
+      description: "Printable inventory label used to identify and scan one item.",
       source: formula(
         "from table ",
         table("items"),
@@ -1139,7 +1103,7 @@ export const inventoryTemplate: GridTemplate = {
         field("items.name"),
         ", ",
         field("items.location"),
-        "\nwhere record.id = '{{ record.id }}'\nlimit 1"
+        "\nwhere record.id = '{{ record.id }}'\nlimit 1",
       ),
       enabled: true,
     },
@@ -1174,7 +1138,7 @@ export const inventoryTemplate: GridTemplate = {
         " as return_due",
         ", ",
         field("loans.purpose"),
-        "\nwhere record.id = '{{ record.id }}'\nlimit 1"
+        "\nwhere record.id = '{{ record.id }}'\nlimit 1",
       ),
       enabled: true,
     },
@@ -1183,8 +1147,7 @@ export const inventoryTemplate: GridTemplate = {
     {
       key: "loan_agreement_ready",
       name: "Loan agreement ready",
-      description:
-        "Sends a private download link for a generated loan agreement.",
+      description: "Sends a private download link for a generated loan agreement.",
       subject: "Loan agreement {{ data.loanNumber | default: 'ready' }}",
       html: `<main style="font-family:Arial,sans-serif;color:#111827;line-height:1.5;max-width:640px;margin:0 auto;padding:32px;">
   <h1 style="font-size:24px;margin:0 0 16px;">Your loan agreement is ready</h1>
@@ -1208,8 +1171,7 @@ export const inventoryTemplate: GridTemplate = {
     {
       key: "send_loan_agreement",
       name: "Send approved loan agreement",
-      description:
-        "Generates and emails an agreement after an admin has approved the loan and confirmed availability.",
+      description: "Generates and emails an agreement after an admin has approved the loan and confirmed availability.",
       source: `inputs:
   loan:
     type: record
@@ -1286,8 +1248,7 @@ steps:
     {
       key: "report_item_defect",
       name: "Report damaged item",
-      description:
-        "Moves a scanned inventory item into maintenance and marks it as needing repair.",
+      description: "Moves a scanned inventory item into maintenance and marks it as needing repair.",
       source: `inputs:
   item:
     type: record
@@ -1314,8 +1275,7 @@ steps:
     {
       key: "return_loan_item",
       name: "Mark loan item as returned",
-      description:
-        "Uses one selected loan for the scanner session, then records the condition of every scanned item.",
+      description: "Uses one selected loan for the scanner session, then records the condition of every scanned item.",
       source: `inputs:
   loan:
     type: record

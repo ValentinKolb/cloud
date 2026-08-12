@@ -105,6 +105,8 @@ describe("Grids App lifecycle", () => {
                 {
                   id: "missing-view",
                   type: "records",
+                  searchable: true,
+                  pageSize: 25,
                   source: { kind: "view", viewId: testUuid() },
                   display: { kind: "table", columnIds: [testUuid()] },
                 },
@@ -250,7 +252,7 @@ describe("Grids App lifecycle", () => {
       const scannerLauncherId = scannerLauncherResult.data.id;
 
       const definition: CustomAppDefinition = {
-        schemaVersion: 2,
+        schemaVersion: 3,
         kind: "grids.custom-app",
         id: appId,
         baseId,
@@ -289,13 +291,14 @@ describe("Grids App lifecycle", () => {
                         source: {
                           kind: "gql",
                           query: `from table {${tableId}}\ngroup by {${fieldId}}\naggregate count(*) as requests`,
-                          maxRows: 10,
                         },
                         limit: 10,
                       },
                       {
                         id: "requests",
                         type: "records",
+                        searchable: true,
+                        pageSize: 25,
                         source: { kind: "view", viewId },
                         display: { kind: "table", columnIds: [fieldId] },
                         rowNavigate: {
@@ -605,6 +608,8 @@ describe("Grids App lifecycle", () => {
                       {
                         id: "invalid",
                         type: "records",
+                        searchable: true,
+                        pageSize: 25,
                         source: { kind: "view", viewId },
                         display: { kind: "table", columnIds: [testUuid()] },
                       },
@@ -632,7 +637,7 @@ describe("Grids App lifecycle", () => {
       const rawMetric = structuredClone(definition);
       const metricBlock = rawMetric.pages[0]!.rows[0]!.columns[0]!.blocks.find((block) => block.type === "metrics")!;
       if (metricBlock.type !== "metrics") throw new Error("Expected Metrics block");
-      metricBlock.source = { kind: "gql", query: `from table {${tableId}}`, maxRows: 1 };
+      metricBlock.source = { kind: "gql", query: `from table {${tableId}}` };
       const rawMetricResult = await compile({ ...rawMetric, id: testUuid() });
       expect(rawMetricResult.ok).toBe(false);
       if (!rawMetricResult.ok) {
@@ -645,7 +650,6 @@ describe("Grids App lifecycle", () => {
       chartBlock.source = {
         kind: "gql",
         query: `from table {${tableId}}\naggregate count(*) as requests`,
-        maxRows: 10,
       };
       const ungroupedChartResult = await compile({ ...ungroupedChart, id: testUuid() });
       expect(ungroupedChartResult.ok).toBe(false);

@@ -45,7 +45,7 @@ cld grids apps export MyBase "Certificate requests" --out certificate-app.yaml
 Every definition has this shape:
 
 ```yaml
-schemaVersion: 2
+schemaVersion: 3
 kind: grids.custom-app
 id: 10000000-0000-4000-8000-000000000101
 baseId: 10000000-0000-4000-8000-000000000001
@@ -151,6 +151,8 @@ All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `
 # Existing saved view
 - id: requests
   type: records
+  searchable: true
+  pageSize: 25
   source:
     kind: view
     viewId: 10000000-0000-4000-8000-000000000401
@@ -182,7 +184,6 @@ All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `
     query: |
       from table "Certificate requests"
       aggregate count(*) as requests
-    maxRows: 1
 
 # Grouped and bounded chart
 - id: requests-by-state
@@ -195,7 +196,6 @@ All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `
       from table "Certificate requests"
       group by "State"
       aggregate count(*) as requests
-    maxRows: 20
   limit: 20
 
 # Existing form with server-fixed context

@@ -10,7 +10,7 @@ const appId = "13131313-1313-4313-8313-131313131313";
 const tableId = "14141414-1414-4414-8414-141414141414";
 const base = { id: baseId, shortId: "base1", name: "Requests" };
 const definition: CustomAppDefinition = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   kind: "grids.custom-app",
   id: appId,
   baseId,

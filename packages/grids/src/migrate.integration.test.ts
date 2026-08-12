@@ -125,6 +125,88 @@ describe("grids schema migration", () => {
   );
 
   postgresTest(
+    "migrates stored Grids App v2 definitions to v3 without changing their queries or other data",
+    async () => {
+      await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
+        await migrate(database);
+        const baseId = uuid();
+        const appId = uuid();
+        const definition = {
+          schemaVersion: 2,
+          kind: "grids.custom-app",
+          id: appId,
+          baseId,
+          name: "Paged app",
+          startPageId: "home",
+          pages: [
+            {
+              id: "home",
+              title: "Home",
+              navigation: { visible: true, order: 0 },
+              parameters: {},
+              rows: [
+                {
+                  id: "main",
+                  columns: [
+                    {
+                      id: "content",
+                      span: 12,
+                      blocks: [
+                        {
+                          id: "records",
+                          type: "records",
+                          source: { kind: "gql", query: "from table Items\nlimit 40", maxRows: 25 },
+                          display: { kind: "table", columnIds: [] },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        };
+        await database`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${shortId("B")}, 'Apps')`;
+        await database`
+          INSERT INTO grids.custom_apps (
+            id, short_id, base_id, name, draft_definition, draft_capabilities, published_definition, published_capabilities
+          ) VALUES (
+            ${appId}::uuid,
+            ${shortId("A")},
+            ${baseId}::uuid,
+            'Paged app',
+            ${definition}::jsonb,
+            '{}'::jsonb,
+            ${definition}::jsonb,
+            '{}'::jsonb
+          )
+        `;
+
+        await migrate(database);
+        const [migrated] = await database<Array<{ draft: typeof definition; published: typeof definition }>>`
+          SELECT draft_definition AS draft, published_definition AS published
+          FROM grids.custom_apps WHERE id = ${appId}::uuid
+        `;
+        expect(migrated?.draft).toEqual(migrated?.published);
+        expect(migrated?.draft.schemaVersion).toBe(3);
+        const records = migrated?.draft.pages[0]?.rows[0]?.columns[0]?.blocks[0] as Record<string, unknown> | undefined;
+        expect(records).toMatchObject({ searchable: false, pageSize: 25 });
+        expect((records?.source as Record<string, unknown> | undefined)?.query).toBe("from table Items\nlimit 40");
+        expect(records?.source).not.toHaveProperty("maxRows");
+
+        const once = JSON.stringify(migrated?.draft);
+        await migrate(database);
+        const [rerun] = await database<Array<{ draft: unknown }>>`
+          SELECT draft_definition AS draft FROM grids.custom_apps WHERE id = ${appId}::uuid
+        `;
+        expect(JSON.stringify(rerun?.draft)).toBe(once);
+      });
+    },
+    30_000,
+  );
+
+  postgresTest(
     "drops obsolete access metadata without changing domain rows or base and Grids App grants",
     async () => {
       await withIsolatedDatabase(async (database) => {

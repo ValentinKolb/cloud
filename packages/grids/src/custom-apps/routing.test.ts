@@ -9,6 +9,7 @@ import {
   customAppFormSubmitUrl,
   customAppFormSuccessHref,
   customAppPageHref,
+  customAppRecordsUrl,
   customAppRecordUpdateUrl,
   customAppRowActionUrl,
   customAppRowHref,
@@ -22,7 +23,7 @@ import {
 const uuid = (suffix: number) => `00000000-0000-4000-8000-${String(suffix).padStart(12, "0")}`;
 
 const definition: CustomAppDefinition = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   kind: "grids.custom-app",
   id: uuid(1),
   baseId: uuid(2),
@@ -141,6 +142,9 @@ describe("Grids App routing", () => {
     ).toBeNull();
     expect(customAppRowActionUrl("abc12", "detail", "items", "reserve", { request_id: uuid(9) })).toBe(
       `/api/grids/apps/runtime/abc12/detail/items/row-actions/reserve?request_id=${uuid(9)}`,
+    );
+    expect(customAppRecordsUrl("abc12", "detail", "items", { request_id: uuid(9) })).toBe(
+      `/api/grids/apps/runtime/abc12/detail/items/records?request_id=${uuid(9)}`,
     );
     expect(customAppActionStatusUrl("abc12", "detail", "items", "reserve", uuid(10), { request_id: uuid(9) })).toBe(
       `/api/grids/apps/runtime/abc12/detail/items/actions/reserve/runs/${uuid(10)}?request_id=${uuid(9)}`,

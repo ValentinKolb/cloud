@@ -563,13 +563,13 @@ Commands are `forms list|default|get|create|update|delete|restore|submit`. `--pu
 
 Grids Apps are strict YAML definitions owned by one base. The current contract supports up to 12 pages containing responsive rows and
 columns plus Markdown, Records, Metric, Chart, Record, Form, Comments, and Actions blocks. Records and insight blocks can use a saved view
-or bounded GQL. A Records block can navigate its row id into one required
+or GQL. A Records block can navigate its row id into one required
 record parameter on a detail page. Record and Comments blocks use that page record; Record renders only its explicit field allowlist and
 Comments inherits the record's existing access. Form blocks submit existing Grids forms and may carry trusted typed `LITERAL`, `PARAMS`,
 or page `RECORD` values. Records blocks may declare up to six workflow `rowActions`; compatible record inputs can receive `ROW.id`, and
 the runtime rechecks the selected id against the exact published query result. Run the live reference before authoring a definition:
 
-Saved-view Records blocks require explicit `display.columnIds`. GQL Records blocks display the query's selected ordinary-record columns, including aliases; use an empty `columnIds` list because no second column selection is applied. Use Metrics or Chart for aggregate output.
+Saved-view Records blocks require explicit `display.columnIds`. GQL Records blocks display the query's selected ordinary-record columns, including aliases; use an empty `columnIds` list because no second column selection is applied. Use Metrics or Chart for aggregate output. Set `searchable: true` for parameterized PostgreSQL search over displayed fields and choose `pageSize` from 5 to 100. Cursor pagination stays server-side for both saved Views and GQL; use a GQL `limit` only to cap the complete result intentionally.
 
 Pages, blocks, Forms, and actions may use one `availableWhen.query`. At least one returned row means available. An empty result, invalid query, missing context, timeout, or cancellation means unavailable. The server rechecks Forms and actions before execution.
 

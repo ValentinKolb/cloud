@@ -33,7 +33,7 @@ const queryResultState = (cursor: string | null = null): GridsWorkspaceState =>
       initialCursor: cursor,
       initialResult: null,
     },
-  }) as GridsWorkspaceState;
+  }) as unknown as GridsWorkspaceState;
 
 const customAppState = (): GridsWorkspaceState =>
   ({
@@ -60,6 +60,8 @@ const customAppState = (): GridsWorkspaceState =>
                         {
                           id: "records",
                           type: "records",
+                          searchable: true,
+                          pageSize: 25,
                           source: { kind: "view", viewId },
                           display: { kind: "table", columnIds: [] },
                         },
@@ -78,7 +80,7 @@ const customAppState = (): GridsWorkspaceState =>
         },
       },
     },
-  }) as GridsWorkspaceState;
+  }) as unknown as GridsWorkspaceState;
 
 describe("workspace initial GQL results", () => {
   beforeEach(() => {
@@ -100,7 +102,11 @@ describe("workspace initial GQL results", () => {
     const state = await withInitialGqlResults({} as Context, queryResultState());
 
     expect(savedViewCalls).toEqual([
-      { baseId, viewId, options: { maxRows: 500, pageSize: 100, operation: "initial-preview", surface: "ssr" } },
+      {
+        baseId,
+        viewId,
+        options: { maxRows: 500, pageSize: 100, operation: "initial-preview", surface: "ssr" },
+      },
     ]);
     expect(state.kind).toBe("ok");
     if (state.kind !== "ok" || state.route.kind !== "queryResultView") return;
@@ -114,7 +120,13 @@ describe("workspace initial GQL results", () => {
       {
         baseId,
         viewId,
-        options: { maxRows: 500, pageSize: 100, operation: "initial-preview", surface: "ssr", cursor: "signed-cursor" },
+        options: {
+          maxRows: 500,
+          pageSize: 100,
+          operation: "initial-preview",
+          surface: "ssr",
+          cursor: "signed-cursor",
+        },
       },
     ]);
   });

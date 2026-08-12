@@ -41,7 +41,7 @@ describe("published App SSR availability", () => {
 
       const unavailable = `from table {${tableId}}\nlimit 1`;
       const definition: CustomAppDefinition = {
-        schemaVersion: 2,
+        schemaVersion: 3,
         kind: "grids.custom-app",
         id: appId,
         baseId,
@@ -64,6 +64,8 @@ describe("published App SSR availability", () => {
                       {
                         id: "private-records",
                         type: "records",
+                        searchable: true,
+                        pageSize: 25,
                         title: "Unavailable records must not render",
                         source: { kind: "view", viewId },
                         display: { kind: "table", columnIds: [fieldId] },

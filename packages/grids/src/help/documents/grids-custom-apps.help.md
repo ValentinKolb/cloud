@@ -36,7 +36,7 @@ Scripts, custom HTML and CSS, arbitrary URLs, and direct record mutations are no
 You need **Admin** access to the app's base. Start with UUIDs for the base, saved view, table, and fields you want to display.
 
 ```yaml
-schemaVersion: 2
+schemaVersion: 3
 kind: grids.custom-app
 id: 00000000-0000-4000-8000-000000000001
 baseId: 00000000-0000-4000-8000-000000000002
@@ -72,6 +72,8 @@ pages:
                       path: recordId
               - id: requests
                 type: records
+                searchable: true
+                pageSize: 25
                 title: Recent requests
                 source:
                   kind: view

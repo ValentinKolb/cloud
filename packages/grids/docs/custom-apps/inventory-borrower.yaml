@@ -1,4 +1,4 @@
-schemaVersion: 2
+schemaVersion: 3
 kind: grids.custom-app
 id: 30000000-0000-4000-8000-000000000101
 baseId: 30000000-0000-4000-8000-000000000001
@@ -25,6 +25,8 @@ pages:
                   Browse the equipment catalogue, then start a request to choose a period.
               - id: available-items
                 type: records
+                searchable: true
+                pageSize: 25
                 emptyText: No equipment is currently listed.
                 source:
                   kind: view
@@ -82,6 +84,8 @@ pages:
             blocks:
               - id: loans
                 type: records
+                searchable: true
+                pageSize: 25
                 source:
                   kind: view
                   viewId: 30000000-0000-4000-8000-000000000401
@@ -133,6 +137,8 @@ pages:
                     - 30000000-0000-4000-8000-000000000602
               - id: loan-items
                 type: records
+                searchable: true
+                pageSize: 25
                 title: Requested items
                 source:
                   kind: gql
@@ -142,7 +148,6 @@ pages:
                     where Loan = @params.loan_id
                     sort record.createdAt asc
                     limit 100
-                  maxRows: 100
                 display:
                   kind: table
                   columnIds:
@@ -206,6 +211,8 @@ pages:
                 editableFieldIds: []
               - id: available-items
                 type: records
+                searchable: true
+                pageSize: 25
                 emptyText: No equipment is available for this loan period.
                 source:
                   kind: gql
@@ -216,7 +223,6 @@ pages:
                     where Available = true and record.id = @params.loan_id
                     sort name asc
                     limit 100
-                  maxRows: 100
                 display:
                   kind: table
                   columnIds:

@@ -9,7 +9,7 @@ import {
 } from "./custom-app-builder-model";
 
 const definition = (): CustomAppDefinition => ({
-  schemaVersion: 2,
+  schemaVersion: 3,
   kind: "grids.custom-app",
   id: "019f1234-1234-7000-8000-000000000001",
   baseId: "019f1234-1234-7000-8000-000000000002",
@@ -32,7 +32,9 @@ const definition = (): CustomAppDefinition => ({
                 {
                   id: "records",
                   type: "records",
-                  source: { kind: "gql", query: "from table Loans", maxRows: 100 },
+                  searchable: true,
+                  pageSize: 25,
+                  source: { kind: "gql", query: "from table Loans" },
                   display: { kind: "table", columnIds: ["019f1234-1234-7000-8000-000000000003"] },
                   rowNavigate: { kind: "navigate", pageId: "loan", history: "push", params: { loan_id: { source: "ROW", path: "id" } } },
                 },
@@ -99,7 +101,9 @@ const definition = (): CustomAppDefinition => ({
                 {
                   id: "loan-items",
                   type: "records",
-                  source: { kind: "gql", query: "from table Items", maxRows: 100 },
+                  searchable: true,
+                  pageSize: 25,
+                  source: { kind: "gql", query: "from table Items" },
                   display: { kind: "table", columnIds: [] },
                   rowActions: [
                     {

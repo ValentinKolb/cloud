@@ -16,6 +16,7 @@ import {
   customAppDocumentDownloadUrl,
   customAppFormSubmitUrl,
   customAppPageHref,
+  customAppRecordsUrl,
   customAppRecordUpdateUrl,
   customAppRowActionUrl,
   customAppScannerUrl,
@@ -97,7 +98,13 @@ const availableIdsInBatches = async <T extends { id: string }>(
   return available;
 };
 
-const Records = (props: { block: RecordsBlock; data: BlockResult; shortId: string; rowActions: CustomAppRenderedRowAction[] }) => {
+const Records = (props: {
+  block: RecordsBlock;
+  data: BlockResult;
+  shortId: string;
+  endpoint: string;
+  rowActions: CustomAppRenderedRowAction[];
+}) => {
   if (!props.data.ok) {
     return <Placeholder variant="compact" align="left" title="Records unavailable" description={props.data.message} />;
   }
@@ -108,6 +115,8 @@ const Records = (props: { block: RecordsBlock; data: BlockResult; shortId: strin
       shortId={props.shortId}
       selectedColumnIds={props.block.source.kind === "view" ? props.block.display.columnIds : undefined}
       result={props.data.result}
+      endpoint={props.endpoint}
+      searchable={props.block.searchable}
       rowNavigate={props.block.rowNavigate}
       rowActions={props.rowActions}
     />
@@ -200,6 +209,7 @@ const CustomAppPage = (props: {
   commentEndpoints: Map<string, string>;
   actions: Map<string, CustomAppRenderedAction[]>;
   rowActions: Map<string, CustomAppRenderedRowAction[]>;
+  recordEndpoints: Map<string, string>;
   recordUpdateEndpoints: Map<string, string>;
   documentRuns: Map<string, CustomAppDocumentRun[]>;
   pageRecord: PageRecord | null;
@@ -221,6 +231,7 @@ const CustomAppPage = (props: {
             block={block}
             data={props.results.get(block.id) ?? { ok: false, message: "Records are unavailable." }}
             shortId={props.shortId}
+            endpoint={props.recordEndpoints.get(block.id) ?? ""}
             rowActions={props.rowActions.get(block.id) ?? []}
           />
         ) : block.type === "metrics" ? (
@@ -518,7 +529,7 @@ export default ssr<AuthContext>(async (c) => {
           (candidate.source.kind !== "view" || (source.kind === "view" && candidate.source.viewId === source.viewId)),
       );
       if (!capability) return [block.id, { ok: false, message: "This data source is not part of the published app." }];
-      const maxRows = block.type === "metrics" ? 1 : Math.min(block.limit, source.kind === "gql" ? source.maxRows : 100);
+      const maxRows = block.type === "metrics" ? 1 : block.limit;
       try {
         const view = source.kind === "view" ? await gridsService.view.get(source.viewId) : null;
         if (source.kind === "view" && (!view || capability.source.kind !== "view")) {
@@ -677,7 +688,9 @@ export default ssr<AuthContext>(async (c) => {
     actions.set(block.id, rendered);
   }
   const rowActions = new Map<string, CustomAppRenderedRowAction[]>();
+  const recordEndpoints = new Map<string, string>();
   for (const block of blocks) {
+    recordEndpoints.set(block.id, customAppRecordsUrl(app.shortId, page.id, block.id, pageParams));
     const rendered: CustomAppRenderedRowAction[] = [];
     if (accessActorUser(requestAccess)) {
       for (const action of block.rowActions ?? []) {
@@ -764,6 +777,7 @@ export default ssr<AuthContext>(async (c) => {
         commentEndpoints={commentEndpoints}
         actions={actions}
         rowActions={rowActions}
+        recordEndpoints={recordEndpoints}
         recordUpdateEndpoints={recordUpdateEndpoints}
         documentRuns={documentRuns}
         pageRecord={pageRecord}

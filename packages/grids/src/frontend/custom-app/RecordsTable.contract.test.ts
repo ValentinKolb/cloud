@@ -7,10 +7,12 @@ describe("App Records table actions", () => {
     expect(source).toContain("<For each={props.rowActions ?? []}>");
     expect(source).toContain("<IconButton");
     expect(source).toContain("label={action.label}");
-    expect(source).toContain("body: { rowId }");
+    expect(source).toContain("body: { rowId, search: appliedQuery() || undefined, cursor: cursor() || undefined }");
     expect(source).toContain("event.stopPropagation()");
-    expect(source).toContain("window.setTimeout(() => window.location.reload()");
+    expect(source).toContain("await loadPage(cursor(), appliedQuery(), history())");
+    expect(source).toContain("window.setTimeout(() => void loadPage(null, value.trim(), []), 250)");
+    expect(source).toContain("<DataTable.Footer>");
     expect(source).toContain("props.preview || Boolean(pendingKey())");
-    expect(source).toContain("if (props.preview) return");
+    expect(source).toContain("if (props.preview || !props.endpoint) return");
   });
 });

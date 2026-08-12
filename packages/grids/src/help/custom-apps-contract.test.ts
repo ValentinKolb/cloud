@@ -97,7 +97,7 @@ describe("Grids Apps documentation contract", () => {
       const source = await Bun.file(new URL(`../../docs/custom-apps/${filename}`, import.meta.url)).text();
       const definition = Bun.YAML.parse(source) as DefinitionNode & Record<string, unknown>;
 
-      expect(definition.schemaVersion, filename).toBe(2);
+      expect(definition.schemaVersion, filename).toBe(3);
       expect(definition.kind, filename).toBe("grids.custom-app");
       expect(typeof definition.id, filename).toBe("string");
       expect(typeof definition.baseId, filename).toBe("string");
@@ -126,14 +126,11 @@ describe("Grids Apps documentation contract", () => {
         }
         if (object.kind !== "gql") return;
         expect(typeof object.query, `${filename} GQL source`).toBe("string");
-        expect(typeof object.maxRows, `${filename} GQL maxRows`).toBe("number");
+        expect(object, `${filename} GQL source`).not.toHaveProperty("maxRows");
         expect(object.inputs, `${filename} removed GQL inputs`).toBeUndefined();
 
         const query = String(object.query);
         expect(query, `${filename} removed param()`).not.toMatch(/\bparam\s*\(/);
-        const limit = query.match(/\blimit\s+(\d+)\s*$/im);
-        expect(limit, `${filename} GQL limit`).not.toBeNull();
-        expect(Number(limit?.[1]), `${filename} GQL bounded by maxRows`).toBeLessThanOrEqual(Number(object.maxRows));
       });
     }
   });

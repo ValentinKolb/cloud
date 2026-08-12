@@ -1,14 +1,4 @@
-import {
-  currentMonthDate,
-  field,
-  form,
-  formula,
-  type GridTemplate,
-  launcher,
-  record,
-  table,
-  view,
-} from "./types";
+import { currentMonthDate, field, form, formula, type GridTemplate, launcher, record, table, view } from "./types";
 
 const monthlySpendSource = () =>
   formula(
@@ -22,14 +12,13 @@ const monthlySpendSource = () =>
     field("transactions.amount"),
     ") as monthly_spend\nsort ",
     field("transactions.date"),
-    " asc"
+    " asc",
   );
 
 export const financeTemplate: GridTemplate = {
   id: "finance",
   name: "Personal finance",
-  description:
-    "Track accounts, purchases, budgets, and receipt processing in one place.",
+  description: "Track accounts, purchases, budgets, and receipt processing in one place.",
   highlights: [
     "Transactions, budgets, and a purchase form",
     "Spending, budget, and merchant overview",
@@ -37,8 +26,7 @@ export const financeTemplate: GridTemplate = {
   ],
   icon: "ti ti-wallet",
   baseName: "Personal Finance",
-  baseDescription:
-    "Track personal spending, income, budgets, and recent purchases.",
+  baseDescription: "Track personal spending, income, budgets, and recent purchases.",
   tables: [
     {
       key: "accounts",
@@ -71,8 +59,7 @@ export const financeTemplate: GridTemplate = {
         {
           key: "opening_balance",
           name: "Opening balance",
-          description:
-            "Starting balance before imported or entered transactions.",
+          description: "Starting balance before imported or entered transactions.",
           type: "number",
           icon: "ti ti-currency-euro",
           config: {
@@ -91,8 +78,7 @@ export const financeTemplate: GridTemplate = {
         {
           key: "name",
           name: "Name",
-          description:
-            "Category name shown on merchants, transactions, and budgets.",
+          description: "Category name shown on merchants, transactions, and budgets.",
           type: "text",
           required: true,
           presentable: true,
@@ -137,8 +123,7 @@ export const financeTemplate: GridTemplate = {
         {
           key: "default_category",
           name: "Default category",
-          description:
-            "Category suggested for future transactions from this merchant.",
+          description: "Category suggested for future transactions from this merchant.",
           type: "relation",
           icon: "ti ti-tag",
           config: { targetTableId: table("categories"), cardinality: "single" },
@@ -242,8 +227,7 @@ export const financeTemplate: GridTemplate = {
         {
           key: "type",
           name: "Type",
-          description:
-            "Transaction direction for income, expense, or transfer reporting.",
+          description: "Transaction direction for income, expense, or transfer reporting.",
           type: "select",
           required: true,
           icon: "ti ti-arrows-exchange",
@@ -298,8 +282,7 @@ export const financeTemplate: GridTemplate = {
         {
           key: "receipt_sent",
           name: "Receipt sent",
-          description:
-            "Set once the receipt workflow has succeeded, so it is not replayed accidentally.",
+          description: "Set once the receipt workflow has succeeded, so it is not replayed accidentally.",
           type: "boolean",
           icon: "ti ti-mail-check",
           defaultValue: false,
@@ -736,7 +719,7 @@ export const financeTemplate: GridTemplate = {
         field("transactions.cleared"),
         "\nsort ",
         field("transactions.date"),
-        " desc\nlimit 50"
+        " desc\nlimit 50",
       ),
       ui: {
         columns: [
@@ -774,7 +757,7 @@ export const financeTemplate: GridTemplate = {
         field("transactions.amount"),
         "\nsort ",
         field("transactions.date"),
-        " desc\nlimit 100"
+        " desc\nlimit 100",
       ),
       ui: {
         displayConfig: {
@@ -799,7 +782,7 @@ export const financeTemplate: GridTemplate = {
         field("budgets.limit"),
         "\nsort ",
         field("budgets.limit"),
-        " desc"
+        " desc",
       ),
     },
   ],
@@ -925,7 +908,7 @@ export const financeTemplate: GridTemplate = {
         field("transactions.receipt_sent"),
         ", ",
         field("transactions.notes"),
-        "\nwhere record.id = '{{ record.id }}'\nlimit 1"
+        "\nwhere record.id = '{{ record.id }}'\nlimit 1",
       ),
       enabled: true,
     },
@@ -956,8 +939,7 @@ export const financeTemplate: GridTemplate = {
     {
       key: "clear_and_send_receipt",
       name: "Clear and send receipt",
-      description:
-        "Creates a receipt link, emails it, and marks the transaction as cleared.",
+      description: "Creates a receipt link, emails it, and marks the transaction as cleared.",
       source: `inputs:
   transaction:
     type: record
@@ -1031,8 +1013,7 @@ steps:
     {
       key: "overview",
       name: "Finance overview",
-      description:
-        "Current spending, recent purchases, budgets, and receipt processing.",
+      description: "Current spending, recent purchases, budgets, and receipt processing.",
       rows: [
         {
           id: "r_stats",
@@ -1057,7 +1038,7 @@ steps:
                   field("transactions.type"),
                   " = 'income'\naggregate sum(",
                   field("transactions.amount"),
-                  ") as total_income"
+                  ") as total_income",
                 ),
               },
             },
@@ -1081,7 +1062,7 @@ steps:
                   field("transactions.type"),
                   " = 'expense'\naggregate sum(",
                   field("transactions.amount"),
-                  ") as total_spend"
+                  ") as total_spend",
                 ),
               },
             },
@@ -1093,11 +1074,7 @@ steps:
               span: 3,
               source: {
                 kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("transactions"),
-                  "\naggregate count(*) as transaction_count"
-                ),
+                query: formula("from table ", table("transactions"), "\naggregate count(*) as transaction_count"),
               },
             },
             {
@@ -1122,7 +1099,7 @@ steps:
                   field("budgets.month"),
                   ") = MONTH(TODAY())\naggregate sum(",
                   field("budgets.limit"),
-                  ") as total_budget"
+                  ") as total_budget",
                 ),
               },
             },
@@ -1152,7 +1129,7 @@ steps:
                   field("categories.name"),
                   "\naggregate sum(",
                   field("transactions.amount"),
-                  ") as category_spend\nhaving category_spend > 0\nsort category_spend desc nulls last"
+                  ") as category_spend\nhaving category_spend > 0\nsort category_spend desc nulls last",
                 ),
               },
               span: 6,
@@ -1183,6 +1160,8 @@ steps:
             {
               id: "w_recent",
               type: "records",
+              searchable: true,
+              pageSize: 25,
               title: "Recent transactions",
               source: { kind: "view", viewId: view("recent_transactions") },
               span: 7,
@@ -1202,6 +1181,8 @@ steps:
             {
               id: "w_budgets",
               type: "records",
+              searchable: true,
+              pageSize: 25,
               title: "Monthly budgets",
               source: { kind: "view", viewId: view("budgets") },
               span: 6,
@@ -1224,7 +1205,7 @@ steps:
                   field("transactions.amount"),
                   ") as monthly_income\nsort ",
                   field("transactions.date"),
-                  " asc"
+                  " asc",
                 ),
               },
               valueFormat: {

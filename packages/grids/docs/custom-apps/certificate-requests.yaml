@@ -1,4 +1,4 @@
-schemaVersion: 2
+schemaVersion: 3
 kind: grids.custom-app
 id: 10000000-0000-4000-8000-000000000101
 baseId: 10000000-0000-4000-8000-000000000001
@@ -47,6 +47,8 @@ pages:
             blocks:
               - id: requests
                 type: records
+                searchable: true
+                pageSize: 25
                 title: My requests
                 emptyText: You have not submitted a certificate request yet.
                 source:

@@ -1,5 +1,5 @@
-import { Button, DataTable, type DataTableColumn, IconButton, Placeholder } from "@k2b/ui";
-import { createSignal, For, onCleanup, Show } from "solid-js";
+import { Button, DataTable, type DataTableColumn, IconButton, Placeholder, TextInput, toast } from "@k2b/ui";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { DslQueryPreviewResponse } from "../../contracts";
 import type { CustomAppRowNavigation } from "../../custom-apps/contracts";
 import { customAppRowHref } from "../../custom-apps/routing";
@@ -24,108 +24,181 @@ const displayValue = (value: unknown): string => {
   return JSON.stringify(value);
 };
 
+const resultFromResponse = async (response: Response): Promise<QuerySuccess> => {
+  const body = (await response.json().catch(() => null)) as DslQueryPreviewResponse | { message?: unknown } | null;
+  if (!response.ok || !body || !("ok" in body) || !body.ok) {
+    const message =
+      body && "diagnostics" in body && Array.isArray(body.diagnostics)
+        ? body.diagnostics[0]?.message
+        : body && "message" in body && typeof body.message === "string"
+          ? body.message
+          : "Records could not be loaded.";
+    throw new Error(message);
+  }
+  return body;
+};
+
 export default function RecordsTable(props: {
   title: string;
   emptyText: string;
   shortId: string;
+  endpoint?: string;
+  searchable?: boolean;
   selectedColumnIds?: string[];
   result: QuerySuccess;
   rowNavigate?: CustomAppRowNavigation;
   rowActions?: CustomAppRenderedRowAction[];
   preview?: boolean;
 }) {
+  const [result, setResult] = createSignal(props.result);
+  const [query, setQuery] = createSignal("");
+  const [appliedQuery, setAppliedQuery] = createSignal("");
+  const [cursor, setCursor] = createSignal<string | null>(null);
+  const [history, setHistory] = createSignal<Array<string | null>>([]);
+  const [loading, setLoading] = createSignal(false);
   const [pendingKey, setPendingKey] = createSignal<string | null>(null);
-  const [status, setStatus] = createSignal<{
-    key: string;
-    kind: "running" | "success" | "error";
-    message: string;
-  } | null>(null);
-  let controller: AbortController | null = null;
-  let reloadTimer: number | null = null;
+  let queryTimer: number | null = null;
+  let requestController: AbortController | null = null;
+  let workflowController: AbortController | null = null;
+
   onCleanup(() => {
-    controller?.abort();
-    if (reloadTimer !== null) window.clearTimeout(reloadTimer);
+    if (queryTimer !== null) window.clearTimeout(queryTimer);
+    requestController?.abort();
+    workflowController?.abort();
   });
-  const resultColumns = customAppRecordsResultColumns(props.result.columns, props.selectedColumnIds);
-  const rows = props.result.rows.map((row, index) => ({
-    ...row,
-    rowKey: row.recordId ? `${row.recordId}:${index}` : `row-${index}`,
-    href: row.recordId && props.rowNavigate ? customAppRowHref(props.shortId, props.rowNavigate, row.recordId) : null,
-  }));
-  const firstColumnId = resultColumns[0]?.key;
-  const columns: DataTableColumn<(typeof rows)[number]>[] = resultColumns.map((column) => ({
-    id: column.key,
-    header: column.label,
-    subtitle: column.type,
-    value: (row) => row.values[column.key],
-  }));
-  if ((props.rowActions?.length ?? 0) > 0) {
-    columns.push({ id: "__actions", header: "Actions", value: (row) => row.recordId });
-  }
-  if (resultColumns.length === 0) {
-    return (
-      <Placeholder
-        state="error"
-        variant="compact"
-        align="left"
-        title="Records unavailable"
-        description="The selected fields are not part of this view result."
-      />
-    );
-  }
+
+  const loadPage = async (nextCursor: string | null, nextQuery: string, nextHistory: Array<string | null>) => {
+    if (props.preview || !props.endpoint) return;
+    requestController?.abort();
+    const controller = new AbortController();
+    requestController = controller;
+    setLoading(true);
+    try {
+      const url = new URL(props.endpoint, window.location.origin);
+      if (nextQuery) url.searchParams.set("q", nextQuery);
+      if (nextCursor) url.searchParams.set("cursor", nextCursor);
+      const response = await fetch(`${url.pathname}${url.search}`, {
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      });
+      const next = await resultFromResponse(response);
+      if (controller.signal.aborted) return;
+      setResult(next);
+      setAppliedQuery(nextQuery);
+      setCursor(nextCursor);
+      setHistory(nextHistory);
+    } catch (cause) {
+      if (!controller.signal.aborted) toast.error(cause instanceof Error ? cause.message : "Records could not be loaded.");
+    } finally {
+      if (requestController === controller) requestController = null;
+      if (!controller.signal.aborted) setLoading(false);
+    }
+  };
+
+  const onSearch = (value: string) => {
+    setQuery(value);
+    if (queryTimer !== null) window.clearTimeout(queryTimer);
+    queryTimer = window.setTimeout(() => void loadPage(null, value.trim(), []), 250);
+  };
+
+  const resultColumns = createMemo(() => customAppRecordsResultColumns(result().columns, props.selectedColumnIds));
+  const rows = createMemo(() =>
+    result().rows.map((row, index) => ({
+      ...row,
+      rowKey: row.recordId ? `${row.recordId}:${index}` : `row-${index}`,
+      href: row.recordId && props.rowNavigate ? customAppRowHref(props.shortId, props.rowNavigate, row.recordId) : null,
+    })),
+  );
+  const firstColumnId = createMemo(() => resultColumns()[0]?.key);
+  const columns = createMemo<DataTableColumn<ReturnType<typeof rows>[number]>[]>(() => {
+    const value = resultColumns().map((column) => ({
+      id: column.key,
+      header: column.label,
+      subtitle: column.type,
+      value: (row: ReturnType<typeof rows>[number]) => row.values[column.key],
+    }));
+    if ((props.rowActions?.length ?? 0) > 0) value.push({ id: "__actions", header: "Actions", subtitle: "", value: (row) => row.recordId });
+    return value;
+  });
 
   const invoke = async (rowId: string, action: CustomAppRenderedRowAction) => {
     const key = `${rowId}:${action.id}`;
     if (props.preview || pendingKey() || (action.confirm && !window.confirm(action.confirm))) return;
     setPendingKey(key);
-    setStatus(null);
-    const current = new AbortController();
-    controller = current;
+    const controller = new AbortController();
+    workflowController = controller;
     try {
       const outcome = await invokeCustomAppWorkflow({
         endpoint: action.endpoint,
-        body: { rowId },
-        signal: current.signal,
-        onRunning: () => setStatus({ key, kind: "running", message: "Workflow is running…" }),
+        body: { rowId, search: appliedQuery() || undefined, cursor: cursor() || undefined },
+        signal: controller.signal,
       });
-      setStatus({ key, ...outcome });
-      if (outcome.kind === "success") reloadTimer = window.setTimeout(() => window.location.reload(), 600);
+      if (outcome.kind === "success") {
+        toast.success(outcome.message);
+        await loadPage(cursor(), appliedQuery(), history());
+      } else if (outcome.kind === "error") toast.error(outcome.message);
+      else toast(outcome.message);
     } catch (cause) {
-      if (current.signal.aborted) return;
-      setStatus({ key, kind: "error", message: cause instanceof Error ? cause.message : "The workflow could not be started." });
+      if (!controller.signal.aborted) toast.error(cause instanceof Error ? cause.message : "The workflow could not be started.");
     } finally {
-      if (controller === current) controller = null;
+      if (workflowController === controller) workflowController = null;
       setPendingKey(null);
     }
   };
 
   return (
-    <div class="overflow-x-auto">
-      <DataTable
-        ariaLabel={props.title}
-        rows={rows}
-        columns={columns}
-        getRowId={(row) => row.rowKey}
-        density="compact"
-        surface="plain"
-        hoverRows={Boolean(props.rowNavigate)}
-        rowClass={(row) => (row.href ? "cursor-pointer" : undefined)}
-        onRowClick={
-          props.rowNavigate
-            ? (row) => {
-                if (!row.href) return;
-                if (props.rowNavigate?.history === "replace") window.location.replace(row.href);
-                else window.location.assign(row.href);
-              }
-            : undefined
+    <DataTable.Panel class="overflow-hidden">
+      <Show when={props.searchable && !props.preview}>
+        <DataTable.Controls>
+          <TextInput
+            type="search"
+            aria-label={`Search ${props.title}`}
+            placeholder={`Search ${props.title.toLowerCase()}...`}
+            icon="ti ti-search"
+            activeIcon="ti ti-search"
+            value={query}
+            onValueChange={onSearch}
+            clearable
+            onClear={() => onSearch("")}
+          />
+        </DataTable.Controls>
+      </Show>
+      <Show
+        when={resultColumns().length > 0}
+        fallback={
+          <Placeholder
+            state="error"
+            variant="compact"
+            align="left"
+            title="Records unavailable"
+            description="The selected fields are not part of this view result."
+          />
         }
-        empty={<span>{props.emptyText}</span>}
-        renderCell={({ row, col, value }) => {
-          if (col.id === "__actions") {
-            if (!row.recordId) return null;
-            return (
-              <div class="flex min-w-max flex-col items-start gap-1">
-                <div class="flex flex-wrap items-center gap-1">
+      >
+        <DataTable
+          ariaLabel={props.title}
+          rows={rows()}
+          columns={columns()}
+          getRowId={(row) => row.rowKey}
+          density="compact"
+          surface="plain"
+          hoverRows={Boolean(props.rowNavigate)}
+          rowClass={(row) => (row.href ? "cursor-pointer" : undefined)}
+          onRowClick={
+            props.rowNavigate
+              ? (row) => {
+                  if (!row.href) return;
+                  if (props.rowNavigate?.history === "replace") window.location.replace(row.href);
+                  else window.location.assign(row.href);
+                }
+              : undefined
+          }
+          empty={<span>{appliedQuery() ? `No records match “${appliedQuery()}”.` : props.emptyText}</span>}
+          renderCell={({ row, col, value }) => {
+            if (col.id === "__actions") {
+              if (!row.recordId) return null;
+              return (
+                <div class="flex min-w-max flex-wrap items-center gap-1">
                   <For each={props.rowActions ?? []}>
                     {(action) => (
                       <Show
@@ -140,7 +213,6 @@ export default function RecordsTable(props: {
                             disabled={props.preview || Boolean(pendingKey())}
                             onClick={(event) => {
                               event.stopPropagation();
-                              if (props.preview) return;
                               void invoke(row.recordId!, action);
                             }}
                           >
@@ -156,7 +228,6 @@ export default function RecordsTable(props: {
                           disabled={props.preview || Boolean(pendingKey())}
                           onClick={(event) => {
                             event.stopPropagation();
-                            if (props.preview) return;
                             void invoke(row.recordId!, action);
                           }}
                         >
@@ -169,29 +240,49 @@ export default function RecordsTable(props: {
                     )}
                   </For>
                 </div>
-                <Show when={status()?.key.startsWith(`${row.recordId}:`) ? status() : null}>
-                  {(current) => (
-                    <span
-                      role={current().kind === "error" ? "alert" : "status"}
-                      class={`max-w-64 text-xs ${current().kind === "error" ? "text-danger" : current().kind === "success" ? "text-success" : "text-secondary"}`}
-                    >
-                      {current().message}
-                    </span>
-                  )}
-                </Show>
-              </div>
+              );
+            }
+            const text = displayValue(value);
+            return row.href && col.id === firstColumnId() ? (
+              <a href={row.href} class="font-medium text-accent hover:underline">
+                {text}
+              </a>
+            ) : (
+              <span class="whitespace-pre-wrap break-words">{text}</span>
             );
-          }
-          const text = displayValue(value);
-          return row.href && col.id === firstColumnId ? (
-            <a href={row.href} class="font-medium text-accent hover:underline">
-              {text}
-            </a>
-          ) : (
-            <span class="whitespace-pre-wrap break-words">{text}</span>
-          );
-        }}
-      />
-    </div>
+          }}
+        />
+      </Show>
+      <Show when={!props.preview && (history().length > 0 || Boolean(result().page?.nextCursor))}>
+        <DataTable.Footer>
+          <div class="flex w-full items-center justify-between gap-2">
+            <span class="text-sm text-dimmed">
+              {result().page ? `${result().page!.start + 1}–${result().page!.start + result().page!.returned}` : ""}
+            </span>
+            <div class="flex gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={loading() || history().length === 0}
+                onClick={() => {
+                  const nextHistory = history().slice(0, -1);
+                  void loadPage(history().at(-1) ?? null, appliedQuery(), nextHistory);
+                }}
+              >
+                Previous
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={loading() || !result().page?.nextCursor}
+                onClick={() => void loadPage(result().page?.nextCursor ?? null, appliedQuery(), [...history(), cursor()])}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        </DataTable.Footer>
+      </Show>
+    </DataTable.Panel>
   );
 }

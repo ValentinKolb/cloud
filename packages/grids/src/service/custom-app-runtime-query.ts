@@ -3,6 +3,7 @@ import type { DslQueryPreviewResponse } from "../contracts";
 import { customAppViewSourceHash } from "../custom-apps/insight-source";
 import type { DslQueryContextValues } from "../query-dsl/parameters";
 import { previewDslQuery } from "../query-dsl/preview";
+import type { DslResultCursor } from "../query-dsl/result-cursor";
 import { collectDslPlanTableIds } from "../query-dsl/source-plan";
 import { compileCustomAppQuery } from "./custom-app-query";
 import { ALL_RECORD_ACCESS } from "./record-access";
@@ -33,6 +34,11 @@ export const executePublishedCustomAppQuery = async (params: {
   currentTableId?: string;
   sourceHashScope?: string;
   maxRows: number;
+  pageSize?: number;
+  cursor?: DslResultCursor | null;
+  cursorFingerprint?: string;
+  cursorSigningKey?: string;
+  search?: { q: string; allowedFieldIds?: readonly string[] };
   maxResultBytes: number;
   labelRelationValues?: boolean;
 }): Promise<DslQueryPreviewResponse> => {
@@ -60,13 +66,45 @@ export const executePublishedCustomAppQuery = async (params: {
   }
 
   const trustedRecordAccess = new Map(params.capability.tableIds.map((tableId) => [tableId, ALL_RECORD_ACCESS] as const));
+  const allowedFieldIds = params.search?.allowedFieldIds ? new Set(params.search.allowedFieldIds) : null;
+  const selected = compiled.data.plan.outputColumns ?? [];
+  const primaryFieldIds = [
+    ...new Set(
+      (selected.length > 0
+        ? selected.filter((column) => column.kind === "field").map((column) => column.fieldId)
+        : (compiled.data.plan.query.columns ?? []).flatMap((column) => ("fieldId" in column ? [column.fieldId] : []))
+      ).filter((fieldId) => !allowedFieldIds || allowedFieldIds.has(fieldId)),
+    ),
+  ];
+  const joinedByAlias = new Map<string, { tableId: string; joinAlias: string; fieldIds: string[] }>();
+  for (const column of selected) {
+    if (column.kind !== "joined" || (allowedFieldIds && !allowedFieldIds.has(column.fieldId))) continue;
+    const group = joinedByAlias.get(column.joinAlias) ?? {
+      tableId: column.tableId,
+      joinAlias: column.joinAlias,
+      fieldIds: [],
+    };
+    if (!group.fieldIds.includes(column.fieldId)) group.fieldIds.push(column.fieldId);
+    joinedByAlias.set(column.joinAlias, group);
+  }
   const result = await runWithQueryAdmissionSignal(params.signal, (signal) =>
     previewDslQuery(compiled.data.plan, {
       fieldsByTableId: compiled.data.fieldsByTableId,
       timeZone: params.timeZone,
       maxRows: params.maxRows,
-      pageSize: params.maxRows,
-      limit: params.maxRows,
+      pageSize: params.pageSize ?? params.maxRows,
+      cursor: params.cursor,
+      cursorFingerprint: params.cursorFingerprint,
+      cursorSigningKey: params.cursorSigningKey,
+      ...(params.search
+        ? {
+            runtimeSearch: {
+              q: params.search.q,
+              primaryFieldIds,
+              joined: [...joinedByAlias.values()],
+            },
+          }
+        : {}),
       maxResultBytes: params.maxResultBytes,
       signal,
       labelRelationValues: params.labelRelationValues,

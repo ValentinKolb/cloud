@@ -65,9 +65,9 @@ Markdown renders headings, lists, links, and safe images. It does not run HTML, 
 
 ### Records
 
-Records reads either an existing saved view or a bounded inline GQL query. A saved View uses an explicit displayed-field selection. Inline GQL displays exactly its selected ordinary-record columns, including aliases, so it has no second Columns selector. Use Metrics or Chart for aggregate results. Both Records sources support empty copy and optional row navigation. If no saved View exists, the visual builder can start the block with a bounded table GQL query; row navigation appears only after a compatible record-parameter page exists.
+Records reads either an existing saved view or an inline GQL query. A saved View uses an explicit displayed-field selection. Inline GQL displays exactly its selected ordinary-record columns, including aliases, so it has no second Columns selector. Use Metrics or Chart for aggregate results. Both Records sources support empty copy, optional row navigation, and optional server-side search.
 
-Inline GQL has a required maximum row count. The runtime also applies shared query budgets.
+`pageSize` controls how many rows the server returns at once. Readers move through protected cursor pages; search and pagination run on the server and never load the full result into the browser. A GQL `limit` caps the complete result when the author intentionally wants only the first N matching rows. Shared query budgets remain enforced independently.
 
 An inline query receives typed `@auth.id`, `@auth.name`, `@auth.username`, `@auth.email`, `@params`, `@page`, `@app`, `@base`, and `@time` context automatically. Values are bound separately from query text. Unknown namespaces and undeclared page parameters fail publication.
 
@@ -75,7 +75,7 @@ Use `ROW.id` only for that Records block's row link or workflow row actions. A r
 
 ### Metrics and Chart
 
-Metrics and Chart read either an existing saved view or an inline GQL query. Inline GQL requires `maxRows` between 1 and 100; the runtime also applies shared query budgets.
+Metrics and Chart read either an existing saved view or an inline GQL query. The runtime applies shared query budgets.
 
 Metrics accepts an ungrouped aggregate query and renders up to 12 named scalar results. Chart accepts a grouped aggregate query and renders a donut, bar, line, sparkline, or scatter chart. Scatter requires two aggregate value series; the other chart types require one. A Chart block may render at most 100 groups through its `limit`.
 

@@ -1,26 +1,11 @@
 import { createMockCover } from "@valentinkolb/cloud/shared";
-import {
-  currentMonthDate,
-  field,
-  form,
-  formula,
-  type GridTemplate,
-  launcher,
-  record,
-  table,
-  view,
-} from "./types";
+import { currentMonthDate, field, form, formula, type GridTemplate, launcher, record, table, view } from "./types";
 
 export const bookshopTemplate: GridTemplate = {
   id: "bookshop",
   name: "Bookshop",
-  description:
-    "Manage a book catalog, customers, orders, fulfillment, and invoice delivery.",
-  highlights: [
-    "Relational catalog and order tracking",
-    "Sales and fulfillment overview",
-    "Guided invoice generation and email delivery",
-  ],
+  description: "Manage a book catalog, customers, orders, fulfillment, and invoice delivery.",
+  highlights: ["Relational catalog and order tracking", "Sales and fulfillment overview", "Guided invoice generation and email delivery"],
   icon: "ti ti-books",
   baseName: "Bookshop",
   baseDescription: "Inventory and order tracking for a small bookshop.",
@@ -90,8 +75,7 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "description",
           name: "Description",
-          description:
-            "Optional notes that explain what belongs in this genre.",
+          description: "Optional notes that explain what belongs in this genre.",
           type: "longtext",
           icon: "ti ti-align-left",
         },
@@ -105,13 +89,7 @@ export const bookshopTemplate: GridTemplate = {
         mode: "cards",
         cards: {
           imageFieldId: field("books.cover"),
-          fieldIds: [
-            field("books.title"),
-            field("books.author"),
-            field("books.genre"),
-            field("books.price"),
-            field("books.in_stock"),
-          ],
+          fieldIds: [field("books.title"), field("books.author"), field("books.genre"), field("books.price"), field("books.in_stock")],
         },
       },
       fields: [
@@ -162,8 +140,7 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "isbn",
           name: "ISBN",
-          description:
-            "International identifier used for book orders and barcode scans.",
+          description: "International identifier used for book orders and barcode scans.",
           type: "text",
           config: { regex: "^97[89]-[0-9]-[0-9]{2,5}-[0-9]{3,7}-[0-9X]$" },
           icon: "ti ti-barcode",
@@ -208,8 +185,7 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "tags",
           name: "Tags",
-          description:
-            "Optional catalog labels for merchandising and filtering.",
+          description: "Optional catalog labels for merchandising and filtering.",
           type: "select",
           icon: "ti ti-tags",
           config: {
@@ -367,8 +343,7 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "invoice_ready",
           name: "Ready to invoice",
-          description:
-            "Confirm that all order lines are complete before the invoice workflow can run.",
+          description: "Confirm that all order lines are complete before the invoice workflow can run.",
           type: "boolean",
           defaultValue: false,
           icon: "ti ti-file-check",
@@ -376,8 +351,7 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "invoice_sent",
           name: "Invoice sent",
-          description:
-            "Set once the invoice workflow has succeeded, so it is not replayed accidentally.",
+          description: "Set once the invoice workflow has succeeded, so it is not replayed accidentally.",
           type: "boolean",
           defaultValue: false,
           icon: "ti ti-mail-check",
@@ -451,8 +425,7 @@ export const bookshopTemplate: GridTemplate = {
         {
           key: "unit_price",
           name: "Unit price",
-          description:
-            "Price captured when the order is placed; later catalog price changes do not alter the invoice.",
+          description: "Price captured when the order is placed; later catalog price changes do not alter the invoice.",
           type: "number",
           required: true,
           icon: "ti ti-currency-euro",
@@ -470,11 +443,7 @@ export const bookshopTemplate: GridTemplate = {
           description: "Quantity multiplied by the captured unit price.",
           type: "formula",
           config: {
-            expression: formula(
-              field("order_lines.quantity"),
-              " * ",
-              field("order_lines.unit_price")
-            ),
+            expression: formula(field("order_lines.quantity"), " * ", field("order_lines.unit_price")),
             format: { kind: "decimal", precision: 2, thousandsSeparator: true },
           },
           icon: "ti ti-calculator",
@@ -755,7 +724,7 @@ export const bookshopTemplate: GridTemplate = {
         field("books.published"),
         "\nsort ",
         field("books.published"),
-        " desc\nlimit 20"
+        " desc\nlimit 20",
       ),
       ui: {
         columns: [
@@ -772,13 +741,7 @@ export const bookshopTemplate: GridTemplate = {
           mode: "cards",
           cards: {
             imageFieldId: field("books.cover"),
-            fieldIds: [
-              field("books.title"),
-              field("books.author"),
-              field("books.genre"),
-              field("books.price"),
-              field("books.published"),
-            ],
+            fieldIds: [field("books.title"), field("books.author"), field("books.genre"), field("books.price"), field("books.published")],
           },
         },
       },
@@ -805,7 +768,7 @@ export const bookshopTemplate: GridTemplate = {
         field("orders.invoice_sent"),
         "\nsort ",
         field("orders.ordered_at"),
-        " asc\nlimit 100"
+        " asc\nlimit 100",
       ),
       ui: {
         columns: [
@@ -1007,8 +970,7 @@ export const bookshopTemplate: GridTemplate = {
       name: "Add order line",
       config: {
         title: "Add order line",
-        description:
-          "Add a book and capture the sale price used on the invoice.",
+        description: "Add a book and capture the sale price used on the invoice.",
         submitLabel: "Add line",
         successMessage: "Order line added.",
         fields: [
@@ -1038,8 +1000,7 @@ export const bookshopTemplate: GridTemplate = {
             kind: "user_input",
             fieldId: field("order_lines.unit_price"),
             label: "Unit price",
-            helpText:
-              "Capture the agreed sale price; the line total is calculated automatically.",
+            helpText: "Capture the agreed sale price; the line total is calculated automatically.",
             required: true,
           },
         ],
@@ -1092,7 +1053,7 @@ export const bookshopTemplate: GridTemplate = {
         field("order_lines.order"),
         " = '{{ record.id }}'\nsort line.",
         field("order_lines.line_no"),
-        " asc"
+        " asc",
       ),
       enabled: true,
     },
@@ -1124,8 +1085,7 @@ export const bookshopTemplate: GridTemplate = {
     {
       key: "send_order_invoice",
       name: "Send order invoice",
-      description:
-        "Generates an invoice, creates a private link, and emails it to the customer.",
+      description: "Generates an invoice, creates a private link, and emails it to the customer.",
       source: `inputs:
   order:
     type: record
@@ -1199,8 +1159,7 @@ steps:
     {
       key: "sales",
       name: "Bookshop overview",
-      description:
-        "Revenue, fulfillment, catalog maintenance, and recent books.",
+      description: "Revenue, fulfillment, catalog maintenance, and recent books.",
       rows: [
         {
           id: "r_stats",
@@ -1213,11 +1172,7 @@ steps:
               span: 4,
               source: {
                 kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("orders"),
-                  "\naggregate count(*) as order_count"
-                ),
+                query: formula("from table ", table("orders"), "\naggregate count(*) as order_count"),
               },
             },
             {
@@ -1240,7 +1195,7 @@ steps:
                   field("order_lines.quantity"),
                   " * ",
                   field("order_lines.unit_price"),
-                  ")) as total_revenue"
+                  ")) as total_revenue",
                 ),
               },
             },
@@ -1252,11 +1207,7 @@ steps:
               span: 4,
               source: {
                 kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("books"),
-                  "\naggregate count(*) as book_count"
-                ),
+                query: formula("from table ", table("books"), "\naggregate count(*) as book_count"),
               },
             },
           ],
@@ -1288,7 +1239,7 @@ steps:
                   ")) as monthly_revenue, count(*) as order_line_count\nsort ",
                   "order.",
                   field("orders.ordered_at"),
-                  " asc"
+                  " asc",
                 ),
               },
               valueFormat: {
@@ -1328,6 +1279,8 @@ steps:
             {
               id: "w_recent",
               type: "records",
+              searchable: true,
+              pageSize: 25,
               title: "Recent books",
               source: { kind: "view", viewId: view("recent_books") },
               span: 6,
@@ -1363,7 +1316,7 @@ steps:
                   field("order_lines.quantity"),
                   " * line.",
                   field("order_lines.unit_price"),
-                  ")) as customer_revenue\nhaving customer_revenue > 0\nsort customer_revenue desc nulls last\nlimit 8"
+                  ")) as customer_revenue\nhaving customer_revenue > 0\nsort customer_revenue desc nulls last\nlimit 8",
                 ),
               },
               valueFormat: {

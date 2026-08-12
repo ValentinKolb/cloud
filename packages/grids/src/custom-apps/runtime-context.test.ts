@@ -82,7 +82,7 @@ describe("Grids App runtime context", () => {
       rows: [{ id: `${id}-row`, columns: [{ id: `${id}-column`, span: 12, blocks: [block(`${id}-block`)] }] }],
     });
     const definition: CustomAppDefinition = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       kind: "grids.custom-app",
       id: common.app.id,
       baseId: common.base.id,

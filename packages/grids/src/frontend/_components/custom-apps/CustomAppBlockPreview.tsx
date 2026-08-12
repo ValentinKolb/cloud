@@ -24,7 +24,12 @@ const loadSource = async (baseId: string, block: SourceBlock): Promise<DslQueryP
         })
       : await apiClient.gql["by-base"][":baseId"].execute.$post({
           param: { baseId },
-          json: { query: block.source.query, pageSize: block.source.maxRows, limit: block.source.maxRows, surface: "custom-app" },
+          json: {
+            query: block.source.query,
+            pageSize: block.type === "records" ? block.pageSize : block.type === "metrics" ? 1 : block.limit,
+            limit: block.type === "records" ? block.pageSize : block.type === "metrics" ? 1 : block.limit,
+            surface: "custom-app",
+          },
         });
   if (!response.ok) throw new Error(await errorMessage(response, "Could not load the data preview."));
   return response.json();

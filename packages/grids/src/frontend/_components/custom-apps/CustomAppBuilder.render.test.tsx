@@ -20,7 +20,7 @@ const { CustomAppMarkdownField } = await import("./CustomAppMarkdownField");
 
 const app = (): CustomApp => {
   const draftDefinition: NonNullable<CustomApp["draftDefinition"]> = {
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     kind: "grids.custom-app",
     id: "33333333-3333-4333-8333-333333333333",
     shortId: "APP1",
@@ -190,10 +190,10 @@ const catalogWithAuthoringResources = (): WorkspaceCatalog => {
 };
 
 describe("CustomAppBuilder", () => {
-  test("creates a blank schema v2 draft without legacy condition inputs", () => {
+  test("creates a blank schema v3 draft without legacy condition inputs", () => {
     const blank = blankCustomAppDefinition(app());
 
-    expect(blank.schemaVersion).toBe(2);
+    expect(blank.schemaVersion).toBe(3);
     expect(blank.pages[0]?.rows[0]?.columns[0]?.blocks[0]).toEqual({
       id: "intro",
       type: "markdown",
@@ -241,18 +241,15 @@ describe("CustomAppBuilder", () => {
       records: {
         kind: "gql",
         query: "from table {11111111-1111-4111-8111-111111111112}",
-        maxRows: 100,
       },
       metrics: {
         kind: "gql",
         query: "from table {11111111-1111-4111-8111-111111111112}\naggregate count(*) as total",
-        maxRows: 1,
       },
       chart: {
         kind: "gql",
         query:
           "from table {11111111-1111-4111-8111-111111111112}\ngroup by {22222222-2222-4222-8222-222222222222}\naggregate count(*) as total",
-        maxRows: 100,
       },
     });
   });
@@ -312,7 +309,9 @@ describe("CustomAppBuilder", () => {
         block: {
           id: "items",
           type: "records",
-          source: { kind: "gql", query: `from table {${tableId}}`, maxRows: 100 },
+          searchable: true,
+          pageSize: 25,
+          source: { kind: "gql", query: `from table {${tableId}}` },
           display: { kind: "table", columnIds: [] },
           rowActions: [
             {
@@ -483,7 +482,7 @@ describe("CustomAppBuilder", () => {
     expect(html).toContain("schemaVersion 1");
     expect(html).toContain("Download stored JSON");
     expect(html).toContain("Restore live version");
-    expect(html).toContain("Replace with blank schema v2 draft");
+    expect(html).toContain("Replace with blank schema v3 draft");
     expect(html).toContain("Unpublish app");
     expect(html).toContain("Delete app");
     expect(html).not.toContain("App canvas");

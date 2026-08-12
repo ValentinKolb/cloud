@@ -660,7 +660,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       type: field.type,
       config: field.config,
       required: field.required,
-      defaultValue: field.default_value,
+      defaultValue: parseJsonbRow<unknown>(field.default_value, null),
       deletedAt: field.deleted_at?.toISOString() ?? null,
     }));
     const fieldsById = new Map(capabilityFields.map((field) => [field.id, field]));
@@ -715,7 +715,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       type: field.type,
       config: field.config,
       required: field.required,
-      defaultValue: field.default_value,
+      defaultValue: parseJsonbRow<unknown>(field.default_value, null),
       deletedAt: field.deleted_at?.toISOString() ?? null,
     }));
     const inlineFieldsByKey = new Map(inlineCapabilityFields.map((field) => [`${field.tableId}\0${field.id}`, field]));
@@ -1122,7 +1122,7 @@ export const restoreDraft = async (id: string, actorId: string | null = null): P
 
 export const createBlank = async (baseId: string, name: string, actorId: string | null = null): Promise<Result<CustomApp>> => {
   const definition: CustomAppDefinition = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     kind: "grids.custom-app",
     id: crypto.randomUUID(),
     baseId,
