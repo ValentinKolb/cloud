@@ -16,6 +16,7 @@ const { DescriptionList } = await import("./DescriptionList");
 const { LinkCard } = await import("./LinkCard");
 const { NotFoundState } = await import("./NotFoundState");
 const { NoticeCard } = await import("./NoticeCard");
+const { Paper } = await import("./Paper");
 const { default: Placeholder } = await import("./Placeholder");
 const { ProgressBar } = await import("./ProgressBar");
 const { StatCell } = await import("./StatCell");
@@ -28,10 +29,34 @@ const stylesheets = readdirSync(stylesDir).filter((file) => file.endsWith(".css"
 const baseCss = readFileSync(resolve(stylesDir, "index.css"), "utf8");
 const parityCss = readFileSync(resolve(stylesDir, "surfaces-widgets-parity.css"), "utf8");
 const ownedSelectors =
-  /\.k2b-(avatar|link-card|not-found|notice-card|notice-grid|placeholder|progress|stat-grid|stat-cell|status-badge|widget)/;
+  /\.k2b-(paper|avatar|link-card|not-found|notice-card|notice-grid|placeholder|progress|stat-grid|stat-cell|status-badge|widget)/;
 const ownedSelectorFiles = new Set(stylesheets.filter((file) => ownedSelectors.test(readFileSync(resolve(stylesDir, file), "utf8"))));
 
 describe("@k2b/ui Cloud-faithful surfaces", () => {
+  test("renders a padding-free semantic paper with opt-in interaction", () => {
+    const section = renderToString(() => (
+      <Paper as="section" class="project-summary">
+        Summary
+      </Paper>
+    ));
+    const link = renderToString(() => (
+      <Paper as="a" href="/projects" interactive aria-label="Projects">
+        Open
+      </Paper>
+    ));
+    const rule = parityCss.match(/\.k2b-ui \.k2b-paper \{[^}]*\}/)?.[0] ?? "";
+
+    expect(section).toContain("<section");
+    expect(section).toContain('class="k2b-paper project-summary');
+    expect(link).toContain('href="/projects"');
+    expect(link).toContain('data-interactive="true"');
+    expect(link).toContain('aria-label="Projects"');
+    expect(rule).toContain("border: 1px solid var(--k2b-border)");
+    expect(rule).toContain("box-shadow: var(--k2b-shadow-surface)");
+    expect(rule).not.toContain("padding:");
+    expect(parityCss).toContain('.k2b-paper[data-interactive="true"]:focus-visible');
+  });
+
   test("renders portable tags and semantic description lists", () => {
     const tag = renderToString(() =>
       createComponent(Tag, {
@@ -104,6 +129,8 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
     expect(nameless).toContain(">?<");
     expect(nameless).toContain('aria-label="Unknown user avatar"');
     expect(link).toContain('href="/details"');
+    expect(link).toContain('class="k2b-paper k2b-link-card');
+    expect(link).toContain('data-interactive="true"');
     expect(link).toContain('data-color="cyan"');
     expect(link).toContain("Open runtime details");
   });
@@ -174,6 +201,8 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
     expect(loading).toContain('aria-live="polite"');
     expect(loading).toContain('aria-busy="true"');
     expect(loading).toContain('data-surface="paper"');
+    expect(loading).toContain('class="k2b-paper k2b-placeholder');
+    expect(error).not.toContain("k2b-paper");
     expect(error).toContain('role="alert"');
     expect(error).toContain("Try again.");
   });
@@ -238,6 +267,7 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
     );
 
     expect(html).toContain('data-columns="6"');
+    expect(html).toContain('class="k2b-paper k2b-stat-grid');
     expect(html).toContain('data-surface="muted"');
     expect(html).toContain('href="/details"');
     expect(html).toContain('href="/latency"');
@@ -273,11 +303,12 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
   });
 
   test("keeps the Cloud chrome that earlier ports dropped", () => {
-    // `paper` resolves to `--ui-shadow-surface: none` in both Cloud themes, and
-    // `.stat-grid` / `.widget-surface` force it again. No outer drop shadow.
-    for (const selector of [".k2b-stat-grid", ".k2b-widget"]) {
+    // Every neutral surface inherits the same flat Cloud paper shadow token.
+    const paperRule = parityCss.match(/\.k2b-ui \.k2b-paper \{[^}]*\}/)?.[0] ?? "";
+    expect(paperRule).toContain("box-shadow: var(--k2b-shadow-surface)");
+    for (const selector of [".k2b-link-card", ".k2b-stat-grid", ".k2b-widget"]) {
       const rule = parityCss.match(new RegExp(`\\.k2b-ui \\${selector} \\{[^}]*\\}`))?.[0] ?? "";
-      expect(rule).toContain("box-shadow: none");
+      expect(rule).not.toContain("box-shadow:");
     }
     // Link cards retain a neutral tile; dashboard widgets keep their header
     // glyph directly on the surface to avoid nested chrome.
@@ -323,7 +354,7 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
 
   test("declares each surfaces/widgets selector in exactly one stylesheet", () => {
     const owned =
-      /^[a-z]*\.k2b-(avatar|link-card|not-found|notice-card|notice-grid|placeholder|progress|stat-grid|stat-cell|status-badge|widget)/;
+      /^[a-z]*\.k2b-(paper|avatar|link-card|not-found|notice-card|notice-grid|placeholder|progress|stat-grid|stat-cell|status-badge|widget)/;
     const themePrefix = /^(\.k2b-ui\[data-theme="dark"\]|\.k2b-ui\.k2b-dark|\.dark \.k2b-ui|\.k2b-ui) /;
     const owners = new Map<string, Set<string>>();
 
@@ -352,6 +383,7 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
 
   test("emits no inline Tailwind utility classes — the bundle ships none", () => {
     const rendered = [
+      renderToString(() => createComponent(Paper, { children: "P" })),
       renderToString(() => createComponent(LinkCard, { href: "/a", title: "A", description: "B", icon: "ti ti-x", color: "blue" })),
       renderToString(() => createComponent(NotFoundState, { code: "404", title: "Gone", action: { label: "Home", href: "/" } })),
       renderToString(() => createComponent(NoticeCard, { title: "T", detail: "D", tone: "warning" })),

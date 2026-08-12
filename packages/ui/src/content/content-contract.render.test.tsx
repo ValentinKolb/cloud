@@ -174,6 +174,7 @@ describe("@k2b/ui Cloud content contract", () => {
     expect(headingId).toBeTruthy();
     expect(html).toContain(`aria-labelledby="${headingId}"`);
     expect(html).not.toContain('aria-label="Data table"');
+    expect(html).toContain('class="k2b-paper k2b-data-panel');
     expect(html).toContain("k2b-data-panel__controls");
     expect(html).toContain("Settings");
     expect(html).toContain("Page 1 of 1");
@@ -209,8 +210,10 @@ describe("@k2b/ui Cloud content contract", () => {
     );
 
     expect(paper).toContain('data-surface="paper"');
+    expect(paper).toContain('class="k2b-paper k2b-table-wrap overflow-x-auto');
     expect(paper).toContain("overflow-x-auto");
     expect(plain).toContain('data-surface="plain"');
+    expect(plain).not.toContain("k2b-paper");
   });
 
   test("keeps SSR navigation and observability content defaults", () => {

@@ -1,4 +1,5 @@
 import { type JSX, Show } from "solid-js";
+import { Paper } from "../surfaces/Paper";
 
 export type WidgetSize = "content" | "compact" | "standard";
 
@@ -34,7 +35,7 @@ function Header(props: WidgetProps): JSX.Element {
 
 export function Widget(props: WidgetProps): JSX.Element {
   return (
-    <div class="k2b-widget" data-size={props.size ?? "standard"}>
+    <Paper class="k2b-widget" data-size={props.size ?? "standard"}>
       <Show
         when={props.href}
         fallback={
@@ -50,7 +51,7 @@ export function Widget(props: WidgetProps): JSX.Element {
         )}
       </Show>
       <div class="k2b-widget__body">{props.children}</div>
-    </div>
+    </Paper>
   );
 }
 

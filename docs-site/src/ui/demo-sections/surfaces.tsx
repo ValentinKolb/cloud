@@ -9,6 +9,7 @@ import {
   NotFoundState,
   NoticeCard,
   PanelHeader,
+  Paper,
   Placeholder,
   ProgressBar,
   RangePicker,
@@ -142,6 +143,39 @@ const EmptyDemo = () => (
         description="It may have been moved."
         action={{ label: "All projects", href: "#empty-states" }}
       />
+    </div>
+  </DemoCard>
+);
+
+const PaperDemo = () => (
+  <DemoCard
+    id="paper"
+    chip={{ kind: "component", name: "Paper", from: "@k2b/ui" }}
+    description="Paper provides one neutral boundary without choosing content spacing. The static section and complete-surface link keep their native semantics."
+    code={`import { Paper } from "@k2b/ui";
+
+<Paper as="section" class="project-summary">
+  <h2>Project summary</h2>
+  <p>Three services are ready for deployment.</p>
+</Paper>
+
+<Paper as="a" href="/projects/current" class="project-summary-link" interactive>
+  Open the current project
+</Paper>`}
+  >
+    <div class="ui-paper-demo-grid">
+      <Paper as="section" class="ui-paper-demo">
+        <span class="ui-paper-demo__eyebrow">Project summary</span>
+        <h2>Three services are ready</h2>
+        <p>Content spacing belongs to the application.</p>
+      </Paper>
+      <Paper as="a" href="#paper" class="ui-paper-demo ui-paper-demo--link" interactive>
+        <span>
+          <strong>Current project</strong>
+          <small>Open deployment details</small>
+        </span>
+        <i class="ti ti-arrow-right" aria-hidden="true" />
+      </Paper>
     </div>
   </DemoCard>
 );
@@ -421,6 +455,7 @@ export const CalendarDemo = () => {
 
 const demos: DemoSection = {
   utilities: () => <DemoGrid columns="one"><ThemeDemo /></DemoGrid>,
+  paper: () => <DemoGrid columns="one"><PaperDemo /></DemoGrid>,
   "empty-states": () => <DemoGrid columns="one"><EmptyDemo /></DemoGrid>,
   cards: () => <DemoGrid columns="one"><CardsDemo /></DemoGrid>,
   details: () => <DemoGrid columns="one"><DetailsDemo /></DemoGrid>,

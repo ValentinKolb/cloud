@@ -142,6 +142,7 @@ const portableSections = [
     icon: "ti ti-layout-cards",
     pages: [
       page("utilities", "Theme and styles", "ti ti-palette", "Scoped styles plus configurable font and semantic color tokens."),
+      page("paper", "Paper", "ti ti-square", "Neutral semantic grouping for application-owned content."),
       page("empty-states", "Empty states", "ti ti-box-off", "Compact and panel placeholders plus route-level not-found states."),
       page("cards", "Cards and identity", "ti ti-id", "Links and portable avatar identity."),
       page("details", "Description list", "ti ti-list-details", "Semantic responsive key-value details with optional actions."),
@@ -255,7 +256,7 @@ const cloudEntries = cloudPages.map((page, pageIndex) => entry("cloud", "Cloud c
 export const uiCatalogEntries: UiCatalogEntry[] = [...portableEntries, ...cloudEntries];
 
 /** Runtime component exports from @k2b/ui. Kept honest by check-ui-catalog.ts. */
-export const portableUiComponentCount = 102;
+export const portableUiComponentCount = 103;
 
 export const uiCatalogSections: UiCatalogSection[] = [
   ...portableSections.map((section) => ({

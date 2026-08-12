@@ -12,7 +12,9 @@ import {
   Show,
   useContext,
 } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import { PanelHeader } from "../layout/PanelHeader";
+import { Paper } from "../surfaces/Paper";
 import Placeholder from "../surfaces/Placeholder";
 
 export type DataTableColumn<T> = {
@@ -178,6 +180,7 @@ function DataTableRoot<T>(props: DataTableProps<T>) {
   const shouldHoverRows = () => props.hoverRows ?? isInteractive();
   const shouldRenderLoadMoreSentinel = () => !!props.onLoadMore;
   const labelledBy = () => props.ariaLabelledBy ?? (panel?.hasHeading() ? panel.headingId : undefined);
+  const surface = () => props.surface ?? (props.class ? "plain" : "paper");
   const cellContentClass = () => props.cellContentClass ?? "k2b-data-table__cell-text";
   const tableClass = () => `k2b-data-table ${props.tableClass ?? ""}`.trim();
   const columnHighlighted = (index: number) =>
@@ -345,7 +348,8 @@ function DataTableRoot<T>(props: DataTableProps<T>) {
 
   return (
     <Show when={props.columns.length > 0} fallback={<Placeholder surface="paper" description={<>No columns.</>} />}>
-      <div
+      <Dynamic
+        component={surface() === "paper" ? Paper : "div"}
         ref={scrollRef}
         role="region"
         aria-label={labelledBy() ? undefined : (props.ariaLabel ?? "Data table")}
@@ -354,7 +358,7 @@ function DataTableRoot<T>(props: DataTableProps<T>) {
         class={`k2b-table-wrap ${props.class ?? ""}`}
         data-density={props.density === "compact" ? "compact" : undefined}
         data-has-footer={props.footer ? "true" : undefined}
-        data-surface={props.surface ?? (props.class ? "plain" : "paper")}
+        data-surface={surface()}
         data-scroll-preserve={props.scrollPreserveKey || undefined}
         onScroll={maybeLoadMore}
         onMouseLeave={() => setHoveredColumn(null)}
@@ -469,7 +473,7 @@ function DataTableRoot<T>(props: DataTableProps<T>) {
         <Show when={shouldRenderLoadMoreSentinel()}>
           <div ref={loadMoreRef} class="k2b-data-table__sentinel" aria-hidden="true" />
         </Show>
-      </div>
+      </Dynamic>
     </Show>
   );
 }
@@ -485,7 +489,9 @@ const DataTablePanel = (props: DataTablePanelProps): JSX.Element => {
 
   return (
     <DataTablePanelContext.Provider value={context}>
-      <section class={`k2b-data-panel ${props.class ?? ""}`}>{props.children}</section>
+      <Paper as="section" class={`k2b-data-panel ${props.class ?? ""}`}>
+        {props.children}
+      </Paper>
     </DataTablePanelContext.Provider>
   );
 };

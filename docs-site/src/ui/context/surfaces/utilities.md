@@ -6,6 +6,11 @@
 
 Load the stylesheet once and wrap the part of the page that renders package components. Nested applications can override tokens on their own `.k2b-ui` scope without changing the surrounding page.
 
+The scope establishes body text at `0.9375rem` (15px with the browser's
+default root size) and weight `400`. Components override that baseline only
+when their role needs a different type scale. The package never styles the
+document's global `body`.
+
 ## Import
 
 ```ts

@@ -8,6 +8,15 @@ const hasVisibleValue = (values: string[] | undefined) =>
   values?.some((value) => !/^(?:none|0(?:px)?|transparent|initial|inherit|unset)(?:\s*!important)?$/i.test(value)) ?? false;
 
 describe("@k2b/ui focus and color contract", () => {
+  test("owns its body typography without styling the document body", async () => {
+    const css = await Bun.file(resolve(stylesDir, "index.css")).text();
+    const root = css.match(/\.k2b-ui\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+
+    expect(root).toContain("font-size: 0.9375rem;");
+    expect(root).toContain("font-weight: 400;");
+    expect(css).not.toMatch(/(?:^|\})\s*body\s*\{/);
+  });
+
   test("uses a clear general focus color in light and dark themes", async () => {
     const css = await Bun.file(resolve(stylesDir, "index.css")).text();
 

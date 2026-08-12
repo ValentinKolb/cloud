@@ -1,6 +1,5 @@
 import { cp, mkdir, mkdtemp, rename, rm, stat } from "fs/promises";
 import { join, resolve } from "path";
-import { buildFibelStyles } from "@k2b/fibel/build";
 import { buildAssets } from "./build-assets";
 import { carryForwardSsrAssets } from "./build-output";
 import { plugin } from "./ssr";
@@ -12,8 +11,6 @@ const previous = `${dist}.previous-${process.pid}`;
 
 try {
   await buildAssets();
-
-  await buildFibelStyles(root, true);
 
   const result = await Bun.build({
     entrypoints: [join(root, "src", "server.tsx")],

@@ -110,6 +110,7 @@ describe("@k2b/ui scaffold SSR", () => {
     );
 
     expect(html).toContain("k2b-app-overview__main");
+    expect(html).toContain('class="k2b-paper k2b-data-panel');
     expect(html).toContain("k2b-data-panel");
     expect(html).toContain('data-columns="2"');
     expect(html).toContain("Requests");

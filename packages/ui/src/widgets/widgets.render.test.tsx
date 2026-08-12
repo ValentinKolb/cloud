@@ -35,7 +35,9 @@ describe("@k2b/ui Cloud-faithful widget composition", () => {
       }),
     );
 
-    expect(html).toStartWith('<div class="k2b-widget" data-size="compact">');
+    expect(html).toStartWith("<div");
+    expect(html).toContain('class="k2b-paper k2b-widget');
+    expect(html).toContain('data-size="compact"');
     expect(html).toContain('href="/operations" class="k2b-widget__header"');
     expect(html).toContain('href="/jobs?state=failed"');
     expect(html.indexOf('</a><div class="k2b-widget__body">')).toBeGreaterThan(-1);

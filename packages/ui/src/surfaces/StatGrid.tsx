@@ -1,4 +1,5 @@
 import { createContext, type JSX, Show, useContext } from "solid-js";
+import { Paper } from "./Paper";
 
 export type StatGridSize = "md" | "sm";
 export type StatGridSurface = "white" | "muted";
@@ -29,7 +30,7 @@ const columnValue = (columns?: StatGridColumns): StatGridColumns => {
 export function StatGrid(props: StatGridProps): JSX.Element {
   const surface = () => props.surface ?? "white";
   return (
-    <div class={`k2b-stat-grid ${props.class ?? ""}`} data-columns={columnValue(props.columns)} data-surface={surface()}>
+    <Paper class={`k2b-stat-grid ${props.class ?? ""}`} data-columns={columnValue(props.columns)} data-surface={surface()}>
       <Show when={props.title}>
         <header class="k2b-stat-grid__header">
           <span class="k2b-stat-grid__title">{props.title}</span>
@@ -48,7 +49,7 @@ export function StatGrid(props: StatGridProps): JSX.Element {
           <div class="k2b-stat-grid__body">{props.children}</div>
         </StatGridSurfaceContext.Provider>
       </StatGridSizeContext.Provider>
-    </div>
+    </Paper>
   );
 }
 

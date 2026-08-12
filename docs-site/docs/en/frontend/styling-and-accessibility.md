@@ -95,6 +95,9 @@ Choose the public component that owns the required appearance and behavior:
   primitives for the geometry and interaction they document.
 - Use `Placeholder`, `NotFoundState`, `NoticeCard`, and `StatusBadge` for their
   specific feedback and status roles.
+- Use `Paper` for one neutral application-owned group when no more specific
+  shared surface owns the content. It deliberately leaves padding and layout
+  to the application.
 
 For example, render a primary action as a component rather than recreating it
 with a class:
@@ -121,9 +124,10 @@ Do not recreate these contracts with classes such as `btn-primary`, `input`,
 `sidebar-item`, or `focus-ui`. Those Cloud classes support existing product
 integration; they are not an alternative component API for new controls.
 
-Use a Cloud layout utility such as `paper` or `section` only for app-owned
-grouping that has no more specific shared surface. Do not copy the internal
-markup, selectors, or CSS of a shared component.
+Third-party applications use `Paper` rather than depending on Cloud's internal
+`paper` utility. A built-in Cloud application may keep the utility for
+app-owned grouping that has no more specific shared surface. Do not copy the
+internal markup, selectors, or CSS of a shared component.
 
 ## Style app-owned content semantically
 

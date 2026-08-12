@@ -98,6 +98,8 @@
   color: var(--k2b-text);
   background: var(--k2b-surface-canvas);
   font-family: var(--k2b-font-sans);
+  font-size: 0.9375rem;
+  font-weight: 400;
   color-scheme: light;
 }
 
@@ -1487,14 +1489,6 @@
 /* Cloud: `paper overflow-hidden`. */
 .k2b-ui .k2b-data-panel {
   @apply min-w-0 overflow-hidden;
-  border: 1px solid var(--k2b-border);
-  border-radius: var(--k2b-radius-surface);
-  background: var(--k2b-surface);
-  box-shadow: var(--k2b-shadow-surface);
-  transition:
-    color 150ms,
-    background-color 150ms,
-    border-color 150ms;
 }
 
 /* Cloud: `flex flex-col gap-2 px-3 py-2`. The port inflated the padding to
@@ -4520,10 +4514,6 @@
 /* Cloud's default container class is `paper overflow-auto flex-1 min-h-0`. */
 .k2b-ui .k2b-table-wrap[data-surface="paper"] {
   @apply min-h-0 flex-1 overflow-auto;
-  border: 1px solid var(--k2b-border);
-  border-radius: var(--k2b-radius-surface);
-  background: var(--k2b-surface);
-  box-shadow: var(--k2b-shadow-surface);
 }
 
 /* The panel already owns the enclosing surface. A directly nested table only

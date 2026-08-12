@@ -18,6 +18,9 @@ Wrap the rendered application in the UI scope:
 </main>
 ```
 
+The scope uses `0.9375rem` body text at weight `400` without changing the
+document's global `body`.
+
 Fonts and theme stacks are CSS variables and can be replaced without
 JavaScript:
 
@@ -79,7 +82,7 @@ standalone SSR, behavior, styling, and migration checks:
 - Layout: `AppOverview`, `DataPanel`, `PanelHeader`, `PanelDialog`,
   `SettingsModal`, `AppWorkspace`, `Panes`, `FloatingWindow`, and generic
   settings-form helpers
-- Surfaces: `Avatar`, `LinkCard`, `StatGrid`, `StatCell`, `StatusBadge`,
+- Surfaces: `Paper`, `Avatar`, `LinkCard`, `StatGrid`, `StatCell`, `StatusBadge`,
   `ProgressBar`, `NoticeCard` (with `NoticeCard.Grid`), `Tag`,
   `DescriptionList`, `Placeholder`, and `NotFoundState`
 - Feedback: the complete scoped prompt family, `Tooltip`, and scoped `toast`

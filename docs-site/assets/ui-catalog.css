@@ -355,6 +355,68 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.ui-paper-demo-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.ui-paper-demo {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem;
+  color: var(--k2b-text-secondary);
+  text-decoration: none;
+}
+
+.ui-paper-demo > :where(h2, p, span) {
+  min-width: 0;
+}
+
+.ui-paper-demo > :where(h2, p) {
+  margin: 0;
+}
+
+.ui-paper-demo > h2 {
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.ui-paper-demo > p {
+  line-height: 1.4;
+}
+
+.ui-paper-demo__eyebrow,
+.ui-paper-demo small {
+  color: var(--k2b-text-muted);
+  font-size: 0.6875rem;
+}
+
+.ui-paper-demo__eyebrow {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ui-paper-demo--link {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ui-paper-demo--link > span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.ui-paper-demo--link > i {
+  flex: 0 0 auto;
+  color: var(--k2b-action);
+}
+
 .ui-demo-context-target,
 .ui-theme-demo {
   padding: 1rem;
@@ -1012,6 +1074,7 @@
   }
 
   .ui-demo-form-grid,
+  .ui-paper-demo-grid,
   .ui-theme-demo__swatches,
   .ui-template-demo,
   .ui-spotlight-demo {

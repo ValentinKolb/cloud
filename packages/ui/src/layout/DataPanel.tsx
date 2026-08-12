@@ -1,4 +1,5 @@
 import { type JSX, Show } from "solid-js";
+import { Paper } from "../surfaces/Paper";
 import Placeholder from "../surfaces/Placeholder";
 import { PanelHeader } from "./PanelHeader";
 
@@ -21,7 +22,7 @@ export function DataPanel(props: DataPanelProps): JSX.Element {
   const hasToolbar = () => Boolean(props.search || props.filters);
 
   return (
-    <section class={`k2b-data-panel ${props.class ?? ""}`}>
+    <Paper as="section" class={`k2b-data-panel ${props.class ?? ""}`}>
       <div class="k2b-data-panel__header">
         <PanelHeader title={props.title} subtitle={props.subtitle} actions={props.actions} as={props.as} />
         <Show when={hasToolbar()}>
@@ -50,6 +51,6 @@ export function DataPanel(props: DataPanelProps): JSX.Element {
       <Show when={props.footer}>
         <footer class="k2b-data-panel__footer">{props.footer}</footer>
       </Show>
-    </section>
+    </Paper>
   );
 }

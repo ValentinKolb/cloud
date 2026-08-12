@@ -4,16 +4,14 @@ import { dirname, join, resolve } from "path";
 
 const siteRoot = resolve(import.meta.dir, "..");
 const generated = join(siteRoot, "assets", "generated");
+const fibelPublic = join(siteRoot, ".fibel", "public");
 const solidRoot = dirname(Bun.resolveSync("solid-js/package.json", siteRoot));
 
 export async function buildAssets() {
   await rm(generated, { recursive: true, force: true });
   await mkdir(generated, { recursive: true });
   const result = await Bun.build({
-    entrypoints: [
-      join(siteRoot, "src", "ui", "cloud-ui.css"),
-      join(siteRoot, "src", "ui", "cloud-components.css"),
-    ],
+    entrypoints: [join(siteRoot, "src", "ui", "cloud-ui.css"), join(siteRoot, "src", "ui", "cloud-components.css")],
     outdir: generated,
     naming: "[name].[ext]",
     plugins: [tailwind],
@@ -21,6 +19,22 @@ export async function buildAssets() {
   });
   if (!result.success) {
     throw new AggregateError(result.logs, "Could not build the UI showcase stylesheets.");
+  }
+
+  await mkdir(fibelPublic, { recursive: true });
+  const fibelStyles = await Bun.build({
+    entrypoints: [join(siteRoot, "src", "fibel.css")],
+    outdir: fibelPublic,
+    naming: "styles.[ext]",
+    plugins: [tailwind],
+    minify: process.env.NODE_ENV === "production",
+  });
+  if (!fibelStyles.success) {
+    throw new AggregateError(fibelStyles.logs, "Could not build the Fibel stylesheet.");
+  }
+  const compiledFibelStyles = await Bun.file(join(fibelPublic, "styles.css")).text();
+  if (/@(?:apply|source|tailwind)\b/.test(compiledFibelStyles)) {
+    throw new Error("Fibel stylesheet still contains uncompiled Tailwind directives.");
   }
 
   const solidMode = process.env.NODE_ENV === "production" ? "solid.js" : "dev.js";

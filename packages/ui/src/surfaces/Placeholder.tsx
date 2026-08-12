@@ -1,4 +1,6 @@
 import { type JSX, Show } from "solid-js";
+import { Dynamic } from "solid-js/web";
+import { Paper } from "./Paper";
 
 export type PlaceholderAlign = "center" | "left";
 export type PlaceholderSurface = "none" | "paper";
@@ -24,7 +26,8 @@ export default function Placeholder(props: PlaceholderProps): JSX.Element {
   const icon = () => props.icon ?? (state() === "loading" ? "ti ti-loader-2" : state() === "error" ? "ti ti-alert-circle" : undefined);
 
   return (
-    <div
+    <Dynamic
+      component={props.surface === "paper" ? Paper : "div"}
       class={`k2b-placeholder ${props.class ?? ""}`}
       data-align={align()}
       data-state={state()}
@@ -50,6 +53,6 @@ export default function Placeholder(props: PlaceholderProps): JSX.Element {
       <Show when={props.action}>
         <div class="k2b-placeholder__action">{props.action}</div>
       </Show>
-    </div>
+    </Dynamic>
   );
 }

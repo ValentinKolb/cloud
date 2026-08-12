@@ -1,4 +1,5 @@
 import type { JSX } from "solid-js";
+import { Paper } from "./Paper";
 
 export type LinkCardColor = "blue" | "emerald" | "violet" | "orange" | "red" | "amber" | "zinc" | "cyan" | "rose";
 
@@ -12,7 +13,7 @@ export type LinkCardProps = {
 
 export function LinkCard(props: LinkCardProps): JSX.Element {
   return (
-    <a href={props.href} class="k2b-link-card" data-color={props.color}>
+    <Paper as="a" href={props.href} class="k2b-link-card" data-color={props.color} interactive>
       <div class="k2b-link-card__icon">
         <i class={`${props.icon} k2b-link-card__glyph`} aria-hidden="true" />
       </div>
@@ -21,7 +22,7 @@ export function LinkCard(props: LinkCardProps): JSX.Element {
         <p class="k2b-link-card__description">{props.description}</p>
       </div>
       <i class="ti ti-chevron-right k2b-link-card__chevron" aria-hidden="true" />
-    </a>
+    </Paper>
   );
 }
 
