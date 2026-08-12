@@ -216,11 +216,7 @@
 }
 
 .fibel-app main > article.mx-auto > div:first-child,
-.fibel-app
-  main
-  > article.mx-auto
-  > .fibel-prose
-  > :where(p, ul, ol, blockquote, h2, h3, h4) {
+.fibel-app main > article.mx-auto > .fibel-prose > :where(p, ul, ol, blockquote, h2, h3, h4) {
   max-width: 56rem;
 }
 
@@ -662,6 +658,235 @@
   content: "·";
 }
 
+/* One real request replaces a generic architecture diagram. The overlapping
+   registry and response surfaces read like an operational trace rather than
+   three interchangeable feature cards. */
+.cloud-request-trace {
+  width: 100%;
+  max-width: 36rem;
+  justify-self: end;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.cloud-request-trace-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0 0.7rem;
+  color: var(--c-faint);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+
+.cloud-request-canvas {
+  position: relative;
+  min-height: 19.6rem;
+  overflow: visible;
+}
+
+.cloud-request-entry {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  align-items: center;
+  margin: 1.2rem 3.5rem 0 1.2rem;
+  border: 1px solid var(--c-line-2);
+  border-radius: 0.45rem;
+  padding: 0.65rem 0.8rem;
+  background: var(--c-surface);
+  box-shadow: 0 0.8rem 2rem rgb(24 24 27 / 0.08);
+}
+
+.cloud-request-entry::after {
+  position: absolute;
+  width: 1px;
+  height: 3.85rem;
+  top: 100%;
+  left: 2.1rem;
+  background: var(--c-accent);
+  content: "";
+}
+
+.cloud-request-entry > span {
+  color: var(--c-accent-ink);
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.cloud-request-entry code {
+  overflow: hidden;
+  color: var(--c-ink);
+  font-size: 0.74rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-request-entry b {
+  border-radius: 999px;
+  padding: 0.18rem 0.42rem;
+  background: var(--c-live-soft);
+  color: var(--c-live);
+  font-size: 0.66rem;
+  font-weight: 500;
+}
+
+.cloud-registry-record {
+  position: absolute;
+  z-index: 2;
+  width: min(66%, 22rem);
+  top: 6.4rem;
+  left: 1.2rem;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--c-accent) 52%, var(--c-line));
+  border-radius: 0.45rem;
+  padding: 0.85rem 0.95rem 1rem;
+  background: var(--c-accent-soft);
+  box-shadow: 0 1rem 2.6rem rgb(24 24 27 / 0.1);
+}
+
+.cloud-trace-label {
+  display: block;
+  margin-bottom: 0.65rem;
+  color: var(--c-accent-ink);
+  font-size: 0.66rem;
+}
+
+.cloud-registry-record dl {
+  display: grid;
+  gap: 0.32rem;
+  margin: 0;
+}
+
+.cloud-registry-record dl > div {
+  display: grid;
+  grid-template-columns: 5.2rem minmax(0, 1fr);
+  gap: 0.65rem;
+}
+
+.cloud-registry-record dt {
+  color: var(--c-faint);
+  font-size: 0.62rem;
+}
+
+.cloud-registry-record dd {
+  overflow: hidden;
+  margin: 0;
+  color: var(--c-ink);
+  font-size: 0.66rem;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-runtime-response {
+  position: absolute;
+  z-index: 3;
+  width: min(50%, 17rem);
+  top: 11.25rem;
+  right: 1.2rem;
+  overflow: hidden;
+  border: 1px solid var(--c-line-2);
+  border-radius: 0.45rem;
+  background: var(--c-surface);
+  box-shadow: 0 1rem 2.8rem rgb(24 24 27 / 0.14);
+}
+
+.cloud-runtime-response-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  border-bottom: 1px solid var(--c-line);
+  padding: 0.65rem 0.75rem;
+  color: var(--c-ink);
+  font-size: 0.68rem;
+}
+
+.cloud-runtime-response-head span:last-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--c-live);
+  font-size: 0.62rem;
+}
+
+.cloud-runtime-response-head i {
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.cloud-runtime-response pre {
+  margin: 0;
+  padding: 1.05rem 0.75rem 1.15rem;
+  background: var(--c-sunken);
+}
+
+.cloud-runtime-response code {
+  color: var(--c-accent-ink);
+  font-size: 0.7rem;
+}
+
+.cloud-request-events {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr auto;
+  gap: 0.45rem 0.8rem;
+  align-items: end;
+  padding: 0.85rem 0 0;
+  background: transparent;
+  color: var(--c-muted);
+  font-size: 0.62rem;
+}
+
+.cloud-request-events span + span::before {
+  margin-right: 0.55rem;
+  color: var(--c-line-2);
+  content: "→";
+}
+
+.cloud-request-events b {
+  color: var(--c-ink);
+  font-weight: 500;
+}
+
+@media (max-width: 33.99rem) {
+  .cloud-request-canvas {
+    min-height: 22.4rem;
+  }
+
+  .cloud-request-entry {
+    margin-right: 0.8rem;
+    margin-left: 0.8rem;
+  }
+
+  .cloud-registry-record {
+    width: calc(100% - 2.4rem);
+    left: 0.8rem;
+  }
+
+  .cloud-runtime-response {
+    width: calc(100% - 4rem);
+    top: 13.5rem;
+    right: 0.8rem;
+  }
+
+  .cloud-request-events {
+    grid-template-columns: 1fr 1fr;
+    padding-inline: 0.8rem;
+  }
+
+  .cloud-request-events span + span::before {
+    content: none;
+  }
+}
+
 /* --- day one ------------------------------------------------------------- */
 
 /* Tone alone separates the bands. A rule on top of a tone change would be two
@@ -671,173 +896,269 @@
   background: var(--c-band-surface);
 }
 
-.cloud-dayone-grid {
-  display: grid;
-  gap: clamp(2.5rem, 5vw, 4rem);
-  margin-top: clamp(2.5rem, 4vw, 3.5rem);
+.dark .cloud-dayone {
+  background: linear-gradient(145deg, #0b0e12 0%, #0d1117 46%, #101827 100%);
 }
 
-@media (min-width: 66rem) {
-  .cloud-dayone-grid {
-    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
-  }
+.cloud-dayone-head {
+  max-width: 42rem;
+  margin-inline: auto;
+  text-align: center;
 }
 
-.cloud-apps {
-  display: grid;
-  gap: 2.2rem;
+.cloud-dayone-head h2 {
+  max-width: none;
 }
 
-.cloud-apps-group h3 {
+.cloud-dayone-head p {
+  margin: 0.8rem auto 0;
   color: var(--c-muted);
-  font-size: 0.755rem;
-  font-weight: 500;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+  font-size: clamp(0.95rem, 1.3vw, 1.08rem);
+  line-height: 1.6;
 }
 
-.cloud-apps ul {
-  margin: 0.9rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.cloud-apps li {
-  display: grid;
-  padding: 0.4rem 0;
-  gap: 0.15rem 1rem;
-  align-items: baseline;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.cloud-apps li span {
-  grid-column: 1 / -1;
-}
-
-.cloud-apps li b {
-  color: var(--c-ink);
-  font-size: 0.94rem;
-  font-weight: 600;
-}
-
-.cloud-apps li span {
-  color: var(--c-muted);
-  font-size: 0.875rem;
-  line-height: 1.5;
-}
-
-.cloud-home .cloud-apps-more {
-  margin: 1.35rem 0 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem 0.75rem;
-  color: var(--c-muted);
-  font-size: 0.875rem;
-}
-
-.cloud-apps-more a {
-  color: var(--c-ink);
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.cloud-apps-more a:hover {
-  color: var(--c-accent);
-}
-
-.cloud-apps-more a:focus-visible {
-  outline: 2px solid var(--c-accent);
-  outline-offset: 3px;
-}
-
-@media (min-width: 34rem) {
-  .cloud-apps li {
-    grid-template-columns: 8rem minmax(0, 1fr);
-  }
-
-  .cloud-apps li span {
-    grid-column: 2;
-  }
-}
-
-.cloud-inherits {
-  align-self: start;
-  border: 1px solid var(--c-line);
-  border-radius: 0.7rem;
-  padding: clamp(1.4rem, 2.4vw, 1.9rem);
-  background: var(--c-card-gradient);
-  box-shadow: var(--c-bevel);
-}
-
-.cloud-inherits > p {
-  margin-top: 0.7rem;
-  color: var(--c-muted);
-  font-size: 0.885rem;
-  line-height: 1.55;
-}
-
-.cloud-inherits dl {
-  margin: 1.6rem 0 0;
-  display: grid;
-  gap: 1.1rem;
-}
-
-.cloud-inherits dt {
-  color: var(--c-accent-ink);
-  font-family: var(--c-mono);
-  font-size: 0.74rem;
-  letter-spacing: 0.04em;
-  text-transform: lowercase;
-}
-
-.cloud-inherits dd {
-  margin: 0.3rem 0 0;
-  color: var(--c-ink-2);
-  font-size: 0.9rem;
-  line-height: 1.55;
-}
-
-/* --- request path -------------------------------------------------------- */
-
-.cloud-path {
-  display: grid;
-  margin: clamp(2.5rem, 4vw, 3.5rem) 0 0;
-  padding: 0;
-  gap: 1.5rem;
-  list-style: none;
-  counter-reset: none;
-}
-
-@media (min-width: 62rem) {
-  .cloud-path {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    grid-template-rows: auto auto auto;
-    gap: 1.75rem;
-  }
-
-  .cloud-step {
-    grid-row: span 3;
-    grid-template-rows: subgrid;
-  }
-}
-
-.cloud-step {
+.cloud-product-stage {
   position: relative;
-  display: grid;
-  align-content: start;
-  gap: 0.85rem;
+  height: clamp(25rem, 48vw, 35rem);
+  margin-top: clamp(2.5rem, 5vw, 4rem);
+  overflow: visible;
 }
 
-.cloud-mono-card {
-  display: grid;
-  gap: 0.85rem;
-  padding: 0.95rem;
+.cloud-product-stage::after {
+  position: absolute;
+  right: 8%;
+  bottom: 0;
+  left: 8%;
+  height: 45%;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--c-accent) 9%, transparent);
+  filter: blur(5rem);
+  content: "";
+  pointer-events: none;
 }
 
-.cloud-step-note {
+.cloud-product-window {
+  position: absolute;
+  overflow: hidden;
+  border: 1px solid var(--c-line-2);
+  border-radius: 1rem;
+  background: var(--c-surface);
+  box-shadow:
+    0 1.5rem 4rem rgb(20 28 45 / 0.12),
+    var(--c-bevel);
+}
+
+.dark .cloud-product-window {
+  box-shadow:
+    0 1.5rem 4rem rgb(0 0 0 / 0.32),
+    var(--c-bevel);
+}
+
+.cloud-product-window-head {
+  display: flex;
+  min-height: 3rem;
+  padding: 0.85rem 1rem;
+  gap: 0.75rem;
+  align-items: center;
+  border-bottom: 1px solid var(--c-line);
   color: var(--c-muted);
-  font-size: 0.875rem;
-  line-height: 1.55;
+  font-size: 0.76rem;
+}
+
+.cloud-product-window-head b {
+  color: var(--c-ink);
+  font-size: 0.82rem;
+}
+
+.cloud-product-window-head i {
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--c-live);
+}
+
+.cloud-product-main {
+  z-index: 2;
+  width: min(62%, 47rem);
+  top: 12%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-color: #008f4c;
+}
+
+.cloud-product-toolbar {
+  display: flex;
+  padding: 1rem;
+  gap: 1.2rem;
+  align-items: center;
+  border-bottom: 1px solid var(--c-line);
+  color: var(--c-muted);
+  font-size: 0.72rem;
+}
+
+.cloud-product-toolbar b {
+  margin-left: auto;
+  padding: 0.45rem 0.8rem;
+  border-radius: 0.55rem;
+  background: var(--c-ink);
+  color: var(--c-surface);
+  font-size: 0.7rem;
+}
+
+.cloud-product-table > div {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 0.65fr;
+  min-height: 3.2rem;
+  padding: 0.8rem 1rem;
+  gap: 1rem;
+  align-items: center;
+  border-bottom: 1px solid var(--c-line);
+  color: var(--c-muted);
+  font-size: 0.74rem;
+}
+
+.cloud-product-table > div:last-child {
+  border-bottom: 0;
+}
+
+.cloud-product-table .cloud-product-table-head {
+  min-height: 2.5rem;
+  background: var(--c-sunken);
+  color: var(--c-faint);
+  font-size: 0.68rem;
+}
+
+.cloud-product-table b {
+  color: var(--c-ink-2);
+  font-weight: 500;
+}
+
+.cloud-product-table i {
+  justify-self: start;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  background: var(--c-live-soft);
+  color: var(--c-live);
+  font-style: normal;
+}
+
+.cloud-product-mail {
+  z-index: 1;
+  width: 24rem;
+  top: 29%;
+  left: 0;
+  opacity: 0.82;
+  border-color: #2563eb;
+}
+
+.cloud-mail-row {
+  display: flex;
+  padding: 0.85rem 1rem;
+  gap: 0.75rem;
+  align-items: center;
+  border-bottom: 1px solid var(--c-line);
+}
+
+.cloud-mail-row > i {
+  width: 1.8rem;
+  height: 1.8rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--c-sunken);
+}
+
+.cloud-mail-row span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.cloud-mail-row b {
+  color: var(--c-ink-2);
+  font-size: 0.72rem;
+}
+
+.cloud-mail-row small {
+  color: var(--c-muted);
+  font-size: 0.65rem;
+}
+
+.cloud-mail-row.is-active {
+  background: var(--c-accent-soft);
+}
+
+.cloud-product-contract {
+  z-index: 3;
+  width: 23rem;
+  right: 0;
+  bottom: 9%;
+  border-color: #d97706;
+}
+
+.cloud-product-contract .cloud-product-window-head span {
+  margin-left: auto;
+  color: var(--c-live);
+}
+
+.cloud-product-contract pre {
+  margin: 0;
+  padding: 1.3rem;
+  color: var(--c-ink-2);
+  font: 0.72rem / 1.8 var(--c-mono);
+}
+
+.cloud-product-contract em {
+  color: var(--c-accent-ink);
+  font-style: normal;
+}
+
+.cloud-dayone-principles {
+  display: grid;
+  margin-top: 1.5rem;
+  gap: 1rem;
+}
+
+.cloud-dayone-principles > div {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.cloud-dayone-principles b {
+  color: var(--c-ink);
+  font-size: 0.86rem;
+}
+
+.cloud-dayone-principles span {
+  color: var(--c-muted);
+  font-size: 0.78rem;
+}
+
+@media (min-width: 42rem) {
+  .cloud-dayone-principles {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2rem;
+  }
+}
+
+@media (max-width: 47.99rem) {
+  .cloud-product-stage {
+    height: 27rem;
+  }
+
+  .cloud-product-main {
+    width: calc(100% - 2rem);
+    top: 8%;
+  }
+
+  .cloud-product-mail {
+    display: none;
+  }
+
+  .cloud-product-contract {
+    width: calc(100% - 4rem);
+    right: -1rem;
+    bottom: 5%;
+  }
 }
 
 /* --- boundary ------------------------------------------------------------ */
@@ -847,7 +1168,6 @@
   background: var(--c-band-surface);
 }
 
-.cloud-boundary-grid,
 .cloud-contract-grid {
   display: grid;
   gap: clamp(2.25rem, 4.5vw, 3.75rem);
@@ -855,69 +1175,163 @@
 }
 
 @media (min-width: 62rem) {
-  .cloud-boundary-grid,
   .cloud-contract-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
   }
 }
 
-.cloud-boundary-copy h2 {
-  max-width: 20ch;
-}
-
-.cloud-boundary-copy p {
-  max-width: 52ch;
-  margin-top: 1.15rem;
-  color: var(--c-ink-2);
-  line-height: 1.62;
-}
-
-.cloud-choices {
+.cloud-facts-head {
   display: grid;
+  gap: 1rem clamp(2rem, 8vw, 8rem);
+}
+
+.cloud-facts-head h2 {
+  max-width: 15ch;
+}
+
+.cloud-facts-head p {
+  max-width: 38rem;
   margin: 0;
-  gap: 1.35rem;
+  color: var(--c-ink-2);
+  font-size: clamp(0.95rem, 1.3vw, 1.08rem);
+  line-height: 1.6;
 }
 
-.cloud-choices > div {
-  display: grid;
-  gap: 0.2rem 1.5rem;
-}
-
-@media (min-width: 34rem) {
-  .cloud-choices > div {
-    grid-template-columns: 7rem minmax(0, 1fr);
+@media (min-width: 58rem) {
+  .cloud-facts-head {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    align-items: end;
   }
 }
 
-.cloud-choices dt {
-  color: var(--c-muted);
-  font-family: var(--c-mono);
-  font-size: 0.755rem;
-  letter-spacing: 0.03em;
-  padding-top: 0.15rem;
+.cloud-factsheet {
+  display: grid;
+  margin-top: clamp(2.5rem, 5vw, 4rem);
+  overflow: hidden;
+  border: 1px solid var(--c-line-2);
+  border-radius: 1rem;
+  background: var(--c-surface);
+  box-shadow: var(--c-bevel);
 }
 
-.cloud-choices dd {
-  margin: 0;
+.cloud-home .cloud-fact {
+  padding: clamp(1.35rem, 2.8vw, 2.1rem);
+  border-bottom: 1px solid var(--c-line);
 }
 
-.cloud-choices b {
-  display: block;
+.cloud-fact h3 {
   color: var(--c-ink);
-  font-size: 0.96rem;
+  font-size: 0.82rem;
   font-weight: 600;
 }
 
-.cloud-choices span {
-  display: block;
-  margin-top: 0.15rem;
-  color: var(--c-muted);
-  font-size: 0.88rem;
+.cloud-fact ul {
+  display: grid;
+  margin: 1.1rem 0 0;
+  padding: 0;
+  gap: 0.55rem 1.5rem;
+  list-style: none;
 }
 
-.cloud-choices code {
-  font-family: var(--c-mono);
-  font-size: 0.9em;
+.cloud-fact li {
+  color: var(--c-ink-2);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.cloud-fact-apps ul {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cloud-fact a,
+.cloud-factsheet-foot a {
+  color: var(--c-accent-ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.cloud-fact > a {
+  display: inline-block;
+  margin-top: 1.2rem;
+}
+
+.cloud-fact a:hover,
+.cloud-factsheet-foot a:hover {
+  color: var(--c-accent);
+}
+
+.cloud-fact a:focus-visible,
+.cloud-factsheet-foot a:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 3px;
+}
+
+.cloud-fact dl {
+  display: grid;
+  margin: 1.1rem 0 0;
+  gap: 0.7rem;
+}
+
+.cloud-fact dl > div {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.cloud-fact dt {
+  color: var(--c-muted);
+  font: 0.72rem var(--c-mono);
+}
+
+.cloud-fact dd {
+  margin: 0;
+  color: var(--c-ink-2);
+  font-size: 0.8rem;
+}
+
+.cloud-factsheet-foot {
+  display: grid;
+  padding: 1rem clamp(1.35rem, 2.8vw, 2.1rem);
+  gap: 1rem 2rem;
+  background: var(--c-sunken);
+}
+
+.cloud-factsheet-foot p,
+.cloud-factsheet-foot nav {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  gap: 0.5rem 1.25rem;
+  align-items: center;
+}
+
+.cloud-factsheet-foot p {
+  color: var(--c-muted);
+  font: 0.7rem var(--c-mono);
+}
+
+.cloud-factsheet-foot nav {
+  justify-content: flex-start;
+}
+
+@media (min-width: 50rem) {
+  .cloud-factsheet {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cloud-fact:nth-child(odd) {
+    border-right: 1px solid var(--c-line);
+  }
+
+  .cloud-factsheet-foot {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .cloud-factsheet-foot nav {
+    justify-content: flex-end;
+  }
 }
 
 /* --- contract ------------------------------------------------------------ */
@@ -940,6 +1354,25 @@
 
 .cloud-contract-copy .cloud-link {
   margin-top: 1.5rem;
+}
+
+.cloud-contract-points {
+  display: grid;
+  margin: 2rem 0 0;
+  padding: 0;
+  gap: 0;
+  list-style: none;
+}
+
+.cloud-contract-points li {
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--c-line);
+  color: var(--c-ink-2);
+  font-size: 0.88rem;
+}
+
+.cloud-contract-points li:last-child {
+  border-bottom: 1px solid var(--c-line);
 }
 
 .cloud-contract-stack {
@@ -979,6 +1412,43 @@
 
 .cloud-code .hl-comment {
   color: var(--c-muted);
+}
+
+.cloud-app-contract-code {
+  overflow: hidden;
+  border-color: var(--c-accent);
+  border-radius: 1rem;
+  background: var(--c-surface);
+  box-shadow:
+    0 1.5rem 4rem rgb(20 28 45 / 0.1),
+    var(--c-bevel);
+  font-size: clamp(0.7rem, 1vw, 0.79rem);
+}
+
+.dark .cloud-app-contract-code {
+  box-shadow:
+    0 1.5rem 4rem rgb(0 0 0 / 0.28),
+    var(--c-bevel);
+}
+
+.cloud-contract-status {
+  display: flex;
+  padding: 0.8rem 0.95rem;
+  gap: 1.2rem;
+  border-top: 1px solid var(--c-line);
+  color: var(--c-muted);
+  font: 0.68rem var(--c-mono);
+}
+
+.cloud-contract-status span::before {
+  display: inline-block;
+  width: 0.35rem;
+  height: 0.35rem;
+  margin-right: 0.45rem;
+  border-radius: 50%;
+  background: var(--c-live);
+  content: "";
+  vertical-align: 0.05rem;
 }
 
 .cloud-hero-code {
