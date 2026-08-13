@@ -1184,6 +1184,72 @@ const DetailPanelDemo = () => {
   );
 };
 
+const DetailPanelActionDemo = () => (
+  <DemoCard
+    id="detail-panel-action"
+    chip={{ kind: "component", name: "DetailPanel.Action", from: "@k2b/ui" }}
+    description="Full-width destinations keep navigation primary while a sibling overflow menu holds secondary commands. Disabled rows preserve unavailable resource context."
+    code={`<DetailPanel.Section title="Related resources" icon="ti ti-link">
+  <DetailPanel.Action
+    href="/app/mail/inbox?conversation=Conv01"
+    leading={<i class="ti ti-mail" aria-hidden="true" />}
+    title="Release planning"
+    description="Mail conversation"
+    menuLabel="More actions for Release planning"
+    menuItems={[{ label: "Unlink", icon: "ti ti-unlink", action: unlink }]}
+  />
+  <DetailPanel.Action
+    type="button"
+    disabled
+    leading={<i class="ti ti-file-off" aria-hidden="true" />}
+    title="Archived brief"
+    description="Resource unavailable or no longer accessible"
+  />
+</DetailPanel.Section>`}
+  >
+    <div class="ui-detail-panel-patterns">
+      <article class="ui-detail-panel-pattern">
+        <header>
+          <strong>Related resources</strong>
+          <span>Open the resource from the row; use the dots menu for secondary actions.</span>
+        </header>
+        <div class="ui-detail-panel-pattern__frame" style="height: 16rem">
+          <DetailPanel class="ui-detail-panel-grouped">
+            <DetailPanel.Body>
+              <DetailPanel.Group label="Resource context">
+                <DetailPanel.Section title="Related resources" icon="ti ti-link" tone="neutral">
+                  <DetailPanel.Action
+                    href="#detail-panel-action"
+                    leading={<i class="ti ti-mail" aria-hidden="true" />}
+                    title="Release planning"
+                    description="Mail conversation"
+                    menuLabel="More actions for Release planning"
+                    menuItems={[{ label: "Unlink", icon: "ti ti-unlink", action: () => {} }]}
+                  />
+                  <DetailPanel.Action
+                    href="#detail-panel-action"
+                    leading={<i class="ti ti-file-text" aria-hidden="true" />}
+                    title="Launch brief"
+                    description="Document · Updated today"
+                    trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+                  />
+                  <DetailPanel.Action
+                    type="button"
+                    disabled
+                    leading={<i class="ti ti-file-off" aria-hidden="true" />}
+                    title="Archived brief"
+                    description="Resource unavailable or no longer accessible"
+                  />
+                </DetailPanel.Section>
+              </DetailPanel.Group>
+            </DetailPanel.Body>
+          </DetailPanel>
+        </div>
+      </article>
+    </div>
+  </DemoCard>
+);
+
 const FloatingDemo = () => {
   const [open, setOpen] = createSignal(false);
   let scope: HTMLDivElement | undefined;
@@ -1273,6 +1339,7 @@ const demos: DemoSection = {
   ),
   "detail-panel": () => (
     <DemoGrid columns="one">
+      <DetailPanelActionDemo />
       <DetailPanelDemo />
     </DemoGrid>
   ),

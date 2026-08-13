@@ -202,33 +202,67 @@ const DetailsDemo = () => (
   <DemoCard
     id="details"
     chip={{ kind: "component", name: "DescriptionList", from: "@k2b/ui" }}
-    description="Semantic key-value content with optional actions, compact density, and responsive columns. Terms and descriptions remain real dl/dt/dd elements."
-    code={`<DescriptionList
-  columns={2}
-  items={[
-    { term: "Owner", description: "Platform team" },
-    { term: "Region", description: "Europe West" },
-    { term: "Repository", description: "cloud", action: <IconButton label="Open repository" size="xs" variant="ghost"><i class="ti ti-external-link" aria-hidden="true" /></IconButton> },
-  ]}
+    description="Semantic key-value content in a responsive grid or compact inspector rows. Both layouts retain real dl/dt/dd elements and support optional actions."
+    code={`{/* Scan-friendly facts */}
+<DescriptionList columns={2} items={facts} />
+
+{/* Compact metadata in a detail panel */}
+<DescriptionList
+  layout="rows"
+  size="sm"
+  actionVisibility="progressive"
+  items={metadata}
 />`}
   >
-    <DescriptionList
-      columns={2}
-      items={[
-        { term: "Owner", description: "Platform team" },
-        { term: "Region", description: "Europe West" },
-        { term: "Created", description: "31 July 2026" },
-        {
-          term: "Repository",
-          description: "cloud",
-          action: (
-            <IconButton label="Open repository" size="xs" variant="ghost">
-              <i class="ti ti-external-link" aria-hidden="true" />
-            </IconButton>
-          ),
-        },
-      ]}
-    />
+    <div class="ui-demo-form-grid">
+      <article class="ui-detail-panel-pattern">
+        <header>
+          <strong>Responsive grid</strong>
+          <span>Scan a small set of peer facts across one to three columns.</span>
+        </header>
+        <DescriptionList
+          columns={2}
+          items={[
+            { term: "Owner", description: "Platform team" },
+            { term: "Region", description: "Europe West" },
+            { term: "Created", description: "31 July 2026" },
+            {
+              term: "Repository",
+              description: "cloud",
+              action: (
+                <IconButton label="Open repository" size="xs" variant="ghost">
+                  <i class="ti ti-external-link" aria-hidden="true" />
+                </IconButton>
+              ),
+            },
+          ]}
+        />
+      </article>
+      <article class="ui-detail-panel-pattern">
+        <header>
+          <strong>Compact rows</strong>
+          <span>Align terms and values for inspector metadata and settings summaries.</span>
+        </header>
+        <DescriptionList
+          layout="rows"
+          size="sm"
+          actionVisibility="progressive"
+          items={[
+            { term: "Created", description: "31 July 2026, 14:32" },
+            { term: "Updated", description: "13 August 2026, 18:41" },
+            {
+              term: "ID",
+              description: "Res7K2",
+              action: (
+                <IconButton label="Copy resource ID" size="xs" variant="ghost">
+                  <i class="ti ti-copy" aria-hidden="true" />
+                </IconButton>
+              ),
+            },
+          ]}
+        />
+      </article>
+    </div>
   </DemoCard>
 );
 
