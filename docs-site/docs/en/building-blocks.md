@@ -5,7 +5,7 @@ section: Start
 order: 30
 description: Match a third-party application task to its supported public Cloud entry point.
 tags: [platform, api, services]
-updated: 2026-08-12
+updated: 2026-08-13
 ---
 
 # Find a platform API
@@ -27,6 +27,7 @@ import from another application.
 | Send notifications | Typed definitions and delivery | `@valentinkolb/cloud`, `/services` | [Notifications](/en/docs/platform/notifications) |
 | Publish agent-friendly reads and mutations | Types, Queries, and Actions | `@valentinkolb/cloud`, `@valentinkolb/cloud/contracts` | [App capabilities](/en/docs/platform/capabilities) |
 | Add resources to global search | Universal Search Query | `@valentinkolb/cloud/contracts` | [Universal search](/en/docs/platform/search) |
+| Let a user choose a Cloud resource | `openCloudResourcePicker()` | `@valentinkolb/cloud/browser/resource-picker` | [Universal search](/en/docs/platform/search#let-a-user-choose-a-cloud-resource) |
 | Add a dashboard summary | Widget declaration and response contract | `@valentinkolb/cloud`, `@valentinkolb/cloud/contracts` | [Dashboard widgets](/en/docs/platform/dashboard-widgets) |
 | Add product guidance | Help collection | `@valentinkolb/cloud/server` | [In-product Help](/en/docs/platform/help) |
 | Render documents | Template and PDF services | `@valentinkolb/cloud/services` | [PDF and templates](/en/docs/platform/pdf-and-templates) |

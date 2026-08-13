@@ -150,6 +150,36 @@ import { EntitySearch } from "@valentinkolb/cloud/account/ui";
   </DemoCard>
 );
 
+const ResourcePickerReference = () => (
+  <DemoCard
+    id="cloud-resource-picker"
+    chip={[
+      {
+        kind: "component",
+        name: "openCloudResourcePicker",
+        from: "@valentinkolb/cloud/browser/resource-picker",
+      },
+    ]}
+    description="Backend-required resource selection through the authenticated Universal Search catalog."
+    code={`import { openCloudResourcePicker } from "@valentinkolb/cloud/browser/resource-picker";
+
+const selected = await openCloudResourcePicker({
+  title: "Add Cloud reference",
+  excludeRefs: currentReferences,
+  requireReader: true,
+});
+
+if (selected) {
+  await saveReference(selected.ref, selected.title);
+}`}
+  >
+    <BackendRequiredNote title="Real search providers and permissions required">
+      The picker discovers live applications through the authenticated Universal Search route. The catalog shows its public contract without
+      inventing resources or implying that a selection is authorized without the owning provider.
+    </BackendRequiredNote>
+  </DemoCard>
+);
+
 const DashboardWidgetsDemo = () => (
   <DemoCard
     id="dashboard-widget-composition"
@@ -215,6 +245,11 @@ const demos: DemoSection = {
   "dashboard-widgets": () => (
     <DemoGrid columns="one">
       <DashboardWidgetsDemo />
+    </DemoGrid>
+  ),
+  "resource-picker": () => (
+    <DemoGrid columns="one">
+      <ResourcePickerReference />
     </DemoGrid>
   ),
 };

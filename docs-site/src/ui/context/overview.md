@@ -35,7 +35,8 @@ Four integrations remain product-specific because their behavior depends on auth
 
 - **Cloud assistant chat** — Cloud Assistant messages, tools, sessions, and attachments;
 - **Permissions and API keys** — identity, principal search, resource permissions, and scoped credentials;
-- **Cloud dashboard widgets** — Cloud endpoint adapters feeding portable widget presentation.
+- **Cloud dashboard widgets** — Cloud endpoint adapters feeding portable widget presentation;
+- **Cloud resource picker** — permission-filtered selection of stable Cloud resource references through Universal Search.
 
 They live in their own **Cloud components** section, keeping the portable package boundary explicit.
 

@@ -223,6 +223,12 @@ const cloudPages: UiCatalogPage[] = [
     icon: "ti ti-api-app",
     summary: "The Cloud endpoint contract that feeds portable widget presentation components.",
   },
+  {
+    slug: "resource-picker",
+    title: "Cloud resource picker",
+    icon: "ti ti-cloud-search",
+    summary: "Choose a permission-filtered Cloud resource through Universal Search and keep its stable reference.",
+  },
 ];
 
 const entry = (

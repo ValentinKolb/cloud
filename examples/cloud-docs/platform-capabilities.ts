@@ -1,7 +1,8 @@
 import { ok } from "@k2b/stdlib";
 import { defineCapabilities } from "@valentinkolb/cloud";
+import { openCloudResourcePicker } from "@valentinkolb/cloud/browser/resource-picker";
 import { invokeCapabilityWithDataSchema as invokeCapabilityInBrowser } from "@valentinkolb/cloud/capabilities";
-import { invokeCapabilityWithDataSchema as invokeCapabilityOnServer, type CapabilityCaller } from "@valentinkolb/cloud/capabilities/server";
+import { type CapabilityCaller, invokeCapabilityWithDataSchema as invokeCapabilityOnServer } from "@valentinkolb/cloud/capabilities/server";
 import { assertCapabilityManifestEvolution, compileCapabilityManifest } from "@valentinkolb/cloud/capabilities/testing";
 import { type AccessSubject, UniversalSearchDataSchema, UniversalSearchInputSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
@@ -187,6 +188,13 @@ const inventoryItemDataSchema = z.object({ id: z.string().uuid(), name: z.string
 
 export const readInventoryItemInBrowser = (itemId: string) =>
   invokeCapabilityInBrowser({ appId: "inventory", capabilityId: "item.get", kind: "query", input: { itemId } }, inventoryItemDataSchema);
+
+export const chooseInventoryItem = () =>
+  openCloudResourcePicker({
+    title: "Choose inventory item",
+    initialAppId: "inventory",
+    requireReader: true,
+  });
 
 export const readInventoryItemOnServer = (itemId: string, caller: CapabilityCaller) =>
   invokeCapabilityOnServer(
