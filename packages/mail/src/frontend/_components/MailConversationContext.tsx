@@ -191,19 +191,18 @@ export default function MailConversationContext(props: { mailboxId: string; conv
       param: { mailboxId, spaceId: destination.id },
       query: { conversationId },
     });
-    if (!spaceResponse.ok) return void prompts.error(await readApiError(spaceResponse, "Could not load Space columns"));
+    if (!spaceResponse.ok) return void prompts.error(await readApiError(spaceResponse, "Could not load Space kanbans"));
     const space = await spaceResponse.json();
-    const columns = space.columns.filter((column) => !column.isDone);
-    if (!columns[0]) return void prompts.error("This Space has no open column.");
-    const commonFields = {
-      title: { type: "text" as const, label: "Title", required: true, maxLength: 200 },
-      columnId: {
-        type: "select" as const,
-        label: "Column",
-        required: true,
-        default: columns[0].id,
-        options: columns.map((column) => ({ id: column.id, label: column.name })),
-      },
+    const kanbans = space.columns.filter((column) => !column.isDone);
+    const defaultKanban = kanbans[0];
+    if (!defaultKanban) return void prompts.error("This Space has no open kanban.");
+    const titleField = { type: "text" as const, label: "Title", required: true, maxLength: 200 };
+    const kanbanField = {
+      type: "select" as const,
+      label: "Kanban",
+      required: true,
+      default: defaultKanban.id,
+      options: kanbans.map((kanban) => ({ id: kanban.id, label: kanban.name })),
     };
     const json =
       kind === "task"
@@ -212,7 +211,7 @@ export default function MailConversationContext(props: { mailboxId: string; conv
               title: "New Space task",
               icon: "ti ti-checkbox",
               confirmText: "Create",
-              fields: { ...commonFields, deadline: { type: "datetime", label: "Deadline" } },
+              fields: { title: titleField, columnId: kanbanField, deadline: { type: "datetime", label: "Deadline" } },
             });
             return values?.columnId && values.title
               ? {
@@ -230,16 +229,16 @@ export default function MailConversationContext(props: { mailboxId: string; conv
               icon: "ti ti-calendar-event",
               confirmText: "Create",
               fields: {
-                ...commonFields,
+                title: titleField,
                 startsAt: { type: "datetime", label: "Starts", required: true },
                 endsAt: { type: "datetime", label: "Ends", required: true },
               },
             });
-            return values?.columnId && values.title && values.startsAt && values.endsAt
+            return values?.title && values.startsAt && values.endsAt
               ? {
                   kind,
                   spaceId: destination.id,
-                  columnId: values.columnId,
+                  columnId: defaultKanban.id,
                   title: values.title,
                   startsAt: new Date(values.startsAt).toISOString(),
                   endsAt: new Date(values.endsAt).toISOString(),
