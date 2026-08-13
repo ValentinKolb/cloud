@@ -193,12 +193,22 @@ describe("DetailPanel", () => {
     const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
 
     expect(css).toContain(".k2b-ui .k2b-detail-panel__action {");
-    expect(css).toContain(".k2b-ui .k2b-button.k2b-detail-panel__action {");
+    const actionRule = css.match(/\.k2b-ui \.k2b-button\.k2b-detail-panel__action \{([^}]*)\}/)?.[1] ?? "";
+    expect(actionRule).toContain("color: var(--k2b-text-muted);");
+    expect(actionRule).toContain("background: transparent;");
+    const actionHoverRule = css.match(/\.k2b-ui \.k2b-button\.k2b-detail-panel__action:not\(:disabled\):hover,[^{]+\{([^}]*)\}/)?.[1] ?? "";
+    expect(actionHoverRule).toContain("color: var(--k2b-detail-panel-accent, var(--k2b-action));");
+    expect(actionHoverRule).toContain("background: transparent;");
+    const menuHoverRule =
+      css.match(/\.k2b-ui \.k2b-button\.k2b-detail-panel__action-menu-trigger:not\(:disabled\):hover,[^{]+\{([^}]*)\}/)?.[1] ?? "";
+    expect(menuHoverRule).toContain("color: var(--k2b-detail-panel-accent, var(--k2b-action));");
+    expect(menuHoverRule).toContain("background: transparent;");
     const leadingRule = css.match(/\.k2b-ui \.k2b-detail-panel__action-leading \{([^}]*)\}/)?.[1] ?? "";
     expect(leadingRule).toContain("width: 1rem;");
     expect(leadingRule).toContain("justify-content: flex-start;");
+    expect(leadingRule).toContain("color: inherit;");
     const titleRule = css.match(/\.k2b-ui \.k2b-detail-panel__action-title \{([^}]*)\}/)?.[1] ?? "";
-    expect(titleRule).toContain("color: var(--k2b-text-muted);");
+    expect(titleRule).toContain("color: inherit;");
     expect(titleRule).toContain("font-size: 0.75rem;");
     expect(css).toContain('.k2b-ui .k2b-description-list[data-size="sm"] .k2b-description-list__item dt');
     expect(css).toContain('.k2b-description-list[data-action-visibility="progressive"]');

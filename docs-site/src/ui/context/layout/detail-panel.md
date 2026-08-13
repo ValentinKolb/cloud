@@ -65,8 +65,10 @@ related record, attachment, or in-panel jump. Pass `href` for native link
 semantics; omit it for a native button. `leading`, `title`, optional
 `description`, and `trailing` keep row geometry and interaction states
 consistent. Action rows align their optional leading icon with the section
-heading and keep their default label as quiet as supporting text, strengthening
-it on hover and keyboard focus. When a destination has secondary actions, pass declarative
+heading and keep their default label as quiet as supporting text. Hover and
+keyboard focus change only the action text and icon to the panel's primary
+color; the row and optional Dots menu trigger stay transparent. When a
+destination has secondary actions, pass declarative
 `menuItems` together with the required accessible `menuLabel`. The primary link
 and the Dots trigger render as sibling controls, so the whole main row remains
 a native destination without nesting a button inside the link. Do not use it
