@@ -1,127 +1,15 @@
 import { mutation, query } from "@k2b/stdlib/solid";
-import { Button, DetailPanel, Disclosure, Placeholder, prompts } from "@k2b/ui";
-import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { Button, ButtonLink, DetailPanel, Placeholder, prompts } from "@k2b/ui";
+import { createMemo, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { MailConversationContext, RelatedMailPage } from "../../contracts";
+import type { MailConversationContext } from "../../contracts";
 import { assertCursorProgress } from "../pagination";
 import { readApiError } from "./api-response";
 import { createContact, listWritableContactBooks } from "./contact-capabilities";
 import { buildMailContactParticipantRows } from "./mail-contact-context";
+import { buildExactParticipantSearchHref } from "./mail-navigation";
 
-const conversationHref = (mailboxId: string, conversationId: string): string => {
-  const url = new URL(window.location.href);
-  url.pathname = `/app/mail/${mailboxId}`;
-  url.searchParams.set("conversation", conversationId);
-  url.searchParams.delete("message");
-  return `${url.pathname}${url.search}`;
-};
-
-function RelatedMail(props: {
-  mailboxId: string;
-  conversationId: string;
-  bookId: string;
-  contactId: string;
-  onOpenHref: (href: string) => void | Promise<void>;
-}) {
-  const [open, setOpen] = createSignal(false);
-  const related = query.createInfinite<string, RelatedMailPage, string>({
-    source: () => `${props.mailboxId}:${props.conversationId}:${props.bookId}:${props.contactId}`,
-    enabled: open,
-    loadPage: async (_source, { cursor, abortSignal }) => {
-      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].contacts[":bookId"][
-        ":contactId"
-      ].history.$get(
-        {
-          param: {
-            mailboxId: props.mailboxId,
-            conversationId: props.conversationId,
-            bookId: props.bookId,
-            contactId: props.contactId,
-          },
-          query: { limit: "10", cursor },
-        },
-        { init: { signal: abortSignal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not load related Mail"));
-      const page = await response.json();
-      assertCursorProgress(cursor, page.nextCursor, "related Mail");
-      return page;
-    },
-    getNextCursor: (page) => page.nextCursor,
-  });
-  const relatedItems = createMemo(() => {
-    const merged = new Map<string, RelatedMailPage["items"][number]>();
-    for (const page of related.pages()) for (const item of page.items) merged.set(item.id, item);
-    return [...merged.values()];
-  });
-
-  return (
-    <Disclosure summary="Related Mail" icon="ti ti-history" class="mt-2" value={open} onValueChange={setOpen}>
-      <Show
-        when={!related.error()}
-        fallback={
-          <Placeholder
-            state="error"
-            variant="compact"
-            align="left"
-            title="Related Mail unavailable"
-            description={related.error()?.message}
-            action={
-              <Button variant="secondary" size="xs" type="button" onClick={() => void related.refresh()}>
-                Retry
-              </Button>
-            }
-          />
-        }
-      >
-        <Show
-          when={!related.loading()}
-          fallback={<Placeholder state="loading" variant="compact" align="left" title="Loading related Mail" />}
-        >
-          <Show
-            when={relatedItems().length > 0}
-            fallback={<Placeholder state="empty" variant="compact" align="left" icon="ti ti-mail-off" title="No related Mail" />}
-          >
-            <div class="flex flex-col gap-1">
-              <For each={relatedItems()}>
-                {(item) => (
-                  <DetailPanel.Action
-                    type="button"
-                    onClick={() => void props.onOpenHref(conversationHref(props.mailboxId, item.id))}
-                    leading={<i class="ti ti-mail" aria-hidden="true" />}
-                    title={item.subject || "(no subject)"}
-                    description={item.participantSummary}
-                    trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
-                  />
-                )}
-              </For>
-            </div>
-          </Show>
-          <Show when={related.hasMore()}>
-            <Button
-              variant="ghost"
-              size="xs"
-              type="button"
-              class="mt-2"
-              loading={related.loadingMore()}
-              loadingLabel="Loading more"
-              onClick={() => void related.loadMore()}
-            >
-              Load more
-            </Button>
-          </Show>
-        </Show>
-      </Show>
-    </Disclosure>
-  );
-}
-
-export default function MailConversationContext(props: {
-  mailboxId: string;
-  conversationId: string;
-  active: boolean;
-  onOpenHref: (href: string) => void | Promise<void>;
-}) {
+export default function MailConversationContext(props: { mailboxId: string; conversationId: string; requestUrl: string; active: boolean }) {
   const contexts = query.createInfinite<string, MailConversationContext, string>({
     source: () => props.conversationId,
     enabled: () => props.active,
@@ -316,18 +204,27 @@ export default function MailConversationContext(props: {
                         }
                       >
                         <div class="flex flex-col gap-1">
-                          <div class="px-2 py-1">
-                            <p class="truncate text-xs font-medium text-secondary">{participant.displayName || participant.email}</p>
-                            <Show when={participant.displayName}>
-                              <p class="truncate text-xs text-dimmed" title={participant.email}>
-                                {participant.email}
-                              </p>
-                            </Show>
-                          </div>
+                          <Show when={participant.showParticipantHeading}>
+                            <div class="px-2 py-1">
+                              <p class="truncate text-xs font-medium text-secondary">{participant.displayName || participant.email}</p>
+                              <Show when={participant.displayName}>
+                                <p class="truncate text-xs text-dimmed" title={participant.email}>
+                                  {participant.email}
+                                </p>
+                              </Show>
+                            </div>
+                          </Show>
                           <For each={participant.contacts}>
                             {(contact) => {
                               const description = () =>
-                                [contact.jobTitle, contact.companyName, contact.bookName].filter(Boolean).join(" · ");
+                                [
+                                  participant.showParticipantHeading ? null : participant.email,
+                                  contact.jobTitle,
+                                  contact.companyName,
+                                  contact.bookName,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ");
                               return (
                                 <div class="min-w-0">
                                   <Show
@@ -364,17 +261,25 @@ export default function MailConversationContext(props: {
                                       />
                                     )}
                                   </Show>
-                                  <RelatedMail
-                                    mailboxId={props.mailboxId}
-                                    conversationId={props.conversationId}
-                                    bookId={contact.bookId}
-                                    contactId={contact.contactId}
-                                    onOpenHref={props.onOpenHref}
-                                  />
                                 </div>
                               );
                             }}
                           </For>
+                          <Show when={buildExactParticipantSearchHref(new URL(props.requestUrl), participant.email)}>
+                            {(href) => (
+                              <ButtonLink
+                                variant="ghost"
+                                size="xs"
+                                class="mt-1 self-start"
+                                href={href()}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <i class="ti ti-mail" aria-hidden="true" /> Related Mail
+                                <i class="ti ti-external-link" aria-hidden="true" />
+                              </ButtonLink>
+                            )}
+                          </Show>
                         </div>
                       </Show>
                     </article>

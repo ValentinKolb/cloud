@@ -1502,6 +1502,7 @@ export default function MailWorkspace(props: {
               detailErrors={data.detailErrors}
               messages={data.detailMessages}
               subject={data.selectedSubject}
+              requestUrl={requestUrl()}
               dateConfig={props.dateConfig}
               onCollaborationChange={applyCollaborationState}
               onConversationTagsChange={applyConversationTags}

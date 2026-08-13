@@ -39,8 +39,8 @@ describe("Mail app integration states", () => {
       createComponent(MailConversationContext, {
         mailboxId: "11111111-1111-4111-8111-111111111111",
         conversationId: "33333333-3333-4333-8333-333333333333",
+        requestUrl: "https://cloud.example.test/app/mail/11111111-1111-4111-8111-111111111111",
         active: true,
-        onOpenHref: () => undefined,
       }),
     );
 

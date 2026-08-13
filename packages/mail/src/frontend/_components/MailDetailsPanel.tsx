@@ -73,6 +73,7 @@ export default function MailDetailsPanel(props: {
   detailErrors: MailDetailErrors;
   messages: MessageDetail[];
   subject: string;
+  requestUrl: string;
   dateConfig: DateContext;
   onCollaborationChange: (state: ConversationCollaboration) => void;
   onConversationTagsChange: (state: ConversationLocalTags) => void;
@@ -602,8 +603,8 @@ export default function MailDetailsPanel(props: {
               <MailConversationContext
                 mailboxId={props.mailboxId}
                 conversationId={props.conversationId}
+                requestUrl={props.requestUrl}
                 active={props.active}
-                onOpenHref={props.onOpenHref}
               />
             </DetailPanel.Section>
 

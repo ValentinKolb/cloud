@@ -44,13 +44,13 @@ Access can be granted through the standard Cloud permission editor to the suppor
 
 ## Use Contacts context {icon="address-book"}
 
-Open **Conversation details** to see Contacts whose email addresses exactly match visible conversation participants. Multiple Contacts can match the same address; Mail shows every currently readable match and does not choose or merge them. **Related Mail** stays inside the current mailbox and rechecks Contact access before every page.
+Open **Conversation details** to see Contacts whose email addresses exactly match visible conversation participants. Multiple Contacts can match the same address; Mail shows every currently readable match and does not choose or merge them. **Related Mail** opens an exact, URL-backed participant search in a new tab while keeping the current mailbox view.
 
 If an external participant has no matching Contact, select **Add as contact**, choose a writable contact book, and Mail creates the Contact there with the displayed name and email. No button is shown for an address that already matches a readable Contact, including matches that are not on the first result page.
 
 Mail stores no Contact ownership, notes, bank details, access entries, or other private fields. It requests a bounded participant projection from Contacts whenever the details panel is opened.
 
-The CLI exposes the same boundary through `cld mail conversation context` and `contact-history`.
+The CLI exposes the Contacts context and the dedicated Contact-aware history boundary through `cld mail conversation context` and `contact-history`.
 
 ## Know what is shared and what is private {icon="shield-lock"}
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { MAIL_SEARCH_PARAMETER, parseMailSearchState, serializeMailSearchState } from "../../search-state";
 import {
+  buildExactParticipantSearchHref,
   buildExactSenderSearchHref,
   buildMailingListHref,
   buildMailListHref,
@@ -103,6 +104,24 @@ describe("Mail search navigation", () => {
     });
     expect(senderDomainFromAddress("Sender+news@Sub.Example.com")).toBe("sub.example.com");
     expect(senderDomainFromAddress("invalid")).toBeNull();
+  });
+
+  test("builds an exact URL-backed participant search for related Mail", () => {
+    const url = new URL("https://cloud.example/app/mail/Box001?folder=Fold01&q=old&conversation=Conv01");
+    const href = buildExactParticipantSearchHref(url, "Person@Example.com");
+    expect(href).not.toBeNull();
+    const next = new URL(href!, url.origin);
+
+    expect(next.searchParams.get("folder")).toBe("Fold01");
+    expect(next.searchParams.has("q")).toBe(false);
+    expect(next.searchParams.has("conversation")).toBe(false);
+    expect(parseMailSearchState(next)).toEqual({
+      state: {
+        expression: { type: "text", field: "participants", query: "Person@Example.com", match: "exact" },
+        sort: "newest",
+      },
+      error: null,
+    });
   });
 });
 

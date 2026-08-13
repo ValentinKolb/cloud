@@ -44,6 +44,18 @@ describe("Mail contact context", () => {
 
     expect(rows[0]?.contacts).toHaveLength(2);
     expect(rows[0]?.hasMatch).toBe(true);
+    expect(rows[0]?.showParticipantHeading).toBe(true);
+  });
+
+  test("collapses a single exact contact into one visible identity", () => {
+    const rows = buildMailContactParticipantRows({
+      participants: [{ email: "ada@example.com", displayName: "Ada" }],
+      contacts: [contact("11111111-1111-4111-8111-111111111111", "book-a", "ada@example.com")],
+      matchedEmails: ["ada@example.com"],
+    });
+
+    expect(rows[0]?.contacts).toHaveLength(1);
+    expect(rows[0]?.showParticipantHeading).toBe(false);
   });
 
   test("does not offer creation for a match on a later page", () => {
@@ -53,7 +65,7 @@ describe("Mail contact context", () => {
       matchedEmails: ["later@example.com"],
     });
 
-    expect(rows).toEqual([{ email: "later@example.com", displayName: null, contacts: [], hasMatch: true }]);
+    expect(rows).toEqual([{ email: "later@example.com", displayName: null, contacts: [], hasMatch: true, showParticipantHeading: false }]);
   });
 
   test("marks an unmatched participant as eligible for creation", () => {

@@ -169,6 +169,7 @@ const renderPanel = (overrides: Partial<Parameters<typeof MailDetailsPanel>[0]> 
       detailErrors: noDetailErrors,
       messages: [message],
       subject: message.subject,
+      requestUrl: `https://cloud.example.test/app/mail/${mailboxId}`,
       dateConfig: { locale: "en", timeZone: "Europe/Berlin" },
       onCollaborationChange: () => {},
       onConversationTagsChange: () => {},

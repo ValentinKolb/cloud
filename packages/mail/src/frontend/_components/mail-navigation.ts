@@ -71,6 +71,17 @@ export const buildExactSenderSearchHref = (requestUrl: URL, address: string): st
   return `${next.pathname}${next.search}`;
 };
 
+export const buildExactParticipantSearchHref = (requestUrl: URL, address: string): string | null => {
+  const serialized = serializeMailSearchState({
+    expression: { type: "text", field: "participants", query: address, match: "exact" },
+    sort: "newest",
+  });
+  if (!serialized.ok) return null;
+  const next = new URL(buildMailListHref(requestUrl, true), requestUrl.origin);
+  next.searchParams.set("search", serialized.value);
+  return `${next.pathname}${next.search}`;
+};
+
 export const isMailListItemActive = (
   item: Pick<MailListItem, "id" | "conversationId" | "selectionKind">,
   selectedConversationId: string | null,

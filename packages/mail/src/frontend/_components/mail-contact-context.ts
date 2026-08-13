@@ -8,6 +8,7 @@ type ContactMatch = z.infer<typeof contactResolveMatchSchema>;
 type MailContactParticipantRow = MailConversationParticipant & {
   contacts: ContactMatch[];
   hasMatch: boolean;
+  showParticipantHeading: boolean;
 };
 
 export const buildMailContactParticipantRows = (params: {
@@ -24,9 +25,13 @@ export const buildMailContactParticipantRows = (params: {
     }
   }
   const matchedEmails = new Set(params.matchedEmails);
-  return params.participants.map((participant) => ({
-    ...participant,
-    contacts: matchesByEmail.get(participant.email) ?? [],
-    hasMatch: matchedEmails.has(participant.email),
-  }));
+  return params.participants.map((participant) => {
+    const contacts = matchesByEmail.get(participant.email) ?? [];
+    return {
+      ...participant,
+      contacts,
+      hasMatch: matchedEmails.has(participant.email),
+      showParticipantHeading: contacts.length > 1,
+    };
+  });
 };
