@@ -44,8 +44,14 @@ conversation route; a file path is not an access token.
 
 A Project owns a name, description, icon, instructions, optional default model,
 shared text knowledge and files, Cloud resource references, and `read`, `write`,
-or `admin` grants. The owner has `admin`; Cloud resolves direct and nested group
-membership from the authoritative account database.
+or `admin` grants. Creating a Project atomically creates an explicit `admin`
+grant for the creating user or service account. Cloud resolves direct and nested
+group membership from the authoritative account database. Each Project belongs to one
+immutable AI application and can only be resolved or changed through that app.
+Projects have no account owner and survive principal deletion. Project access
+changes cannot remove the final admin grant; if an operator deletes the sole
+admin principal outside the Project service, operator recovery is required to
+add a new grant directly.
 
 Project chats remain private to their creator. Sharing a Project does not share
 chat history. A chat is attached to one Project when created and is not

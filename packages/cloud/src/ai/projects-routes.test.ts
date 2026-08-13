@@ -66,10 +66,35 @@ afterEach(() => {
 });
 
 describe("AI Project reference routes", () => {
+  test("allows anonymous mutations through an explicit public write grant", async () => {
+    spyOn(aiProjects, "getByShortId").mockResolvedValue({ id: projectId, shortId: projectShortId, permission: "write" } as never);
+    spyOn(aiProjects, "createKnowledge").mockResolvedValue({
+      id: "33333333-3333-4333-8333-333333333333",
+      shortId: "kNo234",
+      projectId,
+      title: "Public",
+      content: "Shared",
+      createdAt: "2026-08-11T10:00:00.000Z",
+      updatedAt: "2026-08-11T10:00:00.000Z",
+    });
+    const routes = createAiProjectsRoutes({ appId: "assistant", limit: pass, authenticate: pass });
+
+    const response = await routes.request(`/${projectShortId}/knowledge`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Public", content: "Shared" }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(aiProjects.getByShortId).toHaveBeenCalledWith(projectShortId, "assistant", null, "write");
+    expect(aiProjects.createKnowledge).toHaveBeenCalledWith(projectId, "assistant", null, { title: "Public", content: "Shared" });
+  });
+
   test("checks Project write access before consulting the capability registry", async () => {
     spyOn(aiProjects, "getByShortId").mockResolvedValue(null);
     let registryCalls = 0;
     const routes = createAiProjectsRoutes({
+      appId: "assistant",
       limit: pass,
       authenticate,
       getCapability: async () => {
@@ -90,6 +115,7 @@ describe("AI Project reference routes", () => {
   test("distinguishes registry unavailability from invalid and valid refs", async () => {
     spyOn(aiProjects, "getByShortId").mockResolvedValue({ id: projectId, shortId: projectShortId } as never);
     const unavailable = createAiProjectsRoutes({
+      appId: "assistant",
       limit: pass,
       authenticate,
       getCapability: async () => {
@@ -103,7 +129,12 @@ describe("AI Project reference routes", () => {
     };
     expect((await unavailable.request(`/${projectShortId}/references`, request)).status).toBe(503);
 
-    const invalid = createAiProjectsRoutes({ limit: pass, authenticate, getCapability: async () => capabilityEntry(false) });
+    const invalid = createAiProjectsRoutes({
+      appId: "assistant",
+      limit: pass,
+      authenticate,
+      getCapability: async () => capabilityEntry(false),
+    });
     expect((await invalid.request(`/${projectShortId}/references`, request)).status).toBe(400);
 
     spyOn(aiProjects, "createReference").mockResolvedValue({
@@ -114,7 +145,7 @@ describe("AI Project reference routes", () => {
       label: "Ada",
       createdAt: "2026-08-11T10:00:00.000Z",
     });
-    const valid = createAiProjectsRoutes({ limit: pass, authenticate, getCapability: async () => capabilityEntry() });
+    const valid = createAiProjectsRoutes({ appId: "assistant", limit: pass, authenticate, getCapability: async () => capabilityEntry() });
     const response = await valid.request(`/${projectShortId}/references`, {
       ...request,
       body: JSON.stringify({ ref: { type: "contacts.contact", id: "contact-1" }, label: "Ada" }),

@@ -782,12 +782,12 @@ export const migrateCloudAi = async (): Promise<void> => {
     CREATE TABLE IF NOT EXISTS ai.projects (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       short_id TEXT NOT NULL,
+      app_id TEXT NOT NULL,
       name TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       icon TEXT NOT NULL DEFAULT 'ti ti-folders',
       instructions TEXT NOT NULL DEFAULT '',
       default_model_profile_id TEXT,
-      owner_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
       revision INTEGER NOT NULL DEFAULT 1,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -797,7 +797,42 @@ export const migrateCloudAi = async (): Promise<void> => {
     )
   `.simple();
 
+  // Projects were alpha-only while ownership was represented by a user FK.
+  // Make the hard cut before normalizing any legacy rows: keep personal chats,
+  // discard local alpha Projects, then build only the final access-owned schema.
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'ai' AND table_name = 'projects' AND column_name = 'owner_user_id'
+      ) THEN
+        IF to_regclass('ai.project_access') IS NOT NULL THEN
+          DELETE FROM auth.access
+          WHERE id IN (SELECT access_id FROM ai.project_access);
+        END IF;
+        DELETE FROM ai.projects;
+        DROP INDEX IF EXISTS ai.idx_ai_projects_owner_name;
+        ALTER TABLE ai.projects DROP COLUMN owner_user_id;
+      END IF;
+    END $$
+  `.simple();
+
   await sql`ALTER TABLE ai.projects ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`ALTER TABLE ai.projects ADD COLUMN IF NOT EXISTS app_id TEXT`.simple();
+  await sql`UPDATE ai.projects SET app_id = 'assistant' WHERE app_id IS NULL`.simple();
+  await sql`ALTER TABLE ai.projects ALTER COLUMN app_id SET NOT NULL`.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'ai.projects'::regclass AND conname = 'ai_projects_id_app_id_key'
+      ) THEN
+        ALTER TABLE ai.projects ADD CONSTRAINT ai_projects_id_app_id_key UNIQUE (id, app_id);
+      END IF;
+    END $$
+  `.simple();
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_projects_short_id ON ai.projects(short_id)`.simple();
   await backfillAiShortIds(
     "idx_ai_projects_short_id",
@@ -805,11 +840,6 @@ export const migrateCloudAi = async (): Promise<void> => {
     (id, shortId) => sql`UPDATE ai.projects SET short_id = ${shortId} WHERE id = ${id}::uuid`,
   );
   await sql`ALTER TABLE ai.projects ALTER COLUMN short_id SET NOT NULL`.simple();
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_projects_owner_name
-    ON ai.projects(owner_user_id, lower(name))
-  `.simple();
-
   await sql`
     CREATE TABLE IF NOT EXISTS ai.project_access (
       project_id UUID NOT NULL REFERENCES ai.projects(id) ON DELETE CASCADE,
@@ -886,27 +916,27 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`ALTER TABLE ai.project_files ALTER COLUMN short_id SET NOT NULL`.simple();
   await sql`ALTER TABLE ai.project_files ALTER COLUMN bytes SET STORAGE EXTERNAL`.simple();
 
+  await sql`DROP TABLE IF EXISTS ai.project_references CASCADE`.simple();
   await sql`
-    CREATE TABLE IF NOT EXISTS ai.project_references (
+    CREATE TABLE IF NOT EXISTS ai.project_resource_refs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       short_id TEXT NOT NULL,
       project_id UUID NOT NULL REFERENCES ai.projects(id) ON DELETE CASCADE,
       resource_type TEXT NOT NULL,
       resource_id TEXT NOT NULL,
       label TEXT NOT NULL DEFAULT '',
-      created_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       UNIQUE (project_id, resource_type, resource_id)
     )
   `.simple();
-  await sql`ALTER TABLE ai.project_references ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
-  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_project_references_short_id ON ai.project_references(project_id, short_id)`.simple();
+  await sql`ALTER TABLE ai.project_resource_refs ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_project_resource_refs_short_id ON ai.project_resource_refs(project_id, short_id)`.simple();
   await backfillAiShortIds(
-    "idx_ai_project_references_short_id",
-    await sql<{ id: string }[]>`SELECT id FROM ai.project_references WHERE short_id IS NULL`,
-    (id, shortId) => sql`UPDATE ai.project_references SET short_id = ${shortId} WHERE id = ${id}::uuid`,
+    "idx_ai_project_resource_refs_short_id",
+    await sql<{ id: string }[]>`SELECT id FROM ai.project_resource_refs WHERE short_id IS NULL`,
+    (id, shortId) => sql`UPDATE ai.project_resource_refs SET short_id = ${shortId} WHERE id = ${id}::uuid`,
   );
-  await sql`ALTER TABLE ai.project_references ALTER COLUMN short_id SET NOT NULL`.simple();
+  await sql`ALTER TABLE ai.project_resource_refs ALTER COLUMN short_id SET NOT NULL`.simple();
 
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES ai.projects(id) ON DELETE SET NULL`.simple();
   await sql`

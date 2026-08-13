@@ -414,9 +414,10 @@ suite("AI executor integration", () => {
   test("uses the Project snapshot from the durable turn config", async () => {
     const userId = await insertUser();
     const projectId = "11111111-1111-4111-8111-111111111111";
+    const projectShortId = createAiShortId();
     await sql`
-      INSERT INTO ai.projects (id, short_id, name, instructions, owner_user_id, revision)
-      VALUES (${projectId}::uuid, ${createAiShortId()}, 'Meeting summary', 'Current instructions that must not replace the snapshot.', ${userId}::uuid, 5)
+      INSERT INTO ai.projects (id, short_id, app_id, name, instructions, revision)
+      VALUES (${projectId}::uuid, ${projectShortId}, 'ai-exec', 'Meeting summary', 'Current instructions that must not replace the snapshot.', 5)
     `;
     const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
 

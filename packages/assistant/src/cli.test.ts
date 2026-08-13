@@ -884,6 +884,54 @@ describe("assistant CLI", () => {
     expect(stdout.join("")).toContain("Release notes");
   });
 
+  test("rejects ambiguous Project display names", async () => {
+    const project = (shortId: string) => ({
+      id: shortId,
+      shortId,
+      appId: "assistant",
+      name: "Release notes",
+      description: "",
+      instructions: "",
+      icon: "ti ti-folders",
+      permission: "admin",
+      revision: 1,
+      defaultModelProfileId: null,
+      createdAt: "2026-08-04T00:00:00.000Z",
+      updatedAt: "2026-08-04T00:00:00.000Z",
+    });
+    const { ctx } = createContext(["projects", "get", "Release notes"], async () =>
+      json({ projects: [project("pRk234"), project("pRk235")] }),
+    );
+
+    await expect(assistantCli.run(ctx)).rejects.toThrow('Multiple Projects are named "Release notes"');
+  });
+
+  test("resolves Project display names exactly", async () => {
+    const project = (shortId: string, name: string) => ({
+      id: shortId,
+      shortId,
+      appId: "assistant",
+      name,
+      description: "",
+      instructions: "",
+      icon: "ti ti-folders",
+      permission: "admin",
+      revision: 1,
+      defaultModelProfileId: null,
+      createdAt: "2026-08-04T00:00:00.000Z",
+      updatedAt: "2026-08-04T00:00:00.000Z",
+    });
+    const requests: string[] = [];
+    const { ctx } = createContext(["projects", "get", "release notes"], async (path) => {
+      requests.push(String(path));
+      if (path === "/api/ai/projects/") return json({ projects: [project("pRk234", "Release notes"), project("pRk235", "release notes")] });
+      return json({ project: project("pRk235", "release notes") });
+    });
+
+    await assistantCli.run(ctx);
+    expect(requests).toEqual(["/api/ai/projects/", "/api/ai/projects/pRk235"]);
+  });
+
   test("creates a detached chat inside a Project", async () => {
     const projectId = "11111111-1111-4111-8111-111111111111";
     const requests: Array<{ path: string; method: string; body: unknown }> = [];

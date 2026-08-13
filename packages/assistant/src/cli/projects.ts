@@ -10,7 +10,7 @@ const resolveProject = async (ctx: CloudCliContext, reference: string): Promise<
   const projects = (await listProjects(ctx)).projects;
   const byId = projects.find((project) => project.shortId === reference);
   if (byId) return byId;
-  const matches = projects.filter((project) => project.name.localeCompare(reference, undefined, { sensitivity: "accent" }) === 0);
+  const matches = projects.filter((project) => project.name === reference);
   if (matches.length === 1) return matches[0]!;
   if (matches.length > 1) throw new Error(`Multiple Projects are named "${reference}". Use the Project ID.`);
   throw new Error(`Unknown Project "${reference}". Use its exact name or ID.`);

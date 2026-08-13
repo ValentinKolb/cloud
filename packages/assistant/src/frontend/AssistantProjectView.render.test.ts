@@ -32,7 +32,6 @@ const project = {
   icon: "ti ti-folders",
   instructions: "Answer from the supplied runbooks.",
   defaultModelProfileId: null,
-  ownerUserId: "user123",
   permission: "admin",
   revision: 1,
   createdAt: "2026-08-12T08:00:00.000Z",
