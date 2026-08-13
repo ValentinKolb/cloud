@@ -89,7 +89,7 @@ describe("@k2b/ui content style coverage", () => {
           createComponent(DocNote, { title: "Note", variant: "warning", children: "Careful" }),
         ],
       }),
-      createComponent(MarkdownView, { trustedHtml: "<p>Body</p>", smallHeadings: true }),
+      createComponent(MarkdownView, { trustedHtml: "<p>Body</p>", headingScale: "compact" }),
     ]);
 
     expect(unstyled(html)).toEqual([]);
@@ -296,7 +296,7 @@ describe("@k2b/ui content behaviour", () => {
     expect(rendered).toContain("<h1>Visible</h1>");
     expect(rendered).not.toContain("title: Hidden");
     expect(html).toContain('href="/files/notes.md"');
-    expect(html).toContain('data-small-headings="true"');
+    expect(html).toContain('data-heading-scale="compact"');
   });
 
   test("StructuredDataPreview caps rows and reports the remainder", () => {

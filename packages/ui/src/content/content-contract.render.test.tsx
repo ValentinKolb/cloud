@@ -301,15 +301,27 @@ describe("@k2b/ui Cloud content contract", () => {
   });
 
   test("keeps trusted Markdown, structured data and PDF interaction shells", () => {
-    const markdown = renderToString(() => createComponent(MarkdownView, { trustedHtml: "<h2>Result</h2>", smallHeadings: true }));
+    const compactMarkdown = renderToString(() =>
+      createComponent(MarkdownView, { trustedHtml: "<h2>Result</h2>", headingScale: "compact" }),
+    );
+    const normalMarkdown = renderToString(() => createComponent(MarkdownView, { trustedHtml: "<h2>Result</h2>", headingScale: "normal" }));
+    const largeMarkdown = renderToString(() => createComponent(MarkdownView, { trustedHtml: "<h2>Result</h2>", headingScale: "large" }));
     const data = renderToString(() => createComponent(StructuredDataPreview, { data: { ok: true }, defaultMode: "raw", copy: true }));
     const pdf = renderToString(() =>
       createComponent(PdfPreview, { request: async () => new Blob([], { type: "application/pdf" }), title: "Report" }),
     );
 
-    expect(markdown).toContain("k2b-content-markdown");
-    expect(markdown).toContain('data-small-headings="true"');
-    expect(markdown).toContain("<h2>Result</h2>");
+    expect(compactMarkdown).toContain("k2b-content-markdown");
+    expect(compactMarkdown).toContain('data-heading-scale="compact"');
+    expect(normalMarkdown).not.toContain("data-heading-scale");
+    expect(largeMarkdown).toContain('data-heading-scale="large"');
+    expect(compactMarkdown).toContain("<h2>Result</h2>");
+    expect(contentCss).toContain('.k2b-content-markdown[data-heading-scale="compact"] h1');
+    expect(contentCss).toContain('.k2b-content-markdown[data-heading-scale="large"] h1');
+    expect(contentCss).toMatch(/\.k2b-content-markdown :is\(h1, h2, h3, h4, h5, h6\) \{[^}]*margin: 1rem 0 0\.5em/s);
+    expect(contentCss).toMatch(/data-heading-scale="compact"[^}]*margin: 0\.75rem 0 0\.4em/s);
+    expect(contentCss).toMatch(/> :is\(h1, h2, h3, h4, h5, h6\):first-child \{[^}]*margin-top: 0/s);
+    expect(contentCss).not.toMatch(/data-heading-scale="compact"[^}]*text-decoration:\s*underline/s);
     expect(data).toContain("View formatted");
     expect(data).toContain("k2b-content-structured-data__action");
     expect(pdf).toContain("Open preview");

@@ -337,7 +337,7 @@ export default function ContactNotesSection(props: Props) {
                       ) : undefined
                     }
                   >
-                    <Show when={isEditing()} fallback={<MarkdownView markdown={note.content} smallHeadings />}>
+                    <Show when={isEditing()} fallback={<MarkdownView markdown={note.content} headingScale="compact" />}>
                       <Discussion.Composer
                         onSubmit={(event) => {
                           event.preventDefault();

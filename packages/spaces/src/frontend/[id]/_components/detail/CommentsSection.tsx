@@ -208,7 +208,7 @@ export default function CommentsSection(props: Props) {
                   ) : undefined
                 }
               >
-                <MarkdownView markdown={comment.content} smallHeadings class="text-sm" />
+                <MarkdownView markdown={comment.content} headingScale="compact" class="text-sm" />
               </Discussion.Item>
             )}
           </For>

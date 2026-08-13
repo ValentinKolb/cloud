@@ -1,5 +1,5 @@
-import { Button, Chart, DataTable, MarkdownView, Placeholder, Select, TextInput } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { Button, Chart, DataTable, MarkdownView, Placeholder, Select, TextInput } from "@k2b/ui";
 import { type Accessor, createMemo, For, Show } from "solid-js";
 import type {
   MetricQueryPoint,
@@ -225,7 +225,7 @@ const MarkdownWidget = (props: { widget: PulseDashboardMarkdownWidget }) => (
         </Show>
       </div>
     </Show>
-    <MarkdownView markdown={props.widget.markdown} smallHeadings class="text-sm" />
+    <MarkdownView markdown={props.widget.markdown} headingScale="compact" class="text-sm" />
   </article>
 );
 

@@ -203,19 +203,9 @@ export function CustomAppPageLayout(props: {
       <AppWorkspace.Content>
         <AppWorkspace.Main class="p-0" mobilePane="main">
           <div
-            class="custom-app-page flex min-h-full w-full flex-col gap-10 p-5 sm:p-7 lg:p-8"
+            class="custom-app-page flex w-full flex-col gap-10 p-5 sm:p-7 lg:p-8"
             data-dnd-dragging={props.editor?.dnd.isDragging() ? "true" : undefined}
           >
-            <header class="mx-auto flex w-full max-w-[96rem] flex-wrap items-center justify-between gap-4">
-              <div class="flex items-center gap-3">
-                {props.definition.icon ? <i class={`ti ti-${props.definition.icon} text-2xl text-accent`} aria-hidden="true" /> : null}
-                <div>
-                  <p class="text-sm text-secondary">{props.definition.name}</p>
-                  <h1 class="text-2xl font-semibold">{props.page.title}</h1>
-                </div>
-              </div>
-            </header>
-
             <div class="mx-auto flex w-full max-w-[96rem] flex-col gap-10">
               <For each={props.page.rows}>
                 {(row, rowIndex) => {

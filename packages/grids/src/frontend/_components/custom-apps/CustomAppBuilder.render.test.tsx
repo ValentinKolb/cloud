@@ -443,7 +443,7 @@ describe("CustomAppBuilder", () => {
     expect(custom).toContain('class="k2b-detail-panel__section" open');
   });
 
-  test("offers exact App placeholders in the shared Markdown editor", () => {
+  test("keeps compact Markdown editing focused and moves placeholder browsing to the large editor", () => {
     const html = renderToString(() =>
       createComponent(CustomAppMarkdownField, {
         contextKeys: ["auth.name", "auth.email", "params.record_id"],
@@ -453,10 +453,7 @@ describe("CustomAppBuilder", () => {
     );
 
     expect(html).toContain("k2b-markdown-editor");
-    expect(html).toContain("Add placeholder");
-    expect(html).toContain("@auth.name");
-    expect(html).toContain("@auth.email");
-    expect(html).toContain("@params.record_id");
+    expect(html).not.toContain("Add placeholder");
     expect(html).toContain("Open large editor");
   });
 
@@ -662,8 +659,7 @@ describe("CustomAppBuilder", () => {
     const css = await Bun.file(resolve(import.meta.dir, "../../../styles/app.css")).text();
 
     expect(css).toMatch(/\.grids-workspace-editing\s*\{[^}]*--grids-edit-accent:/);
-    expect(css).toMatch(/\.custom-app-page\s*\{[^}]*border-radius:\s*var\(--ui-radius-frame\);/);
-    expect(css).toMatch(/\.custom-app-page\s*\{[^}]*box-shadow:\s*var\(--ui-shadow-frame\);/);
+    expect(css).not.toMatch(/\.custom-app-page\s*\{/);
     expect(css).toMatch(
       /\.custom-app-block\[data-editing="true"\]\s*\{[^}]*min-height:\s*var\(--ui-control-sm\);[^}]*outline:\s*1px dashed/,
     );

@@ -408,23 +408,16 @@ export function FieldInput(props: {
     case "principal": {
       const cfg = props.field.config as { cardinality?: "single" | "multiple" };
       return (
-        <div class="flex flex-col gap-1">
-          <p class="text-sm font-medium">
-            {label}
-            <Show when={required}>
-              <span class="ml-0.5 text-red-500" aria-hidden="true">
-                *
-              </span>
-            </Show>
-          </p>
-          <Show when={helpText}>
-            <p class="text-xs leading-snug text-dimmed">{helpText}</p>
-          </Show>
-          <PrincipalInput value={props.value} multi={cfg.cardinality !== "single"} onChange={props.onChange} />
-          <Show when={error()}>
-            <p class="text-[11px] text-red-500">{error()}</p>
-          </Show>
-        </div>
+        <PrincipalInput
+          name={props.field.id}
+          label={label}
+          description={helpText}
+          required={required}
+          error={error}
+          value={props.value}
+          multi={cfg.cardinality !== "single"}
+          onChange={props.onChange}
+        />
       );
     }
 

@@ -590,6 +590,7 @@ const openSearchPrompt = <T = unknown>(resolver: CloudSearchResolver<T>, options
                           role="option"
                           aria-selected={activeIndex() === index()}
                           data-active={activeIndex() === index() ? "true" : undefined}
+                          data-has-description={item.desc ? "true" : undefined}
                           onMouseEnter={() => setActiveIndex(index())}
                           onClick={() => execute(item)}
                         >

@@ -7,14 +7,14 @@
  */
 import { createZip, downloadFileFromContent } from "@k2b/stdlib/browser";
 import { mutation } from "@k2b/stdlib/solid";
-import { createEffect, createMemo, createResource, createSignal, Match, Show, Switch, untrack } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, Match, onCleanup, Show, Switch, untrack } from "solid-js";
+import Dropdown from "../actions/Dropdown";
 import { dialogCore } from "../feedback/dialog-core";
 import { prompts } from "../feedback/prompts";
-import Dropdown from "../actions/Dropdown";
-import FileTree, { type FileTreeEntry } from "./FileTree";
-import FileView, { type FileViewContent, type FileViewRenderer } from "./FileView";
 import PanelDialog, { panelDialogOptions } from "../layout/PanelDialog";
 import Placeholder from "../surfaces/Placeholder";
+import FileTree, { type FileTreeEntry } from "./FileTree";
+import FileView, { type FileViewContent, type FileViewRenderer } from "./FileView";
 
 export type FileSource = {
   list(): Promise<FileTreeEntry[]>;
@@ -44,6 +44,8 @@ export type FileBrowserPanelProps = {
   confirmDiscard?: (path: string, nextPath: string | null) => boolean | Promise<boolean>;
   /** Fixed shell height — the panes scroll inside it. */
   class?: string;
+  /** Optional imperative refresh used by realtime owners that must await the visible update. */
+  registerRefresh?: (refresh: () => Promise<void>) => void | (() => void);
 };
 
 const parentOf = (path: string): string => {
@@ -65,6 +67,15 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
   let uploadInputRef: HTMLInputElement | undefined;
   let uploadDir = "/";
   let previousRefreshKey = props.refreshKey;
+  let refreshPreview = async (): Promise<void> => undefined;
+
+  createEffect(() => {
+    if (!props.registerRefresh) return;
+    const unregister = props.registerRefresh(async () => {
+      await Promise.all([refetch(), refreshPreview()]);
+    });
+    if (unregister) onCleanup(unregister);
+  });
 
   createEffect(() => {
     const next = props.initialPath ?? null;
@@ -263,7 +274,7 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
           </Show>
         </div>
         <Switch>
-          <Match when={entries.loading}>
+          <Match when={entries.loading && entries() === undefined}>
             <Placeholder icon="ti ti-loader-2" title="Loading files…" />
           </Match>
           <Match when={entries.error}>
@@ -305,6 +316,12 @@ export function FileBrowserPanel(props: FileBrowserPanelProps) {
               file={{ path: entry().path, mediaType: entry().mediaType, size: entry().size }}
               load={() => props.source.read(entry().path)}
               revision={props.refreshKey}
+              registerRefresh={(refresh) => {
+                refreshPreview = refresh;
+                return () => {
+                  refreshPreview = async () => undefined;
+                };
+              }}
               renderers={props.renderers}
               onDirtyChange={setSelectedDirty}
               save={

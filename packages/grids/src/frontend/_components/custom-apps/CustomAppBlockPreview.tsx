@@ -200,7 +200,7 @@ export default function CustomAppBlockPreview(props: {
         />
       }
     >
-      <MarkdownView markdown={props.block.markdown} smallHeadings />
+      <MarkdownView markdown={props.block.markdown} headingScale="large" />
     </Show>
   ) : props.block.type === "records" || props.block.type === "metrics" || props.block.type === "chart" ? (
     <SourcePreview

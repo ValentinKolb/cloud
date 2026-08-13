@@ -42,14 +42,13 @@ import {
   metricCellsFromPreview,
 } from "../../service/custom-app-insights";
 import {
+  buildCustomAppRecordLabelCache,
   customAppRecordRelationSnapshot,
-  customAppRelationLabelFieldIdsByTableId,
   sameCustomAppRecordRelationSnapshot,
 } from "../../service/custom-app-record-relations";
 import { executePublishedCustomAppRecords } from "../../service/custom-app-records-query";
 import { executePublishedCustomAppQuery, publishedCustomAppAvailability } from "../../service/custom-app-runtime-query";
 import type { PublicRenderableForm } from "../../service/forms";
-import { buildPrincipalLabelCache, principalReferencesFromRecords } from "../../service/principal-values";
 import { ALL_RECORD_ACCESS } from "../../service/record-access";
 import { scannerLauncherPromptInputSources } from "../../workflows/contracts";
 import FormSubmit from "../_components/forms/PublicFormSubmit.island";
@@ -266,7 +265,7 @@ const CustomAppPage = (props: {
       sidebarActions={<SidebarActions actions={props.sidebarActions} />}
       renderBlock={(block) =>
         block.type === "markdown" ? (
-          <MarkdownView markdown={renderCustomAppMarkdown(block.markdown, props.markdownContext)} smallHeadings />
+          <MarkdownView markdown={renderCustomAppMarkdown(block.markdown, props.markdownContext)} headingScale="large" />
         ) : block.type === "records" ? (
           <Records
             block={block}
@@ -504,15 +503,13 @@ export default ssr<AuthContext>(async (c) => {
       readableTableIds: new Set(relationTableIds),
       recordAccessByTableId: new Map(relationTableIds.map((tableId) => [tableId, ALL_RECORD_ACCESS])),
     };
-    const relationLabels = {
-      ...(await gridsService.relations.buildPinnedLabelCache(
-        [record],
-        fields,
-        customAppRelationLabelFieldIdsByTableId(capability.relationLabels),
-        relationViewer,
-      )),
-      ...(await buildPrincipalLabelCache(principalReferencesFromRecords([record], fields), relationViewer.userId)),
-    };
+    const relationLabels = await buildCustomAppRecordLabelCache({
+      records: [record],
+      fields,
+      relations: capability.relationLabels,
+      viewer: relationViewer,
+      actorUserId: accessActorUser(requestAccess)?.id ?? null,
+    });
     pageRecord = { record, fields, relationLabels, tableName: table.name, auditPolicy: table.auditPolicy };
 
     if (expectedEditableFieldIds.length > 0 && accessActorUser(requestAccess)) {

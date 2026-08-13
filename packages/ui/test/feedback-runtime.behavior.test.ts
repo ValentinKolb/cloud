@@ -282,10 +282,16 @@ describe("@k2b/ui feedback runtime", () => {
     const { dialogCore } = await import("../src/feedback/dialog-core");
     const { prompts } = await import("../src/feedback/prompts");
 
-    const searchResult = prompts.search(async () => [{ label: "Ada", value: "ada" }], {
-      ariaLabel: "Find a person",
-      debounceMs: 0,
-    });
+    const searchResult = prompts.search(
+      async () => [
+        { label: "Ada", value: "ada" },
+        { label: "Grace", desc: "grace@example.com", value: "grace" },
+      ],
+      {
+        ariaLabel: "Find a person",
+        debounceMs: 0,
+      },
+    );
     await settle();
 
     const input = dom.document.querySelector<HTMLInputElement>("[role='combobox']");
@@ -294,6 +300,8 @@ describe("@k2b/ui feedback runtime", () => {
     expect(input?.getAttribute("aria-controls")).toBe(option?.parentElement?.id);
     expect(input?.getAttribute("aria-activedescendant")).toBe(option?.id);
     expect(option?.getAttribute("aria-selected")).toBe("true");
+    expect(option?.hasAttribute("data-has-description")).toBeFalse();
+    expect(dom.document.querySelectorAll("[role='option']")[1]?.getAttribute("data-has-description")).toBe("true");
 
     dialogCore.close();
     expect(await searchResult).toBeUndefined();

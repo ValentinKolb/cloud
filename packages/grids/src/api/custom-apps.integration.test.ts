@@ -309,7 +309,7 @@ describe("Grids App Form runtime", () => {
           body: JSON.stringify({ [fieldId]: "Certificate request" }),
         });
         expect(response.status).toBe(201);
-        expect(response.headers.get("X-RateLimit-Limit")).toBe("3");
+        expect(response.headers.get("X-RateLimit-Limit")).toBeNull();
         const body = (await response.json()) as { recordId: string; navigateTo: string };
         expect(body.navigateTo).toBe(`/apps/${applied.data.shortId}/request?request_id=${body.recordId}`);
 
@@ -530,6 +530,7 @@ describe("Grids App Form runtime", () => {
           id: body.recordId,
           version: 2,
           data: { [fieldId]: "Certificate request updated" },
+          relationLabels: {},
         });
 
         const rejectedField = await api.request(recordUrl, {

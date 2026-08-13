@@ -1,4 +1,4 @@
-import { NoticeCard, Button, DateRangePicker, ImageInput, MarkdownView, Placeholder, prompts, SegmentedControl, TextInput } from "@k2b/ui";
+import { Button, DateRangePicker, ImageInput, MarkdownView, NoticeCard, Placeholder, prompts, SegmentedControl, TextInput } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { createStore } from "solid-js/store";
 import type { PublicSection, PublicSectionInput } from "../../../contracts";
@@ -347,7 +347,7 @@ export function PublicSectionPreview(props: { section: PublicSection }) {
   return (
     <div class="grid gap-3">
       <Show when={props.section.kind === "markdown"}>
-        <MarkdownView markdown={sectionText(props.section, "markdown")} class="text-sm" smallHeadings />
+        <MarkdownView markdown={sectionText(props.section, "markdown")} class="text-sm" headingScale="compact" />
       </Show>
       <Show when={props.section.kind === "notice"}>
         <NoticeCard tone="warning" icon={false}>

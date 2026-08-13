@@ -1577,7 +1577,7 @@
 }
 
 .k2b-ui .k2b-content-markdown :is(h1, h2, h3, h4, h5, h6) {
-  margin: 1.5em 0 0.5em;
+  margin: 1rem 0 0.5em;
   color: var(--k2b-text);
   font-weight: 600;
   line-height: 1.25;
@@ -1599,13 +1599,43 @@
   font-size: 1em;
 }
 
-/* `smallHeadings` — compact contexts (comments, file previews): every heading
-   collapses to body size, underlined, no vertical rhythm of its own. */
-.k2b-ui .k2b-content-markdown[data-small-headings="true"] :is(h1, h2, h3, h4, h5, h6) {
-  margin-block: 0;
-  font-size: 0.875rem;
-  font-weight: 600;
-  text-decoration: underline;
+/* Compact contexts preserve hierarchy without letting embedded Markdown
+   compete with the surrounding panel or dialog title. */
+.k2b-ui .k2b-content-markdown[data-heading-scale="compact"] :is(h1, h2, h3, h4, h5, h6) {
+  margin: 0.75rem 0 0.4em;
+}
+
+.k2b-ui .k2b-content-markdown[data-heading-scale="compact"] h1 {
+  font-size: 1.1428571em;
+}
+
+.k2b-ui .k2b-content-markdown[data-heading-scale="compact"] h2 {
+  font-size: 1.0714286em;
+}
+
+.k2b-ui .k2b-content-markdown[data-heading-scale="compact"] :is(h3, h4, h5, h6) {
+  font-size: 1em;
+}
+
+/* Standalone content can opt into a page-scale hierarchy. */
+.k2b-ui .k2b-content-markdown[data-heading-scale="large"] h1 {
+  font-size: 2.2857143em;
+}
+
+.k2b-ui .k2b-content-markdown[data-heading-scale="large"] h2 {
+  font-size: 1.7142857em;
+}
+
+.k2b-ui .k2b-content-markdown[data-heading-scale="large"] h3 {
+  font-size: 1.4285714em;
+}
+
+.k2b-ui .k2b-content-markdown[data-heading-scale="large"] h4 {
+  font-size: 1.1428571em;
+}
+
+.k2b-ui .k2b-content-markdown > :is(h1, h2, h3, h4, h5, h6):first-child {
+  margin-top: 0;
 }
 
 .k2b-ui .k2b-content-markdown :is(p, ul, ol, dl, table, pre, blockquote) {

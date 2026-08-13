@@ -35,7 +35,7 @@ needs the same escaped HTML output. `MarkdownView` remains the normal UI API.
 
 The component does not impose a reading width. The parent owns width, scrolling, and surrounding layout.
 
-Set `smallHeadings` for compact embedded content such as comments or table details. Use `class` for context-specific text sizing.
+Set `headingScale` to `"compact"`, `"normal"`, or `"large"`. Compact headings fit embedded content such as comments and dialogs, normal is the default prose hierarchy, and large gives standalone pages a stronger hierarchy. The scale changes presentation only; Markdown heading levels remain intact. Use `class` for other context-specific text sizing.
 
 ## Editing and preview
 
@@ -44,7 +44,7 @@ editor and preview. Saving still belongs to the parent mutation or form.
 
 ## Accessibility
 
-Rendered Markdown must preserve a useful heading order and descriptive link text. Do not use `smallHeadings` to repair an incorrect document structure.
+Rendered Markdown must preserve a useful heading order and descriptive link text. Do not use `headingScale` to repair an incorrect document structure.
 
 Give standalone editors an `aria-label` when no visible label references them.
 Preview and edit modes need visible names when both are present.

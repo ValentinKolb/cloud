@@ -78,4 +78,62 @@ describe("@k2b/ui AppWorkspace behavior", () => {
     dispose();
     dom.cleanup();
   });
+
+  test("runs progressive navigation only when a sidebar link opts in", async () => {
+    const dom = createDomTestHarness();
+    const { default: AppWorkspace } = await import("../src/layout/AppWorkspace");
+    let documentNavigations = 0;
+    let enhancedNavigations = 0;
+    const dispose = render(
+      () => (
+        <div>
+          <AppWorkspace.SidebarItem href="/document" onNavigate={() => void documentNavigations++}>
+            Document
+          </AppWorkspace.SidebarItem>
+          <AppWorkspace.SidebarItem href="/enhanced" navigation="enhanced" onNavigate={() => void enhancedNavigations++}>
+            Enhanced
+          </AppWorkspace.SidebarItem>
+          <AppWorkspace.SidebarIconAction
+            href="/document-icon"
+            icon="ti ti-file"
+            label="Document icon"
+            onNavigate={() => void documentNavigations++}
+          />
+          <AppWorkspace.SidebarIconAction
+            href="/enhanced-icon"
+            navigation="enhanced"
+            icon="ti ti-bolt"
+            label="Enhanced icon"
+            onNavigate={() => void enhancedNavigations++}
+          />
+          <AppWorkspace.NavTree ariaLabel="Navigation modes">
+            <AppWorkspace.NavTree.Item
+              id="document-tree"
+              label="Document tree"
+              href="/document-tree"
+              onNavigate={() => void documentNavigations++}
+            />
+            <AppWorkspace.NavTree.Item
+              id="enhanced-tree"
+              label="Enhanced tree"
+              href="/enhanced-tree"
+              navigation="enhanced"
+              onNavigate={() => void enhancedNavigations++}
+            />
+          </AppWorkspace.NavTree>
+        </div>
+      ),
+      dom.root,
+    );
+
+    for (const href of ["/document", "/document-icon", "/document-tree", "/enhanced", "/enhanced-icon", "/enhanced-tree"])
+      dom.root.querySelector<HTMLAnchorElement>(`a[href="${href}"]`)?.click();
+    await Promise.resolve();
+
+    expect(documentNavigations).toBe(0);
+    expect(enhancedNavigations).toBe(3);
+
+    dispose();
+    dom.cleanup();
+  });
 });

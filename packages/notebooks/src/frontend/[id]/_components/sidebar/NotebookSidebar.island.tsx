@@ -124,6 +124,7 @@ export default function NotebookSidebar(props: Props) {
               href={homepageHref()!}
               icon="ti ti-home"
               active={homepageIsActive()}
+              navigation="enhanced"
               scroll="top"
               onNavigate={handleSameNotebookNoteNavigate}
               data={{ "notebooks-homepage-note-id": homepageNote()?.id }}
@@ -189,6 +190,7 @@ export default function NotebookSidebar(props: Props) {
                     icon="ti ti-home"
                     label={homepageHref() ? "Homepage" : "Set homepage in notebook settings"}
                     active={homepageIsActive()}
+                    navigation="enhanced"
                     scroll="top"
                     onNavigate={handleSameNotebookNoteNavigate}
                     viewTransitionName={vt("homepage-desktop")}

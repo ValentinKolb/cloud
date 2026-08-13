@@ -671,7 +671,7 @@ export default function ItemDetailPanel(props: Props) {
                 ) : undefined
               }
             >
-              <MarkdownView markdown={props.item.description!} smallHeadings class="text-sm" />
+              <MarkdownView markdown={props.item.description!} headingScale="compact" class="text-sm" />
             </DetailPanel.Section>
           </Show>
 

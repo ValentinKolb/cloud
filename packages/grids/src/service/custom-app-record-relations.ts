@@ -1,6 +1,9 @@
 import type { CustomAppCapabilities } from "../custom-apps/contracts";
+import { buildPrincipalLabelCache, principalReferencesFromRecords } from "./principal-values";
+import type { ExpansionViewer } from "./relation-access";
+import { buildPinnedRelationLabelCache } from "./relation-labels";
 import { relationLabelFields } from "./relation-targets";
-import type { Field } from "./types";
+import type { Field, GridRecord } from "./types";
 
 export type CustomAppRecordRelation = CustomAppCapabilities["records"][number]["relationLabels"][number];
 
@@ -43,3 +46,19 @@ export const sameCustomAppRecordRelationSnapshot = (
 export const customAppRelationLabelFieldIdsByTableId = (
   relations: readonly CustomAppRecordRelation[],
 ): ReadonlyMap<string, readonly string[]> => new Map(relations.map((relation) => [relation.targetTableId, relation.labelFieldIds]));
+
+export const buildCustomAppRecordLabelCache = async (params: {
+  records: GridRecord[];
+  fields: Field[];
+  relations: readonly CustomAppRecordRelation[];
+  viewer: ExpansionViewer;
+  actorUserId: string | null;
+}): Promise<Record<string, string>> => ({
+  ...(await buildPinnedRelationLabelCache(
+    params.records,
+    params.fields,
+    customAppRelationLabelFieldIdsByTableId(params.relations),
+    params.viewer,
+  )),
+  ...(await buildPrincipalLabelCache(principalReferencesFromRecords(params.records, params.fields), params.actorUserId)),
+});

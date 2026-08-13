@@ -229,6 +229,12 @@ describe("@k2b/ui Cloud feedback parity", () => {
 
     const previewRule = feedbackCss.match(/\.k2b-ui \.k2b-prompt-search__preview \{([^}]*)\}/)?.[1] ?? "";
     expect(previewRule).toContain("flex: none");
+    expect(previewRule).toContain("width: 1.5rem");
+
+    const resultsRule = feedbackCss.match(/\.k2b-ui \.k2b-prompt-search__results \{([^}]*)\}/)?.[1] ?? "";
+    expect(resultsRule).toContain("padding: 0.5rem");
+    expect(promptsSource).toContain('data-has-description={item.desc ? "true" : undefined}');
+    expect(feedbackCss).toContain('button[data-has-description="true"]');
   });
 
   test("lets a consumer frame class keep its own dialog size", () => {

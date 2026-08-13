@@ -327,7 +327,7 @@
 .k2b-ui .k2b-prompt-search__results {
   height: 100%;
   min-height: 0;
-  padding: 0 0.5rem 0.5rem;
+  padding: 0.5rem;
   overflow-y: auto;
   overscroll-behavior-y: contain;
 }
@@ -357,9 +357,9 @@
 .k2b-ui .k2b-prompt-search__list > button {
   display: flex;
   width: 100%;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.625rem;
-  padding: 0.5rem;
+  padding: 0.375rem 0.5rem;
   border: 0;
   border-radius: var(--k2b-radius-control);
   color: inherit;
@@ -369,6 +369,11 @@
     color 150ms ease-out,
     background-color 150ms ease-out;
   cursor: pointer;
+}
+
+.k2b-ui .k2b-prompt-search__list > button[data-has-description="true"] {
+  align-items: flex-start;
+  padding-block: 0.5rem;
 }
 
 .k2b-ui .k2b-prompt-search__list > button:hover:not([data-active="true"]) {
@@ -415,14 +420,19 @@
 
 .k2b-ui .k2b-prompt-search__preview {
   display: grid;
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 1.5rem;
+  height: 1.5rem;
   flex: none;
-  margin-top: 0.125rem;
   place-items: center;
   overflow: hidden;
   border-radius: var(--k2b-radius-control);
   background: var(--k2b-surface-muted);
+}
+
+.k2b-ui .k2b-prompt-search__list > button[data-has-description="true"] .k2b-prompt-search__preview {
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-top: 0.125rem;
 }
 
 .k2b-ui .k2b-prompt-search__preview > i {

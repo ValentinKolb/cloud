@@ -13,6 +13,7 @@ const definition: CustomAppDefinition = {
   shortId: "APP1",
   baseId: "11111111-1111-4111-8111-111111111111",
   name: "Loan desk",
+  icon: "package",
   startPageId: "overview",
   pages: [
     {
@@ -49,9 +50,13 @@ describe("CustomAppPageLayout", () => {
 
     expect(html).toContain('class="custom-app-page ');
     expect(html).toContain("gap-10 p-5 sm:p-7 lg:p-8");
+    expect(html).not.toContain("min-h-full");
     expect(html).toContain("k2b-app-workspace__main");
-    expect(html).toContain("min-h-full");
-    expect(html.match(/max-w-\[96rem\]/g)).toHaveLength(2);
+    expect(html.match(/max-w-\[96rem\]/g)).toHaveLength(1);
+    expect(html).not.toContain("Loan desk");
+    expect(html).not.toContain("Overview");
+    expect(html).not.toContain("ti-package");
+    expect(html).not.toContain("<h1");
     expect(html).toContain('class="custom-app-row ');
     expect(html).toContain('class="custom-app-column ');
     expect(html).toContain('class="custom-app-block ');

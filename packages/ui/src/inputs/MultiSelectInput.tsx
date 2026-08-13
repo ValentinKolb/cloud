@@ -78,6 +78,7 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
     return options;
   });
   const selected = createMemo(() => values().map((value) => optionByValue().get(value) ?? ({ value, label: value } as NormalizedOption)));
+  const hasClearAction = () => Boolean(props.clearable && selected().length > 0 && !props.disabled);
   const selectedValues = createMemo(() => new Set(values()));
   const popover = createChoicePopover(() => Boolean(props.disabled));
   const focusedOption = () => visibleOptions()[focusedIndex()];
@@ -213,12 +214,14 @@ export function MultiSelectInput(props: MultiSelectInputProps): JSX.Element {
               </For>
             </span>
           </Show>
-          <i
-            class={`${popover.open() ? (props.activeIcon ?? "ti ti-chevron-up") : (props.icon ?? "ti ti-chevron-down")} k2b-multi-select-trigger__chevron`}
-            aria-hidden="true"
-          />
+          <Show when={!hasClearAction()}>
+            <i
+              class={`${popover.open() ? (props.activeIcon ?? "ti ti-chevron-up") : (props.icon ?? "ti ti-chevron-down")} k2b-multi-select-trigger__chevron`}
+              aria-hidden="true"
+            />
+          </Show>
         </div>
-        <Show when={props.clearable && selected().length > 0 && !props.disabled}>
+        <Show when={hasClearAction()}>
           <button
             type="button"
             class="k2b-choice-control__clear k2b-input-clear-action"

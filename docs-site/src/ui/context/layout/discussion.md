@@ -45,7 +45,7 @@ Keep long threads bounded at the application layer by adding a maximum height an
       meta="edited"
       actions={<IconButton label="Note actions"><i class="ti ti-dots" /></IconButton>}
     >
-      <MarkdownView markdown={note.content} smallHeadings />
+      <MarkdownView markdown={note.content} headingScale="compact" />
     </Discussion.Item>
   </Discussion.List>
 </Discussion>

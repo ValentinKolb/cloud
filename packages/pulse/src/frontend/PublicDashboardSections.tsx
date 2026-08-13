@@ -1,5 +1,5 @@
-import { Chart, DataTable, type DataTableColumn, MarkdownView } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { Chart, DataTable, type DataTableColumn, MarkdownView } from "@k2b/ui";
 import { For, type JSX, Show } from "solid-js";
 import type {
   MetricQueryPoint,
@@ -204,7 +204,10 @@ export function PublicDashboardSections(props: Props) {
   };
 
   const renderMarkdownWidget = (widget: PulsePublicDashboardMarkdownWidget) =>
-    renderWidgetFrame(widget, <MarkdownView markdown={sanitizePublicDashboardMarkdown(widget.markdown)} smallHeadings class="text-sm" />);
+    renderWidgetFrame(
+      widget,
+      <MarkdownView markdown={sanitizePublicDashboardMarkdown(widget.markdown)} headingScale="compact" class="text-sm" />,
+    );
 
   const renderEventsWidget = (widget: PulsePublicDashboardEventsWidget) =>
     renderWidgetFrame(

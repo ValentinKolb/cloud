@@ -291,7 +291,7 @@ export default function RecordComments(props: Props) {
                           when={!comment.deletedAt && comment.body}
                           fallback={<p class="mt-1 text-sm italic text-dimmed">Comment deleted</p>}
                         >
-                          {(markdown) => <MarkdownView markdown={markdown()} smallHeadings />}
+                          {(markdown) => <MarkdownView markdown={markdown()} headingScale="compact" />}
                         </Show>
                       }
                     >

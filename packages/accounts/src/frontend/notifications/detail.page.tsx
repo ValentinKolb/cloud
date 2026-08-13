@@ -1,5 +1,5 @@
 import { dates } from "@k2b/stdlib";
-import { NoticeCard, DataTable, type DataTableColumn, MarkdownView, Pagination, Placeholder, StatCell, StatGrid } from "@k2b/ui";
+import { DataTable, type DataTableColumn, MarkdownView, NoticeCard, Pagination, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import {
@@ -319,7 +319,7 @@ export default ssr<AuthContext>(async (c) => {
           <div class="paper p-4">
             <h2 class="text-sm font-semibold text-primary">Message preview</h2>
             <div class="mt-2 rounded-lg bg-muted/30 p-4">
-              <MarkdownView trustedHtml={batch.bodyHtml} smallHeadings />
+              <MarkdownView trustedHtml={batch.bodyHtml} headingScale="compact" />
             </div>
           </div>
 

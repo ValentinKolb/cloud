@@ -102,7 +102,7 @@ if (!values) return;
 
 ## Search
 
-The search resolver receives the current query and an `AbortSignal`. It returns items with a `label` and optional `desc`, `icon`, root-relative `previewUrl`, or `value`. Handle the selected value after the returned promise resolves; result items do not own application side effects.
+The search resolver receives the current query and an `AbortSignal`. It returns items with a `label` and optional `desc`, `icon`, root-relative `previewUrl`, or `value`. Results without `desc` use a compact single-line row; adding `desc` expands only that result to the two-line layout. Handle the selected value after the returned promise resolves; result items do not own application side effects.
 
 Search options include `placeholder`, `initialQuery`, `minQueryLength`, `debounceMs`, `emptyText`, and `noResultsText`.
 

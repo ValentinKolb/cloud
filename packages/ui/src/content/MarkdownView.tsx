@@ -4,10 +4,10 @@ type CommonProps = {
   /** Optional additional CSS classes */
   class?: string;
   /**
-   * Reduce heading sizes for compact contexts like comments.
-   * When true, h1-h6 are all rendered at similar small sizes.
+   * Visual heading scale. Markdown heading levels and document structure stay
+   * unchanged.
    */
-  smallHeadings?: boolean;
+  headingScale?: "compact" | "normal" | "large";
 };
 
 export type MarkdownViewProps = CommonProps &
@@ -71,7 +71,7 @@ export const renderSafeMarkdown = (markdown: string): string =>
  *
  * @example Compact headings, e.g. inside comments or file previews:
  * ```tsx
- * <MarkdownView markdown={source} smallHeadings />;
+ * <MarkdownView markdown={source} headingScale="compact" />;
  * ```
  */
 export default function MarkdownView(props: MarkdownViewProps) {
@@ -79,7 +79,7 @@ export default function MarkdownView(props: MarkdownViewProps) {
   return (
     <div
       class={`k2b-content-markdown ${props.class ?? ""}`}
-      data-small-headings={props.smallHeadings ? "true" : undefined}
+      data-heading-scale={props.headingScale && props.headingScale !== "normal" ? props.headingScale : undefined}
       innerHTML={html()}
     />
   );

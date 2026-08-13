@@ -150,6 +150,7 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(html).toContain("Runtime and infrastructure");
     expect(html).toContain("Clear selection");
     expect(html).toContain("k2b-input-clear-action");
+    expect(html).not.toContain("ti ti-chevron-down");
     expect(html).toContain("disabled");
     expect(cssRule(".k2b-ui .k2b-choice-popover")).toContain("transition: none");
   });
@@ -212,6 +213,7 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(html).toContain('aria-label="Platform"');
     expect(html).toContain("Clear selection");
     expect(html).toContain("k2b-input-clear-action");
+    expect(html).not.toContain("k2b-multi-select-trigger__chevron");
     expect(html).toContain("<strong>Platform</strong><small>Runtime and infrastructure</small>");
     expect(html).not.toContain("<span><strong>Platform</strong><small>Runtime and infrastructure</small></span>");
   });
@@ -642,6 +644,8 @@ describe("@k2b/ui complete choice input migrations", () => {
 
     expect(plain).not.toContain('data-clearable="true"');
     expect(clearable).toContain('data-clearable="true"');
+    expect(plain).toContain("ti ti-chevron-down");
+    expect(clearable).not.toContain("ti ti-chevron-down");
   });
 
   test("gives static multi-selects the Cloud search field, chevron props, and pill semantics", () => {

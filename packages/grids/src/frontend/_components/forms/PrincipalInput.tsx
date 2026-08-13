@@ -1,24 +1,15 @@
-import { IconButton } from "@k2b/ui";
-import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/account/ui";
-import { createSignal, For, onMount, Show } from "solid-js";
+import { MultiSelectInput, Select } from "@k2b/ui";
+import { createSignal, onCleanup, onMount } from "solid-js";
 import type { PrincipalReference } from "../../../field-types/principal";
 
-type PrincipalOption = PrincipalReference & { label: string; description?: string };
+type PrincipalOption = PrincipalReference & { label: string };
+type PrincipalChoice = { value: string; label: string; icon: string };
 
 const keyOf = (value: PrincipalReference) => `${value.type}:${value.id}`;
 
-const optionOf = (principal: EntitySearchPrincipal): PrincipalOption | null => {
-  if (principal.type === "user") {
-    return {
-      type: "user",
-      id: principal.userId,
-      label: principal.displayName || principal.uid,
-      description: principal.mail ?? principal.uid,
-    };
-  }
-  if (principal.type === "group") {
-    return { type: "group", id: principal.groupId, label: principal.name, description: principal.description ?? undefined };
-  }
+const referenceOf = (value: string): PrincipalReference | null => {
+  if (value.startsWith("user:")) return { type: "user", id: value.slice("user:".length) };
+  if (value.startsWith("group:")) return { type: "group", id: value.slice("group:".length) };
   return null;
 };
 
@@ -32,108 +23,132 @@ const referenceArray = (value: unknown): PrincipalReference[] => {
   });
 };
 
+type EntityItem =
+  | { kind: "user"; user: { id: string; uid: string; displayName: string } }
+  | { kind: "group"; group: { id: string; name: string } };
+
+const optionOf = (item: EntityItem): PrincipalOption =>
+  item.kind === "user"
+    ? {
+        type: "user",
+        id: item.user.id,
+        label: item.user.displayName || item.user.uid,
+      }
+    : {
+        type: "group",
+        id: item.group.id,
+        label: item.group.name,
+      };
+
+const choiceOf = (option: PrincipalOption): PrincipalChoice => ({
+  value: keyOf(option),
+  label: option.label,
+  icon: option.type === "user" ? "ti ti-user" : "ti ti-users-group",
+});
+
 export default function PrincipalInput(props: {
+  name?: string;
+  label: string;
+  description?: string;
+  required?: boolean;
+  error?: () => string | undefined;
   value: unknown;
   multi: boolean;
   disabled?: boolean;
   onChange: (value: PrincipalReference[] | null) => void;
 }) {
   const initial = referenceArray(props.value);
-  const [options, setOptions] = createSignal<PrincipalOption[]>(
-    initial.map((value) => ({ ...value, label: value.type === "user" ? "User" : "Group", description: "Private identity" })),
+  const [knownOptions, setKnownOptions] = createSignal<PrincipalOption[]>(
+    initial.map((value) => ({ ...value, label: value.type === "user" ? "User" : "Group" })),
   );
 
-  onMount(async () => {
+  const mergeOptions = (options: PrincipalOption[]) => {
+    setKnownOptions((current) => {
+      const merged = new Map(current.map((option) => [keyOf(option), option]));
+      for (const option of options) merged.set(keyOf(option), option);
+      return [...merged.values()];
+    });
+  };
+
+  const fetchEntities = async (url: URL, signal: AbortSignal): Promise<PrincipalOption[]> => {
+    const response = await fetch(url, { credentials: "same-origin", signal });
+    if (!response.ok) throw new Error("Failed to load users and groups");
+    const body = (await response.json()) as { items?: EntityItem[] };
+    const options = (body.items ?? []).map(optionOf);
+    mergeOptions(options);
+    return options;
+  };
+
+  onMount(() => {
+    if (initial.length === 0) return;
+    const controller = new AbortController();
     const users = initial.filter((value) => value.type === "user").map((value) => value.id);
     const groups = initial.filter((value) => value.type === "group").map((value) => value.id);
-    if (users.length + groups.length === 0) return;
     const url = new URL("/api/accounts/entities", window.location.origin);
     url.searchParams.set("kinds", "user,group");
-    url.searchParams.set("per_page", String(users.length + groups.length));
+    url.searchParams.set("per_page", String(initial.length));
     if (users.length) url.searchParams.set("user_ids", users.join(","));
     if (groups.length) url.searchParams.set("group_ids", groups.join(","));
-    const response = await fetch(url, { credentials: "same-origin" });
-    if (!response.ok) return;
-    const body = (await response.json()) as {
-      items?: Array<{
-        kind: "user" | "group";
-        user?: { id: string; uid: string; displayName: string; mail: string | null };
-        group?: { id: string; name: string; description: string | null };
-      }>;
-    };
-    const labels = new Map<string, PrincipalOption>();
-    for (const item of body.items ?? []) {
-      if (item.kind === "user" && item.user) {
-        labels.set(`user:${item.user.id}`, {
-          type: "user",
-          id: item.user.id,
-          label: item.user.displayName || item.user.uid,
-          description: item.user.mail ?? item.user.uid,
-        });
-      }
-      if (item.kind === "group" && item.group) {
-        labels.set(`group:${item.group.id}`, {
-          type: "group",
-          id: item.group.id,
-          label: item.group.name,
-          description: item.group.description ?? undefined,
-        });
-      }
-    }
-    setOptions((current) => current.map((option) => labels.get(keyOf(option)) ?? option));
+    void fetchEntities(url, controller.signal).catch(() => undefined);
+    onCleanup(() => controller.abort());
   });
 
-  const values = () => options().map(({ type, id }) => ({ type, id }));
-  const commit = (next: PrincipalOption[]) => {
-    setOptions(next);
-    props.onChange(next.length ? next.map(({ type, id }) => ({ type, id })) : null);
+  const references = () => referenceArray(props.value);
+  const values = () => references().map(keyOf);
+  const selectedOptions = () => {
+    const options = new Map(knownOptions().map((option) => [keyOf(option), option]));
+    return references().map((reference) =>
+      choiceOf(options.get(keyOf(reference)) ?? { ...reference, label: reference.type === "user" ? "User" : "Group" }),
+    );
   };
-  const add = (principal: EntitySearchPrincipal) => {
-    const option = optionOf(principal);
-    if (!option) return;
-    const next = props.multi ? [...options().filter((item) => keyOf(item) !== keyOf(option)), option] : [option];
-    commit(next);
+  const loadOptions = async (query: string, signal: AbortSignal): Promise<PrincipalChoice[]> => {
+    if (query.trim().length < 2) return [];
+    const url = new URL("/api/accounts/entities", window.location.origin);
+    url.searchParams.set("search", query.trim());
+    url.searchParams.set("kinds", "user,group");
+    url.searchParams.set("per_page", "10");
+    return (await fetchEntities(url, signal)).map(choiceOf);
   };
-  const remove = (value: PrincipalReference) => commit(options().filter((item) => keyOf(item) !== keyOf(value)));
+  const commit = (next: string[]) => {
+    const references = next.flatMap((value) => {
+      const reference = referenceOf(value);
+      return reference ? [reference] : [];
+    });
+    props.onChange(references.length ? references : null);
+  };
 
-  return (
-    <div class="flex flex-col gap-2">
-      <Show when={options().length > 0}>
-        <div class="flex flex-col gap-1">
-          <For each={options()}>
-            {(option) => (
-              <div class="flex min-w-0 items-center gap-2 rounded-md bg-[var(--ui-surface-subtle)] px-2.5 py-2">
-                <i class={`ti ${option.type === "user" ? "ti-user" : "ti-users-group"} shrink-0 text-dimmed`} />
-                <div class="min-w-0 flex-1">
-                  <div class="truncate text-sm font-medium">{option.label}</div>
-                  <Show when={option.description}>
-                    <div class="truncate text-xs text-dimmed">{option.description}</div>
-                  </Show>
-                </div>
-                <IconButton type="button" label={`Remove ${option.label}`} disabled={props.disabled} onClick={() => remove(option)}>
-                  <i class="ti ti-x" aria-hidden="true" />
-                </IconButton>
-              </div>
-            )}
-          </For>
-        </div>
-      </Show>
-      <Show when={props.multi || values().length === 0}>
-        <EntitySearch
-          includeUsers
-          includeGroups
-          excludeUserIds={values()
-            .filter((value) => value.type === "user")
-            .map((value) => value.id)}
-          excludeGroupIds={values()
-            .filter((value) => value.type === "group")
-            .map((value) => value.id)}
-          placeholder={props.multi ? "Search users and groups..." : "Select a user or group..."}
-          resultsHeightClass="max-h-48"
-          disabled={props.disabled}
-          onSelect={add}
-        />
-      </Show>
-    </div>
+  return props.multi ? (
+    <MultiSelectInput
+      name={props.name}
+      label={props.label}
+      description={props.description}
+      required={props.required}
+      error={props.error}
+      disabled={props.disabled}
+      value={values}
+      onValueChange={commit}
+      fetchData={loadOptions}
+      selectedOptions={selectedOptions}
+      placeholder="Select users and groups"
+      searchPlaceholder="Search users and groups..."
+      noResultsLabel="No users or groups found"
+      clearable
+    />
+  ) : (
+    <Select
+      name={props.name}
+      label={props.label}
+      description={props.description}
+      required={props.required}
+      error={props.error}
+      disabled={props.disabled}
+      value={() => values()[0] ?? null}
+      onValueChange={(value) => commit(value ? [value] : [])}
+      fetchData={loadOptions}
+      selectedOption={selectedOptions()[0]}
+      placeholder="Select a user or group"
+      searchPlaceholder="Search users and groups..."
+      clearable
+    />
   );
 }

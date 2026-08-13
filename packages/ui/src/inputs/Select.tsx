@@ -84,6 +84,7 @@ export function Select(props: SelectProps): JSX.Element {
       }
     );
   });
+  const hasClearAction = () => Boolean(props.clearable && selected() && !props.disabled);
   const accessibleLabel = () =>
     props["aria-label"] ?? (typeof props.label === "string" ? undefined : (props.placeholder ?? "Select option"));
   const popover = createChoicePopover(() => Boolean(props.disabled));
@@ -162,7 +163,7 @@ export function Select(props: SelectProps): JSX.Element {
           aria-expanded={popover.open()}
           aria-controls={listboxId}
           aria-activedescendant={focusedOption() ? `${listboxId}-${focusedIndex()}` : undefined}
-          data-clearable={props.clearable && selected() && !props.disabled ? "true" : undefined}
+          data-clearable={hasClearAction() ? "true" : undefined}
           {...fieldControlAria(meta, {
             ...props,
             "aria-label": accessibleLabel(),
@@ -180,10 +181,15 @@ export function Select(props: SelectProps): JSX.Element {
           <span class="k2b-choice-trigger__value" data-placeholder={selected() ? undefined : "true"}>
             {selected()?.label ?? props.placeholder ?? "Select..."}
           </span>
-          <i class={popover.open() ? (props.activeIcon ?? "ti ti-chevron-up") : (props.icon ?? "ti ti-chevron-down")} aria-hidden="true" />
+          <Show when={!hasClearAction()}>
+            <i
+              class={popover.open() ? (props.activeIcon ?? "ti ti-chevron-up") : (props.icon ?? "ti ti-chevron-down")}
+              aria-hidden="true"
+            />
+          </Show>
         </button>
         <Show when={props.name}>{(name) => <input type="hidden" name={name()} value={value() ?? ""} />}</Show>
-        <Show when={props.clearable && selected() && !props.disabled}>
+        <Show when={hasClearAction()}>
           <button type="button" class="k2b-choice-control__clear k2b-input-clear-action" aria-label="Clear selection" onClick={clear}>
             <i class="ti ti-x" aria-hidden="true" />
           </button>

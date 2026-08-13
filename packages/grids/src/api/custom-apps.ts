@@ -27,6 +27,7 @@ import { resolveCustomAppValueBinding } from "../custom-apps/value-bindings";
 import { isRecordWritableFieldType } from "../field-types";
 import { toWorkflowRunEventSummary } from "../lib/workflow-run-events";
 import { gridsService } from "../service";
+import { buildCustomAppRecordLabelCache } from "../service/custom-app-record-relations";
 import { executePublishedCustomAppRecords } from "../service/custom-app-records-query";
 import { publishedCustomAppAvailability } from "../service/custom-app-runtime-query";
 import { ALL_RECORD_ACCESS } from "../service/record-access";
@@ -739,14 +740,39 @@ export const createCustomAppsApi = (
         return c.json({ message: "This record editor changed after the app was published" }, 409);
       }
 
-      return respond(c, () =>
-        gridsService.record.update(resolved.page.record!.tableId, resolved.record.id, body.values, currentActorUserId(c), ifMatch, {
+      const result = await gridsService.record.update(
+        resolved.page.record!.tableId,
+        resolved.record.id,
+        body.values,
+        currentActorUserId(c),
+        ifMatch,
+        {
           dateConfig: getDateConfig(c),
           viewer: resolved.viewer,
           audit: body.audit,
           recordAccess: ALL_RECORD_ACCESS,
-        }),
+        },
       );
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      const visibleFields = fields.filter((field) => resolved.capability.fieldIds.includes(field.id));
+      const relationTableIds = [
+        resolved.page.record!.tableId,
+        ...new Set(resolved.capability.relationLabels.map((relation) => relation.targetTableId)),
+      ];
+      const relationViewer = {
+        ...resolved.viewer,
+        isAdmin: false,
+        readableTableIds: new Set(relationTableIds),
+        recordAccessByTableId: new Map(relationTableIds.map((tableId) => [tableId, ALL_RECORD_ACCESS])),
+      };
+      const relationLabels = await buildCustomAppRecordLabelCache({
+        records: [result.data],
+        fields: visibleFields,
+        relations: resolved.capability.relationLabels,
+        viewer: relationViewer,
+        actorUserId: currentActorUserId(c),
+      }).catch(() => ({}));
+      return c.json({ ...result.data, relationLabels });
     })
     .post("/runtime/:shortId/:pageId/:blockId/actions/:actionId", v("json", CustomAppActionInvocationSchema), async (c) => {
       const runtime = await resolvePublishedRuntime(c);

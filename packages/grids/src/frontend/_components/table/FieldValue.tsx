@@ -1,5 +1,5 @@
-import { MarkdownView, ProgressBar } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { MarkdownView, ProgressBar } from "@k2b/ui";
 import { createMemo, For, type JSX, Show } from "solid-js";
 import type { FormatSpec } from "../../../contracts";
 import type { Field, GridRecord } from "../../../service";
@@ -110,7 +110,7 @@ export function FieldValue(props: FieldValueProps) {
     if (intent.kind === "principal") return intent.text;
     if (intent.kind === "markdown") {
       return intent.text.trim() ? (
-        <MarkdownView markdown={intent.text} smallHeadings class={props.markdownClass ?? "text-sm"} />
+        <MarkdownView markdown={intent.text} headingScale="compact" class={props.markdownClass ?? "text-sm"} />
       ) : (
         emptyValue()
       );

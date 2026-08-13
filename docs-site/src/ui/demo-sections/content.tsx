@@ -641,12 +641,14 @@ const MarkdownDemo = (props: { html: string }) => {
         { kind: "component", name: "MarkdownEditor", from: "@k2b/ui" },
       ]}
       description="Untrusted Markdown is safe by default. Already-rendered HTML crosses an explicit caller-owned trust boundary."
-      code={`<MarkdownView markdown={value()} />
+      code={`<MarkdownView markdown={value()} headingScale="compact" />
+<MarkdownView markdown={value()} />
+<MarkdownView markdown={value()} headingScale="large" />
 <MarkdownView trustedHtml={trustedHtml} />
 <MarkdownEditor value={value()} onValueChange={setValue} aria-label="Markdown source" />`}
     >
       <section aria-label="Rendered untrusted Markdown">
-        <MarkdownView markdown={value()} />
+        <MarkdownView markdown={value()} headingScale="large" />
       </section>
       <section aria-label="Rendered trusted HTML">
         <MarkdownView trustedHtml={props.html} />

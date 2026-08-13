@@ -54,31 +54,6 @@ export function CustomAppMarkdownField(props: CustomAppMarkdownFieldProps) {
       action: () => insertPlaceholder(key, textarea()),
     }));
 
-  const editor = (options: { fill?: boolean; lines: number }) => {
-    let textarea: HTMLTextAreaElement | undefined;
-    return (
-      <div class="flex min-h-0 flex-1 flex-col gap-2">
-        <MarkdownEditor
-          label="Content"
-          description="Type @ or add a placeholder. Values are inserted safely when the published app renders."
-          value={props.value}
-          onValueChange={props.onValueChange}
-          completions={completions()}
-          fill={options.fill}
-          lines={options.lines}
-          textareaRef={(element) => {
-            textarea = element;
-          }}
-        />
-        <Dropdown.Root items={placeholderItems(() => textarea)} position="bottom-left" width="18rem" label="Add placeholder">
-          <Dropdown.Trigger size="xs" variant="secondary" class="self-start">
-            <i class="ti ti-at" aria-hidden="true" /> Add placeholder
-          </Dropdown.Trigger>
-        </Dropdown.Root>
-      </div>
-    );
-  };
-
   const openLargeEditor = () =>
     dialogCore.open<void>((close) => {
       let textarea: HTMLTextAreaElement | undefined;
@@ -129,7 +104,14 @@ export function CustomAppMarkdownField(props: CustomAppMarkdownFieldProps) {
 
   return (
     <div class="flex flex-col gap-2">
-      {editor({ lines: 6 })}
+      <MarkdownEditor
+        label="Content"
+        description="Type @ to insert App context. Values are inserted safely when the published app renders."
+        value={props.value}
+        onValueChange={props.onValueChange}
+        completions={completions()}
+        lines={6}
+      />
       <Button size="xs" variant="secondary" class="self-start" onClick={() => void openLargeEditor()}>
         <i class="ti ti-arrows-maximize" aria-hidden="true" /> Open large editor
       </Button>

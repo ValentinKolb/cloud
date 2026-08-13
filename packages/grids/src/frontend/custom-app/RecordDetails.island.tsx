@@ -1,6 +1,6 @@
 import type { DateContext } from "@k2b/stdlib";
-import { Button, DescriptionList, PanelHeader, Placeholder, prompts } from "@k2b/ui";
-import { createSignal, For, Show } from "solid-js";
+import { Button, DescriptionList, IconButton, PanelHeader, Placeholder, prompts } from "@k2b/ui";
+import { createSignal, Show } from "solid-js";
 import type { DocumentRunSummary, RecordMutationAudit, TableAuditPolicy } from "../../contracts";
 import type { CustomAppBlock } from "../../custom-apps/contracts";
 import { recordAuditRequirementFor } from "../../record-audit-policy";
@@ -32,6 +32,7 @@ export default function RecordDetails(props: {
   dateConfig: DateContext;
 }) {
   const [record, setRecord] = createSignal(props.record);
+  const [relationLabels, setRelationLabels] = createSignal(props.relationLabels);
   const [saving, setSaving] = createSignal(false);
   const [downloadingId, setDownloadingId] = createSignal<string | null>(null);
   const fieldsById = new Map(props.fields.map((field) => [field.id, field]));
@@ -50,7 +51,7 @@ export default function RecordDetails(props: {
       baseId: props.baseId,
       tableName: props.tableName,
       record: current,
-      relationLabels: props.relationLabels,
+      relationLabels: relationLabels(),
       dateConfig: props.dateConfig,
       beforeSubmit: async (payload) => {
         const changedFieldIds = Object.keys(payload).filter(
@@ -78,7 +79,10 @@ export default function RecordDetails(props: {
         body: JSON.stringify({ values, audit }),
       });
       if (!response.ok) throw new Error(await responseMessage(response, "Failed to update record"));
-      setRecord((await response.json()) as GridRecord);
+      const updated = (await response.json()) as GridRecord & { relationLabels?: Record<string, string> };
+      setRecord(updated);
+      const updatedLabels = updated.relationLabels;
+      if (updatedLabels) setRelationLabels((current) => ({ ...current, ...updatedLabels }));
     } catch (error) {
       prompts.error(error instanceof Error ? error.message : "Failed to update record");
     } finally {
@@ -124,7 +128,7 @@ export default function RecordDetails(props: {
               value={record().data[field.id]}
               record={record()}
               allFields={props.fields}
-              relationLabels={props.relationLabels}
+              relationLabels={relationLabels()}
               dateConfig={props.dateConfig}
               mode="detail"
               empty="—"
@@ -139,30 +143,38 @@ export default function RecordDetails(props: {
             when={props.documentRuns.length > 0}
             fallback={<Placeholder align="left" class="px-0 py-1" description="No generated documents yet." />}
           >
-            <ul class="flex flex-col gap-1">
-              <For each={props.documentRuns}>
-                {(run) => (
-                  <li>
-                    <button
-                      type="button"
-                      class="group flex w-full min-w-0 items-center gap-2 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                      aria-label={`Download ${run.filename}`}
-                      onClick={() => void download(run)}
-                      disabled={Boolean(downloadingId())}
-                      aria-busy={downloadingId() === run.id}
-                    >
-                      <i
-                        class={`ti ${downloadingId() === run.id ? "ti-loader-2 animate-spin" : "ti-file-type-pdf"} shrink-0 text-base text-secondary`}
-                        aria-hidden="true"
-                      />
-                      <span class="min-w-0 flex-1 truncate text-primary">{run.filename}</span>
-                      <span class="shrink-0 text-xs text-dimmed">{formatRecordRelativeTime(run.generatedAt, props.dateConfig)}</span>
-                      <i class="ti ti-download shrink-0 text-secondary group-hover:text-primary" aria-hidden="true" />
-                    </button>
-                  </li>
-                )}
-              </For>
-            </ul>
+            <DescriptionList
+              layout="rows"
+              size="sm"
+              actionVisibility="progressive"
+              items={props.documentRuns.map((run) => ({
+                term: (
+                  <span class="flex items-center gap-2">
+                    <i class="ti ti-file-type-pdf shrink-0 text-base text-secondary" aria-hidden="true" />
+                    <span>PDF</span>
+                  </span>
+                ),
+                description: (
+                  <span class="flex min-w-0 items-center justify-between gap-3">
+                    <span class="truncate text-primary">{run.filename}</span>
+                    <span class="shrink-0 text-xs text-dimmed">{formatRecordRelativeTime(run.generatedAt, props.dateConfig)}</span>
+                  </span>
+                ),
+                action: (
+                  <IconButton
+                    size="xs"
+                    variant="ghost"
+                    label={`Download ${run.filename}`}
+                    loading={downloadingId() === run.id}
+                    loadingLabel={`Downloading ${run.filename}`}
+                    disabled={Boolean(downloadingId())}
+                    onClick={() => void download(run)}
+                  >
+                    <i class="ti ti-download" aria-hidden="true" />
+                  </IconButton>
+                ),
+              }))}
+            />
           </Show>
         </section>
       </Show>

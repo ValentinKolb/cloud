@@ -18,16 +18,17 @@ import {
   For,
   type JSX,
   Match,
+  onCleanup,
   Show,
   Switch,
   untrack,
 } from "solid-js";
-import { MarkdownEditor } from "../inputs/markdown/MarkdownEditor";
 import { toast } from "../feedback/toast";
+import { MarkdownEditor } from "../inputs/markdown/MarkdownEditor";
+import Placeholder from "../surfaces/Placeholder";
 import CodeDisplay, { type CodeDisplayLanguage } from "./CodeDisplay";
 import { type FileViewFile, fileViewExtension, getFileViewPreviewKind, parseDelimitedText } from "./file-view-preview";
 import MarkdownView from "./MarkdownView";
-import Placeholder from "../surfaces/Placeholder";
 import StructuredDataPreview, { type StructuredDataValue } from "./StructuredDataPreview";
 
 export type { FileViewFile, FileViewPreviewKind } from "./file-view-preview";
@@ -39,6 +40,8 @@ export type FileViewProps = {
   load: () => Promise<FileViewContent>;
   /** Refetch the current path when this host-owned revision changes. */
   revision?: unknown;
+  /** Register an awaitable refresh for the currently visible preview. */
+  registerRefresh?: (refresh: () => Promise<void>) => void | (() => void);
   /** Presence enables editing for text-based renderers. */
   save?: (content: string) => Promise<void>;
   /** Authenticated inline URL used by browser-native image, PDF, audio, and video previews. */
@@ -177,7 +180,7 @@ function MarkdownRenderer(props: FileViewRendererProps) {
           }
         >
           <div class="k2b-content-file-view__document">
-            <MarkdownView markdown={stripFrontmatter(props.editor?.draft() ?? props.content.content)} smallHeadings />
+            <MarkdownView markdown={stripFrontmatter(props.editor?.draft() ?? props.content.content)} headingScale="compact" />
           </div>
         </OverlayPanel>
       }
@@ -459,6 +462,7 @@ export const formatFileViewSize = (bytes: number): string => {
 export default function FileView(props: FileViewProps) {
   const [draft, setDraft] = createSignal("");
   const [savedDraft, setSavedDraft] = createSignal("");
+  const [nativeRevision, setNativeRevision] = createSignal(0);
   const dirty = createMemo(() => draft() !== savedDraft());
   const instanceRenderers = () => props.renderers ?? [];
   const saveMutation = mutation.create<{ path: string; content: string }, { path: string; content: string }>({
@@ -472,10 +476,17 @@ export default function FileView(props: FileViewProps) {
     },
     onError: (error) => toast.error(error.message),
   });
+  const nativePreviewHref = createMemo(() => {
+    const kind = getFileViewPreviewKind(props.file);
+    const href = props.previewHref ?? (kind === "pdf" ? props.downloadHref : null);
+    if (!href) return null;
+    const separator = href.includes("?") ? "&" : "?";
+    return `${href}${separator}preview-revision=${nativeRevision()}`;
+  });
   const browserPreviewContent = createMemo<FileViewContent | null>(() => {
     const kind = getFileViewPreviewKind(props.file);
     if (kind !== "image" && kind !== "pdf" && kind !== "audio" && kind !== "video") return null;
-    const href = props.previewHref ?? (kind === "pdf" ? props.downloadHref : null);
+    const href = nativePreviewHref();
     if (!href) return null;
 
     const candidate: FileViewContent = {
@@ -485,7 +496,7 @@ export default function FileView(props: FileViewProps) {
     };
     return instanceRenderers().some((renderer) => renderer.match(props.file, candidate)) ? null : candidate;
   });
-  const [content] = createResource(
+  const [content, { refetch }] = createResource(
     () => (browserPreviewContent() ? null : { path: props.file.path, revision: props.revision }),
     async () => {
       saveMutation.abort();
@@ -498,6 +509,14 @@ export default function FileView(props: FileViewProps) {
       return loaded;
     },
   );
+  createEffect(() => {
+    if (!props.registerRefresh) return;
+    const unregister = props.registerRefresh(async () => {
+      if (browserPreviewContent()) setNativeRevision((value) => value + 1);
+      else await refetch();
+    });
+    if (unregister) onCleanup(unregister);
+  });
   const resolvedContent = createMemo(() => browserPreviewContent() ?? content());
 
   const renderer = createMemo(() => {
@@ -529,7 +548,7 @@ export default function FileView(props: FileViewProps) {
   return (
     <div class={`k2b-content-file-view ${props.class ?? ""}`}>
       <Switch>
-        <Match when={content.loading}>
+        <Match when={content.loading && content() === undefined}>
           <Placeholder icon="ti ti-loader-2" title="Loading…" />
         </Match>
         <Match when={content.error}>
@@ -542,7 +561,7 @@ export default function FileView(props: FileViewProps) {
               <Renderer
                 file={props.file}
                 content={resolvedContent()!}
-                previewHref={props.previewHref ?? null}
+                previewHref={nativePreviewHref()}
                 downloadHref={props.downloadHref ?? null}
                 editor={editor()}
               />

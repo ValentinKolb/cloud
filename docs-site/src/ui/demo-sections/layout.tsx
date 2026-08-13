@@ -809,7 +809,7 @@ const DiscussionDemo = () => {
             >
               <MarkdownView
                 markdown="Purchase order requested from the customer. I added the reference to the invoice record."
-                smallHeadings
+                headingScale="compact"
               />
             </Discussion.Item>
 
@@ -829,7 +829,7 @@ const DiscussionDemo = () => {
                 </>
               }
             >
-              <MarkdownView markdown="I will follow up before the payment deadline." smallHeadings />
+              <MarkdownView markdown="I will follow up before the payment deadline." headingScale="compact" />
             </Discussion.Item>
 
             <Discussion.Item
@@ -842,7 +842,7 @@ const DiscussionDemo = () => {
                 </IconButton>
               }
             >
-              <MarkdownView markdown="The customer confirmed that the billing address is correct." smallHeadings />
+              <MarkdownView markdown="The customer confirmed that the billing address is correct." headingScale="compact" />
             </Discussion.Item>
           </Discussion.List>
         </Discussion>
@@ -1121,7 +1121,7 @@ const DetailPanelDemo = () => {
                         </IconButton>
                       }
                     >
-                      <MarkdownView markdown="The introduction is ready for review." smallHeadings />
+                      <MarkdownView markdown="The introduction is ready for review." headingScale="compact" />
                     </Discussion.Item>
                   </Discussion.List>
                   <Discussion.Composer

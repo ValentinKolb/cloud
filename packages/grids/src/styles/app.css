@@ -13,12 +13,6 @@
   --grids-edit-accent-ink: color-mix(in srgb, var(--color-emerald-300) 76%, var(--color-zinc-300));
 }
 
-.custom-app-page {
-  border-radius: var(--ui-radius-frame);
-  background: var(--ui-surface);
-  box-shadow: var(--ui-shadow-frame);
-}
-
 .custom-app-block[data-editing="true"] {
   min-height: var(--ui-control-sm);
   outline: 1px dashed var(--grids-edit-accent-muted);
