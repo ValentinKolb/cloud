@@ -37,13 +37,25 @@ export const SearchQuerySchema = z.object({
     .default("")
     .transform((query) => query.trim()),
   tag: TagArraySchema.optional().default([]),
+  app: z.string().trim().min(1).max(120).optional(),
+  require_reader: z
+    .enum(["true"])
+    .optional()
+    .transform((value) => value === "true"),
   provider_limit: z.coerce.number().int().min(1).max(30).optional().default(10),
+});
+
+export const SearchAppSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  icon: z.string(),
 });
 
 export const SearchItemSchema = z.object({
   appId: z.string(),
   appName: z.string(),
   appIcon: z.string(),
+  readable: z.boolean(),
   ref: CloudResourceRefSchema,
   title: z.string(),
   href: SameOriginPathSchema,
@@ -58,8 +70,10 @@ export const SearchResponseSchema = z.object({
   query: z.string(),
   count: z.number().int().nonnegative(),
   items: z.array(SearchItemSchema),
+  apps: z.array(SearchAppSchema),
   unsupportedTags: z.array(z.string()).optional(),
 });
 
+export type SearchApp = z.infer<typeof SearchAppSchema>;
 export type SearchItem = z.infer<typeof SearchItemSchema>;
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;

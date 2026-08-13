@@ -27,6 +27,7 @@
     "./browser": "./src/server/api-client.ts",
     "./browser/live": "./src/browser/live-websocket.ts",
     "./browser/notifications": "./src/browser/notifications.ts",
+    "./browser/resource-picker": "./src/browser/resource-picker.tsx",
     "./capabilities": "./src/capabilities/client.ts",
     "./capabilities/server": "./src/capabilities/server.ts",
     "./capabilities/testing": "./src/capabilities/testing.ts",

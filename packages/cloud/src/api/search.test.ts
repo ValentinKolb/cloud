@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ok } from "@k2b/stdlib";
 import type { MiddlewareHandler } from "hono";
+import { z } from "zod";
 import { compileCapabilities } from "../_internal/capabilities";
 import { defineCapabilities, UniversalSearchDataSchema, UniversalSearchInputSchema } from "../contracts/capabilities";
 import type { CapabilityRegistryEntry } from "../contracts/registry";
@@ -179,12 +180,14 @@ describe("global capability search", () => {
           appId: "demo",
           appName: "Demo",
           appIcon: "ti ti-box",
+          readable: false,
           ref: { type: "demo.item", id: "42" },
           title: "Answer",
           href: "/app/demo/42",
           preview: "A result",
         },
       ],
+      apps: [{ id: "demo", name: "Demo", icon: "ti ti-box" }],
     });
   });
 
@@ -202,7 +205,108 @@ describe("global capability search", () => {
     const response = await routes.request("/search?tag=missing");
     expect(response.status).toBe(200);
     expect(calls).toBe(0);
-    expect(await response.json()).toEqual({ query: "", count: 0, items: [], unsupportedTags: ["missing"] });
+    expect(await response.json()).toEqual({
+      query: "",
+      count: 0,
+      items: [],
+      apps: [{ id: "demo", name: "Demo", icon: "ti ti-box" }],
+      unsupportedTags: ["missing"],
+    });
+  });
+
+  test("filters provider fan-out by app while returning the complete app filter catalog", async () => {
+    const otherManifest = compileCapabilities("other", capabilities).manifest;
+    const calls: string[] = [];
+    const routes = createSearchRoutes({
+      authenticate,
+      listCapabilities: async () => [
+        app,
+        { ...app, appId: "other", appName: "Other", endpoint: "http://other:3000/api/_internal/capabilities/v1", manifest: otherManifest },
+      ],
+      fetch: async (url) => {
+        calls.push(String(url));
+        return Response.json({ data: [] });
+      },
+    });
+
+    const response = await routes.request("/search?q=test&app=other");
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(["http://other:3000/api/_internal/capabilities/v1/queries/search"]);
+    expect((await response.json()).apps).toEqual([
+      { id: "demo", name: "Demo", icon: "ti ti-box" },
+      { id: "other", name: "Other", icon: "ti ti-box" },
+    ]);
+  });
+
+  test("returns the app catalog without provider fan-out for an unscoped empty request", async () => {
+    let calls = 0;
+    const routes = createSearchRoutes({
+      authenticate,
+      listCapabilities: async () => [app],
+      fetch: async () => {
+        calls += 1;
+        return Response.json({ data: [] });
+      },
+    });
+
+    const response = await routes.request("/search");
+    expect(response.status).toBe(200);
+    expect(calls).toBe(0);
+    expect(await response.json()).toEqual({
+      query: "",
+      count: 0,
+      items: [],
+      apps: [{ id: "demo", name: "Demo", icon: "ti ti-box" }],
+    });
+  });
+
+  test("filters navigation-only resources before applying the global result limit", async () => {
+    const readableManifest = compileCapabilities(
+      "demo",
+      defineCapabilities({
+        protocolVersion: 1,
+        types: {
+          navigation: { title: "Navigation item", description: "Navigation only." },
+          readable: { title: "Readable item", description: "Readable item.", reader: "read" },
+        },
+        queries: {
+          search: capabilities.queries.search,
+          read: {
+            title: "Read item",
+            description: "Read one item.",
+            input: z.object({ id: z.string().describe("Stable item id.") }).strict(),
+            data: z.object({ id: z.string() }).strict(),
+            openWorld: false,
+            run: async ({ id }) => ok({ data: { id } }),
+          },
+        },
+      }),
+    ).manifest;
+    const routes = createSearchRoutes({
+      authenticate,
+      listCapabilities: async () => [{ ...app, manifest: readableManifest }],
+      fetch: async () =>
+        Response.json({
+          data: [
+            ...Array.from({ length: 30 }, (_, index) => ({
+              ref: { type: "demo.navigation", id: String(index) },
+              title: `Navigation ${index}`,
+              priority: 9,
+              links: [{ rel: "open", href: `/app/demo/navigation/${index}` }],
+            })),
+            {
+              ref: { type: "demo.readable", id: "kept" },
+              title: "Readable",
+              links: [{ rel: "open", href: "/app/demo/readable/kept" }],
+            },
+          ],
+        }),
+    });
+
+    const response = await routes.request("/search?q=item&require_reader=true&provider_limit=30");
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { items: Array<{ ref: { id: string }; readable: boolean }> };
+    expect(body.items).toEqual([expect.objectContaining({ ref: { type: "demo.readable", id: "kept" }, readable: true })]);
   });
 
   test("rejects unbounded queries and provider limits before fan-out", async () => {
@@ -210,6 +314,8 @@ describe("global capability search", () => {
     expect((await routes.request(`/search?q=${"x".repeat(501)}`)).status).toBe(400);
     expect((await routes.request("/search?provider_limit=31")).status).toBe(400);
     expect((await routes.request(`/search?${Array.from({ length: 21 }, (_, index) => `tag=t${index}`).join("&")}`)).status).toBe(400);
+    expect((await routes.request(`/search?app=${"a".repeat(121)}`)).status).toBe(400);
+    expect((await routes.request("/search?require_reader=false")).status).toBe(400);
   });
 
   test("caps a provider that returns more items than requested", async () => {
@@ -225,7 +331,7 @@ describe("global capability search", () => {
           })),
         }),
     });
-    const response = await routes.request("/search?provider_limit=2");
+    const response = await routes.request("/search?q=item&provider_limit=2");
     expect(response.status).toBe(200);
     expect(((await response.json()) as { items: unknown[] }).items).toHaveLength(6);
   });

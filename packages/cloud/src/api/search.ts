@@ -131,6 +131,14 @@ export const createSearchRoutes = (dependencies: SearchRouteDependencies = {}) =
         );
       }
       const providers = getSearchProviders(entries);
+      const apps = [
+        ...new Map(
+          providers.map((provider) => [provider.appId, { id: provider.appId, name: provider.appName, icon: provider.appIcon }]),
+        ).values(),
+      ].sort((a, b) => a.name.localeCompare(b.name));
+      const readableTypes = new Set(
+        entries.flatMap((entry) => entry.manifest.types.filter((type) => type.reader).map((type) => `${entry.appId}.${type.localId}`)),
+      );
 
       // Pre-filter providers by tag overlap. With no tags, every provider
       // runs (text-only search). With tags, only providers that own at least
@@ -139,13 +147,20 @@ export const createSearchRoutes = (dependencies: SearchRouteDependencies = {}) =
       // returned to the client so it can render a helpful empty state.
       const knownTags = new Set(providers.flatMap((p) => p.tags));
       const unsupportedTags = query.tag.filter((t) => !knownTags.has(t));
-      const active = query.tag.length === 0 ? providers : providers.filter((p) => p.tags.some((t) => query.tag.includes(t)));
+      const appProviders = query.app ? providers.filter((provider) => provider.appId === query.app) : providers;
+      const active =
+        query.tag.length === 0 ? appProviders : appProviders.filter((provider) => provider.tags.some((tag) => query.tag.includes(tag)));
+
+      if (query.q.length === 0 && query.tag.length === 0 && !query.app) {
+        return c.json({ query: "", count: 0, items: [], apps });
+      }
 
       if (query.tag.length > 0 && active.length === 0) {
         return c.json({
           query: query.q,
           count: 0,
           items: [],
+          apps,
           unsupportedTags,
         });
       }
@@ -193,7 +208,7 @@ export const createSearchRoutes = (dependencies: SearchRouteDependencies = {}) =
         const results = envelope.data.data;
         const validItems: SearchItem[] = [];
 
-        for (const view of results.slice(0, effectiveProviderLimit)) {
+        for (const view of results) {
           if (view.ref.type.startsWith(`${provider.appId}.`) && !provider.typeIds.has(view.ref.type)) {
             log.warn("Search capability returned an undeclared provider-owned resource type", {
               appId: provider.appId,
@@ -219,6 +234,7 @@ export const createSearchRoutes = (dependencies: SearchRouteDependencies = {}) =
             appId: provider.appId,
             appName: provider.appName,
             appIcon: provider.appIcon,
+            readable: readableTypes.has(view.ref.type),
           });
           if (!parsed.success) {
             log.warn("Search provider returned invalid item", {
@@ -228,7 +244,8 @@ export const createSearchRoutes = (dependencies: SearchRouteDependencies = {}) =
             });
             continue;
           }
-          validItems.push(parsed.data);
+          if (!query.require_reader || parsed.data.readable) validItems.push(parsed.data);
+          if (validItems.length >= effectiveProviderLimit) break;
         }
 
         return validItems;
@@ -266,6 +283,7 @@ export const createSearchRoutes = (dependencies: SearchRouteDependencies = {}) =
         query: query.q,
         count: sliced.length,
         items: sliced,
+        apps,
         ...(unsupportedTags.length > 0 ? { unsupportedTags } : {}),
       });
     },

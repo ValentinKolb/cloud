@@ -5,7 +5,7 @@ section: Platform services
 order: 560
 description: Project focused application Queries into the shared Cloud search.
 tags: [search, capabilities, authorization]
-updated: 2026-08-12
+updated: 2026-08-13
 ---
 
 # Universal search
@@ -159,3 +159,34 @@ Cloud ranks results by app-provided priority and title after merging providers.
 One provider failure does not fail the complete search. Log provider failures
 with [structured logging](/en/docs/platform/logging); the application's domain
 database remains the source of truth.
+
+## Let a user choose a Cloud resource
+
+Use `openCloudResourcePicker` from
+`@valentinkolb/cloud/browser/resource-picker` when an application needs a
+stable `CloudResourceRef` selected from any searchable Cloud application. The
+picker groups the existing Universal Search results by their owning app,
+supports an app filter, and returns the selected resource view. Store the
+structured `ref`; treat its title, preview, and links as presentation data.
+Set `requireReader` when the consumer must resolve the selected resource later,
+as AI Project references do.
+
+```ts
+import { openCloudResourcePicker } from "@valentinkolb/cloud/browser/resource-picker";
+
+const selected = await openCloudResourcePicker({
+  title: "Add Cloud reference",
+  excludeRefs: currentReferences,
+  requireReader: true,
+});
+
+if (selected) await saveReference(selected.ref, selected.title);
+```
+
+The shared `/api/search` route accepts one optional `app` query parameter to
+limit provider fan-out and returns the searchable app catalog with each
+response. `require_reader=true` removes navigation-only resources before
+result limits are applied. An empty unscoped request returns only the app
+catalog without calling providers. The picker owns this platform-specific
+discovery UI; `@k2b/ui` remains independent of Cloud applications and resource
+contracts.

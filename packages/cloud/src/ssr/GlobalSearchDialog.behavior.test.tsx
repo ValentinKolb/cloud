@@ -37,6 +37,14 @@ const searchResponse = (title: string) =>
     ],
   });
 
+const catalogResponse = () =>
+  Response.json({
+    query: "",
+    count: 0,
+    apps: [{ id: "notebooks", name: "Notebooks", icon: "ti ti-notebook" }],
+    items: [],
+  });
+
 describe("GlobalSearchDialog query lifecycle", () => {
   if (isServer) {
     test.skip("runs with browser export conditions", () => {});
@@ -57,23 +65,26 @@ describe("GlobalSearchDialog query lifecycle", () => {
     const dispose = render(() => <GlobalSearchDialog close={() => {}} helpApps={[]} />, dom.root);
 
     try {
-      const input = dom.root.querySelector<HTMLInputElement>('[aria-label="Global search"]')!;
+      const input = dom.root.querySelector<HTMLInputElement>('[aria-label="Search Cloud resources"]')!;
+      await waitFor(() => requests.length === 1, "the app catalog request");
+      requests[0]!.response.resolve(catalogResponse());
+
       input.value = "alpha";
       input.dispatchEvent(new dom.window.Event("input", { bubbles: true }) as unknown as Event);
-      await waitFor(() => requests.length === 1, "the first debounced search");
-      requests[0]!.response.resolve(searchResponse("Alpha"));
+      await waitFor(() => requests.length === 2, "the first debounced search");
+      requests[1]!.response.resolve(searchResponse("Alpha"));
       await waitFor(() => dom.root.textContent?.includes("Alpha preview") ?? false, "the first result");
 
       input.value = "beta";
       input.dispatchEvent(new dom.window.Event("input", { bubbles: true }) as unknown as Event);
-      await waitFor(() => requests.length === 2, "the refreshed search");
+      await waitFor(() => requests.length === 3, "the refreshed search");
 
       expect(dom.root.textContent).toContain("Alpha preview");
       const spinners = dom.root.querySelectorAll(".ti-loader-2.animate-spin");
       expect(spinners).toHaveLength(1);
       expect(spinners[0]?.closest("label")).not.toBeNull();
 
-      requests[1]!.response.resolve(searchResponse("Beta"));
+      requests[2]!.response.resolve(searchResponse("Beta"));
       await waitFor(() => dom.root.textContent?.includes("Beta preview") ?? false, "the refreshed result");
       expect(dom.root.textContent).not.toContain("Alpha preview");
     } finally {
