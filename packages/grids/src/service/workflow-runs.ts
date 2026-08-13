@@ -76,13 +76,49 @@ const pageSize = (limit: number | null | undefined): number => Math.min(Math.max
 /** How a run was accepted: directly or by a published Grids App action. */
 export type GridsWorkflowAuthorization =
   | { kind: "workflow" }
-  | { kind: "custom-app-action"; customAppId: string; pageId: string; blockId: string; actionId: string; revision: number }
-  | { kind: "custom-app-bulk-action"; customAppId: string; pageId: string; blockId: string; actionId: string; revision: number }
-  | { kind: "custom-app-sidebar-action"; customAppId: string; actionId: string; revision: number }
+  | {
+      kind: "custom-app-action";
+      customAppId: string;
+      publishedAt: string;
+      pageId: string;
+      pageParams: Record<string, string>;
+      timeZone: string;
+      blockId: string;
+      actionId: string;
+      recordId?: string;
+      search?: string;
+      cursor?: string;
+      revision: number;
+    }
+  | {
+      kind: "custom-app-bulk-action";
+      customAppId: string;
+      publishedAt: string;
+      pageId: string;
+      pageParams: Record<string, string>;
+      timeZone: string;
+      blockId: string;
+      actionId: string;
+      recordIds: string[];
+      search?: string;
+      cursor?: string;
+      revision: number;
+    }
+  | {
+      kind: "custom-app-sidebar-action";
+      customAppId: string;
+      publishedAt: string;
+      timeZone: string;
+      actionId: string;
+      revision: number;
+    }
   | {
       kind: "custom-app-scanner";
       customAppId: string;
+      publishedAt: string;
       pageId: string;
+      pageParams: Record<string, string>;
+      timeZone: string;
       blockId: string;
       revision: number;
       configHash: string;

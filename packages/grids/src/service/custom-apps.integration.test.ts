@@ -150,6 +150,7 @@ describe("Grids App lifecycle", () => {
     const otherTableId = testUuid();
     const otherFieldId = testUuid();
     const appId = testUuid();
+    const requestRecordId = testUuid();
     const workflowId = testUuid();
     const bulkWorkflowId = testUuid();
     const accessIds: string[] = [];
@@ -165,7 +166,7 @@ describe("Grids App lifecycle", () => {
       `;
       await sql`
         INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
-        VALUES (${computedFieldId}::uuid, ${testShortId("F")}, ${tableId}::uuid, 'Summary', 'formula', '{}'::jsonb, 1)
+        VALUES (${computedFieldId}::uuid, ${testShortId("F")}, ${tableId}::uuid, 'Summary', 'formula', ${{ expression: "LEN(Title)" }}::jsonb, 1)
       `;
       await sql`
         INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
@@ -318,7 +319,7 @@ describe("Grids App lifecycle", () => {
             title: "My requests",
             navigation: { visible: true, order: 0 },
             parameters: {},
-            availableWhen: { query: `from table {${tableId}}\nwhere {${fieldId}} = @auth.id\nlimit 1` },
+            availableWhen: { query: `from table {${tableId}}\nwhere record.id = '${requestRecordId}'\nlimit 1` },
             rows: [
               {
                 id: "content",
@@ -481,7 +482,7 @@ describe("Grids App lifecycle", () => {
           {
             target: "page",
             pageId: "home",
-            sourceHash: customAppViewSourceHash(baseId, `from table {${tableId}}\nwhere {${fieldId}} = @auth.id\nlimit 1`),
+            sourceHash: customAppViewSourceHash(baseId, `from table {${tableId}}\nwhere record.id = '${requestRecordId}'\nlimit 1`),
             tableIds: [tableId],
           },
           {
@@ -612,6 +613,11 @@ describe("Grids App lifecycle", () => {
 
       const [authUser] = await sql<Array<{ id: string }>>`SELECT id::text FROM auth.users ORDER BY id LIMIT 1`;
       if (!authUser) throw new Error("Grids App lifecycle test needs one auth user");
+      await sql`
+        INSERT INTO grids.records (id, table_id, data)
+        VALUES (${requestRecordId}::uuid, ${tableId}::uuid, ${JSON.stringify({ [fieldId]: authUser.id })}::jsonb)
+      `;
+      const publishedAt = firstPublish.data.publishedAt!;
       const appGrant = await grantAccess({
         resourceType: "customApp",
         resourceId: appId,
@@ -628,7 +634,10 @@ describe("Grids App lifecycle", () => {
         authorization: {
           kind: "custom-app-action" as const,
           customAppId: appId,
+          publishedAt,
           pageId: "request",
+          pageParams: { request_id: requestRecordId },
+          timeZone: "UTC",
           blockId: "actions",
           actionId: "approve",
           revision: 1,
@@ -636,28 +645,33 @@ describe("Grids App lifecycle", () => {
         launcherId,
       };
       expect(await canExecuteWorkflow(executionClaim)).toBe(true);
-      expect(
-        await canExecuteWorkflow({
-          baseId,
-          workflowId: bulkWorkflowId,
-          principal: executionClaim.principal,
-          authorization: {
-            kind: "custom-app-bulk-action",
-            customAppId: appId,
-            pageId: "home",
-            blockId: "requests",
-            actionId: "approve-selected",
-            revision: 1,
-          },
-          launcherId: bulkLauncherId,
-        }),
-      ).toBe(true);
+      const bulkExecutionClaim = {
+        baseId,
+        workflowId: bulkWorkflowId,
+        principal: executionClaim.principal,
+        authorization: {
+          kind: "custom-app-bulk-action" as const,
+          customAppId: appId,
+          publishedAt,
+          pageId: "home",
+          pageParams: {},
+          timeZone: "UTC",
+          blockId: "requests",
+          actionId: "approve-selected",
+          recordIds: [requestRecordId],
+          revision: 1,
+        },
+        launcherId: bulkLauncherId,
+      };
+      expect(await canExecuteWorkflow(bulkExecutionClaim)).toBe(true);
       expect(
         await canExecuteWorkflow({
           ...executionClaim,
           authorization: {
             kind: "custom-app-sidebar-action",
             customAppId: appId,
+            publishedAt,
+            timeZone: "UTC",
             actionId: "approve-global",
             revision: 1,
           },
@@ -670,7 +684,10 @@ describe("Grids App lifecycle", () => {
         authorization: {
           kind: "custom-app-scanner" as const,
           customAppId: appId,
+          publishedAt,
           pageId: "home",
+          pageParams: {},
+          timeZone: "UTC",
           blockId: "scan-request",
           revision: 1,
           configHash: customAppScannerConfigHash({ kind: "scanner", input: "request", resolve: { by: "scanCode" } }),
@@ -684,6 +701,19 @@ describe("Grids App lifecycle", () => {
         resolve: { by: "field", field: "Title" },
       })}::jsonb WHERE id = ${scannerLauncherId}::uuid`;
       expect(await canExecuteWorkflow(scannerExecutionClaim)).toBe(false);
+      await sql`
+        UPDATE grids.records
+        SET deleted_at = now()
+        WHERE id = ${requestRecordId}::uuid
+      `;
+      expect(await canExecuteWorkflow(executionClaim)).toBe(false);
+      expect(await canExecuteWorkflow(bulkExecutionClaim)).toBe(false);
+      await sql`
+        UPDATE grids.records
+        SET deleted_at = NULL
+        WHERE id = ${requestRecordId}::uuid
+      `;
+      expect(await canExecuteWorkflow(executionClaim)).toBe(true);
       await sql`UPDATE grids.workflow_launchers SET enabled = FALSE WHERE id = ${launcherId}::uuid`;
       expect(await canExecuteWorkflow(executionClaim)).toBe(false);
       await sql`UPDATE grids.workflow_launchers SET enabled = TRUE WHERE id = ${launcherId}::uuid`;
@@ -695,6 +725,7 @@ describe("Grids App lifecycle", () => {
       const secondPublish = await publish(appId);
       expect(secondPublish.ok).toBe(true);
       if (secondPublish.ok) expect(secondPublish.data.publishedDefinition?.name).toBe("Updated draft");
+      expect(await canExecuteWorkflow(executionClaim)).toBe(false);
 
       const invalid = await compile({
         ...definition,

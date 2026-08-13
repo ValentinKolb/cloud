@@ -1,11 +1,10 @@
 import type { DateContext } from "@k2b/stdlib";
-import { dates } from "@k2b/stdlib";
 import { getEffectiveGroupIds } from "@valentinkolb/cloud/server";
-import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import type { GridsAccessContext } from "../api/permissions";
 import { accessActorUser } from "../api/permissions";
 import type { DslQueryContextValues } from "../query-dsl/parameters";
 import type { CustomAppDefinition } from "./contracts";
+import { buildCustomAppQueryContext } from "./query-context";
 
 type RuntimeApp = { id: string; shortId: string; name: string };
 type RuntimeBase = { id: string; name: string };
@@ -53,29 +52,10 @@ export const buildCustomAppRuntimeContext = (params: {
   authSubjectIds: readonly string[];
 }): CustomAppRuntimeContext => {
   const now = params.now ?? new Date();
-  const timeZone = normalizeTimeZone(params.dateConfig.timeZone, "UTC");
   const user = accessActorUser(params.access);
   return {
     now,
-    query: {
-      "auth.id": user?.id ?? null,
-      "auth.name": user?.displayName ?? null,
-      "auth.username": user?.uid ?? null,
-      "auth.email": user?.mail ?? null,
-      "auth.subjects": [...new Set(params.authSubjectIds)],
-      "page.id": params.page.id,
-      "page.title": params.page.title,
-      "page.url": params.pageUrl,
-      "app.id": params.app.id,
-      "app.shortId": params.app.shortId,
-      "app.name": params.app.name,
-      "base.id": params.base.id,
-      "base.name": params.base.name,
-      "time.now": now.toISOString(),
-      "time.today": dates.formatDateKey(now, { ...params.dateConfig, timeZone }),
-      "time.timeZone": timeZone,
-      ...Object.fromEntries(Object.entries(params.pageParams).map(([name, value]) => [`params.${name}`, value])),
-    },
+    query: buildCustomAppQueryContext({ ...params, user: user ?? null, now }),
   };
 };
 

@@ -1,6 +1,7 @@
 import type { DslQueryPreviewResponse, Field, GridRecord, RecordDisplayConfig } from "../contracts";
 import type { CustomAppCapabilities, CustomAppPage, CustomAppRecordsBlock } from "../custom-apps/contracts";
 import { createCustomAppFileToken } from "../custom-apps/file-token";
+import { projectCustomAppRecord } from "../custom-apps/record-projection";
 import { customAppRecordsDisplayFieldHash, isSafeInlineCardImageMimeType } from "../custom-apps/records-display-capability";
 import type { DslQueryContextValues } from "../query-dsl/parameters";
 import { decodeDslResultCursor, gqlResultFingerprint } from "../query-dsl/result-cursor";
@@ -37,13 +38,17 @@ export type PublishedCustomAppRecordsResult = {
 export const executePublishedCustomAppRecords = async (input: {
   baseId: string;
   customAppId: string;
+  publishedAt: string;
   page: CustomAppPage;
+  pageParams: Readonly<Record<string, string>>;
   block: CustomAppRecordsBlock;
   capabilities: CustomAppCapabilities;
   context: DslQueryContextValues;
   signal: AbortSignal;
   timeZone: string;
   viewer: ExpansionViewer;
+  viewerUserId: string | null;
+  viewerServiceAccountId: string | null;
   search?: string;
   cursor?: string;
 }): Promise<PublishedCustomAppRecordsResult | null> => {
@@ -141,13 +146,10 @@ export const executePublishedCustomAppRecords = async (input: {
         : [],
     ),
   );
-  const projectedRecords = records.map((record) => ({
-    ...record,
-    data: {
-      ...Object.fromEntries(Object.entries(record.data).filter(([fieldId]) => allowedFieldIds.has(fieldId))),
-      ...resultValuesByRecordId.get(record.id),
-    },
-  }));
+  const projectedRecords = records.map((record) => {
+    const projected = projectCustomAppRecord(record, [...allowedFieldIds]);
+    return { ...projected, data: { ...projected.data, ...resultValuesByRecordId.get(record.id) } };
+  });
   const relationCapability = capability.relationLabels ?? [];
   const relationTargetTableIds = [...new Set(relationCapability.map((relation) => relation.targetTableId))];
   const targetFieldsByTableId = new Map(
@@ -191,8 +193,14 @@ export const executePublishedCustomAppRecords = async (input: {
                     contentToken: createCustomAppFileToken(
                       {
                         appId: input.customAppId,
+                        publishedAt: input.publishedAt,
                         pageId: input.page.id,
                         blockId: block.id,
+                        pageParams: { ...input.pageParams },
+                        viewerUserId: input.viewerUserId,
+                        viewerServiceAccountId: input.viewerServiceAccountId,
+                        search: input.search ?? null,
+                        cursor: input.cursor ?? null,
                         tableId: primaryTableId,
                         recordId,
                         fieldId,

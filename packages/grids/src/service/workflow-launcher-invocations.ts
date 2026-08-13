@@ -42,9 +42,15 @@ const launcherAuthorizationSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("custom-app-action"),
       customAppId: z.string().uuid(),
+      publishedAt: z.string().datetime(),
       pageId: z.string().min(1),
+      pageParams: z.record(z.string(), z.string().uuid()),
+      timeZone: z.string().min(1).max(100),
       blockId: z.string().min(1),
       actionId: z.string().min(1),
+      recordId: z.string().uuid().optional(),
+      search: z.string().max(200).optional(),
+      cursor: z.string().max(8_000).optional(),
       revision: z.number().int().positive(),
     })
     .strict(),
@@ -52,9 +58,15 @@ const launcherAuthorizationSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("custom-app-bulk-action"),
       customAppId: z.string().uuid(),
+      publishedAt: z.string().datetime(),
       pageId: z.string().min(1),
+      pageParams: z.record(z.string(), z.string().uuid()),
+      timeZone: z.string().min(1).max(100),
       blockId: z.string().min(1),
       actionId: z.string().min(1),
+      recordIds: z.array(z.string().uuid()).min(1).max(10_000),
+      search: z.string().max(200).optional(),
+      cursor: z.string().max(8_000).optional(),
       revision: z.number().int().positive(),
     })
     .strict(),
@@ -62,6 +74,8 @@ const launcherAuthorizationSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("custom-app-sidebar-action"),
       customAppId: z.string().uuid(),
+      publishedAt: z.string().datetime(),
+      timeZone: z.string().min(1).max(100),
       actionId: z.string().min(1),
       revision: z.number().int().positive(),
     })
@@ -70,7 +84,10 @@ const launcherAuthorizationSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("custom-app-scanner"),
       customAppId: z.string().uuid(),
+      publishedAt: z.string().datetime(),
       pageId: z.string().min(1),
+      pageParams: z.record(z.string(), z.string().uuid()),
+      timeZone: z.string().min(1).max(100),
       blockId: z.string().min(1),
       revision: z.number().int().positive(),
       configHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -499,6 +516,14 @@ export const invokeBulkLauncher = async (
   if (!loaded.ok) return loaded;
   const ctx = loaded.data;
   if (ctx.config.kind !== "bulk" || !ctx.tableId) return fail(err.internal("bulk launcher context is invalid"));
+  if (input.data.authorization?.kind === "custom-app-bulk-action") {
+    if (!("recordIds" in input.data)) return fail(err.badInput("Grids App bulk launchers require explicit record IDs"));
+    const claimed = [...input.data.authorization.recordIds].sort();
+    const supplied = [...input.data.recordIds].sort();
+    if (claimed.length !== supplied.length || claimed.some((recordId, index) => supplied[index] !== recordId)) {
+      return fail(err.badInput("Grids App bulk selection does not match its authorization"));
+    }
+  }
   const authorized = await deps.authorize({
     launcherId: ctx.launcher.id,
     workflow: ctx.workflow,

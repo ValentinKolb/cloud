@@ -9,6 +9,7 @@ import type { CustomAppBlock, CustomAppDefinition, CustomAppPage } from "../../c
 import { customAppFormInlineTargetTableIds } from "../../custom-apps/form-capability";
 import { customAppFormMatchesPublishedCapability } from "../../custom-apps/form-runtime";
 import { renderCustomAppMarkdown } from "../../custom-apps/markdown-context";
+import { projectCustomAppRecord } from "../../custom-apps/record-projection";
 import {
   customAppActionHref,
   customAppActionUrl,
@@ -249,7 +250,7 @@ const CustomAppPage = (props: {
   recordEndpoints: Map<string, string>;
   recordUpdateEndpoints: Map<string, string>;
   documentRuns: Map<string, CustomAppDocumentRun[]>;
-  pageRecord: PageRecord | null;
+  pageRecords: Map<string, PageRecord>;
   dateConfig: ReturnType<typeof getDateConfig>;
   markdownContext: DslQueryContextValues;
   scanners: Map<string, { state: WorkflowScannerState; endpoint: string }>;
@@ -288,7 +289,7 @@ const CustomAppPage = (props: {
         ) : block.type === "record" ? (
           <Record
             block={block}
-            pageRecord={props.pageRecord}
+            pageRecord={props.pageRecords.get(block.id) ?? null}
             baseId={props.definition.baseId}
             updateEndpoint={props.recordUpdateEndpoints.get(block.id)}
             documentRuns={props.documentRuns.get(block.id) ?? []}
@@ -326,7 +327,7 @@ const CustomAppPage = (props: {
 
 export default ssr<AuthContext>(async (c) => {
   const app = await gridsService.customApp.getPublishedByShortId(c.req.param("shortId") ?? "");
-  if (!app?.publishedDefinition || !app.publishedCapabilities) return c.notFound();
+  if (!app?.publishedDefinition || !app.publishedCapabilities || !app.publishedAt) return c.notFound();
   const capabilities = app.publishedCapabilities;
 
   const requestAccess = gridsAccessContext(c);
@@ -464,6 +465,7 @@ export default ssr<AuthContext>(async (c) => {
   }
 
   let pageRecord: PageRecord | null = null;
+  const pageRecords = new Map<string, PageRecord>();
   const recordUpdateEndpoints = new Map<string, string>();
   const documentRuns = new Map<string, CustomAppDocumentRun[]>();
   if (page.record) {
@@ -503,14 +505,30 @@ export default ssr<AuthContext>(async (c) => {
       readableTableIds: new Set(relationTableIds),
       recordAccessByTableId: new Map(relationTableIds.map((tableId) => [tableId, ALL_RECORD_ACCESS])),
     };
-    const relationLabels = await buildCustomAppRecordLabelCache({
-      records: [record],
-      fields,
-      relations: capability.relationLabels,
-      viewer: relationViewer,
-      actorUserId: accessActorUser(requestAccess)?.id ?? null,
-    });
-    pageRecord = { record, fields, relationLabels, tableName: table.name, auditPolicy: table.auditPolicy };
+    pageRecord = { record, fields, relationLabels: {}, tableName: table.name, auditPolicy: table.auditPolicy };
+    const visibleRecordBlocks = runtimePage.rows.flatMap((row) =>
+      row.columns.flatMap((column) => column.blocks.filter((candidate): candidate is RecordBlock => candidate.type === "record")),
+    );
+    for (const block of visibleRecordBlocks) {
+      const blockFieldIds = new Set(block.fieldIds);
+      const blockFields = fields.filter((field) => blockFieldIds.has(field.id));
+      const blockRecord = projectCustomAppRecord(record, block.fieldIds);
+      const blockRelations = capability.relationLabels.filter((relation) => blockFieldIds.has(relation.fieldId));
+      const relationLabels = await buildCustomAppRecordLabelCache({
+        records: [blockRecord],
+        fields: blockFields,
+        relations: blockRelations,
+        viewer: relationViewer,
+        actorUserId: accessActorUser(requestAccess)?.id ?? null,
+      });
+      pageRecords.set(block.id, {
+        record: blockRecord,
+        fields: blockFields,
+        relationLabels,
+        tableName: table.name,
+        auditPolicy: table.auditPolicy,
+      });
+    }
 
     if (expectedEditableFieldIds.length > 0 && accessActorUser(requestAccess)) {
       for (const block of runtimePage.rows.flatMap((row) =>
@@ -566,13 +584,17 @@ export default ssr<AuthContext>(async (c) => {
         const published = await executePublishedCustomAppRecords({
           baseId: app.baseId,
           customAppId: app.id,
+          publishedAt: app.publishedAt!,
           page,
+          pageParams,
           block,
           capabilities,
           context: runtimeContext.query,
           signal: c.req.raw.signal,
           timeZone: runtimeContext.query["time.timeZone"],
           viewer,
+          viewerUserId: viewer.userId,
+          viewerServiceAccountId: viewer.serviceAccountId ?? null,
         });
         if (!published) return [block.id, { ok: false, message: "This data source is not part of the published app." }];
         if (!published.response.ok) {
@@ -962,7 +984,7 @@ export default ssr<AuthContext>(async (c) => {
         recordEndpoints={recordEndpoints}
         recordUpdateEndpoints={recordUpdateEndpoints}
         documentRuns={documentRuns}
-        pageRecord={pageRecord}
+        pageRecords={pageRecords}
         dateConfig={dateConfig}
         markdownContext={runtimeContext.query}
         scanners={scanners}

@@ -272,7 +272,10 @@ describe("workflow kernel scanner launchers", () => {
     const authorization = {
       kind: "custom-app-scanner" as const,
       customAppId: "90000000-0000-4000-8000-000000000009",
+      publishedAt: "2026-08-13T12:00:00.000Z",
       pageId: "returns",
+      pageParams: {},
+      timeZone: "Europe/Berlin",
       blockId: "scanner",
       revision: 3,
       configHash: "a".repeat(64),
@@ -335,6 +338,50 @@ describe("workflow kernel bulk launchers", () => {
     );
   });
 
+  test("passes exact Grids App bulk provenance to authorization and the runtime", async () => {
+    const item = setup(launcher({ kind: "bulk", input: "records" }), workflow("records", "recordList"));
+    const authorization = {
+      kind: "custom-app-bulk-action" as const,
+      customAppId: "90000000-0000-4000-8000-000000000009",
+      publishedAt: "2026-08-13T12:00:00.000Z",
+      pageId: "requests",
+      pageParams: {},
+      timeZone: "Europe/Berlin",
+      blockId: "records",
+      actionId: "approve",
+      recordIds: [recordId],
+      revision: 3,
+    };
+
+    const result = await invokeBulkLauncher(bulkInput({ recordIds: [recordId], authorization }), item.deps);
+
+    expect(result.ok).toBe(true);
+    expect(item.authorize).toHaveBeenCalledWith(expect.objectContaining({ authorization }));
+    expect(item.invokeWorkflow).toHaveBeenCalledWith(expect.objectContaining({ launcherId, authorization }));
+  });
+
+  test("rejects a Grids App bulk payload outside its authorized selection", async () => {
+    const item = setup(launcher({ kind: "bulk", input: "records" }), workflow("records", "recordList"));
+    const authorization = {
+      kind: "custom-app-bulk-action" as const,
+      customAppId: "90000000-0000-4000-8000-000000000009",
+      publishedAt: "2026-08-13T12:00:00.000Z",
+      pageId: "requests",
+      pageParams: {},
+      timeZone: "UTC",
+      blockId: "records",
+      actionId: "approve",
+      recordIds: [recordId],
+      revision: 3,
+    };
+
+    const result = await invokeBulkLauncher(bulkInput({ recordIds: [secondRecordId], authorization }), item.deps);
+
+    expect(result.ok).toBe(false);
+    expect(item.authorize).not.toHaveBeenCalled();
+    expect(item.invokeWorkflow).not.toHaveBeenCalled();
+  });
+
   test("rejects invalid UUIDs and selections above the 10000-record limit", async () => {
     const item = setup(launcher({ kind: "bulk", input: "records" }), workflow("records", "recordList"));
     const tooManyIds = Array.from(
@@ -392,7 +439,10 @@ describe("workflow kernel Grids App launchers", () => {
     const authorization = {
       kind: "custom-app-action" as const,
       customAppId: "90000000-0000-4000-8000-000000000009",
+      publishedAt: "2026-08-13T12:00:00.000Z",
       pageId: "request",
+      pageParams: { request_id: "90000000-0000-4000-8000-000000000008" },
+      timeZone: "Europe/Berlin",
       blockId: "actions",
       actionId: "approve",
       revision: 3,

@@ -4,9 +4,10 @@ import { z } from "zod";
 import { type GridRecord, RecordUpdateBodySchema } from "../contracts";
 import { customAppPageRecordFieldIds } from "../custom-apps/conditions";
 import { CUSTOM_APP_REFERENCE, CustomAppDefinitionInputSchema } from "../custom-apps/contracts";
-import { verifyCustomAppFileToken } from "../custom-apps/file-token";
+import { customAppFileTokenMatchesContext, verifyCustomAppFileToken } from "../custom-apps/file-token";
 import { customAppFormInlineTargetTableIds } from "../custom-apps/form-capability";
 import { customAppFormMatchesPublishedCapability } from "../custom-apps/form-runtime";
+import { projectCustomAppRecord } from "../custom-apps/record-projection";
 import { customAppRecordsDisplayFieldHash, isSafeInlineCardImageMimeType } from "../custom-apps/records-display-capability";
 import {
   customAppActionStatusUrl,
@@ -31,6 +32,7 @@ import { buildCustomAppRecordLabelCache } from "../service/custom-app-record-rel
 import { executePublishedCustomAppRecords } from "../service/custom-app-records-query";
 import { publishedCustomAppAvailability } from "../service/custom-app-runtime-query";
 import { ALL_RECORD_ACCESS } from "../service/record-access";
+import { canExecuteWorkflow } from "../service/workflow-action-scope";
 import { getWorkflowRunScope } from "../service/workflow-runs";
 import { encodeHeaderValue, pdfResponse } from "./download-response";
 import { FormSubmitSchema, parseFormSubmission } from "./form-api-shared";
@@ -70,6 +72,15 @@ const RecordCommentListQuerySchema = z
   })
   .passthrough();
 
+const sameStringRecord = (left: Readonly<Record<string, string>>, right: Readonly<Record<string, string>>): boolean => {
+  const leftEntries = Object.entries(left).sort(([a], [b]) => a.localeCompare(b));
+  const rightEntries = Object.entries(right).sort(([a], [b]) => a.localeCompare(b));
+  return (
+    leftEntries.length === rightEntries.length &&
+    leftEntries.every(([key, value], index) => rightEntries[index]?.[0] === key && rightEntries[index]?.[1] === value)
+  );
+};
+
 const gateDefinitionAdmin = async (c: Parameters<typeof gateAt>[0], input: unknown) => {
   const parsed = DefinitionBaseSchema.safeParse(input);
   if (!parsed.success) return c.json({ diagnostics: parsed.error.issues }, 400);
@@ -79,7 +90,7 @@ const gateDefinitionAdmin = async (c: Parameters<typeof gateAt>[0], input: unkno
 
 const resolvePublishedRuntime = async (c: Context<AuthContext>) => {
   const app = await gridsService.customApp.getPublishedByShortId(c.req.param("shortId") ?? "");
-  if (!app?.publishedDefinition || !app.publishedCapabilities) return null;
+  if (!app?.publishedDefinition || !app.publishedCapabilities || !app.publishedAt) return null;
   const definition = app.publishedDefinition;
   const capabilities = app.publishedCapabilities;
   const access = gridsAccessContext(c);
@@ -128,6 +139,11 @@ const resolvePublishedRuntime = async (c: Context<AuthContext>) => {
 };
 
 type PublishedRuntime = NonNullable<Awaited<ReturnType<typeof resolvePublishedRuntime>>>;
+
+const runtimeTimeZone = (runtime: { runtimeContext: { query: Record<string, unknown> } }): string => {
+  const value = runtime.runtimeContext.query["time.timeZone"];
+  return typeof value === "string" ? value : "UTC";
+};
 
 const resolvePublishedSidebarRuntime = async (c: Context<AuthContext>) => {
   const app = await gridsService.customApp.getPublishedByShortId(c.req.param("shortId") ?? "");
@@ -363,6 +379,7 @@ export const createCustomAppsApi = (
     renderDocumentRunPdf?: typeof gridsService.document.renderRunPdf;
     getWorkflowRunScope?: typeof getWorkflowRunScope;
     getWorkflowRun?: typeof gridsService.workflow.getRun;
+    canExecuteWorkflow?: typeof canExecuteWorkflow;
   } = {},
 ) => {
   const loadOptionalActor = deps.loadOptionalActor ?? auth.requireRole("*");
@@ -372,50 +389,44 @@ export const createCustomAppsApi = (
   const renderDocumentRunPdf = deps.renderDocumentRunPdf ?? gridsService.document.renderRunPdf;
   const loadWorkflowRunScope = deps.getWorkflowRunScope ?? getWorkflowRunScope;
   const getWorkflowRun = deps.getWorkflowRun ?? gridsService.workflow.getRun;
+  const revalidateWorkflow = deps.canExecuteWorkflow ?? canExecuteWorkflow;
   return new Hono<AuthContext>()
-    .get(
-      "/runtime/:shortId/:pageId/:blockId/records",
-      loadOptionalActor,
-      v("query", CustomAppRecordsQuerySchema),
-      async (c) => {
-        const runtime = await resolvePublishedRuntime(c);
-        if (!runtime) return c.json({ message: "Records not found" }, 404);
-        const block = runtime.page.rows
-          .flatMap((row) => row.columns.flatMap((column) => column.blocks))
-          .find((candidate) => candidate.id === c.req.param("blockId") && candidate.type === "records");
-        if (!block || block.type !== "records" || !(await runtime.available("block", block.availableWhen?.query, block.id))) {
-          return c.json({ message: "Records not found" }, 404);
-        }
-        const query = c.req.valid("query");
-        const published = await executePublishedCustomAppRecords({
-          baseId: runtime.app.baseId,
-          customAppId: runtime.app.id,
-          page: runtime.page,
-          block,
-          capabilities: runtime.capabilities,
-          context: runtime.runtimeContext.query,
-          signal: c.req.raw.signal,
-          timeZone: runtime.runtimeContext.query["time.timeZone"],
-          viewer: runtime.viewer,
-          search: query.q,
-          cursor: query.cursor,
-        }).catch(() => null);
-        if (!published) return c.json({ message: "Records not found" }, 404);
-        const payload = published.response.ok && published.cards ? { ...published.response, cards: published.cards } : published.response;
-        return c.json(payload, published.response.ok ? 200 : 400);
-      },
+    .get("/runtime/:shortId/:pageId/:blockId/records", loadOptionalActor, v("query", CustomAppRecordsQuerySchema), async (c) => {
+      const runtime = await resolvePublishedRuntime(c);
+      if (!runtime) return c.json({ message: "Records not found" }, 404);
+      const block = runtime.page.rows
+        .flatMap((row) => row.columns.flatMap((column) => column.blocks))
+        .find((candidate) => candidate.id === c.req.param("blockId") && candidate.type === "records");
+      if (!block || block.type !== "records" || !(await runtime.available("block", block.availableWhen?.query, block.id))) {
+        return c.json({ message: "Records not found" }, 404);
+      }
+      const query = c.req.valid("query");
+      const published = await executePublishedCustomAppRecords({
+        baseId: runtime.app.baseId,
+        customAppId: runtime.app.id,
+        publishedAt: runtime.app.publishedAt!,
+        page: runtime.page,
+        pageParams: runtime.pageParams,
+        block,
+        capabilities: runtime.capabilities,
+        context: runtime.runtimeContext.query,
+        signal: c.req.raw.signal,
+        timeZone: runtime.runtimeContext.query["time.timeZone"],
+        viewer: runtime.viewer,
+        viewerUserId: runtime.viewer.userId,
+        viewerServiceAccountId: runtime.viewer.serviceAccountId ?? null,
+        search: query.q,
+        cursor: query.cursor,
+      }).catch(() => null);
+      if (!published) return c.json({ message: "Records not found" }, 404);
+      const payload = published.response.ok && published.cards ? { ...published.response, cards: published.cards } : published.response;
+      return c.json(payload, published.response.ok ? 200 : 400);
+    })
+    .post("/runtime/:shortId/:pageId/:blockId/submit", loadOptionalActor, v("json", FormSubmitSchema), (c) =>
+      submitPublishedCustomAppForm(c, c.req.valid("json")),
     )
-    .post(
-      "/runtime/:shortId/:pageId/:blockId/submit",
-      loadOptionalActor,
-      v("json", FormSubmitSchema),
-      (c) => submitPublishedCustomAppForm(c, c.req.valid("json")),
-    )
-    .post(
-      "/runtime/:shortId/sidebar/forms/:actionId/submit",
-      loadOptionalActor,
-      v("json", FormSubmitSchema),
-      (c) => submitPublishedSidebarForm(c, c.req.valid("json")),
+    .post("/runtime/:shortId/sidebar/forms/:actionId/submit", loadOptionalActor, v("json", FormSubmitSchema), (c) =>
+      submitPublishedSidebarForm(c, c.req.valid("json")),
     )
     .get(
       "/runtime/:shortId/:pageId/:blockId/documents/:runId/download",
@@ -465,61 +476,84 @@ export const createCustomAppsApi = (
         });
       },
     )
-    .get(
-      "/runtime/:shortId/:pageId/:blockId/files/:token",
-      loadOptionalActor,
-      async (c) => {
-        const runtime = await resolvePublishedRuntime(c);
-        const secret = process.env.APP_SECRET?.trim();
-        const token = secret ? verifyCustomAppFileToken(c.req.param("token") ?? "", secret) : null;
-        if (
-          !runtime ||
-          !token ||
-          token.appId !== runtime.app.id ||
-          token.pageId !== runtime.page.id ||
-          token.blockId !== c.req.param("blockId")
-        ) {
-          return c.json({ message: "File not found" }, 404);
-        }
-        const block = runtime.page.rows
-          .flatMap((row) => row.columns.flatMap((column) => column.blocks))
-          .find((candidate) => candidate.type === "records" && candidate.id === token.blockId);
-        if (!block || block.type !== "records" || block.display.kind !== "cards" || block.source.kind !== "view") {
-          return c.json({ message: "File not found" }, 404);
-        }
-        const viewId = block.source.viewId;
-        const capability = runtime.capabilities.views.find(
-          (candidate) => candidate.viewId === viewId && candidate.tableId === token.tableId,
-        );
-        if (!capability?.displayConfig || !capability.displayFieldHash || capability.displayConfig.cards?.imageFieldId !== token.fieldId) {
-          return c.json({ message: "File not found" }, 404);
-        }
-        const fields = await gridsService.field.listByTable(token.tableId, true);
-        if (customAppRecordsDisplayFieldHash(capability.displayConfig, fields) !== capability.displayFieldHash) {
-          return c.json({ message: "File not found" }, 404);
-        }
-        // The token is minted only for an authorized preview returned by this
-        // exact published source. App access and display drift are rechecked.
-        const result = await gridsService.file.getContent({
-          tableId: token.tableId,
-          recordId: token.recordId,
-          fieldId: token.fieldId,
-          fileId: token.fileId,
-        });
-        if (!result.ok) return c.json({ message: "File not found" }, 404);
-        const file = result.data;
-        if (!isSafeInlineCardImageMimeType(file.mimeType)) return c.json({ message: "File not found" }, 404);
-        const buffer = file.bytes.buffer.slice(file.bytes.byteOffset, file.bytes.byteOffset + file.bytes.byteLength) as ArrayBuffer;
-        return new Response(new Blob([buffer], { type: file.mimeType }), {
-          headers: {
-            "Content-Type": file.mimeType,
-            "Content-Disposition": `inline; filename="${encodeURIComponent(file.filename)}"`,
-            "Cache-Control": "private, max-age=300",
-            "X-Content-Type-Options": "nosniff",
-          },
-        });
-      },
-    )
+    .get("/runtime/:shortId/:pageId/:blockId/files/:token", loadOptionalActor, async (c) => {
+      const runtime = await resolvePublishedRuntime(c);
+      const secret = process.env.APP_SECRET?.trim();
+      const token = secret ? verifyCustomAppFileToken(c.req.param("token") ?? "", secret) : null;
+      if (
+        !runtime ||
+        !token ||
+        !customAppFileTokenMatchesContext(token, {
+          appId: runtime.app.id,
+          publishedAt: runtime.app.publishedAt!,
+          pageId: runtime.page.id,
+          blockId: c.req.param("blockId") ?? "",
+          pageParams: runtime.pageParams,
+          viewerUserId: runtime.viewer.userId,
+          viewerServiceAccountId: runtime.viewer.serviceAccountId ?? null,
+        })
+      ) {
+        return c.json({ message: "File not found" }, 404);
+      }
+      const block = runtime.page.rows
+        .flatMap((row) => row.columns.flatMap((column) => column.blocks))
+        .find((candidate) => candidate.type === "records" && candidate.id === token.blockId);
+      if (!block || block.type !== "records" || block.display.kind !== "cards" || block.source.kind !== "view") {
+        return c.json({ message: "File not found" }, 404);
+      }
+      if (!(await runtime.available("block", block.availableWhen?.query, block.id))) {
+        return c.json({ message: "File not found" }, 404);
+      }
+      const currentRecords = await executePublishedCustomAppRecords({
+        baseId: runtime.app.baseId,
+        customAppId: runtime.app.id,
+        publishedAt: runtime.app.publishedAt!,
+        page: runtime.page,
+        pageParams: runtime.pageParams,
+        block,
+        capabilities: runtime.capabilities,
+        context: runtime.runtimeContext.query,
+        signal: c.req.raw.signal,
+        timeZone: runtimeTimeZone(runtime),
+        viewer: runtime.viewer,
+        viewerUserId: runtime.viewer.userId,
+        viewerServiceAccountId: runtime.viewer.serviceAccountId ?? null,
+        search: token.search ?? undefined,
+        cursor: token.cursor ?? undefined,
+      }).catch(() => null);
+      if (!currentRecords?.response.ok || !currentRecords.response.rows.some((row) => row.recordId === token.recordId)) {
+        return c.json({ message: "File not found" }, 404);
+      }
+      const viewId = block.source.viewId;
+      const capability = runtime.capabilities.views.find((candidate) => candidate.viewId === viewId && candidate.tableId === token.tableId);
+      if (!capability?.displayConfig || !capability.displayFieldHash || capability.displayConfig.cards?.imageFieldId !== token.fieldId) {
+        return c.json({ message: "File not found" }, 404);
+      }
+      const fields = await gridsService.field.listByTable(token.tableId, true);
+      if (customAppRecordsDisplayFieldHash(capability.displayConfig, fields) !== capability.displayFieldHash) {
+        return c.json({ message: "File not found" }, 404);
+      }
+      // The token is minted only for an authorized preview returned by this
+      // exact published source. App access and display drift are rechecked.
+      const result = await gridsService.file.getContent({
+        tableId: token.tableId,
+        recordId: token.recordId,
+        fieldId: token.fieldId,
+        fileId: token.fileId,
+      });
+      if (!result.ok) return c.json({ message: "File not found" }, 404);
+      const file = result.data;
+      if (!isSafeInlineCardImageMimeType(file.mimeType)) return c.json({ message: "File not found" }, 404);
+      const buffer = file.bytes.buffer.slice(file.bytes.byteOffset, file.bytes.byteOffset + file.bytes.byteLength) as ArrayBuffer;
+      return new Response(new Blob([buffer], { type: file.mimeType }), {
+        headers: {
+          "Content-Type": file.mimeType,
+          "Content-Disposition": `inline; filename="${encodeURIComponent(file.filename)}"`,
+          "Cache-Control": "private, max-age=300",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    })
     .use(deps.requireAuthenticated ?? auth.requireRole("authenticated"))
     .post("/runtime/:shortId/sidebar/actions/:actionId", v("json", CustomAppActionInvocationSchema), async (c) => {
       const runtime = await resolvePublishedSidebarRuntime(c);
@@ -541,6 +575,8 @@ export const createCustomAppsApi = (
         authorization: {
           kind: "custom-app-sidebar-action",
           customAppId: app.id,
+          publishedAt: app.publishedAt!,
+          timeZone: runtimeTimeZone(runtime),
           actionId: action.id,
           revision: capability.revision,
         },
@@ -583,8 +619,17 @@ export const createCustomAppsApi = (
         run.workflowRevision !== capability.revision ||
         scope.authorization.kind !== "custom-app-sidebar-action" ||
         scope.authorization.customAppId !== runtime.app.id ||
+        scope.authorization.publishedAt !== runtime.app.publishedAt ||
+        scope.authorization.timeZone !== runtimeTimeZone(runtime) ||
         scope.authorization.actionId !== action.id ||
-        scope.authorization.revision !== capability.revision
+        scope.authorization.revision !== capability.revision ||
+        !(await revalidateWorkflow({
+          baseId: scope.baseId,
+          workflowId: scope.workflow.id,
+          principal: scope.principal,
+          authorization: scope.authorization,
+          launcherId: scope.launcherId,
+        }))
       ) {
         return c.json({ message: "Workflow run not found" }, 404);
       }
@@ -604,7 +649,10 @@ export const createCustomAppsApi = (
         authorization: {
           kind: "custom-app-scanner",
           customAppId: runtime.app.id,
+          publishedAt: runtime.app.publishedAt,
           pageId: runtime.page.id,
+          pageParams: runtime.pageParams,
+          timeZone: runtimeTimeZone(runtime),
           blockId: block.id,
           revision: capability.revision,
           configHash: capability.configHash,
@@ -636,10 +684,20 @@ export const createCustomAppsApi = (
         run.workflowRevision !== capability.revision ||
         scope.authorization.kind !== "custom-app-scanner" ||
         scope.authorization.customAppId !== runtime.app.id ||
+        scope.authorization.publishedAt !== runtime.app.publishedAt ||
         scope.authorization.pageId !== runtime.page.id ||
+        !sameStringRecord(scope.authorization.pageParams, runtime.pageParams) ||
+        scope.authorization.timeZone !== runtimeTimeZone(runtime) ||
         scope.authorization.blockId !== block.id ||
         scope.authorization.revision !== capability.revision ||
-        scope.authorization.configHash !== capability.configHash
+        scope.authorization.configHash !== capability.configHash ||
+        !(await revalidateWorkflow({
+          baseId: scope.baseId,
+          workflowId: scope.workflow.id,
+          principal: scope.principal,
+          authorization: scope.authorization,
+          launcherId: scope.launcherId,
+        }))
       ) {
         return c.json({ message: "Workflow run not found" }, 404);
       }
@@ -754,7 +812,9 @@ export const createCustomAppsApi = (
         },
       );
       if (!result.ok) return respond(c, () => Promise.resolve(result));
-      const visibleFields = fields.filter((field) => resolved.capability.fieldIds.includes(field.id));
+      const visibleFieldIds = new Set(resolved.block.fieldIds);
+      const visibleFields = fields.filter((field) => visibleFieldIds.has(field.id));
+      const visibleRelations = resolved.capability.relationLabels.filter((relation) => visibleFieldIds.has(relation.fieldId));
       const relationTableIds = [
         resolved.page.record!.tableId,
         ...new Set(resolved.capability.relationLabels.map((relation) => relation.targetTableId)),
@@ -768,11 +828,11 @@ export const createCustomAppsApi = (
       const relationLabels = await buildCustomAppRecordLabelCache({
         records: [result.data],
         fields: visibleFields,
-        relations: resolved.capability.relationLabels,
+        relations: visibleRelations,
         viewer: relationViewer,
         actorUserId: currentActorUserId(c),
       }).catch(() => ({}));
-      return c.json({ ...result.data, relationLabels });
+      return c.json({ ...projectCustomAppRecord(result.data, resolved.block.fieldIds), relationLabels });
     })
     .post("/runtime/:shortId/:pageId/:blockId/actions/:actionId", v("json", CustomAppActionInvocationSchema), async (c) => {
       const runtime = await resolvePublishedRuntime(c);
@@ -820,7 +880,10 @@ export const createCustomAppsApi = (
         authorization: {
           kind: "custom-app-action",
           customAppId: app.id,
+          publishedAt: app.publishedAt,
           pageId: page.id,
+          pageParams,
+          timeZone: runtimeTimeZone(runtime),
           blockId: block.id,
           actionId: action.id,
           revision: capability.revision,
@@ -865,13 +928,17 @@ export const createCustomAppsApi = (
       const published = await executePublishedCustomAppRecords({
         baseId: app.baseId,
         customAppId: app.id,
+        publishedAt: app.publishedAt!,
         page,
+        pageParams,
         block,
         capabilities,
         context: runtime.runtimeContext.query,
         signal: c.req.raw.signal,
         timeZone: runtime.runtimeContext.query["time.timeZone"],
         viewer: runtime.viewer,
+        viewerUserId: runtime.viewer.userId,
+        viewerServiceAccountId: runtime.viewer.serviceAccountId ?? null,
         search: c.req.valid("json").search,
         cursor: c.req.valid("json").cursor,
       }).catch(() => null);
@@ -898,9 +965,15 @@ export const createCustomAppsApi = (
         authorization: {
           kind: "custom-app-action",
           customAppId: app.id,
+          publishedAt: app.publishedAt,
           pageId: page.id,
+          pageParams,
+          timeZone: runtimeTimeZone(runtime),
           blockId: block.id,
           actionId: action.id,
+          recordId: rowId,
+          search: c.req.valid("json").search,
+          cursor: c.req.valid("json").cursor,
           revision: capability.revision,
         },
       });
@@ -939,13 +1012,17 @@ export const createCustomAppsApi = (
       const published = await executePublishedCustomAppRecords({
         baseId: app.baseId,
         customAppId: app.id,
+        publishedAt: app.publishedAt!,
         page,
+        pageParams,
         block,
         capabilities,
         context: runtime.runtimeContext.query,
         signal: c.req.raw.signal,
         timeZone: runtime.runtimeContext.query["time.timeZone"],
         viewer: runtime.viewer,
+        viewerUserId: runtime.viewer.userId,
+        viewerServiceAccountId: runtime.viewer.serviceAccountId ?? null,
         search: c.req.valid("json").search,
         cursor: c.req.valid("json").cursor,
       }).catch(() => null);
@@ -967,9 +1044,15 @@ export const createCustomAppsApi = (
         authorization: {
           kind: "custom-app-bulk-action",
           customAppId: app.id,
+          publishedAt: app.publishedAt,
           pageId: page.id,
+          pageParams,
+          timeZone: runtimeTimeZone(runtime),
           blockId: block.id,
           actionId: action.id,
+          recordIds,
+          search: c.req.valid("json").search,
+          cursor: c.req.valid("json").cursor,
           revision: capability.revision,
         },
       });
@@ -998,6 +1081,23 @@ export const createCustomAppsApi = (
               block.bulkActions?.find((candidate) => candidate.id === c.req.param("actionId")))
             : null;
       const workflowAction = action && "launcherId" in action ? action : null;
+      const actionAvailabilityQuery =
+        workflowAction &&
+        "availableWhen" in workflowAction &&
+        workflowAction.availableWhen &&
+        typeof workflowAction.availableWhen === "object" &&
+        "query" in workflowAction.availableWhen &&
+        typeof workflowAction.availableWhen.query === "string"
+          ? workflowAction.availableWhen.query
+          : undefined;
+      if (
+        !block ||
+        !workflowAction ||
+        !(await runtime.available("block", block.availableWhen?.query, block.id)) ||
+        !(await runtime.available("action", actionAvailabilityQuery, block.id, workflowAction.id))
+      ) {
+        return c.json({ message: "Workflow run not found" }, 404);
+      }
       const capability = workflowAction
         ? runtime.capabilities.workflowLaunchers.find(
             (candidate) =>
@@ -1028,10 +1128,20 @@ export const createCustomAppsApi = (
         run.workflowRevision !== capability.revision ||
         authorization?.kind !== expectedAuthorizationKind ||
         authorization.customAppId !== runtime.app.id ||
+        authorization.publishedAt !== runtime.app.publishedAt ||
         authorization.pageId !== runtime.page.id ||
+        !sameStringRecord(authorization.pageParams, runtime.pageParams) ||
+        authorization.timeZone !== runtimeTimeZone(runtime) ||
         authorization.blockId !== block.id ||
         authorization.actionId !== workflowAction.id ||
-        authorization.revision !== capability.revision
+        authorization.revision !== capability.revision ||
+        !(await revalidateWorkflow({
+          baseId: scope.baseId,
+          workflowId: scope.workflow.id,
+          principal: scope.principal,
+          authorization: scope.authorization,
+          launcherId: scope.launcherId,
+        }))
       ) {
         return c.json({ message: "Workflow run not found" }, 404);
       }

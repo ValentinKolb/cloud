@@ -89,6 +89,7 @@ describe("Grids App Form runtime", () => {
       const fieldId = testUuid();
       const hiddenFieldId = testUuid();
       const suppliedFieldId = testUuid();
+      const imageFieldId = testUuid();
       const formId = testUuid();
       const viewId = testUuid();
       const documentTemplateId = testUuid();
@@ -109,7 +110,8 @@ describe("Grids App Form runtime", () => {
         INSERT INTO grids.fields (id, short_id, table_id, name, type, config, required, default_value, position) VALUES
           (${fieldId}::uuid, ${testShortId("F")}, ${tableId}::uuid, 'Subject', 'text', '{}'::jsonb, TRUE, NULL, 0),
           (${hiddenFieldId}::uuid, ${testShortId("H")}, ${tableId}::uuid, 'Internal source', 'text', '{}'::jsonb, FALSE, NULL, 1),
-          (${suppliedFieldId}::uuid, ${testShortId("S")}, ${tableId}::uuid, 'Channel', 'text', '{}'::jsonb, FALSE, ${JSON.stringify("Web default")}::jsonb, 2)
+          (${suppliedFieldId}::uuid, ${testShortId("S")}, ${tableId}::uuid, 'Channel', 'text', '{}'::jsonb, FALSE, ${JSON.stringify("Web default")}::jsonb, 2),
+          (${imageFieldId}::uuid, ${testShortId("I")}, ${tableId}::uuid, 'Preview', 'file', '{}'::jsonb, FALSE, NULL, 3)
       `;
         await sql`
         INSERT INTO grids.views (id, short_id, table_id, name, source, ui)
@@ -119,7 +121,7 @@ describe("Grids App Form runtime", () => {
           ${tableId}::uuid,
           'Request search',
           ${`from table {${tableId}}\nselect {${fieldId}}`},
-          ${JSON.stringify({ displayConfig: { mode: "cards", cards: { fieldIds: [suppliedFieldId] } } })}::jsonb
+          ${JSON.stringify({ displayConfig: { mode: "cards", cards: { fieldIds: [suppliedFieldId], imageFieldId } } })}::jsonb
         )
       `;
         await sql`
@@ -319,6 +321,14 @@ describe("Grids App Form runtime", () => {
       `;
         expect(record?.value).toBe("Certificate request");
         expect(record?.supplied).toBe("App portal");
+        const fileId = testUuid();
+        const imageBytes = new Uint8Array([137, 80, 78, 71]);
+        await sql`
+          INSERT INTO grids.files (id, record_id, field_id, position, filename, mime_type, size_bytes, sha256, bytes)
+          VALUES (${fileId}::uuid, ${body.recordId}::uuid, ${imageFieldId}::uuid, 0, 'preview.png', 'image/png', ${imageBytes.length}, 'fixture', ${imageBytes})
+        `;
+        const previousAppSecret = process.env.APP_SECRET;
+        process.env.APP_SECRET = "custom-app-file-test-secret";
 
         const cardsResponse = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/requests/records`, {
           headers: { "x-forwarded-for": `custom-app-cards-${baseId}` },
@@ -335,8 +345,30 @@ describe("Grids App Form runtime", () => {
           { headers: { "x-forwarded-for": `custom-app-card-search-${baseId}` } },
         );
         expect(searchedCardsResponse.status).toBe(200);
-        const searchedCardsBody = (await searchedCardsResponse.json()) as { rows: Array<{ recordId?: string }> };
+        const searchedCardsBody = (await searchedCardsResponse.json()) as {
+          rows: Array<{ recordId?: string }>;
+          cards?: { filePreviews: Record<string, Record<string, { contentToken: string }>> };
+        };
         expect(searchedCardsBody.rows.some((item) => item.recordId === body.recordId)).toBe(true);
+        const contentToken = searchedCardsBody.cards?.filePreviews[body.recordId]?.[imageFieldId]?.contentToken;
+        expect(contentToken).toBeString();
+        const filePath = `/apps/runtime/${applied.data.shortId}/home/requests/files/${encodeURIComponent(contentToken!)}`;
+        const fileResponse = await publicApi.request(`${filePath}?q=App%20portal`);
+        expect(fileResponse.status).toBe(200);
+        expect(fileResponse.headers.get("content-type")).toBe("image/png");
+        await sql`
+          UPDATE grids.records
+          SET data = jsonb_set(data, ARRAY[${suppliedFieldId}], to_jsonb('No longer searchable'::text))
+          WHERE id = ${body.recordId}::uuid
+        `;
+        expect((await publicApi.request(`${filePath}?q=App%20portal`)).status).toBe(404);
+        await sql`
+          UPDATE grids.records
+          SET data = jsonb_set(data, ARRAY[${suppliedFieldId}], to_jsonb('App portal'::text))
+          WHERE id = ${body.recordId}::uuid
+        `;
+        if (previousAppSecret === undefined) delete process.env.APP_SECRET;
+        else process.env.APP_SECRET = previousAppSecret;
 
         const sidebarResponse = await publicApi.request(`/apps/runtime/${applied.data.shortId}/sidebar/forms/new-request/submit`, {
           method: "POST",
@@ -520,18 +552,25 @@ describe("Grids App Form runtime", () => {
           body: JSON.stringify({ values: { [fieldId]: "Anonymous edit" } }),
         });
         expect(anonymousRecordEdit.status).toBe(401);
+        await sql`
+          UPDATE grids.records
+          SET data = data || ${JSON.stringify({ [hiddenFieldId]: "Internal only" })}::jsonb
+          WHERE id = ${body.recordId}::uuid
+        `;
         const updatedRecord = await api.request(recordUrl, {
           method: "PATCH",
           headers: { "content-type": "application/json", "If-Match": "1" },
           body: JSON.stringify({ values: { [fieldId]: "Certificate request updated" } }),
         });
         expect(updatedRecord.status).toBe(200);
-        expect(await updatedRecord.json()).toMatchObject({
+        const updatedRecordBody = (await updatedRecord.json()) as { data: Record<string, unknown> };
+        expect(updatedRecordBody).toMatchObject({
           id: body.recordId,
           version: 2,
           data: { [fieldId]: "Certificate request updated" },
           relationLabels: {},
         });
+        expect(updatedRecordBody.data).not.toHaveProperty(hiddenFieldId);
 
         const rejectedField = await api.request(recordUrl, {
           method: "PATCH",
@@ -796,7 +835,10 @@ describe("Grids App Form runtime", () => {
           authorization: {
             kind: "custom-app-action",
             customAppId: appId,
+            publishedAt: expect.any(String),
             pageId: "request",
+            pageParams: { request_id: body.recordId },
+            timeZone: "UTC",
             blockId: "actions",
             actionId: "approve",
             revision: 1,
@@ -815,6 +857,8 @@ describe("Grids App Form runtime", () => {
           authorization: {
             kind: "custom-app-sidebar-action",
             customAppId: appId,
+            publishedAt: expect.any(String),
+            timeZone: "UTC",
             actionId: "approve-global",
             revision: 1,
           },
@@ -911,6 +955,7 @@ describe("Grids App Form runtime", () => {
                     }
                   : null;
               },
+              canExecuteWorkflow: async () => true,
             }),
           );
         const firstServiceAccountApi = createStatusApi(testUuid());
@@ -1011,7 +1056,10 @@ describe("Grids App Form runtime", () => {
           authorization: {
             kind: "custom-app-scanner",
             customAppId: appId,
+            publishedAt: expect.any(String),
             pageId: "home",
+            pageParams: {},
+            timeZone: "UTC",
             blockId: scannerBlock.id,
             revision: 1,
             configHash: scannerConfigHash,
@@ -1052,6 +1100,7 @@ describe("Grids App Form runtime", () => {
         );
         expect(hiddenAction.status).toBe(404);
         expect(actionInvocation).toBeNull();
+        expect((await firstServiceAccountApi.request(statusPath)).status).toBe(404);
 
         const blockAvailability = `from table {${tableId}}\nwhere {${fieldId}} = 'No matching form record'\nlimit 1`;
         const unavailableFormDefinition = structuredClone(actionDefinition);
