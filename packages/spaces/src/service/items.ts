@@ -23,6 +23,7 @@ import type {
 import { withShortId } from "../lib/short-id";
 import { buildSpacePrincipalCondition, isSpaceResourceId } from "./access";
 import { publishSpaceEvent } from "./events";
+import { insertMany as insertItemResourceReferences } from "./item-resource-references";
 import { rank } from "./rank";
 import {
   type ExpandedRecurringEvent,
@@ -73,7 +74,6 @@ type DbItem = {
   recurrence_id: Date | null;
   rank: string;
   completed_at: Date | null;
-  email_thread_id: string | null;
   created_by: string | null;
   created_at: Date;
   updated_at: Date;
@@ -719,7 +719,7 @@ export const list = async (params: { spaceId: string; includeCompleted?: boolean
         i.id, i.space_id, i.column_id, i.title, i.description, i.location, i.url, i.starts_at, i.ends_at, i.all_day, i.deadline,
         i.priority, i.recurrence_rrule, i.recurrence_dtstart, i.recurrence_exdate, i.recurring_event_id, i.recurrence_id,
         i.rank::text AS rank,
-        i.completed_at, i.email_thread_id, i.created_by, i.created_at, i.updated_at
+        i.completed_at, i.created_by, i.created_at, i.updated_at
       FROM spaces.items i
       LEFT JOIN spaces.columns c ON c.id = i.column_id
       WHERE i.space_id = ${spaceId}
@@ -731,7 +731,7 @@ export const list = async (params: { spaceId: string; includeCompleted?: boolean
         i.id, i.space_id, i.column_id, i.title, i.description, i.location, i.url, i.starts_at, i.ends_at, i.all_day, i.deadline,
         i.priority, i.recurrence_rrule, i.recurrence_dtstart, i.recurrence_exdate, i.recurring_event_id, i.recurrence_id,
         i.rank::text AS rank,
-        i.completed_at, i.email_thread_id, i.created_by, i.created_at, i.updated_at
+        i.completed_at, i.created_by, i.created_at, i.updated_at
       FROM spaces.items i
       LEFT JOIN spaces.columns c ON c.id = i.column_id
       WHERE i.space_id = ${spaceId} AND i.completed_at IS NULL
@@ -882,7 +882,7 @@ export const listFiltered = async (params: {
     SELECT i.id, i.space_id, i.column_id, i.title, i.description, i.location, i.url, i.starts_at, i.ends_at,
            i.all_day, i.deadline, i.priority, i.recurrence_rrule, i.recurrence_dtstart, i.recurrence_exdate, i.recurring_event_id, i.recurrence_id,
            i.rank::text AS rank,
-           i.completed_at, i.email_thread_id,
+           i.completed_at,
            i.created_by, i.created_at, i.updated_at
     FROM spaces.items i
     LEFT JOIN spaces.columns c ON i.column_id = c.id
@@ -1020,6 +1020,7 @@ export const searchAcross = async (params: {
   kinds: ItemAcrossKind;
   status?: "open";
   priority?: Priority[];
+  requiredLevel?: "read" | "write";
   limit: number;
 }): Promise<ItemAcrossResult[]> => {
   const { query, kinds, limit } = params;
@@ -1042,6 +1043,7 @@ export const searchAcross = async (params: {
   const statusCondition = params.status === "open" ? sql`i.completed_at IS NULL` : sql`TRUE`;
   const priorityCondition =
     params.priority && params.priority.length > 0 ? sql`i.priority = ANY(${toPgTextArray(params.priority)}::text[])` : sql`TRUE`;
+  const permissionCondition = params.requiredLevel === "write" ? sql`a.permission IN ('write', 'admin')` : sql`a.permission <> 'none'`;
 
   // Permission check via EXISTS subquery rather than LEFT JOIN. The previous
   // join approach needed `SELECT DISTINCT` to dedupe items joined to multiple
@@ -1054,7 +1056,7 @@ export const searchAcross = async (params: {
       i.id, i.space_id, i.column_id, i.title, i.description, i.location, i.url, i.starts_at, i.ends_at,
       i.all_day, i.deadline, i.priority, i.recurrence_rrule, i.recurrence_dtstart, i.recurrence_exdate, i.recurring_event_id, i.recurrence_id,
       i.rank::text AS rank,
-      i.completed_at, i.email_thread_id,
+      i.completed_at,
       i.created_by, i.created_at, i.updated_at,
       s.name AS space_name
     FROM spaces.items i
@@ -1064,7 +1066,7 @@ export const searchAcross = async (params: {
       FROM spaces.space_access sa
       JOIN auth.access a ON a.id = sa.access_id
       WHERE sa.space_id = s.id
-        AND a.permission <> 'none'
+        AND ${permissionCondition}
         AND ${principalMatch}
         AND ${bindingMatch}
     )
@@ -1109,7 +1111,6 @@ export const get = async (params: { id: string }): Promise<SpaceItem | null> => 
       i.recurrence_id,
       i.rank::text AS rank,
       i.completed_at,
-      i.email_thread_id,
       i.created_by,
       i.created_at,
       i.updated_at
@@ -1225,6 +1226,10 @@ export const create = async (params: {
 
       if (data.tagIds !== undefined) {
         await replaceItemTags(tx, created.id, data.tagIds);
+      }
+
+      if (data.references?.length) {
+        await insertItemResourceReferences(tx, created.id, data.references);
       }
 
       return created;
@@ -1431,7 +1436,7 @@ export const splitRecurring = async (params: {
       SELECT
         id, space_id, column_id, title, description, location, url, starts_at, ends_at, all_day, deadline, priority,
         recurrence_rrule, recurrence_dtstart, recurrence_exdate, recurring_event_id, recurrence_id, rank::text AS rank,
-        completed_at, email_thread_id, created_by, created_at, updated_at
+        completed_at, created_by, created_at, updated_at
       FROM spaces.items
       WHERE id = ${params.id}
       FOR UPDATE
@@ -1508,7 +1513,7 @@ export const splitRecurring = async (params: {
       INSERT INTO spaces.items (
         short_id, space_id, column_id, title, description, location, url, starts_at, ends_at, all_day, deadline, priority,
         recurrence_rrule, recurrence_dtstart, recurrence_exdate, recurring_event_id, recurrence_id, rank,
-        completed_at, email_thread_id, created_by
+        completed_at, created_by
       )
       SELECT
         ${shortId},
@@ -1530,7 +1535,6 @@ export const splitRecurring = async (params: {
         NULL,
         COALESCE((SELECT MAX(rank) + ${rank.step()} FROM spaces.items WHERE column_id = ${source.column_id}), ${rank.step()}),
         NULL,
-        NULL,
         ${params.createdBy}::uuid
       FROM spaces.items
       WHERE id = ${source.id}
@@ -1549,6 +1553,13 @@ export const splitRecurring = async (params: {
       INSERT INTO spaces.item_tags (item_id, tag_id)
       SELECT ${created.id}, tag_id
       FROM spaces.item_tags
+      WHERE item_id = ${source.id}
+      ON CONFLICT DO NOTHING
+    `;
+      await tx`
+      INSERT INTO spaces.item_resource_refs (item_id, resource_type, resource_id, label, created_at)
+      SELECT ${created.id}, resource_type, resource_id, label, created_at
+      FROM spaces.item_resource_refs
       WHERE item_id = ${source.id}
       ON CONFLICT DO NOTHING
     `;

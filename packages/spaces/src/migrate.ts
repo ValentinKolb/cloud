@@ -120,7 +120,6 @@ export const migrate = async (): Promise<void> => {
       position INT NOT NULL DEFAULT 0,
       rank BIGINT NOT NULL DEFAULT 1024,
       completed_at TIMESTAMPTZ,
-      email_thread_id TEXT,
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -130,6 +129,28 @@ export const migrate = async (): Promise<void> => {
       )
     )
   `.simple();
+  await sql`ALTER TABLE spaces.items DROP COLUMN IF EXISTS email_thread_id`.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS spaces.item_resource_refs (
+      item_id UUID NOT NULL REFERENCES spaces.items(id) ON DELETE CASCADE,
+      resource_type TEXT NOT NULL,
+      resource_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (item_id, resource_type, resource_id),
+      CONSTRAINT item_resource_refs_type_check CHECK (
+        length(resource_type) BETWEEN 3 AND 128
+        AND resource_type ~ '^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$'
+      ),
+      CONSTRAINT item_resource_refs_id_check CHECK (length(resource_id) BETWEEN 1 AND 512),
+      CONSTRAINT item_resource_refs_label_check CHECK (length(btrim(label)) BETWEEN 1 AND 500)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_item_resource_refs_resource
+    ON spaces.item_resource_refs(resource_type, resource_id, item_id)
+  `.simple();
+  console.log("  ✓ spaces.item_resource_refs table");
   await sql`
     ALTER TABLE spaces.items
     ADD COLUMN IF NOT EXISTS all_day BOOLEAN NOT NULL DEFAULT false

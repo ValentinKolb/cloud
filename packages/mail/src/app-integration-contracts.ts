@@ -1,4 +1,9 @@
-import { type CapabilitySemanticLink, CapabilitySemanticLinkSchema } from "@valentinkolb/cloud/contracts";
+import {
+  type CapabilitySemanticLink,
+  CapabilitySemanticLinkSchema,
+  CloudResourceRefSchema,
+  CloudResourceViewSchema,
+} from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 
 const timestampSchema = z.string().datetime({ offset: true });
@@ -186,6 +191,18 @@ export const spacesMailDestinationContextSchema = z
   .object({ selectedSpaceId: spacesResourceIdSchema.nullable(), items: spacesMailDestinationsSchema })
   .passthrough();
 export type SpacesMailDestinationContext = z.infer<typeof spacesMailDestinationContextSchema>;
+
+export const spacesItemSearchDataSchema = z.array(CloudResourceViewSchema).max(100);
+export const spacesItemReferenceFindDataSchema = z.object({ items: spacesItemSearchDataSchema, truncated: z.boolean() }).strict();
+export const spacesItemResourceReferenceSchema = z
+  .object({ ref: CloudResourceRefSchema, label: z.string().trim().min(1).max(500), createdAt: timestampSchema })
+  .strict();
+export const spacesItemReferenceRemoveDataSchema = z
+  .object({ itemId: spacesResourceIdSchema, ref: CloudResourceRefSchema, deleted: z.boolean() })
+  .strict();
+export const spacesItemMutationDataSchema = z
+  .object({ kind: z.enum(["task", "event"]), id: spacesResourceIdSchema, spaceId: spacesResourceIdSchema, title: z.string().min(1) })
+  .passthrough();
 
 const spaceColumnSchema = z
   .object({ id: spacesResourceIdSchema, name: z.string().min(1), color: nullableTextSchema, isDone: z.boolean() })

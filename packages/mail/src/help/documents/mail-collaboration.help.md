@@ -52,6 +52,12 @@ Mail stores no Contact ownership, notes, bank details, access entries, or other 
 
 The CLI exposes the Contacts context and the dedicated Contact-aware history boundary through `cld mail conversation context` and `contact-history`.
 
+## Link conversations to Spaces {icon="link"}
+
+Open **Conversation details** to link the conversation to an existing writable Space task or event, or create a linked task or event directly. The Space item owns the link, so it remains intact when mailbox or Space access is granted to a group and one person leaves the team.
+
+Mail shows only Space items you may currently read and offers link targets only where you may write. Opening a linked Mail conversation or Space item checks that application's current permissions again. A removed or inaccessible target can therefore remain as an unavailable label until a Space writer unlinks it.
+
 ## Know what is shared and what is private {icon="shield-lock"}
 
 Shared across the mailbox:

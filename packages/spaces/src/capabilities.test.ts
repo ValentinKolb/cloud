@@ -285,7 +285,10 @@ describe("spaces capabilities", () => {
       "comment.list",
       "comment.read",
       "event.list",
+      "item.link-candidate.search",
       "item.read",
+      "item.reference.find",
+      "item.reference.list",
       "item.search",
       "space.assignee.list",
       "space.list",
@@ -304,6 +307,8 @@ describe("spaces capabilities", () => {
       "event.invitation.prepare",
       "event.update",
       "item.delete",
+      "item.reference.add",
+      "item.reference.remove",
       "task.create",
       "task.set-completed",
       "task.update",
@@ -393,6 +398,7 @@ describe("spaces capabilities", () => {
       kinds: "task",
       status: "open",
       priority: undefined,
+      requiredLevel: "read",
       limit: 5,
     });
     expect(listSpaces).toHaveBeenCalledTimes(1);

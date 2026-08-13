@@ -45,7 +45,16 @@ import {
   ItemDataSchema,
   ItemDeleteDataSchema,
   ItemDeleteInputSchema,
+  ItemLinkCandidateSearchInputSchema,
   ItemReadInputSchema,
+  ItemResourceReferenceAddInputSchema,
+  ItemResourceReferenceDataSchema,
+  ItemResourceReferenceFindDataSchema,
+  ItemResourceReferenceFindInputSchema,
+  ItemResourceReferenceListDataSchema,
+  ItemResourceReferenceListInputSchema,
+  ItemResourceReferenceRemoveDataSchema,
+  ItemResourceReferenceRemoveInputSchema,
   SpaceAssigneeListDataSchema,
   SpaceAssigneeListInputSchema,
   SpaceDetailDataSchema,
@@ -361,8 +370,12 @@ const runSpaceSearch = async (input: UniversalSearchInput, context: CapabilityEx
   return ok({ data });
 };
 
-const runItemSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {
-  const scope = scopedSpaceId(context, "read");
+const runItemSearch = async (
+  input: UniversalSearchInput,
+  context: CapabilityExecutionContext,
+  requiredLevel: "read" | "write" = "read",
+) => {
+  const scope = scopedSpaceId(context, requiredLevel);
   if (!scope.ok) return ok({ data: [] });
 
   const tags = new Set(input.tags);
@@ -379,6 +392,7 @@ const runItemSearch = async (input: UniversalSearchInput, context: CapabilityExe
     kinds,
     status: tags.has("todo") ? "open" : undefined,
     priority: tags.has("urgent") ? ["urgent"] : undefined,
+    requiredLevel,
     limit: input.limit,
   });
   const [publicItems, publicSpaces] = await Promise.all([
@@ -403,6 +417,46 @@ const runItemSearch = async (input: UniversalSearchInput, context: CapabilityExe
     };
   });
   return ok({ data });
+};
+
+const runItemReferenceFind = async (input: z.infer<typeof ItemResourceReferenceFindInputSchema>, context: CapabilityExecutionContext) => {
+  const scope = scopedSpaceId(context, "read");
+  if (!scope.ok) return scope;
+  const spaces = await spacesService.space.list({
+    subject: context.accessSubject,
+    boundSpaceId: scope.data,
+    requiredLevel: "read",
+  });
+  const itemIds = await spacesService.item.references.findItemIds({
+    ref: input.ref,
+    spaceIds: spaces.items.map((space) => space.id),
+    limit: input.limit + 1,
+  });
+  const truncated = itemIds.length > input.limit;
+  const items = (await Promise.all(itemIds.slice(0, input.limit).map((id) => spacesService.item.get({ id })))).filter(
+    (item): item is SpaceItem => item !== null,
+  );
+  const [publicItems, publicSpaces] = await Promise.all([
+    spacesPublicResources.projectItems(items),
+    spacesPublicResources.projectSpaces(spaces.items),
+  ]);
+  const spaceByInternalId = new Map(spaces.items.map((space, index) => [space.id, publicSpaces[index]]));
+  const data: CloudResourceView[] = publicItems.map((item, index) => {
+    const internalItem = items[index]!;
+    const space = spaceByInternalId.get(internalItem.spaceId)!;
+    return {
+      ref: { type: "spaces.item", id: item.id },
+      title: item.title,
+      preview: item.description ?? undefined,
+      icon: isEvent(item) ? "ti ti-calendar-event" : "ti ti-checkbox",
+      metadata: [
+        { label: "Space", value: space.name },
+        { label: "Item Kind", value: isEvent(item) ? "Event" : "Task" },
+      ],
+      links: [{ rel: "open", href: buildSpaceItemHref(space.id, item.id) }],
+    };
+  });
+  return ok({ data: { items: data, truncated } });
 };
 
 const runSpaceList = async (input: z.infer<typeof SpaceListInputSchema>, context: CapabilityExecutionContext) => {
@@ -631,6 +685,49 @@ const itemMutationResult = async (result: MutationResult<SpaceItem>) => {
     links: [{ rel: "open" as const, href: buildSpaceItemHref(item.spaceId, item.id) }],
   });
 };
+
+const runItemReferenceList = async (input: z.infer<typeof ItemResourceReferenceListInputSchema>, context: CapabilityExecutionContext) => {
+  const resolved = await requireItem(input.itemId, context, "read");
+  if (!resolved.ok) return resolved;
+  return ok({
+    data: await spacesService.item.references.list({ itemId: resolved.data.internalId }),
+    refs: [{ type: "spaces.item", id: input.itemId }],
+    links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, input.itemId) }],
+  });
+};
+
+const runItemReferenceAdd = async (input: z.infer<typeof ItemResourceReferenceAddInputSchema>, context: CapabilityExecutionContext) =>
+  audited(actionAudit(context, "item.reference.add", "space_item", input.itemId), async () => {
+    const resolved = await requireItem(input.itemId, context, "write");
+    if (!resolved.ok) return resolved;
+    const data = await spacesService.item.references.add({
+      itemId: resolved.data.internalId,
+      spaceId: resolved.data.internalSpaceId,
+      reference: input.reference,
+    });
+    if (!data) return fail(err.conflict("Space item already has the maximum number of linked resources"));
+    return ok({
+      data,
+      refs: [{ type: "spaces.item", id: input.itemId }, input.reference.ref],
+      links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, input.itemId) }],
+    });
+  });
+
+const runItemReferenceRemove = async (input: z.infer<typeof ItemResourceReferenceRemoveInputSchema>, context: CapabilityExecutionContext) =>
+  audited(actionAudit(context, "item.reference.remove", "space_item", input.itemId), async () => {
+    const resolved = await requireItem(input.itemId, context, "write");
+    if (!resolved.ok) return resolved;
+    const deleted = await spacesService.item.references.remove({
+      itemId: resolved.data.internalId,
+      spaceId: resolved.data.internalSpaceId,
+      ref: input.ref,
+    });
+    return ok({
+      data: { itemId: input.itemId, ref: input.ref, deleted },
+      refs: [{ type: "spaces.item", id: input.itemId }, input.ref],
+      links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, input.itemId) }],
+    });
+  });
 
 const commentMutationResult = async (result: MutationResult<SpaceComment>, item: SpaceItem) => {
   if (!result.ok) return mutationError(result);
@@ -943,6 +1040,14 @@ export const spacesCapabilities = defineCapabilities({
       },
       run: runItemSearch,
     },
+    "item.link-candidate.search": {
+      title: "Search writable Space items",
+      description: "Find writable tasks and events that can receive a Cloud resource link.",
+      input: ItemLinkCandidateSearchInputSchema,
+      data: UniversalSearchDataSchema,
+      openWorld: false,
+      run: (input, context) => runItemSearch({ ...input, tags: [] }, context, "write"),
+    },
     "space.list": {
       title: "List spaces",
       description: "List accessible Spaces with effective permission and bounded SQL pagination.",
@@ -991,6 +1096,22 @@ export const spacesCapabilities = defineCapabilities({
       openWorld: false,
       run: runItemRead,
     },
+    "item.reference.find": {
+      title: "Find items linked to a resource",
+      description: "Find readable Space items linked to one stable Cloud resource reference.",
+      input: ItemResourceReferenceFindInputSchema,
+      data: ItemResourceReferenceFindDataSchema,
+      openWorld: false,
+      run: runItemReferenceFind,
+    },
+    "item.reference.list": {
+      title: "List item resource links",
+      description: "List the Cloud resource references stored on one readable Space item.",
+      input: ItemResourceReferenceListInputSchema,
+      data: ItemResourceReferenceListDataSchema,
+      openWorld: false,
+      run: runItemReferenceList,
+    },
     "comment.list": {
       title: "List comments",
       description: "Read comments in one bounded item or recurring-occurrence discussion after checking parent Space access.",
@@ -1034,6 +1155,26 @@ export const spacesCapabilities = defineCapabilities({
     },
   },
   actions: {
+    "item.reference.add": {
+      title: "Link a Cloud resource",
+      description: "Link one stable Cloud resource reference to a writable Space item.",
+      input: ItemResourceReferenceAddInputSchema,
+      data: ItemResourceReferenceDataSchema,
+      destructive: false,
+      openWorld: false,
+      idempotency: "none",
+      run: runItemReferenceAdd,
+    },
+    "item.reference.remove": {
+      title: "Unlink a Cloud resource",
+      description: "Remove one Cloud resource reference from a writable Space item, including dangling references.",
+      input: ItemResourceReferenceRemoveInputSchema,
+      data: ItemResourceReferenceRemoveDataSchema,
+      destructive: true,
+      openWorld: false,
+      idempotency: "none",
+      run: runItemReferenceRemove,
+    },
     "task.create": {
       title: "Create task",
       description: "Create one task in an explicitly selected writable Space and column.",

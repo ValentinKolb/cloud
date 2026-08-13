@@ -29,10 +29,17 @@ const user = {
 afterEach(() => mock.restore());
 
 describe("Mail conversation context OpenAPI contract", () => {
-  test("publishes authenticated Contacts context and history routes", async () => {
+  test("publishes authenticated Contacts and Spaces context routes", async () => {
     const spec = await generateSpecs(app);
     const history = spec.paths?.[`${base}/contacts/{bookId}/{contactId}/history`]?.get;
-    const operations = [spec.paths?.[`${base}/context`]?.get, history];
+    const operations = [
+      spec.paths?.[`${base}/context`]?.get,
+      history,
+      spec.paths?.[`${base}/spaces/items`]?.get,
+      spec.paths?.[`${base}/spaces/items`]?.post,
+      spec.paths?.[`${base}/spaces/link`]?.post,
+      spec.paths?.[`${base}/spaces/unlink`]?.post,
+    ];
 
     expect(operations.every((operation) => operation?.tags?.includes("Mail:Context"))).toBe(true);
     expect(operations.every((operation) => operation?.security?.length === 1)).toBe(true);

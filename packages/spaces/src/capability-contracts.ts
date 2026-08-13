@@ -1,6 +1,11 @@
-import { CapabilitySemanticLinkSchema } from "@valentinkolb/cloud/contracts";
+import { CapabilitySemanticLinkSchema, CloudResourceRefSchema, CloudResourceViewSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
-import { PrioritySchema, ResourceShortIdSchema } from "./contracts";
+import {
+  PrioritySchema,
+  ResourceShortIdSchema,
+  SpaceItemResourceReferenceInputSchema,
+  SpaceItemResourceReferenceSchema,
+} from "./contracts";
 import {
   CalendarAddressSchema,
   CalendarInvitationImportResultSchema,
@@ -21,6 +26,37 @@ const ResourceIdListSchema = z.array(ResourceShortIdSchema).max(100);
 const UserIdListSchema = z.array(UuidSchema).max(100);
 const PageInputShape = { cursor: CursorSchema, limit: LimitSchema };
 const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10).optional();
+
+export const ItemResourceReferenceInputSchema = SpaceItemResourceReferenceInputSchema;
+export const ItemResourceReferenceDataSchema = SpaceItemResourceReferenceSchema;
+export const ItemResourceReferenceListInputSchema = z
+  .object({ itemId: ResourceShortIdSchema.describe("Readable Space item ID.") })
+  .strict();
+export const ItemResourceReferenceListDataSchema = z.array(ItemResourceReferenceDataSchema).max(100);
+export const ItemResourceReferenceFindInputSchema = z
+  .object({
+    ref: CloudResourceRefSchema.describe("Cloud resource whose linked Space items should be found."),
+    limit: z.number().int().min(1).max(100).default(50).describe("Maximum number of linked items."),
+  })
+  .strict();
+export const ItemResourceReferenceFindDataSchema = z
+  .object({ items: z.array(CloudResourceViewSchema).max(100), truncated: z.boolean() })
+  .strict();
+export const ItemResourceReferenceAddInputSchema = z
+  .object({
+    itemId: ResourceShortIdSchema.describe("Writable Space item ID."),
+    reference: ItemResourceReferenceInputSchema.describe("Cloud resource to link."),
+  })
+  .strict();
+export const ItemResourceReferenceRemoveInputSchema = z
+  .object({
+    itemId: ResourceShortIdSchema.describe("Writable Space item ID."),
+    ref: CloudResourceRefSchema.describe("Cloud resource to unlink."),
+  })
+  .strict();
+export const ItemResourceReferenceRemoveDataSchema = z
+  .object({ itemId: ResourceShortIdSchema, ref: CloudResourceRefSchema, deleted: z.boolean() })
+  .strict();
 
 const SpaceColumnDataSchema = z
   .object({
@@ -184,6 +220,12 @@ const ItemListBaseShape = {
 export const TaskListInputSchema = z.object(ItemListBaseShape).strict();
 export const EventListInputSchema = z.object(ItemListBaseShape).strict();
 export const ItemReadInputSchema = z.object({ id: ResourceShortIdSchema.describe("Stable Space item ID.") }).strict();
+export const ItemLinkCandidateSearchInputSchema = z
+  .object({
+    query: z.string().trim().max(500).default("").describe("Optional item title or content search."),
+    limit: z.number().int().min(1).max(100).default(50).describe("Maximum number of writable items."),
+  })
+  .strict();
 
 export const SpaceAssigneeListInputSchema = z
   .object({
@@ -219,6 +261,7 @@ export const TaskCreateInputSchema = z
     priority: PrioritySchema.optional().describe("Optional task priority."),
     assigneeIds: UserIdListSchema.optional().describe("Optional assignee user UUIDs from this Space."),
     tagIds: ResourceIdListSchema.optional().describe("Optional tag IDs from this Space."),
+    references: z.array(ItemResourceReferenceInputSchema).max(10).optional().describe("Cloud resources linked to the new task."),
   })
   .strict();
 
@@ -257,6 +300,7 @@ export const EventCreateInputSchema = z
     recurrence: RecurrenceDataSchema.optional().describe("Optional recurrence series."),
     assigneeIds: UserIdListSchema.optional().describe("Optional assignee user UUIDs from this Space."),
     tagIds: ResourceIdListSchema.optional().describe("Optional tag IDs from this Space."),
+    references: z.array(ItemResourceReferenceInputSchema).max(10).optional().describe("Cloud resources linked to the new event."),
   })
   .strict()
   .refine(validTimeRange, { message: "End time must be after start time", path: ["endsAt"] });
@@ -347,6 +391,7 @@ export const CalendarInvitationResponsePrepareInputSchema = CalendarInvitationPr
 export const CalendarInvitationResponsePrepareDataSchema = CalendarInvitationResponseSchema;
 export const CalendarInvitationImportCapabilityInputSchema = CalendarInvitationPreviewCapabilityInputSchema.extend({
   spaceId: ResourceShortIdSchema.describe("Writable destination Space ID."),
+  conversation: ItemResourceReferenceInputSchema.describe("Source Mail conversation linked to the imported event."),
 }).strict();
 export const CalendarInvitationImportCapabilityDataSchema = CalendarInvitationImportResultSchema;
 export const CalendarInvitationResponseCommitCapabilityInputSchema = z

@@ -1,5 +1,5 @@
 import { mutation, query } from "@k2b/stdlib/solid";
-import { Button, ButtonLink, DetailPanel, Placeholder, prompts } from "@k2b/ui";
+import { Button, DetailPanel, Placeholder, prompts } from "@k2b/ui";
 import { createMemo, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { MailConversationContext } from "../../contracts";
@@ -108,56 +108,187 @@ export default function MailConversationContext(props: { mailboxId: string; conv
     createParticipantContact.mutate({ participant, book: selected.value, conversationId: props.conversationId });
   };
 
+  const linkExistingSpaceItem = async () => {
+    const mailboxId = props.mailboxId;
+    const conversationId = props.conversationId;
+    const current = context();
+    const linkedItemIds = new Set(current?.spaces.status === "ready" ? current.spaces.items.map((item) => item.ref.id) : []);
+    const selected = await prompts.search<{ id: string; title: string }>(
+      async ({ query, abortSignal }) => {
+        const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].spaces.items.$get(
+          {
+            param: { mailboxId, conversationId },
+            query: { query },
+          },
+          { init: { signal: abortSignal } },
+        );
+        if (!response.ok) throw new Error(await readApiError(response, "Could not search Spaces"));
+        return (await response.json())
+          .filter((item) => !linkedItemIds.has(item.ref.id))
+          .map((item) => ({
+            value: { id: item.ref.id, title: item.title },
+            label: item.title,
+            desc: item.metadata?.find((entry) => entry.label === "Space")?.value,
+            icon: item.icon ?? "ti ti-checkbox",
+          }));
+      },
+      {
+        title: "Link Space item",
+        icon: "ti ti-link",
+        placeholder: "Search tasks and events...",
+        minQueryLength: 0,
+        noResultsText: "No writable Space items found.",
+        size: "small",
+      },
+    );
+    if (!selected?.value) return;
+    const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].spaces.link.$post({
+      param: { mailboxId, conversationId },
+      json: { itemId: selected.value.id },
+    });
+    if (!response.ok) return void prompts.error(await readApiError(response, "Could not link Space item"));
+    if (mailboxId === props.mailboxId && conversationId === props.conversationId) await contexts.invalidate();
+  };
+
+  const unlinkSpaceItem = async (itemId: string) => {
+    const mailboxId = props.mailboxId;
+    const conversationId = props.conversationId;
+    const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].spaces.unlink.$post({
+      param: { mailboxId, conversationId },
+      json: { itemId },
+    });
+    if (!response.ok) return void prompts.error(await readApiError(response, "Could not unlink Space item"));
+    if (mailboxId === props.mailboxId && conversationId === props.conversationId) await contexts.invalidate();
+  };
+
+  const createSpaceItem = async (kind: "task" | "event") => {
+    const mailboxId = props.mailboxId;
+    const conversationId = props.conversationId;
+    const destinationsResponse = await apiClient.mailboxes[":mailboxId"]["calendar-destinations"].$get({
+      param: { mailboxId },
+    });
+    if (!destinationsResponse.ok) return void prompts.error(await readApiError(destinationsResponse, "Could not load Spaces"));
+    const destinations = await destinationsResponse.json();
+    const selected = await prompts.search<{ id: string; name: string }>(
+      ({ query }) =>
+        Promise.resolve(
+          destinations.items
+            .filter((space) => space.name.toLowerCase().includes(query.toLowerCase()))
+            .map((space) => ({ value: space, label: space.name, icon: "ti ti-layout-kanban" })),
+        ),
+      {
+        title: "Choose Space",
+        icon: "ti ti-layout-kanban",
+        placeholder: "Search writable Spaces...",
+        minQueryLength: 0,
+        noResultsText: "No writable Spaces found.",
+        size: "small",
+      },
+    );
+    if (!selected?.value) return;
+    const destination = selected.value;
+    const spaceResponse = await apiClient.mailboxes[":mailboxId"].spaces[":spaceId"].$get({
+      param: { mailboxId, spaceId: destination.id },
+      query: { conversationId },
+    });
+    if (!spaceResponse.ok) return void prompts.error(await readApiError(spaceResponse, "Could not load Space columns"));
+    const space = await spaceResponse.json();
+    const columns = space.columns.filter((column) => !column.isDone);
+    if (!columns[0]) return void prompts.error("This Space has no open column.");
+    const commonFields = {
+      title: { type: "text" as const, label: "Title", required: true, maxLength: 200 },
+      columnId: {
+        type: "select" as const,
+        label: "Column",
+        required: true,
+        default: columns[0].id,
+        options: columns.map((column) => ({ id: column.id, label: column.name })),
+      },
+    };
+    const json =
+      kind === "task"
+        ? await (async () => {
+            const values = await prompts.form({
+              title: "New Space task",
+              icon: "ti ti-checkbox",
+              confirmText: "Create",
+              fields: { ...commonFields, deadline: { type: "datetime", label: "Deadline" } },
+            });
+            return values?.columnId && values.title
+              ? {
+                  kind,
+                  spaceId: destination.id,
+                  columnId: values.columnId,
+                  title: values.title,
+                  ...(values.deadline ? { deadline: new Date(values.deadline).toISOString() } : {}),
+                }
+              : null;
+          })()
+        : await (async () => {
+            const values = await prompts.form({
+              title: "New Space event",
+              icon: "ti ti-calendar-event",
+              confirmText: "Create",
+              fields: {
+                ...commonFields,
+                startsAt: { type: "datetime", label: "Starts", required: true },
+                endsAt: { type: "datetime", label: "Ends", required: true },
+              },
+            });
+            return values?.columnId && values.title && values.startsAt && values.endsAt
+              ? {
+                  kind,
+                  spaceId: destination.id,
+                  columnId: values.columnId,
+                  title: values.title,
+                  startsAt: new Date(values.startsAt).toISOString(),
+                  endsAt: new Date(values.endsAt).toISOString(),
+                }
+              : null;
+          })();
+    if (!json) return;
+    const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].spaces.items.$post({
+      param: { mailboxId, conversationId },
+      json,
+    });
+    if (!response.ok) return void prompts.error(await readApiError(response, `Could not create Space ${kind}`));
+    if (mailboxId === props.mailboxId && conversationId === props.conversationId) await contexts.invalidate();
+  };
+
   onCleanup(() => createParticipantContact.abort());
 
   return (
-    <div class="min-w-0">
-      <Show
-        when={context()}
-        fallback={
-          <Show when={contexts.error()} fallback={<Placeholder state="loading" align="left" title="Loading contacts..." />}>
-            {(error) => (
-              <Placeholder
-                state="error"
-                align="left"
-                title="Contacts unavailable"
-                description={error().message}
-                icon="ti ti-address-book-off"
-                action={
-                  <Button variant="secondary" size="sm" type="button" onClick={() => void contexts.refresh()}>
-                    Retry
-                  </Button>
-                }
-              />
-            )}
-          </Show>
-        }
-      >
+    <div class="min-w-0 space-y-4">
+      <section aria-label="Contacts">
         <Show
-          when={!contexts.error()}
+          when={context()}
           fallback={
-            <Placeholder
-              state="error"
-              align="left"
-              title="Contacts unavailable"
-              description={contexts.error()?.message ?? ""}
-              icon="ti ti-address-book-off"
-              action={
-                <Button variant="secondary" size="sm" type="button" onClick={() => void contexts.refresh()}>
-                  Retry
-                </Button>
-              }
-            />
+            <Show when={contexts.error()} fallback={<Placeholder state="loading" align="left" title="Loading contacts..." />}>
+              {(error) => (
+                <Placeholder
+                  state="error"
+                  align="left"
+                  title="Contacts unavailable"
+                  description={error().message}
+                  icon="ti ti-address-book-off"
+                  action={
+                    <Button variant="secondary" size="sm" type="button" onClick={() => void contexts.refresh()}>
+                      Retry
+                    </Button>
+                  }
+                />
+              )}
+            </Show>
           }
         >
           <Show
-            when={context()?.contacts.status === "ready"}
+            when={!contexts.error()}
             fallback={
               <Placeholder
                 state="error"
                 align="left"
                 title="Contacts unavailable"
-                description="Contact context could not be refreshed."
+                description={contexts.error()?.message ?? ""}
                 icon="ti ti-address-book-off"
                 action={
                   <Button variant="secondary" size="sm" type="button" onClick={() => void contexts.refresh()}>
@@ -167,142 +298,234 @@ export default function MailConversationContext(props: { mailboxId: string; conv
               />
             }
           >
-            <Show when={participantRows().length > 0} fallback={<Placeholder title="No external participants" icon="ti ti-user-off" />}>
-              <div class="flex flex-col gap-2">
-                <For each={participantRows()}>
-                  {(participant) => (
-                    <article class="min-w-0">
-                      <Show
-                        when={participant.contacts.length > 0}
-                        fallback={
-                          <Show
-                            when={!participant.hasMatch}
-                            fallback={
-                              <div class="flex min-w-0 items-start gap-2 px-2 py-1.5">
-                                <i class="ti ti-user mt-0.5 text-dimmed" aria-hidden="true" />
-                                <div class="min-w-0 flex-1">
-                                  <p class="truncate text-sm font-medium text-primary">{participant.displayName || participant.email}</p>
-                                  <p class="truncate text-xs text-dimmed">Matching contact available. Load more to view it.</p>
+            <Show
+              when={context()?.contacts.status === "ready"}
+              fallback={
+                <Placeholder
+                  state="error"
+                  align="left"
+                  title="Contacts unavailable"
+                  description="Contact context could not be refreshed."
+                  icon="ti ti-address-book-off"
+                  action={
+                    <Button variant="secondary" size="sm" type="button" onClick={() => void contexts.refresh()}>
+                      Retry
+                    </Button>
+                  }
+                />
+              }
+            >
+              <Show when={participantRows().length > 0} fallback={<Placeholder title="No external participants" icon="ti ti-user-off" />}>
+                <div class="flex flex-col gap-2">
+                  <For each={participantRows()}>
+                    {(participant) => (
+                      <article class="min-w-0">
+                        <Show
+                          when={participant.contacts.length > 0}
+                          fallback={
+                            <Show
+                              when={!participant.hasMatch}
+                              fallback={
+                                <div class="flex min-w-0 items-start gap-2 px-2 py-1.5">
+                                  <i class="ti ti-user mt-0.5 text-dimmed" aria-hidden="true" />
+                                  <div class="min-w-0 flex-1">
+                                    <p class="truncate text-sm font-medium text-primary">{participant.displayName || participant.email}</p>
+                                    <p class="truncate text-xs text-dimmed">Matching contact available. Load more to view it.</p>
+                                  </div>
                                 </div>
-                              </div>
-                            }
-                          >
-                            <DetailPanel.Action
-                              type="button"
-                              disabled={createParticipantContact.loading()}
-                              onClick={() => void chooseBookAndCreate(participant)}
-                              leading={<i class="ti ti-user" aria-hidden="true" />}
-                              title={participant.displayName || participant.email}
-                              description={participant.displayName ? participant.email : undefined}
-                              trailing={
-                                <span class="flex items-center gap-1 text-xs">
-                                  <i class="ti ti-user-plus" aria-hidden="true" /> Create
-                                </span>
                               }
-                            />
-                          </Show>
-                        }
-                      >
-                        <div class="flex flex-col gap-1">
-                          <Show when={participant.showParticipantHeading}>
-                            <div class="px-2 py-1">
-                              <p class="truncate text-xs font-medium text-secondary">{participant.displayName || participant.email}</p>
-                              <Show when={participant.displayName}>
-                                <p class="truncate text-xs text-dimmed" title={participant.email}>
-                                  {participant.email}
-                                </p>
-                              </Show>
-                            </div>
-                          </Show>
-                          <For each={participant.contacts}>
-                            {(contact) => {
-                              const description = () =>
-                                [
-                                  participant.showParticipantHeading ? null : participant.email,
-                                  contact.jobTitle,
-                                  contact.companyName,
-                                  contact.bookName,
-                                ]
-                                  .filter(Boolean)
-                                  .join(" · ");
-                              return (
-                                <div class="min-w-0">
-                                  <Show
-                                    when={contact.openHref}
-                                    fallback={
-                                      <div class="flex min-w-0 items-start gap-2 px-2 py-1.5">
-                                        <i class="ti ti-address-book mt-0.5 text-dimmed" aria-hidden="true" />
-                                        <div class="min-w-0 flex-1">
-                                          <p class="truncate text-sm font-medium text-primary">{contact.displayName}</p>
-                                          <Show when={description()}>
-                                            <p class="truncate text-xs text-dimmed">{description()}</p>
-                                          </Show>
+                            >
+                              <DetailPanel.Action
+                                type="button"
+                                disabled={createParticipantContact.loading()}
+                                onClick={() => void chooseBookAndCreate(participant)}
+                                leading={<i class="ti ti-user" aria-hidden="true" />}
+                                title={participant.displayName || participant.email}
+                                description={participant.displayName ? participant.email : undefined}
+                                trailing={
+                                  <span class="flex items-center gap-1 text-[0.6875rem] font-normal">
+                                    <i class="ti ti-user-plus" aria-hidden="true" /> New contact
+                                  </span>
+                                }
+                              />
+                            </Show>
+                          }
+                        >
+                          <div class="flex flex-col gap-1">
+                            <Show when={participant.showParticipantHeading}>
+                              <div class="px-2 py-1">
+                                <p class="truncate text-xs font-medium text-secondary">{participant.displayName || participant.email}</p>
+                                <Show when={participant.displayName}>
+                                  <p class="truncate text-xs text-dimmed" title={participant.email}>
+                                    {participant.email}
+                                  </p>
+                                </Show>
+                              </div>
+                            </Show>
+                            <For each={participant.contacts}>
+                              {(contact) => {
+                                const description = () =>
+                                  [
+                                    participant.showParticipantHeading ? null : participant.email,
+                                    contact.jobTitle,
+                                    contact.companyName,
+                                    contact.bookName,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ");
+                                return (
+                                  <div class="min-w-0">
+                                    <Show
+                                      when={contact.openHref}
+                                      fallback={
+                                        <div class="flex min-w-0 items-start gap-2 px-2 py-1.5">
+                                          <i class="ti ti-address-book mt-0.5 text-dimmed" aria-hidden="true" />
+                                          <div class="min-w-0 flex-1">
+                                            <p class="truncate text-sm font-medium text-primary">{contact.displayName}</p>
+                                            <Show when={description()}>
+                                              <p class="truncate text-xs text-dimmed">{description()}</p>
+                                            </Show>
+                                          </div>
                                         </div>
-                                      </div>
-                                    }
-                                  >
-                                    {(href) => (
-                                      <DetailPanel.Action
-                                        href={href()}
-                                        leading={<i class="ti ti-address-book" aria-hidden="true" />}
-                                        title={contact.displayName}
-                                        description={description() || undefined}
-                                        trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
-                                      />
-                                    )}
-                                  </Show>
-                                  <Show when={contact.phones[0]}>
-                                    {(phone) => (
-                                      <DetailPanel.Action
-                                        href={`tel:${phone().phone}`}
-                                        leading={<i class="ti ti-phone" aria-hidden="true" />}
-                                        title={phone().phone}
-                                        description="Phone"
-                                      />
-                                    )}
-                                  </Show>
-                                </div>
-                              );
-                            }}
-                          </For>
-                          <Show when={buildExactParticipantSearchHref(new URL(props.requestUrl), participant.email)}>
-                            {(href) => (
-                              <ButtonLink
-                                variant="ghost"
-                                size="xs"
-                                class="mt-1 self-start"
-                                href={href()}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                <i class="ti ti-mail" aria-hidden="true" /> Related Mail
-                                <i class="ti ti-external-link" aria-hidden="true" />
-                              </ButtonLink>
-                            )}
-                          </Show>
-                        </div>
-                      </Show>
-                    </article>
-                  )}
-                </For>
-              </div>
-              <Show when={contexts.hasMore()}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  type="button"
-                  class="mt-3"
-                  loading={contexts.loadingMore()}
-                  loadingLabel="Loading more"
-                  onClick={() => void contexts.loadMore()}
-                >
-                  Load more
-                </Button>
+                                      }
+                                    >
+                                      {(href) => (
+                                        <DetailPanel.Action
+                                          href={href()}
+                                          leading={<i class="ti ti-address-book" aria-hidden="true" />}
+                                          title={contact.displayName}
+                                          description={description() || undefined}
+                                          trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+                                        />
+                                      )}
+                                    </Show>
+                                    <Show when={contact.phones[0]}>
+                                      {(phone) => (
+                                        <DetailPanel.Action
+                                          href={`tel:${phone().phone}`}
+                                          leading={<i class="ti ti-phone" aria-hidden="true" />}
+                                          title={phone().phone}
+                                          description="Phone"
+                                        />
+                                      )}
+                                    </Show>
+                                  </div>
+                                );
+                              }}
+                            </For>
+                            <Show when={buildExactParticipantSearchHref(new URL(props.requestUrl), participant.email)}>
+                              {(href) => (
+                                <DetailPanel.Action
+                                  href={href()}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  leading={<i class="ti ti-mail" aria-hidden="true" />}
+                                  title="Related Mail"
+                                  trailing={<i class="ti ti-external-link" aria-hidden="true" />}
+                                />
+                              )}
+                            </Show>
+                          </div>
+                        </Show>
+                      </article>
+                    )}
+                  </For>
+                </div>
+                <Show when={contexts.hasMore()}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    class="mt-3"
+                    loading={contexts.loadingMore()}
+                    loadingLabel="Loading more"
+                    onClick={() => void contexts.loadMore()}
+                  >
+                    Load more
+                  </Button>
+                </Show>
               </Show>
             </Show>
           </Show>
         </Show>
-      </Show>
+      </section>
+      <section aria-label="Spaces" class="space-y-1 border-t border-default pt-4">
+        <Show
+          when={context()}
+          fallback={
+            <Show when={contexts.error()} fallback={<Placeholder state="loading" align="left" title="Loading Spaces..." />}>
+              {(error) => (
+                <Placeholder
+                  state="error"
+                  align="left"
+                  title="Spaces unavailable"
+                  description={error().message}
+                  icon="ti ti-layout-kanban-off"
+                  action={
+                    <Button variant="secondary" size="sm" type="button" onClick={() => void contexts.refresh()}>
+                      Retry
+                    </Button>
+                  }
+                />
+              )}
+            </Show>
+          }
+        >
+          {(current) => (
+            <Show
+              when={current().spaces.status === "ready"}
+              fallback={<Placeholder state="error" align="left" title="Spaces unavailable" icon="ti ti-layout-kanban-off" />}
+            >
+              <For each={current().spaces.status === "ready" ? current().spaces.items : []}>
+                {(item) => (
+                  <div class="flex min-w-0 items-center gap-1">
+                    <div class="min-w-0 flex-1">
+                      <DetailPanel.Action
+                        href={item.links?.find((link) => link.rel === "open")?.href}
+                        leading={<i class={item.icon ?? "ti ti-checkbox"} aria-hidden="true" />}
+                        title={item.title}
+                        description={item.metadata?.find((entry) => entry.label === "Space")?.value}
+                        trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      class="h-8 w-8 px-0"
+                      aria-label={`Unlink ${item.title}`}
+                      onClick={() => void unlinkSpaceItem(item.ref.id)}
+                    >
+                      <i class="ti ti-unlink" aria-hidden="true" />
+                    </Button>
+                  </div>
+                )}
+              </For>
+              <Show when={current().spaces.status === "ready" && current().spaces.truncated}>
+                <p class="px-2 py-1 text-xs text-dimmed">More linked Space items exist. Open Spaces to manage all links.</p>
+              </Show>
+              <DetailPanel.Action
+                type="button"
+                onClick={() => void linkExistingSpaceItem()}
+                leading={<i class="ti ti-link" aria-hidden="true" />}
+                title="Link Space item"
+              />
+              <DetailPanel.Action
+                type="button"
+                onClick={() => void createSpaceItem("task")}
+                leading={<i class="ti ti-checkbox" aria-hidden="true" />}
+                title="New Space task"
+              />
+              <DetailPanel.Action
+                type="button"
+                onClick={() => void createSpaceItem("event")}
+                leading={<i class="ti ti-calendar-event" aria-hidden="true" />}
+                title="New Space event"
+              />
+            </Show>
+          )}
+        </Show>
+      </section>
     </div>
   );
 }

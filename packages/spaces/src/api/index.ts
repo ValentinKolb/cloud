@@ -41,6 +41,8 @@ import {
   SpaceColumnSchema,
   SpaceCommentSchema,
   SpaceDetailSchema,
+  SpaceItemResourceReferenceInputSchema,
+  SpaceItemResourceReferenceSchema,
   SpaceItemSchema,
   SpaceSchema,
   SpaceTagSchema,
@@ -93,6 +95,9 @@ import wsRoutes from "../ws";
 const SpaceListSchema = z.array(SpaceSchema);
 const SpaceItemListSchema = z.array(SpaceItemSchema);
 const SpaceCommentListSchema = z.array(SpaceCommentSchema);
+const SpaceItemResourceReferenceListSchema = z.array(SpaceItemResourceReferenceSchema);
+const ResourceReferenceDeleteSchema = z.object({ ref: SpaceItemResourceReferenceInputSchema.shape.ref }).strict();
+const ResourceReferenceDeleteResultSchema = z.object({ deleted: z.boolean() }).strict();
 const SpaceAssignableUserListSchema = z.array(SpaceAssignableUserSchema);
 const SpaceWormholeListSchema = z.array(SpaceWormholeSchema);
 const SpaceWormholeDestinationListSchema = z.array(SpaceWormholeDestinationSchema);
@@ -427,6 +432,7 @@ const app = new Hono<AuthContext>()
         spaceShortId: target.spaceId,
         href,
         cookieHeader: c.req.header("Cookie"),
+        authorizationHeader: c.req.header("Authorization"),
         dateConfig: getDateConfig(c),
       });
       if (snapshot.kind === "accessDenied") return respond(c, fail(err.forbidden(snapshot.message)));
@@ -495,10 +501,76 @@ const app = new Hono<AuthContext>()
         itemId,
         occurrenceId: c.req.valid("query").recurrence_id,
         dateConfig: getDateConfig(c),
+        cookieHeader: c.req.header("Cookie"),
+        authorizationHeader: c.req.header("Authorization"),
       });
       if (result.kind === "accessDenied") return respond(c, fail(err.forbidden(result.message)));
       if (result.kind === "notFound") return respond(c, fail(err.notFound("Item")));
       return respond(c, ok(result.detail));
+    },
+  )
+  .get(
+    "/:id/items/:itemId/references",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "List item resource references",
+      ...requiresAuth,
+      responses: { 200: jsonResponse(SpaceItemResourceReferenceListSchema, "Resource references") },
+    }),
+    async (c) => {
+      const access = await checkSpaceAccess(c, c.req.param("id") ?? "", "read");
+      if (access.error) return access.error;
+      const item = await requireItemInSpace(access.internalId!, c.req.param("itemId") ?? "");
+      if (!item.ok) return respond(c, item);
+      return respond(c, ok(await spacesService.item.references.list({ itemId: item.data.id })));
+    },
+  )
+  .post(
+    "/:id/items/:itemId/references",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "Link a Cloud resource to an item",
+      ...requiresAuth,
+      responses: { 200: jsonResponse(SpaceItemResourceReferenceSchema, "Resource reference") },
+    }),
+    v("json", SpaceItemResourceReferenceInputSchema),
+    async (c) => {
+      const access = await checkSpaceAccess(c, c.req.param("id") ?? "", "write");
+      if (access.error) return access.error;
+      const item = await requireItemInSpace(access.internalId!, c.req.param("itemId") ?? "");
+      if (!item.ok) return respond(c, item);
+      const reference = await spacesService.item.references.add({
+        itemId: item.data.id,
+        spaceId: access.internalId!,
+        reference: c.req.valid("json"),
+      });
+      return respond(c, reference ? ok(reference) : fail(err.conflict("Space item already has the maximum number of linked resources")));
+    },
+  )
+  .delete(
+    "/:id/items/:itemId/references",
+    describeRoute({
+      tags: ["Spaces"],
+      summary: "Unlink a Cloud resource from an item",
+      ...requiresAuth,
+      responses: { 200: jsonResponse(ResourceReferenceDeleteResultSchema, "Delete result") },
+    }),
+    v("json", ResourceReferenceDeleteSchema),
+    async (c) => {
+      const access = await checkSpaceAccess(c, c.req.param("id") ?? "", "write");
+      if (access.error) return access.error;
+      const item = await requireItemInSpace(access.internalId!, c.req.param("itemId") ?? "");
+      if (!item.ok) return respond(c, item);
+      return respond(
+        c,
+        ok({
+          deleted: await spacesService.item.references.remove({
+            itemId: item.data.id,
+            spaceId: access.internalId!,
+            ref: c.req.valid("json").ref,
+          }),
+        }),
+      );
     },
   )
 

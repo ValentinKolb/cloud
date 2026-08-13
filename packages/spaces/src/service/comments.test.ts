@@ -149,6 +149,10 @@ suite("Spaces comment pagination", () => {
       expect(shiftedOccurrence.items.map((entry) => entry.content)).toEqual(["First occurrence"]);
 
       const splitRecurrenceId = "2026-07-18T10:00:00.000Z";
+      await sql`
+        INSERT INTO spaces.item_resource_refs (item_id, resource_type, resource_id, label)
+        VALUES (${item!.id}::uuid, 'mail.conversation', 'Conv01', 'Planning')
+      `;
       const [futureOverride] = await sql<{ id: string }[]>`
         INSERT INTO spaces.items (
           short_id, space_id, column_id, title, starts_at, ends_at, recurring_event_id, recurrence_id, rank
@@ -190,6 +194,14 @@ suite("Spaces comment pagination", () => {
       const movedComment = await list({ itemId: split.data.id, recurrenceId: "2026-07-18T12:00:00.000Z" });
       expect(movedComment.items.map((entry) => entry.content)).toEqual(["Second occurrence"]);
       expect((await list({ itemId: item!.id, recurrenceId: splitRecurrenceId })).total).toBe(0);
+      const [splitReference] = await sql<{ count: number }[]>`
+        SELECT COUNT(*)::int AS count
+        FROM spaces.item_resource_refs
+        WHERE item_id = ${split.data.id}::uuid
+          AND resource_type = 'mail.conversation'
+          AND resource_id = 'Conv01'
+      `;
+      expect(splitReference?.count).toBe(1);
 
       const [seriesBefore] = await sql<{ count: number }[]>`
         SELECT COUNT(*)::int AS count

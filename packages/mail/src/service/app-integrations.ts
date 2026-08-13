@@ -15,6 +15,11 @@ import {
   eventInvitationCommitDataSchema,
   eventInvitationPrepareDataSchema,
   spaceDetailSchema,
+  spacesItemMutationDataSchema,
+  spacesItemReferenceFindDataSchema,
+  spacesItemReferenceRemoveDataSchema,
+  spacesItemResourceReferenceSchema,
+  spacesItemSearchDataSchema,
   spacesMailDestinationsSchema,
 } from "../app-integration-contracts";
 
@@ -27,6 +32,13 @@ const REQUIRED_SPACES_INVITATION_ACTIONS = ["calendar-invitation.import", "calen
 const REQUIRED_SPACES_SETTINGS_QUERIES = ["calendar-destination.list"] as const;
 const REQUIRED_SPACES_COMPOSER_QUERIES = ["calendar-destination.list", "space.read", "event.list"] as const;
 const REQUIRED_SPACES_COMPOSER_ACTIONS = ["event.create", "event.invitation.prepare", "event.invitation.commit"] as const;
+const REQUIRED_SPACES_CONTEXT_QUERIES = [
+  "item.reference.find",
+  "item.link-candidate.search",
+  "space.read",
+  "calendar-destination.list",
+] as const;
+const REQUIRED_SPACES_CONTEXT_ACTIONS = ["item.reference.add", "item.reference.remove", "task.create", "event.create"] as const;
 
 export type AppIntegrationRequest = {
   cookie?: string | null;
@@ -41,10 +53,15 @@ export type AppIntegrationFailure = { ok: false; code: string; message: string; 
 type AppIntegrationResult<T> = { ok: true; data: T } | AppIntegrationFailure;
 type CapabilityFailure = { code: string; message: string; status: number };
 
-export const getSpacesMailIntegrationAvailability = async (): Promise<{ invitations: boolean; settings: boolean; composer: boolean }> => {
+export const getSpacesMailIntegrationAvailability = async (): Promise<{
+  invitations: boolean;
+  settings: boolean;
+  composer: boolean;
+  context: boolean;
+}> => {
   try {
     const catalog = await getCapabilityCatalogApp("spaces");
-    if (!catalog.ok || !catalog.data) return { invitations: false, settings: false, composer: false };
+    if (!catalog.ok || !catalog.data) return { invitations: false, settings: false, composer: false, context: false };
     const queries = new Set(catalog.data.manifest.queries.map((operation) => operation.localId));
     const actions = new Set(catalog.data.manifest.actions.map((operation) => operation.localId));
     const invitations =
@@ -55,11 +72,66 @@ export const getSpacesMailIntegrationAvailability = async (): Promise<{ invitati
       settings: REQUIRED_SPACES_SETTINGS_QUERIES.every((id) => queries.has(id)),
       composer:
         REQUIRED_SPACES_COMPOSER_QUERIES.every((id) => queries.has(id)) && REQUIRED_SPACES_COMPOSER_ACTIONS.every((id) => actions.has(id)),
+      context:
+        REQUIRED_SPACES_CONTEXT_QUERIES.every((id) => queries.has(id)) && REQUIRED_SPACES_CONTEXT_ACTIONS.every((id) => actions.has(id)),
     };
   } catch {
-    return { invitations: false, settings: false, composer: false };
+    return { invitations: false, settings: false, composer: false, context: false };
   }
 };
+
+export const findSpaceItemsByResource = (ref: { type: string; id: string }, request: AppIntegrationRequest) =>
+  fetchAppCapability({
+    appId: "spaces",
+    kind: "query",
+    capabilityId: "item.reference.find",
+    request,
+    dataSchema: spacesItemReferenceFindDataSchema,
+    input: { ref, limit: 50 },
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
+
+export const searchSpaceItems = (query: string, request: AppIntegrationRequest) =>
+  fetchAppCapability({
+    appId: "spaces",
+    kind: "query",
+    capabilityId: "item.link-candidate.search",
+    request,
+    dataSchema: spacesItemSearchDataSchema,
+    input: { query, limit: 50 },
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
+
+export const linkSpaceItemResource = (
+  input: { itemId: string; reference: { ref: { type: string; id: string }; label: string } },
+  request: AppIntegrationRequest,
+) =>
+  fetchAppCapability({
+    appId: "spaces",
+    kind: "action",
+    capabilityId: "item.reference.add",
+    request,
+    dataSchema: spacesItemResourceReferenceSchema,
+    input,
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
+
+export const unlinkSpaceItemResource = (input: { itemId: string; ref: { type: string; id: string } }, request: AppIntegrationRequest) =>
+  fetchAppCapability({
+    appId: "spaces",
+    kind: "action",
+    capabilityId: "item.reference.remove",
+    request,
+    dataSchema: spacesItemReferenceRemoveDataSchema,
+    input,
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
+
+export const createSpaceItemForResource = (kind: "task" | "event", input: Record<string, unknown>, request: AppIntegrationRequest) =>
+  fetchAppCapability({
+    appId: "spaces",
+    kind: "action",
+    capabilityId: `${kind}.create`,
+    request,
+    dataSchema: spacesItemMutationDataSchema,
+    input,
+  }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
 
 export const projectAppCapabilityError = (error: CapabilityFailure): AppIntegrationFailure => {
   const unavailable =
@@ -231,7 +303,13 @@ export const previewCalendarInvitation = (
   }).then((result) => (result.ok ? { ok: true as const, data: result.data.data } : result));
 
 export const importCalendarInvitation = (
-  input: { mailboxId: string; messageId: string; calendar: string; spaceId: string },
+  input: {
+    mailboxId: string;
+    messageId: string;
+    calendar: string;
+    spaceId: string;
+    conversation: { ref: { type: "mail.conversation"; id: string }; label: string };
+  },
   request: AppIntegrationRequest,
 ) =>
   fetchAppCapability({

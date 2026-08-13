@@ -42,3 +42,9 @@ Spaces owns imported meeting state, recurrence, organizers, attendees, and invit
 - In an editable event, use **Invitations** to choose a writable mailbox and any currently verified From identity before creating an editable Mail draft. Updates use a newer sequence, cancellation is explicit, and transport failures remain visible in Spaces.
 - If Mail or its required capability surface is unavailable, invitation controls stay hidden and Spaces remains fully usable as a calendar.
 - From a Mail draft, choose an existing event or create a compact event in a writable Space, then attach its invitation. The draft remains editable and Mail sends it only through the normal delivery flow.
+
+## Link Cloud resources to work {icon="link"}
+
+A Space item can keep stable references to resources owned by other Cloud applications. Mail uses this to link a whole conversation to an existing task or event, or to create a linked item from the conversation details. Imported calendar invitations add the same conversation reference automatically.
+
+The reference belongs to the shared Space item, not to the person who created it. Space access controls who can see or remove the link, while the target application checks its own current permission whenever someone opens the resource. If the target is removed or access changes, the stored label remains visible to Space readers and a writer can unlink the unavailable reference.

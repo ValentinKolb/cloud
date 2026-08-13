@@ -26,6 +26,7 @@ import * as draftUploads from "./draft-uploads";
 import * as drafts from "./drafts";
 import { storeReadableBlob } from "./message-blobs";
 import * as messages from "./messages";
+import { publicIds, requirePublicId } from "./public-resources";
 import * as senderIdentities from "./sender-identities";
 
 const MAX_CALENDAR_BYTES = 1_000_000;
@@ -158,7 +159,16 @@ const loadCalendarAttachment = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   messageId: string;
-}): Promise<Result<{ calendar: string; attachmentId: string; recipientAddresses: string[] }>> => {
+}): Promise<
+  Result<{
+    calendar: string;
+    attachmentId: string;
+    recipientAddresses: string[];
+    publicMailboxId: string;
+    publicMessageId: string;
+    conversation: { ref: { type: "mail.conversation"; id: string }; label: string };
+  }>
+> => {
   const message = await messages.getMessage({ context: params.context, mailboxId: params.mailboxId, messageId: params.messageId });
   if (!message.ok) return message;
   const attachment = message.data.attachments.find(
@@ -181,10 +191,29 @@ const loadCalendarAttachment = async (params: {
   }
   const bytes = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk.bytes)));
   if (bytes.byteLength !== opened.data.total) return fail(err.internal("Calendar attachment length is invalid"));
+  const [conversation] = await sql<{ id: string; subject: string }[]>`
+    SELECT conversation.id, conversation.subject
+    FROM mail.conversation_messages link
+    JOIN mail.conversations conversation ON conversation.id = link.conversation_id
+    WHERE link.message_id = ${params.messageId}::uuid AND conversation.mailbox_id = ${params.mailboxId}::uuid
+    LIMIT 1
+  `;
+  if (!conversation) return fail(err.notFound("Conversation"));
+  const [conversationIds, mailboxIds, messageIds] = await Promise.all([
+    publicIds("conversations", [conversation.id]),
+    publicIds("mailboxes", [params.mailboxId]),
+    publicIds("messages", [params.messageId]),
+  ]);
   return ok({
     calendar: new TextDecoder("utf-8", { fatal: false }).decode(bytes),
     attachmentId: attachment.id,
     recipientAddresses: [...message.data.to, ...message.data.cc].map((address) => address.address),
+    publicMailboxId: requirePublicId(mailboxIds, params.mailboxId),
+    publicMessageId: requirePublicId(messageIds, params.messageId),
+    conversation: {
+      ref: { type: "mail.conversation", id: requirePublicId(conversationIds, conversation.id) },
+      label: conversation.subject.trim().slice(0, 500) || "(No subject)",
+    },
   });
 };
 
@@ -369,7 +398,7 @@ export const preview = async (params: {
   const loaded = await loadCalendarAttachment(params);
   if (!loaded.ok) return loaded;
   const result = await previewCalendarInvitation(
-    { mailboxId: params.mailboxId, messageId: params.messageId, calendar: loaded.data.calendar },
+    { mailboxId: loaded.data.publicMailboxId, messageId: loaded.data.publicMessageId, calendar: loaded.data.calendar },
     params.request,
   );
   return result.ok ? ok(result.data) : integrationFailure(result);
@@ -392,10 +421,11 @@ export const importToSpace = async (params: {
   if (!loaded.ok) return loaded;
   const result = await importCalendarInvitation(
     {
-      mailboxId: params.mailboxId,
-      messageId: params.messageId,
+      mailboxId: loaded.data.publicMailboxId,
+      messageId: loaded.data.publicMessageId,
       spaceId: destination,
       calendar: loaded.data.calendar,
+      conversation: loaded.data.conversation,
     },
     params.request,
   );
@@ -426,18 +456,19 @@ export const createResponseDraft = async (params: {
   if (!destination) return fail(err.badInput("Choose a destination Space first"));
   const imported = await importCalendarInvitation(
     {
-      mailboxId: params.mailboxId,
-      messageId: params.messageId,
+      mailboxId: loaded.data.publicMailboxId,
+      messageId: loaded.data.publicMessageId,
       spaceId: destination,
       calendar: loaded.data.calendar,
+      conversation: loaded.data.conversation,
     },
     params.request,
   );
   if (!imported.ok) return integrationFailure(imported);
   const response = await buildCalendarInvitationResponse(
     {
-      mailboxId: params.mailboxId,
-      messageId: params.messageId,
+      mailboxId: loaded.data.publicMailboxId,
+      messageId: loaded.data.publicMessageId,
       calendar: loaded.data.calendar,
       participationStatus: params.participationStatus,
       attendee: { name: identity.data.displayName || null, address: identity.data.fromAddress },
@@ -462,10 +493,10 @@ export const createResponseDraft = async (params: {
   }
   const committed = await commitCalendarInvitationResponse(
     {
-      mailboxId: params.mailboxId,
-      messageId: params.messageId,
+      mailboxId: loaded.data.publicMailboxId,
+      messageId: loaded.data.publicMessageId,
       participationStatus: params.participationStatus,
-      draftId: draft.data.id,
+      draftId: requirePublicId(await publicIds("drafts", [draft.data.id]), draft.data.id),
     },
     params.request,
   );

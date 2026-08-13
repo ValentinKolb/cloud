@@ -1,3 +1,4 @@
+import { CloudResourceViewSchema } from "@valentinkolb/cloud/contracts";
 import type {
   WorkflowDiagnostic as KernelWorkflowDiagnostic,
   WorkflowBoundPlan,
@@ -251,9 +252,44 @@ export const mailConversationContextSchema = z
         })
         .strict(),
     ]),
+    spaces: z.discriminatedUnion("status", [
+      z.object({ status: z.literal("ready"), items: z.array(CloudResourceViewSchema).max(100), truncated: z.boolean() }).strict(),
+      z.object({ status: z.literal("unavailable"), items: z.array(z.never()).length(0), truncated: z.literal(false) }).strict(),
+    ]),
   })
   .strict();
 export type MailConversationContext = z.infer<typeof mailConversationContextSchema>;
+
+export const mailConversationSpaceSearchQuerySchema = z.object({ query: z.string().trim().max(500).default("") }).strict();
+export const mailConversationSpaceLinkInputSchema = z.object({ itemId: ResourceShortIdSchema }).strict();
+export const mailConversationSpaceCreateInputSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("task"),
+      spaceId: ResourceShortIdSchema,
+      columnId: ResourceShortIdSchema,
+      title: z.string().trim().min(1).max(200),
+      deadline: z.string().datetime().optional(),
+      priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("event"),
+      spaceId: ResourceShortIdSchema,
+      columnId: ResourceShortIdSchema,
+      title: z.string().trim().min(1).max(200),
+      startsAt: z.string().datetime(),
+      endsAt: z.string().datetime(),
+      allDay: z.boolean().optional(),
+    })
+    .strict()
+    .refine((value) => new Date(value.endsAt) > new Date(value.startsAt), {
+      message: "End time must be after start time",
+      path: ["endsAt"],
+    }),
+]);
+export type MailConversationSpaceCreateInput = z.infer<typeof mailConversationSpaceCreateInputSchema>;
 
 export const relatedMailSummarySchema = z
   .object({

@@ -13,6 +13,7 @@ import { spacesService } from "@/service";
 import { latestSpaceEventCursor } from "@/service/events";
 import { spacesPublicResources } from "@/service/public-resources";
 import { resolveRecurringOccurrence } from "@/service/recurrence";
+import { resolveReferenceViews } from "@/service/resource-reference-views";
 import { type CalendarFilter, parseCalendarFilter } from "../calendar/filter";
 import type { CalendarView, DayWeather } from "../calendar/types";
 import { defaultFilter, type FilterState, parseFilterFromUrl } from "../filter/types";
@@ -32,6 +33,7 @@ type WorkspaceRequest = {
   spaceShortId: string;
   href: string;
   cookieHeader?: string;
+  authorizationHeader?: string;
   dateConfig?: DateContext;
 };
 
@@ -110,7 +112,9 @@ const projectItemResult = async (result: ItemListResult): Promise<ItemListResult
   items: await spacesPublicResources.projectItems(result.items),
 });
 
-const projectItemDetail = async (detail: SpaceItemDetail): Promise<SpaceItemDetail> => {
+const projectItemDetail = async (
+  detail: Omit<SpaceItemDetail, "references"> & { references?: SpaceItemDetail["references"] },
+): Promise<SpaceItemDetail> => {
   const [[item], comments] = await Promise.all([
     spacesPublicResources.projectItems([detail.item]),
     spacesPublicResources.projectComments(detail.comments.items),
@@ -122,6 +126,7 @@ const projectItemDetail = async (detail: SpaceItemDetail): Promise<SpaceItemDeta
     comments: { ...detail.comments, items: comments },
     commentTarget: { ...detail.commentTarget, itemId: seriesItemId },
     recurringContext: detail.recurringContext ? { ...detail.recurringContext, seriesItemId } : null,
+    references: detail.references ?? [],
   };
 };
 
@@ -433,6 +438,8 @@ const loadSelectedItemState = async (params: {
   spaceId: string;
   userId: string;
   dateConfig?: DateContext;
+  cookieHeader?: string;
+  authorizationHeader?: string;
 }): Promise<SpaceItemDetail | null> => {
   if (!ResourceShortIdSchema.safeParse(params.selectedItemId).success) return null;
   const selectedItemId = await spacesPublicResources.resolvePublicId("items", params.selectedItemId);
@@ -468,7 +475,17 @@ const loadSelectedItemState = async (params: {
     pagination: { page: 1, perPage: COMMENT_PAGE_SIZE },
   });
 
-  return projectItemDetail({ item: detailItem, comments, commentTarget, recurringContext });
+  const references = await spacesService.item.references.list({ itemId: detailItem.id });
+  return projectItemDetail({
+    item: detailItem,
+    comments,
+    commentTarget,
+    recurringContext,
+    references: await resolveReferenceViews(references, {
+      cookie: params.cookieHeader,
+      authorization: params.authorizationHeader,
+    }),
+  });
 };
 
 const loadWormholes = async (params: { canWrite: boolean; spaceId: string; user: AuthUser }): Promise<SpaceWormhole[]> => {
@@ -690,6 +707,8 @@ export const loadSpaceItemDetail = async (params: {
   itemId: string;
   occurrenceId?: string | null;
   dateConfig?: DateContext;
+  cookieHeader?: string;
+  authorizationHeader?: string;
 }): Promise<{ kind: "ok"; detail: SpaceItemDetail } | Extract<SpacesWorkspaceState, { kind: "notFound" | "accessDenied" }>> => {
   const [space, permissions] = await Promise.all([
     spacesService.space.get({ id: params.spaceId }),
@@ -723,7 +742,20 @@ export const loadSpaceItemDetail = async (params: {
     viewerUserId: params.user.id,
     pagination: { page: 1, perPage: COMMENT_PAGE_SIZE },
   });
-  return { kind: "ok", detail: await projectItemDetail({ item: detailItem, comments, commentTarget, recurringContext }) };
+  const references = await spacesService.item.references.list({ itemId: detailItem.id });
+  return {
+    kind: "ok",
+    detail: await projectItemDetail({
+      item: detailItem,
+      comments,
+      commentTarget,
+      recurringContext,
+      references: await resolveReferenceViews(references, {
+        cookie: params.cookieHeader,
+        authorization: params.authorizationHeader,
+      }),
+    }),
+  };
 };
 
 export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promise<SpacesWorkspaceState> => {
@@ -752,6 +784,8 @@ export const loadSpacesWorkspaceState = async (params: WorkspaceRequest): Promis
     spaceId: params.spaceId,
     userId: params.user.id,
     dateConfig: params.dateConfig,
+    cookieHeader: params.cookieHeader,
+    authorizationHeader: params.authorizationHeader,
   });
   const [publicItemsResult, publicKanbanBuckets, publicCalendarItems, publicWormholes] = await Promise.all([
     projectItemResult(itemsResult),

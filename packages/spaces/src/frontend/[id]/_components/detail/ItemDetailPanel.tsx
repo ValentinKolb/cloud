@@ -16,7 +16,7 @@ import {
   Tooltip,
   toast,
 } from "@k2b/ui";
-import { createEffect, createSignal, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceItemAssignee, SpaceTag, SpaceWormhole, WormholeTransferResult } from "@/contracts";
 import { shouldHandleDetailClick } from "../../../lib/detail";
@@ -44,6 +44,7 @@ type Props = {
   initialCommentsPage: SpaceItemDetail["comments"];
   commentTarget: SpaceItemDetail["commentTarget"];
   recurringContext: SpaceItemDetail["recurringContext"];
+  references?: SpaceItemDetail["references"];
   dateConfig?: DateContext;
   canWrite: boolean;
   mailIntegrationAvailable: boolean;
@@ -120,6 +121,18 @@ export default function ItemDetailPanel(props: Props) {
   const [selectedPriorityValue, setSelectedPriorityValue] = createSignal<string | null>(props.item.priority);
   const [selectedTagIds, setSelectedTagIds] = createSignal(props.item.tags?.map((tag) => tag.id) ?? []);
   let selectedItemId = props.item.id;
+
+  const unlinkReference = mutations.create<void, { type: string; id: string }>({
+    mutation: async (ref, { abortSignal }) => {
+      const response = await apiClient[":id"].items[":itemId"].references.$delete(
+        { param: { id: props.spaceId, itemId: props.item.id }, json: { ref } },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readResponseError(response, "Failed to unlink resource"));
+    },
+    onSuccess: () => reconcileAfterWrite(),
+    onError: (error) => prompts.error(error.message),
+  });
 
   createEffect(() => {
     if (props.item.id === selectedItemId) return;
@@ -663,6 +676,54 @@ export default function ItemDetailPanel(props: Props) {
               }
             >
               <MarkdownView markdown={props.item.description!} smallHeadings class="text-sm" />
+            </DetailPanel.Section>
+          </Show>
+
+          <Show when={(props.references?.length ?? 0) > 0}>
+            <DetailPanel.Section title="Linked resources" icon="ti ti-link" tone="neutral">
+              <div class="flex flex-col gap-1">
+                <For each={props.references ?? []}>
+                  {(reference) => {
+                    const href = () => reference.resource?.links?.find((link) => link.rel === "open")?.href;
+                    return (
+                      <div class="flex min-w-0 items-center gap-1">
+                        <div class="min-w-0 flex-1">
+                          <Show
+                            when={href()}
+                            fallback={
+                              <div class="flex min-w-0 items-start gap-2 px-2 py-1.5">
+                                <i class={reference.resource?.icon ?? "ti ti-link"} aria-hidden="true" />
+                                <div class="min-w-0 flex-1">
+                                  <p class="truncate text-sm font-medium text-primary">{reference.label}</p>
+                                  <p class="truncate text-xs text-dimmed">Resource unavailable or no longer accessible</p>
+                                </div>
+                              </div>
+                            }
+                          >
+                            {(openHref) => (
+                              <DetailPanel.Action
+                                href={openHref()}
+                                leading={<i class={reference.resource?.icon ?? "ti ti-link"} aria-hidden="true" />}
+                                title={reference.label}
+                                description={reference.resource?.title !== reference.label ? reference.resource?.title : undefined}
+                                trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+                              />
+                            )}
+                          </Show>
+                        </div>
+                        <Show when={canEditItem()}>
+                          <IconActionButton
+                            icon="ti ti-unlink"
+                            title="Unlink resource"
+                            disabled={unlinkReference.loading()}
+                            onClick={() => unlinkReference.mutate(reference.ref)}
+                          />
+                        </Show>
+                      </div>
+                    );
+                  }}
+                </For>
+              </div>
             </DetailPanel.Section>
           </Show>
 

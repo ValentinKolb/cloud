@@ -259,6 +259,7 @@ export default function ItemDetailRoute(props: Props) {
               initialCommentsPage={current.comments}
               commentTarget={current.commentTarget}
               recurringContext={current.recurringContext}
+              references={current.references}
               dateConfig={props.dateConfig}
               canWrite={props.canWrite}
               mailIntegrationAvailable={props.mailIntegrationAvailable}

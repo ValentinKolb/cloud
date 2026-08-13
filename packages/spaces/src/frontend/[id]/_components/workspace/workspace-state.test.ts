@@ -136,6 +136,7 @@ mock.module("@/service", () => ({
         return { ...loadedItem, spaceId: itemSpaceId };
       },
       getRecurringOverride: async () => loadedOverride,
+      references: { list: async () => [] },
       calendar: { list: async () => [] },
     },
     comment: {

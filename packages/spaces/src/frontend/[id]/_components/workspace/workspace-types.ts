@@ -1,4 +1,5 @@
 import { dates as calendar, type DateContext } from "@k2b/stdlib";
+import { CloudResourceViewSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 import {
   CalendarItemSchema,
@@ -6,6 +7,7 @@ import {
   ResourceShortIdSchema,
   SpaceCommentSchema,
   SpaceDetailSchema,
+  SpaceItemResourceReferenceSchema,
   SpaceItemSchema,
   SpaceWormholeSchema,
 } from "@/contracts";
@@ -65,6 +67,7 @@ export const SpaceItemDetailSchema = z.object({
     recurrenceId: z.string().datetime().nullable(),
   }),
   recurringContext: SpaceItemRecurringContextSchema.nullable(),
+  references: z.array(SpaceItemResourceReferenceSchema.extend({ resource: CloudResourceViewSchema.nullable() })).max(100),
 });
 export type SpaceItemDetail = z.infer<typeof SpaceItemDetailSchema>;
 

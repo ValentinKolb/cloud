@@ -34,7 +34,7 @@ describe("Mail app integration states", () => {
     expect(html).toContain("Reading calendar invitation");
   });
 
-  test("exposes Contacts loading through the shared region contract", () => {
+  test("exposes Contacts and Spaces loading through the shared region contract", () => {
     const html = renderToString(() =>
       createComponent(MailConversationContext, {
         mailboxId: "11111111-1111-4111-8111-111111111111",
@@ -48,5 +48,7 @@ describe("Mail app integration states", () => {
     expect(html).toContain('data-state="loading"');
     expect(html).toContain('role="status"');
     expect(html).toContain("Loading contacts...");
+    expect(html).toContain("Loading Spaces...");
+    expect(html).not.toContain("Spaces unavailable");
   });
 });

@@ -3,7 +3,7 @@ import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { capabilityIdempotencyConflict } from "@valentinkolb/cloud/contracts";
 import type { AccessSubject } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
-import type { User } from "../contracts";
+import type { SpaceItemResourceReferenceInput, User } from "../contracts";
 import {
   type CalendarAddress,
   type CalendarAttendee,
@@ -22,6 +22,7 @@ import { withShortId } from "../lib/short-id";
 import { buildSpaceCalendarUid, buildSpaceItemHref } from "../routes";
 import { getSpacePermission } from "./access";
 import { publishSpaceEvent } from "./events";
+import { ItemResourceReferenceLimitError, insertMany as insertItemResourceReferences } from "./item-resource-references";
 import * as items from "./items";
 import {
   createInvitationDraft as createMailInvitationDraft,
@@ -43,7 +44,10 @@ type InternalCalendarInvitationPreview = {
   response: CalendarInvitationResponseState | null;
   existing: InternalCalendarInvitationExisting | null;
 };
-type InternalCalendarInvitationImportInput = CalendarInvitationPreviewInput & { spaceId: string };
+type InternalCalendarInvitationImportInput = CalendarInvitationPreviewInput & {
+  spaceId: string;
+  conversation: SpaceItemResourceReferenceInput;
+};
 type InternalCalendarInvitationImportResult = {
   itemId: string;
   spaceId: string;
@@ -432,72 +436,76 @@ const importParsedCalendarInvitation = async (params: {
   const { invitation } = params;
   const permission = await getSpacePermission({ spaceId: params.input.spaceId, subject: params.subject });
   if (permission !== "write" && permission !== "admin") return fail(err.forbidden("Write access to the destination Space is required"));
-  const result = await withShortId("item", (shortId) =>
-    sql.begin(async (tx): Promise<Result<InternalCalendarInvitationImportResult>> => {
-      await tx`
+  let result: Result<InternalCalendarInvitationImportResult>;
+  try {
+    result = await withShortId("item", (shortId) =>
+      sql.begin(async (tx): Promise<Result<InternalCalendarInvitationImportResult>> => {
+        await tx`
       SELECT pg_advisory_xact_lock(
         hashtextextended(${calendarSourceLockKey(params.input.mailboxId, invitation.uid)}, 0)
       )
     `;
-      let existing = await findExisting(params.input.mailboxId, invitation.uid, tx, true);
-      if (existing) {
-        await tx`SELECT pg_advisory_xact_lock(hashtextextended(${calendarItemLockKey(existing.itemId)}, 0))`;
-        const current = await findExisting(params.input.mailboxId, invitation.uid, tx, true);
-        if (!current || current.itemId !== existing.itemId) return fail(err.conflict("Calendar invitation linkage changed concurrently"));
-        existing = current;
-      }
-      if (existing && existing.spaceId !== params.input.spaceId) {
-        return fail(err.conflict("This calendar event is already linked to another Space"));
-      }
-      const decision = decideCalendarImport({ existing, invitation });
-      if (existing && decision === "unchanged") {
-        return ok({ itemId: existing.itemId, spaceId: existing.spaceId, href: existing.href, outcome: "unchanged" });
-      }
-      const cancelled = invitation.method === "cancel" || invitation.status === "cancelled";
-      if (decision === "reject_cancellation") return fail(err.badInput("A cancellation cannot create a new event"));
-      const persisted = await items.persistCalendarEvent({
-        db: tx,
-        spaceId: params.input.spaceId,
-        itemId: existing?.itemId ?? null,
-        createdBy: params.user.id,
-        completed: cancelled,
-        shortId,
-        data: {
-          title: invitation.title,
-          description: invitation.description,
-          location: invitation.location,
-          url: invitation.url,
-          startsAt: invitation.startsAt,
-          endsAt: invitation.endsAt,
-          allDay: invitation.allDay,
-          recurrenceRule: invitation.recurrenceRule,
-        },
-      });
-      if (!persisted.ok) {
-        return fail(
-          persisted.status === 404
-            ? err.notFound(persisted.error)
-            : persisted.status === 500
-              ? err.internal(persisted.error)
-              : err.badInput(persisted.error),
-        );
-      }
-      if (existing) {
-        await tx`
+        let existing = await findExisting(params.input.mailboxId, invitation.uid, tx, true);
+        if (existing) {
+          await tx`SELECT pg_advisory_xact_lock(hashtextextended(${calendarItemLockKey(existing.itemId)}, 0))`;
+          const current = await findExisting(params.input.mailboxId, invitation.uid, tx, true);
+          if (!current || current.itemId !== existing.itemId) return fail(err.conflict("Calendar invitation linkage changed concurrently"));
+          existing = current;
+        }
+        if (existing && existing.spaceId !== params.input.spaceId) {
+          return fail(err.conflict("This calendar event is already linked to another Space"));
+        }
+        const decision = decideCalendarImport({ existing, invitation });
+        if (existing && decision === "unchanged") {
+          await insertItemResourceReferences(tx, existing.itemId, [params.input.conversation]);
+          return ok({ itemId: existing.itemId, spaceId: existing.spaceId, href: existing.href, outcome: "unchanged" });
+        }
+        const cancelled = invitation.method === "cancel" || invitation.status === "cancelled";
+        if (decision === "reject_cancellation") return fail(err.badInput("A cancellation cannot create a new event"));
+        const persisted = await items.persistCalendarEvent({
+          db: tx,
+          spaceId: params.input.spaceId,
+          itemId: existing?.itemId ?? null,
+          createdBy: params.user.id,
+          completed: cancelled,
+          shortId,
+          data: {
+            title: invitation.title,
+            description: invitation.description,
+            location: invitation.location,
+            url: invitation.url,
+            startsAt: invitation.startsAt,
+            endsAt: invitation.endsAt,
+            allDay: invitation.allDay,
+            recurrenceRule: invitation.recurrenceRule,
+          },
+        });
+        if (!persisted.ok) {
+          return fail(
+            persisted.status === 404
+              ? err.notFound(persisted.error)
+              : persisted.status === 500
+                ? err.internal(persisted.error)
+                : err.badInput(persisted.error),
+          );
+        }
+        if (existing) {
+          await tx`
         UPDATE spaces.calendar_invitation_sources
         SET message_id = ${params.input.messageId}, sequence = ${invitation.sequence}, method = ${invitation.method},
             organizer = ${invitation.organizer}::jsonb, attendees = ${invitation.attendees}::jsonb,
             last_response = NULL, updated_at = now()
         WHERE item_id = ${existing.itemId}::uuid
       `;
-        return ok({
-          itemId: existing.itemId,
-          spaceId: existing.spaceId,
-          href: existing.href,
-          outcome: cancelled ? "cancelled" : "updated",
-        });
-      }
-      await tx`
+          await insertItemResourceReferences(tx, existing.itemId, [params.input.conversation]);
+          return ok({
+            itemId: existing.itemId,
+            spaceId: existing.spaceId,
+            href: existing.href,
+            outcome: cancelled ? "cancelled" : "updated",
+          });
+        }
+        await tx`
       INSERT INTO spaces.calendar_invitation_sources (
         item_id, mailbox_id, message_id, calendar_uid, sequence, method, organizer, attendees
       ) VALUES (
@@ -505,17 +513,24 @@ const importParsedCalendarInvitation = async (params: {
         ${invitation.sequence}, ${invitation.method}, ${invitation.organizer}::jsonb, ${invitation.attendees}::jsonb
       )
     `;
-      const publicRef = await publicEventRef(persisted.data.id, tx);
-      if (!publicRef) return fail(err.internal("Created calendar event has no public ID"));
-      return ok({
-        itemId: persisted.data.id,
-        spaceId: params.input.spaceId,
-        href: buildSpaceItemHref(publicRef.spaceId, publicRef.itemId),
-        outcome: "created",
-      });
-    }),
-  );
-  if (!result.ok || result.data.outcome === "unchanged") return result;
+        const publicRef = await publicEventRef(persisted.data.id, tx);
+        if (!publicRef) return fail(err.internal("Created calendar event has no public ID"));
+        await insertItemResourceReferences(tx, persisted.data.id, [params.input.conversation]);
+        return ok({
+          itemId: persisted.data.id,
+          spaceId: params.input.spaceId,
+          href: buildSpaceItemHref(publicRef.spaceId, publicRef.itemId),
+          outcome: "created",
+        });
+      }),
+    );
+  } catch (error) {
+    if (error instanceof ItemResourceReferenceLimitError) {
+      return fail(err.conflict("Space item already has the maximum number of linked resources"));
+    }
+    throw error;
+  }
+  if (!result.ok) return result;
   if (result.data.outcome === "created") {
     await publishSpaceEvent({ type: "item.created", spaceId: result.data.spaceId, itemId: result.data.itemId });
   } else {

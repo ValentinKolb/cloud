@@ -581,7 +581,7 @@ export default function MailDetailsPanel(props: {
 
           <DetailPanel.Group label="Conversation context">
             <Show when={props.presence.length > 0}>
-              <DetailPanel.Section title="Active collaborators" icon="ti ti-users" tone="success" meta={props.presence.length}>
+              <section aria-label="Active collaborators" class="bg-[var(--ui-surface)] p-3">
                 <div class="flex flex-col gap-2">
                   <For each={props.presence}>
                     {(participant) => (
@@ -597,17 +597,17 @@ export default function MailDetailsPanel(props: {
                     )}
                   </For>
                 </div>
-              </DetailPanel.Section>
+              </section>
             </Show>
 
-            <DetailPanel.Section title="Contacts" icon="ti ti-address-book" tone="accent">
+            <div class="bg-[var(--ui-surface)] p-3">
               <MailConversationContext
                 mailboxId={props.mailboxId}
                 conversationId={props.conversationId}
                 requestUrl={props.requestUrl}
                 active={props.active}
               />
-            </DetailPanel.Section>
+            </div>
 
             <Show when={attachments().length > 0}>
               <DetailPanel.Section title="Attachments" icon="ti ti-paperclip" tone="neutral" meta={attachments().length}>

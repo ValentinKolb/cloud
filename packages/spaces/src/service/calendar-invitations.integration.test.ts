@@ -124,6 +124,7 @@ suite("Spaces calendar invitation imports", () => {
             messageId: stdCrypto.common.readableId(6),
             spaceId: spaceId!,
             calendar: calendar(uid, sequence, recurrenceRule),
+            conversation: { ref: { type: "mail.conversation", id: "Conv01" }, label: "Planning" },
           },
           user,
           subject,
@@ -159,6 +160,14 @@ suite("Spaces calendar invitation imports", () => {
       `;
       expect(source?.sequence).toBe(5);
       expect(source?.title).toBe("Sequence 5");
+      const [resourceReference] = await sql<{ count: number; label: string }[]>`
+        SELECT COUNT(*)::int AS count, MAX(reference.label) AS label
+        FROM spaces.item_resource_refs reference
+        JOIN spaces.calendar_invitation_sources source ON source.item_id = reference.item_id
+        WHERE source.mailbox_id = ${mailboxId} AND source.calendar_uid = ${uid}
+          AND reference.resource_type = 'mail.conversation' AND reference.resource_id = 'Conv01'
+      `;
+      expect(resourceReference).toEqual({ count: 1, label: "Planning" });
 
       const inaccessibleSubject = { type: "user", userId: crypto.randomUUID() } satisfies AccessSubject;
       const hidden = failSignature("Add this invitation to Spaces before responding");
@@ -201,6 +210,7 @@ suite("Spaces calendar invitation imports", () => {
           messageId: stdCrypto.common.readableId(6),
           spaceId,
           calendar: calendar(outgoingUid, 0),
+          conversation: { ref: { type: "mail.conversation", id: "Conv01" }, label: "Planning" },
         },
         user,
         subject,

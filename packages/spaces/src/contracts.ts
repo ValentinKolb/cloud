@@ -1,3 +1,4 @@
+import { CloudResourceRefSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
 
 // PostgreSQL uuid text format (accepts PostgreSQL's broader non-RFC version/variant values too).
@@ -110,6 +111,20 @@ export const SpaceItemSchema = z.object({
   tags: z.array(SpaceTagSchema).optional().describe("Attached tags"),
 });
 export type SpaceItem = z.infer<typeof SpaceItemSchema>;
+
+export const MAX_ITEM_RESOURCE_REFERENCES = 100;
+export const SpaceItemResourceReferenceInputSchema = z
+  .object({
+    ref: CloudResourceRefSchema.describe("Stable Cloud resource reference"),
+    label: z.string().trim().min(1).max(500).describe("Space-owned display label snapshot"),
+  })
+  .strict();
+export type SpaceItemResourceReferenceInput = z.infer<typeof SpaceItemResourceReferenceInputSchema>;
+
+export const SpaceItemResourceReferenceSchema = SpaceItemResourceReferenceInputSchema.extend({
+  createdAt: z.string().datetime().describe("Link creation timestamp (ISO)"),
+}).strict();
+export type SpaceItemResourceReference = z.infer<typeof SpaceItemResourceReferenceSchema>;
 
 export const SpaceCommentSchema = z.object({
   id: ResourceShortIdSchema.describe("Comment ID"),
@@ -254,6 +269,11 @@ export const CreateItemSchema = z
     recurrenceId: z.string().datetime().optional().describe("Original occurrence timestamp (ISO) for overrides"),
     assigneeIds: z.array(UuidSchema).max(100).optional().describe("Assigned user UUIDs"),
     tagIds: z.array(ResourceShortIdSchema).max(100).optional().describe("Tag IDs"),
+    references: z
+      .array(SpaceItemResourceReferenceInputSchema)
+      .max(MAX_ITEM_RESOURCE_REFERENCES)
+      .optional()
+      .describe("Cloud resources linked to the item"),
   })
   .refine((data) => !data.startsAt || !data.endsAt || new Date(data.endsAt) > new Date(data.startsAt), {
     message: "End time must be after start time",

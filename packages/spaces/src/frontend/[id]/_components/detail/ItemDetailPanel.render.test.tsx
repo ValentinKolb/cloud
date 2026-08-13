@@ -168,4 +168,35 @@ describe("Spaces item detail panel", () => {
     expect(html).not.toContain("Mark complete");
     expect(html).not.toContain("Invite or update");
   });
+
+  test("opens accessible linked resources and preserves unavailable reference snapshots", () => {
+    const html = renderPanel({
+      references: [
+        {
+          ref: { type: "mail.conversation", id: "Conv01" },
+          label: "Release planning",
+          createdAt: now,
+          resource: {
+            ref: { type: "mail.conversation", id: "Conv01" },
+            title: "Release planning",
+            icon: "ti ti-mail",
+            links: [{ rel: "open", href: "/app/mail/Box001?conversation=Conv01" }],
+          },
+        },
+        {
+          ref: { type: "mail.conversation", id: "Gone01" },
+          label: "Archived discussion",
+          createdAt: now,
+          resource: null,
+        },
+      ],
+      canWrite: false,
+    });
+
+    expect(html).toContain(">Linked resources</h3>");
+    expect(html).toContain('href="/app/mail/Box001?conversation=Conv01"');
+    expect(html).toContain("Archived discussion");
+    expect(html).toContain("Resource unavailable or no longer accessible");
+    expect(html).not.toContain('aria-label="Unlink resource"');
+  });
 });

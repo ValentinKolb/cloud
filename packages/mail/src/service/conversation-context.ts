@@ -5,12 +5,24 @@ import { z } from "zod";
 import {
   type MailConversationContext,
   type MailConversationContextQuery,
+  type MailConversationSpaceCreateInput,
   mailConversationParticipantSchema,
   type RelatedMailPage,
 } from "../contracts";
-import { type AppIntegrationFailure, type AppIntegrationRequest, resolveContacts } from "./app-integrations";
+import {
+  type AppIntegrationFailure,
+  type AppIntegrationRequest,
+  createSpaceItemForResource,
+  findSpaceItemsByResource,
+  getCalendarSpace,
+  linkSpaceItemResource,
+  resolveContacts,
+  searchSpaceItems,
+  unlinkSpaceItemResource,
+} from "./app-integrations";
 import type { MailRequestContext } from "./auth";
 import { requireMailboxCollaborationPermission } from "./collaboration";
+import { publicIds, requirePublicId } from "./public-resources";
 
 type SqlClient = typeof sql;
 
@@ -20,11 +32,21 @@ type ConversationParticipant = {
 };
 
 type ConversationProjection = {
+  subject: string;
   participants: ConversationParticipant[];
 };
 
 type HistoryCursor = { version: 1; date: string; id: string };
-type RelatedMailDependencyFailure = Omit<AppIntegrationFailure, "status"> & { status: 503 };
+type AppDependencyFailure = Omit<AppIntegrationFailure, "status"> & { status: 503 };
+
+const integrationFailure = (result: AppIntegrationFailure) => {
+  if (result.status === 503) return { ...result, status: 503 as const };
+  if (result.status === 400) return fail(err.badInput(result.message));
+  if (result.status === 403) return fail(err.forbidden(result.message));
+  if (result.status === 404) return fail(err.notFound(result.message));
+  if (result.status === 409) return fail(err.conflict(result.message));
+  return fail(err.internal(result.message));
+};
 
 const historyCursorSchema = z.object({ version: z.literal(1), date: z.string().datetime(), id: z.uuid() }).strict();
 
@@ -45,8 +67,8 @@ const loadConversationProjection = async (
   conversationId: string,
   db: SqlClient = sql,
 ): Promise<ConversationProjection | null> => {
-  const [row] = await db<Array<{ participants: unknown }>>`
-    SELECT COALESCE(participants.items, '[]'::jsonb) AS participants
+  const [row] = await db<Array<{ subject: string; participants: unknown }>>`
+    SELECT conversation.subject, COALESCE(participants.items, '[]'::jsonb) AS participants
     FROM mail.conversations conversation
     LEFT JOIN LATERAL (
       SELECT JSONB_AGG(
@@ -94,8 +116,92 @@ const loadConversationProjection = async (
   `;
   if (!row) return null;
   return {
+    subject: row.subject,
     participants: z.array(mailConversationParticipantSchema).max(100).parse(row.participants),
   };
+};
+
+const requireConversationResource = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  conversationId: string;
+}): Promise<Result<{ ref: { type: "mail.conversation"; id: string }; label: string }>> => {
+  const access = await requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
+  if (!access.ok) return access;
+  const conversation = await loadConversationProjection(params.mailboxId, params.conversationId);
+  if (!conversation) return fail(err.notFound("Conversation"));
+  const ids = await publicIds("conversations", [params.conversationId]);
+  return ok({
+    ref: { type: "mail.conversation", id: requirePublicId(ids, params.conversationId) },
+    label: conversation.subject.trim().slice(0, 500) || "(No subject)",
+  });
+};
+
+export const searchConversationSpaceItems = async (params: {
+  context: MailRequestContext;
+  request: AppIntegrationRequest;
+  mailboxId: string;
+  conversationId: string;
+  query: string;
+}) => {
+  const resource = await requireConversationResource(params);
+  if (!resource.ok) return resource;
+  const result = await searchSpaceItems(params.query, params.request);
+  return result.ok ? ok(result.data) : integrationFailure(result);
+};
+
+export const getConversationSpace = async (params: {
+  context: MailRequestContext;
+  request: AppIntegrationRequest;
+  mailboxId: string;
+  conversationId: string;
+  spaceId: string;
+}) => {
+  const resource = await requireConversationResource(params);
+  if (!resource.ok) return resource;
+  const result = await getCalendarSpace(params.spaceId, params.request);
+  if (!result.ok) return integrationFailure(result);
+  return result.data.permission === "read" ? fail(err.forbidden("Write access to the selected Space is required")) : ok(result.data);
+};
+
+export const linkConversationSpaceItem = async (params: {
+  context: MailRequestContext;
+  request: AppIntegrationRequest;
+  mailboxId: string;
+  conversationId: string;
+  itemId: string;
+}) => {
+  const resource = await requireConversationResource(params);
+  if (!resource.ok) return resource;
+  const result = await linkSpaceItemResource({ itemId: params.itemId, reference: resource.data }, params.request);
+  return result.ok ? ok(result.data) : integrationFailure(result);
+};
+
+export const unlinkConversationSpaceItem = async (params: {
+  context: MailRequestContext;
+  request: AppIntegrationRequest;
+  mailboxId: string;
+  conversationId: string;
+  itemId: string;
+}) => {
+  const resource = await requireConversationResource(params);
+  if (!resource.ok) return resource;
+  const result = await unlinkSpaceItemResource({ itemId: params.itemId, ref: resource.data.ref }, params.request);
+  return result.ok ? ok(result.data) : integrationFailure(result);
+};
+
+export const createConversationSpaceItem = async (params: {
+  context: MailRequestContext;
+  request: AppIntegrationRequest;
+  mailboxId: string;
+  conversationId: string;
+  input: MailConversationSpaceCreateInput;
+}) => {
+  const resource = await requireConversationResource(params);
+  if (!resource.ok) return resource;
+  const { kind, ...input } = params.input;
+  const result = await createSpaceItemForResource(kind, { ...input, references: [resource.data] }, params.request);
+  return result.ok ? ok(result.data) : integrationFailure(result);
 };
 
 export const getConversationContext = async (params: {
@@ -110,17 +216,21 @@ export const getConversationContext = async (params: {
   const conversation = await loadConversationProjection(params.mailboxId, params.conversationId);
   if (!conversation) return fail(err.notFound("Conversation"));
   const participantEmails = conversation.participants.map((participant) => participant.email);
-  const contacts =
+  const conversationIds = await publicIds("conversations", [params.conversationId]);
+  const publicConversationId = requirePublicId(conversationIds, params.conversationId);
+  const [contacts, linkedSpaces] = await Promise.all([
     participantEmails.length === 0
-      ? { ok: true as const, data: { items: [], matchedEmails: [], nextCursor: null } }
-      : await resolveContacts(
+      ? Promise.resolve({ ok: true as const, data: { items: [], matchedEmails: [], nextCursor: null } })
+      : resolveContacts(
           {
             emails: participantEmails,
             cursor: params.query.contactsCursor,
             limit: params.query.contactsLimit,
           },
           params.request,
-        );
+        ),
+    findSpaceItemsByResource({ type: "mail.conversation", id: publicConversationId }, params.request),
+  ]);
 
   return ok({
     conversationId: params.conversationId,
@@ -133,6 +243,9 @@ export const getConversationContext = async (params: {
           nextCursor: contacts.data.nextCursor,
         }
       : { status: "unavailable", items: [], matchedEmails: [], nextCursor: null },
+    spaces: linkedSpaces.ok
+      ? { status: "ready", items: linkedSpaces.data.items, truncated: linkedSpaces.data.truncated }
+      : { status: "unavailable", items: [], truncated: false },
   });
 };
 
@@ -145,7 +258,7 @@ export const listRelatedMail = async (params: {
   contactId: string;
   cursor?: string;
   limit: number;
-}): Promise<Result<RelatedMailPage> | RelatedMailDependencyFailure> => {
+}): Promise<Result<RelatedMailPage> | AppDependencyFailure> => {
   const access = await requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
   if (!access.ok) return access;
   const conversation = await loadConversationProjection(params.mailboxId, params.conversationId);

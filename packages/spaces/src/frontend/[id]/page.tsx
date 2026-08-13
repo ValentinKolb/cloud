@@ -40,6 +40,7 @@ export default ssr<AuthContext>(async (c) => {
       spaceShortId,
       href: c.req.url,
       cookieHeader: c.req.header("Cookie"),
+      authorizationHeader: c.req.header("Authorization"),
       dateConfig,
     }),
     isMailInvitationIntegrationAvailable(),
