@@ -4,7 +4,7 @@ import { aiTurnInputToContent } from "./http";
 
 describe("attachment markers", () => {
   test("marker roundtrip", () => {
-    const ref = { path: "/input/report.csv", mediaType: "text/csv", size: 48_200_000 };
+    const ref = { path: "/report.csv", mediaType: "text/csv", size: 48_200_000 };
     const marker = aiAttachmentMarker(ref);
     const parsed = parseAiAttachmentMarkers(`Please analyze this. ${marker}`);
     expect(parsed.text).toBe("Please analyze this.");
@@ -12,8 +12,8 @@ describe("attachment markers", () => {
   });
 
   test("multiple markers and no markers", () => {
-    const a = aiAttachmentMarker({ path: "/input/a.csv", mediaType: "text/csv", size: 1 });
-    const b = aiAttachmentMarker({ path: "/input/b.pdf", mediaType: "application/pdf", size: 2 });
+    const a = aiAttachmentMarker({ path: "/a.csv", mediaType: "text/csv", size: 1 });
+    const b = aiAttachmentMarker({ path: "/b.pdf", mediaType: "application/pdf", size: 2 });
     expect(parseAiAttachmentMarkers(`${a}\n${b}`).attachments).toHaveLength(2);
     expect(parseAiAttachmentMarkers("plain text").attachments).toHaveLength(0);
     expect(parseAiAttachmentMarkers("plain text").text).toBe("plain text");
@@ -30,16 +30,16 @@ describe("aiTurnInputToContent with attachments", () => {
   test("attachment parts become marker text parts", () => {
     const content = aiTurnInputToContent({
       message: "Analyze this file",
-      content: [{ type: "attachment", path: "/input/data.csv", mediaType: "text/csv", size: 123 }],
+      content: [{ type: "attachment", path: "/data.csv", mediaType: "text/csv", size: 123 }],
     });
     expect(Array.isArray(content)).toBe(true);
     const parts = content as { type: string; text?: string }[];
     // Message is prepended because attachments-only content has no prose.
     expect(parts[0]).toEqual({ type: "text", text: "Analyze this file" });
     expect(parts[1]?.type).toBe("text");
-    expect(parts[1]?.text).toContain('<attachment path="/input/data.csv"');
+    expect(parts[1]?.text).toContain('<attachment path="/data.csv"');
     const parsed = parseAiAttachmentMarkers(parts[1]?.text ?? "");
-    expect(parsed.attachments[0]?.path).toBe("/input/data.csv");
+    expect(parsed.attachments[0]?.path).toBe("/data.csv");
   });
 
   test("prose content parts suppress message prepending", () => {
@@ -47,7 +47,7 @@ describe("aiTurnInputToContent with attachments", () => {
       message: "ignored",
       content: [
         { type: "text", text: "actual prompt" },
-        { type: "attachment", path: "/input/x.bin", mediaType: "application/octet-stream", size: 1 },
+        { type: "attachment", path: "/x.bin", mediaType: "application/octet-stream", size: 1 },
       ],
     });
     const parts = content as { type: string; text?: string }[];

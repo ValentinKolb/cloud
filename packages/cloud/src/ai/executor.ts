@@ -10,6 +10,7 @@ import { createAiCapabilityToolResolver, createAiHelpToolResolver } from "./capa
 import { executeAiCapability, resolveAiCapabilityActor, reviewAiCapability } from "./capability-execution";
 import { createCloudCompactFn } from "./compaction";
 import { createCloudAiLocalBashTool, createConfiguredDefaultCloudAiTools } from "./default-tools";
+import { aiFileStore } from "./files-store";
 import { aiMemories } from "./memories";
 import { createCloudAiMemoryTool } from "./memory-tool";
 import { type AiUserPrefs, aiActorUser, aiUserPrefs } from "./prefs";
@@ -28,8 +29,8 @@ import {
 } from "./protocol";
 import { collectConversationResourceObservations } from "./resource-refs";
 import { resolveAiResourceRunContext } from "./resource-runner";
-import type { resolveAiModel } from "./settings";
-import { aiConversationStore } from "./store";
+import { isAiVisionModelConfigured, type resolveAiModel } from "./settings";
+import { aiConversations } from "./store";
 import { publishAiWireEvent } from "./stream";
 import { composeAiSystemPrompt } from "./system-prompt";
 import { aiToolAudit } from "./tool-audit";
@@ -46,6 +47,7 @@ import type {
   AiTurnRunConfig,
   AiTurnSteer,
 } from "./types";
+import { isAiImageMediaType } from "./types";
 import { validateAiTurnRequest } from "./validate";
 
 const log = logger("ai:executor");
@@ -56,9 +58,9 @@ const AI_COALESCE_MAX_CHARS = 512;
 const AI_SNAPSHOT_INTERVAL_MS = 1_000;
 const AI_ACTION_BUDGET_MS = 24 * 60 * 60_000;
 
-const indexConversationResources = async (input: Parameters<typeof aiConversationStore.indexConversationResources>[0]): Promise<void> => {
+const indexConversationResources = async (input: Parameters<typeof aiConversations.indexConversationResources>[0]): Promise<void> => {
   try {
-    await aiConversationStore.indexConversationResources(input);
+    await aiConversations.indexConversationResources(input);
   } catch (error) {
     log.warn("Failed to index AI conversation resources", {
       conversationId: input.conversationId,
@@ -78,7 +80,7 @@ const indexConversationToolSource = async (input: {
 }): Promise<void> => {
   if (input.isError) return;
   try {
-    let source: Parameters<typeof aiConversationStore.indexConversationSource>[0]["source"] | null = null;
+    let source: Parameters<typeof aiConversations.indexConversationSource>[0]["source"] | null = null;
     if (input.name === "web_search") {
       source = { kind: "activity", key: "web_search", title: "Web search", preview: "Searched the web", icon: "ti ti-world" };
     } else if (input.name === "web_extract" && typeof input.result === "object" && input.result !== null) {
@@ -97,7 +99,7 @@ const indexConversationToolSource = async (input: {
       }
     }
     if (!source) return;
-    await aiConversationStore.indexConversationSource({
+    await aiConversations.indexConversationSource({
       conversationId: input.conversationId,
       turnId: input.turnId,
       callId: input.callId,
@@ -338,7 +340,7 @@ type MaterializedChatConfig = {
   requestedModelId?: string;
 };
 
-const materializeChatConfig = async (config: AiChatTurnRunConfig, signal: AbortSignal): Promise<MaterializedChatConfig> => {
+const materializeChatConfig = async (config: AiChatTurnRunConfig, signal: AbortSignal, turnId: string): Promise<MaterializedChatConfig> => {
   const source = config.toolSource ?? { kind: "none" };
   if (source.kind === "resource") {
     if (!config.actor) throw new Error("AI resource turn is missing an actor.");
@@ -365,7 +367,9 @@ const materializeChatConfig = async (config: AiChatTurnRunConfig, signal: AbortS
     tools:
       source.kind === "default"
         ? [
-            ...(await createConfiguredDefaultCloudAiTools()),
+            ...(await createConfiguredDefaultCloudAiTools({
+              allowedDataBoundaries: config.modelPolicy?.allowedDataBoundaries,
+            })),
             ...(config.clientToolIds?.includes("local_bash") ? [createCloudAiLocalBashTool()] : []),
           ]
         : [],
@@ -418,7 +422,7 @@ export class AiTurnExecutor {
     kind: AiTurnRunConfig["kind"] | null,
   ) {
     if (status === "failed" && error) log.error("AI turn failed", { conversationId, turnId, error });
-    const finalized = await aiConversationStore.completeTurn({ conversationId, turnId, status, error, leaseOwner: this.config.leaseOwner });
+    const finalized = await aiConversations.completeTurn({ conversationId, turnId, status, error, leaseOwner: this.config.leaseOwner });
     if (finalized === "completed") await pipeline.emitTurnFinished(status, error);
     await pipeline.flush().catch(() => undefined);
     if (finalized === "completed" && this.config.onTurnFinalized) {
@@ -451,16 +455,23 @@ export class AiTurnExecutor {
 
     let material: MaterializedChatConfig;
     let validated: ValidatedTurn;
+    let resolvedProjectId: string | null = null;
     try {
-      material = await materializeChatConfig(config, abortController.signal);
+      material = await materializeChatConfig(config, abortController.signal, turnId);
       if (config.project) {
         const subject = accessSubjectForActor(material.actor);
-        if (!subject || !(await aiProjects.get(config.project.id, subject, "read"))) {
+        const project = subject ? await aiProjects.getByShortId(config.project.id, config.project.appId, subject, "read") : null;
+        if (!project) {
           throw new Error("Project access is no longer available.");
         }
+        resolvedProjectId = project.id;
       }
       validated = await (this.config.validateTurn ?? validateAiTurnRequest)({
         input: config.input,
+        hasImageAttachments: config.files?.attached.some((file) => isAiImageMediaType(file.mediaType)),
+        canInspectAttachedImages:
+          material.tools.some((tool) => tool.def.name === "view_image") &&
+          (await isAiVisionModelConfigured(material.modelPolicy?.allowedDataBoundaries)),
         modelPolicy: material.modelPolicy,
         requestedModelId: material.requestedModelId,
       });
@@ -479,7 +490,7 @@ export class AiTurnExecutor {
     let capabilityAuthority: Awaited<ReturnType<typeof resolveAiCapabilityActor>> | null = null;
     try {
       capabilityAuthority = capabilitiesEnabled
-        ? await resolveAiCapabilityActor({ conversationId, persistedActor: material.actor, store: aiConversationStore })
+        ? await resolveAiCapabilityActor({ conversationId, persistedActor: material.actor, store: aiConversations })
         : null;
     } catch (error) {
       signal.removeEventListener("abort", onSignal);
@@ -508,7 +519,9 @@ export class AiTurnExecutor {
     const runtimeTools = [
       ...material.tools,
       ...(memoryActive ? [createCloudAiMemoryTool()] : []),
-      ...(config.project && projectSubject ? [createCloudAiProjectContextTool(config.project.id, projectSubject)] : []),
+      ...(config.project && resolvedProjectId && projectSubject
+        ? [createCloudAiProjectContextTool(resolvedProjectId, config.project.appId, projectSubject)]
+        : []),
     ];
     const toolsSupported = resolved.profile.capabilities.includes("tools");
     const activeTools = toolsSupported ? runtimeTools : [];
@@ -523,24 +536,56 @@ export class AiTurnExecutor {
       });
     }
 
-    const prepared = prepareAiTools({ tools: activeTools, actor: material.actor, conversationId });
+    const prepared = prepareAiTools({
+      tools: activeTools,
+      actor: material.actor,
+      conversationId,
+      turnId,
+      attachedFilePaths: new Set(config.files?.attached.map((file) => file.path) ?? []),
+      allowedDataBoundaries: material.modelPolicy?.allowedDataBoundaries,
+    });
     const rememberableCapabilityApprovals = new Map<string, string>();
     pipeline.setFrontendModes(prepared.frontendModes);
     const toolPresentations = new Map<string, AiToolPresentation>();
     pipeline.setPresentations(toolPresentations);
-    const store = aiConversationStore.createSessionStore({
+    let turnInput = config.input;
+    try {
+      if (resolved.profile.capabilities.includes("vision") && config.files?.attached.some((file) => isAiImageMediaType(file.mediaType))) {
+        const parts = typeof turnInput === "string" ? [{ type: "text" as const, text: turnInput }] : [...turnInput];
+        for (const file of config.files.attached) {
+          if (!isAiImageMediaType(file.mediaType)) continue;
+          const stored = await aiFileStore.readTurnFile({ turnId, path: file.path });
+          if (!stored) throw new Error(`Attached conversation image is no longer available: ${file.path}`);
+          parts.push({ type: "file", mediaType: stored.mediaType, data: Buffer.from(stored.bytes).toString("base64") });
+        }
+        turnInput = parts;
+      }
+    } catch (error) {
+      signal.removeEventListener("abort", onSignal);
+      await this.finalize(
+        conversationId,
+        turnId,
+        pipeline,
+        "failed",
+        error instanceof Error ? error.message : "Image preparation failed",
+        "chat",
+      );
+      return;
+    }
+    const store = aiConversations.createSessionStore({
       conversationId,
       modelProfileId: resolved.profile.id,
       turnId,
       leaseOwner: this.config.leaseOwner,
+      turnInput,
       toolPresentations,
     });
 
     const [loopMessages, pendingRecords, resolvedRecords, turnSteers] = await Promise.all([
-      aiConversationStore.listTurnMessages({ conversationId, loopId: turnId }),
-      aiConversationStore.listPendingActionRecords({ conversationId, turnId }),
-      aiConversationStore.listResolvedPendingActions({ conversationId, turnId }),
-      aiConversationStore.listTurnSteers({ conversationId, turnId }),
+      aiConversations.listTurnMessages({ conversationId, loopId: turnId }),
+      aiConversations.listPendingActionRecords({ conversationId, turnId }),
+      aiConversations.listResolvedPendingActions({ conversationId, turnId }),
+      aiConversations.listTurnSteers({ conversationId, turnId }),
     ]);
     const assistantMessages = loopMessages.filter((message) => message.message.role !== "user");
     const isFresh = assistantMessages.length === 0 && resolvedRecords.length === 0 && !skipResolvedActions;
@@ -556,7 +601,7 @@ export class AiTurnExecutor {
           conversationId,
           actor: capabilityAuthority.actor,
           staticTools: activeTools,
-          store: aiConversationStore,
+          store: aiConversations,
           listRegistry: listCapabilities,
           onCapabilityRegistryError: (error) =>
             log.warn("AI Capability registry unavailable; continuing without app capabilities", {
@@ -628,13 +673,14 @@ export class AiTurnExecutor {
     const loop = nessi({
       agentId: "cloud",
       loopId: turnId,
-      ...(isFresh ? { input: config.input } : {}),
+      ...(isFresh ? { input: turnInput } : {}),
       provider: resolved.provider,
       systemPrompt: composeAiSystemPrompt({
         globalInstructions: settings.globalInstructions,
         appPrompt: material.systemPrompt,
         resourceContext: material.resourceContext,
         project: config.project,
+        files: config.files,
         projectToolEnabled,
         user,
         appId: material.toolApprovalContext?.appId,
@@ -649,7 +695,7 @@ export class AiTurnExecutor {
       store,
       steering: async ({ signal: steeringSignal }) => {
         if (steeringSignal.aborted) return undefined;
-        const steers = await aiConversationStore.takePendingTurnSteers({
+        const steers = await aiConversations.takePendingTurnSteers({
           conversationId,
           turnId,
           leaseOwner: this.config.leaseOwner,
@@ -796,7 +842,7 @@ export class AiTurnExecutor {
         } else if (event.type === "loop_end") {
           const aggregate = event.aggregate;
           if (aggregate.assistantMessageCount > 0) {
-            await aiConversationStore
+            await aiConversations
               .setLatestAssistantLoopAggregate({ conversationId, loopId: turnId, aggregate, doneReason: event.reason })
               .catch(() => undefined);
           }
@@ -869,7 +915,7 @@ export class AiTurnExecutor {
       }
     }
 
-    await aiConversationStore.savePendingTurnAction({
+    await aiConversations.savePendingTurnAction({
       turnId,
       conversationId,
       callId: event.callId,
@@ -903,7 +949,7 @@ export class AiTurnExecutor {
     }
 
     await pipeline.apply(event);
-    const suspended = await aiConversationStore.suspendTurn({
+    const suspended = await aiConversations.suspendTurn({
       conversationId,
       turnId,
       leaseOwner: this.config.leaseOwner,
@@ -922,7 +968,7 @@ export class AiTurnExecutor {
       if (stopped) return;
       let ok = false;
       try {
-        ok = await aiConversationStore.heartbeatTurn({
+        ok = await aiConversations.heartbeatTurn({
           conversationId,
           turnId,
           leaseOwner: this.config.leaseOwner,
@@ -977,7 +1023,7 @@ export class AiTurnExecutor {
     }
     const { settings, resolved } = validated;
 
-    const store = aiConversationStore.createSessionStore({
+    const store = aiConversations.createSessionStore({
       conversationId,
       modelProfileId: resolved.profile.id,
       turnId,
@@ -1160,7 +1206,7 @@ class StreamPipeline {
   async persistSnapshot(): Promise<void> {
     this.lastSnapshotAt = Date.now();
     this.snapshotDirty = false;
-    await aiConversationStore
+    await aiConversations
       .saveTurnLiveState({
         conversationId: this.conversationId,
         turnId: this.turnId,

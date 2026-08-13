@@ -2,15 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { AiCreateConversationInputSchema, AiSteerInputSchema, AiTurnInputSchema, aiTurnInputToContent } from "./http";
 
 describe("AI HTTP input helpers", () => {
-  test("keeps the message when content contains only files", () => {
+  test("keeps the message when content contains only file references", () => {
     const input = AiTurnInputSchema.parse({
       message: "Describe this image",
-      content: [{ type: "file", mediaType: "image/png", data: "abc123" }],
+      content: [{ type: "attachment", path: "/photo.png", mediaType: "image/png", size: 123 }],
     });
 
     expect(aiTurnInputToContent(input)).toEqual([
       { type: "text", text: "Describe this image" },
-      { type: "file", mediaType: "image/png", data: "abc123" },
+      { type: "text", text: '<attachment path="/photo.png" media-type="image/png" size="123" />' },
     ]);
   });
 
@@ -19,17 +19,17 @@ describe("AI HTTP input helpers", () => {
       message: "Ignored fallback",
       content: [
         { type: "text", text: "Explicit prompt" },
-        { type: "file", mediaType: "image/jpeg", data: "abc123" },
+        { type: "attachment", path: "/photo.jpg", mediaType: "image/jpeg", size: 123 },
       ],
     });
 
     expect(aiTurnInputToContent(input)).toEqual([
       { type: "text", text: "Explicit prompt" },
-      { type: "file", mediaType: "image/jpeg", data: "abc123" },
+      { type: "text", text: '<attachment path="/photo.jpg" media-type="image/jpeg" size="123" />' },
     ]);
   });
 
-  test("rejects unsupported image media types", () => {
+  test("rejects inline image payloads", () => {
     expect(() =>
       AiTurnInputSchema.parse({
         content: [{ type: "file", mediaType: "image/svg+xml", data: "abc123" }],

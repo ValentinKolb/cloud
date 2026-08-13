@@ -4,7 +4,7 @@ import { z } from "zod";
 import { type ApiErrorResponse, type AuthContext, err, fail, ok, respond } from "../server";
 import { aiResourceKey, registerAiResourceDefinition } from "./resource-runner";
 import { type AiChatRequestContext, createAiChatRoutes } from "./routes";
-import { listAiModels, toPublicAiSettingsState } from "./settings";
+import { isAiVisionModelConfigured, listAiModels, toPublicAiSettingsState } from "./settings";
 import type {
   AiAccessResult,
   AiConversationResource,
@@ -206,11 +206,14 @@ const createAiResourceRoutes = <TPath extends string, TParamsSchema extends z.Zo
       const resolved = await loadPolicy(c);
       if (resolved instanceof Response) return resolved;
       const systemPrompt = await resolveValue(definition.systemPrompt, resolved.loaded.hook, undefined as string | undefined);
+      const tools = await resolveValue(definition.tools, resolved.loaded.hook, []);
       return {
         actor: resolved.loaded.actor,
         ownerUserId: resolved.loaded.ownerUserId,
         resource: resolved.loaded.conversationResource,
         toolSource: { kind: "resource", resourceKey: aiResourceKey(definition), params: resolved.loaded.params },
+        canInspectAttachedImages:
+          tools.some((tool) => tool.def.name === "view_image") && (await isAiVisionModelConfigured(resolved.policy.allowedDataBoundaries)),
         systemPrompt,
         modelPolicy: resolved.policy,
         toolApprovalContext: {
@@ -226,7 +229,10 @@ const createAiResourceRoutes = <TPath extends string, TParamsSchema extends z.Zo
   const statusRoutes = new Hono<AuthContext>().get(`${basePath}/status`, async (c) => {
     const resolved = await loadPolicy(c);
     if (resolved instanceof Response) return resolved;
-    const [status, models] = await Promise.all([toPublicAiSettingsState(), listAiModels(policyForModelList(resolved.policy))]);
+    const [status, models] = await Promise.all([
+      toPublicAiSettingsState(resolved.policy.allowedDataBoundaries),
+      listAiModels(policyForModelList(resolved.policy)),
+    ]);
     return respond(c, ok({ ...status, models, resource: resolved.loaded.descriptor, modelPolicy: resolved.policy }));
   });
 

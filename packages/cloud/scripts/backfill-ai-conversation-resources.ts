@@ -1,6 +1,6 @@
 import type { Message } from "@k2b/nessi";
 import { sql } from "bun";
-import { aiConversationStore, migrateCloudAi } from "../src/ai";
+import { aiConversations, migrateCloudAi } from "../src/ai";
 import { collectConversationResourceObservations } from "../src/ai/resource-refs";
 
 type MessageRow = { conversation_id: string; turn_id: string | null; message: unknown };
@@ -28,7 +28,7 @@ const projectReferences = await sql<ProjectReferenceRow[]>`
   JOIN ai.project_references reference ON reference.project_id = conversation.project_id
 `;
 for (const reference of projectReferences) {
-  await aiConversationStore.indexConversationResources({
+  await aiConversations.indexConversationResources({
     conversationId: reference.conversation_id,
     resources: [{ ref: { type: reference.resource_type, id: reference.resource_id }, title: reference.label || undefined }],
   });
@@ -48,7 +48,7 @@ for (const row of messages) {
   if (message.role === "tool_result") {
     const resources = collectConversationResourceObservations(message.result);
     if (!resources.length) continue;
-    await aiConversationStore.indexConversationResources({
+    await aiConversations.indexConversationResources({
       conversationId: row.conversation_id,
       turnId: row.turn_id ?? undefined,
       callId: message.callId,
@@ -61,7 +61,7 @@ for (const row of messages) {
     if (typeof part === "string" || part.type !== "tool_call") continue;
     const resources = collectConversationResourceObservations(part.args);
     if (!resources.length) continue;
-    await aiConversationStore.indexConversationResources({
+    await aiConversations.indexConversationResources({
       conversationId: row.conversation_id,
       turnId: row.turn_id ?? undefined,
       callId: part.id,

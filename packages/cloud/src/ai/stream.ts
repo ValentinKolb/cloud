@@ -9,7 +9,7 @@ import {
   steerAppliedBlockId,
   steerMessageBlockId,
 } from "./protocol";
-import { aiConversationStore } from "./store";
+import { aiConversations } from "./store";
 import type { AiConversation } from "./types";
 
 const log = logger("ai:stream");
@@ -66,7 +66,7 @@ export const encodeSseEvent = (event: AiStreamSseEvent): Uint8Array =>
 
 export const encodeSseHeartbeat = (): Uint8Array => encoder.encode(": heartbeat\n\n");
 
-const turnSnapshotFromActive = (active: NonNullable<Awaited<ReturnType<typeof aiConversationStore.getActiveTurn>>>): AiTurnSnapshot => ({
+const turnSnapshotFromActive = (active: NonNullable<Awaited<ReturnType<typeof aiConversations.getActiveTurn>>>): AiTurnSnapshot => ({
   turnId: active.turn.shortId,
   attempt: active.turn.attempt,
   status: active.turn.status,
@@ -81,14 +81,14 @@ export const AI_STREAM_INITIAL_MESSAGE_LIMIT = 100;
 
 export const loadAiStreamState = async (conversation: AiConversation): Promise<Extract<AiStreamSseEvent, { type: "state" }>> => {
   const [page, active] = await Promise.all([
-    aiConversationStore.listMessagesPage({ conversationId: conversation.id, limit: AI_STREAM_INITIAL_MESSAGE_LIMIT }),
-    aiConversationStore.getActiveTurn({ conversationId: conversation.id }),
+    aiConversations.listMessagesPage({ conversationId: conversation.id, limit: AI_STREAM_INITIAL_MESSAGE_LIMIT }),
+    aiConversations.getActiveTurn({ conversationId: conversation.id }),
   ]);
   const snapshot = active ? turnSnapshotFromActive(active) : null;
   if (snapshot) {
     const [steers, resolvedActions] = await Promise.all([
-      aiConversationStore.listTurnSteers({ conversationId: conversation.id, turnId: active!.turn.id }),
-      aiConversationStore.listResolvedPendingActions({ conversationId: conversation.id, turnId: active!.turn.id }),
+      aiConversations.listTurnSteers({ conversationId: conversation.id, turnId: active!.turn.id }),
+      aiConversations.listResolvedPendingActions({ conversationId: conversation.id, turnId: active!.turn.id }),
     ]);
     snapshot.blocks = reconcileResolvedTurnActions(snapshot.blocks, resolvedActions);
     const known = new Set(snapshot.blocks.map((block) => block.id));
@@ -199,7 +199,7 @@ export const createAiConversationStreamResponse = (input: {
         // Forwarding gate: events of the snapshot turn continue from the snapshot
         // position; other turns only start at their turn_started event.
         const activeTurn = state.activeTurn
-          ? await aiConversationStore.getTurnByShortId({
+          ? await aiConversations.getTurnByShortId({
               conversationId: input.conversation.id,
               shortId: state.activeTurn.turnId,
             })
@@ -228,11 +228,11 @@ export const createAiConversationStreamResponse = (input: {
           const publicTurnId =
             current?.turnId === event.turnId
               ? current.publicTurnId
-              : (await aiConversationStore.getTurn({ conversationId: input.conversation.id, turnId: event.turnId }))?.shortId;
+              : (await aiConversations.getTurn({ conversationId: input.conversation.id, turnId: event.turnId }))?.shortId;
           if (!publicTurnId) continue;
           current = { turnId: event.turnId, publicTurnId, attempt: event.attempt, seq: event.seq };
           if (event.type === "turn_finished") {
-            const messages = await aiConversationStore
+            const messages = await aiConversations
               .listTurnMessages({ conversationId: event.conversationId, loopId: event.turnId })
               .catch(() => []);
             if (

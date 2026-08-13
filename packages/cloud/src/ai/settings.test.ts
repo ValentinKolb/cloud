@@ -282,6 +282,35 @@ describe("AI settings admin invariants", () => {
     ).toEqual({});
   });
 
+  test("requires the configured image tool model to support vision", () => {
+    const profiles = parse([
+      { id: "text", label: "Text", provider: "ollama", model: "qwen", enabled: true, capabilities: ["streaming", "tools"] },
+      { id: "vision", label: "Vision", provider: "ollama", model: "llava", enabled: true, capabilities: ["vision"] },
+    ]);
+    expect(
+      validateAiSettingsConfiguration({
+        enabled: true,
+        defaultModelId: "text",
+        backgroundModelId: "",
+        visionModelId: "text",
+        workflowModelId: "",
+        profiles,
+        credentialProfileIds: [],
+      })["ai.vision_model_id"],
+    ).toBeDefined();
+    expect(
+      validateAiSettingsConfiguration({
+        enabled: true,
+        defaultModelId: "text",
+        backgroundModelId: "",
+        visionModelId: "vision",
+        workflowModelId: "",
+        profiles,
+        credentialProfileIds: [],
+      }),
+    ).toEqual({});
+  });
+
   test("keeps credentials only for the same profile id and provider", () => {
     const currentProfiles = parse([{ id: "model", label: "Model", provider: "openrouter", model: "a" }]);
     const unchanged = parse([{ id: "model", label: "Renamed", provider: "openrouter", model: "b" }]);

@@ -23,7 +23,6 @@ export const migrateCloudAi = async (): Promise<void> => {
       resource_type TEXT,
       resource_id TEXT,
       title TEXT NOT NULL DEFAULT 'New chat',
-      icon TEXT NOT NULL DEFAULT 'ti ti-message',
       description TEXT NOT NULL DEFAULT '',
       created_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -42,7 +41,7 @@ export const migrateCloudAi = async (): Promise<void> => {
   );
   await sql`ALTER TABLE ai.conversations ALTER COLUMN short_id SET NOT NULL`.simple();
 
-  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS icon TEXT NOT NULL DEFAULT 'ti ti-message'`.simple();
+  await sql`ALTER TABLE ai.conversations DROP COLUMN IF EXISTS icon`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS loaded_capabilities TEXT[] NOT NULL DEFAULT '{}'`.simple();
   // Enrichment (description/keywords/title upkeep) — dirty = updated_at > enriched_at.
@@ -752,13 +751,191 @@ export const migrateCloudAi = async (): Promise<void> => {
       bytes BYTEA NOT NULL,
       media_type TEXT NOT NULL DEFAULT 'application/octet-stream',
       size INTEGER NOT NULL,
+      origin TEXT NOT NULL DEFAULT 'assistant' CONSTRAINT ai_files_origin_check CHECK (origin IN ('user', 'assistant')),
+      version BIGINT NOT NULL DEFAULT 1,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CONSTRAINT ai_files_path_unique UNIQUE (conversation_id, path)
     )
   `.simple();
+  await sql`ALTER TABLE ai.files ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'assistant'`.simple();
+  await sql`ALTER TABLE ai.files ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1`.simple();
+  await sql`UPDATE ai.files SET origin = 'user' WHERE (path = '/input' OR path LIKE '/input/%') AND origin <> 'user'`.simple();
+  await sql`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'ai_files_origin_check' AND conrelid = 'ai.files'::regclass
+      ) THEN
+        ALTER TABLE ai.files ADD CONSTRAINT ai_files_origin_check CHECK (origin IN ('user', 'assistant'));
+      END IF;
+    END $$
+  `.simple();
+
+  // Inline image parts were an alpha transport detail. Move their bytes into
+  // the authorized conversation file store and leave only stable references in
+  // message history. Re-running is idempotent because the path is derived from
+  // the message short id and content position.
+  await sql`
+    WITH inline_images AS (
+      SELECT
+        m.id AS message_id,
+        m.conversation_id,
+        part.ordinality,
+        part.value,
+        lower(part.value->>'mediaType') AS media_type,
+        decode(part.value->>'data', 'base64') AS bytes,
+        '/image-' || m.short_id || '-' || part.ordinality ||
+          CASE lower(part.value->>'mediaType')
+            WHEN 'image/jpeg' THEN '.jpg'
+            WHEN 'image/jpg' THEN '.jpg'
+            WHEN 'image/png' THEN '.png'
+            WHEN 'image/webp' THEN '.webp'
+            WHEN 'image/gif' THEN '.gif'
+          END AS path
+      FROM ai.messages m
+      CROSS JOIN LATERAL jsonb_array_elements(
+        (CASE WHEN jsonb_typeof(m.message) = 'string' THEN (m.message #>> '{}')::jsonb ELSE m.message END)->'content'
+      ) WITH ORDINALITY AS part(value, ordinality)
+      WHERE m.role = 'user'
+        AND part.value->>'type' = 'file'
+        AND lower(part.value->>'mediaType') IN ('image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif')
+        AND part.value->>'data' ~ '^[A-Za-z0-9+/]*={0,2}$'
+        AND length(part.value->>'data') % 4 = 0
+    ), migrated AS (
+      INSERT INTO ai.files (conversation_id, path, bytes, media_type, size, origin)
+      SELECT conversation_id, path, bytes, media_type, octet_length(bytes), 'user'
+      FROM inline_images
+      ON CONFLICT (conversation_id, path) DO UPDATE SET updated_at = ai.files.updated_at
+      WHERE ai.files.bytes = EXCLUDED.bytes
+        AND ai.files.media_type = EXCLUDED.media_type
+        AND ai.files.size = EXCLUDED.size
+        AND ai.files.origin = 'user'
+      RETURNING conversation_id, path
+    )
+    UPDATE ai.messages m
+    SET message = CASE
+      WHEN jsonb_typeof(m.message) = 'string' THEN to_jsonb((jsonb_set(
+        (m.message #>> '{}')::jsonb,
+        '{content}',
+        (
+          SELECT jsonb_agg(
+            CASE
+              WHEN image.path IS NULL THEN part.value
+              ELSE jsonb_build_object(
+                'type', 'text',
+                'text', '<attachment path="' || image.path || '" media-type="' || image.media_type || '" size="' || octet_length(image.bytes) || '" />'
+              )
+            END
+            ORDER BY part.ordinality
+          )
+          FROM jsonb_array_elements((m.message #>> '{}')::jsonb->'content') WITH ORDINALITY AS part(value, ordinality)
+          LEFT JOIN inline_images image ON image.message_id = m.id AND image.ordinality = part.ordinality
+        )
+      ))::text)
+      ELSE jsonb_set(
+        m.message,
+        '{content}',
+        (
+        SELECT jsonb_agg(
+          CASE
+            WHEN image.path IS NULL THEN part.value
+            ELSE jsonb_build_object(
+              'type', 'text',
+              'text', '<attachment path="' || image.path || '" media-type="' || image.media_type || '" size="' || octet_length(image.bytes) || '" />'
+            )
+          END
+          ORDER BY part.ordinality
+        )
+        FROM jsonb_array_elements(m.message->'content') WITH ORDINALITY AS part(value, ordinality)
+        LEFT JOIN inline_images image ON image.message_id = m.id AND image.ordinality = part.ordinality
+        )
+      )
+    END
+    WHERE EXISTS (SELECT 1 FROM inline_images image WHERE image.message_id = m.id)
+      AND NOT EXISTS (
+        SELECT 1 FROM inline_images image
+        WHERE image.message_id = m.id
+          AND NOT EXISTS (
+            SELECT 1 FROM migrated
+            WHERE migrated.conversation_id = image.conversation_id AND migrated.path = image.path
+          )
+      )
+  `.simple();
+  await sql`
+    DO $$ BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM ai.messages m
+        CROSS JOIN LATERAL jsonb_array_elements(
+          (CASE WHEN jsonb_typeof(m.message) = 'string' THEN (m.message #>> '{}')::jsonb ELSE m.message END)->'content'
+        ) AS part(value)
+        WHERE m.role = 'user'
+          AND part.value->>'type' = 'file'
+          AND lower(part.value->>'mediaType') IN ('image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif')
+          AND part.value->>'data' IS NOT NULL
+      ) THEN
+        RAISE EXCEPTION 'Could not migrate every historical inline AI image without a file collision';
+      END IF;
+    END $$
+  `.simple();
+  await sql`
+    WITH referenced_parts AS (
+      SELECT m.loop_id::uuid AS turn_id, part.ordinality, part.value
+      FROM ai.messages m
+      CROSS JOIN LATERAL jsonb_array_elements(
+        (CASE WHEN jsonb_typeof(m.message) = 'string' THEN (m.message #>> '{}')::jsonb ELSE m.message END)->'content'
+      ) WITH ORDINALITY AS part(value, ordinality)
+      WHERE m.role = 'user'
+        AND m.loop_id IS NOT NULL
+        AND part.value->>'type' = 'text'
+        AND part.value->>'text' LIKE '<attachment path=%'
+    ), rewritten AS (
+      SELECT
+        t.id,
+        jsonb_set(
+          config.value,
+          '{input}',
+          jsonb_agg(
+            CASE WHEN part.value->>'type' = 'file' AND reference.value IS NOT NULL THEN reference.value ELSE part.value END
+            ORDER BY part.ordinality
+          )
+        ) AS value,
+        jsonb_typeof(t.run_config) = 'string' AS string_encoded
+      FROM ai.turns t
+      CROSS JOIN LATERAL (
+        SELECT CASE WHEN jsonb_typeof(t.run_config) = 'string' THEN (t.run_config #>> '{}')::jsonb ELSE t.run_config END AS value
+      ) AS config
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(config.value->'input') = 'array' THEN config.value->'input' ELSE '[]'::jsonb END
+      ) WITH ORDINALITY AS part(value, ordinality)
+      LEFT JOIN referenced_parts reference ON reference.turn_id = t.id AND reference.ordinality = part.ordinality
+      WHERE t.run_config IS NOT NULL
+        AND t.status NOT IN ('queued', 'running', 'waiting_for_action')
+      GROUP BY t.id, t.run_config, config.value
+      HAVING bool_or(part.value->>'type' = 'file' AND reference.value IS NOT NULL)
+    )
+    UPDATE ai.turns t
+    SET run_config = CASE WHEN rewritten.string_encoded THEN to_jsonb(rewritten.value::text) ELSE rewritten.value END
+    FROM rewritten
+    WHERE rewritten.id = t.id
+  `.simple();
   // EXTERNAL keeps bytea un-compressed in TOAST so substring() slices read
   // only the needed chunks — head/tail on big files must not load everything.
   await sql`ALTER TABLE ai.files ALTER COLUMN bytes SET STORAGE EXTERNAL`.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.turn_files (
+      turn_id UUID NOT NULL REFERENCES ai.turns(id) ON DELETE CASCADE,
+      path TEXT NOT NULL,
+      bytes BYTEA NOT NULL,
+      media_type TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      origin TEXT NOT NULL CONSTRAINT ai_turn_files_origin_check CHECK (origin IN ('user', 'assistant')),
+      updated_at TIMESTAMPTZ NOT NULL,
+      version BIGINT NOT NULL,
+      PRIMARY KEY (turn_id, path)
+    )
+  `.simple();
+  await sql`ALTER TABLE ai.turn_files ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 1`.simple();
+  await sql`ALTER TABLE ai.turn_files ALTER COLUMN bytes SET STORAGE EXTERNAL`.simple();
 
   // Projects are the single unreleased abstraction for shared instructions and
   // context. There is intentionally no migration path from the alpha Skills
@@ -940,9 +1117,408 @@ export const migrateCloudAi = async (): Promise<void> => {
 
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES ai.projects(id) ON DELETE SET NULL`.simple();
   await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'ai.conversations'::regclass AND conname = 'ai_conversations_project_app_fkey'
+      ) THEN
+        ALTER TABLE ai.conversations
+          ADD CONSTRAINT ai_conversations_project_app_fkey
+          FOREIGN KEY (project_id, app_id) REFERENCES ai.projects(id, app_id)
+          DEFERRABLE INITIALLY DEFERRED;
+      END IF;
+    END $$
+  `.simple();
+  await sql`
     CREATE INDEX IF NOT EXISTS idx_ai_conversations_project_owner_updated
     ON ai.conversations(project_id, created_by_user_id, updated_at DESC)
     WHERE project_id IS NOT NULL AND archived_at IS NULL
+  `.simple();
+
+  // Durable Realtime UI invalidations. Triggers live at the persistence seam so
+  // route, worker, tool, enrichment, and scheduler writes cannot bypass them.
+  // The outbox row commits or rolls back with the authoritative domain write;
+  // publishing remains an after-commit runtime responsibility.
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai.live_invalidation_outbox (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      change_id UUID NOT NULL,
+      app_id TEXT NOT NULL,
+      audience_user_id UUID NOT NULL,
+      conversation_short_id TEXT,
+      project_short_id TEXT,
+      domains TEXT[] NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      claimed_until TIMESTAMPTZ,
+      delivered_at TIMESTAMPTZ,
+      dead_at TIMESTAMPTZ,
+      last_error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT ai_live_invalidation_domains_check CHECK (
+        cardinality(domains) > 0 AND domains <@ ARRAY[
+          'conversation-list', 'conversation-detail', 'conversation-sources', 'conversation-files', 'conversation-tasks',
+          'project-list', 'project-detail', 'project-context'
+        ]::text[]
+      )
+    )
+  `.simple();
+  // Audience IDs are immutable event-routing data. A foreign key makes an
+  // unrelated user-delete cascade invoke Project triggers after the user row
+  // has disappeared, aborting the authoritative delete instead of merely
+  // leaving a harmless undeliverable invalidation.
+  await sql`
+    ALTER TABLE ai.live_invalidation_outbox
+    DROP CONSTRAINT IF EXISTS live_invalidation_outbox_audience_user_id_fkey
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_live_invalidation_outbox_pending
+    ON ai.live_invalidation_outbox(next_attempt_at, created_at, id)
+    WHERE delivered_at IS NULL AND dead_at IS NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_ai_live_invalidation_outbox_user_order
+    ON ai.live_invalidation_outbox(audience_user_id, app_id, created_at, id)
+    WHERE delivered_at IS NULL AND dead_at IS NULL
+  `.simple();
+
+  await sql`
+    CREATE OR REPLACE FUNCTION ai.enqueue_live_for_user(
+      p_change_id UUID,
+      p_app_id TEXT,
+      p_user_id UUID,
+      p_conversation_short_id TEXT,
+      p_project_short_id TEXT,
+      p_domains TEXT[]
+    ) RETURNS void AS $$
+    BEGIN
+      IF p_user_id IS NULL OR cardinality(p_domains) = 0 THEN RETURN; END IF;
+      INSERT INTO ai.live_invalidation_outbox (
+        change_id, app_id, audience_user_id, conversation_short_id, project_short_id, domains
+      ) VALUES (
+        p_change_id, p_app_id, p_user_id, p_conversation_short_id, p_project_short_id,
+        ARRAY(SELECT DISTINCT domain FROM unnest(p_domains) domain ORDER BY domain)
+      );
+    END
+    $$ LANGUAGE plpgsql
+  `.simple();
+
+  await sql`
+    CREATE OR REPLACE FUNCTION ai.enqueue_live_for_conversation(
+      p_conversation_id UUID,
+      p_domains TEXT[]
+    ) RETURNS void AS $$
+    DECLARE
+      target RECORD;
+    BEGIN
+      SELECT conversation.app_id, conversation.created_by_user_id, conversation.short_id,
+             project.short_id AS project_short_id
+      INTO target
+      FROM ai.conversations conversation
+      LEFT JOIN ai.projects project ON project.id = conversation.project_id
+      WHERE conversation.id = p_conversation_id;
+      IF NOT FOUND THEN RETURN; END IF;
+      PERFORM ai.enqueue_live_for_user(
+        gen_random_uuid(), target.app_id, target.created_by_user_id, target.short_id, target.project_short_id, p_domains
+      );
+    END
+    $$ LANGUAGE plpgsql
+  `.simple();
+
+  await sql`
+    CREATE OR REPLACE FUNCTION ai.enqueue_live_for_project(
+      p_project_id UUID,
+      p_domains TEXT[]
+    ) RETURNS void AS $$
+    DECLARE
+      change UUID := gen_random_uuid();
+      project_short TEXT;
+      project_app TEXT;
+      recipient RECORD;
+    BEGIN
+      SELECT short_id, app_id INTO project_short, project_app FROM ai.projects WHERE id = p_project_id;
+      IF NOT FOUND THEN RETURN; END IF;
+
+      FOR recipient IN
+        WITH RECURSIVE
+          access_rows AS (
+            SELECT access.*
+            FROM ai.project_access project_access
+            JOIN auth.access access ON access.id = project_access.access_id
+            WHERE project_access.project_id = p_project_id
+              AND access.permission <> 'none'
+          ),
+          root_groups(group_id, group_ids) AS (
+            SELECT group_id, ARRAY[group_id]::uuid[]
+            FROM access_rows
+            WHERE group_id IS NOT NULL
+            UNION ALL
+            SELECT nested.child_group_id, root.group_ids || nested.child_group_id
+            FROM auth.group_groups_v2 nested
+            JOIN root_groups root ON root.group_id = nested.parent_group_id
+            WHERE NOT nested.child_group_id = ANY(root.group_ids)
+          ),
+          recipients(user_id) AS (
+            SELECT user_id FROM access_rows WHERE user_id IS NOT NULL
+            UNION
+            SELECT membership.user_id
+            FROM root_groups root
+            JOIN auth.user_groups_v2 membership ON membership.group_id = root.group_id
+            UNION
+            SELECT users.id
+            FROM auth.users users
+            WHERE EXISTS (
+              SELECT 1 FROM access_rows
+              WHERE authenticated_only OR (
+                user_id IS NULL AND group_id IS NULL AND service_account_id IS NULL AND NOT authenticated_only
+              )
+            )
+          )
+        SELECT DISTINCT user_id FROM recipients WHERE user_id IS NOT NULL
+      LOOP
+        PERFORM ai.enqueue_live_for_user(change, project_app, recipient.user_id, NULL, project_short, p_domains);
+      END LOOP;
+    END
+    $$ LANGUAGE plpgsql
+  `.simple();
+
+  await sql`
+    CREATE OR REPLACE FUNCTION ai.live_conversation_row_changed() RETURNS trigger AS $$
+    DECLARE
+      row_data RECORD;
+      project_short TEXT;
+    BEGIN
+      IF TG_OP = 'DELETE' THEN row_data := OLD; ELSE row_data := NEW; END IF;
+      SELECT short_id INTO project_short FROM ai.projects WHERE id = row_data.project_id;
+      PERFORM ai.enqueue_live_for_user(
+        gen_random_uuid(), row_data.app_id, row_data.created_by_user_id, row_data.short_id, project_short,
+        ARRAY['conversation-list', 'conversation-detail']::text[]
+      );
+      RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+    END
+    $$ LANGUAGE plpgsql
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_conversations_changed ON ai.conversations`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_conversations_changed
+    AFTER INSERT OR UPDATE OR DELETE ON ai.conversations
+    FOR EACH ROW EXECUTE FUNCTION ai.live_conversation_row_changed()
+  `.simple();
+
+  await sql`
+    CREATE OR REPLACE FUNCTION ai.live_conversation_child_changed() RETURNS trigger AS $$
+    DECLARE
+      row_data RECORD;
+      conversation UUID;
+    BEGIN
+      IF TG_OP = 'DELETE' THEN row_data := OLD; ELSE row_data := NEW; END IF;
+      IF TG_TABLE_NAME = 'chat_task_occurrences' THEN
+        SELECT conversation_id INTO conversation FROM ai.chat_tasks WHERE id = row_data.task_id;
+      ELSE
+        conversation := row_data.conversation_id;
+      END IF;
+      IF conversation IS NOT NULL THEN
+        PERFORM ai.enqueue_live_for_conversation(conversation, string_to_array(TG_ARGV[0], ','));
+      END IF;
+      RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+    END
+    $$ LANGUAGE plpgsql
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_conversation_sources_changed ON ai.conversation_sources`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_conversation_sources_changed AFTER INSERT OR UPDATE OR DELETE ON ai.conversation_sources
+    FOR EACH ROW EXECUTE FUNCTION ai.live_conversation_child_changed('conversation-sources')
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_conversation_resources_changed ON ai.conversation_resource_refs`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_conversation_resources_changed AFTER INSERT OR UPDATE OR DELETE ON ai.conversation_resource_refs
+    FOR EACH ROW EXECUTE FUNCTION ai.live_conversation_child_changed('conversation-sources')
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_conversation_files_changed ON ai.files`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_conversation_files_changed AFTER INSERT OR UPDATE OR DELETE ON ai.files
+    FOR EACH ROW EXECUTE FUNCTION ai.live_conversation_child_changed('conversation-files,conversation-sources')
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_turns_changed ON ai.turns`.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_turns_status_changed ON ai.turns`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_turns_changed
+    AFTER INSERT OR DELETE ON ai.turns
+    FOR EACH ROW EXECUTE FUNCTION ai.live_conversation_child_changed('conversation-list,conversation-detail')
+  `.simple();
+  await sql`
+    CREATE TRIGGER ai_live_turns_status_changed
+    AFTER UPDATE OF status, error, completed_at, cancel_requested_at ON ai.turns
+    FOR EACH ROW EXECUTE FUNCTION ai.live_conversation_child_changed('conversation-list,conversation-detail')
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_chat_tasks_changed ON ai.chat_tasks`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_chat_tasks_changed AFTER INSERT OR UPDATE OR DELETE ON ai.chat_tasks
+    FOR EACH ROW EXECUTE FUNCTION ai.live_conversation_child_changed('conversation-tasks')
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_chat_task_occurrences_changed ON ai.chat_task_occurrences`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_chat_task_occurrences_changed AFTER INSERT OR UPDATE OR DELETE ON ai.chat_task_occurrences
+    FOR EACH ROW EXECUTE FUNCTION ai.live_conversation_child_changed('conversation-tasks')
+  `.simple();
+
+  await sql`
+    CREATE OR REPLACE FUNCTION ai.live_project_row_changed() RETURNS trigger AS $$
+    DECLARE row_data RECORD;
+    BEGIN
+      IF TG_OP = 'DELETE' THEN row_data := OLD; ELSE row_data := NEW; END IF;
+      PERFORM ai.enqueue_live_for_project(
+        row_data.id,
+        ARRAY['project-list', 'project-detail', 'project-context', 'conversation-list']::text[]
+      );
+      RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+    END
+    $$ LANGUAGE plpgsql
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_projects_changed ON ai.projects`.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_projects_deleted ON ai.projects`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_projects_changed
+    AFTER INSERT OR UPDATE ON ai.projects
+    FOR EACH ROW EXECUTE FUNCTION ai.live_project_row_changed()
+  `.simple();
+  await sql`
+    CREATE TRIGGER ai_live_projects_deleted
+    BEFORE DELETE ON ai.projects
+    FOR EACH ROW EXECUTE FUNCTION ai.live_project_row_changed()
+  `.simple();
+
+  await sql`
+    CREATE OR REPLACE FUNCTION ai.live_project_child_changed() RETURNS trigger AS $$
+    DECLARE row_data RECORD;
+    BEGIN
+      IF TG_OP = 'DELETE' THEN row_data := OLD; ELSE row_data := NEW; END IF;
+      PERFORM ai.enqueue_live_for_project(row_data.project_id, string_to_array(TG_ARGV[0], ','));
+      RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+    END
+    $$ LANGUAGE plpgsql
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_project_knowledge_changed ON ai.project_knowledge`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_project_knowledge_changed AFTER INSERT OR UPDATE OR DELETE ON ai.project_knowledge
+    FOR EACH ROW EXECUTE FUNCTION ai.live_project_child_changed('project-detail,project-context')
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_project_files_changed ON ai.project_files`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_project_files_changed AFTER INSERT OR UPDATE OR DELETE ON ai.project_files
+    FOR EACH ROW EXECUTE FUNCTION ai.live_project_child_changed('project-detail,project-context')
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_project_resource_refs_changed ON ai.project_resource_refs`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_project_resource_refs_changed AFTER INSERT OR UPDATE OR DELETE ON ai.project_resource_refs
+    FOR EACH ROW EXECUTE FUNCTION ai.live_project_child_changed('project-detail,project-context')
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_project_access_added ON ai.project_access`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_project_access_added AFTER INSERT OR UPDATE ON ai.project_access
+    FOR EACH ROW EXECUTE FUNCTION ai.live_project_child_changed('project-list,project-detail,project-context,conversation-list')
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_project_access_removed ON ai.project_access`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_project_access_removed BEFORE DELETE ON ai.project_access
+    FOR EACH ROW EXECUTE FUNCTION ai.live_project_child_changed('project-list,project-detail,project-context,conversation-list')
+  `.simple();
+  await sql`
+    CREATE OR REPLACE FUNCTION ai.live_project_access_permission_changed() RETURNS trigger AS $$
+    DECLARE
+      project UUID;
+      changed_access UUID;
+    BEGIN
+      changed_access := CASE WHEN TG_OP = 'DELETE' THEN OLD.id ELSE NEW.id END;
+      FOR project IN SELECT project_id FROM ai.project_access WHERE access_id = changed_access
+      LOOP
+        PERFORM ai.enqueue_live_for_project(
+          project,
+          ARRAY['project-list', 'project-detail', 'project-context', 'conversation-list']::text[]
+        );
+      END LOOP;
+      RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+    END
+    $$ LANGUAGE plpgsql
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_project_access_permission_changed ON auth.access`.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_project_access_permission_changing ON auth.access`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_project_access_permission_changing
+    BEFORE UPDATE OF permission ON auth.access
+    FOR EACH ROW
+    WHEN (OLD.permission IS DISTINCT FROM NEW.permission)
+    EXECUTE FUNCTION ai.live_project_access_permission_changed()
+  `.simple();
+  await sql`
+    CREATE TRIGGER ai_live_project_access_permission_changed
+    AFTER UPDATE OF permission ON auth.access
+    FOR EACH ROW
+    WHEN (OLD.permission IS DISTINCT FROM NEW.permission)
+    EXECUTE FUNCTION ai.live_project_access_permission_changed()
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_project_access_deleting ON auth.access`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_project_access_deleting
+    BEFORE DELETE ON auth.access
+    FOR EACH ROW
+    EXECUTE FUNCTION ai.live_project_access_permission_changed()
+  `.simple();
+
+  await sql`
+    CREATE OR REPLACE FUNCTION ai.live_project_group_membership_changed() RETURNS trigger AS $$
+    DECLARE
+      changed_group UUID;
+      project UUID;
+    BEGIN
+      IF TG_TABLE_NAME = 'user_groups_v2' THEN
+        changed_group := CASE WHEN TG_OP = 'DELETE' THEN OLD.group_id ELSE NEW.group_id END;
+      ELSE
+        changed_group := CASE WHEN TG_OP = 'DELETE' THEN OLD.parent_group_id ELSE NEW.parent_group_id END;
+      END IF;
+      FOR project IN
+        WITH RECURSIVE ancestors(group_id, seen) AS (
+          SELECT changed_group, ARRAY[changed_group]::uuid[]
+          UNION ALL
+          SELECT relation.parent_group_id, ancestors.seen || relation.parent_group_id
+          FROM auth.group_groups_v2 relation
+          JOIN ancestors ON relation.child_group_id = ancestors.group_id
+          WHERE NOT relation.parent_group_id = ANY(ancestors.seen)
+        )
+        SELECT DISTINCT project_access.project_id
+        FROM ancestors
+        JOIN auth.access access ON access.group_id = ancestors.group_id AND access.permission <> 'none'
+        JOIN ai.project_access project_access ON project_access.access_id = access.id
+      LOOP
+        PERFORM ai.enqueue_live_for_project(
+          project,
+          ARRAY['project-list', 'project-detail', 'project-context', 'conversation-list']::text[]
+        );
+      END LOOP;
+      RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+    END
+    $$ LANGUAGE plpgsql
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_project_user_group_added ON auth.user_groups_v2`.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_project_user_group_removed ON auth.user_groups_v2`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_project_user_group_added AFTER INSERT ON auth.user_groups_v2
+    FOR EACH ROW EXECUTE FUNCTION ai.live_project_group_membership_changed()
+  `.simple();
+  await sql`
+    CREATE TRIGGER ai_live_project_user_group_removed BEFORE DELETE ON auth.user_groups_v2
+    FOR EACH ROW EXECUTE FUNCTION ai.live_project_group_membership_changed()
+  `.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_project_group_group_added ON auth.group_groups_v2`.simple();
+  await sql`DROP TRIGGER IF EXISTS ai_live_project_group_group_removed ON auth.group_groups_v2`.simple();
+  await sql`
+    CREATE TRIGGER ai_live_project_group_group_added AFTER INSERT ON auth.group_groups_v2
+    FOR EACH ROW EXECUTE FUNCTION ai.live_project_group_membership_changed()
+  `.simple();
+  await sql`
+    CREATE TRIGGER ai_live_project_group_group_removed BEFORE DELETE ON auth.group_groups_v2
+    FOR EACH ROW EXECUTE FUNCTION ai.live_project_group_membership_changed()
   `.simple();
 
   // Provider API keys used to live inside the ai.model_profiles_json setting.

@@ -77,7 +77,7 @@ This minimal chat has no tools. Use a resource tool source for tools declared
 by `defineAiResource()`.
 
 The default tool source adds card and survey interactions, bounded
-conversation-file tools, arithmetic and deterministic date calculation, and web search or
+conversation-file tools (including configured image inspection), arithmetic and deterministic date calculation, and web search or
 extraction when Firecrawl is configured. These built-in tools use
 `approval: "never"`. They provide no arbitrary code execution, host access, or
 network access beyond the explicit web tools. Enable the default set only when
@@ -180,8 +180,41 @@ Use `parseAiSse()` for a low-level client. Solid applications should use
 `createAiChatController()` from `@valentinkolb/cloud/ai/solid`.
 
 The controller reconnects the stream and folds events into one projection. It
-also exposes conversation history, send, steer, abort, retry, fork, compaction,
-approval, file, and frontend-tool actions.
+also exposes the active conversation's history, send, steer, abort, retry,
+fork, compaction, approval, and frontend-tool actions.
+
+Keep this SSE protocol scoped to the active turn. Conversation and Project
+lists, metadata, Sources, files, scheduled tasks, Project context, and access
+changes are durable server projections, not turn deltas. Server-render those
+projections and refresh them through [Realtime UI](/en/docs/frontend/realtime-ui).
+
+AI applications can mount the server-only live route from
+`@valentinkolb/cloud/ai/live`. `migrateCloudAi()` installs the transactional
+invalidation outbox and persistence triggers; `startAiRuntime()` dispatches the
+outbox. A committed AI write and its invalidation therefore cannot diverge.
+The browser still reloads each affected projection through its authorized HTTP
+query before it advances the event cursor.
+
+```ts
+import { createAiLiveRoutes } from "@valentinkolb/cloud/ai/live";
+
+const appId = "assistant";
+
+router.route(
+  "/api/assistant/live",
+  createAiLiveRoutes({
+    appId,
+    resolveScopeVersion: (userId) => aiProjects.scopeVersion({ type: "user", userId }, appId),
+  }),
+);
+```
+
+The live stream is isolated by application and user. Every Project belongs to
+one AI application. Its context can be shared with users of that application,
+but each Project chat remains owned by its creator and only appears in that
+user's stream and queries. On reconnect, the route establishes a new head
+cursor and the client refreshes every registered AI projection. This is the
+authoritative recovery path when retained replay is insufficient.
 
 Action responses are idempotent. Retrying the same response is safe and
 re-enqueues its continuation; a conflicting response for an already resolved

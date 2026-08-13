@@ -3,7 +3,7 @@ import { defineTool as defineNessiTool } from "@k2b/nessi";
 import type { z } from "zod";
 import type { RequestActor } from "../server";
 import { aiToolNeedsApproval } from "./approvals";
-import type { AiFrontendToolMode, AiRuntimeTool, AiToolApprovalPolicy, AiToolDefinition, AiToolRuntime } from "./types";
+import type { AiDataBoundary, AiFrontendToolMode, AiRuntimeTool, AiToolApprovalPolicy, AiToolDefinition, AiToolRuntime } from "./types";
 
 export const defineAiTool = <TInput extends z.ZodType, TOutput extends z.ZodType>(config: {
   name: string;
@@ -32,7 +32,16 @@ export const defineAiTool = <TInput extends z.ZodType, TOutput extends z.ZodType
   return {
     def,
     server(
-      run: (input: z.infer<TInput>, ctx: ToolContext & { actor: RequestActor; conversationId?: string }) => Promise<z.infer<TOutput>>,
+      run: (
+        input: z.infer<TInput>,
+        ctx: ToolContext & {
+          actor: RequestActor;
+          conversationId?: string;
+          turnId?: string;
+          attachedFilePaths?: ReadonlySet<string>;
+          allowedDataBoundaries?: AiDataBoundary[];
+        },
+      ) => Promise<z.infer<TOutput>>,
     ): AiToolRuntime<TInput, TOutput> {
       return { location: "server", def, run };
     },
@@ -63,7 +72,14 @@ export type PreparedAiTools = {
   frontendModes: Map<string, AiFrontendToolMode>;
 };
 
-export const prepareAiTools = (input: { tools?: AiRuntimeTool[]; actor?: RequestActor; conversationId?: string }): PreparedAiTools => {
+export const prepareAiTools = (input: {
+  tools?: AiRuntimeTool[];
+  actor?: RequestActor;
+  conversationId?: string;
+  turnId?: string;
+  attachedFilePaths?: ReadonlySet<string>;
+  allowedDataBoundaries?: AiDataBoundary[];
+}): PreparedAiTools => {
   const approvalPolicies = new Map<string, AiToolApprovalPolicy>();
   const frontendModes = new Map<string, AiFrontendToolMode>();
 
@@ -85,7 +101,14 @@ export const prepareAiTools = (input: { tools?: AiRuntimeTool[]; actor?: Request
     if (tool.location === "server") {
       return nessiTool.server((toolInput, ctx) => {
         if (!input.actor) throw new Error(`AI server tool "${tool.def.name}" requires a request actor.`);
-        return tool.run(toolInput, { ...ctx, actor: input.actor, conversationId: input.conversationId });
+        return tool.run(toolInput, {
+          ...ctx,
+          actor: input.actor,
+          conversationId: input.conversationId,
+          turnId: input.turnId,
+          attachedFilePaths: input.attachedFilePaths,
+          allowedDataBoundaries: input.allowedDataBoundaries,
+        });
       });
     }
 

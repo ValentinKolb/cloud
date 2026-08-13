@@ -3,15 +3,17 @@ import type { Message } from "@k2b/nessi";
 import { sql } from "bun";
 import type { User } from "../contracts";
 import { AiTurnExecutor } from "./executor";
+import { aiFileStore } from "./files-store";
 import { aiMemories } from "./memories";
 import { migrateCloudAi } from "./migrate";
 import type { AiWireEvent } from "./protocol";
 import { createAiProvider } from "./provider";
 import { createAiShortId } from "./short-id";
-import { aiConversationStore } from "./store";
+import { aiConversations } from "./store";
 import { aiStreamTopic } from "./stream";
 import type { AiModelProfile, AiTurnFinalizedEvent } from "./types";
 import type { validateAiTurnRequest } from "./validate";
+import { createCloudAiViewImageTool } from "./vision-tool";
 
 /**
  * End-to-end executor test against the real DB + Redis, driving a local
@@ -28,6 +30,7 @@ const MODEL_ID = "mock-exec";
 let mockServer: ReturnType<typeof Bun.serve> | null = null;
 /** The SSE chunks the mock returns for the next /chat/completions call. */
 let nextCompletion: string[] = [];
+let nextJsonCompletion: string | null = null;
 let completionQueue: string[][] = [];
 let onCompletionRequest: ((body: unknown, index: number) => void | Promise<void>) | null = null;
 let completionRequestCount = 0;
@@ -78,6 +81,23 @@ const fakeValidateToolTurn: typeof validateAiTurnRequest = async () => {
   };
 };
 
+const fakeValidateVisionTurn: typeof validateAiTurnRequest = async () => {
+  const profile: AiModelProfile = { ...mockProfile(), capabilities: ["streaming", "vision"] };
+  return {
+    settings: {
+      ok: true,
+      enabled: true,
+      defaultModelId: MODEL_ID,
+      globalInstructions: "",
+      compactionInstructions: "",
+      maxToolResultChars: 2_000,
+      firecrawlConfigured: false,
+      profiles: [profile],
+    },
+    resolved: { profile, provider: createAiProvider(profile, "test") },
+  };
+};
+
 const sseChunk = (payload: unknown) => `data: ${JSON.stringify(payload)}\n\n`;
 
 const textCompletion = (text: string): string[] => [
@@ -109,6 +129,12 @@ beforeAll(() => {
         const requestBody = await req.json().catch(() => null);
         const requestIndex = completionRequestCount++;
         await onCompletionRequest?.(requestBody, requestIndex);
+        if (!(requestBody as { stream?: boolean } | null)?.stream) {
+          return Response.json({
+            choices: [{ message: { role: "assistant", content: nextJsonCompletion ?? "{}" }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 },
+          });
+        }
         const chunks = completionQueue.shift() ?? nextCompletion;
         const body = new ReadableStream<Uint8Array>({
           start(controller) {
@@ -195,11 +221,11 @@ const createExecutor = (
 suite("AI executor integration", () => {
   test("runs a chat turn end to end: claim, stream, persist, finish", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
 
     try {
       nextCompletion = textCompletion("Hello from the mock model");
-      const { turn } = await aiConversationStore.submitChatTurn({
+      const { turn } = await aiConversations.submitChatTurn({
         conversationId: conversation.id,
         modelProfileId: MODEL_ID,
         runConfig: { kind: "chat", input: "Hi", toolSource: { kind: "none" } },
@@ -209,7 +235,7 @@ suite("AI executor integration", () => {
       // Start collecting wire events, then run the executor.
       const collecting = collectWire(conversation.id, (event) => event.type === "turn_finished");
 
-      const claim = await aiConversationStore.claimTurn({
+      const claim = await aiConversations.claimTurn({
         conversationId: conversation.id,
         turnId: turn.id,
         leaseOwner: "exec-test",
@@ -233,11 +259,11 @@ suite("AI executor integration", () => {
       expect(finished).toMatchObject({ status: "completed" });
 
       // The turn is completed and the assistant message is persisted with loop id = turn id.
-      const finalTurn = await aiConversationStore.getTurn({ conversationId: conversation.id, turnId: turn.id });
+      const finalTurn = await aiConversations.getTurn({ conversationId: conversation.id, turnId: turn.id });
       expect(finalTurn?.status).toBe("completed");
       expect(finalizedEvents).toEqual([{ conversationId: conversation.id, turnId: turn.id, status: "completed", kind: "chat" }]);
 
-      const messages = await aiConversationStore.listMessages({ conversationId: conversation.id });
+      const messages = await aiConversations.listMessages({ conversationId: conversation.id });
       expect(messages).toHaveLength(2);
       expect(messages[0]?.message.role).toBe("user");
       expect(messages[1]?.message.role).toBe("assistant");
@@ -251,9 +277,204 @@ suite("AI executor integration", () => {
     }
   });
 
+  test("resolves a referenced image only for the provider request and keeps persisted messages reference-only", async () => {
+    const userId = await insertUser();
+    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    try {
+      await aiFileStore.write({
+        conversationId: conversation.id,
+        path: "/photo.png",
+        bytes: new Uint8Array([1, 2, 3]),
+        mediaType: "image/png",
+        origin: "user",
+      });
+      const marker = '<attachment path="/photo.png" media-type="image/png" size="3" />';
+      const uploaded = await aiFileStore.stat({ conversationId: conversation.id, path: "/photo.png" });
+      if (!uploaded) throw new Error("Expected uploaded image");
+      const message: Message = { role: "user", content: [{ type: "text", text: `Describe this image\n${marker}` }] };
+      const { turn } = await aiConversations.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: MODEL_ID,
+        runConfig: {
+          kind: "chat",
+          input: `Describe this image\n${marker}`,
+          toolSource: { kind: "none" },
+          files: {
+            attached: [
+              {
+                path: "/photo.png",
+                size: 3,
+                mediaType: "image/png",
+                origin: "user",
+                updatedAt: uploaded.updatedAt,
+                version: uploaded.version,
+              },
+            ],
+            available: [],
+            total: 1,
+          },
+        },
+        userMessage: message,
+      });
+      await aiFileStore.write({
+        conversationId: conversation.id,
+        path: "/photo.png",
+        bytes: new Uint8Array([9, 9, 9]),
+        mediaType: "image/png",
+        origin: "user",
+        allowUserOverwrite: true,
+      });
+      let requestBody: unknown;
+      onCompletionRequest = (body) => {
+        requestBody = body;
+      };
+      nextCompletion = textCompletion("I see the image");
+      const claim = await aiConversations.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "vision-test",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 5,
+        runBudgetMs: 60_000,
+      });
+      await createExecutor("vision-test", undefined, fakeValidateVisionTurn).run({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        claim: claim!,
+        signal: new AbortController().signal,
+      });
+
+      expect(JSON.stringify(requestBody)).toContain("data:image/png;base64,AQID");
+      expect(JSON.stringify(requestBody)).not.toContain("data:image/png;base64,CQkJ");
+      const persisted = await aiConversations.listMessages({ conversationId: conversation.id });
+      expect(persisted[0]?.message.role === "user" ? persisted[0].message.content[0] : null).toEqual({
+        type: "text",
+        text: `Describe this image\n${marker}`,
+      });
+      expect(JSON.stringify(persisted[0]?.message)).not.toContain("AQID");
+    } finally {
+      onCompletionRequest = null;
+      await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
+  test("finalizes a claimed turn when its immutable image snapshot is missing", async () => {
+    const userId = await insertUser();
+    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    try {
+      await aiFileStore.write({
+        conversationId: conversation.id,
+        path: "/missing.png",
+        bytes: new Uint8Array([1, 2, 3]),
+        mediaType: "image/png",
+        origin: "user",
+      });
+      const uploaded = await aiFileStore.stat({ conversationId: conversation.id, path: "/missing.png" });
+      if (!uploaded) throw new Error("Expected uploaded image");
+      const marker = '<attachment path="/missing.png" media-type="image/png" size="3" />';
+      const { turn } = await aiConversations.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: MODEL_ID,
+        runConfig: {
+          kind: "chat",
+          input: marker,
+          toolSource: { kind: "none" },
+          files: { attached: [uploaded], available: [], total: 1 },
+        },
+        userMessage: { role: "user", content: [{ type: "text", text: marker }] },
+      });
+      await sql`DELETE FROM ai.turn_files WHERE turn_id = ${turn.id}::uuid`;
+      const claim = await aiConversations.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "missing-snapshot-test",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 5,
+        runBudgetMs: 60_000,
+      });
+      await createExecutor("missing-snapshot-test", undefined, fakeValidateVisionTurn).run({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        claim: claim!,
+        signal: new AbortController().signal,
+      });
+      const finalized = await aiConversations.getTurn({ conversationId: conversation.id, turnId: turn.id });
+      expect(finalized?.status).toBe("failed");
+      expect(finalized?.error).toContain("no longer available");
+    } finally {
+      await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
+  test("view_image reads the authorized conversation file and applies optional guidance with a vision model", async () => {
+    const userId = await insertUser();
+    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    try {
+      await aiFileStore.write({
+        conversationId: conversation.id,
+        path: "/label.png",
+        bytes: new Uint8Array([1, 2, 3]),
+        mediaType: "image/png",
+        origin: "user",
+      });
+      const uploaded = await aiFileStore.stat({ conversationId: conversation.id, path: "/label.png" });
+      if (!uploaded) throw new Error("Expected uploaded image");
+      const marker = '<attachment path="/label.png" media-type="image/png" size="3" />';
+      const { turn } = await aiConversations.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: MODEL_ID,
+        runConfig: {
+          kind: "chat",
+          input: marker,
+          toolSource: { kind: "none" },
+          files: { attached: [uploaded], available: [], total: 1 },
+        },
+        userMessage: { role: "user", content: [{ type: "text", text: marker }] },
+      });
+      await aiFileStore.write({
+        conversationId: conversation.id,
+        path: "/label.png",
+        bytes: new Uint8Array([9, 9, 9]),
+        mediaType: "image/png",
+        origin: "user",
+        allowUserOverwrite: true,
+      });
+      const profile: AiModelProfile = { ...mockProfile(), capabilities: ["vision"] };
+      let requestBody: unknown;
+      onCompletionRequest = (body) => {
+        requestBody = body;
+      };
+      nextJsonCompletion = '{"description":"The label reads Cloud."}';
+      const tool = createCloudAiViewImageTool({
+        resolveModel: async () => ({ profile, provider: createAiProvider(profile, "test") }),
+      });
+      if (tool.location !== "server") throw new Error("view_image must be a server tool");
+      const result = await tool.run({ path: "/label.png", prompt: "Read only the label." }, {
+        actor: { kind: "user", user: actorUser(userId) },
+        conversationId: conversation.id,
+        turnId: turn.id,
+        attachedFilePaths: new Set(["/label.png"]),
+        signal: new AbortController().signal,
+      } as never);
+
+      expect(result).toEqual({ path: "/label.png", mediaType: "image/png", description: "The label reads Cloud." });
+      expect(JSON.stringify(requestBody)).toContain("Read only the label.");
+      expect(JSON.stringify(requestBody)).toContain("data:image/png;base64,AQID");
+    } finally {
+      onCompletionRequest = null;
+      nextJsonCompletion = null;
+      await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
   test("exposes Help for a user-backed default chat without enabling capabilities", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
 
     try {
       completionRequestCount = 0;
@@ -262,7 +483,7 @@ suite("AI executor integration", () => {
       onCompletionRequest = (body) => {
         requests.push(body);
       };
-      const { turn } = await aiConversationStore.submitChatTurn({
+      const { turn } = await aiConversations.submitChatTurn({
         conversationId: conversation.id,
         modelProfileId: MODEL_ID,
         runConfig: {
@@ -273,7 +494,7 @@ suite("AI executor integration", () => {
         },
         userMessage: userMessage("How do contacts work?"),
       });
-      const claim = await aiConversationStore.claimTurn({
+      const claim = await aiConversations.claimTurn({
         conversationId: conversation.id,
         turnId: turn.id,
         leaseOwner: "help-exec",
@@ -306,7 +527,7 @@ suite("AI executor integration", () => {
 
   test("advertises local Bash only when the durable turn opts in", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
 
     try {
       completionRequestCount = 0;
@@ -315,7 +536,7 @@ suite("AI executor integration", () => {
       onCompletionRequest = (body) => {
         requests.push(body);
       };
-      const { turn } = await aiConversationStore.submitChatTurn({
+      const { turn } = await aiConversations.submitChatTurn({
         conversationId: conversation.id,
         modelProfileId: MODEL_ID,
         runConfig: {
@@ -327,7 +548,7 @@ suite("AI executor integration", () => {
         },
         userMessage: userMessage("Inspect this checkout"),
       });
-      const claim = await aiConversationStore.claimTurn({
+      const claim = await aiConversations.claimTurn({
         conversationId: conversation.id,
         turnId: turn.id,
         leaseOwner: "local-bash-exec",
@@ -357,7 +578,7 @@ suite("AI executor integration", () => {
 
   test("does not advertise tool-only Help or memory mutations to a model without tools", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
 
     try {
       await aiMemories.create({ userId, kind: "preference", content: "Prefers concise German answers." });
@@ -367,7 +588,7 @@ suite("AI executor integration", () => {
       onCompletionRequest = (body) => {
         requests.push(body);
       };
-      const { turn } = await aiConversationStore.submitChatTurn({
+      const { turn } = await aiConversations.submitChatTurn({
         conversationId: conversation.id,
         modelProfileId: MODEL_ID,
         runConfig: {
@@ -378,7 +599,7 @@ suite("AI executor integration", () => {
         },
         userMessage: userMessage("Remember that I prefer short answers."),
       });
-      const claim = await aiConversationStore.claimTurn({
+      const claim = await aiConversations.claimTurn({
         conversationId: conversation.id,
         turnId: turn.id,
         leaseOwner: "no-tools-exec",
@@ -419,7 +640,7 @@ suite("AI executor integration", () => {
       INSERT INTO ai.projects (id, short_id, app_id, name, instructions, revision)
       VALUES (${projectId}::uuid, ${projectShortId}, 'ai-exec', 'Meeting summary', 'Current instructions that must not replace the snapshot.', 5)
     `;
-    const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
 
     try {
       completionRequestCount = 0;
@@ -428,7 +649,7 @@ suite("AI executor integration", () => {
       onCompletionRequest = (body) => {
         requests.push(body);
       };
-      const { turn } = await aiConversationStore.submitChatTurn({
+      const { turn } = await aiConversations.submitChatTurn({
         conversationId: conversation.id,
         modelProfileId: MODEL_ID,
         runConfig: {
@@ -436,7 +657,8 @@ suite("AI executor integration", () => {
           input: "Summarize this meeting.",
           actor: { kind: "user", user: actorUser(userId) },
           project: {
-            id: projectId,
+            id: projectShortId,
+            appId: "ai-exec",
             name: "Meeting summary",
             instructions: "List decisions before action items.",
             revision: 4,
@@ -448,7 +670,7 @@ suite("AI executor integration", () => {
         },
         userMessage: userMessage("Summarize this meeting."),
       });
-      const claim = await aiConversationStore.claimTurn({
+      const claim = await aiConversations.claimTurn({
         conversationId: conversation.id,
         turnId: turn.id,
         leaseOwner: "project-exec",
@@ -480,11 +702,11 @@ suite("AI executor integration", () => {
 
   test("a fresh claim after a crash re-runs without duplicating the user message", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
 
     try {
       nextCompletion = textCompletion("Recovered answer");
-      const { turn } = await aiConversationStore.submitChatTurn({
+      const { turn } = await aiConversations.submitChatTurn({
         conversationId: conversation.id,
         modelProfileId: MODEL_ID,
         runConfig: { kind: "chat", input: "Hi", toolSource: { kind: "none" } },
@@ -492,7 +714,7 @@ suite("AI executor integration", () => {
       });
 
       // Simulate a crashed first attempt: claim then expire the lease without running.
-      await aiConversationStore.claimTurn({
+      await aiConversations.claimTurn({
         conversationId: conversation.id,
         turnId: turn.id,
         leaseOwner: "dead-worker",
@@ -504,7 +726,7 @@ suite("AI executor integration", () => {
       await sql`UPDATE ai.turns SET lease_expires_at = now() - interval '1 second' WHERE id = ${turn.id}`;
 
       // Recovery: a second worker claims (attempt 2) and runs to completion.
-      const claim = await aiConversationStore.claimTurn({
+      const claim = await aiConversations.claimTurn({
         conversationId: conversation.id,
         turnId: turn.id,
         leaseOwner: "live-worker",
@@ -522,7 +744,7 @@ suite("AI executor integration", () => {
         signal: new AbortController().signal,
       });
 
-      const messages = await aiConversationStore.listMessages({ conversationId: conversation.id });
+      const messages = await aiConversations.listMessages({ conversationId: conversation.id });
       // Exactly one user message (no duplicate) and one assistant answer.
       expect(messages.filter((m) => m.message.role === "user")).toHaveLength(1);
       expect(messages.filter((m) => m.message.role === "assistant")).toHaveLength(1);
@@ -534,13 +756,13 @@ suite("AI executor integration", () => {
 
   test("steering submitted during the final provider response continues the same turn", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversationStore.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
 
     try {
       completionRequestCount = 0;
       completionQueue = [textCompletion("Initial answer"), textCompletion("Revised answer")];
       const requests: unknown[] = [];
-      const { turn } = await aiConversationStore.submitChatTurn({
+      const { turn } = await aiConversations.submitChatTurn({
         conversationId: conversation.id,
         modelProfileId: MODEL_ID,
         runConfig: { kind: "chat", input: "Start", toolSource: { kind: "none" } },
@@ -549,7 +771,7 @@ suite("AI executor integration", () => {
       onCompletionRequest = async (body, index) => {
         requests.push(body);
         if (index !== 0) return;
-        const result = await aiConversationStore.enqueueTurnSteer({
+        const result = await aiConversations.enqueueTurnSteer({
           conversationId: conversation.id,
           turnId: turn.id,
           clientRequestId: "late-steer",
@@ -559,7 +781,7 @@ suite("AI executor integration", () => {
       };
 
       const collecting = collectWire(conversation.id, (event) => event.type === "turn_finished");
-      const claim = await aiConversationStore.claimTurn({
+      const claim = await aiConversations.claimTurn({
         conversationId: conversation.id,
         turnId: turn.id,
         leaseOwner: "steer-exec",
@@ -581,7 +803,7 @@ suite("AI executor integration", () => {
       expect(blockSets.some((event) => event.block.kind === "steer_applied")).toBe(true);
       expect(events.at(-1)).toMatchObject({ type: "turn_finished", status: "completed" });
 
-      const messages = await aiConversationStore.listMessages({ conversationId: conversation.id });
+      const messages = await aiConversations.listMessages({ conversationId: conversation.id });
       expect(messages.map((entry) => entry.message.role)).toEqual(["user", "assistant", "user", "assistant"]);
       expect(messages[2]?.meta?.steerId).toBeTruthy();
       expect(requests).toHaveLength(2);

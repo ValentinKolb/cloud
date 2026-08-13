@@ -17,7 +17,6 @@ const conversation = (overrides: Partial<AiEnrichmentCandidate> = {}): AiEnrichm
   appId: "assistant",
   title: "New chat",
   titleSource: "default",
-  icon: "ti ti-message",
   description: "",
   descriptionSource: "default",
   keywords: [],
@@ -137,9 +136,9 @@ describe("shouldApplyEnrichedDescription", () => {
 
 describe("enrichDirtyAiConversations", () => {
   const makeStore = (candidates: AiEnrichmentCandidate[], messages: AiStoredMessage[]) => {
-    const applied: Parameters<typeof import("./store")["aiConversationStore"]["applyEnrichment"]>[0][] = [];
+    const applied: Parameters<typeof import("./store")["aiConversations"]["applyEnrichment"]>[0][] = [];
     const failed: string[] = [];
-    const recorded: Parameters<typeof import("./store")["aiConversationStore"]["recordEnrichmentRun"]>[0][] = [];
+    const recorded: Parameters<typeof import("./store")["aiConversations"]["recordEnrichmentRun"]>[0][] = [];
     return {
       applied,
       failed,

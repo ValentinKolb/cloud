@@ -141,6 +141,7 @@ describe("composeAiSystemPrompt", () => {
       resourceContext: "Resource context.",
       project: {
         id: "project-1",
+        appId: "assistant",
         name: "Meeting summary",
         instructions: "List decisions first.",
         revision: 3,
@@ -192,5 +193,29 @@ describe("composeAiSystemPrompt", () => {
   it("shows a placeholder when memory is enabled but empty", () => {
     const prompt = composeAiSystemPrompt({ globalInstructions: "", user, memoryEnabled: true, memory: "" });
     expect(prompt).toContain("(no personalization yet)");
+  });
+
+  it("places the immutable conversation file manifest before personalization", () => {
+    const prompt = composeAiSystemPrompt({
+      globalInstructions: "",
+      user,
+      files: {
+        attached: [
+          {
+            path: "/photo.jpg",
+            size: 123,
+            mediaType: "image/jpeg",
+            origin: "user",
+            updatedAt: "2026-08-12T20:00:00.000Z",
+          },
+        ],
+        available: [],
+        total: 1,
+      },
+      memoryEnabled: true,
+      memory: "Likes concise answers.",
+    });
+    expect(prompt.indexOf("# Conversation files")).toBeLessThan(prompt.indexOf("# Personal facts and preferences"));
+    expect(prompt).toContain("Newly attached for this turn");
   });
 });

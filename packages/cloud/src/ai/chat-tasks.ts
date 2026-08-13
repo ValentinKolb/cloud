@@ -1,6 +1,6 @@
 import type { Message } from "@k2b/nessi";
 import { sql } from "bun";
-import { withAiShortId } from "./short-id";
+import { withAiShortId, withAiShortIdForDb } from "./short-id";
 import type { AiChatTurnRunConfig, AiStoredMessage, AiTurnStatus } from "./types";
 
 export type AiChatTaskState = "active" | "paused" | "completed" | "needs_attention";
@@ -540,9 +540,10 @@ export const aiChatTasks = {
         LIMIT 1
       `;
       if (active[0]) return { delivered: false as const, reason: "busy" as const };
-      const turn = await withAiShortId(
+      const turn = await withAiShortIdForDb(
+        tx,
         "idx_ai_turns_conversation_short_id",
-        (shortId) => tx<{ id: string }[]>`
+        (attempt, shortId) => attempt<{ id: string }[]>`
         INSERT INTO ai.turns (short_id, conversation_id, model_profile_id, status, run_config)
         VALUES (${shortId}, ${occurrence.conversation_id}::uuid, ${input.modelProfileId}, 'queued', (${JSON.stringify(input.runConfig)}::text)::jsonb)
         RETURNING id
@@ -557,9 +558,10 @@ export const aiChatTasks = {
           trigger: occurrence.trigger,
         },
       };
-      await withAiShortId(
+      await withAiShortIdForDb(
+        tx,
         "idx_ai_messages_conversation_short_id",
-        (shortId) => tx`
+        (attempt, shortId) => attempt`
         INSERT INTO ai.messages (short_id, conversation_id, seq, kind, role, message, search_text, loop_id, meta)
         VALUES (
           ${shortId}, ${occurrence.conversation_id}::uuid,

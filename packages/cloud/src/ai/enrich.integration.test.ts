@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Message } from "@k2b/nessi";
 import { sql } from "bun";
 import { migrateCloudAi } from "./migrate";
-import { aiConversationStore } from "./store";
+import { aiConversations } from "./store";
 
 const canUseAiDatabase = async () => {
   try {
@@ -45,7 +45,7 @@ const runConfig = { kind: "chat" as const, input: "hi", toolSource: { kind: "non
 
 /** Seed a user message via the real submit path, then clear the queued turn so the chat has no active turn. */
 const seedUserMessage = async (conversationId: string, text: string) => {
-  await aiConversationStore.submitChatTurn({
+  await aiConversations.submitChatTurn({
     conversationId,
     modelProfileId: "test-model",
     runConfig,
@@ -54,19 +54,19 @@ const seedUserMessage = async (conversationId: string, text: string) => {
   await sql`DELETE FROM ai.turns WHERE conversation_id = ${conversationId}::uuid`;
 };
 
-const candidateIds = async () => (await aiConversationStore.listEnrichmentCandidates({ limit: 100 })).map((candidate) => candidate.id);
+const candidateIds = async () => (await aiConversations.listEnrichmentCandidates({ limit: 100 })).map((candidate) => candidate.id);
 
 describe.skipIf(!(await canUseAiDatabase()))("enrichment store (integration)", () => {
   test("applyEnrichment with exact dirtyAsOf makes an unchanged conversation exactly clean", async () => {
     const userId = await insertUser();
     const conversationIds: string[] = [];
     try {
-      const conversation = await aiConversationStore.createConversation({ appId: "ai-enrich-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ appId: "ai-enrich-test", ownerUserId: userId });
       conversationIds.push(conversation.id);
       await seedUserMessage(conversation.id, "Hi");
 
       // Dirty: never enriched. The candidate carries the exact microsecond timestamp.
-      const candidates = await aiConversationStore.listEnrichmentCandidates({ limit: 100 });
+      const candidates = await aiConversations.listEnrichmentCandidates({ limit: 100 });
       const candidate = candidates.find((entry) => entry.id === conversation.id);
       expect(candidate).toBeDefined();
 
@@ -74,7 +74,7 @@ describe.skipIf(!(await canUseAiDatabase()))("enrichment store (integration)", (
       expect(candidate!.title).toBe("Hi");
       expect(candidate!.titleSource).toBe("default");
 
-      await aiConversationStore.applyEnrichment({
+      await aiConversations.applyEnrichment({
         conversationId: conversation.id,
         searchSummary: "First indexed summary",
         description: "A greeting.",
@@ -86,7 +86,7 @@ describe.skipIf(!(await canUseAiDatabase()))("enrichment store (integration)", (
       // Exactly clean — the millisecond-truncated ISO value would leave it dirty forever.
       expect(await candidateIds()).not.toContain(conversation.id);
 
-      const updated = await aiConversationStore.getConversation({ conversationId: conversation.id, appId: "ai-enrich-test" });
+      const updated = await aiConversations.getConversation({ conversationId: conversation.id, appId: "ai-enrich-test" });
       expect(updated?.title).toBe("Greeting chat");
       expect(updated?.titleSource).toBe("auto");
       expect(updated?.description).toBe("A greeting.");
@@ -104,24 +104,24 @@ describe.skipIf(!(await canUseAiDatabase()))("enrichment store (integration)", (
     const userId = await insertUser();
     const conversationIds: string[] = [];
     try {
-      const conversation = await aiConversationStore.createConversation({ appId: "ai-enrich-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ appId: "ai-enrich-test", ownerUserId: userId });
       conversationIds.push(conversation.id);
       await seedUserMessage(conversation.id, "Hi");
 
       expect(await candidateIds()).toContain(conversation.id);
 
-      await aiConversationStore.markEnrichmentFailed({ conversationId: conversation.id });
+      await aiConversations.markEnrichmentFailed({ conversationId: conversation.id });
       expect(await candidateIds()).not.toContain(conversation.id);
 
       // Backoff elapsed (fail_count 1 → 10 minutes): simulate by aging the failure marker.
       await sql`UPDATE ai.conversations SET enrich_failed_at = now() - interval '11 minutes' WHERE id = ${conversation.id}::uuid`;
-      const candidates = await aiConversationStore.listEnrichmentCandidates({ limit: 100 });
+      const candidates = await aiConversations.listEnrichmentCandidates({ limit: 100 });
       const candidate = candidates.find((entry) => entry.id === conversation.id);
       expect(candidate).toBeDefined();
       expect(candidate!.enrichFailCount).toBe(1);
 
       // A successful enrichment clears the backoff.
-      await aiConversationStore.applyEnrichment({
+      await aiConversations.applyEnrichment({
         conversationId: conversation.id,
         searchSummary: "Recovered summary",
         description: "A greeting.",

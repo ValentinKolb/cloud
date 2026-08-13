@@ -1,4 +1,4 @@
-import { type AiEnrichmentOverview, aiConversationStore, listAiCredentialProfileIds } from "@valentinkolb/cloud/ai";
+import { type AiEnrichmentOverview, aiConversations, listAiCredentialProfileIds } from "@valentinkolb/cloud/ai";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { settingsService } from "@valentinkolb/cloud/services";
 import { AdminLayout, getRuntimeContext, hasDedicatedRuntimeRoute } from "@valentinkolb/cloud/ssr";
@@ -155,7 +155,7 @@ export default ssr<AuthContext>(async (c) => {
     entries = await buildEntries(tab.group);
     if (tab.id === "mail") entries = entries.filter((entry) => entry.kind !== "template");
     if (tab.id === "email-templates") entries = entries.filter((entry) => entry.kind === "template");
-    if (tab.id === "ai-jobs") aiEnrichmentOverview = await aiConversationStore.getEnrichmentOverview();
+    if (tab.id === "ai-jobs") aiEnrichmentOverview = await aiConversations.getEnrichmentOverview();
     if (tab.id === "ai-providers") aiCredentialProfileIds = await listAiCredentialProfileIds();
   } else if (tab.id === "legal") {
     entries = await buildEntries("legal");

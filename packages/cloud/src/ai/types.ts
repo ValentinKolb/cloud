@@ -77,6 +77,7 @@ export type AiSettingsState =
       ok: true;
       enabled: boolean;
       defaultModelId: string;
+      visionModelId?: string;
       globalInstructions: string;
       compactionInstructions: string;
       maxToolResultChars: number;
@@ -87,6 +88,7 @@ export type AiSettingsState =
       ok: false;
       enabled: boolean;
       defaultModelId: string;
+      visionModelId?: string;
       globalInstructions: string;
       compactionInstructions: string;
       maxToolResultChars: number;
@@ -134,7 +136,6 @@ export type AiConversation = {
   title: string;
   /** Who set the current title — enrichment never overwrites a user-chosen title. */
   titleSource: AiConversationFieldSource;
-  icon: string;
   /** User-visible description. Kept fresh by the enrichment job until the user edits it. */
   description: string;
   /** Who wrote the current description — enrichment never overwrites a user-authored one. */
@@ -393,7 +394,9 @@ export type AiClientToolId = "local_bash";
 
 /** Immutable project instructions and context manifest captured for one turn. */
 export type AiProjectPromptSnapshot = {
+  /** Public readable Project ID. Resolve it once before using internal Project services. */
   id: string;
+  appId: string;
   name: string;
   revision: number;
   instructions: string;
@@ -423,7 +426,7 @@ export type AiConversationResourceObservation = {
 };
 
 export type AiConversationResourceOccurrence = AiConversationResourceRef & {
-  chat: Pick<AiConversation, "shortId" | "title" | "icon" | "updatedAt">;
+  chat: Pick<AiConversation, "shortId" | "title" | "updatedAt">;
 };
 
 export type AiConversationSourceKind = "web" | "file" | "resource" | "activity";
@@ -455,6 +458,21 @@ export type AiConversationSourceObservation = {
   href?: string;
 };
 
+export type AiConversationFileSnapshotEntry = {
+  path: string;
+  size: number;
+  mediaType: string;
+  origin: "user" | "assistant";
+  updatedAt: string;
+  version?: number;
+};
+
+export type AiConversationFileSnapshot = {
+  attached: AiConversationFileSnapshotEntry[];
+  available: AiConversationFileSnapshotEntry[];
+  total: number;
+};
+
 export type AiChatTurnRunConfig = {
   kind?: "chat";
   input: Input;
@@ -464,6 +482,9 @@ export type AiChatTurnRunConfig = {
   systemPrompt?: string;
   resourceContext?: string;
   project?: AiProjectPromptSnapshot;
+  files?: AiConversationFileSnapshot;
+  /** Whether this turn's materialized tools can inspect referenced images. */
+  canInspectAttachedImages?: boolean;
   clientToolIds?: AiClientToolId[];
   toolSource?: AiTurnToolSource;
   toolApprovalContext?: {
@@ -504,15 +525,20 @@ export type AiTurnSweepResult = {
   aborted: AiTurnFinalizedAction[];
 };
 
-export type AiConversationStore = {
+export type AiConversationService = {
   createConversation(input: {
     appId: string;
     ownerUserId: string;
     title?: string;
-    icon?: string;
     description?: string;
     resource?: AiConversationResource;
     projectId?: string;
+  }): Promise<AiConversation>;
+  forkConversation(input: {
+    sourceConversationId: string;
+    throughSeq: number;
+    ownerUserId: string;
+    title?: string;
   }): Promise<AiConversation>;
   listConversations(input: {
     appId: string;
@@ -525,6 +551,12 @@ export type AiConversationStore = {
     projectId?: string;
     unassigned?: boolean;
     limit?: number;
+  }): Promise<AiConversation[]>;
+  listSidebarConversations(input: {
+    appId: string;
+    ownerUserId: string;
+    unassignedLimit?: number;
+    perProjectLimit?: number;
   }): Promise<AiConversation[]>;
   listConversationsPage(input: {
     appId: string;
@@ -621,7 +653,6 @@ export type AiConversationStore = {
     appId?: string;
     ownerUserId?: string;
     title: string;
-    icon?: string;
     description?: string;
     pinned?: boolean;
   }): Promise<AiConversation | null>;
@@ -710,12 +741,13 @@ export type AiConversationStore = {
     modelProfileId?: string | null;
   }): Promise<void>;
   listTurnMessages(input: { conversationId: string; loopId: string }): Promise<AiStoredMessage[]>;
-  createTurn(input: { conversationId: string; modelProfileId: string; runConfig?: AiTurnRunConfig }): Promise<AiTurn>;
+  /** Create a queued compaction turn. Chat turns must use submitChatTurn. */
+  createCompactionTurn(input: { conversationId: string; modelProfileId: string; runConfig: AiCompactionTurnRunConfig }): Promise<AiTurn>;
   /** Persist the user message and create its turn in one transaction. */
   submitChatTurn(input: {
     conversationId: string;
     modelProfileId: string;
-    runConfig: AiTurnRunConfig;
+    runConfig: AiChatTurnRunConfig;
     userMessage: Message;
     /** Delete active messages with seq >= truncateFromSeq first (retry-in-place). */
     truncateFromSeq?: number;
@@ -793,6 +825,8 @@ export type AiConversationStore = {
     modelProfileId?: string | null;
     turnId?: string | null;
     leaseOwner?: string | null;
+    /** Ephemeral provider input for this turn; user-message persistence remains reference-only. */
+    turnInput?: Input;
     /** Mutable snapshot map read only when an assistant tool-call message is persisted. */
     toolPresentations?: ReadonlyMap<string, AiToolPresentation>;
   }): SessionStore;
@@ -858,7 +892,16 @@ export type AiToolRuntime<TInput extends z.ZodType = z.ZodType, TOutput extends 
   | {
       location: "server";
       def: AiToolDefinition<TInput, TOutput>;
-      run(input: z.infer<TInput>, ctx: ToolContext & { actor: RequestActor; conversationId?: string }): Promise<z.infer<TOutput>>;
+      run(
+        input: z.infer<TInput>,
+        ctx: ToolContext & {
+          actor: RequestActor;
+          conversationId?: string;
+          turnId?: string;
+          attachedFilePaths?: ReadonlySet<string>;
+          allowedDataBoundaries?: AiDataBoundary[];
+        },
+      ): Promise<z.infer<TOutput>>;
     }
   | {
       location: AiFrontendToolMode;

@@ -5,7 +5,6 @@ import { type AuthContext, err, fail, respond } from "../server";
 import { aiAttachmentMarker } from "./attachments";
 import { AI_SHORT_ID_PATTERN } from "./short-id";
 import type { AiClientToolId, AiSettingsError, AiUserContentPart } from "./types";
-import { isAiImageMediaType } from "./types";
 import { isAiSettingsError } from "./validate";
 
 export const AiCreateConversationInputSchema = z.object({
@@ -19,12 +18,7 @@ export const AiUserContentPartSchema = z.union([
     type: z.literal("text"),
     text: z.string().trim().min(1).max(20000),
   }),
-  z.object({
-    type: z.literal("file"),
-    data: z.string().min(1).max(12_000_000),
-    mediaType: z.string().trim().refine(isAiImageMediaType, "Unsupported image media type."),
-  }),
-  // Non-image attachment already uploaded to the conversation VFS (/input).
+  // Attachment already uploaded to the conversation file store.
   z.object({
     type: z.literal("attachment"),
     path: z.string().trim().min(1).max(500),

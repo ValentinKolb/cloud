@@ -55,7 +55,7 @@ const buildCoreApi = (options: CoreApiOptions) => {
     .route("/admin/core/settings", adminCoreSettingsRoutes)
     .route("/admin/lifecycle", adminLifecycleRoutes)
     .route("/ai/approval-preferences", approvalPreferenceRoutes)
-    .route("/ai/projects", createAiProjectsRoutes())
+    .route("/ai/projects", createAiProjectsRoutes({ appId: "assistant" }))
     .route("/", helpRoutes)
     .route("/", capabilityRoutes)
     .route("/", mcpRoutes)

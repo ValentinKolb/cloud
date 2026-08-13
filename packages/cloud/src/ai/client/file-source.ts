@@ -1,7 +1,7 @@
 /**
  * FileSource adapter over a conversation's VFS routes (/conversations/:id/files).
- * /files is the assistant's editable workspace; /input mirrors what the user
- * sent to the model and stays read-only in the UI. Browser-safe module.
+ * Files share one flat conversation namespace. Origin metadata preserves who
+ * created a file without encoding policy in its path. Browser-safe module.
  */
 import type { FileSource, FileTreeEntry, FileViewContent } from "@k2b/ui";
 import type { AiFileStat } from "../files-store";
@@ -53,7 +53,7 @@ export const conversationFileSource = (baseUrl: string, conversationId: string):
         size: file.size,
         mediaType: file.mediaType,
         updatedAt: file.updatedAt,
-        badge: file.path.startsWith("/input/") ? "ro" : undefined,
+        badge: file.origin === "user" ? "upload" : undefined,
       }));
     },
 
@@ -79,13 +79,10 @@ export const conversationFileSource = (baseUrl: string, conversationId: string):
       await request(filesUrl("/rename"), { method: "POST", body: JSON.stringify({ from, to }) }, "Failed to rename file");
     },
 
-    async upload(dirPath, files) {
+    async upload(_dirPath, files) {
       for (const file of files) {
         const form = new FormData();
         form.append("file", file);
-        // Uploads from the browser land in the assistant's workspace unless the
-        // target is explicitly the uploads area.
-        form.append("dir", dirPath.startsWith("/input") ? "/input" : "/files");
         const response = await fetch(filesUrl(), { method: "POST", body: form });
         if (!response.ok) throw new Error(await readError(response, `Failed to upload ${file.name}`));
       }
@@ -93,8 +90,6 @@ export const conversationFileSource = (baseUrl: string, conversationId: string):
 
     downloadHref: (path) => filesUrl("/content", { path }),
 
-    // /input mirrors sent attachments — immutable; new uploads there would
-    // desync what the user believes the model received.
-    isReadOnly: (path) => !path.startsWith("/files"),
+    isReadOnly: () => false,
   };
 };

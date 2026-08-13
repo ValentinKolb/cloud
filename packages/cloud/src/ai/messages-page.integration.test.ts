@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrateCloudAi } from "./migrate";
 import { createAiShortId } from "./short-id";
-import { aiConversationStore } from "./store";
+import { aiConversations } from "./store";
 
 const canUseAiDatabase = async () => {
   try {
@@ -72,23 +72,23 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
     const userId = await insertUser();
     const conversationIds: string[] = [];
     try {
-      const conversation = await aiConversationStore.createConversation({ appId: "ai-page-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ appId: "ai-page-test", ownerUserId: userId });
       conversationIds.push(conversation.id);
       for (let seq = 1; seq <= 12; seq++) {
         await insertMessage({ conversationId: conversation.id, seq, role: seq % 2 ? "user" : "assistant", text: `msg ${seq}` });
       }
 
       // Newest window of 5: seq 8-12, more history above.
-      const first = await aiConversationStore.listMessagesPage({ conversationId: conversation.id, limit: 5 });
+      const first = await aiConversations.listMessagesPage({ conversationId: conversation.id, limit: 5 });
       expect(first.messages.map((message) => message.seq)).toEqual([8, 9, 10, 11, 12]);
       expect(first.hasMore).toBe(true);
 
       // Page older from the window's oldest seq.
-      const second = await aiConversationStore.listMessagesPage({ conversationId: conversation.id, beforeSeq: 8, limit: 5 });
+      const second = await aiConversations.listMessagesPage({ conversationId: conversation.id, beforeSeq: 8, limit: 5 });
       expect(second.messages.map((message) => message.seq)).toEqual([3, 4, 5, 6, 7]);
       expect(second.hasMore).toBe(true);
 
-      const third = await aiConversationStore.listMessagesPage({ conversationId: conversation.id, beforeSeq: 3, limit: 5 });
+      const third = await aiConversations.listMessagesPage({ conversationId: conversation.id, beforeSeq: 3, limit: 5 });
       expect(third.messages.map((message) => message.seq)).toEqual([1, 2]);
       expect(third.hasMore).toBe(false);
     } finally {
@@ -100,7 +100,7 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
     const userId = await insertUser();
     const conversationIds: string[] = [];
     try {
-      const conversation = await aiConversationStore.createConversation({ appId: "ai-page-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ appId: "ai-page-test", ownerUserId: userId });
       conversationIds.push(conversation.id);
 
       // Compacted history: archived rows on seq 1-2, the active summary shares seq 2.
@@ -111,7 +111,7 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
       await insertMessage({ conversationId: conversation.id, seq: 4, role: "assistant", text: "new answer" });
 
       // limit counts DISTINCT seqs — the seq-2 group (archived row + summary) stays intact.
-      const window = await aiConversationStore.listMessagesPage({ conversationId: conversation.id, limit: 3 });
+      const window = await aiConversations.listMessagesPage({ conversationId: conversation.id, limit: 3 });
       expect(window.messages.map((message) => `${message.seq}:${message.kind}`)).toEqual([
         "2:message",
         "2:summary",
@@ -121,13 +121,13 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
       expect(window.hasMore).toBe(true);
 
       // The summary sorts after the archived row sharing its seq (same as listMessages).
-      const older = await aiConversationStore.listMessagesPage({ conversationId: conversation.id, beforeSeq: 2, limit: 5 });
+      const older = await aiConversations.listMessagesPage({ conversationId: conversation.id, beforeSeq: 2, limit: 5 });
       expect(older.messages.map((message) => message.seq)).toEqual([1]);
       expect(older.hasMore).toBe(false);
 
       // Full-view parity: same visibility rules as listMessages.
-      const full = await aiConversationStore.listMessages({ conversationId: conversation.id });
-      const paged = await aiConversationStore.listMessagesPage({ conversationId: conversation.id, limit: 100 });
+      const full = await aiConversations.listMessages({ conversationId: conversation.id });
+      const paged = await aiConversations.listMessagesPage({ conversationId: conversation.id, limit: 100 });
       expect(paged.messages.map((message) => message.id)).toEqual(full.map((message) => message.id));
     } finally {
       await cleanupFixture({ userId, conversationIds });
@@ -138,8 +138,8 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
     const userId = await insertUser();
     const conversationIds: string[] = [];
     try {
-      const source = await aiConversationStore.createConversation({ appId: "ai-page-test", ownerUserId: userId });
-      const target = await aiConversationStore.createConversation({ appId: "ai-page-test", ownerUserId: userId });
+      const source = await aiConversations.createConversation({ appId: "ai-page-test", ownerUserId: userId });
+      const target = await aiConversations.createConversation({ appId: "ai-page-test", ownerUserId: userId });
       conversationIds.push(source.id, target.id);
 
       await insertMessage({ conversationId: source.id, seq: 1, role: "user", text: "needle old" });
@@ -155,11 +155,11 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
       await insertMessage({ conversationId: source.id, seq: 2, role: "assistant", text: "needle current", kind: "summary" });
       await insertMessage({ conversationId: source.id, seq: 3, role: "assistant", text: "needle newest" });
 
-      const first = await aiConversationStore.searchConversationMessages({ conversationId: source.id, query: "needle", limit: 1 });
+      const first = await aiConversations.searchConversationMessages({ conversationId: source.id, query: "needle", limit: 1 });
       expect(first.messages.map((message) => `${message.seq}:${message.kind}`)).toEqual(["3:message"]);
       expect(first.nextCursor).toBe("3");
 
-      const second = await aiConversationStore.searchConversationMessages({
+      const second = await aiConversations.searchConversationMessages({
         conversationId: source.id,
         query: "needle",
         beforeSeq: 3,
@@ -168,8 +168,8 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
       expect(second.messages.map((message) => `${message.seq}:${message.kind}`)).toEqual(["2:message", "2:summary"]);
       expect(JSON.stringify(second.messages.map((message) => message.message))).not.toContain("hidden");
 
-      await aiConversationStore.copyMessages({ sourceConversationId: source.id, targetConversationId: target.id, throughSeq: 3 });
-      const forked = await aiConversationStore.searchConversationMessages({ conversationId: target.id, query: "newest" });
+      await aiConversations.copyMessages({ sourceConversationId: source.id, targetConversationId: target.id, throughSeq: 3 });
+      const forked = await aiConversations.searchConversationMessages({ conversationId: target.id, query: "newest" });
       expect(forked.messages.map((message) => message.seq)).toEqual([3]);
     } finally {
       await cleanupFixture({ userId, conversationIds });
@@ -180,7 +180,7 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
     const userId = await insertUser();
     const conversationIds: string[] = [];
     try {
-      const conversation = await aiConversationStore.createConversation({ appId: "ai-page-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ appId: "ai-page-test", ownerUserId: userId });
       conversationIds.push(conversation.id);
       const turnId = crypto.randomUUID();
       await sql`
@@ -195,7 +195,7 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
         loopId: turnId,
         content: [
           { type: "text", text: "Create a report" },
-          { type: "text", text: '<attachment path="/input/data.csv" media-type="text/csv" size="12" />' },
+          { type: "text", text: '<attachment path="/data.csv" media-type="text/csv" size="12" />' },
         ],
       });
       await insertMessage({ conversationId: conversation.id, seq: 2, role: "assistant", text: "I created the report.", loopId: turnId });
@@ -219,7 +219,7 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
         VALUES (${turnId}::uuid, ${conversation.id}::uuid, 'present-1', 'present', 'completed', 'not_required')
       `;
 
-      const timeline = await aiConversationStore.listConversationTimeline({ conversationId: conversation.id });
+      const timeline = await aiConversations.listConversationTimeline({ conversationId: conversation.id });
       expect(timeline).toHaveLength(2);
       expect(timeline[0]).toMatchObject({
         seq: 1,

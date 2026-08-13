@@ -1,4 +1,4 @@
-import type { LoopAggregate, StructuredMeta, Usage } from "@k2b/nessi";
+import type { Input, LoopAggregate, StructuredMeta, Usage } from "@k2b/nessi";
 import { nessi, StructuredOutputError } from "@k2b/nessi";
 import type { z } from "zod";
 import { coreSettings } from "../services";
@@ -45,7 +45,7 @@ export const resolveAiWorkflowModel = async (requestedModelId?: string): Promise
 export type RunAiStructuredInput<TOutput extends z.ZodType> = {
   /** Short machine name for tracing, e.g. "chat-enrich". */
   task: string;
-  input: string;
+  input: Input;
   output: TOutput;
   outputName?: string;
   systemPrompt?: string;

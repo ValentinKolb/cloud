@@ -4,7 +4,7 @@ import { coreSettings } from "../services";
 import { logger } from "../services/logging";
 import { buildEnrichmentTranscript } from "./enrich";
 import { aiMemories } from "./memories";
-import { aiConversationStore } from "./store";
+import { aiConversations } from "./store";
 import type { RunAiStructuredInput, RunAiStructuredResult } from "./structured";
 import { resolveAiBackgroundModel, runAiStructured } from "./structured";
 import { AI_MEMORY_LEARNING_INSTRUCTIONS_SETTING_KEY, buildAiTaskPrompt } from "./task-prompt";
@@ -151,7 +151,7 @@ export const learnAiMemoriesFromPrivateChats = async (
   for (const candidate of candidates) {
     if (input.signal?.aborted) break;
     try {
-      const messages = await aiConversationStore.listMessages({ conversationId: candidate.conversationId });
+      const messages = await aiConversations.listMessages({ conversationId: candidate.conversationId });
       const transcript = buildEnrichmentTranscript(messages);
       if (!transcript.trim()) {
         await markLearned(candidate);

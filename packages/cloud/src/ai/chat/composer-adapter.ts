@@ -1,4 +1,5 @@
 import type { ChatAttachment, ChatModelOption, ChatSubmitInput } from "@k2b/ui";
+import { AI_TURN_IMAGE_MAX_TOTAL_BYTES } from "../limits";
 import type { AiPublicModelProfile, AiUserContentPart } from "../types";
 import {
   type AiComposerAttachment,
@@ -52,9 +53,7 @@ const isAiComposerAttachment = (value: unknown): value is AiComposerAttachment =
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<AiComposerAttachment>;
   return (
-    (candidate.kind === "image" || candidate.kind === "text" || candidate.kind === "file") &&
-    typeof candidate.id === "string" &&
-    typeof candidate.name === "string"
+    (candidate.kind === "image" || candidate.kind === "file") && typeof candidate.id === "string" && typeof candidate.name === "string"
   );
 };
 
@@ -63,18 +62,12 @@ export const aiComposerAttachmentRecords = (attachments: readonly ChatAttachment
 
 export const aiComposerSendInput = (input: ChatSubmitInput): AiComposerSendInput => {
   const attachments = aiComposerAttachmentRecords(input.attachments);
-  const images = attachments.filter((attachment): attachment is PendingAiImage => attachment.kind === "image");
-  const files = attachments.filter((attachment): attachment is PendingAiVfsFile => attachment.kind === "file");
+  const files = attachments.filter(
+    (attachment): attachment is PendingAiImage | PendingAiVfsFile => attachment.kind === "image" || attachment.kind === "file",
+  );
   const content =
     attachments.length > 0
-      ? ([
-          ...(input.text ? [{ type: "text" as const, text: input.text }] : []),
-          ...images.map((image) => ({
-            type: "file" as const,
-            data: image.data,
-            mediaType: image.mediaType,
-          })),
-        ] satisfies AiUserContentPart[])
+      ? ([...(input.text ? [{ type: "text" as const, text: input.text }] : [])] satisfies AiUserContentPart[])
       : undefined;
 
   return {
@@ -87,22 +80,29 @@ export const aiComposerSendInput = (input: ChatSubmitInput): AiComposerSendInput
 export const readAiComposerFiles = async (
   files: readonly File[],
   options: {
-    supportsVision: boolean;
+    acceptsImages?: boolean;
     currentCount?: number;
+    currentImageBytes?: number;
   },
 ): Promise<AiComposerFileResult> => {
   const remaining = Math.max(0, MAX_ATTACHMENTS - (options.currentCount ?? 0));
   const candidates = files.slice(0, remaining);
   const errors: string[] = [];
   const attachments: AiComposerAttachment[] = [];
+  let imageBytes = options.currentImageBytes ?? 0;
 
   for (const file of candidates) {
-    if (file.type.startsWith("image/") && !options.supportsVision) {
-      errors.push(`${file.name}: choose a vision-capable model before attaching images.`);
+    if (file.type.startsWith("image/") && options.acceptsImages === false) {
+      errors.push(`${file.name}: choose a Vision model or configure the view_image fallback.`);
+      continue;
+    }
+    if (file.type.startsWith("image/") && imageBytes + file.size > AI_TURN_IMAGE_MAX_TOTAL_BYTES) {
+      errors.push(`${file.name}: image attachments exceed the ${AI_TURN_IMAGE_MAX_TOTAL_BYTES / (1024 * 1024)} MB total limit.`);
       continue;
     }
     try {
       attachments.push(file.type.startsWith("image/") ? await readImageFile(file) : await readVfsFile(file));
+      if (file.type.startsWith("image/")) imageBytes += file.size;
     } catch (error) {
       errors.push(error instanceof Error ? error.message : `${file.name}: attachment failed.`);
     }

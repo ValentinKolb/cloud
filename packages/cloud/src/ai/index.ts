@@ -75,8 +75,8 @@ export {
   AI_FILES_MAX_CONVERSATION_BYTES_DEFAULT,
   AI_FILES_MAX_FILE_BYTES_DEFAULT,
   type AiFileStat,
-  aiFileStore,
   guessAiMediaType,
+  listAiConversationFiles,
   normalizeAiFilePath,
 } from "./files-store";
 export {
@@ -116,6 +116,21 @@ export {
   toAiActionFailureResponse,
   toAiErrorResponse,
 } from "./http";
+export { AI_IMAGE_INPUT_MAX_BYTES, AI_TURN_ATTACHMENT_MAX_ITEMS, AI_TURN_IMAGE_MAX_TOTAL_BYTES } from "./limits";
+export {
+  AI_INVALIDATION_DOMAINS,
+  AI_LIVE_WS_TYPE,
+  type AiInvalidation,
+  type AiInvalidationDomain,
+  AiInvalidationDomainSchema,
+  AiInvalidationSchema,
+  type AiLiveClientMessage,
+  AiLiveClientMessageSchema,
+  AiLiveCursorSchema,
+  type AiLiveServerMessage,
+  AiLiveServerMessageSchema,
+  parseAiLiveServerMessage,
+} from "./live-events";
 export { AI_ENRICH_CRON_SETTING_KEY, AI_MEMORY_LEARNING_CRON_SETTING_KEY, aiMaintenanceJobs } from "./maintenance";
 export {
   AI_MEMORY_CONTENT_MAX_CHARS,
@@ -190,7 +205,6 @@ export {
   type SubmitAiChatTurnInput,
   type SubmitAiCompactionInput,
   startAiRuntime,
-  startAiRuntimeRecovery,
   submitAiChatTurn,
   submitAiCompaction,
   submitAiTurnAction,
@@ -199,15 +213,17 @@ export {
   validateAiTurnRequest,
 } from "./runtime";
 export {
+  isAiVisionModelConfigured,
   listAiModels,
   readAiSettingsState,
   resolveAiModel,
   resolveAiSettingsStateFromRaw,
+  resolveAiVisionModel,
   selectAiModelProfile,
   toPublicAiSettingsState,
 } from "./settings";
 export { AI_SHORT_ID_PATTERN, createAiShortId } from "./short-id";
-export { aiConversationStore } from "./store";
+export { aiConversations } from "./store";
 export {
   aiStreamTopic,
   aiTurnControlsTopic,
@@ -238,10 +254,10 @@ export type {
   AiConversationResourceOccurrence,
   AiConversationResourceRef,
   AiConversationRunStatus,
+  AiConversationService,
   AiConversationSource,
   AiConversationSourceKind,
   AiConversationStatusFilter,
-  AiConversationStore,
   AiConversationTimelineEntry,
   AiDataBoundary,
   AiDataPolicy,
@@ -279,3 +295,11 @@ export type {
   AiTurnToolSource,
   AiUserContentPart,
 } from "./types";
+export { isAiImageMediaType } from "./types";
+export {
+  type CloudAiViewImageInput,
+  CloudAiViewImageInputSchema,
+  type CloudAiViewImageOutput,
+  CloudAiViewImageOutputSchema,
+  createCloudAiViewImageTool,
+} from "./vision-tool";

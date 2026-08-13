@@ -8,6 +8,7 @@ const {
   claimFrontendCall,
   conversationRunError,
   failSteerBlock,
+  isActiveConversationLoading,
   isCurrentStreamSession,
   projectionForConversationOpen,
   reconcileSteerBlocks,
@@ -21,7 +22,6 @@ const conversation = (id: string): AiConversation => ({
   appId: "assistant",
   title: id,
   titleSource: "default",
-  icon: "ti ti-message",
   description: "",
   descriptionSource: "default",
   keywords: [],
@@ -38,6 +38,12 @@ const conversation = (id: string): AiConversation => ({
 });
 
 describe("AI controller conversation transitions", () => {
+  test("does not report an idle controller without a conversation as loading", () => {
+    expect(isActiveConversationLoading(null, null)).toBe(false);
+    expect(isActiveConversationLoading("chat", null)).toBe(false);
+    expect(isActiveConversationLoading("chat", "chat")).toBe(true);
+  });
+
   test("never carries messages from the previous chat into an uncached target", () => {
     const target = conversation("target");
     expect(projectionForConversationOpen(undefined, target)).toEqual({ conversation: target, messages: [], activeTurn: null });

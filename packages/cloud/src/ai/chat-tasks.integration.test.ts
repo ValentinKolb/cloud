@@ -3,7 +3,7 @@ import { sql } from "bun";
 import { AiChatTaskIdempotencyConflictError, aiChatTasks } from "./chat-tasks";
 import { migrateCloudAi } from "./migrate";
 import { AI_SHORT_ID_PATTERN, createAiShortId } from "./short-id";
-import { aiConversationStore } from "./store";
+import { aiConversations } from "./store";
 
 const canUseAiDatabase = async (): Promise<boolean> => {
   try {
@@ -26,7 +26,7 @@ suite("AI chat tasks", () => {
       VALUES (${`ai-task-${suffix}`}, 'local', 'user', 'AI Task Test', ${`ai-task-${suffix}@example.test`}, 'AI', 'Task')
       RETURNING id
     `;
-    const conversation = await aiConversationStore.createConversation({
+    const conversation = await aiConversations.createConversation({
       appId: "assistant",
       ownerUserId: user!.id,
       title: "Scheduled work",
@@ -146,12 +146,12 @@ suite("AI chat tasks", () => {
     `;
     const owner = users[0]!;
     const peer = users[1]!;
-    const conversation = await aiConversationStore.createConversation({
+    const conversation = await aiConversations.createConversation({
       appId: "assistant",
       ownerUserId: owner.id,
       title: "Task recovery",
     });
-    const peerConversation = await aiConversationStore.createConversation({
+    const peerConversation = await aiConversations.createConversation({
       appId: "assistant",
       ownerUserId: peer.id,
       title: "Peer tasks",

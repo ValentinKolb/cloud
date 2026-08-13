@@ -10,6 +10,8 @@ const inputIncludesFiles = (input: Input): boolean =>
 
 export type ValidateAiTurnInput = {
   input: Input;
+  hasImageAttachments?: boolean;
+  canInspectAttachedImages?: boolean;
   modelPolicy?: AiModelPolicy;
   requestedModelId?: string;
 };
@@ -34,6 +36,18 @@ export const validateAiTurnRequest = async (
         fields: { modelProfileId: "Choose a model with vision support." },
       } satisfies AiSettingsError,
     });
+  }
+  if (input.hasImageAttachments && !resolved.profile.capabilities.includes("vision")) {
+    const canUseViewImage = resolved.profile.capabilities.includes("tools") && input.canInspectAttachedImages === true;
+    if (!canUseViewImage) {
+      throw Object.assign(new Error(`AI model "${resolved.profile.id}" cannot inspect image attachments.`), {
+        aiError: {
+          code: "model_policy_mismatch",
+          message: `AI model "${resolved.profile.label}" needs Vision support or Tools with a configured Vision tool model.`,
+          fields: { modelProfileId: "Choose a Vision model, or configure the view_image fallback." },
+        } satisfies AiSettingsError,
+      });
+    }
   }
 
   return { settings, resolved };

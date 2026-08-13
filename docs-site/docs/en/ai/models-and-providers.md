@@ -83,6 +83,16 @@ a model outside the application policy.
 Provider credentials are server-side settings. Never pass them to an island or
 store them in application data.
 
+## Configure image inspection
+
+Set **Vision tool model** to an enabled profile with the `vision` capability to
+make `view_image` available to tool-capable chat models. Cloud does not silently
+choose another provider. A newly attached image still goes directly to the
+selected chat model when that model itself supports Vision; the configured tool
+model is used only for explicit `view_image` calls. The tool model must also
+match the application's allowed data boundary; Cloud does not route private
+chat data to a hosted fallback.
+
 See [Settings](/en/docs/platform/settings) for runtime configuration and
 [Runtime configuration](/en/docs/operations/runtime-configuration) for
 deployment responsibilities.

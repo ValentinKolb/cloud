@@ -33,7 +33,6 @@ const conversation = (ownerId: string): AiConversation => ({
   appId: "assistant",
   title: "Chat",
   titleSource: "default",
-  icon: "ti ti-message",
   description: "",
   descriptionSource: "default",
   keywords: [],

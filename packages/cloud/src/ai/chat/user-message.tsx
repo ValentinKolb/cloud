@@ -7,8 +7,6 @@ import type { AiChatActions } from "./message-actions";
 import {
   type AiRetryMessageInput,
   copyTextFromMessage,
-  filePartsFromMessage,
-  imageSrc,
   textAttachmentSummariesFromMessage,
   userContentWithEditedVisibleText,
   userVisibleTextFromMessage,
@@ -70,16 +68,7 @@ const openModifyRetryDialog = (
 
 export const aiUserMessageText = (entry: AiStoredMessage): string => userVisibleTextFromMessage(entry.message);
 
-export const aiUserMessageAttachments = (entry: AiStoredMessage): ChatAttachment[] => [
-  ...filePartsFromMessage(entry.message)
-    .filter((part) => part.mediaType.startsWith("image/"))
-    .map((part, index) => ({
-      id: `${entry.id}-image-${index}`,
-      name: `Image ${index + 1}`,
-      kind: "image" as const,
-      previewUrl: imageSrc(part),
-      alt: "Uploaded image",
-    })),
+export const aiUserMessageAttachments = (entry: AiStoredMessage, actions: AiChatActions = {}): ChatAttachment[] => [
   ...textAttachmentSummariesFromMessage(entry.message).map((attachment, index) => ({
     id: `${entry.id}-text-${index}`,
     name: attachment.name,
@@ -90,8 +79,9 @@ export const aiUserMessageAttachments = (entry: AiStoredMessage): ChatAttachment
     id: `${entry.id}-vfs-${index}`,
     name: attachment.name,
     size: attachment.size,
-    kind: "file" as const,
-    icon: `ti ${attachment.icon}`,
+    kind: attachment.mediaType.startsWith("image/") ? ("image" as const) : ("file" as const),
+    previewUrl: attachment.mediaType.startsWith("image/") ? (actions.fileUrl?.(attachment.path) ?? undefined) : undefined,
+    icon: attachment.mediaType.startsWith("image/") ? "ti ti-photo" : `ti ${attachment.icon}`,
   })),
 ];
 

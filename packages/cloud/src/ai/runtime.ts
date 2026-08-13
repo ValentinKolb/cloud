@@ -7,7 +7,10 @@ import { logger } from "../services/logging";
 import { superviseRuntimeTask } from "../services/runtime-lifecycle";
 import { type AiToolApprovalContext, rememberAiToolApproval } from "./approvals";
 import { AiTurnExecutor } from "./executor";
-import { aiConversationStore } from "./store";
+import { canonicalizeAiConversationAttachments, snapshotAiConversationFiles } from "./file-context";
+import { startAiInvalidationRuntime, stopAiInvalidationRuntime } from "./live-outbox";
+import { isAiVisionModelConfigured } from "./settings";
+import { aiConversations } from "./store";
 import { publishAiTurnAbort, publishAiWireEvent } from "./stream";
 import { aiToolAudit } from "./tool-audit";
 import type {
@@ -23,6 +26,7 @@ import type {
   AiTurnFinalizedEvent,
   AiTurnToolSource,
 } from "./types";
+import { isAiImageMediaType } from "./types";
 import { validateAiTurnRequest } from "./validate";
 
 export type { ValidateAiTurnInput } from "./validate";
@@ -72,6 +76,7 @@ export type SubmitAiChatTurnInput = {
   project?: AiChatTurnRunConfig["project"];
   clientToolIds?: AiClientToolId[];
   toolSource?: AiTurnToolSource;
+  canInspectAttachedImages?: boolean;
   toolApprovalContext?: AiToolApprovalContext;
   /** Retry-in-place: drop active messages with seq >= this before creating the turn. */
   truncateFromSeq?: number;
@@ -81,30 +86,45 @@ export const submitAiChatTurn = async (input: SubmitAiChatTurnInput): Promise<{ 
   if (input.clientToolIds?.length && input.toolSource?.kind !== "default") {
     throw new Error("Optional client tools require the default tool source.");
   }
+  const files = await snapshotAiConversationFiles(input.conversationId, input.userMessage);
+  const userMessage = canonicalizeAiConversationAttachments(input.userMessage, files);
+  const inputMessage = canonicalizeAiConversationAttachments(
+    { role: "user", content: typeof input.input === "string" ? [input.input] : input.input },
+    files,
+  );
+  const canonicalInput = files?.attached.length ? inputMessage.content : input.input;
+  const hasImageAttachments = Boolean(files?.attached.some((file) => isAiImageMediaType(file.mediaType)));
+  const canInspectAttachedImages =
+    input.canInspectAttachedImages ??
+    (input.toolSource?.kind === "default" && (await isAiVisionModelConfigured(input.modelPolicy?.allowedDataBoundaries)));
   const { resolved } = await validateAiTurnRequest({
-    input: input.input,
+    input: canonicalInput,
+    hasImageAttachments,
+    canInspectAttachedImages,
     modelPolicy: input.modelPolicy,
     requestedModelId: input.requestedModelId,
   });
   const runConfig: AiChatTurnRunConfig = {
     kind: "chat",
-    input: input.input,
+    input: canonicalInput,
     actor: input.actor,
     modelPolicy: input.modelPolicy,
     requestedModelId: input.requestedModelId,
     systemPrompt: input.systemPrompt,
     resourceContext: input.resourceContext,
     project: input.project,
+    files,
+    canInspectAttachedImages,
     clientToolIds: input.clientToolIds,
     toolSource: input.toolSource ?? { kind: "none" },
     toolApprovalContext: input.toolApprovalContext,
   };
 
-  const submitted = await aiConversationStore.submitChatTurn({
+  const submitted = await aiConversations.submitChatTurn({
     conversationId: input.conversationId,
     modelProfileId: resolved.profile.id,
     runConfig,
-    userMessage: input.userMessage,
+    userMessage,
     truncateFromSeq: input.truncateFromSeq,
   });
 
@@ -138,7 +158,7 @@ export const deliverAiInterChatMessage = async (input: {
     toolSource: input.toolSource ?? { kind: "none" },
     toolApprovalContext: input.toolApprovalContext,
   };
-  const delivered = await aiConversationStore.deliverInterChatMessage({
+  const delivered = await aiConversations.deliverInterChatMessage({
     messageId: input.message.id,
     modelProfileId: resolved.profile.id,
     runConfig,
@@ -164,7 +184,7 @@ export const submitAiCompaction = async (input: SubmitAiCompactionInput): Promis
     modelPolicy: input.modelPolicy,
     requestedModelId: input.requestedModelId,
   };
-  const turn = await aiConversationStore.createTurn({
+  const turn = await aiConversations.createCompactionTurn({
     conversationId: input.conversationId,
     modelProfileId: resolved.profile.id,
     runConfig,
@@ -179,15 +199,15 @@ export const submitAiCompaction = async (input: SubmitAiCompactionInput): Promis
 
 export const abortAiTurn = async (input: { conversationId: string; turnId: string }): Promise<{ ok: true }> => {
   // Capture the wire coordinates before finalization so we can emit turn_finished.
-  const active = await aiConversationStore.getActiveTurn({ conversationId: input.conversationId }).catch(() => null);
-  const request = await aiConversationStore.requestTurnAbort({ ...input, reason: "user" });
+  const active = await aiConversations.getActiveTurn({ conversationId: input.conversationId }).catch(() => null);
+  const request = await aiConversations.requestTurnAbort({ ...input, reason: "user" });
   if (!request.found) return { ok: true };
 
   // Tell any live owner to stop (its heartbeat also detects the cancel flag).
   await publishAiTurnAbort(input).catch(() => undefined);
 
   if (request.ownerless) {
-    const finalized = await aiConversationStore.completeTurn({ ...input, status: "aborted", error: null });
+    const finalized = await aiConversations.completeTurn({ ...input, status: "aborted", error: null });
     if (finalized === "completed") {
       const attempt = active?.turn.id === input.turnId ? active.turn.attempt : 1;
       const seq = (active?.turn.id === input.turnId ? active.liveSeq : 0) + 1;
@@ -223,7 +243,7 @@ const actionMatchesResolvedEvent = (action: AiTurnActionInput, event: InboundEve
 };
 
 export const listPendingAiTurnActions = (input: { conversationId: string; turnId: string }): Promise<AiPendingTurnAction[]> =>
-  aiConversationStore.listPendingTurnActions(input);
+  aiConversations.listPendingTurnActions(input);
 
 export const submitAiTurnAction = async (input: {
   conversationId: string;
@@ -232,7 +252,7 @@ export const submitAiTurnAction = async (input: {
   action: AiTurnActionInput;
   toolApprovalContext?: AiToolApprovalContext;
 }): Promise<{ ok: true } | { ok: false; status: 400 | 404 | 409; message: string }> => {
-  const pending = await aiConversationStore.getPendingTurnAction(input);
+  const pending = await aiConversations.getPendingTurnAction(input);
   if (!pending) return { ok: false, status: 404, message: "This request has expired — the assistant already moved on." };
   if (pending.status === "resolved") {
     if (!actionMatchesResolvedEvent(input.action, pending.resolvedEvent, input.callId)) {
@@ -262,24 +282,24 @@ export const submitAiTurnAction = async (input: {
       })
       .catch(() => undefined);
 
-    const resolved = await aiConversationStore.resolvePendingTurnAction({
+    const resolved = await aiConversations.resolvePendingTurnAction({
       ...input,
       event: { type: "approval_response", callId: input.callId, approved: input.action.approved },
     });
     if (!resolved) {
-      const raced = await aiConversationStore.getPendingTurnAction(input);
+      const raced = await aiConversations.getPendingTurnAction(input);
       if (!raced || !actionMatchesResolvedEvent(input.action, raced.resolvedEvent, input.callId)) {
         return { ok: false, status: 409, message: "AI action was already resolved with a different response." };
       }
     }
   } else {
     if (pending.kind !== "client_tool") return { ok: false, status: 400, message: "Approval requests require an approval response." };
-    const resolved = await aiConversationStore.resolvePendingTurnAction({
+    const resolved = await aiConversations.resolvePendingTurnAction({
       ...input,
       event: { type: "tool_result", callId: input.callId, result: input.action.result },
     });
     if (!resolved) {
-      const raced = await aiConversationStore.getPendingTurnAction(input);
+      const raced = await aiConversations.getPendingTurnAction(input);
       if (!raced || !actionMatchesResolvedEvent(input.action, raced.resolvedEvent, input.callId)) {
         return { ok: false, status: 409, message: "AI action was already resolved with a different response." };
       }
@@ -304,7 +324,7 @@ const runClaimedTurn = async (
   onTurnFinalized?: (event: AiTurnFinalizedEvent) => Promise<void>,
 ): Promise<void> => {
   const claim =
-    (await aiConversationStore.claimTurn({
+    (await aiConversations.claimTurn({
       ...job,
       leaseOwner,
       leaseMs: AI_TURN_LEASE_MS,
@@ -312,7 +332,7 @@ const runClaimedTurn = async (
       maxAttempts: AI_TURN_MAX_ATTEMPTS,
       runBudgetMs: AI_TURN_RUN_BUDGET_MS,
     })) ??
-    (await aiConversationStore.claimTurn({
+    (await aiConversations.claimTurn({
       ...job,
       leaseOwner,
       leaseMs: AI_TURN_LEASE_MS,
@@ -368,7 +388,7 @@ const publishSweepFinished = async (turn: AiTurnFinalizedAction & { error?: stri
 };
 
 export const sweepAiRuntime = async (onTurnFinalized?: (event: AiTurnFinalizedEvent) => Promise<void>): Promise<void> => {
-  const sweep = await aiConversationStore.sweepTurns({ maxAttempts: AI_TURN_MAX_ATTEMPTS });
+  const sweep = await aiConversations.sweepTurns({ maxAttempts: AI_TURN_MAX_ATTEMPTS });
   await Promise.all([
     ...sweep.requeued.map((job) => enqueueAiTurn(job).catch(() => undefined)),
     ...sweep.failed.map((turn) => publishSweepFinished(turn, "failed")),
@@ -463,6 +483,7 @@ export const startAiRuntime = (
     },
   };
   running = state;
+  startAiInvalidationRuntime();
   log.info("AI runtime started", { workerId: AI_WORKER_ID, concurrency });
   return releaseAiRuntime(listener);
 };
@@ -476,11 +497,11 @@ const releaseAiRuntime = (listener: ((event: AiTurnFinalizedEvent) => Promise<vo
     if (!state) return;
     if (listener) state.listeners.delete(listener);
     refCount = Math.max(0, refCount - 1);
-    if (refCount === 0) state.stop();
+    if (refCount === 0) {
+      state.stop();
+      void stopAiInvalidationRuntime();
+    }
   };
 };
 
 export const __aiRuntimeTest = { actionMatchesResolvedEvent };
-
-/** @deprecated Compatibility shim for the previous recovery API; use startAiRuntime. */
-export const startAiRuntimeRecovery = startAiRuntime;

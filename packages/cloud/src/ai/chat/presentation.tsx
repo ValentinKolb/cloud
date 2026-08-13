@@ -92,7 +92,7 @@ const storedItems = (messages: readonly AiStoredMessage[], actions: AiChatAction
         role: "user",
         createdAt: item.entry.createdAt,
         content: text ? <p class="whitespace-pre-wrap">{text}</p> : undefined,
-        attachments: aiUserMessageAttachments(item.entry),
+        attachments: aiUserMessageAttachments(item.entry, actions),
         actions: createAiUserMessageActions(item.entry, actions),
         actionDisplay: "menu",
         anchorId: item.entry.seq,

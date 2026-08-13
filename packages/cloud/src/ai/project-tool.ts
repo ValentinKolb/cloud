@@ -29,7 +29,7 @@ export const CloudAiProjectContextOutputSchema = z.object({
 const textualMediaType = (mediaType: string): boolean =>
   mediaType.startsWith("text/") || ["application/json", "application/xml", "application/yaml"].includes(mediaType);
 
-export const createCloudAiProjectContextTool = (projectId: string, subject: AccessSubject) =>
+export const createCloudAiProjectContextTool = (projectId: string, appId: string, subject: AccessSubject) =>
   defineAiTool({
     name: "project_context",
     description: [
@@ -45,11 +45,11 @@ export const createCloudAiProjectContextTool = (projectId: string, subject: Acce
   }).server(async (input) => {
     // Re-check current access on every tool call; a persisted turn snapshot is
     // never an authorization grant.
-    if (!(await aiProjects.get(projectId, subject, "read"))) return { ok: false, message: "Project access is no longer available." };
+    if (!(await aiProjects.get(projectId, appId, subject, "read"))) return { ok: false, message: "Project access is no longer available." };
 
     if (input.action === "read") {
       if (!input.id) return { ok: false, message: "An item id is required." };
-      const knowledge = (await aiProjects.listKnowledge(projectId, subject)).find((item) => item.shortId === input.id);
+      const knowledge = (await aiProjects.listKnowledge(projectId, appId, subject)).find((item) => item.shortId === input.id);
       if (knowledge) {
         return {
           ok: true,
@@ -57,7 +57,7 @@ export const createCloudAiProjectContextTool = (projectId: string, subject: Acce
           items: [{ id: knowledge.shortId, kind: "knowledge" as const, title: knowledge.title, content: knowledge.content }],
         };
       }
-      const file = await aiProjects.readFile(projectId, input.id, subject);
+      const file = await aiProjects.readFile(projectId, appId, input.id, subject);
       if (!file) return { ok: false, message: "Project item not found." };
       if (!textualMediaType(file.mediaType)) {
         return { ok: false, message: `Binary Project file ${file.path} cannot be read as text.` };
@@ -81,9 +81,9 @@ export const createCloudAiProjectContextTool = (projectId: string, subject: Acce
     if (input.action === "search" && !input.query) return { ok: false, message: "A search query is required." };
     const query = input.query?.toLowerCase();
     const [knowledge, files, references] = await Promise.all([
-      aiProjects.listKnowledge(projectId, subject, input.query),
-      aiProjects.listFiles(projectId, subject),
-      aiProjects.listReferences(projectId, subject),
+      aiProjects.listKnowledge(projectId, appId, subject, input.query),
+      aiProjects.listFiles(projectId, appId, subject),
+      aiProjects.listReferences(projectId, appId, subject),
     ]);
     const items = [
       ...knowledge.map((item) => ({ id: item.shortId, kind: "knowledge" as const, title: item.title })),

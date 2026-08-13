@@ -1,5 +1,5 @@
 /**
- * Non-image attachments live in the conversation VFS (/input), not in the
+ * Attachments live in the conversation file store, not inline in the
  * model context: the composer uploads the file, then sends an attachment
  * input part which becomes a marker text part in the user message. The model
  * reads the path with the conversation file tools; the chat UI parses
@@ -12,6 +12,13 @@ const MARKER_RE = /<attachment path="([^"]+)" media-type="([^"]*)" size="(\d+)" 
 
 export const aiAttachmentMarker = (ref: AiAttachmentRef): string =>
   `<attachment path="${ref.path}" media-type="${ref.mediaType}" size="${ref.size}" />`;
+
+/** Replace client-supplied marker metadata with canonical file-store values. */
+export const canonicalizeAiAttachmentMarkers = (text: string, refs: ReadonlyMap<string, AiAttachmentRef>): string =>
+  text.replace(MARKER_RE, (marker, path: string) => {
+    const ref = refs.get(path);
+    return ref ? aiAttachmentMarker(ref) : marker;
+  });
 
 /** Split a text part into plain text and attachment chips for rendering. */
 export const parseAiAttachmentMarkers = (text: string): { text: string; attachments: AiAttachmentRef[] } => {

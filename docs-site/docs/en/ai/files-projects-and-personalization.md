@@ -31,14 +31,35 @@ commands use the readable IDs. Database UUIDs are not a fallback input format.
 
 ## Store conversation files
 
-Chat routes expose a Postgres-backed virtual file system below each conversation.
-Paths are absolute and reject `..` segments. Default limits are 50 MB per file
-and 250 MB per conversation. Forking a conversation copies its files.
+Chat routes expose a Postgres-backed file system below each conversation. Paths
+are absolute in one namespace, such as `/photo.jpg` or `/reports/summary.md`,
+and reject `..` segments. Each file records whether it came from the user or
+the assistant; tools cannot overwrite a user upload. Default limits are 50 MB
+per file and 250 MB per conversation. Forking a conversation copies its files.
+
+Every composer attachment is uploaded first. Messages and durable turn
+configuration keep file references instead of inline binary data. For each
+turn, Cloud snapshots the exact newly attached files and a bounded, newest-first
+file inventory into the system context as untrusted metadata. Attached file
+versions are copied atomically with the turn, so retries use the same bytes even
+when the conversation file changes later. A turn accepts at most eight files,
+10 MB per image, and 40 MB of image input in total. Use `list_files`
+for the complete inventory and `read_file` or `view_image` before relying on a
+file's contents.
+
+When the selected chat model supports Vision, Cloud resolves newly attached
+images transiently for that provider request; the stored message remains
+reference-only. A tool-capable model without Vision can use `view_image` when
+an administrator configured a separate Vision tool model. The tool accepts an
+image path and optional inspection guidance. It reads only an authorized file
+from the current conversation, stays inside the application's allowed data
+boundary, and returns a bounded textual analysis. A model with neither Vision
+nor Tools cannot accept image attachments.
 
 The default Assistant tools can list files, read bounded UTF-8 slices, write
-text below `/files`, and present downloads. They do not execute code, access the
-host, or inject binary files into model context. Keep authorization at the
-conversation route; a file path is not an access token.
+assistant-owned text files, inspect supported images when configured, and
+present downloads. They do not execute code or access the host. Keep
+authorization at the conversation route; a file path is not an access token.
 
 ## Use Projects for shared working context
 
@@ -67,9 +88,11 @@ Only Project instructions are instruction-bearing. Knowledge, files, references,
 and tool results are untrusted data. References contain metadata only; the agent
 must use the target app's current authorized capabilities to read the source.
 
-The Assistant frontend intentionally starts small: create a Project and start a
-private Project chat. The HTTP API and `cld assistant projects` expose complete
-metadata, knowledge, file, reference, and access management.
+The Assistant Project workspace lets users with `write` or `admin` access edit
+instructions and manage knowledge, files, and Cloud resource references.
+Reference selection uses Universal Search and can be filtered by application.
+Only `admin` users manage Project access. The HTTP API and
+`cld assistant projects` expose the same metadata, context, and access model.
 
 ## Use personalization for durable user context
 
@@ -99,8 +122,9 @@ Cloud composes the system prompt in this order:
 4. Project instructions;
 5. the Project context manifest as untrusted data;
 6. resource context as untrusted data;
-7. relevant personal facts and preferences;
-8. the final execution reminder.
+7. the bounded conversation file manifest as untrusted data;
+8. relevant personal facts and preferences;
+9. the final execution reminder.
 
 See [AI resources and access](/en/docs/ai/resources-and-access) for authorized
 domain context and [Tools and approvals](/en/docs/ai/tools-and-approvals) for

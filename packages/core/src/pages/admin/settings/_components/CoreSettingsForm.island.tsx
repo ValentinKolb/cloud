@@ -150,6 +150,7 @@ const AI_MEMORY_LEARNING_INSTRUCTIONS_SETTING_KEY = "ai.memory_learning_instruct
 const AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY = "ai.max_tool_result_chars";
 const AI_FIRECRAWL_API_KEY_SETTING_KEY = "ai.firecrawl_api_key";
 const AI_BACKGROUND_MODEL_SETTING_KEY = "ai.background_model_id";
+const AI_VISION_MODEL_SETTING_KEY = "ai.vision_model_id";
 const AI_WORKFLOW_MODEL_SETTING_KEY = "ai.workflow_model_id";
 const AI_ENRICH_CRON_SETTING_KEY = "ai.enrich_cron";
 const AI_MEMORY_LEARNING_CRON_SETTING_KEY = "ai.memory_learning_cron";
@@ -165,6 +166,7 @@ const AI_SETTINGS_HANDLED_BY_PANEL = new Set<string>([
   AI_MAX_TOOL_RESULT_CHARS_SETTING_KEY,
   AI_FIRECRAWL_API_KEY_SETTING_KEY,
   AI_BACKGROUND_MODEL_SETTING_KEY,
+  AI_VISION_MODEL_SETTING_KEY,
   AI_WORKFLOW_MODEL_SETTING_KEY,
   AI_ENRICH_CRON_SETTING_KEY,
   AI_MEMORY_LEARNING_CRON_SETTING_KEY,
@@ -189,7 +191,7 @@ const AI_PROVIDER_OPTIONS: ReadonlyArray<{
     defaultModel: "llama3.1",
     defaultBaseURL: "http://localhost:11434",
   },
-  { id: "vllm", label: "vLLM", description: "Self-hosted vLLM OpenAI-compatible server.", defaultModel: "llama3.1" },
+  { id: "vllm", label: "vLLM", description: "vLLM OpenAI-compatible server you operate.", defaultModel: "llama3.1" },
   {
     id: "openai-compatible",
     label: "Custom OpenAI-compatible",
@@ -1147,6 +1149,25 @@ function AiSettingsPanel(props: {
         </SettingsSection>
 
         <SettingsSection title="Context" subtitle="Limits for model context assembled during conversations." icon="ti ti-package">
+          <Select
+            label="Vision tool model"
+            description="Used by view_image when the chat model needs help inspecting a stored image. Direct vision models still receive newly attached images themselves."
+            value={() => asString(props.valueOf(AI_VISION_MODEL_SETTING_KEY))}
+            onValueChange={(value) => props.onChange(AI_VISION_MODEL_SETTING_KEY, value ?? "")}
+            options={[
+              { id: "", label: "Disable view_image fallback", icon: "ti ti-photo-off" },
+              ...profiles()
+                .filter((profile) => profile.enabled && profile.capabilities.includes("vision"))
+                .map((profile) => ({
+                  id: profile.id,
+                  label: profile.label,
+                  description: `${providerOption(profile.provider).label} · ${profile.model}`,
+                  icon: "ti ti-photo-spark",
+                })),
+            ]}
+            icon="ti ti-photo-spark"
+            error={() => props.errorFor(AI_VISION_MODEL_SETTING_KEY)}
+          />
           <NumberInput
             label="Max tool result chars"
             description="Tool results above this size are truncated before they are sent back into the model context. Higher keeps more detail in long chats; lower saves context."

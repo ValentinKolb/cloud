@@ -138,6 +138,13 @@ export const CORE_SETTINGS = {
     description: "Model profile id used for background AI jobs. Empty = platform default model.",
     placeholder: "e.g. openrouter-fast",
   },
+  "ai.vision_model_id": {
+    kind: "string",
+    label: "Vision Model ID",
+    default: "",
+    description: "Vision-capable model profile used by the view_image tool. Empty disables the tool fallback.",
+    placeholder: "e.g. openrouter-vision",
+  },
   "ai.workflow_model_id": {
     kind: "string",
     label: "Workflow Model ID",

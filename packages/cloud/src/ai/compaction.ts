@@ -1,6 +1,6 @@
 import type { CompactFn, Message, StoreEntry } from "@k2b/nessi";
 import { truncateMiddle } from "@k2b/nessi";
-import { aiConversationStore } from "./store";
+import { aiConversations } from "./store";
 import { buildAiTaskPrompt } from "./task-prompt";
 
 /**
@@ -18,7 +18,7 @@ Structure the summary with these sections, skipping ones that are empty:
 1. Goal & intent — what the user is trying to achieve, and why.
 2. User requests — every explicit ask, correction, and piece of feedback, condensed but complete.
 3. Decisions & preferences — agreed approaches, constraints, tone/style wishes that must persist.
-4. Key facts & results — important information gathered so far: tool results, figures, links, and files in the conversation filesystem (name them by path, e.g. /files/report.csv).
+4. Key facts & results — important information gathered so far: tool results, figures, links, and files in the conversation filesystem (name them by path, e.g. /report.csv).
 5. Dead ends — what was tried and rejected, so it is not repeated.
 6. State & open tasks — what is done, what is in progress, what is still pending.
 7. Next step — the immediate continuation, if one is clear.
@@ -139,7 +139,7 @@ export const createCloudCompactFn = (input: {
       const summaryText = textFromAssistant(result.message).trim();
       if (!summaryText) return;
 
-      await aiConversationStore.compactMessages({
+      await aiConversations.compactMessages({
         conversationId: input.conversationId,
         checkpointSeq: checkpoint.seq,
         modelProfileId: input.modelProfileId,

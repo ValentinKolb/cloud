@@ -8,15 +8,22 @@ export type AiFileStat = {
   path: string;
   size: number;
   mediaType: string;
+  origin: "user" | "assistant";
   updatedAt: string;
+  version: number;
 };
 
 type FileRow = {
   path: string;
   size: number;
   media_type: string;
+  origin: "user" | "assistant";
   updated_at: Date | string;
+  version: number | string;
 };
+
+type FileContentRow = FileRow & { bytes: Uint8Array };
+export type AiFileContent = AiFileStat & { bytes: Uint8Array };
 
 const iso = (value: Date | string): string => (value instanceof Date ? value.toISOString() : new Date(value).toISOString());
 
@@ -24,8 +31,11 @@ const toStat = (row: FileRow): AiFileStat => ({
   path: row.path,
   size: Number(row.size),
   mediaType: row.media_type,
+  origin: row.origin,
   updatedAt: iso(row.updated_at),
+  version: Number(row.version),
 });
+const toContent = (row: FileContentRow): AiFileContent => ({ ...toStat(row), bytes: row.bytes });
 
 /** Normalize a VFS path: absolute, no `.`/`..` segments, no trailing slash. */
 export const normalizeAiFilePath = (path: string): string | null => {
@@ -35,6 +45,7 @@ export const normalizeAiFilePath = (path: string): string | null => {
     if (part === "" || part === ".") continue;
     if (part === "..") return null;
     if (part.includes("\0")) return null;
+    if (/[\r\n"<>]/u.test(part)) return null;
     segments.push(part);
   }
   if (segments.length === 0) return null;
@@ -89,22 +100,40 @@ export const aiFileStore = {
     const prefix = input.prefix ?? "/";
     const pattern = `${prefix.endsWith("/") ? prefix : `${prefix}/`}%`;
     const rows = await sql<FileRow[]>`
-      SELECT path, size, media_type, updated_at
+      SELECT path, size, media_type, origin, updated_at, version
       FROM ai.files
       WHERE conversation_id = ${input.conversationId}
         AND (path LIKE ${pattern} OR path = ${prefix})
-      ORDER BY path ASC
+      ORDER BY updated_at DESC, path ASC
     `;
     return rows.map(toStat);
   },
 
   async stat(input: { conversationId: string; path: string }): Promise<AiFileStat | null> {
     const rows = await sql<FileRow[]>`
-      SELECT path, size, media_type, updated_at
+      SELECT path, size, media_type, origin, updated_at, version
       FROM ai.files
       WHERE conversation_id = ${input.conversationId} AND path = ${input.path}
     `;
     return rows[0] ? toStat(rows[0]) : null;
+  },
+
+  async read(input: { conversationId: string; path: string }): Promise<AiFileContent | null> {
+    const rows = await sql<FileContentRow[]>`
+      SELECT path, bytes, size, media_type, origin, updated_at, version
+      FROM ai.files
+      WHERE conversation_id = ${input.conversationId} AND path = ${input.path}
+    `;
+    return rows[0] ? toContent(rows[0]) : null;
+  },
+
+  async readTurnFile(input: { turnId: string; path: string }): Promise<AiFileContent | null> {
+    const rows = await sql<FileContentRow[]>`
+      SELECT path, bytes, size, media_type, origin, updated_at, version
+      FROM ai.turn_files
+      WHERE turn_id = ${input.turnId}::uuid AND path = ${input.path}
+    `;
+    return rows[0] ? toContent(rows[0]) : null;
   },
 
   /** Byte slice without loading the whole value (substring on EXTERNAL bytea reads only needed chunks). */
@@ -118,6 +147,28 @@ export const aiFileStore = {
     `;
     if (!rows[0]) return null;
     return new Uint8Array(rows[0].chunk ?? []);
+  },
+
+  async readSliceWithStat(input: { conversationId: string; path: string; offset: number; length: number }): Promise<AiFileContent | null> {
+    const offset = Math.max(0, Math.floor(input.offset));
+    const length = Math.max(0, Math.floor(input.length));
+    const rows = await sql<FileContentRow[]>`
+      SELECT path, substring(bytes FROM ${offset + 1} FOR ${length}) AS bytes, size, media_type, origin, updated_at, version
+      FROM ai.files
+      WHERE conversation_id = ${input.conversationId} AND path = ${input.path}
+    `;
+    return rows[0] ? toContent(rows[0]) : null;
+  },
+
+  async readTurnSliceWithStat(input: { turnId: string; path: string; offset: number; length: number }): Promise<AiFileContent | null> {
+    const offset = Math.max(0, Math.floor(input.offset));
+    const length = Math.max(0, Math.floor(input.length));
+    const rows = await sql<FileContentRow[]>`
+      SELECT path, substring(bytes FROM ${offset + 1} FOR ${length}) AS bytes, size, media_type, origin, updated_at, version
+      FROM ai.turn_files
+      WHERE turn_id = ${input.turnId}::uuid AND path = ${input.path}
+    `;
+    return rows[0] ? toContent(rows[0]) : null;
   },
 
   async readAll(input: { conversationId: string; path: string }): Promise<Uint8Array | null> {
@@ -138,6 +189,8 @@ export const aiFileStore = {
     path: string;
     bytes: Uint8Array;
     mediaType?: string;
+    origin?: "user" | "assistant";
+    allowUserOverwrite?: boolean;
     maxFileBytes?: number;
     maxConversationBytes?: number;
   }): Promise<void> {
@@ -158,15 +211,36 @@ export const aiFileStore = {
       if (otherBytes + input.bytes.byteLength > maxConversation) {
         throw new Error(`Conversation storage limit of ${Math.floor(maxConversation / (1024 * 1024))} MB exceeded.`);
       }
-      await tx`
-        INSERT INTO ai.files (conversation_id, path, bytes, media_type, size, updated_at)
-        VALUES (${input.conversationId}, ${input.path}, ${input.bytes}, ${input.mediaType ?? "application/octet-stream"}, ${input.bytes.byteLength}, now())
-        ON CONFLICT (conversation_id, path) DO UPDATE SET
-          bytes = EXCLUDED.bytes,
-          media_type = EXCLUDED.media_type,
-          size = EXCLUDED.size,
-          updated_at = now()
-      `;
+      if (input.origin === "user") {
+        if (input.allowUserOverwrite) {
+          const written = await tx<{ id: string }[]>`
+            UPDATE ai.files
+            SET bytes = ${input.bytes}, media_type = ${input.mediaType ?? "application/octet-stream"}, size = ${input.bytes.byteLength}, updated_at = now(), version = version + 1
+            WHERE conversation_id = ${input.conversationId} AND path = ${input.path} AND origin = 'user'
+            RETURNING id
+          `;
+          if (!written[0]) throw new Error(`User-uploaded file does not exist: ${input.path}.`);
+        } else {
+          await tx`
+            INSERT INTO ai.files (conversation_id, path, bytes, media_type, size, origin, updated_at)
+            VALUES (${input.conversationId}, ${input.path}, ${input.bytes}, ${input.mediaType ?? "application/octet-stream"}, ${input.bytes.byteLength}, 'user', now())
+          `;
+        }
+      } else {
+        const written = await tx<{ id: string }[]>`
+          INSERT INTO ai.files (conversation_id, path, bytes, media_type, size, origin, updated_at)
+          VALUES (${input.conversationId}, ${input.path}, ${input.bytes}, ${input.mediaType ?? "application/octet-stream"}, ${input.bytes.byteLength}, 'assistant', now())
+          ON CONFLICT (conversation_id, path) DO UPDATE SET
+            bytes = EXCLUDED.bytes,
+            media_type = EXCLUDED.media_type,
+            size = EXCLUDED.size,
+            updated_at = now(),
+            version = ai.files.version + 1
+          WHERE ai.files.origin = 'assistant'
+          RETURNING id
+        `;
+        if (!written[0]) throw new Error(`Cannot overwrite user-uploaded file ${input.path}.`);
+      }
     });
   },
 
@@ -196,49 +270,63 @@ export const aiFileStore = {
       if (Number(totals[0]?.total ?? 0) + input.bytes.byteLength > maxConversation) {
         throw new Error(`Conversation storage limit of ${Math.floor(maxConversation / (1024 * 1024))} MB exceeded.`);
       }
-      await tx`
-        INSERT INTO ai.files (conversation_id, path, bytes, media_type, size, updated_at)
-        VALUES (${input.conversationId}, ${input.path}, ${input.bytes}, ${input.mediaType ?? "application/octet-stream"}, ${input.bytes.byteLength}, now())
+      const appended = await tx<{ id: string }[]>`
+        INSERT INTO ai.files (conversation_id, path, bytes, media_type, size, origin, updated_at)
+        VALUES (${input.conversationId}, ${input.path}, ${input.bytes}, ${input.mediaType ?? "application/octet-stream"}, ${input.bytes.byteLength}, 'assistant', now())
         ON CONFLICT (conversation_id, path) DO UPDATE SET
           bytes = ai.files.bytes || EXCLUDED.bytes,
           size = ai.files.size + EXCLUDED.size,
-          updated_at = now()
+          updated_at = now(),
+          version = ai.files.version + 1
+        WHERE ai.files.origin = 'assistant'
+        RETURNING id
       `;
+      if (!appended[0]) throw new Error(`Cannot append to user-uploaded file ${input.path}.`);
     });
   },
 
   async remove(input: { conversationId: string; path: string; recursive?: boolean }): Promise<number> {
-    if (input.recursive) {
-      const pattern = `${input.path.endsWith("/") ? input.path : `${input.path}/`}%`;
-      const rows = await sql<{ id: string }[]>`
+    return sql.begin(async (tx) => {
+      await tx`SELECT id FROM ai.conversations WHERE id = ${input.conversationId} FOR UPDATE`;
+      if (input.recursive) {
+        const pattern = `${input.path.endsWith("/") ? input.path : `${input.path}/`}%`;
+        const rows = await tx<{ id: string }[]>`
+          DELETE FROM ai.files
+          WHERE conversation_id = ${input.conversationId} AND (path = ${input.path} OR path LIKE ${pattern})
+          RETURNING id
+        `;
+        return rows.length;
+      }
+      const rows = await tx<{ id: string }[]>`
         DELETE FROM ai.files
-        WHERE conversation_id = ${input.conversationId} AND (path = ${input.path} OR path LIKE ${pattern})
+        WHERE conversation_id = ${input.conversationId} AND path = ${input.path}
         RETURNING id
       `;
       return rows.length;
-    }
-    const rows = await sql<{ id: string }[]>`
-      DELETE FROM ai.files
-      WHERE conversation_id = ${input.conversationId} AND path = ${input.path}
-      RETURNING id
-    `;
-    return rows.length;
+    });
   },
 
-  async rename(input: { conversationId: string; from: string; to: string }): Promise<boolean> {
-    const rows = await sql<{ id: string }[]>`
-      UPDATE ai.files SET path = ${input.to}, updated_at = now()
-      WHERE conversation_id = ${input.conversationId} AND path = ${input.from}
-      RETURNING id
-    `;
-    return rows.length > 0;
+  async rename(input: { conversationId: string; from: string; to: string }): Promise<"renamed" | "not_found" | "conflict"> {
+    return sql.begin(async (tx) => {
+      await tx`SELECT id FROM ai.conversations WHERE id = ${input.conversationId} FOR UPDATE`;
+      const source = await tx<{ id: string }[]>`
+        SELECT id FROM ai.files WHERE conversation_id = ${input.conversationId} AND path = ${input.from}
+      `;
+      if (!source[0]) return "not_found" as const;
+      const target = await tx<{ id: string }[]>`
+        SELECT id FROM ai.files WHERE conversation_id = ${input.conversationId} AND path = ${input.to}
+      `;
+      if (target[0]) return "conflict" as const;
+      await tx`UPDATE ai.files SET path = ${input.to}, updated_at = now(), version = version + 1 WHERE id = ${source[0].id}::uuid`;
+      return "renamed" as const;
+    });
   },
 
   /** Copy every file into another conversation (fork). */
   async copyToConversation(input: { sourceConversationId: string; targetConversationId: string }): Promise<number> {
     const rows = await sql<{ id: string }[]>`
-      INSERT INTO ai.files (conversation_id, path, bytes, media_type, size)
-      SELECT ${input.targetConversationId}, path, bytes, media_type, size
+      INSERT INTO ai.files (conversation_id, path, bytes, media_type, size, origin)
+      SELECT ${input.targetConversationId}, path, bytes, media_type, size, origin
       FROM ai.files
       WHERE conversation_id = ${input.sourceConversationId}
       ON CONFLICT (conversation_id, path) DO NOTHING
@@ -254,3 +342,7 @@ export const aiFileStore = {
     return Number(rows[0]?.total ?? 0);
   },
 };
+
+/** Authorized services may expose this read after resolving the conversation owner. */
+export const listAiConversationFiles = (conversationId: string, prefix?: string): Promise<AiFileStat[]> =>
+  aiFileStore.list({ conversationId, prefix });

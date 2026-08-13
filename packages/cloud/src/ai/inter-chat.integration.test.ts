@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { aiCapabilityToolName } from "./capabilities";
 import { migrateCloudAi } from "./migrate";
-import { aiConversationStore } from "./store";
+import { aiConversations } from "./store";
 import { aiToolAudit } from "./tool-audit";
 
 const canUseAiDatabase = async () => {
@@ -29,31 +29,31 @@ const insertUser = async (label: string) => {
 describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inter-chat messages (integration)", () => {
   test("indexes structured refs and searches their owned chat occurrences", async () => {
     const userId = await insertUser("resources");
-    const first = await aiConversationStore.createConversation({ appId: "assistant", ownerUserId: userId, title: "Release" });
-    const second = await aiConversationStore.createConversation({ appId: "assistant", ownerUserId: userId, title: "Mail" });
+    const first = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId, title: "Release" });
+    const second = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId, title: "Mail" });
     try {
-      await aiConversationStore.indexConversationResources({
+      await aiConversations.indexConversationResources({
         conversationId: first.id,
         callId: "call-1",
         resources: [{ ref: { type: "notebooks.note", id: "nT1234" }, title: "Release notes" }],
       });
-      await aiConversationStore.indexConversationResources({
+      await aiConversations.indexConversationResources({
         conversationId: first.id,
         callId: "call-2",
         resources: [{ ref: { type: "notebooks.note", id: "nT1234" }, href: "/app/notebooks/nB1234/nT1234" }],
       });
-      await aiConversationStore.indexConversationResources({
+      await aiConversations.indexConversationResources({
         conversationId: second.id,
         resources: [{ ref: { type: "mail.message", id: "eM1234" }, title: "Deployment notice" }],
       });
-      await aiConversationStore.submitChatTurn({
+      await aiConversations.submitChatTurn({
         conversationId: first.id,
         modelProfileId: "test-model",
         runConfig: { kind: "chat", input: "The migration timeline is Friday.", toolSource: { kind: "none" } },
         userMessage: { role: "user", content: [{ type: "text", text: "The migration timeline is Friday." }] },
       });
 
-      const local = await aiConversationStore.listConversationResources({ conversationId: first.id, search: "nT1234" });
+      const local = await aiConversations.listConversationResources({ conversationId: first.id, search: "nT1234" });
       expect(local.resources).toHaveLength(1);
       expect(local.resources[0]).toMatchObject({
         ref: { type: "notebooks.note", id: "nT1234" },
@@ -62,7 +62,7 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
         sourceCallId: "call-2",
       });
 
-      const across = await aiConversationStore.listUserConversationResources({
+      const across = await aiConversations.listUserConversationResources({
         appId: "assistant",
         ownerUserId: userId,
         search: "deployment",
@@ -70,14 +70,14 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
       expect(across.resources).toHaveLength(1);
       expect(across.resources[0]).toMatchObject({ ref: { type: "mail.message", id: "eM1234" }, chat: { shortId: second.shortId } });
 
-      const chats = await aiConversationStore.listConversations({
+      const chats = await aiConversations.listConversations({
         appId: "assistant",
         ownerUserId: userId,
         refs: [{ type: "notebooks.note", id: "nT1234" }],
       });
       expect(chats.map((chat) => chat.shortId)).toEqual([first.shortId]);
 
-      const messages = await aiConversationStore.searchConversationMessages({
+      const messages = await aiConversations.searchConversationMessages({
         conversationId: first.id,
         query: "migration timeline",
       });
@@ -92,21 +92,25 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
   test("delivers one attributable idempotent message into another owned chat", async () => {
     const userId = await insertUser("delivery");
     const otherUserId = await insertUser("other");
-    const source = await aiConversationStore.createConversation({ appId: "assistant", ownerUserId: userId, title: "Source" });
-    const target = await aiConversationStore.createConversation({ appId: "assistant", ownerUserId: userId, title: "Target" });
-    const idleTarget = await aiConversationStore.createConversation({ appId: "assistant", ownerUserId: userId, title: "Idle target" });
-    const otherIdleTarget = await aiConversationStore.createConversation({
+    const source = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId, title: "Source" });
+    const target = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId, title: "Target" });
+    const idleTarget = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId, title: "Idle target" });
+    const otherIdleTarget = await aiConversations.createConversation({
       appId: "assistant",
       ownerUserId: userId,
       title: "Other idle target",
     });
-    const archived = await aiConversationStore.createConversation({ appId: "assistant", ownerUserId: userId, title: "Archived" });
-    const foreign = await aiConversationStore.createConversation({ appId: "assistant", ownerUserId: otherUserId, title: "Foreign" });
+    const archived = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId, title: "Archived" });
+    const foreign = await aiConversations.createConversation({ appId: "assistant", ownerUserId: otherUserId, title: "Foreign" });
     try {
-      expect(await aiConversationStore.archiveConversation({ conversationId: archived.id, appId: "assistant", ownerUserId: userId })).toBe(
+      expect(await aiConversations.archiveConversation({ conversationId: archived.id, appId: "assistant", ownerUserId: userId })).toBe(
         true,
       );
-      const sourceTurn = await aiConversationStore.createTurn({ conversationId: source.id, modelProfileId: "test-model" });
+      const sourceTurn = await aiConversations.createCompactionTurn({
+        conversationId: source.id,
+        modelProfileId: "test-model",
+        runConfig: { kind: "compact" },
+      });
       await aiToolAudit.noteCapabilityDispatch({
         conversationId: source.id,
         turnId: sourceTurn.id,
@@ -115,12 +119,12 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
         idempotencyKey: "ai-inter-chat-test",
       });
       expect(
-        await aiConversationStore.getCapabilityInvocationOrigin({
+        await aiConversations.getCapabilityInvocationOrigin({
           idempotencyKey: "ai-inter-chat-test",
           toolName: "assistant.other-action",
         }),
       ).toBeNull();
-      const origin = await aiConversationStore.getCapabilityInvocationOrigin({
+      const origin = await aiConversations.getCapabilityInvocationOrigin({
         idempotencyKey: "ai-inter-chat-test",
         toolName: aiCapabilityToolName("assistant", "action", "chat.message"),
       });
@@ -131,7 +135,7 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
         turnShortId: sourceTurn.shortId,
         callId: "call-message",
       });
-      const created = await aiConversationStore.createInterChatMessage({
+      const created = await aiConversations.createInterChatMessage({
         appId: "assistant",
         sourceConversationId: origin!.conversationId,
         sourceTurnId: origin!.turnId,
@@ -144,7 +148,7 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
       expect(created.ok).toBe(true);
       if (!created.ok) return;
 
-      const duplicate = await aiConversationStore.createInterChatMessage({
+      const duplicate = await aiConversations.createInterChatMessage({
         appId: "assistant",
         sourceConversationId: source.id,
         sourceTurnId: sourceTurn.id,
@@ -156,7 +160,7 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
       });
       expect(duplicate.ok && duplicate.message.id).toBe(created.message.id);
 
-      const foreignResult = await aiConversationStore.createInterChatMessage({
+      const foreignResult = await aiConversations.createInterChatMessage({
         appId: "assistant",
         sourceConversationId: source.id,
         sourceTurnId: sourceTurn.id,
@@ -167,7 +171,7 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
         idempotencyKey: "ai-inter-chat-foreign",
       });
       expect(foreignResult).toEqual({ ok: false, reason: "not_found" });
-      const archivedResult = await aiConversationStore.createInterChatMessage({
+      const archivedResult = await aiConversations.createInterChatMessage({
         appId: "assistant",
         sourceConversationId: source.id,
         sourceTurnId: sourceTurn.id,
@@ -180,7 +184,7 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
       expect(archivedResult).toEqual({ ok: false, reason: "not_found" });
 
       const text = `Assistant message from chat ${source.shortId} (${source.title}):\n\nPlease verify the release date.`;
-      const delivered = await aiConversationStore.deliverInterChatMessage({
+      const delivered = await aiConversations.deliverInterChatMessage({
         messageId: created.message.id,
         modelProfileId: "test-model",
         runConfig: { kind: "chat", input: text, toolSource: { kind: "none" } },
@@ -188,7 +192,7 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
         sourceHref: `/app/assistant?conversation=${source.shortId}`,
       });
       expect(delivered.delivered).toBe(true);
-      const messages = await aiConversationStore.listMessages({ conversationId: target.id });
+      const messages = await aiConversations.listMessages({ conversationId: target.id });
       expect(messages).toHaveLength(1);
       expect(messages[0]).toMatchObject({
         loopId: delivered.delivered ? delivered.turn.id : null,
@@ -203,7 +207,7 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
         },
       });
 
-      const queued = await aiConversationStore.createInterChatMessage({
+      const queued = await aiConversations.createInterChatMessage({
         appId: "assistant",
         sourceConversationId: source.id,
         sourceTurnId: sourceTurn.id,
@@ -216,7 +220,7 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
       expect(queued.ok).toBe(true);
       if (queued.ok) {
         expect(
-          await aiConversationStore.deliverInterChatMessage({
+          await aiConversations.deliverInterChatMessage({
             messageId: queued.message.id,
             modelProfileId: "test-model",
             runConfig: { kind: "chat", input: queued.message.text, toolSource: { kind: "none" } },
@@ -225,7 +229,7 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
         ).toEqual({ delivered: false, reason: "busy" });
       }
 
-      const deliverable = await aiConversationStore.createInterChatMessage({
+      const deliverable = await aiConversations.createInterChatMessage({
         appId: "assistant",
         sourceConversationId: source.id,
         sourceTurnId: sourceTurn.id,
@@ -236,7 +240,7 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
         idempotencyKey: "ai-inter-chat-deliverable",
       });
       expect(deliverable.ok).toBe(true);
-      await aiConversationStore.createInterChatMessage({
+      await aiConversations.createInterChatMessage({
         appId: "assistant",
         sourceConversationId: source.id,
         sourceTurnId: sourceTurn.id,
@@ -246,7 +250,7 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
         text: "Wait behind the first message for this target.",
         idempotencyKey: "ai-inter-chat-same-target",
       });
-      await aiConversationStore.createInterChatMessage({
+      await aiConversations.createInterChatMessage({
         appId: "assistant",
         sourceConversationId: source.id,
         sourceTurnId: sourceTurn.id,
@@ -256,7 +260,7 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
         text: "Deliver independently.",
         idempotencyKey: "ai-inter-chat-other-target",
       });
-      expect((await aiConversationStore.listPendingInterChatMessages({ limit: 2 })).map((message) => message.targetChatId)).toEqual([
+      expect((await aiConversations.listPendingInterChatMessages({ limit: 2 })).map((message) => message.targetChatId)).toEqual([
         idleTarget.shortId,
         otherIdleTarget.shortId,
       ]);
@@ -273,7 +277,7 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
         : [{ recursive: false }];
       expect(recursiveSource?.recursive).toBe(true);
 
-      const recursive = await aiConversationStore.createInterChatMessage({
+      const recursive = await aiConversations.createInterChatMessage({
         appId: "assistant",
         sourceConversationId: target.id,
         sourceTurnId: delivered.delivered ? delivered.turn.id : sourceTurn.id,

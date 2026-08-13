@@ -175,6 +175,7 @@ export const validateAiSettingsConfiguration = (input: {
   enabled: boolean;
   defaultModelId: string;
   backgroundModelId: string;
+  visionModelId?: string;
   workflowModelId: string;
   profiles: readonly AiModelProfile[];
   credentialProfileIds: readonly string[];
@@ -191,6 +192,13 @@ export const validateAiSettingsConfiguration = (input: {
   if (input.backgroundModelId) {
     const backgroundProfile = input.profiles.find((profile) => profile.id === input.backgroundModelId);
     if (!backgroundProfile?.enabled) errors["ai.background_model_id"] = "Choose an enabled model profile or use the platform default.";
+  }
+
+  if (input.visionModelId) {
+    const visionProfile = input.profiles.find((profile) => profile.id === input.visionModelId);
+    if (!visionProfile?.enabled || !visionProfile.capabilities.includes("vision")) {
+      errors["ai.vision_model_id"] = "Choose an enabled model profile with Vision support or disable the fallback.";
+    }
   }
 
   if (input.workflowModelId) {
@@ -240,6 +248,7 @@ export const planAiProfileCredentials = (input: {
 export const resolveAiSettingsStateFromRaw = async (input: {
   enabled: boolean;
   defaultModelId: string;
+  visionModelId?: string;
   profilesJson: string;
   globalInstructions?: string;
   compactionInstructions?: string;
@@ -252,6 +261,7 @@ export const resolveAiSettingsStateFromRaw = async (input: {
   const baseState = {
     enabled: Boolean(input.enabled),
     defaultModelId: input.defaultModelId ?? "",
+    visionModelId: input.visionModelId ?? "",
     globalInstructions: input.globalInstructions ?? "",
     compactionInstructions: input.compactionInstructions ?? "",
     maxToolResultChars: normalizeMaxToolResultChars(input.maxToolResultChars),
@@ -337,16 +347,25 @@ export const resolveAiSettingsStateFromRaw = async (input: {
 };
 
 const readAiSettingsSnapshot = async (): Promise<{ state: AiSettingsState; credentialProfileIds: string[] }> => {
-  const [enabled, defaultModelId, profilesJson, globalInstructions, compactionInstructions, maxToolResultChars, firecrawlApiKey] =
-    await Promise.all([
-      coreSettings.get<boolean>("ai.enabled"),
-      coreSettings.get<string>("ai.default_model_id"),
-      coreSettings.get<string>("ai.model_profiles_json"),
-      coreSettings.get<string>("ai.global_instructions"),
-      coreSettings.get<string>("ai.compaction_instructions"),
-      coreSettings.get<number>("ai.max_tool_result_chars"),
-      coreSettings.get<string>(AI_FIRECRAWL_API_KEY_SETTING_KEY),
-    ]);
+  const [
+    enabled,
+    defaultModelId,
+    visionModelId,
+    profilesJson,
+    globalInstructions,
+    compactionInstructions,
+    maxToolResultChars,
+    firecrawlApiKey,
+  ] = await Promise.all([
+    coreSettings.get<boolean>("ai.enabled"),
+    coreSettings.get<string>("ai.default_model_id"),
+    coreSettings.get<string>("ai.vision_model_id"),
+    coreSettings.get<string>("ai.model_profiles_json"),
+    coreSettings.get<string>("ai.global_instructions"),
+    coreSettings.get<string>("ai.compaction_instructions"),
+    coreSettings.get<number>("ai.max_tool_result_chars"),
+    coreSettings.get<string>(AI_FIRECRAWL_API_KEY_SETTING_KEY),
+  ]);
 
   const parsed = parseAiModelProfiles(profilesJson ?? "[]");
   const defaultProfile = parsed.profiles.find((profile) => profile.id === defaultModelId);
@@ -360,6 +379,7 @@ const readAiSettingsSnapshot = async (): Promise<{ state: AiSettingsState; crede
   const state = await resolveAiSettingsStateFromRaw({
     enabled: Boolean(enabled),
     defaultModelId: defaultModelId ?? "",
+    visionModelId: visionModelId ?? "",
     profilesJson: profilesJson ?? "[]",
     globalInstructions: globalInstructions ?? "",
     compactionInstructions: compactionInstructions ?? "",
@@ -415,6 +435,32 @@ export const resolveAiModel = async (
   return resolveAiModelFromState(state, policy, requestedModelId);
 };
 
+const visionModelPolicy = (modelId: string, allowedDataBoundaries?: AiDataBoundary[]): AiModelPolicy => ({
+  kind: "locked",
+  modelId,
+  requiredCapabilities: ["vision"],
+  allowedDataBoundaries,
+});
+
+export const resolveAiVisionModel = async (allowedDataBoundaries?: AiDataBoundary[]): Promise<AiResolvedModel> => {
+  const state = await readAiSettingsState();
+  if (!state.ok) throw Object.assign(new Error(state.error.message), { aiError: state.error });
+  const modelId = (state.visionModelId ?? "").trim();
+  if (!modelId) throw new Error("No vision model is configured.");
+  return resolveAiModelFromState(state, visionModelPolicy(modelId, allowedDataBoundaries));
+};
+
+export const isAiVisionModelConfigured = async (allowedDataBoundaries?: AiDataBoundary[]): Promise<boolean> => {
+  const { state, credentialProfileIds } = await readAiSettingsSnapshot();
+  if (!state.ok || !state.enabled || !state.visionModelId?.trim()) return false;
+  try {
+    const profile = selectAiModelProfile(state, visionModelPolicy(state.visionModelId, allowedDataBoundaries));
+    return isUsableProfile(profile, new Set(credentialProfileIds));
+  } catch {
+    return false;
+  }
+};
+
 export const resolveAiModelFromState = async (
   state: AiSettingsState,
   policy: AiModelPolicy = { kind: "platform-default" },
@@ -453,13 +499,23 @@ export const listAiModels = async (policy: AiModelPolicy = { kind: "selectable" 
   return state.profiles.filter((profile) => matchesPolicy(profile, policy) && isUsableProfile(profile, configured)).map(profileToPublic);
 };
 
-export const toPublicAiSettingsState = async () => {
+export const toPublicAiSettingsState = async (allowedDataBoundaries?: AiDataBoundary[]) => {
   const { state, credentialProfileIds } = await readAiSettingsSnapshot();
   const configured = new Set(credentialProfileIds);
+  let visionModelConfigured = false;
+  if (state.ok && state.enabled && state.visionModelId?.trim()) {
+    try {
+      const profile = selectAiModelProfile(state, visionModelPolicy(state.visionModelId, allowedDataBoundaries));
+      visionModelConfigured = isUsableProfile(profile, configured);
+    } catch {
+      // The configured auxiliary model is outside this application's policy.
+    }
+  }
   return {
     ok: state.ok,
     enabled: state.enabled,
     defaultModelId: state.defaultModelId,
+    visionModelConfigured,
     error: state.ok ? null : state.error,
     firecrawlConfigured: state.firecrawlConfigured,
     models:

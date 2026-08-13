@@ -2,7 +2,7 @@ import { z } from "zod";
 import { coreSettings } from "../services";
 import type { TraceContext } from "../services/logging";
 import { logger, trace } from "../services/logging";
-import { aiConversationStore } from "./store";
+import { aiConversations } from "./store";
 import type { RunAiStructuredInput, RunAiStructuredResult } from "./structured";
 import { resolveAiBackgroundModel, runAiStructured } from "./structured";
 import { AI_CHAT_ENRICHMENT_INSTRUCTIONS_SETTING_KEY, buildAiTaskPrompt } from "./task-prompt";
@@ -97,7 +97,7 @@ export type AiEnrichmentRunSummary = {
 type EnrichDeps = {
   structured?: <TOutput extends z.ZodType>(input: RunAiStructuredInput<TOutput>) => Promise<RunAiStructuredResult<TOutput>>;
   store?: Pick<
-    typeof aiConversationStore,
+    typeof aiConversations,
     "listEnrichmentCandidates" | "listMessages" | "applyEnrichment" | "markEnrichmentFailed" | "recordEnrichmentRun"
   >;
   resolveModel?: () => Promise<AiResolvedModel>;
@@ -143,7 +143,7 @@ export const enrichDirtyAiConversations = async (input: {
   heartbeat?: () => Promise<void>;
   deps?: EnrichDeps;
 }): Promise<AiEnrichmentRunSummary> => {
-  const store = input.deps?.store ?? aiConversationStore;
+  const store = input.deps?.store ?? aiConversations;
   const structured = input.deps?.structured ?? runAiStructured;
   const summary: AiEnrichmentRunSummary = { scanned: 0, enriched: 0, titlesUpdated: 0, skipped: 0, failed: 0 };
 

@@ -19,7 +19,7 @@ import {
 import type { CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
 import type { RequestActor } from "../server";
 import { defineAiTool, type PreparedAiTools, prepareAiTools } from "./tools";
-import type { AiConversationStore, AiRuntimeTool, AiToolPresentation } from "./types";
+import type { AiConversationService, AiRuntimeTool, AiToolPresentation } from "./types";
 
 export type AiCapabilityKind = "query" | "action";
 
@@ -430,7 +430,7 @@ const AppCatalogItemSchema = z
   })
   .strict();
 
-type CapabilityStateStore = Pick<AiConversationStore, "loadCapabilities">;
+type CapabilityStateStore = Pick<AiConversationService, "loadCapabilities">;
 
 export const createAiCapabilityMetaTools = (input: {
   apps: readonly CapabilityRegistryEntry[];
@@ -616,7 +616,7 @@ export const createAiCapabilityToolResolver =
     conversationId: string;
     actor: RequestActor;
     staticTools: AiRuntimeTool[];
-    store: Pick<AiConversationStore, "getLoadedCapabilities" | "loadCapabilities">;
+    store: Pick<AiConversationService, "getLoadedCapabilities" | "loadCapabilities">;
     listRegistry: () => Promise<CapabilityRegistryEntry[]>;
     onCapabilityRegistryError?: (error: unknown) => void;
     listHelpRegistry?: () => Promise<HelpRegistryEntry[]>;

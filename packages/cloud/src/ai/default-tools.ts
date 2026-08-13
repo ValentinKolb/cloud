@@ -7,8 +7,10 @@ import {
   createCloudAiWriteFileTool,
 } from "./file-tools";
 import { createCloudAiWebExtractTool, createCloudAiWebSearchTool, isCloudAiFirecrawlConfigured } from "./firecrawl-tools";
+import { isAiVisionModelConfigured } from "./settings";
 import { defineAiTool } from "./tools";
-import type { AiRuntimeTool } from "./types";
+import type { AiDataBoundary, AiRuntimeTool } from "./types";
+import { createCloudAiViewImageTool } from "./vision-tool";
 
 const ToneSchema = z.enum(["neutral", "blue", "teal", "green", "amber", "red"]);
 
@@ -121,7 +123,11 @@ export const createCloudAiLocalBashTool = () =>
 
 export const createDefaultCloudAiTools = () => [createCloudAiCardTool(), createCloudAiSurveyTool()];
 
-export const createConfiguredDefaultCloudAiTools = async (config?: { firecrawlApiKey?: string | null; fetch?: typeof fetch }) => {
+export const createConfiguredDefaultCloudAiTools = async (config?: {
+  firecrawlApiKey?: string | null;
+  fetch?: typeof fetch;
+  allowedDataBoundaries?: AiDataBoundary[];
+}) => {
   const tools: AiRuntimeTool[] = [
     ...createDefaultCloudAiTools(),
     createCloudAiListFilesTool(),
@@ -135,6 +141,9 @@ export const createConfiguredDefaultCloudAiTools = async (config?: { firecrawlAp
   if (firecrawlConfigured) {
     tools.push(createCloudAiWebSearchTool({ apiKey: config?.firecrawlApiKey, fetch: config?.fetch }));
     tools.push(createCloudAiWebExtractTool({ apiKey: config?.firecrawlApiKey, fetch: config?.fetch }));
+  }
+  if (await isAiVisionModelConfigured(config?.allowedDataBoundaries)) {
+    tools.push(createCloudAiViewImageTool());
   }
   return tools;
 };

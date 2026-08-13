@@ -6,13 +6,9 @@ const FILE_READ_MAX_BYTES = 64 * 1024;
 const FILE_WRITE_MAX_BYTES = 100 * 1024;
 
 const toolPath = (value: string, access: "read" | "write"): string => {
-  const candidate = value.startsWith("/") ? value : `/files/${value}`;
+  const candidate = value.startsWith("/") ? value : `/${value}`;
   const path = normalizeAiFilePath(candidate);
-  const readable = path === "/files" || path?.startsWith("/files/") || path === "/input" || path?.startsWith("/input/");
-  const writable = path?.startsWith("/files/");
-  if (!path || (access === "read" ? !readable : !writable)) {
-    throw new Error(access === "read" ? "Use a path under /files or /input." : "Use a file path under /files.");
-  }
+  if (!path) throw new Error(access === "read" ? "Use an absolute conversation file path." : "Use an absolute destination file path.");
   return path;
 };
 
@@ -34,14 +30,16 @@ export const CloudAiListFilesInputSchema = z.object({
   path: z.string().trim().min(1).default("/").describe("Directory or path prefix. Use / for all conversation files."),
 });
 export const CloudAiListFilesOutputSchema = z.object({
-  files: z.array(z.object({ path: z.string(), size: z.number(), mediaType: z.string(), updatedAt: z.string() })),
+  files: z.array(
+    z.object({ path: z.string(), size: z.number(), mediaType: z.string(), origin: z.enum(["user", "assistant"]), updatedAt: z.string() }),
+  ),
   truncated: z.boolean(),
 });
 
 export const createCloudAiListFilesTool = () =>
   defineAiTool({
     name: "list_files",
-    description: "List persistent conversation files under /files and uploaded files under /input.",
+    description: "List persistent conversation files. Files are ordered newest first.",
     inputSchema: CloudAiListFilesInputSchema,
     outputSchema: CloudAiListFilesOutputSchema,
     approval: "never",
@@ -53,7 +51,7 @@ export const createCloudAiListFilesTool = () =>
   });
 
 export const CloudAiReadFileInputSchema = z.object({
-  path: z.string().trim().min(1).describe("File under /files or /input."),
+  path: z.string().trim().min(1).describe("Absolute conversation file path."),
   offset: z.number().int().min(0).default(0).describe("Byte offset. Continue with nextOffset from the previous result."),
   length: z
     .number()
@@ -84,14 +82,18 @@ export const createCloudAiReadFileTool = () =>
   }).server(async (input, ctx) => {
     const id = conversationId(ctx.conversationId, "read_file");
     const path = toolPath(input.path, "read");
-    const stat = await aiFileStore.stat({ conversationId: id, path });
-    if (!stat) throw new Error(`No such file: ${path}`);
-    if (!isTextMediaType(stat.mediaType)) throw new Error(`Cannot read binary file ${path} (${stat.mediaType}) as text.`);
-    if (input.offset > stat.size) throw new Error(`Offset ${input.offset} is past the end of ${path} (${stat.size} bytes).`);
-
-    const requestedEnd = Math.min(stat.size, input.offset + input.length);
-    const bytes = await aiFileStore.readSlice({ conversationId: id, path, offset: input.offset, length: requestedEnd - input.offset });
-    if (!bytes) throw new Error(`No such file: ${path}`);
+    const snapshotRequired = ctx.attachedFilePaths?.has(path) ?? false;
+    const snapshot = ctx.turnId
+      ? await aiFileStore.readTurnSliceWithStat({ turnId: ctx.turnId, path, offset: input.offset, length: input.length })
+      : null;
+    if (snapshotRequired && !snapshot) throw new Error(`Attached file snapshot is unavailable: ${path}`);
+    const stored =
+      snapshot ?? (await aiFileStore.readSliceWithStat({ conversationId: id, path, offset: input.offset, length: input.length }));
+    if (!stored) throw new Error(`No such file: ${path}`);
+    if (!isTextMediaType(stored.mediaType)) throw new Error(`Cannot read binary file ${path} (${stored.mediaType}) as text.`);
+    if (input.offset > stored.size) throw new Error(`Offset ${input.offset} is past the end of ${path} (${stored.size} bytes).`);
+    const requestedEnd = Math.min(stored.size, input.offset + input.length);
+    const bytes = stored.bytes;
 
     let end = -1;
     let content = "";
@@ -109,11 +111,11 @@ export const createCloudAiReadFileTool = () =>
     if (end === 0 && requestedEnd > input.offset) throw new Error(`Offset ${input.offset} is not on a UTF-8 character boundary.`);
 
     const nextOffset = input.offset + end;
-    return { path, mediaType: stat.mediaType, content, offset: input.offset, nextOffset, eof: nextOffset >= stat.size };
+    return { path, mediaType: stored.mediaType, content, offset: input.offset, nextOffset, eof: nextOffset >= stored.size };
   });
 
 export const CloudAiWriteFileInputSchema = z.object({
-  path: z.string().trim().min(1).describe("Destination file under /files."),
+  path: z.string().trim().min(1).describe("Absolute destination file path."),
   content: z.string().max(FILE_WRITE_MAX_BYTES).describe("UTF-8 text to write."),
   mode: z.enum(["overwrite", "append"]).default("overwrite"),
 });
@@ -123,21 +125,23 @@ export const createCloudAiWriteFileTool = () =>
   defineAiTool({
     name: "write_file",
     description:
-      "Write or append UTF-8 text to a persistent conversation file under /files. Use present afterwards when the user should receive the file.",
+      "Write or append UTF-8 text to a persistent assistant-created conversation file. User uploads cannot be overwritten. Use present afterwards when the user should receive the file.",
     inputSchema: CloudAiWriteFileInputSchema,
     outputSchema: CloudAiWriteFileOutputSchema,
     approval: "never",
-    promptHint: "write a text result under /files; use append for bounded incremental output and present to deliver it.",
+    promptHint: "write a text result to a conversation file; use append for bounded incremental output and present to deliver it.",
   }).server(async (input, ctx) => {
     const id = conversationId(ctx.conversationId, "write_file");
     const path = toolPath(input.path, "write");
+    const existing = await aiFileStore.stat({ conversationId: id, path });
+    if (existing?.origin === "user") throw new Error(`Cannot overwrite user-uploaded file ${path}. Choose another path.`);
     const bytes = new TextEncoder().encode(input.content);
     if (bytes.byteLength > FILE_WRITE_MAX_BYTES) throw new Error(`One write is limited to ${FILE_WRITE_MAX_BYTES} bytes.`);
     const mediaType = textMediaTypeForPath(path);
     if (input.mode === "append") {
       await aiFileStore.append({ conversationId: id, path, bytes, mediaType });
     } else {
-      await aiFileStore.write({ conversationId: id, path, bytes, mediaType });
+      await aiFileStore.write({ conversationId: id, path, bytes, mediaType, origin: "assistant" });
     }
     const stat = await aiFileStore.stat({ conversationId: id, path });
     if (!stat) throw new Error(`Failed to write ${path}.`);
@@ -145,7 +149,7 @@ export const createCloudAiWriteFileTool = () =>
   });
 
 export const CloudAiPresentInputSchema = z.object({
-  path: z.string().trim().min(1).describe("File under /files or /input."),
+  path: z.string().trim().min(1).describe("Absolute conversation file path."),
   title: z.string().trim().min(1).max(120).optional(),
 });
 export const CloudAiPresentOutputSchema = z.object({ path: z.string(), size: z.number(), mediaType: z.string() });

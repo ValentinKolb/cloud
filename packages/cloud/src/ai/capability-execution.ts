@@ -9,14 +9,14 @@ import { accounts } from "../services/accounts";
 import { session } from "../services/session";
 import type { AiCapabilityCatalogEntry } from "./capabilities";
 import { aiToolAudit } from "./tool-audit";
-import type { AiConversationStore } from "./types";
+import type { AiConversationService } from "./types";
 
 type CapabilityActor = Extract<RequestActor, { kind: "user" }>;
 
 export const resolveAiCapabilityActor = async (input: {
   conversationId: string;
   persistedActor?: RequestActor;
-  store: Pick<AiConversationStore, "getConversation">;
+  store: Pick<AiConversationService, "getConversation">;
   getUser?: typeof accounts.users.get;
 }): Promise<{ actor: CapabilityActor; accessSubject: AccessSubject }> => {
   if (input.persistedActor?.kind !== "user") throw new Error("Cloud capabilities require a current user-backed actor.");

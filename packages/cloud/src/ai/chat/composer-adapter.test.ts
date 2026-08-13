@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type AiComposerAttachment,
   aiChatAttachments,
   aiChatModelOptions,
   aiComposerAttachmentRecords,
   aiComposerFileAccept,
   aiComposerSendInput,
   readAiComposerFiles,
-  type AiComposerAttachment,
 } from "./composer-adapter";
 
 describe("Cloud chat composer adapter", () => {
@@ -45,6 +45,7 @@ describe("Cloud chat composer adapter", () => {
       size: 4,
       mediaType: "image/png",
       data: "aW1n",
+      file,
     };
     const uploaded: AiComposerAttachment = {
       kind: "file",
@@ -67,19 +68,25 @@ describe("Cloud chat composer adapter", () => {
       }),
     ).toEqual({
       message: "Review these",
-      content: [
-        { type: "text", text: "Review these" },
-        { type: "file", data: "aW1n", mediaType: "image/png" },
-      ],
-      files: [file],
+      content: [{ type: "text", text: "Review these" }],
+      files: [file, file],
     });
   });
 
-  test("keeps file policy in Cloud and rejects images for text-only models", async () => {
-    const result = await readAiComposerFiles([new File(["image"], "photo.png", { type: "image/png" })], { supportsVision: false });
+  test("keeps file policy in Cloud and rejects images without a vision path", async () => {
+    const result = await readAiComposerFiles([new File(["image"], "photo.png", { type: "image/png" })], { acceptsImages: false });
 
     expect(aiComposerFileAccept).toContain("image/png");
     expect(result.attachments).toEqual([]);
-    expect(result.errors).toEqual(["photo.png: choose a vision-capable model before attaching images."]);
+    expect(result.errors).toEqual(["photo.png: choose a Vision model or configure the view_image fallback."]);
+  });
+
+  test("preflights the aggregate image limit across composer selections", async () => {
+    const result = await readAiComposerFiles([new File(["image"], "photo.png", { type: "image/png" })], {
+      acceptsImages: true,
+      currentImageBytes: 40 * 1024 * 1024,
+    });
+    expect(result.attachments).toEqual([]);
+    expect(result.errors[0]).toContain("40 MB total limit");
   });
 });
