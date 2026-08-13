@@ -396,6 +396,7 @@ export default function AssistantProjectView(props: Props) {
           <div class="flex flex-col gap-5">
             <AssistantContextSection
               title={props.project.name}
+              identity
               action={
                 <Show when={props.project.permission === "admin"}>
                   <IconButton

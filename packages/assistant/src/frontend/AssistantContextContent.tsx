@@ -33,6 +33,7 @@ export const isAssistantContextImage = (file: AssistantContextFile): boolean => 
 
 export function AssistantContextSection(props: {
   title: string;
+  identity?: boolean;
   count?: number;
   action?: JSX.Element;
   onViewAll?: () => void;
@@ -41,7 +42,15 @@ export function AssistantContextSection(props: {
   return (
     <section class="flex flex-col gap-2">
       <div class="flex min-h-7 items-center justify-between gap-2">
-        <h2 class="min-w-0 flex-1 text-xs font-medium text-secondary">{props.title}</h2>
+        <h2
+          class={
+            props.identity
+              ? "min-w-0 flex-1 text-sm font-semibold text-[var(--ui-app-accent-text)]"
+              : "min-w-0 flex-1 text-xs font-medium text-secondary"
+          }
+        >
+          {props.title}
+        </h2>
         {props.action}
         <Show when={props.onViewAll && (props.count ?? 0) > 0}>
           <Button size="xs" variant="ghost" onClick={() => props.onViewAll?.()}>

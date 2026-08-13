@@ -88,6 +88,7 @@ describe("Assistant Project view", () => {
     expect(html).toContain("Project context");
     expect(html).toContain("View project");
     expect(html).toContain("IT support");
+    expect(html).toContain("text-[var(--ui-app-accent-text)]");
     expect(html).not.toContain(">Project instructions</h2>");
     expect(html).toContain("k2b-detail-panel__action");
     expect(html).toContain("Project knowledge");

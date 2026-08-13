@@ -237,7 +237,7 @@ function AssistantChatContextView(props: { state: AssistantChatContextState }) {
           <div class="flex flex-col gap-5">
             <Show when={value().project}>
               {(project) => (
-                <AssistantContextSection title={project().name}>
+                <AssistantContextSection title={project().name} identity>
                   <AssistantContextRow
                     title="View project"
                     onClick={() =>
