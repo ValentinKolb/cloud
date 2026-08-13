@@ -1,6 +1,6 @@
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Avatar, Button, Discussion, IconButton, MarkdownView, Placeholder, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
+import { Avatar, Button, Discussion, IconButton, MarkdownEditor, MarkdownView, Placeholder, prompts, Tooltip, toast } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceComment } from "@/contracts";
@@ -25,7 +25,6 @@ type Props = {
 
 export default function CommentsSection(props: Props) {
   const [newComment, setNewComment] = createSignal("");
-  const [composerOpen, setComposerOpen] = createSignal(false);
 
   const createCommentMutation = mutations.create({
     mutation: async (content: string) => {
@@ -41,7 +40,6 @@ export default function CommentsSection(props: Props) {
     },
     onSuccess: () => {
       setNewComment("");
-      setComposerOpen(false);
       toast.success("Comment added");
       props.onUpdate();
     },
@@ -115,13 +113,6 @@ export default function CommentsSection(props: Props) {
       label={props.recurrenceId ? "Occurrence comments" : "Comments"}
       icon="ti ti-message"
       count={`${props.total} ${props.total === 1 ? "comment" : "comments"}`}
-      actions={
-        props.canWrite && !composerOpen() ? (
-          <Button type="button" variant="ghost" size="xs" onClick={() => setComposerOpen(true)}>
-            <i class="ti ti-plus" aria-hidden="true" /> Add comment
-          </Button>
-        ) : undefined
-      }
       style="view-transition-name: space-item-detail-comments"
     >
       <Show when={props.loadError}>
@@ -132,39 +123,32 @@ export default function CommentsSection(props: Props) {
           </Button>
         </div>
       </Show>
-      <Show when={props.canWrite && composerOpen()}>
+      <Show when={props.canWrite}>
         <Discussion.Composer
           onSubmit={handleSubmit}
-          actions={
-            <>
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                onClick={() => {
-                  setNewComment("");
-                  setComposerOpen(false);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
+          insetAction={
+            <Tooltip.Anchor content="Post comment (Ctrl/Cmd+Enter)">
+              <IconButton
                 type="submit"
+                label="Post comment"
                 disabled={createCommentMutation.loading() || !newComment().trim()}
                 loading={createCommentMutation.loading()}
-                size="xs"
+                size="sm"
+                variant="primary"
               >
-                <i class="ti ti-send" aria-hidden="true" /> Post comment
-              </Button>
-            </>
+                <i class="ti ti-send" aria-hidden="true" />
+              </IconButton>
+            </Tooltip.Anchor>
           }
         >
-          <TextInput
+          <MarkdownEditor
             aria-label="Add comment"
-            value={() => newComment()}
+            value={newComment}
             onValueChange={setNewComment}
             placeholder="Write a comment in markdown…"
-            markdown
+            lines={4}
+            noToolbar
+            showStats={false}
             disabled={createCommentMutation.loading()}
             onSubmit={submitNewComment}
           />

@@ -106,6 +106,7 @@ describe("mail capabilities", () => {
   test("compiles into a registrable v1 manifest", () => {
     const manifest = compileCapabilityManifest("mail", mailCapabilities);
     expect(manifest.appId).toBe("mail");
+    expect(mailCapabilities.types.conversation.icon).toBe("ti ti-mail");
     expect(manifest.queries).toHaveLength(Object.keys(mailCapabilities.queries).length);
     expect(manifest.actions).toHaveLength(Object.keys(mailCapabilities.actions).length);
   });

@@ -470,12 +470,8 @@ export default function ItemDetailPanel(props: Props) {
           subtitle={isEvent() ? "Event" : "Task"}
           meta={
             <>
-              <span
-                class={`inline-flex items-center gap-1.5 font-medium ${
-                  isCompleted() ? "text-emerald-700 dark:text-emerald-300" : "text-lime-700 dark:text-lime-300"
-                }`}
-              >
-                <span class={`h-1.5 w-1.5 rounded-full ${isCompleted() ? "bg-emerald-500" : "bg-lime-500"}`} aria-hidden="true" />
+              <span class="inline-flex items-center gap-1.5 text-[0.6875rem] font-medium leading-4 text-[var(--k2b-success-text)]">
+                <span class="h-1 w-1 rounded-full bg-[var(--k2b-success-500)]" aria-hidden="true" />
                 {isCompleted() ? "Completed" : "Active"}
               </span>
               <Show when={!props.canWrite}>
@@ -680,51 +676,59 @@ export default function ItemDetailPanel(props: Props) {
           </Show>
 
           <Show when={(props.references?.length ?? 0) > 0}>
-            <DetailPanel.Section title="Linked resources" icon="ti ti-link" tone="neutral">
-              <div class="flex flex-col gap-1">
-                <For each={props.references ?? []}>
-                  {(reference) => {
-                    const href = () => reference.resource?.links?.find((link) => link.rel === "open")?.href;
-                    return (
-                      <div class="flex min-w-0 items-center gap-1">
-                        <div class="min-w-0 flex-1">
-                          <Show
-                            when={href()}
-                            fallback={
-                              <div class="flex min-w-0 items-start gap-2 px-2 py-1.5">
-                                <i class={reference.resource?.icon ?? "ti ti-link"} aria-hidden="true" />
-                                <div class="min-w-0 flex-1">
-                                  <p class="truncate text-sm font-medium text-primary">{reference.label}</p>
-                                  <p class="truncate text-xs text-dimmed">Resource unavailable or no longer accessible</p>
-                                </div>
-                              </div>
+            <DetailPanel.Group label="Resource context">
+              <DetailPanel.Section title="Linked resources" icon="ti ti-link" tone="neutral">
+                <div class="flex flex-col gap-1">
+                  <For each={props.references ?? []}>
+                    {(reference) => {
+                      const href = () => reference.resource?.links?.find((link) => link.rel === "open")?.href;
+                      const icon = () =>
+                        reference.resource?.icon ?? (reference.ref.type === "mail.conversation" ? "ti ti-mail" : "ti ti-link");
+                      const menu = () =>
+                        canEditItem()
+                          ? {
+                              menuLabel: `More actions for ${reference.label}`,
+                              menuItems: [
+                                {
+                                  label: "Unlink",
+                                  icon: "ti ti-unlink",
+                                  disabled: unlinkReference.loading(),
+                                  action: () => unlinkReference.mutate(reference.ref),
+                                },
+                              ],
                             }
-                          >
-                            {(openHref) => (
-                              <DetailPanel.Action
-                                href={openHref()}
-                                leading={<i class={reference.resource?.icon ?? "ti ti-link"} aria-hidden="true" />}
-                                title={reference.label}
-                                description={reference.resource?.title !== reference.label ? reference.resource?.title : undefined}
-                                trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
-                              />
-                            )}
-                          </Show>
-                        </div>
-                        <Show when={canEditItem()}>
-                          <IconActionButton
-                            icon="ti ti-unlink"
-                            title="Unlink resource"
-                            disabled={unlinkReference.loading()}
-                            onClick={() => unlinkReference.mutate(reference.ref)}
-                          />
+                          : {};
+                      return (
+                        <Show
+                          when={href()}
+                          fallback={
+                            <DetailPanel.Action
+                              type="button"
+                              disabled
+                              leading={<i class={icon()} aria-hidden="true" />}
+                              title={reference.label}
+                              description="Resource unavailable or no longer accessible"
+                              {...menu()}
+                            />
+                          }
+                        >
+                          {(openHref) => (
+                            <DetailPanel.Action
+                              href={openHref()}
+                              leading={<i class={icon()} aria-hidden="true" />}
+                              title={reference.label}
+                              description={reference.resource?.title !== reference.label ? reference.resource?.title : undefined}
+                              trailing={!canEditItem() ? <i class="ti ti-chevron-right" aria-hidden="true" /> : undefined}
+                              {...menu()}
+                            />
+                          )}
                         </Show>
-                      </div>
-                    );
-                  }}
-                </For>
-              </div>
-            </DetailPanel.Section>
+                      );
+                    }}
+                  </For>
+                </div>
+              </DetailPanel.Section>
+            </DetailPanel.Group>
           </Show>
 
           <Show when={canShowClassification() || canShowAssignees()}>
@@ -826,17 +830,19 @@ export default function ItemDetailPanel(props: Props) {
             />
           </Show>
 
-          <DetailPanel.Section title="Item information" icon="ti ti-info-circle" tone="neutral" collapsible>
-            <DescriptionList
-              layout="rows"
-              size="sm"
-              items={[
-                { term: "Created", description: dates.formatDateTime(props.item.createdAt) },
-                { term: "Updated", description: dates.formatDateTime(props.item.updatedAt) },
-                { term: "ID", description: <span class="break-all font-mono text-dimmed">{props.item.id}</span> },
-              ]}
-            />
-          </DetailPanel.Section>
+          <DetailPanel.Group label="Item metadata">
+            <DetailPanel.Section title="Item information" icon="ti ti-info-circle" tone="neutral" collapsible>
+              <DescriptionList
+                layout="rows"
+                size="sm"
+                items={[
+                  { term: "Created", description: dates.formatDateTime(props.item.createdAt) },
+                  { term: "Updated", description: dates.formatDateTime(props.item.updatedAt) },
+                  { term: "ID", description: <span class="break-all font-mono text-dimmed">{props.item.id}</span> },
+                ]}
+              />
+            </DetailPanel.Section>
+          </DetailPanel.Group>
         </DetailPanel.Body>
       </DetailPanel>
     </div>

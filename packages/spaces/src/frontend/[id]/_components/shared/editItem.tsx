@@ -1,5 +1,5 @@
 import type { DateContext } from "@k2b/stdlib";
-import { dialogCore, panelDialogFixedOptions } from "@k2b/ui";
+import { dialogCore, panelDialogOptions } from "@k2b/ui";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
 import ItemForm, { type ItemFormData } from "./ItemForm";
@@ -45,5 +45,5 @@ export const openEditItemDialog = async (params: EditItemParams): Promise<ItemFo
         dateConfig={params.dateConfig}
       />
     ),
-    panelDialogFixedOptions,
+    panelDialogOptions,
   )) ?? null;

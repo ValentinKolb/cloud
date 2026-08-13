@@ -1,6 +1,6 @@
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { AppWorkspace, Button, dialogCore, IconButton, panelDialogFixedOptions, prompts, Tooltip, toast } from "@k2b/ui";
+import { AppWorkspace, Button, dialogCore, IconButton, panelDialogOptions, prompts, Tooltip, toast } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
@@ -62,7 +62,7 @@ export default function CreateItemButton(props: Props) {
             dateConfig={props.dateConfig}
           />
         ),
-        panelDialogFixedOptions,
+        panelDialogOptions,
       );
       if (intent) void mutation.mutate(intent);
     } finally {

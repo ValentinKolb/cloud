@@ -2381,7 +2381,7 @@ export const mailCapabilities = defineCapabilities({
     conversation: {
       title: "Mail conversation",
       description: "A grouped mail conversation with collaboration state.",
-      icon: "ti ti-messages",
+      icon: "ti ti-mail",
       reader: "conversation.read",
     },
     message: { title: "Mail message", description: "One message in an accessible mailbox.", icon: "ti ti-mail", reader: "message.read" },

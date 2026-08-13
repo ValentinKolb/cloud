@@ -385,27 +385,39 @@ export default function MailConversationContext(props: { mailboxId: string; conv
                                       }
                                     >
                                       {(href) => (
-                                        <DetailPanel.Action
-                                          href={href()}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          leading={<i class="ti ti-address-book" aria-hidden="true" />}
-                                          title={contact.displayName}
-                                          description={description() || undefined}
-                                          {...(relatedMailHref
-                                            ? {
-                                                menuLabel: `More actions for ${contact.displayName}`,
-                                                menuItems: [
-                                                  {
-                                                    label: "Related Mail",
-                                                    icon: "ti ti-mail",
-                                                    href: relatedMailHref,
-                                                    external: true,
-                                                  },
-                                                ],
-                                              }
-                                            : {})}
-                                        />
+                                        <Show
+                                          when={relatedMailHref}
+                                          fallback={
+                                            <DetailPanel.Action
+                                              href={href()}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              leading={<i class="ti ti-address-book" aria-hidden="true" />}
+                                              title={contact.displayName}
+                                              description={description() || undefined}
+                                            />
+                                          }
+                                        >
+                                          {(mailHref) => (
+                                            <DetailPanel.Action
+                                              href={href()}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              leading={<i class="ti ti-address-book" aria-hidden="true" />}
+                                              title={contact.displayName}
+                                              description={description() || undefined}
+                                              menuLabel={`More actions for ${contact.displayName}`}
+                                              menuItems={[
+                                                {
+                                                  label: "Related Mail",
+                                                  icon: "ti ti-mail",
+                                                  href: mailHref(),
+                                                  external: true,
+                                                },
+                                              ]}
+                                            />
+                                          )}
+                                        </Show>
                                       )}
                                     </Show>
                                     <Show when={contact.phones[0]}>

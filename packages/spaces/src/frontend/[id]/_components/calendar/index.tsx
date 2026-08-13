@@ -10,7 +10,6 @@ import {
   FilterChip,
   type FilterChipSection,
   PanelDialog,
-  panelDialogFixedOptions,
   panelDialogOptions,
   prompts,
   toast,
@@ -524,7 +523,7 @@ export default function Calendar(props: CalendarProps) {
             dateConfig={props.dateConfig}
           />
         ),
-        panelDialogFixedOptions,
+        panelDialogOptions,
       );
       if (intent) void createEvent.mutate(intent);
     } finally {

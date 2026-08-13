@@ -33,7 +33,6 @@ import {
   recurrenceFrequencyOptions,
   recurrenceFromFormState,
   recurrenceToFormState,
-  summarizeRecurrence,
   weekdayOptions,
 } from "./recurrence";
 import SpaceAssigneePicker from "./SpaceAssigneePicker";
@@ -75,31 +74,12 @@ export default function ItemForm(props: ItemFormProps) {
   const [assignees, setAssignees] = createSignal<SpaceItemAssignee[]>(props.item?.assignees ?? []);
   const [selectedTags, setSelectedTags] = createSignal<string[]>(props.item?.tags?.map((t) => t.id) ?? props.defaults?.tagIds ?? []);
   const [error, setError] = createSignal("");
-  const [advancedOpen, setAdvancedOpen] = createSignal(false);
 
   const isEvent = () => itemType() === "event";
-  const showAdvanced = () => advancedOpen();
   const defaultTitle = () => (isEditMode() ? (isEvent() ? "Edit event" : "Edit task") : isEvent() ? "New event" : "New task");
   const defaultSubmitLabel = () => (isEditMode() ? (isEvent() ? "Save Event" : "Save Task") : isEvent() ? "Create Event" : "Create Task");
   const eventRange = () =>
     allDay() ? dateOnlyRange(startsAt(), endsAt(), props.dateConfig) : { start: startsAt() || null, end: endsAt() || null };
-  const currentRecurrence = () =>
-    recurrenceEnabled()
-      ? recurrenceFromFormState(
-          {
-            preset: "custom",
-            frequency: recurrenceFrequency(),
-            interval: recurrenceInterval() ?? 1,
-            byDay: recurrenceByDay(),
-            endMode: recurrenceEndMode(),
-            until: recurrenceUntil(),
-            count: recurrenceCount(),
-          },
-          startsAt(),
-          props.dateConfig,
-        )
-      : null;
-
   const columnOptions = () =>
     props.columns.map((c) => ({
       id: c.id,
@@ -312,25 +292,10 @@ export default function ItemForm(props: ItemFormProps) {
                 value={allDay}
                 onValueChange={handleAllDayChange}
               />
-              <Show when={recurrenceEnabled() && !showAdvanced()}>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  class="w-full text-secondary [&_.k2b-button__label]:w-full [&_.k2b-button__label]:justify-between"
-                  onClick={() => setAdvancedOpen(true)}
-                >
-                  <span class="flex min-w-0 items-center gap-2">
-                    <i class="ti ti-repeat text-dimmed" />
-                    <span class="truncate">{summarizeRecurrence(currentRecurrence()) ?? "Repeats"}</span>
-                  </span>
-                  <span class="shrink-0 text-xs text-blue-600 dark:text-blue-300">Edit repeat</span>
-                </Button>
-              </Show>
             </Show>
           </div>
 
-          <Show when={showAdvanced() && isEvent()}>
+          <Show when={isEvent()}>
             <PanelDialog.Section title="Repeat" subtitle="Optional recurring event series." icon="ti ti-repeat">
               <CheckboxCard
                 label="Repeat event"
@@ -423,7 +388,7 @@ export default function ItemForm(props: ItemFormProps) {
             </PanelDialog.Section>
           </Show>
 
-          <Show when={showAdvanced() && isEvent()}>
+          <Show when={isEvent()}>
             <PanelDialog.Section
               title="Event details"
               subtitle="Location and external reference for calendar subscriptions."
@@ -455,58 +420,56 @@ export default function ItemForm(props: ItemFormProps) {
             </PanelDialog.Section>
           </Show>
 
-          <Show when={showAdvanced()}>
-            <PanelDialog.Section title="Organize" subtitle="Workflow, priority, tags, and ownership." icon="ti ti-tags">
-              <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <Select
-                  label="Status"
-                  description={!isEditMode() ? "Current workflow state" : undefined}
-                  placeholder="Select column"
-                  icon="ti ti-progress"
-                  value={columnId}
-                  onValueChange={(value) => value && setColumnId(value)}
-                  options={columnOptions()}
-                  required={!isEvent()}
-                />
-                <Select
-                  label="Priority"
-                  description={!isEditMode() ? "How urgent is this?" : undefined}
-                  placeholder="Select priority"
-                  icon="ti ti-flag"
-                  value={priority}
-                  onValueChange={(value) => setPriority(value ?? "")}
-                  options={PRIORITY_OPTIONS}
-                  clearable
-                />
-              </div>
-              <Show when={props.tags && props.tags.length > 0}>
-                <MultiSelectInput
-                  label="Tags"
-                  description={!isEditMode() ? "Categorize with tags" : undefined}
-                  placeholder="Select tags"
-                  searchPlaceholder="Search tags..."
-                  icon="ti ti-tags"
-                  value={selectedTags}
-                  onValueChange={setSelectedTags}
-                  options={(props.tags ?? []).map((tag) => ({ id: tag.id, label: tag.name, color: tag.color }))}
-                  clearable
-                />
-              </Show>
+          <PanelDialog.Section title="Organize" subtitle="Workflow, priority, tags, and ownership." icon="ti ti-tags">
+            <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <Select
+                label="Status"
+                description={!isEditMode() ? "Current workflow state" : undefined}
+                placeholder="Select column"
+                icon="ti ti-progress"
+                value={columnId}
+                onValueChange={(value) => value && setColumnId(value)}
+                options={columnOptions()}
+                required={!isEvent()}
+              />
+              <Select
+                label="Priority"
+                description={!isEditMode() ? "How urgent is this?" : undefined}
+                placeholder="Select priority"
+                icon="ti ti-flag"
+                value={priority}
+                onValueChange={(value) => setPriority(value ?? "")}
+                options={PRIORITY_OPTIONS}
+                clearable
+              />
+            </div>
+            <Show when={props.tags && props.tags.length > 0}>
+              <MultiSelectInput
+                label="Tags"
+                description={!isEditMode() ? "Categorize with tags" : undefined}
+                placeholder="Select tags"
+                searchPlaceholder="Search tags..."
+                icon="ti ti-tags"
+                value={selectedTags}
+                onValueChange={setSelectedTags}
+                options={(props.tags ?? []).map((tag) => ({ id: tag.id, label: tag.name, color: tag.color }))}
+                clearable
+              />
+            </Show>
 
-              <div class="flex flex-col gap-3">
-                <div>
-                  <p class="mb-1 block text-sm font-medium">Assignees</p>
-                  <p class="text-xs text-dimmed">Assign initial owners or leave unassigned</p>
-                </div>
-                <SpaceAssigneePicker
-                  spaceId={props.spaceId}
-                  value={assignees}
-                  onChange={(next) => setAssignees(next)}
-                  placeholder="Search people with access..."
-                />
+            <div class="flex flex-col gap-3">
+              <div>
+                <p class="mb-1 block text-sm font-medium">Assignees</p>
+                <p class="text-xs text-dimmed">Assign initial owners or leave unassigned</p>
               </div>
-            </PanelDialog.Section>
-          </Show>
+              <SpaceAssigneePicker
+                spaceId={props.spaceId}
+                value={assignees}
+                onChange={(next) => setAssignees(next)}
+                placeholder="Search people with access..."
+              />
+            </div>
+          </PanelDialog.Section>
 
           <Show when={error()}>
             <div class="flex items-center gap-1 text-sm text-red-500">
@@ -517,17 +480,7 @@ export default function ItemForm(props: ItemFormProps) {
         </PanelDialog.Body>
 
         <PanelDialog.Footer>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            aria-expanded={advancedOpen()}
-            onClick={() => setAdvancedOpen((open) => !open)}
-          >
-            <i class={`ti ${advancedOpen() ? "ti-eye-off" : "ti-eye"}`} />
-            <span>{advancedOpen() ? "Hide options" : "More options"}</span>
-          </Button>
-          <div class="flex items-center gap-2">
+          <div class="ml-auto flex items-center gap-2">
             <Button type="button" variant="secondary" size="sm" onClick={props.onCancel}>
               Cancel
             </Button>

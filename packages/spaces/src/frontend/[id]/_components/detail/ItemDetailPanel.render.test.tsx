@@ -107,6 +107,11 @@ describe("Spaces item detail panel", () => {
     expect(html).toContain("Invite or update");
     expect(html).toContain('class="k2b-detail-panel__action');
     expect(html).toContain('class="k2b-discussion');
+    expect(html).toContain('class="k2b-discussion__composer');
+    expect(html).toContain('class="k2b-discussion__composer-inset-action"');
+    expect(html).toContain('aria-label="Post comment"');
+    expect(html).toContain('class="k2b-markdown-editor');
+    expect(html).not.toContain('class="k2b-markdown-editor__toolbar"');
     expect(html).toContain('class="k2b-discussion__item');
     expect(html).toContain('data-visibility="progressive"');
     expect(html).not.toContain('data-visibility="always"');
@@ -120,6 +125,7 @@ describe("Spaces item detail panel", () => {
     expect(html).toContain("view-transition-name:space-item-detail-description");
     expect(html).toContain("view-transition-name: space-item-detail-comments");
     expect(html).toContain("Item information");
+    expect(html).toContain('aria-label="Item metadata"');
     expect(html).not.toContain('<details class="k2b-detail-panel__section" open');
     expect(html).not.toContain("overflow-y-auto");
     for (const className of legacyDetailClasses) expect(html).not.toContain(className);
@@ -135,6 +141,8 @@ describe("Spaces item detail panel", () => {
     });
 
     expect(html).toContain("Read only");
+    expect(html).toContain("text-[0.6875rem] font-medium leading-4 text-[var(--k2b-success-text)]");
+    expect(html).toContain("bg-[var(--k2b-success-500)]");
     expect(html).toContain('aria-label="Close item details"');
     expect(html).not.toContain('aria-label="More item actions"');
     expect(html).not.toContain("Mark complete");
@@ -163,7 +171,7 @@ describe("Spaces item detail panel", () => {
     expect(html).toContain("This occurrence");
     expect(html).toContain("View series");
     expect(html).toContain("Occurrence comments");
-    expect(html).toContain("Add comment");
+    expect(html).toContain('aria-label="Post comment"');
     expect(html).not.toContain('aria-label="More item actions"');
     expect(html).not.toContain("Mark complete");
     expect(html).not.toContain("Invite or update");
@@ -194,9 +202,36 @@ describe("Spaces item detail panel", () => {
     });
 
     expect(html).toContain(">Linked resources</h3>");
+    expect(html).toContain('class="k2b-detail-panel__group" role="group" aria-label="Resource context"');
     expect(html).toContain('href="/app/mail/Box001?conversation=Conv01"');
+    expect(html.match(/ti ti-mail/g)).toHaveLength(2);
     expect(html).toContain("Archived discussion");
     expect(html).toContain("Resource unavailable or no longer accessible");
+    expect(html).not.toContain('aria-label="Unlink resource"');
+  });
+
+  test("keeps resource navigation primary and moves unlink into the shared overflow menu", () => {
+    const html = renderPanel({
+      references: [
+        {
+          ref: { type: "mail.conversation", id: "Conv01" },
+          label: "Release planning",
+          createdAt: now,
+          resource: {
+            ref: { type: "mail.conversation", id: "Conv01" },
+            title: "Release planning",
+            icon: "ti ti-mail",
+            links: [{ rel: "open", href: "/app/mail/Box001?conversation=Conv01" }],
+          },
+        },
+      ],
+      canWrite: true,
+    });
+
+    expect(html).toContain('class="k2b-detail-panel__action-row"');
+    expect(html).toContain('aria-label="More actions for Release planning"');
+    expect(html).toContain('aria-haspopup="menu"');
+    expect(html).toContain(">Unlink</span>");
     expect(html).not.toContain('aria-label="Unlink resource"');
   });
 });
