@@ -50,5 +50,8 @@ describe("Mail app integration states", () => {
     expect(html).toContain("Loading contacts...");
     expect(html).toContain("Loading Spaces...");
     expect(html).not.toContain("Spaces unavailable");
+    expect(html).toContain('aria-label="Contacts" class="bg-[var(--ui-surface)] p-3"');
+    expect(html).toContain('aria-label="Spaces" class="space-y-1 bg-[var(--ui-surface)] p-3"');
+    expect(html).not.toContain("border-t");
   });
 });

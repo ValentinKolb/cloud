@@ -258,8 +258,8 @@ export default function MailConversationContext(props: { mailboxId: string; conv
   onCleanup(() => createParticipantContact.abort());
 
   return (
-    <div class="min-w-0 space-y-4">
-      <section aria-label="Contacts">
+    <>
+      <section aria-label="Contacts" class="bg-[var(--ui-surface)] p-3">
         <Show
           when={context()}
           fallback={
@@ -449,7 +449,7 @@ export default function MailConversationContext(props: { mailboxId: string; conv
           </Show>
         </Show>
       </section>
-      <section aria-label="Spaces" class="space-y-1 border-t border-default pt-4">
+      <section aria-label="Spaces" class="space-y-1 bg-[var(--ui-surface)] p-3">
         <Show
           when={context()}
           fallback={
@@ -526,6 +526,6 @@ export default function MailConversationContext(props: { mailboxId: string; conv
           )}
         </Show>
       </section>
-    </div>
+    </>
   );
 }

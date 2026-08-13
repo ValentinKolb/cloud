@@ -600,14 +600,12 @@ export default function MailDetailsPanel(props: {
               </section>
             </Show>
 
-            <div class="bg-[var(--ui-surface)] p-3">
-              <MailConversationContext
-                mailboxId={props.mailboxId}
-                conversationId={props.conversationId}
-                requestUrl={props.requestUrl}
-                active={props.active}
-              />
-            </div>
+            <MailConversationContext
+              mailboxId={props.mailboxId}
+              conversationId={props.conversationId}
+              requestUrl={props.requestUrl}
+              active={props.active}
+            />
 
             <Show when={attachments().length > 0}>
               <DetailPanel.Section title="Attachments" icon="ti ti-paperclip" tone="neutral" meta={attachments().length}>
