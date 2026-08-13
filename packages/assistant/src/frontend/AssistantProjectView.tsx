@@ -1,50 +1,252 @@
-import { Link } from "@k2b/ssr/nav";
-import { Button, Placeholder, TextInput } from "@k2b/ui";
-import type {
-  AiConversation,
-  AiConversationPage,
-  AiProject,
-  AiProjectFile,
-  AiProjectKnowledge,
-  AiProjectReference,
-} from "@valentinkolb/cloud/ai";
+import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
+import { query as solidQuery } from "@k2b/stdlib/solid";
+import { Button, FileDropzone, IconButton, Lightbox, Placeholder, prompts, TextInput, toast } from "@k2b/ui";
+import type { AiConversation, AiConversationPage, AiProject, AiProjectKnowledge } from "@valentinkolb/cloud/ai";
+import { openCloudResourcePicker } from "@valentinkolb/cloud/browser/resource-picker";
 import { coreClient } from "@valentinkolb/cloud/clients/core";
 import { formatDateTime } from "@valentinkolb/cloud/shared";
-import { createEffect, createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
+import type { AssistantProjectContextSnapshot } from "../project-context";
+import {
+  AssistantContextEmpty,
+  type AssistantContextFile,
+  AssistantContextRow,
+  AssistantContextRows,
+  AssistantContextSection,
+  assistantProjectFileSource,
+  isAssistantContextImage,
+  loadAssistantContextImages,
+  openAssistantCloudReference,
+  openAssistantContextFiles,
+  openAssistantKnowledgeSearch,
+  openAssistantMarkdown,
+} from "./AssistantContextContent";
+import { openAssistantConversationEditor } from "./AssistantConversationEditor";
 import { openAssistantProjectSettingsDialog } from "./AssistantProjectSettingsDialog";
+import { type AssistantLiveInvalidation, matchesAssistantInvalidation, useAssistantLive } from "./assistant-live";
 import { assistantConversationHref, assistantProjectHref } from "./assistant-navigation";
 
 type Props = {
   project: AiProject;
   initialQuery: string;
   initialPage: AiConversationPage;
-  onNewChat: () => void | Promise<void>;
+  initialContext?: AssistantProjectContextSnapshot | null;
+  composer: JSX.Element;
+  onOpenConversation: (conversationId: string) => Promise<boolean>;
 };
 
 export default function AssistantProjectView(props: Props) {
   const [query, setQuery] = createSignal(props.initialQuery);
-  const [page, setPage] = createSignal(props.initialPage);
-  const [loading, setLoading] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
-  const [context] = createResource(
-    () => props.project.id,
-    async (projectId) => {
-      const [knowledgeResponse, filesResponse, referencesResponse] = await Promise.all([
-        coreClient.ai.projects[":projectId"].knowledge.$get({ param: { projectId }, query: {} }),
-        coreClient.ai.projects[":projectId"].files.$get({ param: { projectId } }),
-        coreClient.ai.projects[":projectId"].references.$get({ param: { projectId } }),
-      ]);
-      if (!knowledgeResponse.ok || !filesResponse.ok || !referencesResponse.ok) throw new Error("Failed to load Project context");
-      return {
-        knowledge: (await knowledgeResponse.json()).knowledge as AiProjectKnowledge[],
-        files: (await filesResponse.json()).files as AiProjectFile[],
-        references: (await referencesResponse.json()).references as AiProjectReference[],
-      };
-    },
-  );
+  const [searchOpen, setSearchOpen] = createSignal(Boolean(props.initialQuery.trim()));
+  const [requestQuery, setRequestQuery] = createSignal(props.initialQuery);
+  const source = () => `${props.project.id}:${requestQuery()}`;
+  const chats = solidQuery.createInfinite<string, AiConversationPage, number, AssistantLiveInvalidation>({
+    source,
+    initial: { source: `${props.project.id}:${props.initialQuery}`, pages: [props.initialPage] },
+    loadPage: (requestSource, { cursor, abortSignal }) =>
+      assistantApi.listConversationsPage({
+        projectId: props.project.id,
+        q: requestSource.slice(props.project.id.length + 1).trim() || undefined,
+        page: cursor ?? 1,
+        perPage: 20,
+        signal: abortSignal,
+      }),
+    getNextCursor: (page) => (page.hasNext ? page.page + 1 : null),
+  });
+  const context = solidQuery.create<string, AssistantProjectContextSnapshot, AssistantLiveInvalidation>({
+    source: () => props.project.id,
+    initial: props.initialContext ? { source: props.initialContext.projectId, data: props.initialContext } : undefined,
+    load: (projectId, { abortSignal }) => assistantApi.loadProjectContext(projectId, abortSignal),
+  });
+  const live = useAssistantLive();
+  const unregisterChats = live.register({
+    matches: matchesAssistantInvalidation(["conversation-list"], { projectId: props.project.id }),
+    invalidate: (invalidation) => chats.invalidate(invalidation),
+  });
+  const unregisterContext = live.register({
+    matches: matchesAssistantInvalidation(["project-detail", "project-context"], { projectId: props.project.id }),
+    invalidate: (invalidation) => context.invalidate(invalidation),
+  });
+  onCleanup(() => {
+    unregisterChats();
+    unregisterContext();
+  });
+  const chatItems = createMemo(() => chats.pages().flatMap((page) => page.items));
   let first = true;
+  let chatListViewport: HTMLDivElement | undefined;
   let loadMoreSentinel: HTMLDivElement | undefined;
+  const [contextAction, setContextAction] = createSignal<string | null>(null);
+  const [lightbox, setLightbox] = createSignal<{ images: Awaited<ReturnType<typeof loadAssistantContextImages>>; index: number } | null>(
+    null,
+  );
+  const projectFileSource = assistantProjectFileSource(props.project.id, () => context.data()?.files ?? []);
+  const contextFiles = (): AssistantContextFile[] =>
+    (context.data()?.files ?? []).map((file) => ({
+      id: file.id,
+      path: file.path,
+      mediaType: file.mediaType,
+      size: file.size,
+      scope: "project",
+      source: projectFileSource,
+    }));
+  const imageFiles = () => contextFiles().filter(isAssistantContextImage);
+  const regularFiles = () => contextFiles().filter((file) => !isAssistantContextImage(file));
+  const openImages = async (selected?: AssistantContextFile) => {
+    try {
+      const images = await loadAssistantContextImages(contextFiles());
+      const index = selected
+        ? Math.max(
+            0,
+            images.findIndex((entry) => entry.file.id === selected.id),
+          )
+        : 0;
+      setLightbox({ images, index });
+    } catch (error) {
+      void prompts.error(error instanceof Error ? error.message : "Images could not be loaded.", { title: "Could not open images" });
+    }
+  };
+
+  const readError = async (response: Response, fallback: string) => {
+    const payload = (await response.json().catch(() => null)) as { message?: unknown } | null;
+    return typeof payload?.message === "string" && payload.message.trim() ? payload.message : fallback;
+  };
+
+  const runContextAction = async (key: string, success: string, action: () => Promise<Response>) => {
+    if (contextAction()) return;
+    setContextAction(key);
+    try {
+      const response = await action();
+      if (!response.ok) throw new Error(await readError(response, "Project context could not be updated."));
+      await context.refresh();
+      toast.success(success);
+    } catch (error) {
+      void prompts.error(error instanceof Error ? error.message : "Project context could not be updated.", {
+        title: "Could not update Project context",
+      });
+    } finally {
+      setContextAction(null);
+    }
+  };
+
+  const editKnowledge = async (item?: AiProjectKnowledge) => {
+    const values = await prompts.form({
+      title: item ? "Edit knowledge" : "Add knowledge",
+      icon: "ti ti-bulb",
+      confirmText: item ? "Save knowledge" : "Add knowledge",
+      size: "large",
+      fields: {
+        title: { type: "text", label: "Title", default: item?.title ?? "", required: true, maxLength: 200 },
+        content: {
+          type: "text",
+          label: "Content",
+          default: item?.content ?? "",
+          required: true,
+          multiline: true,
+          markdown: true,
+          lines: 10,
+          description: "Reference material for future turns in this Project.",
+        },
+      },
+    });
+    if (!values) return;
+    await runContextAction(item ? `knowledge:${item.id}` : "knowledge:new", item ? "Knowledge updated" : "Knowledge added", () =>
+      item
+        ? coreClient.ai.projects[":projectId"].knowledge[":knowledgeId"].$patch({
+            param: { projectId: props.project.id, knowledgeId: item.id },
+            json: { title: values.title, content: values.content },
+          })
+        : coreClient.ai.projects[":projectId"].knowledge.$post({
+            param: { projectId: props.project.id },
+            json: { title: values.title, content: values.content },
+          }),
+    );
+  };
+
+  const deleteKnowledge = async (item: AiProjectKnowledge) => {
+    if (!(await prompts.confirm(`Remove “${item.title}” from this Project?`, { title: "Delete knowledge", variant: "danger" }))) return;
+    await runContextAction(`knowledge:${item.id}`, "Knowledge deleted", () =>
+      coreClient.ai.projects[":projectId"].knowledge[":knowledgeId"].$delete({
+        param: { projectId: props.project.id, knowledgeId: item.id },
+      }),
+    );
+  };
+
+  const fileContent = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error ?? new Error("File could not be read."));
+      reader.onload = () => resolve(String(reader.result).split(",", 2)[1] ?? "");
+      reader.readAsDataURL(file);
+    });
+
+  const uploadFiles = async (files: File[]) => {
+    for (const file of files) {
+      await runContextAction(`file:${file.name}`, `${file.name} uploaded`, async () =>
+        coreClient.ai.projects[":projectId"].files.$post({
+          param: { projectId: props.project.id },
+          json: {
+            path: file.name,
+            mediaType: file.type || "application/octet-stream",
+            content: await fileContent(file),
+            encoding: "base64",
+          },
+        }),
+      );
+    }
+  };
+
+  const chooseFiles = (imagesOnly = false) =>
+    prompts.dialog<void>(
+      (close) => (
+        <div class="k2b-dialog__body">
+          <FileDropzone
+            multiple
+            accept={imagesOnly ? "image/*" : undefined}
+            title={imagesOnly ? "Add Project images" : "Add Project files"}
+            subtitle="Drop files here or choose them from this device"
+            onDrop={(files) => {
+              close();
+              void uploadFiles(files);
+            }}
+          />
+        </div>
+      ),
+      { title: imagesOnly ? "Add images" : "Add files", icon: imagesOnly ? "ti ti-photo" : "ti ti-files", size: "medium" },
+    );
+
+  const deleteFile = async (file: NonNullable<AssistantProjectContextSnapshot["files"]>[number]) => {
+    if (!(await prompts.confirm(`Remove “${file.path}” from this Project?`, { title: "Delete file", variant: "danger" }))) return;
+    await runContextAction(`file:${file.id}`, "File deleted", () =>
+      coreClient.ai.projects[":projectId"].files[":fileId"].$delete({ param: { projectId: props.project.id, fileId: file.id } }),
+    );
+  };
+
+  const addReference = async () => {
+    const current = context.data();
+    const selected = await openCloudResourcePicker({
+      title: "Add Cloud reference",
+      excludeRefs: current?.references.map((reference) => reference.ref),
+      requireReader: true,
+    });
+    if (!selected) return;
+    await runContextAction("reference:new", "Cloud reference added", () =>
+      coreClient.ai.projects[":projectId"].references.$post({
+        param: { projectId: props.project.id },
+        json: { ref: selected.ref, label: selected.title },
+      }),
+    );
+  };
+
+  const deleteReference = async (reference: NonNullable<AssistantProjectContextSnapshot["references"]>[number]) => {
+    const label = reference.label || `${reference.ref.type} · ${reference.ref.id}`;
+    if (!(await prompts.confirm(`Remove “${label}” from this Project?`, { title: "Remove Cloud reference", variant: "danger" }))) return;
+    await runContextAction(`reference:${reference.id}`, "Cloud reference removed", () =>
+      coreClient.ai.projects[":projectId"].references[":referenceId"].$delete({
+        param: { projectId: props.project.id, referenceId: reference.id },
+      }),
+    );
+  };
 
   createEffect(() => {
     const value = query().trim();
@@ -54,151 +256,363 @@ export default function AssistantProjectView(props: Props) {
     }
     const timer = setTimeout(async () => {
       history.replaceState(null, "", assistantProjectHref(window.location.href, props.project.id, value));
-      setLoading(true);
-      setError(null);
-      try {
-        setPage(await assistantApi.listConversationsPage({ projectId: props.project.id, q: value || undefined, page: 1, perPage: 20 }));
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "Failed to search Project chats");
-      } finally {
-        setLoading(false);
-      }
+      setRequestQuery(value);
     }, 180);
     onCleanup(() => clearTimeout(timer));
   });
 
   const loadMore = async () => {
-    const current = page();
-    if (loading() || !current.hasNext) return;
-    setLoading(true);
+    if (!chats.loadingMore() && chats.hasMore()) await chats.loadMore();
+  };
+  const openConversation = async (conversationId: string, nav: LinkNavigateEvent) => {
     try {
-      const next = await assistantApi.listConversationsPage({
-        projectId: props.project.id,
-        q: query().trim() || undefined,
-        page: current.page + 1,
-        perPage: current.perPage,
-      });
-      setPage({ ...next, items: [...current.items, ...next.items] });
-    } finally {
-      setLoading(false);
+      if (await props.onOpenConversation(conversationId)) nav.push(undefined, { scroll: "manual" });
+    } catch {
+      nav.fallback();
     }
   };
+
   onMount(() => {
-    if (!loadMoreSentinel || typeof IntersectionObserver === "undefined") return;
+    if (!chatListViewport || !loadMoreSentinel || typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) void loadMore();
       },
-      { rootMargin: "240px" },
+      { root: chatListViewport, rootMargin: "240px" },
     );
     observer.observe(loadMoreSentinel);
     onCleanup(() => observer.disconnect());
   });
 
   return (
-    <div class="grid min-h-0 flex-1 gap-8 overflow-auto p-[var(--ui-space-section)] lg:grid-cols-[minmax(0,1fr)_22rem]">
-      <main class="mx-auto flex w-full max-w-4xl flex-col gap-5">
-        <header class="flex items-center justify-between gap-3">
-          <div class="min-w-0">
-            <p class="text-xs font-medium uppercase tracking-wide text-dimmed">Project</p>
-            <h1 class="truncate text-2xl font-semibold text-primary">{props.project.name}</h1>
-          </div>
-          <Button onClick={() => void props.onNewChat()}>
-            <i class="ti ti-message-plus" aria-hidden="true" />
-            New chat
-          </Button>
-        </header>
-        <section class="flex flex-col gap-3">
-          <h2 class="text-sm font-semibold text-primary">{query().trim() ? "Search results" : "Recent chats"}</h2>
-          <TextInput aria-label="Search Project chats" value={query} onValueChange={setQuery} placeholder="Search Project chats…" />
-          <Show when={error()}>
-            <Placeholder state="error" title="Could not load chats" description={error()!} />
-          </Show>
-          <div class="flex flex-col gap-1" aria-busy={loading()}>
-            <For each={page().items}>
-              {(chat: AiConversation) => (
-                <Link
-                  href={assistantConversationHref("/app/assistant", chat.id)}
-                  class="flex items-center gap-3 rounded-md px-2 py-2.5 hover:bg-[var(--ui-surface-subtle)] focus-visible:outline focus-visible:outline-2"
+    <div class="min-h-0 flex-1 overflow-auto p-[var(--ui-space-section)]">
+      <div class="mx-auto grid min-h-full w-full max-w-[88rem] gap-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+        <main class="flex min-h-[36rem] min-w-0 flex-col">
+          <header class="flex min-w-0 items-start justify-between gap-4">
+            <div class="min-w-0">
+              <p class="text-xs text-dimmed">Project</p>
+              <h1 class="truncate text-xl font-semibold text-primary">{props.project.name}</h1>
+              <Show when={props.project.description}>
+                <p class="mt-1 line-clamp-2 text-sm text-secondary">{props.project.description}</p>
+              </Show>
+            </div>
+            <Show when={props.project.permission !== "read"}>
+              <IconButton
+                size="sm"
+                variant="subtle"
+                label="Project settings"
+                onClick={() => void openAssistantProjectSettingsDialog(props.project, live)}
+              >
+                <i class="ti ti-settings" aria-hidden="true" />
+              </IconButton>
+            </Show>
+          </header>
+
+          <div class="mx-auto mt-auto flex w-full max-w-4xl flex-col gap-3 pt-16">
+            <section class="flex min-h-0 flex-col gap-2" aria-labelledby="project-chats-heading">
+              <header class="flex min-h-8 items-center justify-between gap-3 px-1">
+                <div class="flex min-w-0 items-baseline gap-2">
+                  <h2 id="project-chats-heading" class="text-xs font-medium text-dimmed">
+                    Recent chats
+                  </h2>
+                  <span class="text-xs tabular-nums text-dimmed">{chats.pages()[0]?.total ?? chatItems().length}</span>
+                </div>
+                <IconButton
+                  size="xs"
+                  variant="subtle"
+                  label={searchOpen() ? "Close chat search" : "Search Project chats"}
+                  onClick={() => {
+                    if (searchOpen()) setQuery("");
+                    setSearchOpen((value) => !value);
+                  }}
                 >
-                  <i class={`${chat.icon || "ti ti-message"} text-secondary`} aria-hidden="true" />
-                  <span class="min-w-0 flex-1">
-                    <span class="block truncate font-medium text-primary">{chat.title}</span>
-                    <span class="block truncate text-xs text-dimmed">{chat.description || "Assistant chat"}</span>
-                  </span>
-                  <time class="text-xs text-dimmed">{formatDateTime(chat.updatedAt)}</time>
-                </Link>
-              )}
-            </For>
+                  <i class={`ti ${searchOpen() ? "ti-x" : "ti-search"}`} aria-hidden="true" />
+                </IconButton>
+              </header>
+              <Show when={searchOpen()}>
+                <TextInput
+                  type="search"
+                  aria-label="Search Project chats"
+                  icon="ti ti-search"
+                  value={query}
+                  onValueChange={setQuery}
+                  placeholder="Search chats…"
+                  clearable
+                />
+              </Show>
+              <Show when={chats.error()}>{(error) => <p class="px-2 text-xs text-danger">{error().message}</p>}</Show>
+              <div
+                ref={chatListViewport}
+                class="max-h-40 min-h-0 overflow-auto"
+                aria-busy={chats.loading() || chats.refreshing() || chats.loadingMore()}
+                data-scroll-preserve="assistant-project-chats"
+              >
+                <div class="flex flex-col gap-0.5">
+                  <For each={chatItems()}>
+                    {(chat: AiConversation) => (
+                      <div class="group flex min-w-0 items-center gap-1 rounded-lg transition-colors hover:bg-[var(--ui-surface-subtle)] focus-within:bg-[var(--ui-surface-subtle)]">
+                        <Link
+                          href={assistantConversationHref("/app/assistant", chat.id)}
+                          class="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 focus-visible:outline focus-visible:outline-2"
+                          scroll="manual"
+                          onNavigate={(nav) => openConversation(chat.id, nav)}
+                        >
+                          <i class="ti ti-message-circle shrink-0 text-dimmed" aria-hidden="true" />
+                          <span class="min-w-0 flex-1 truncate text-sm text-primary">{chat.title}</span>
+                          <time class="shrink-0 text-xs text-dimmed">{formatDateTime(chat.updatedAt)}</time>
+                        </Link>
+                        <IconButton
+                          class="mr-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                          size="xs"
+                          variant="subtle"
+                          label={`Edit ${chat.title}`}
+                          onClick={() => void openAssistantConversationEditor(chat)}
+                        >
+                          <i class="ti ti-settings" aria-hidden="true" />
+                        </IconButton>
+                      </div>
+                    )}
+                  </For>
+                </div>
+                <Show when={!chats.error() && chatItems().length === 0}>
+                  <p class="px-2 py-3 text-sm text-dimmed">{query().trim() ? "No matching chats." : "No Project chats yet."}</p>
+                </Show>
+                <div ref={loadMoreSentinel} class="flex min-h-4 items-center justify-center" aria-live="polite">
+                  <Show when={chats.loading() || chats.refreshing() || chats.loadingMore()}>
+                    <span class="text-xs text-dimmed">Loading chats…</span>
+                  </Show>
+                </div>
+              </div>
+            </section>
+
+            <div class="shrink-0">{props.composer}</div>
           </div>
-          <Show when={!error() && page().items.length === 0}>
-            <Placeholder title={query().trim() ? "No matching chats" : "No Project chats yet"} />
-          </Show>
-          <div ref={loadMoreSentinel} class="flex min-h-8 items-center justify-center" aria-live="polite">
-            <Show when={loading()}>
-              <span class="text-xs text-dimmed">Loading more chats…</span>
+        </main>
+
+        <aside
+          class="min-h-0 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-4 lg:sticky lg:top-[var(--ui-space-section)]"
+          aria-label="Project context"
+        >
+          <div class="flex flex-col gap-5">
+            <AssistantContextSection
+              title={props.project.name}
+              action={
+                <Show when={props.project.permission === "admin"}>
+                  <IconButton
+                    size="xs"
+                    label="Edit Project instructions"
+                    onClick={() => void openAssistantProjectSettingsDialog(props.project, live)}
+                  >
+                    <i class="ti ti-pencil" aria-hidden="true" />
+                  </IconButton>
+                </Show>
+              }
+            >
+              <AssistantContextRow
+                title="View project"
+                onClick={() =>
+                  void openAssistantMarkdown(
+                    "Project instructions",
+                    props.project.instructions || "No Project instructions yet.",
+                    "ti ti-adjustments-horizontal",
+                  )
+                }
+              />
+            </AssistantContextSection>
+
+            <Show
+              when={context.data()}
+              fallback={
+                <Placeholder
+                  state={context.error() ? "error" : "loading"}
+                  title={context.error() ? "Could not load Project context" : "Loading Project context"}
+                  action={
+                    context.error() ? (
+                      <Button size="sm" variant="secondary" onClick={() => void context.refresh()}>
+                        Retry
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              }
+            >
+              {(value) => (
+                <>
+                  <AssistantContextSection
+                    title="Project knowledge"
+                    count={value().knowledge.length}
+                    onViewAll={() => void openAssistantKnowledgeSearch(value().knowledge)}
+                    action={
+                      <Show when={props.project.permission !== "read"}>
+                        <IconButton size="xs" label="Add Project knowledge" onClick={() => void editKnowledge()}>
+                          <i class="ti ti-plus" aria-hidden="true" />
+                        </IconButton>
+                      </Show>
+                    }
+                  >
+                    <Show
+                      when={value().knowledge.length > 0}
+                      fallback={<AssistantContextEmpty>No Project knowledge yet.</AssistantContextEmpty>}
+                    >
+                      <AssistantContextRows>
+                        <For each={value().knowledge.slice(0, 3)}>
+                          {(item) => (
+                            <div class="group/row flex min-w-0 items-center gap-1">
+                              <div class="min-w-0 flex-1">
+                                <AssistantContextRow
+                                  icon="ti ti-bulb"
+                                  title={item.title}
+                                  onClick={() => void openAssistantMarkdown(item.title, item.content, "ti ti-bulb")}
+                                />
+                              </div>
+                              <Show when={props.project.permission !== "read"}>
+                                <IconButton
+                                  class="opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100"
+                                  size="xs"
+                                  label={`Edit ${item.title}`}
+                                  onClick={() => void editKnowledge(item)}
+                                >
+                                  <i class="ti ti-pencil" aria-hidden="true" />
+                                </IconButton>
+                                <IconButton
+                                  class="opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100"
+                                  size="xs"
+                                  label={`Delete ${item.title}`}
+                                  onClick={() => void deleteKnowledge(item)}
+                                >
+                                  <i class="ti ti-trash" aria-hidden="true" />
+                                </IconButton>
+                              </Show>
+                            </div>
+                          )}
+                        </For>
+                      </AssistantContextRows>
+                    </Show>
+                  </AssistantContextSection>
+
+                  <AssistantContextSection
+                    title="Images"
+                    count={imageFiles().length}
+                    onViewAll={() => void openImages()}
+                    action={
+                      <Show when={props.project.permission !== "read"}>
+                        <IconButton size="xs" label="Add images" onClick={() => void chooseFiles(true)}>
+                          <i class="ti ti-plus" aria-hidden="true" />
+                        </IconButton>
+                      </Show>
+                    }
+                  >
+                    <Show when={imageFiles()[0]} fallback={<AssistantContextEmpty>No Project images yet.</AssistantContextEmpty>}>
+                      {(file) => (
+                        <AssistantContextRow
+                          icon="ti ti-photo"
+                          title={file().path.replace(/^.*\//u, "")}
+                          onClick={() => void openImages(file())}
+                        />
+                      )}
+                    </Show>
+                  </AssistantContextSection>
+
+                  <AssistantContextSection
+                    title="Files"
+                    count={regularFiles().length}
+                    onViewAll={() => void openAssistantContextFiles(regularFiles())}
+                    action={
+                      <Show when={props.project.permission !== "read"}>
+                        <IconButton size="xs" label="Add files" onClick={() => void chooseFiles()}>
+                          <i class="ti ti-plus" aria-hidden="true" />
+                        </IconButton>
+                      </Show>
+                    }
+                  >
+                    <Show when={regularFiles().length > 0} fallback={<AssistantContextEmpty>No Project files yet.</AssistantContextEmpty>}>
+                      <AssistantContextRows>
+                        <For each={regularFiles().slice(0, 3)}>
+                          {(file) => (
+                            <div class="group/row flex min-w-0 items-center gap-1">
+                              <div class="min-w-0 flex-1">
+                                <AssistantContextRow
+                                  icon="ti ti-file"
+                                  title={file.path.replace(/^.*\//u, "")}
+                                  onClick={() => void openAssistantContextFiles(regularFiles(), file)}
+                                />
+                              </div>
+                              <Show when={props.project.permission !== "read"}>
+                                <IconButton
+                                  class="opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100"
+                                  size="xs"
+                                  label={`Delete ${file.path}`}
+                                  onClick={() => {
+                                    const projectFile = value().files.find((candidate) => candidate.id === file.id);
+                                    if (projectFile) void deleteFile(projectFile);
+                                  }}
+                                >
+                                  <i class="ti ti-trash" aria-hidden="true" />
+                                </IconButton>
+                              </Show>
+                            </div>
+                          )}
+                        </For>
+                      </AssistantContextRows>
+                    </Show>
+                  </AssistantContextSection>
+
+                  <AssistantContextSection
+                    title="References"
+                    count={value().references.length}
+                    action={
+                      <Show when={props.project.permission !== "read"}>
+                        <IconButton size="xs" label="Add reference" onClick={() => void addReference()}>
+                          <i class="ti ti-plus" aria-hidden="true" />
+                        </IconButton>
+                      </Show>
+                    }
+                  >
+                    <Show
+                      when={value().references.length > 0}
+                      fallback={<AssistantContextEmpty>No Project references yet.</AssistantContextEmpty>}
+                    >
+                      <AssistantContextRows>
+                        <For each={value().references.slice(0, 3)}>
+                          {(reference) => {
+                            const label = () => reference.label || `${reference.ref.type} · ${reference.ref.id}`;
+                            return (
+                              <div class="group/row flex min-w-0 items-center gap-1">
+                                <div class="min-w-0 flex-1">
+                                  <AssistantContextRow
+                                    icon="ti ti-link"
+                                    title={label()}
+                                    onClick={() => void openAssistantCloudReference(label(), reference.ref)}
+                                  />
+                                </div>
+                                <Show when={props.project.permission !== "read"}>
+                                  <IconButton
+                                    class="opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100"
+                                    size="xs"
+                                    label={`Remove ${label()}`}
+                                    onClick={() => void deleteReference(reference)}
+                                  >
+                                    <i class="ti ti-x" aria-hidden="true" />
+                                  </IconButton>
+                                </Show>
+                              </div>
+                            );
+                          }}
+                        </For>
+                      </AssistantContextRows>
+                    </Show>
+                  </AssistantContextSection>
+                </>
+              )}
             </Show>
           </div>
-        </section>
-      </main>
-      <aside class="flex flex-col gap-6 rounded-xl bg-[var(--ui-surface-subtle)] p-5">
-        <section>
-          <h2 class="text-sm font-semibold text-primary">Instructions</h2>
-          <p class="mt-2 whitespace-pre-wrap text-sm text-secondary">{props.project.instructions || "No Project instructions."}</p>
-        </section>
-        <Show
-          when={context()}
-          fallback={
-            <Placeholder
-              state={context.error ? "error" : "loading"}
-              title={context.error ? "Could not load Project context" : "Loading Project context"}
-            />
-          }
-        >
-          {(value) => (
-            <>
-              <section>
-                <h2 class="text-sm font-semibold text-primary">
-                  Knowledge <span class="font-normal text-dimmed">{value().knowledge.length}</span>
-                </h2>
-                <ul class="mt-2 flex flex-col gap-1">
-                  <For each={value().knowledge.slice(0, 5)}>{(item) => <li class="truncate text-sm text-secondary">{item.title}</li>}</For>
-                </ul>
-              </section>
-              <section>
-                <h2 class="text-sm font-semibold text-primary">
-                  Files <span class="font-normal text-dimmed">{value().files.length}</span>
-                </h2>
-                <ul class="mt-2 flex flex-col gap-1">
-                  <For each={value().files.slice(0, 5)}>{(item) => <li class="truncate text-sm text-secondary">{item.path}</li>}</For>
-                </ul>
-              </section>
-              <section>
-                <h2 class="text-sm font-semibold text-primary">
-                  Cloud references <span class="font-normal text-dimmed">{value().references.length}</span>
-                </h2>
-                <ul class="mt-2 flex flex-col gap-1">
-                  <For each={value().references.slice(0, 5)}>
-                    {(item) => <li class="truncate text-sm text-secondary">{item.label || `${item.ref.type} · ${item.ref.id}`}</li>}
-                  </For>
-                </ul>
-              </section>
-            </>
-          )}
-        </Show>
-        <Show when={props.project.permission !== "read"}>
-          <Button variant="secondary" onClick={() => void openAssistantProjectSettingsDialog(props.project)}>
-            Project settings
-          </Button>
-        </Show>
-        <section>
-          <h2 class="text-sm font-semibold text-primary">About</h2>
-          <p class="mt-2 text-sm text-secondary">{props.project.description || "No description."}</p>
-        </section>
-        <p class="mt-auto text-xs text-dimmed">
-          {props.project.permission} access · {props.project.id}
-        </p>
-      </aside>
+        </aside>
+      </div>
+      <Show when={lightbox()}>
+        {(state) => (
+          <Lightbox images={state().images.map((entry) => entry.image)} initialIndex={state().index} onClose={() => setLightbox(null)} />
+        )}
+      </Show>
     </div>
   );
 }

@@ -6,18 +6,22 @@ description: Find chats, manage metadata, retry, fork, compact, stop, and handle
 order: 110
 ---
 
-Assistant separates Project chats from general chats in the sidebar. Expand a Project to open its ten most recently active chats, or select the Project itself to search its complete chat history.
+Assistant separates Project chats from general chats in the sidebar. Create a Project from the plus action beside the Projects heading. Projects start expanded with their ten most recently active chats, or select the Project itself to start a chat and search its complete chat history.
 
 ## Chat navigation {icon="layout-list"}
 
 :::reference
-- **Projects:** Expand a Project for its recent private chats. Selecting the Project opens its instructions, context, and server-backed chat search.
-- **General chats:** Chats without a Project remain grouped by recent activity below Projects.
+- **Projects:** The Projects section remains visible even when it is empty. Use its plus action to create a Project with a name and optional instructions.
+- **Project page:** Enter the first message in the standard composer, including files when needed. Assistant creates a private Project chat, sends the message, and then opens the normal chat. Search and scroll through existing Project chats below the composer.
+- **Project context:** The Project page shows Project instructions, knowledge, images, files, and references. People with write access can add or edit this shared context from that page.
+- **General chats:** Up to 15 chats without a Project appear in one **Chats** section below Projects. Use **See all** for the complete history.
 - **Search chats:** Use the sidebar search button or the platform shortcut to search saved chats.
-- **All Chats:** Open All Chats for paginated chat history, server-side search, and edit actions.
-- **Chat context:** Open the floating context button for Sources, files, scheduled tasks, and the readable chat ID. On small screens the same content opens as a dialog.
-- **Sources:** Sources combine attached inputs, consulted web pages, structured Cloud resources, and bounded source activity. Use View all for the complete list.
-- **Edit or archive:** Use the settings action on a chat to change its name, icon, description, pinning, or archive it.
+- **All Chats:** Project badges identify Project chats in the paginated history. All Chats also provides server-side search and edit actions.
+- **Chat context:** On laptop and desktop screens, the compact context stays at the upper right. On smaller screens, use the Context button below the composer to open the same summary in a dialog. A Project chat includes its inherited Project context without Project editing actions.
+- **Live file context:** Uploads and generated files update in place. Images open in the image viewer; files open directly in the file browser. Project and chat files share the list and retain their origin.
+- **Sources and references:** Select a source or reference to review its destination before opening it in a new tab.
+- **View all:** Search complete knowledge, source, and reference lists; browse all files; open all images in the image viewer; or manage the chat's scheduled tasks.
+- **Edit or archive:** Use the settings action on a chat to change its name, description, pinning, or archive it.
 :::
 
 ## Message actions {icon="point"}

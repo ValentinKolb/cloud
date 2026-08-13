@@ -10,6 +10,8 @@ describe("assistantHelp", () => {
     ]);
     expect(assistantHelp.getMarkdown("assistant-overview")).toContain("Assistant is a personal AI workspace");
     expect(assistantHelp.getMarkdown("assistant-workflow")).toContain("Assistant separates Project chats from general chats");
+    expect(assistantHelp.getMarkdown("assistant-workflow")).toContain("the compact context stays at the upper right");
+    expect(assistantHelp.getMarkdown("assistant-workflow")).toContain("A Project chat includes its inherited Project context");
     expect(assistantHelp.getMarkdown("assistant-workflow")).toContain("Always approve");
     expect(assistantHelp.getMarkdown("assistant-guidance")).toContain("Assistant works best when the request states");
   });

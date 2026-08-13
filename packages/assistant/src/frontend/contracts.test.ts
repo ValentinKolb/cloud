@@ -32,18 +32,51 @@ describe("Assistant frontend contracts", () => {
   });
 
   test("keeps Projects and chat context inside the Assistant workspace", async () => {
-    const [workspace, sidebar, project, context] = await Promise.all([
+    const [workspace, sidebar, projectsDialog, project, context, tasks, projectSettings] = await Promise.all([
       read("./AssistantWorkspace.island.tsx"),
       read("./AssistantSidebar.tsx"),
+      read("./AssistantProjectsDialog.tsx"),
       read("./AssistantProjectView.tsx"),
       read("./AssistantChatContext.tsx"),
+      read("./AssistantTasksDialog.tsx"),
+      read("./AssistantProjectSettingsDialog.tsx"),
     ]);
 
     expect(sidebar).toContain("AppWorkspace.NavTree");
+    expect(sidebar).toContain('title="Projects"');
+    expect(sidebar).toContain('label="Create Project"');
+    expect(sidebar).not.toContain("onOpenProjects");
+    expect(sidebar).toContain("No recent chats");
+    expect(projectsDialog).toContain("prompts.form");
+    expect(projectsDialog).not.toContain("divide-y");
+    expect(projectsDialog).not.toContain("rounded-lg border");
+    expect(projectsDialog).not.toContain("listProjects");
     expect(project).toContain("Search Project chats");
     expect(project).toContain("IntersectionObserver");
+    expect(project).toContain("<AssistantContextSection");
+    expect(project).not.toContain("<Paper");
+    expect(project).not.toContain("StatusBadge");
+    expect(project).not.toContain("admin access");
+    expect(project).toContain('props.project.permission !== "read"');
+    expect(workspace).toContain("sendProjectMessage");
+    expect(workspace).toContain("<AssistantComposer projectId=");
+    expect(workspace).toContain("navigateTo(assistantConversationHref");
     expect(workspace).toContain("AssistantChatContextPanel");
-    expect(context).toContain("openAssistantSourcesDialog");
+    expect(workspace).toContain('class="flex min-h-0 flex-1"');
+    expect(workspace).toContain('class="flex min-w-0 flex-1 flex-col"');
+    expect(workspace).toContain('class="flex justify-end lg:hidden"');
+    expect(workspace).not.toContain("<AppWorkspace.Detail");
+    expect(context).toContain("AssistantChatContextContent");
+    expect(context).toContain("openAssistantContextFiles");
+    expect(context).toContain("loadAssistantContextImages");
+    expect(context).toContain("openAssistantKnowledgeSearch");
+    expect(context).not.toContain("AssistantChatDetailPanel");
+    expect(context).not.toContain("IconButton");
+    expect(tasks).toContain("DateTimePicker");
+    expect(tasks).toContain("<Select");
+    expect(tasks).not.toContain("<select");
+    expect(tasks).not.toContain('type="datetime-local"');
+    expect(projectSettings).toContain("<SettingsModal");
   });
 
   test("frames structured memories as personalization", async () => {

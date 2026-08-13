@@ -18,7 +18,7 @@ available when the work continues later.
 
 - Start a chat for a draft, summary, explanation, plan, or question.
 - Attach source files when the answer must use material beyond the message.
-- Return to saved work through recent chats, search, or the full chat list.
+- Return to saved work through the 15 general chats in the sidebar, Project branches, search, or **See all** for the full chat list.
 - Fork a useful point when another direction should not replace the existing
   conversation.
 - Choose a model when the task needs a capability that the default model does
@@ -31,12 +31,22 @@ proposed actions before relying on them.
 
 | Resource or surface | Responsibility |
 | --- | --- |
-| Chat | One user-owned conversation with a name, icon, and optional description |
+| Chat | One user-owned conversation with a name and optional description |
 | Message and turn | A request and the assistant run that answers it |
 | Chat files | Source files and editable artifacts kept with one conversation |
 | Preferences and memory | Reusable personal context applied across conversations when enabled |
 | Remembered approvals | User-managed choices for bounded Actions that may run without asking each time |
 | Project | Shared instructions, knowledge, files, references, and defaults used by private chats |
+
+Project members with write access can manage shared instructions, knowledge,
+files, and Cloud references directly from the Project context panel. Reference
+search can be narrowed to one Cloud application. Project access remains an
+administrator responsibility.
+
+Project chats present that shared context together with chat sources and files,
+but Project editing remains on the Project page. Instructions and knowledge
+open as rendered Markdown, images open in the image viewer, and files open in
+the file browser.
 
 A model profile selects the provider model and available capabilities for a
 turn. Retry reruns a message in the current branch. Fork copies the conversation
