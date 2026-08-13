@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RecordDisplayConfigSchema } from "../contracts";
 import { SHORT_ID_REGEX } from "../service/short-id";
 
 export const CustomAppValueFormatSchema = z
@@ -157,6 +158,22 @@ export const CustomAppRowActionSchema = z
     }
   });
 
+export const CustomAppBulkActionSchema = z
+  .object({
+    id: CustomAppLocalIdSchema,
+    label: z.string().trim().min(1).max(120),
+    icon: z
+      .string()
+      .trim()
+      .min(1)
+      .max(120)
+      .regex(/^[a-z0-9-]+$/, "Use a Tabler icon slug")
+      .optional(),
+    launcherId: z.string().uuid(),
+    confirm: z.string().trim().min(1).max(240).optional(),
+  })
+  .strict();
+
 const CustomAppFormSuccessValueSchema = z.discriminatedUnion("source", [
   CustomAppParamValueSchema,
   z.object({ source: z.literal("RESULT"), path: z.literal("recordId") }).strict(),
@@ -233,21 +250,32 @@ export const CustomAppRecordsBlockSchema = z
       z.object({ kind: z.literal("view"), viewId: z.string().uuid() }).strict(),
       CustomAppGqlSourceSchema,
     ]),
-    display: z
-      .object({
-        kind: z.literal("table"),
-        columnIds: z.array(z.string().uuid()).max(30),
-      })
-      .strict(),
+    display: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("table"), columnIds: z.array(z.string().uuid()).max(30) }).strict(),
+      z.object({ kind: z.literal("cards") }).strict(),
+    ]),
     searchable: z.boolean().default(true),
     pageSize: z.number().int().min(5).max(100).default(25),
     rowNavigate: CustomAppRowNavigationSchema.optional(),
     rowActions: z.array(CustomAppRowActionSchema).max(6).optional(),
+    bulkActions: z.array(CustomAppBulkActionSchema).max(6).optional(),
     ...CustomAppAvailabilityShape,
   })
   .strict()
   .superRefine((block, ctx) => {
-    if (block.source.kind === "view" && block.display.columnIds.length === 0) {
+    if (block.display.kind === "cards" && block.source.kind !== "view") {
+      ctx.addIssue({ code: "custom", message: "Cards display must inherit a saved View", path: ["display"] });
+    }
+    if (block.display.kind === "cards" && !block.rowNavigate) {
+      ctx.addIssue({ code: "custom", message: "Cards display requires row navigation", path: ["rowNavigate"] });
+    }
+    if (block.display.kind === "cards" && (block.rowActions?.length ?? 0) > 0) {
+      ctx.addIssue({ code: "custom", message: "Cards display does not support row actions", path: ["rowActions"] });
+    }
+    if (block.display.kind === "cards" && (block.bulkActions?.length ?? 0) > 0) {
+      ctx.addIssue({ code: "custom", message: "Cards display does not support bulk actions", path: ["bulkActions"] });
+    }
+    if (block.source.kind === "view" && block.display.kind === "table" && block.display.columnIds.length === 0) {
       ctx.addIssue({
         code: "custom",
         message: "Saved-view Records blocks require at least one displayed column",
@@ -258,6 +286,12 @@ export const CustomAppRecordsBlockSchema = z
     for (const [index, action] of (block.rowActions ?? []).entries()) {
       if (actionIds.has(action.id)) {
         ctx.addIssue({ code: "custom", message: `Duplicate row action id "${action.id}"`, path: ["rowActions", index, "id"] });
+      }
+      actionIds.add(action.id);
+    }
+    for (const [index, action] of (block.bulkActions ?? []).entries()) {
+      if (actionIds.has(action.id)) {
+        ctx.addIssue({ code: "custom", message: `Duplicate Records action id "${action.id}"`, path: ["bulkActions", index, "id"] });
       }
       actionIds.add(action.id);
     }
@@ -543,7 +577,12 @@ export const CustomAppDefinitionSchema = z
               ctx.addIssue({ code: "custom", message: `Duplicate block id "${block.id}"`, path: [...blockPath, "id"] });
             }
             blockIds.add(block.id);
-            const fieldIds = block.type === "record" ? block.fieldIds : block.type === "records" ? block.display.columnIds : [];
+            const fieldIds =
+              block.type === "record"
+                ? block.fieldIds
+                : block.type === "records" && block.display.kind === "table"
+                  ? block.display.columnIds
+                  : [];
             const seenFieldIds = new Set<string>();
             for (const [fieldIndex, fieldId] of fieldIds.entries()) {
               if (seenFieldIds.has(fieldId)) {
@@ -780,6 +819,23 @@ export const CustomAppCapabilitiesSchema = z
             sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
             planHash: z.string().regex(/^[a-f0-9]{64}$/),
             tableIds: z.array(z.string().uuid()).min(1).max(24),
+            displayConfig: RecordDisplayConfigSchema.removeDefault().optional(),
+            displayFieldHash: z
+              .string()
+              .regex(/^[a-f0-9]{64}$/)
+              .optional(),
+            relationLabels: z
+              .array(
+                z
+                  .object({
+                    fieldId: z.string().uuid(),
+                    targetTableId: z.string().uuid(),
+                    labelFieldIds: z.array(z.string().uuid()).max(200),
+                  })
+                  .strict(),
+              )
+              .max(30)
+              .optional(),
           })
           .strict(),
       )
@@ -993,6 +1049,7 @@ export type CustomAppAction = CustomAppActionsBlock["actions"][number];
 export type CustomAppValueBinding = z.infer<typeof CustomAppValueBindingSchema>;
 export type CustomAppRowValueBinding = z.infer<typeof CustomAppRowValueBindingSchema>;
 export type CustomAppRowAction = z.infer<typeof CustomAppRowActionSchema>;
+export type CustomAppBulkAction = z.infer<typeof CustomAppBulkActionSchema>;
 export type CustomAppSidebarAction = z.infer<typeof CustomAppSidebarActionSchema>;
 
 export type CustomAppDiagnostic = { path: Array<string | number>; message: string };
@@ -1036,6 +1093,7 @@ export const CUSTOM_APP_REFERENCE = {
     recordsBlocks: 4,
     recordsPageSize: 100,
     rowActionsPerRecordsBlock: 6,
+    bulkActionsPerRecordsBlock: 6,
     insightBlocks: 24,
     metricsPerBlock: 12,
     chartGroupsPerBlock: 100,
@@ -1061,11 +1119,12 @@ export const CUSTOM_APP_REFERENCE = {
     records: {
       required: ["id", "type", "source", "display", "searchable", "pageSize"],
       source: "Saved view or inline GQL with implicit typed request context",
-      display: "Saved views require explicit field UUIDs; GQL displays its selected result columns",
+      display: "Use an explicit App table projection or inherit the existing Cards configuration from a saved View",
       search: "Optional server-side PostgreSQL search over displayed result fields",
       pagination: "Cursor-paged from 5 to 100 rows per request; a GQL limit caps the complete result",
       rowNavigate: "Optionally navigate a row id into a target page record parameter",
       rowActions: "Optionally invoke plural workflow actions with ROW.id and accessible label/icon presentation",
+      bulkActions: "Optionally select the current result page and invoke a matching Bulk workflow launcher",
     },
     metrics: {
       required: ["id", "type", "source"],

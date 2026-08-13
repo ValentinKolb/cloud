@@ -108,7 +108,11 @@ export const canExecuteWorkflow = async (claim: GridsWorkflowExecutionClaim, cli
     : await revalidateWorkflowPrincipal(claim.principal, claim.baseId);
   if (!revalidated.ok || !workflowPermissionAllows(revalidated.permissionCap, "write")) return false;
   if (!claim.launcherId) return false;
-  if (authorization.kind === "custom-app-action" || authorization.kind === "custom-app-sidebar-action") {
+  if (
+    authorization.kind === "custom-app-action" ||
+    authorization.kind === "custom-app-bulk-action" ||
+    authorization.kind === "custom-app-sidebar-action"
+  ) {
     const [app, launcher] = await Promise.all([getCustomApp(authorization.customAppId, client), getLauncher(claim.launcherId, client)]);
     if (
       !app?.publishedDefinition ||
@@ -117,7 +121,7 @@ export const canExecuteWorkflow = async (claim: GridsWorkflowExecutionClaim, cli
       !launcher ||
       launcher.baseId !== claim.baseId ||
       launcher.workflowId !== claim.workflowId ||
-      launcher.config.kind !== "customApp" ||
+      launcher.config.kind !== (authorization.kind === "custom-app-bulk-action" ? "bulk" : "customApp") ||
       !launcher.enabled ||
       launcher.validatedRevision !== authorization.revision ||
       launcher.diagnostics.some((diagnostic) => diagnostic.severity === "error")
@@ -150,12 +154,16 @@ export const canExecuteWorkflow = async (claim: GridsWorkflowExecutionClaim, cli
       .flatMap((row) => row.columns.flatMap((column) => column.blocks))
       .find((candidate) => candidate.id === authorization.blockId && (candidate.type === "actions" || candidate.type === "records"));
     const action =
-      block?.type === "actions"
-        ? block.actions.find((candidate) => candidate.id === authorization.actionId)
-        : block?.type === "records"
-          ? block.rowActions?.find((candidate) => candidate.id === authorization.actionId)
-          : null;
-    if (!action || action.kind !== "workflow" || action.launcherId !== claim.launcherId) return false;
+      authorization.kind === "custom-app-bulk-action"
+        ? block?.type === "records"
+          ? block.bulkActions?.find((candidate) => candidate.id === authorization.actionId)
+          : null
+        : block?.type === "actions"
+          ? block.actions.find((candidate) => candidate.id === authorization.actionId)
+          : block?.type === "records"
+            ? block.rowActions?.find((candidate) => candidate.id === authorization.actionId)
+            : null;
+    if (!action || !("launcherId" in action) || action.launcherId !== claim.launcherId) return false;
     return app.publishedCapabilities.workflowLaunchers.some(
       (capability) =>
         "pageId" in capability &&

@@ -12,6 +12,8 @@ type Fixture = {
   relationFieldId: string;
   sourceNameFieldId: string;
   targetNameFieldId: string;
+  startFieldId: string;
+  dueFieldId: string;
 };
 
 const fixture = (): Fixture => ({
@@ -21,6 +23,8 @@ const fixture = (): Fixture => ({
   relationFieldId: uuid(),
   sourceNameFieldId: uuid(),
   targetNameFieldId: uuid(),
+  startFieldId: uuid(),
+  dueFieldId: uuid(),
 });
 
 const insertFixture = async (item: Fixture) => {
@@ -48,7 +52,9 @@ const insertFixture = async (item: Fixture) => {
         FALSE,
         1
       ),
-      (${item.targetNameFieldId}::uuid, ${shortId("C")}, ${item.targetTableId}::uuid, 'Name', 'text', '{}'::jsonb, TRUE, 0)
+      (${item.targetNameFieldId}::uuid, ${shortId("C")}, ${item.targetTableId}::uuid, 'Name', 'text', '{}'::jsonb, TRUE, 0),
+      (${item.startFieldId}::uuid, ${shortId("A")}, ${item.sourceTableId}::uuid, 'Start', 'date', '{}'::jsonb, FALSE, 2),
+      (${item.dueFieldId}::uuid, ${shortId("D")}, ${item.sourceTableId}::uuid, 'Due', 'date', '{}'::jsonb, FALSE, 3)
   `;
 };
 
@@ -91,6 +97,44 @@ beforeAll(async () => {
 });
 
 describe("form submission integration", () => {
+  postgresTest("enforces cross-field validation before creating a record", async () => {
+    const item = fixture();
+    try {
+      await insertFixture(item);
+      const form = formFor(item);
+      form.config.fields.push({ kind: "user_input", fieldId: item.startFieldId }, { kind: "user_input", fieldId: item.dueFieldId });
+      form.config.validations = [
+        {
+          leftFieldId: item.startFieldId,
+          operator: "lte",
+          rightFieldId: item.dueFieldId,
+          message: "Start must be on or before Due.",
+        },
+      ];
+      const result = await submitForm({
+        form,
+        actorId: null,
+        dateConfig: { timeZone: "UTC" },
+        submission: {
+          data: {
+            [item.sourceNameFieldId]: "ORDER-INVALID",
+            [item.startFieldId]: "2026-08-14",
+            [item.dueFieldId]: "2026-08-13",
+          },
+          inlineCreates: {},
+        },
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.message).toBe("Start must be on or before Due.");
+      const [{ count } = { count: 0 }] = await sql<Array<{ count: number }>>`
+        SELECT count(*)::int AS count FROM grids.records WHERE table_id = ${item.sourceTableId}::uuid
+      `;
+      expect(count).toBe(0);
+    } finally {
+      await cleanup(item);
+    }
+  });
+
   postgresTest("applies trusted request-scoped fixed values and rejects browser overrides", async () => {
     const item = fixture();
     try {

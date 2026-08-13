@@ -151,6 +151,7 @@ describe("Grids App lifecycle", () => {
     const otherFieldId = testUuid();
     const appId = testUuid();
     const workflowId = testUuid();
+    const bulkWorkflowId = testUuid();
     const accessIds: string[] = [];
     try {
       await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${testShortId("B")}, 'Grids Apps')`;
@@ -243,6 +244,33 @@ describe("Grids App lifecycle", () => {
       );
       if (!launcherResult.ok) throw new Error(launcherResult.error.message);
       const launcherId = launcherResult.data.id;
+      await insertTestWorkflow({
+        baseId,
+        id: bulkWorkflowId,
+        enabled: true,
+        plan: {
+          schemaVersion: 2,
+          languageId: "grids",
+          languageVersion: 1,
+          sourceHash: "d".repeat(64),
+          manifestHash: "e".repeat(64),
+          catalogHash: "f".repeat(64),
+          actionPolicies: {},
+          inputs: [{ name: "requests", type: "recordList", config: { required: true } }],
+          triggers: [],
+          steps: [],
+          bindings: { "inputs.requests.table": tableId },
+        },
+      });
+      const bulkWorkflow = await getWorkflow(bulkWorkflowId);
+      if (!bulkWorkflow) throw new Error("Grids App bulk workflow fixture is missing");
+      const bulkLauncherResult = await createLauncher(
+        bulkWorkflow,
+        { name: "Approve selected", config: { kind: "bulk", input: "requests" }, enabled: true },
+        null,
+      );
+      if (!bulkLauncherResult.ok) throw new Error(bulkLauncherResult.error.message);
+      const bulkLauncherId = bulkLauncherResult.data.id;
       const scannerLauncherResult = await createLauncher(
         workflow,
         { name: "Scan request", config: { kind: "scanner", input: "request", resolve: { by: "scanCode" } }, enabled: true },
@@ -344,6 +372,7 @@ describe("Grids App lifecycle", () => {
                             inputs: { request: { source: "ROW", path: "id" } },
                           },
                         ],
+                        bulkActions: [{ id: "approve-selected", label: "Approve selected", launcherId: bulkLauncherId }],
                       },
                       {
                         id: "apply",
@@ -538,6 +567,14 @@ describe("Grids App lifecycle", () => {
         workflowLaunchers: [
           { sidebarActionId: "approve-global", launcherId, workflowId, revision: 1 },
           { pageId: "home", blockId: "requests", actionId: "approve-row", launcherId, workflowId, revision: 1 },
+          {
+            pageId: "home",
+            blockId: "requests",
+            actionId: "approve-selected",
+            launcherId: bulkLauncherId,
+            workflowId: bulkWorkflowId,
+            revision: 1,
+          },
           { pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 },
         ],
         scannerLaunchers: [
@@ -599,6 +636,22 @@ describe("Grids App lifecycle", () => {
         launcherId,
       };
       expect(await canExecuteWorkflow(executionClaim)).toBe(true);
+      expect(
+        await canExecuteWorkflow({
+          baseId,
+          workflowId: bulkWorkflowId,
+          principal: executionClaim.principal,
+          authorization: {
+            kind: "custom-app-bulk-action",
+            customAppId: appId,
+            pageId: "home",
+            blockId: "requests",
+            actionId: "approve-selected",
+            revision: 1,
+          },
+          launcherId: bulkLauncherId,
+        }),
+      ).toBe(true);
       expect(
         await canExecuteWorkflow({
           ...executionClaim,

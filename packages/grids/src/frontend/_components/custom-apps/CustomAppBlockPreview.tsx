@@ -2,7 +2,7 @@ import type { DateContext } from "@k2b/stdlib";
 import { Button, MarkdownView, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import { createEffect, createMemo, createResource, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { DslQueryPreviewResponse } from "../../../contracts";
+import type { DslQueryPreviewResponse, RecordDisplayConfig } from "../../../contracts";
 import type { CustomAppBlock } from "../../../custom-apps/contracts";
 import type { Form } from "../../../service";
 import { chartDataFromPreview, metricCellsFromPreview } from "../../../service/custom-app-insights";
@@ -66,6 +66,14 @@ function SourcePreview(props: {
     const tableIds = new Set((result?.ok ? result.columns : []).flatMap((column) => (column.tableId ? [column.tableId] : [])));
     return [...tableIds].flatMap((tableId) => props.catalog.fieldsByTable[tableId] ?? []);
   };
+  const cardDisplayConfig = (): RecordDisplayConfig | null => {
+    if (props.block.type !== "records" || props.block.display.kind !== "cards" || props.block.source.kind !== "view") return null;
+    const viewId = props.block.source.viewId;
+    const view = Object.values(props.catalog.viewsByTable)
+      .flat()
+      .find((candidate) => candidate.id === viewId);
+    return view?.ui.displayConfig?.mode === "cards" ? view.ui.displayConfig : null;
+  };
   createEffect(() => {
     const result = preview();
     if (result) props.onPreviewResult?.(props.block.id, result);
@@ -93,15 +101,39 @@ function SourcePreview(props: {
             <RecordsTable
               title={props.block.title ?? "Records"}
               emptyText={props.block.emptyText ?? "No records found."}
+              baseId={props.baseId}
+              dateConfig={props.dateConfig}
               shortId={props.shortId}
-              selectedColumnIds={props.block.source.kind === "view" ? props.block.display.columnIds : undefined}
-              result={resolved}
+              selectedColumnIds={
+                props.block.source.kind === "view" && props.block.display.kind === "table" ? props.block.display.columnIds : undefined
+              }
+              result={
+                cardDisplayConfig()
+                  ? {
+                      ...resolved,
+                      cards: {
+                        displayConfig: cardDisplayConfig()!,
+                        fields: sourceFields(),
+                        relationLabels: {},
+                        filePreviews: {},
+                      },
+                    }
+                  : resolved
+              }
+              rowNavigate={props.block.rowNavigate}
               rowActions={(props.block.rowActions ?? []).map((action) => ({
                 id: action.id,
                 label: action.label,
                 icon: action.icon,
                 showLabel: action.showLabel,
                 endpoint: "",
+              }))}
+              bulkActions={(props.block.bulkActions ?? []).map((action) => ({
+                id: action.id,
+                label: action.label,
+                icon: action.icon,
+                endpoint: "",
+                confirm: action.confirm,
               }))}
               preview
             />

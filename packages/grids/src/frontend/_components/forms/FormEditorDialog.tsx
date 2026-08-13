@@ -14,10 +14,12 @@ import {
 } from "@k2b/ui";
 import { createSignal, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import type { FormValidationRule } from "../../../contracts";
 import type { Field, Form } from "../../../service";
 import type { FormFieldEntry } from "../../../service/forms";
 import { errorMessage } from "../utils/api-helpers";
 import { FormFieldsEditor } from "./FormFieldsEditor";
+import { FormValidationsEditor } from "./FormValidationsEditor";
 
 type OpenFormEditorDialogArgs = {
   form: Form;
@@ -87,6 +89,9 @@ function FormEditor(props: {
   const [redirectUrl, setRedirectUrl] = createSignal(props.form.config.redirectUrl ?? "");
   const [titleImage, setTitleImage] = createSignal<string | null>(props.form.config.titleImage ?? null);
   const [entries, setEntries] = createSignal<FormFieldEntry[]>(props.form.config.fields.map((entry) => ({ ...entry })));
+  const [validations, setValidations] = createSignal<FormValidationRule[]>(
+    props.form.config.validations?.map((rule) => ({ ...rule })) ?? [],
+  );
   const [dirty, setDirty] = createSignal(false);
 
   const markDirty = () => {
@@ -118,6 +123,7 @@ function FormEditor(props: {
             redirectUrl: redirectUrl().trim() || null,
             titleImage: titleImage() ?? undefined,
             fields: entries(),
+            validations: validations().length > 0 ? validations() : undefined,
           },
         },
       });
@@ -126,6 +132,7 @@ function FormEditor(props: {
     },
     onSuccess: (next, request) => {
       setEntries(next.config.fields.map((entry) => ({ ...entry })));
+      setValidations(next.config.validations?.map((rule) => ({ ...rule })) ?? []);
       setDirty(false);
       props.onDirtyChange?.(false);
       if (request?.closeMainDialog) props.onSaved(next);
@@ -254,6 +261,22 @@ function FormEditor(props: {
             entries={entries}
             setEntries={(next) => {
               setEntries(next);
+              markDirty();
+            }}
+          />
+        </FormEditorSection>
+
+        <FormEditorSection
+          title="Cross-field validation"
+          subtitle="Compare compatible visible inputs before a record is created. The server enforces the same rules."
+          icon="ti ti-arrows-left-right"
+        >
+          <FormValidationsEditor
+            fields={props.tableFields}
+            entries={entries()}
+            rules={validations()}
+            onChange={(next) => {
+              setValidations(next);
               markDirty();
             }}
           />

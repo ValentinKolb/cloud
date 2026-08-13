@@ -1,6 +1,6 @@
-import { Placeholder, Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
-import { For, Show } from "solid-js";
+import { Button, Placeholder } from "@k2b/ui";
+import { For, type JSX, Show } from "solid-js";
 import type { RecordDisplayConfig } from "../../../contracts";
 import type { Field, GridFilePreview, GridRecord } from "../../../service";
 import { recordDisplayTitle } from "../records/record-display";
@@ -15,8 +15,13 @@ const cardPaddingClass: Record<CardSize, string> = {
   large: "p-3",
 };
 
-const plainCardValue = (record: GridRecord, field: Field, fieldsByTable?: Record<string, Field[]>, dateConfig?: DateContext): string =>
-  formatFieldValueText({ field, value: record.data[field.id], record, fieldsByTable, dateConfig });
+const plainCardValue = (
+  record: GridRecord,
+  field: Field,
+  fieldsByTable?: Record<string, Field[]>,
+  dateConfig?: DateContext,
+  relationLabels?: Record<string, string>,
+): string => formatFieldValueText({ field, value: record.data[field.id], record, fieldsByTable, dateConfig, relationLabels });
 
 const subtitleCandidate = (field: Field): boolean => ["text", "id", "relation", "select"].includes(field.type);
 
@@ -31,6 +36,7 @@ export function RecordCardsView(props: {
   tableId: string;
   tableShortIds?: Record<string, string>;
   fieldsByTable?: Record<string, Field[]>;
+  relationLabels?: Record<string, string>;
   selectedId?: string | null;
   highlightedIds?: ReadonlySet<string>;
   onRecordClick: (record: GridRecord) => void;
@@ -39,16 +45,24 @@ export function RecordCardsView(props: {
   loadingMore?: boolean;
   onLoadMore?: () => void;
   dateConfig?: DateContext;
+  emptyText?: JSX.Element | string;
+  formatValueText?: (record: GridRecord, field: Field) => string;
+  renderValue?: (record: GridRecord, field: Field) => JSX.Element;
+  coverUrl?: (preview: GridFilePreview) => string;
+  titleForRecord?: (record: GridRecord, fields: Field[]) => string;
 }) {
   const size = () => props.cardSize ?? "medium";
   const cardFields = () => visibleCardFields(props.fields, props.displayConfig);
   const title = (record: GridRecord) =>
+    props.titleForRecord?.(record, cardFields()) ??
     recordDisplayTitle({ fields: props.fields, record, fieldsByTable: props.fieldsByTable, dateConfig: props.dateConfig });
+  const valueText = (record: GridRecord, field: Field) =>
+    props.formatValueText?.(record, field) ?? plainCardValue(record, field, props.fieldsByTable, props.dateConfig, props.relationLabels);
   const displayFields = (record: GridRecord) => {
     const titleKey = title(record).trim().toLowerCase();
     return cardFields().filter((field) => {
       if (field.type === "file") return false;
-      const value = plainCardValue(record, field, props.fieldsByTable, props.dateConfig).trim().toLowerCase();
+      const value = valueText(record, field).trim().toLowerCase();
       return value && value !== titleKey;
     });
   };
@@ -59,7 +73,7 @@ export function RecordCardsView(props: {
   };
   const subtitle = (record: GridRecord) =>
     subtitleFields(record)
-      .map((field) => plainCardValue(record, field, props.fieldsByTable, props.dateConfig))
+      .map((field) => valueText(record, field))
       .filter(Boolean)
       .join(" · ");
   const coverPreview = (record: GridRecord): GridFilePreview | undefined => {
@@ -67,13 +81,14 @@ export function RecordCardsView(props: {
     return fieldId ? props.filePreviews?.[record.id]?.[fieldId] : undefined;
   };
   const coverUrl = (preview: GridFilePreview) =>
+    props.coverUrl?.(preview) ??
     `/api/grids/records/${props.tableId}/${preview.recordId}/files/${preview.fieldId}/${preview.fileId}/content?inline=true`;
 
   return (
     <div class="flex min-h-0 flex-1 flex-col overflow-auto" data-scroll-preserve={`grids-cards-${props.tableId}`}>
       <Show
         when={props.items.length > 0}
-        fallback={<Placeholder icon="ti ti-table" class="min-h-48 justify-center" description={<>No records</>} />}
+        fallback={<Placeholder icon="ti ti-table" class="min-h-48 justify-center" description={props.emptyText ?? <>No records</>} />}
       >
         <div class="grids-record-card-grid grid p-0.5" data-card-size={size()}>
           <For each={props.items}>
@@ -119,18 +134,21 @@ export function RecordCardsView(props: {
                                   hasVisualFormat(field) ? "" : "line-clamp-2"
                                 }`}
                               >
-                                <FieldValue
-                                  record={record}
-                                  field={field}
-                                  value={record.data[field.id]}
-                                  baseId={props.baseId}
-                                  tableShortIds={props.tableShortIds}
-                                  fieldsByTable={props.fieldsByTable}
-                                  dateConfig={props.dateConfig}
-                                  mode="card"
-                                  markdownClass="line-clamp-3 text-sm"
-                                  showBarcodeOpenAction
-                                />
+                                {props.renderValue?.(record, field) ?? (
+                                  <FieldValue
+                                    record={record}
+                                    field={field}
+                                    value={record.data[field.id]}
+                                    baseId={props.baseId}
+                                    tableShortIds={props.tableShortIds}
+                                    fieldsByTable={props.fieldsByTable}
+                                    relationLabels={props.relationLabels}
+                                    dateConfig={props.dateConfig}
+                                    mode="card"
+                                    markdownClass="line-clamp-3 text-sm"
+                                    showBarcodeOpenAction
+                                  />
+                                )}
                               </div>
                             </div>
                           )}

@@ -178,6 +178,11 @@ All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `
       launcherId: 10000000-0000-4000-8000-000000000701
       inputs:
         request_id: { source: ROW, path: id }
+  bulkActions:
+    - id: approve-selected
+      label: Approve selected
+      icon: checklist
+      launcherId: 10000000-0000-4000-8000-000000000702
 
 # Bounded inline query
 - id: totals
@@ -257,7 +262,7 @@ cld grids gql autocomplete MyBase \
   --json
 ```
 
-Use a standalone Actions block for page-level navigation and workflows. Use `rowActions` for up to six workflows that act on one Records result row. Every row action has a required accessible label, may hide that label only when it has an icon, and may bind `ROW.id` to a compatible record input. Form validation and submission behavior remain owned by the referenced Form.
+Use a standalone Actions block for page-level navigation and workflows. Use `rowActions` for up to six workflows that act on one Records result row. Every row action has a required accessible label, may hide that label only when it has an icon, and may bind `ROW.id` to a compatible record input. Table Records blocks may also define up to six `bulkActions` that reference ready Bulk run options for the source table. Bulk selection is limited to the current published result page and is rechecked server-side. Form validation and submission behavior remain owned by the referenced Form.
 
 Pages, blocks, Forms, and actions may declare one server-enforced availability query:
 

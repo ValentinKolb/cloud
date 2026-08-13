@@ -1,7 +1,7 @@
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import type { Field } from "../contracts";
+import { type Field, ViewUiSettingsSchema } from "../contracts";
 import { customAppPageRecordFieldIds } from "../custom-apps/conditions";
 import { customAppGlobalContextKeys } from "../custom-apps/context-keys";
 import {
@@ -20,6 +20,7 @@ import {
   customAppFormSecurityHash,
 } from "../custom-apps/form-capability";
 import { customAppViewSourceHash } from "../custom-apps/insight-source";
+import { customAppRecordsDisplayFieldHash } from "../custom-apps/records-display-capability";
 import { customAppScannerConfigHash } from "../custom-apps/scanner-capability";
 import { customAppBindingRecordTableId } from "../custom-apps/value-bindings";
 import { getRecordWritableFieldType, isRecordWritableFieldType } from "../field-types";
@@ -30,7 +31,7 @@ import { scannerLauncherInputSources } from "../workflows/contracts";
 import { logAudit, type SqlClient } from "./audit";
 import { compileCustomAppQuery } from "./custom-app-query";
 import { customAppRecordRelationSnapshot } from "./custom-app-record-relations";
-import { listByTable as listFields } from "./fields";
+import { listByTable as listFields, listByTables as listFieldsByTables } from "./fields";
 import { normalizeFormConfig } from "./forms";
 import { parseJsonbRow } from "./jsonb";
 import { insertWithShortId } from "./short-id";
@@ -473,16 +474,22 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   for (const { page, block } of recordsBlocks) {
     const source =
       block.source.kind === "view"
-        ? await client<Array<{ view_id: string; table_id: string; base_id: string; source: string }>>`
-            SELECT v.id AS view_id, v.table_id, t.base_id, v.source
+        ? await client<Array<{ view_id: string; table_id: string; base_id: string; source: string; ui: unknown }>>`
+            SELECT v.id AS view_id, v.table_id, t.base_id, v.source, v.ui
             FROM grids.views v
             JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
             WHERE v.id = ${block.source.viewId}::uuid AND v.deleted_at IS NULL
-          `.then(([view]) =>
-            !view || view.base_id !== definition.baseId
-              ? null
-              : { kind: "view" as const, query: view.source, currentTableId: view.table_id, viewId: view.view_id },
-          )
+          `.then(([view]) => {
+            if (!view || view.base_id !== definition.baseId) return null;
+            const ui = ViewUiSettingsSchema.safeParse(parseJsonbRow(view.ui, {}));
+            return {
+              kind: "view" as const,
+              query: view.source,
+              currentTableId: view.table_id,
+              viewId: view.view_id,
+              ui: ui.success ? ui.data : {},
+            };
+          })
         : { kind: "gql" as const, query: block.source.query };
     if (!source) {
       diagnostics.push({ path: ["blocks", block.id, "source", "viewId"], message: "View is missing or belongs to another base" });
@@ -529,19 +536,69 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     }
     if (source.kind === "view") {
       const found = new Set(tableIds.flatMap((tableId) => (compiled.data.fieldsByTableId[tableId] ?? []).map((field) => field.id)));
-      for (const fieldId of block.display.columnIds) {
+      for (const fieldId of block.display.kind === "table" ? block.display.columnIds : []) {
         if (!found.has(fieldId))
           diagnostics.push({
             path: ["blocks", block.id, "display", "columnIds"],
             message: `Field ${fieldId} is missing or belongs to another table`,
           });
       }
+      const primaryFields = compiled.data.fieldsByTableId[source.currentTableId] ?? [];
+      const viewDisplayConfig = block.display.kind === "cards" ? source.ui.displayConfig : undefined;
+      if (block.display.kind === "cards" && viewDisplayConfig?.mode !== "cards") {
+        diagnostics.push({
+          path: ["pages", page.id, "blocks", block.id, "display"],
+          message: "Cards display requires a saved View whose display is Cards",
+        });
+      }
+      const configuredCardFieldIds = viewDisplayConfig?.cards?.fieldIds ?? [];
+      const resolvedCardFieldIds =
+        configuredCardFieldIds.length > 0
+          ? configuredCardFieldIds
+          : primaryFields
+              .filter((field) => !field.deletedAt && !field.hideInTable && field.type !== "file")
+              .sort((left, right) => left.position - right.position)
+              .slice(0, 4)
+              .map((field) => field.id);
+      const displayConfig = viewDisplayConfig
+        ? { ...viewDisplayConfig, cards: { ...viewDisplayConfig.cards, fieldIds: resolvedCardFieldIds } }
+        : undefined;
+      const displayFieldIds = [
+        ...(displayConfig?.cards?.fieldIds ?? []),
+        ...(displayConfig?.cards?.imageFieldId ? [displayConfig.cards.imageFieldId] : []),
+      ];
+      const primaryFieldsById = new Map(primaryFields.map((field) => [field.id, field]));
+      for (const fieldId of displayFieldIds) {
+        const field = primaryFieldsById.get(fieldId);
+        if (!field || field.deletedAt) {
+          diagnostics.push({ path: ["pages", page.id, "blocks", block.id, "display"], message: `Card field ${fieldId} is unavailable` });
+        }
+      }
+      if (displayConfig?.cards?.imageFieldId && primaryFieldsById.get(displayConfig.cards.imageFieldId)?.type !== "file") {
+        diagnostics.push({ path: ["pages", page.id, "blocks", block.id, "display"], message: "Card cover must use a file field" });
+      }
+      const cardFields = displayFieldIds.flatMap((fieldId) => {
+        const field = primaryFieldsById.get(fieldId);
+        return field ? [field] : [];
+      });
+      const relationTargetTableIds = [
+        ...new Set(
+          cardFields.flatMap((field) => {
+            const targetTableId = field.type === "relation" ? (field.config as { targetTableId?: unknown }).targetTableId : null;
+            return typeof targetTableId === "string" ? [targetTableId] : [];
+          }),
+        ),
+      ];
+      const relationLabels = customAppRecordRelationSnapshot(cardFields, await listFieldsByTables(relationTargetTableIds));
       views.push({
         viewId: source.viewId,
         tableId: primaryTableId,
         sourceHash: customAppViewSourceHash(source.currentTableId, source.query),
         planHash: compiled.data.planHash,
         tableIds,
+        ...(displayConfig
+          ? { displayConfig, displayFieldHash: customAppRecordsDisplayFieldHash(displayConfig, primaryFields), relationLabels }
+          : {}),
       });
     } else recordQueries.push({ pageId: page.id, blockId: block.id, primaryTableId, planHash: compiled.data.planHash, tableIds });
   }
@@ -962,6 +1019,53 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       revision: workflow.revision,
     });
   }
+  for (const { page, block } of recordsBlocks) {
+    const tableId = recordsPrimaryTableIds.get(`${page.id}\0${block.id}`);
+    for (const action of block.bulkActions ?? []) {
+      const actionPath = ["pages", page.id, "blocks", block.id, "bulkActions", action.id] as Array<string | number>;
+      const launcher = await getLauncher(action.launcherId, client);
+      if (
+        !tableId ||
+        !launcher ||
+        launcher.baseId !== definition.baseId ||
+        launcher.deletedAt !== null ||
+        !launcher.enabled ||
+        launcher.diagnostics.some((item) => item.severity === "error") ||
+        launcher.config.kind !== "bulk"
+      ) {
+        diagnostics.push({
+          path: [...actionPath, "launcherId"],
+          message: "Bulk launcher is missing, disabled, invalid, unsupported, or belongs to another base",
+        });
+        continue;
+      }
+      const workflow = await getWorkflow(launcher.workflowId, false, client);
+      const inputTableId = workflow?.plan.bindings[`inputs.${launcher.config.input}.table`];
+      if (
+        !workflow ||
+        workflow.baseId !== definition.baseId ||
+        workflow.deletedAt !== null ||
+        !workflow.enabled ||
+        workflow.revision !== launcher.validatedRevision ||
+        workflow.diagnostics.some((item) => item.severity === "error") ||
+        inputTableId !== tableId
+      ) {
+        diagnostics.push({
+          path: [...actionPath, "launcherId"],
+          message: "Bulk launcher does not reference a ready record-list workflow for this Records source",
+        });
+        continue;
+      }
+      workflowLaunchers.push({
+        pageId: page.id,
+        blockId: block.id,
+        actionId: action.id,
+        launcherId: launcher.id,
+        workflowId: workflow.id,
+        revision: workflow.revision,
+      });
+    }
+  }
   for (const { page, block } of scannerBlocks) {
     const launcher = await getLauncher(block.launcherId, client);
     if (
@@ -1016,6 +1120,22 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   }
   if (diagnostics.length > 0) return { ok: false, diagnostics };
 
+  const viewsById = new Map<string, CustomAppCapabilities["views"][number]>();
+  for (const view of views) {
+    const existing = viewsById.get(view.viewId);
+    viewsById.set(
+      view.viewId,
+      view.displayConfig || !existing || !existing.displayConfig
+        ? view
+        : {
+            ...view,
+            displayConfig: existing.displayConfig,
+            displayFieldHash: existing.displayFieldHash,
+            relationLabels: existing.relationLabels,
+          },
+    );
+  }
+
   const capabilities = CustomAppCapabilitiesSchema.parse({
     availability: availability.sort(
       (left, right) =>
@@ -1023,7 +1143,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
         ("blockId" in left ? left.blockId : "").localeCompare("blockId" in right ? right.blockId : "") ||
         ("actionId" in left ? left.actionId : "").localeCompare("actionId" in right ? right.actionId : ""),
     ),
-    views: [...new Map(views.map((view) => [view.viewId, view])).values()].sort((left, right) => left.viewId.localeCompare(right.viewId)),
+    views: [...viewsById.values()].sort((left, right) => left.viewId.localeCompare(right.viewId)),
     insights: insights.sort((left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId)),
     recordQueries: recordQueries.sort(
       (left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId),

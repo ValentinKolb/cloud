@@ -236,4 +236,23 @@ describe("Grids App Form runtime capability", () => {
       ),
     );
   });
+
+  test("pins cross-field validation in the published Form security hash", () => {
+    const left = { ...fields[0]!, id: uuid(30), type: "number" };
+    const right = { ...fields[0]!, id: uuid(31), type: "number" };
+    const config = {
+      fields: [
+        { kind: "user_input" as const, fieldId: left.id },
+        { kind: "user_input" as const, fieldId: right.id },
+      ],
+      validations: [{ leftFieldId: left.id, operator: "lte" as const, rightFieldId: right.id, message: "Left must not exceed Right." }],
+    };
+    expect(customAppFormSecurityHash({ tableId, config, fields: [left, right] })).not.toBe(
+      customAppFormSecurityHash({
+        tableId,
+        config: { ...config, validations: [{ ...config.validations[0]!, operator: "gte" }] },
+        fields: [left, right],
+      }),
+    );
+  });
 });

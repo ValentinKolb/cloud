@@ -1,7 +1,8 @@
-import { NoticeCard, CopyButton, dialogCore, PanelDialog, panelDialogOptions, Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
-import { createSignal, For, Show } from "solid-js";
+import { Button, CopyButton, dialogCore, NoticeCard, PanelDialog, panelDialogOptions } from "@k2b/ui";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import { evaluateFormValidations } from "../../../form-validations";
 import type { Field, Form } from "../../../service";
 import { buildFormSubmitPayload, buildInitialValues, FieldInput, type InlineCreateState, userInputEntriesOf } from "../forms/form-fields";
 import { errorMessage } from "../utils/api-helpers";
@@ -48,6 +49,10 @@ function FormSubmitBody(props: {
   const [submitting, setSubmitting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [done, setDone] = createSignal(false);
+  const validationFailures = createMemo(() => evaluateFormValidations(props.form.config.validations, values(), fieldsById));
+  const validationErrors = createMemo(() =>
+    Object.fromEntries(validationFailures().map((failure) => [failure.errorFieldId, failure.message])),
+  );
 
   const setValue = (fieldId: string, v: unknown) => setValues((current) => ({ ...current, [fieldId]: v }));
   const setInlineDrafts = (fieldId: string, drafts: InlineCreateState[string]) =>
@@ -56,6 +61,11 @@ function FormSubmitBody(props: {
   const handleSubmit = async (event: Event) => {
     event.preventDefault();
     setError(null);
+    const invalid = validationFailures()[0];
+    if (invalid) {
+      setError(invalid.message);
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = buildFormSubmitPayload(
@@ -114,6 +124,7 @@ function FormSubmitBody(props: {
                 entry={entry}
                 value={values()[entry.fieldId]}
                 onChange={(v) => setValue(entry.fieldId, v)}
+                error={() => validationErrors()[entry.fieldId]}
                 inlineCreates={inlineCreates}
                 onInlineCreatesChange={setInlineDrafts}
                 dateConfig={props.dateConfig}

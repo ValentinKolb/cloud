@@ -100,7 +100,7 @@ export const customAppFormSecurityHash = (input: {
           }
         : { tableId: reference.tableId, id: reference.fieldId, missing: true };
     });
-  const securityConfig = input.config.fields
+  const fieldsConfig = input.config.fields
     .map((entry) =>
       entry.kind === "form_value"
         ? { kind: entry.kind, fieldId: entry.fieldId, value: stableValue(entry.value) }
@@ -124,8 +124,13 @@ export const customAppFormSecurityHash = (input: {
           },
     )
     .sort((left, right) => (left.fieldId < right.fieldId ? -1 : left.fieldId > right.fieldId ? 1 : 0));
+  const validations = [...(input.config.validations ?? [])].sort((left, right) => {
+    const leftKey = `${left.leftFieldId}\0${left.operator}\0${left.rightFieldId}\0${left.errorFieldId ?? ""}\0${left.message}`;
+    const rightKey = `${right.leftFieldId}\0${right.operator}\0${right.rightFieldId}\0${right.errorFieldId ?? ""}\0${right.message}`;
+    return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+  });
   return createHash("sha256")
     .update("grids.custom-app.form-security.v1\0")
-    .update(JSON.stringify({ config: securityConfig, fields: fieldSnapshots }))
+    .update(JSON.stringify({ config: { fields: fieldsConfig, validations }, fields: fieldSnapshots }))
     .digest("hex");
 };

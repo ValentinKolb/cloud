@@ -52,11 +52,42 @@ describe("Grids App definition contract", () => {
     const records = gql.pages[0]!.rows[0]!.columns[1]!.blocks[0]!;
     if (records.type !== "records") throw new Error("Expected Records block");
     records.source = { kind: "gql", query: "from table Requests\nselect Name, Status" };
+    if (records.display.kind !== "table") throw new Error("Expected table display");
     records.display.columnIds = [];
     expect(CustomAppDefinitionSchema.safeParse(gql).success).toBe(true);
 
     records.source = { kind: "view", viewId: uuid(3) };
     expect(CustomAppDefinitionSchema.safeParse(gql).success).toBe(false);
+  });
+
+  test("reuses Cards only from a saved View with row navigation", () => {
+    const source = CustomAppDefinitionSchema.parse(definition());
+    source.pages.push({
+      id: "request",
+      title: "Request",
+      navigation: { visible: false, order: 1 },
+      parameters: { request_id: { type: "record", tableId: uuid(9), required: true } },
+      record: { tableId: uuid(9), id: { source: "PARAMS", path: "request_id" } },
+      rows: [
+        {
+          id: "detail",
+          columns: [{ id: "main", span: 12, blocks: [{ id: "record", type: "record", fieldIds: [uuid(4)], editableFieldIds: [] }] }],
+        },
+      ],
+    });
+    const records = source.pages[0]!.rows[0]!.columns[1]!.blocks[0]!;
+    if (records.type !== "records") throw new Error("Expected Records block");
+    records.display = { kind: "cards" };
+    records.rowNavigate = {
+      kind: "navigate",
+      pageId: "request",
+      history: "push",
+      params: { request_id: { source: "ROW", path: "id" } },
+    };
+    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
+
+    records.source = { kind: "gql", query: "from table Requests" };
+    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(false);
   });
 
   test("keeps the live Help YAML aligned with the public schema", async () => {
@@ -76,7 +107,7 @@ describe("Grids App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse({ ...definition(), script: "alert(1)" }).success).toBe(false);
   });
 
-  test("accepts page-independent sidebar Forms and Workflows with literal-only inputs", () => {
+  test("accepts page-independent sidebar Forms with literals or current user and literal-only Workflows", () => {
     const app = {
       ...definition(),
       sidebar: {
@@ -88,7 +119,10 @@ describe("Grids App definition contract", () => {
             icon: "plus",
             tone: "success",
             formId: uuid(20),
-            fixedValues: { [uuid(21)]: { source: "LITERAL", value: "draft" } },
+            fixedValues: {
+              [uuid(21)]: { source: "LITERAL", value: "draft" },
+              [uuid(24)]: { source: "AUTH", path: "currentUser" },
+            },
           },
           {
             id: "refresh",
@@ -450,6 +484,18 @@ describe("Grids App definition contract", () => {
     if (invalidRecords.type !== "records") throw new Error("Expected Records block");
     delete invalidRecords.rowActions?.[0]!.icon;
     expect(CustomAppDefinitionSchema.safeParse(noAccessibleIcon).success).toBe(false);
+  });
+
+  test("supports bounded bulk workflows only on Records tables", () => {
+    const source = CustomAppDefinitionSchema.parse(definition());
+    const records = source.pages[0]!.rows[0]!.columns[1]!.blocks[0]!;
+    if (records.type !== "records") throw new Error("Expected Records block");
+    records.bulkActions = [{ id: "approve", label: "Approve selected", launcherId: uuid(92) }];
+    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
+
+    records.display = { kind: "cards" };
+    records.rowNavigate = { kind: "navigate", pageId: "home", history: "push", params: {} };
+    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(false);
   });
 
   test("accepts bounded Metrics and Chart sources", () => {

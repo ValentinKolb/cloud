@@ -1,6 +1,7 @@
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { FormConfigSchema } from "../contracts";
 import { isRecordWritableFieldType } from "../field-types";
+import { formValidationFieldsCompatible } from "../form-validations";
 import { listByTable as listFields, validateDefaultValue } from "./fields";
 import type { FormConfig, FormFieldEntry } from "./forms";
 import type { Field } from "./types";
@@ -88,6 +89,22 @@ export const validateFormConfig = async (tableId: string, config: unknown): Prom
     const inlineCreate = await normalizeInlineCreate(field, configuredValue.data);
     if (!inlineCreate.ok) return inlineCreate;
     normalizedFields.push(inlineCreate.data);
+  }
+
+  const userInputIds = new Set(normalizedFields.filter((entry) => entry.kind === "user_input").map((entry) => entry.fieldId));
+  for (const rule of parsed.data.validations ?? []) {
+    const left = byId.get(rule.leftFieldId);
+    const right = byId.get(rule.rightFieldId);
+    if (!left || !right || !userInputIds.has(left.id) || !userInputIds.has(right.id)) {
+      return fail(err.badInput("form validation rules may reference only visible user input fields"));
+    }
+    if (left.id === right.id) return fail(err.badInput("form validation rules must compare two different fields"));
+    if (!formValidationFieldsCompatible(left, right)) {
+      return fail(err.badInput(`form validation fields "${left.name}" and "${right.name}" are not compatible`));
+    }
+    if (rule.errorFieldId && rule.errorFieldId !== left.id && rule.errorFieldId !== right.id) {
+      return fail(err.badInput("form validation errors must be assigned to one of the compared fields"));
+    }
   }
 
   return ok({ ...(parsed.data as FormConfig), fields: normalizedFields });

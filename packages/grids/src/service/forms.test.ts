@@ -34,6 +34,30 @@ const form = (): Form => ({
 });
 
 describe("form render DTOs", () => {
+  test("raw config normalization preserves valid cross-field rules and ignores malformed ones", () => {
+    expect(
+      normalizeFormConfig({
+        fields: [],
+        validations: [
+          {
+            leftFieldId: "00000000-0000-4000-8000-000000000003",
+            operator: "lte",
+            rightFieldId: "00000000-0000-4000-8000-000000000006",
+            message: "Start must precede Due.",
+          },
+          { operator: "javascript" },
+        ],
+      }).validations,
+    ).toEqual([
+      {
+        leftFieldId: "00000000-0000-4000-8000-000000000003",
+        operator: "lte",
+        rightFieldId: "00000000-0000-4000-8000-000000000006",
+        message: "Start must precede Due.",
+      },
+    ]);
+  });
+
   test("raw config normalization preserves inline relation create settings", () => {
     expect(
       normalizeFormConfig({

@@ -1435,10 +1435,22 @@ const FormValueFieldEntrySchema = z.object({
 
 const FormFieldEntrySchema = z.discriminatedUnion("kind", [UserInputFormFieldEntrySchema, FormValueFieldEntrySchema]);
 
+export const FormValidationRuleSchema = z
+  .object({
+    leftFieldId: z.string().uuid(),
+    operator: z.enum(["eq", "neq", "lt", "lte", "gt", "gte"]),
+    rightFieldId: z.string().uuid(),
+    message: z.string().trim().min(1).max(240),
+    errorFieldId: z.string().uuid().optional(),
+  })
+  .strict();
+export type FormValidationRule = z.infer<typeof FormValidationRuleSchema>;
+
 export const FormConfigSchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
   fields: z.array(FormFieldEntrySchema),
+  validations: z.array(FormValidationRuleSchema).max(20).optional(),
   submitLabel: z.string().optional(),
   successMessage: z.string().optional(),
   redirectUrl: z.string().nullable().optional(),

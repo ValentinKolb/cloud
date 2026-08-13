@@ -30,6 +30,7 @@ import { customAppContextKeys, customAppGlobalContextKeys } from "../../../custo
 import type {
   CustomAppAction,
   CustomAppBlock,
+  CustomAppBulkAction,
   CustomAppDefinition,
   CustomAppDiagnostic,
   CustomAppRowAction,
@@ -80,6 +81,9 @@ type CustomAppWorkflowLauncher = WorkspaceCatalog["workflowLaunchers"][number] &
 };
 type CustomAppScannerLauncher = WorkspaceCatalog["workflowLaunchers"][number] & {
   config: Extract<WorkspaceCatalog["workflowLaunchers"][number]["config"], { kind: "scanner" }>;
+};
+type CustomAppBulkLauncher = WorkspaceCatalog["workflowLaunchers"][number] & {
+  config: Extract<WorkspaceCatalog["workflowLaunchers"][number]["config"], { kind: "bulk" }>;
 };
 
 const iconInputValue = (slug: string | undefined): string | null => (slug ? `ti ti-${slug}` : null);
@@ -726,6 +730,10 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       icon: field.icon ?? "ti ti-column-insert-right",
     })),
   );
+  const selectedRecordsUsesTable = createMemo(() => {
+    const block = selectedBlock()?.block;
+    return block?.type === "records" && block.display.kind === "table";
+  });
   const selectedSourceTableId = createMemo(() => {
     const block = selectedSourceBlock();
     if (!block) return null;
@@ -744,6 +752,22 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     const tableId = selectedSourceTableId();
     return tableId ? (props.catalog.fieldsByTable[tableId] ?? []).filter((field) => field.deletedAt === null).slice(0, 30) : [];
   });
+  const bulkLaunchers = createMemo(() => {
+    const tableId = selectedSourceTableId();
+    return props.catalog.workflowLaunchers.filter((launcher): launcher is CustomAppBulkLauncher => {
+      if (launcher.config.kind !== "bulk" || !tableId) return false;
+      const workflow = workflowsById().get(launcher.workflowId);
+      return Boolean(workflow && workflow.plan.bindings[`inputs.${launcher.config.input}.table`] === tableId);
+    });
+  });
+  const bulkLauncherOptions = createMemo(() =>
+    bulkLaunchers().map((launcher) => ({
+      value: launcher.id,
+      label: launcher.name,
+      description: workflowsById().get(launcher.workflowId)?.name ?? "Bulk workflow",
+      icon: "ti ti-checklist",
+    })),
+  );
   const rowInputForLauncher = (launcher: CustomAppWorkflowLauncher) => {
     if (launcher.config.inputMode !== "prompt") return null;
     const tableId = selectedSourceTableId();
@@ -1529,6 +1553,13 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     };
     updateSelectedBlock((block) => (block.type === "records" ? { ...block, rowActions: [...(block.rowActions ?? []), action] } : block));
     selectAction(action.id);
+  };
+
+  const addBulkWorkflowAction = () => {
+    const launcher = bulkLaunchers()[0];
+    if (!launcher) return;
+    const action: CustomAppBulkAction = { id: localId("bulk-action"), label: launcher.name, launcherId: launcher.id };
+    updateSelectedBlock((block) => (block.type === "records" ? { ...block, bulkActions: [...(block.bulkActions ?? []), action] } : block));
   };
 
   const moveSelectedAction = (direction: -1 | 1) => {
@@ -2723,43 +2754,77 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                                 }}
                               />
                               <Show when={selectedRecordsView()}>
-                                <MultiSelectInput
-                                  label="Columns"
-                                  description="Choose up to 30 fields shown by the Records table."
-                                  placeholder="Choose columns"
-                                  searchable
-                                  clearable
+                                <Select
+                                  label="Display"
+                                  description="Table uses App-selected columns. Cards reuse the saved View's existing Cards configuration."
                                   value={() => {
                                     const block = selected().block;
-                                    return block.type === "records" ? block.display.columnIds : [];
+                                    return block.type === "records" ? block.display.kind : "table";
                                   }}
-                                  selectedOptions={() => {
-                                    const block = selected().block;
-                                    if (block.type !== "records") return [];
-                                    const options = new Map(selectedRecordsFieldOptions().map((option) => [option.id, option]));
-                                    return block.display.columnIds.map(
-                                      (fieldId) => options.get(fieldId) ?? { id: fieldId, label: "Unavailable field" },
-                                    );
-                                  }}
-                                  options={selectedRecordsFieldOptions()}
-                                  error={() => {
-                                    const block = selected().block;
-                                    if (block.type !== "records") return undefined;
-                                    if (block.display.columnIds.length === 0) return "Choose at least one column.";
-                                    const available = new Set(selectedRecordsFields().map((field) => field.id));
-                                    if (block.display.columnIds.some((fieldId) => !available.has(fieldId))) {
-                                      return "Replace or remove unavailable fields.";
-                                    }
-                                    return diagnosticFor(block.id, "columnIds");
-                                  }}
-                                  onValueChange={(columnIds) =>
-                                    updateSelectedBlock((block) =>
-                                      block.type === "records"
-                                        ? { ...block, display: { kind: "table", columnIds: columnIds.slice(0, 30) } }
-                                        : block,
-                                    )
+                                  options={[
+                                    { id: "table", label: "Table", icon: "ti ti-table" },
+                                    {
+                                      id: "cards",
+                                      label: "Cards from saved View",
+                                      icon: "ti ti-layout-grid",
+                                      disabled: selectedRecordsView()?.ui.displayConfig?.mode !== "cards",
+                                    },
+                                  ]}
+                                  onValueChange={(kind) =>
+                                    updateSelectedBlock((block) => {
+                                      if (block.type !== "records" || !kind) return block;
+                                      if (kind === "cards") return { ...block, display: { kind: "cards" } };
+                                      const fields = selectedRecordsFields();
+                                      return {
+                                        ...block,
+                                        display: {
+                                          kind: "table",
+                                          columnIds:
+                                            block.display.kind === "table" ? block.display.columnIds : fields.map((field) => field.id),
+                                        },
+                                      };
+                                    })
                                   }
                                 />
+                                <Show when={selectedRecordsUsesTable()}>
+                                  <MultiSelectInput
+                                    label="Columns"
+                                    description="Choose up to 30 fields shown by the Records table."
+                                    placeholder="Choose columns"
+                                    searchable
+                                    clearable
+                                    value={() => {
+                                      const block = selected().block;
+                                      return block.type === "records" && block.display.kind === "table" ? block.display.columnIds : [];
+                                    }}
+                                    selectedOptions={() => {
+                                      const block = selected().block;
+                                      if (block.type !== "records" || block.display.kind !== "table") return [];
+                                      const options = new Map(selectedRecordsFieldOptions().map((option) => [option.id, option]));
+                                      return block.display.columnIds.map(
+                                        (fieldId) => options.get(fieldId) ?? { id: fieldId, label: "Unavailable field" },
+                                      );
+                                    }}
+                                    options={selectedRecordsFieldOptions()}
+                                    error={() => {
+                                      const block = selected().block;
+                                      if (block.type !== "records" || block.display.kind !== "table") return undefined;
+                                      if (block.display.columnIds.length === 0) return "Choose at least one column.";
+                                      const available = new Set(selectedRecordsFields().map((field) => field.id));
+                                      if (block.display.columnIds.some((fieldId) => !available.has(fieldId))) {
+                                        return "Replace or remove unavailable fields.";
+                                      }
+                                      return diagnosticFor(block.id, "columnIds");
+                                    }}
+                                    onValueChange={(columnIds) =>
+                                      updateSelectedBlock((block) =>
+                                        block.type === "records"
+                                          ? { ...block, display: { kind: "table", columnIds: columnIds.slice(0, 30) } }
+                                          : block,
+                                      )
+                                    }
+                                  />
+                                </Show>
                               </Show>
                             </Show>
                             <Show
@@ -2887,6 +2952,87 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                             </Show>
                           </div>
                         </DetailPanel.Section>
+                        <Show when={selectedRecordsUsesTable()}>
+                          <DetailPanel.Section
+                            title="Bulk actions"
+                            icon="ti ti-checklist"
+                            description="Let signed-in readers select records from the current result page and run a bulk workflow."
+                            collapsible
+                            defaultOpen={(selectedRecordsBlock()?.bulkActions?.length ?? 0) > 0}
+                          >
+                            <div class="flex flex-col gap-3">
+                              <For each={selectedRecordsBlock()?.bulkActions ?? []}>
+                                {(action) => (
+                                  <div class="rounded-md border border-subtle p-3">
+                                    <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+                                      <TextInput
+                                        label="Label"
+                                        value={() => action.label}
+                                        onValueChange={(label) =>
+                                          updateSelectedBlock((block) =>
+                                            block.type === "records"
+                                              ? {
+                                                  ...block,
+                                                  bulkActions: (block.bulkActions ?? []).map((candidate) =>
+                                                    candidate.id === action.id ? { ...candidate, label } : candidate,
+                                                  ),
+                                                }
+                                              : block,
+                                          )
+                                        }
+                                      />
+                                      <Select
+                                        label="Bulk workflow"
+                                        value={() => action.launcherId}
+                                        options={bulkLauncherOptions()}
+                                        onValueChange={(launcherId) =>
+                                          launcherId &&
+                                          updateSelectedBlock((block) =>
+                                            block.type === "records"
+                                              ? {
+                                                  ...block,
+                                                  bulkActions: (block.bulkActions ?? []).map((candidate) =>
+                                                    candidate.id === action.id ? { ...candidate, launcherId } : candidate,
+                                                  ),
+                                                }
+                                              : block,
+                                          )
+                                        }
+                                      />
+                                      <IconButton
+                                        label={`Remove ${action.label}`}
+                                        variant="ghost"
+                                        onClick={() =>
+                                          updateSelectedBlock((block) =>
+                                            block.type === "records"
+                                              ? {
+                                                  ...block,
+                                                  bulkActions: (block.bulkActions ?? []).filter((candidate) => candidate.id !== action.id),
+                                                }
+                                              : block,
+                                          )
+                                        }
+                                      >
+                                        <i class="ti ti-trash" aria-hidden="true" />
+                                      </IconButton>
+                                    </div>
+                                  </div>
+                                )}
+                              </For>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={addBulkWorkflowAction}
+                                disabled={bulkLaunchers().length === 0 || (selectedRecordsBlock()?.bulkActions?.length ?? 0) >= 6}
+                              >
+                                <i class="ti ti-checklist" aria-hidden="true" /> Add bulk action
+                              </Button>
+                              <Show when={bulkLaunchers().length === 0}>
+                                <InlineGuidance>Create an enabled Bulk run option for this Records table first.</InlineGuidance>
+                              </Show>
+                            </div>
+                          </DetailPanel.Section>
+                        </Show>
                       </Show>
                     </DetailPanel.Group>
                   </Show>

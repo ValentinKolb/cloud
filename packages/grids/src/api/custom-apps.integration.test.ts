@@ -112,8 +112,15 @@ describe("Grids App Form runtime", () => {
           (${suppliedFieldId}::uuid, ${testShortId("S")}, ${tableId}::uuid, 'Channel', 'text', '{}'::jsonb, FALSE, ${JSON.stringify("Web default")}::jsonb, 2)
       `;
         await sql`
-        INSERT INTO grids.views (id, short_id, table_id, name, source)
-        VALUES (${viewId}::uuid, ${testShortId("V")}, ${tableId}::uuid, 'Request search', ${`from table {${tableId}}\nselect {${fieldId}}`})
+        INSERT INTO grids.views (id, short_id, table_id, name, source, ui)
+        VALUES (
+          ${viewId}::uuid,
+          ${testShortId("V")},
+          ${tableId}::uuid,
+          'Request search',
+          ${`from table {${tableId}}\nselect {${fieldId}}`},
+          ${JSON.stringify({ displayConfig: { mode: "cards", cards: { fieldIds: [suppliedFieldId] } } })}::jsonb
+        )
       `;
         await sql`
         INSERT INTO grids.forms (id, short_id, table_id, name, config, is_active, position)
@@ -188,6 +195,20 @@ describe("Grids App Form runtime", () => {
                             params: { request_id: { source: "RESULT", path: "recordId" } },
                           },
                         },
+                        {
+                          id: "requests",
+                          type: "records",
+                          source: { kind: "view", viewId },
+                          display: { kind: "cards" },
+                          searchable: true,
+                          pageSize: 25,
+                          rowNavigate: {
+                            kind: "navigate",
+                            pageId: "request",
+                            history: "push",
+                            params: { request_id: { source: "ROW", path: "id" } },
+                          },
+                        },
                       ],
                     },
                   ],
@@ -253,6 +274,7 @@ describe("Grids App Form runtime", () => {
         const api = new Hono<AuthContext>().route(
           "/apps",
           createCustomAppsApi({
+            loadOptionalActor: authenticateAs(userFor(authUser.id)),
             requireAuthenticated: authenticateAs(userFor(authUser.id)),
             invokeCustomAppLauncher: async (input) => {
               actionInvocation = input as CustomAppLauncherInvocation;
@@ -297,6 +319,24 @@ describe("Grids App Form runtime", () => {
       `;
         expect(record?.value).toBe("Certificate request");
         expect(record?.supplied).toBe("App portal");
+
+        const cardsResponse = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/requests/records`, {
+          headers: { "x-forwarded-for": `custom-app-cards-${baseId}` },
+        });
+        expect(cardsResponse.status).toBe(200);
+        const cardsBody = (await cardsResponse.json()) as {
+          cards?: { displayConfig: { mode: string }; records: Array<{ id: string; data: Record<string, unknown> }> };
+        };
+        expect(cardsBody.cards?.displayConfig.mode).toBe("cards");
+        expect(cardsBody.cards?.records.find((item) => item.id === body.recordId)?.data).toEqual({ [suppliedFieldId]: "App portal" });
+
+        const searchedCardsResponse = await publicApi.request(
+          `/apps/runtime/${applied.data.shortId}/home/requests/records?q=App%20portal`,
+          { headers: { "x-forwarded-for": `custom-app-card-search-${baseId}` } },
+        );
+        expect(searchedCardsResponse.status).toBe(200);
+        const searchedCardsBody = (await searchedCardsResponse.json()) as { rows: Array<{ recordId?: string }> };
+        expect(searchedCardsBody.rows.some((item) => item.recordId === body.recordId)).toBe(true);
 
         const sidebarResponse = await publicApi.request(`/apps/runtime/${applied.data.shortId}/sidebar/forms/new-request/submit`, {
           method: "POST",

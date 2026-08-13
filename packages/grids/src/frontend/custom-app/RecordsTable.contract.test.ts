@@ -16,4 +16,14 @@ describe("App Records table actions", () => {
     expect(source).toContain("props.preview || Boolean(pendingKey())");
     expect(source).toContain("if (props.preview || !props.endpoint) return");
   });
+
+  test("keeps bulk selection on the current published result page", async () => {
+    const source = await Bun.file(new URL("./RecordsTable.island.tsx", import.meta.url)).text();
+
+    expect(source).toContain("Select page");
+    expect(source).toContain("body: { recordIds, search: appliedQuery() || undefined, cursor: cursor() || undefined }");
+    expect(source).toContain("setSelectedRecordIds(new Set<string>())");
+    expect(source).toContain("<For each={props.bulkActions ?? []}>");
+    expect(source).toContain("aria-label={`Select record ${row.recordId}`}");
+  });
 });

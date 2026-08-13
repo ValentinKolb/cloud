@@ -3,7 +3,7 @@ import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { accessActorUser, actorViewerFor, gateCustomAppAtAccess, gridsAccessContext } from "../../api/permissions";
 import { ssr } from "../../config";
-import type { DocumentRunSummary, DslQueryPreviewResponse, Field, GridRecord } from "../../contracts";
+import type { DocumentRunSummary, Field, GridRecord } from "../../contracts";
 import { customAppPageRecordFieldIds } from "../../custom-apps/conditions";
 import type { CustomAppBlock, CustomAppDefinition, CustomAppPage } from "../../custom-apps/contracts";
 import { customAppFormInlineTargetTableIds } from "../../custom-apps/form-capability";
@@ -12,6 +12,7 @@ import { renderCustomAppMarkdown } from "../../custom-apps/markdown-context";
 import {
   customAppActionHref,
   customAppActionUrl,
+  customAppBulkActionUrl,
   customAppCommentsUrl,
   customAppDocumentDownloadUrl,
   customAppFormSubmitUrl,
@@ -56,7 +57,11 @@ import Actions, { type CustomAppRenderedAction } from "./Actions.island";
 import CustomAppChart from "./Chart";
 import { CustomAppPageLayout } from "./PageLayout";
 import RecordDetails from "./RecordDetails.island";
-import RecordsTable, { type CustomAppRenderedRowAction } from "./RecordsTable.island";
+import RecordsTable, {
+  type CustomAppRecordsSuccess,
+  type CustomAppRenderedBulkAction,
+  type CustomAppRenderedRowAction,
+} from "./RecordsTable.island";
 import Scanner from "./Scanner.island";
 import SidebarActions, { type CustomAppRenderedSidebarAction } from "./SidebarActions.island";
 import { formatCustomAppValue } from "./value-format";
@@ -70,8 +75,7 @@ type FormBlock = Extract<CustomAppBlock, { type: "form" }>;
 type CommentsBlock = Extract<CustomAppBlock, { type: "comments" }>;
 type ActionsBlock = Extract<CustomAppBlock, { type: "actions" }>;
 type ScannerBlock = Extract<CustomAppBlock, { type: "scanner" }>;
-type QuerySuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
-type BlockResult = { ok: true; result: QuerySuccess } | { ok: false; message: string };
+type BlockResult = { ok: true; result: CustomAppRecordsSuccess } | { ok: false; message: string };
 type MetricsBlockData = { ok: true; cells: CustomAppMetricCell[] } | { ok: false; message: string };
 type ChartBlockData = { ok: true; chart: CustomAppChartData } | { ok: false; message: string };
 type PageRecord = {
@@ -108,9 +112,12 @@ const availableIdsInBatches = async <T extends { id: string }>(
 const Records = (props: {
   block: RecordsBlock;
   data: BlockResult;
+  baseId: string;
+  dateConfig: ReturnType<typeof getDateConfig>;
   shortId: string;
   endpoint: string;
   rowActions: CustomAppRenderedRowAction[];
+  bulkActions: CustomAppRenderedBulkAction[];
 }) => {
   if (!props.data.ok) {
     return (
@@ -126,13 +133,18 @@ const Records = (props: {
     <RecordsTable
       title={props.block.title ?? "Records"}
       emptyText={props.block.emptyText ?? "No records found."}
+      baseId={props.baseId}
+      dateConfig={props.dateConfig}
       shortId={props.shortId}
-      selectedColumnIds={props.block.source.kind === "view" ? props.block.display.columnIds : undefined}
+      selectedColumnIds={
+        props.block.source.kind === "view" && props.block.display.kind === "table" ? props.block.display.columnIds : undefined
+      }
       result={props.data.result}
       endpoint={props.endpoint}
       searchable={props.block.searchable}
       rowNavigate={props.block.rowNavigate}
       rowActions={props.rowActions}
+      bulkActions={props.bulkActions}
     />
   );
 };
@@ -232,6 +244,7 @@ const CustomAppPage = (props: {
   commentEndpoints: Map<string, string>;
   actions: Map<string, CustomAppRenderedAction[]>;
   rowActions: Map<string, CustomAppRenderedRowAction[]>;
+  bulkActions: Map<string, CustomAppRenderedBulkAction[]>;
   recordEndpoints: Map<string, string>;
   recordUpdateEndpoints: Map<string, string>;
   documentRuns: Map<string, CustomAppDocumentRun[]>;
@@ -256,9 +269,12 @@ const CustomAppPage = (props: {
           <Records
             block={block}
             data={props.results.get(block.id) ?? { ok: false, message: "Records are unavailable." }}
+            baseId={props.definition.baseId}
+            dateConfig={props.dateConfig}
             shortId={props.shortId}
             endpoint={props.recordEndpoints.get(block.id) ?? ""}
             rowActions={props.rowActions.get(block.id) ?? []}
+            bulkActions={props.bulkActions.get(block.id) ?? []}
           />
         ) : block.type === "metrics" ? (
           <Metrics data={props.metrics.get(block.id) ?? { ok: false, message: "Metrics are unavailable." }} dateConfig={props.dateConfig} />
@@ -543,6 +559,7 @@ export default ssr<AuthContext>(async (c) => {
       try {
         const published = await executePublishedCustomAppRecords({
           baseId: app.baseId,
+          customAppId: app.id,
           page,
           block,
           capabilities,
@@ -555,7 +572,7 @@ export default ssr<AuthContext>(async (c) => {
         if (!published.response.ok) {
           return [block.id, { ok: false, message: published.response.diagnostics[0]?.message ?? "This data source is unavailable." }];
         }
-        return [block.id, { ok: true, result: published.response }];
+        return [block.id, { ok: true, result: published.cards ? { ...published.response, cards: published.cards } : published.response }];
       } catch {
         return [block.id, { ok: false, message: "This data source is temporarily unavailable." }];
       }
@@ -822,6 +839,7 @@ export default ssr<AuthContext>(async (c) => {
     actions.set(block.id, rendered);
   }
   const rowActions = new Map<string, CustomAppRenderedRowAction[]>();
+  const bulkActions = new Map<string, CustomAppRenderedBulkAction[]>();
   const recordEndpoints = new Map<string, string>();
   for (const block of blocks) {
     recordEndpoints.set(block.id, customAppRecordsUrl(app.shortId, page.id, block.id, pageParams));
@@ -849,6 +867,28 @@ export default ssr<AuthContext>(async (c) => {
       }
     }
     rowActions.set(block.id, rendered);
+    const renderedBulk: CustomAppRenderedBulkAction[] = [];
+    if (accessActorUser(requestAccess)) {
+      for (const action of block.bulkActions ?? []) {
+        const capability = capabilities.workflowLaunchers.find(
+          (candidate) =>
+            "pageId" in candidate &&
+            candidate.pageId === page.id &&
+            candidate.blockId === block.id &&
+            candidate.actionId === action.id &&
+            candidate.launcherId === action.launcherId,
+        );
+        if (!capability) continue;
+        renderedBulk.push({
+          id: action.id,
+          label: action.label,
+          icon: action.icon,
+          endpoint: customAppBulkActionUrl(app.shortId, page.id, block.id, action.id, pageParams),
+          confirm: action.confirm,
+        });
+      }
+    }
+    bulkActions.set(block.id, renderedBulk);
   }
   const scanners = new Map<string, { state: WorkflowScannerState; endpoint: string }>();
   if (accessActorUser(requestAccess)) {
@@ -912,6 +952,7 @@ export default ssr<AuthContext>(async (c) => {
         commentEndpoints={commentEndpoints}
         actions={actions}
         rowActions={rowActions}
+        bulkActions={bulkActions}
         recordEndpoints={recordEndpoints}
         recordUpdateEndpoints={recordUpdateEndpoints}
         documentRuns={documentRuns}

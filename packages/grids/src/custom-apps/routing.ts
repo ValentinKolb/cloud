@@ -94,6 +94,18 @@ export const customAppRowActionUrl = (
   return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/row-actions/${encodeURIComponent(actionId)}${query}`;
 };
 
+export const customAppBulkActionUrl = (
+  shortId: string,
+  pageId: string,
+  blockId: string,
+  actionId: string,
+  params: Record<string, string>,
+): string => {
+  const pageHref = customAppPageHref(shortId, pageId, params);
+  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
+  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/bulk-actions/${encodeURIComponent(actionId)}${query}`;
+};
+
 export const customAppRecordsUrl = (shortId: string, pageId: string, blockId: string, params: Record<string, string>): string => {
   const pageHref = customAppPageHref(shortId, pageId, params);
   const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";

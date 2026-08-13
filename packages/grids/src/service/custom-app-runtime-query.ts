@@ -68,7 +68,7 @@ export const executePublishedCustomAppQuery = async (params: {
   const trustedRecordAccess = new Map(params.capability.tableIds.map((tableId) => [tableId, ALL_RECORD_ACCESS] as const));
   const allowedFieldIds = params.search?.allowedFieldIds ? new Set(params.search.allowedFieldIds) : null;
   const selected = compiled.data.plan.outputColumns ?? [];
-  const primaryFieldIds = [
+  const selectedPrimaryFieldIds = [
     ...new Set(
       (selected.length > 0
         ? selected.filter((column) => column.kind === "field").map((column) => column.fieldId)
@@ -76,6 +76,11 @@ export const executePublishedCustomAppQuery = async (params: {
       ).filter((fieldId) => !allowedFieldIds || allowedFieldIds.has(fieldId)),
     ),
   ];
+  const primaryFieldIds = allowedFieldIds
+    ? (compiled.data.fieldsByTableId[compiled.data.plan.tableId] ?? [])
+        .map((field) => field.id)
+        .filter((fieldId) => allowedFieldIds.has(fieldId))
+    : selectedPrimaryFieldIds;
   const joinedByAlias = new Map<string, { tableId: string; joinAlias: string; fieldIds: string[] }>();
   for (const column of selected) {
     if (column.kind !== "joined" || (allowedFieldIds && !allowedFieldIds.has(column.fieldId))) continue;

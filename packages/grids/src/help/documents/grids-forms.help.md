@@ -17,6 +17,7 @@ In a custom form you can:
 
 - choose the title, description, title image, submit label, and success message;
 - arrange user inputs and explain what each answer means;
+- require one compatible number, duration, date, or date-time input to be before, after, equal to, or different from another input;
 - apply hidden values that the person submitting cannot change, such as a fixed request status;
 - allow configured relation fields to create related records inline;
 - redirect after a successful submission;
@@ -27,6 +28,8 @@ A signed-in Base user can submit with Base Write. A narrower authenticated audie
 Turn on **Public form** only when anonymous submissions are intended. The unique public URL accepts only the form's configured fields and always applies its hidden values. Turning public access off invalidates the existing link; enabling it again creates a new one.
 
 Test a form with incomplete and invalid input before sharing it. Confirm that required fields, relation creation, success text, and redirect behavior are understandable without knowledge of the table.
+
+Cross-field validation belongs to the Form when two answers must agree before any record may be created. For example, require **Start date** to be on or before **Due date**. The browser explains a failed rule next to its field and the server evaluates the same rule again. Use a Workflow instead when validation depends on other records, current capacity, permissions, or effects that can change concurrently.
 
 ## Reuse a Form in a Grids App {icon="app-window"}
 

@@ -1,5 +1,6 @@
 import { type DateContext, err, fail, isServiceError, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
+import { evaluateFormValidations, formValidationFieldsCompatible } from "../form-validations";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import type { Form } from "./forms";
 import type { AuthorizedRecordAccess } from "./record-access";
@@ -100,6 +101,17 @@ export const submitForm = async (params: {
       ? materializeFieldDefault({ ...field, defaultValue: entry.value }, { dateConfig: params.dateConfig })
       : entry.value;
   }
+
+  for (const rule of params.form.config.validations ?? []) {
+    const left = fieldsById.get(rule.leftFieldId);
+    const right = fieldsById.get(rule.rightFieldId);
+    if (!left || !right || !userInputIds.has(left.id) || !userInputIds.has(right.id) || !formValidationFieldsCompatible(left, right)) {
+      return fail(err.conflict("This Form's cross-field validation changed after it was saved"));
+    }
+  }
+
+  const validationFailure = evaluateFormValidations(params.form.config.validations, payload, fieldsById)[0];
+  if (validationFailure) return fail(err.badInput(validationFailure.message));
 
   for (const [relationFieldId, drafts] of Object.entries(params.submission.inlineCreates)) {
     const tempIds = new Set<string>();

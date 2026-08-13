@@ -1,5 +1,6 @@
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
+import { type FormValidationRule, FormValidationRuleSchema } from "../contracts";
 import { logAudit } from "./audit";
 import { listByTable as listFields } from "./fields";
 import { validateFormConfig } from "./form-config-validation";
@@ -62,6 +63,7 @@ export type FormConfig = {
   title?: string;
   description?: string;
   fields: FormFieldEntry[];
+  validations?: FormValidationRule[];
   submitLabel?: string;
   successMessage?: string;
   redirectUrl?: string | null;
@@ -182,10 +184,17 @@ export const normalizeFormConfig = (raw: unknown): FormConfig => {
   const entries: FormFieldEntry[] = Array.isArray(cfg.fields)
     ? cfg.fields.map(normalizeFieldEntry).filter((e): e is FormFieldEntry => e !== null)
     : [];
+  const validations = Array.isArray(cfg.validations)
+    ? cfg.validations.flatMap((rule) => {
+        const parsed = FormValidationRuleSchema.safeParse(rule);
+        return parsed.success ? [parsed.data] : [];
+      })
+    : [];
   return {
     title: cfg.title,
     description: cfg.description,
     fields: entries,
+    validations: validations.length > 0 ? validations : undefined,
     submitLabel: cfg.submitLabel,
     successMessage: cfg.successMessage,
     redirectUrl: cfg.redirectUrl,
