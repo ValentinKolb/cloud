@@ -15,6 +15,8 @@
       "@valentinkolb/cloud/services": ["../cloud/src/services/index.ts"],
       "@valentinkolb/cloud/services/*": ["../cloud/src/services/*"],
       "@valentinkolb/cloud/ai": ["../cloud/src/ai/index.ts"],
+      "@valentinkolb/cloud/ai/live": ["../cloud/src/ai/live.ts"],
+      "@valentinkolb/cloud/ai/live-events": ["../cloud/src/ai/live-events.ts"],
       "@valentinkolb/cloud/ssr": ["../cloud/src/ssr/index.ts"],
       "@valentinkolb/cloud/ssr/*": ["../cloud/src/ssr/*"],
       "@valentinkolb/cloud/config": ["../cloud/src/config/index.ts"],

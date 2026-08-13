@@ -1,17 +1,13 @@
-import {
-  aiConversationStore,
-  aiProjects,
-  aiUserPrefs,
-  listAiModels,
-  loadAiStreamState,
-  toPublicAiSettingsState,
-} from "@valentinkolb/cloud/ai";
+import { aiConversations, aiProjects, aiUserPrefs, listAiModels, loadAiStreamState, toPublicAiSettingsState } from "@valentinkolb/cloud/ai";
+import { latestAiInvalidationCursor } from "@valentinkolb/cloud/ai/live";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
+import { loadAssistantChatContextSnapshot } from "../chat-context";
 import { ssr } from "../config";
+import { loadAssistantProjectContextSnapshot } from "../project-context";
+import { loadAssistantSidebarSnapshot } from "../sidebar";
 import AssistantWorkspace from "./AssistantWorkspace.island";
-import { resolveInitialConversation } from "./initial-conversation";
 
 export default ssr<AuthContext>(async (c) => {
   const user = expectUserBackedActor(c);
@@ -21,34 +17,33 @@ export default ssr<AuthContext>(async (c) => {
   const projectQuery = url.searchParams.get("q")?.trim() ?? "";
   const initialArtifactPath = url.searchParams.get("artifact");
   const subject = { type: "user" as const, userId: user.id };
-  const [status, models, conversations, prefs, projects] = await Promise.all([
+  const initialLiveCursor = (await latestAiInvalidationCursor("assistant", user.id)) ?? "0-0";
+  const [status, models, prefs, sidebar] = await Promise.all([
     toPublicAiSettingsState(),
     listAiModels({ kind: "selectable", requiredCapabilities: ["streaming"] }),
-    aiConversationStore.listConversations({ appId: "assistant", ownerUserId: user.id }),
     aiUserPrefs.get(user.id),
-    aiProjects.list(subject),
+    loadAssistantSidebarSnapshot(user.id),
   ]);
+  const { conversations, projects } = sidebar;
   const activeProject = requestedProjectId ? (projects.find((project) => project.shortId === requestedProjectId) ?? null) : null;
   if (requestedProjectId && !activeProject) return c.redirect("/app/assistant", 302);
+  const activeProjectRecord = activeProject ? await aiProjects.getByShortId(activeProject.shortId, "assistant", subject) : null;
   const projectChats = activeProject
-    ? await aiConversationStore.listConversationsPage({
+    ? await aiConversations.listConversationsPage({
         appId: "assistant",
         ownerUserId: user.id,
-        projectId: activeProject.id,
+        projectId: activeProjectRecord!.id,
         search: projectQuery || undefined,
         page: 1,
         perPage: 20,
       })
     : null;
+  const projectContext = activeProject ? await loadAssistantProjectContextSnapshot(subject, activeProject.id) : null;
 
-  const initial = activeProject
-    ? { activeConversation: null, conversations }
-    : await resolveInitialConversation({
-        requestedConversationId,
-        conversations,
-        loadConversation: (shortId) => aiConversationStore.getConversationByShortId({ shortId, appId: "assistant", ownerUserId: user.id }),
-      });
-  const resolvedActiveConversation = initial.activeConversation;
+  const selectedConversationId = activeProject ? null : (requestedConversationId ?? conversations[0]?.shortId ?? null);
+  const resolvedActiveConversation = selectedConversationId
+    ? await aiConversations.getConversationByShortId({ shortId: selectedConversationId, appId: "assistant", ownerUserId: user.id })
+    : null;
   if (requestedConversationId && resolvedActiveConversation?.shortId !== requestedConversationId) {
     return c.redirect(
       resolvedActiveConversation
@@ -58,26 +53,23 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
   if (resolvedActiveConversation) {
-    await aiConversationStore.markConversationViewed({
+    await aiConversations.markConversationViewed({
       conversationId: resolvedActiveConversation.id,
       appId: "assistant",
       ownerUserId: user.id,
     });
   }
   const activeConversation = resolvedActiveConversation ? { ...resolvedActiveConversation, unreadCompletion: false } : null;
-  const projectShortId = (projectId: string | null) => projects.find((project) => project.id === projectId)?.shortId ?? null;
-  const initialConversations = initial.conversations.map((conversation) => ({
-    ...conversation,
-    id: conversation.shortId,
-    projectId: projectShortId(conversation.projectId),
-    ...(conversation.id === activeConversation?.id ? { unreadCompletion: false } : {}),
-  }));
-  const [initialDetail, initialTimeline] = activeConversation
+  const initialConversations = conversations.map((conversation) =>
+    conversation.id === activeConversation?.shortId ? { ...conversation, unreadCompletion: false } : conversation,
+  );
+  const [initialDetail, initialTimeline, initialContext] = activeConversation
     ? await Promise.all([
         loadAiStreamState(activeConversation),
-        aiConversationStore.listConversationTimeline({ conversationId: activeConversation.id }),
+        aiConversations.listConversationTimeline({ conversationId: activeConversation.id }),
+        loadAssistantChatContextSnapshot(user.id, activeConversation.shortId),
       ])
-    : [null, []];
+    : [null, [], null];
 
   return () => (
     <Layout c={c} fullPage title={[{ title: "Start", href: "/" }, { title: "Assistant" }]}>
@@ -85,6 +77,7 @@ export default ssr<AuthContext>(async (c) => {
         status={status}
         models={models}
         lastModelId={prefs.lastModelId}
+        initialLiveCursor={initialLiveCursor}
         initialConversations={initialConversations}
         initialConversationId={activeConversation?.shortId ?? null}
         initialArtifactPath={initialArtifactPath}
@@ -99,12 +92,19 @@ export default ssr<AuthContext>(async (c) => {
               }
             : null
         }
-        projects={projects.map((project) => ({ ...project, id: project.shortId }))}
-        initialProject={activeProject ? { ...activeProject, id: activeProject.shortId } : null}
+        initialContext={initialContext}
+        projects={projects}
+        initialProject={activeProject}
         initialProjectQuery={projectQuery}
         initialProjectChats={
-          projectChats ? { ...projectChats, items: projectChats.items.map((chat) => ({ ...chat, id: chat.shortId })) } : null
+          projectChats
+            ? {
+                ...projectChats,
+                items: projectChats.items.map((chat) => ({ ...chat, id: chat.shortId, projectId: activeProject!.id })),
+              }
+            : null
         }
+        initialProjectContext={projectContext}
       />
     </Layout>
   );

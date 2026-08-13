@@ -1,6 +1,8 @@
-import { aiChatTasks, aiMaintenanceJobs, migrateCloudAi, startAiRuntime } from "@valentinkolb/cloud/ai";
+import { aiChatTasks, aiMaintenanceJobs, aiProjects, migrateCloudAi, startAiRuntime } from "@valentinkolb/cloud/ai";
+import { createAiLiveRoutes } from "@valentinkolb/cloud/ai/live";
 import { type AuthContext, middleware } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
+import { websocket } from "hono/bun";
 import apiRoutes from "./api";
 import { assistantCapabilities } from "./capabilities";
 import { assistantChatTaskRuntime } from "./chat-tasks-runtime";
@@ -13,13 +15,20 @@ import { createAssistantNotificationService } from "./notifications";
 const router = new Hono<AuthContext>()
   .use("*", middleware.runtime())
   .use("*", middleware.settings())
+  .route(
+    "/api/assistant/live",
+    createAiLiveRoutes({
+      appId: "assistant",
+      resolveScopeVersion: (userId) => aiProjects.scopeVersion({ type: "user", userId }, "assistant"),
+    }),
+  )
   .route("/api/assistant", apiRoutes)
   .route("/app/assistant", pageRoutes);
 
 let stopAiRuntime: (() => void) | undefined;
 const assistantNotifications = createAssistantNotificationService(app.notifications);
 
-export default await app.start({
+const result = await app.start({
   fetch: router.fetch,
   capabilities: assistantCapabilities,
   help: assistantHelp,
@@ -63,5 +72,6 @@ export default await app.start({
     },
   },
 });
+export default { ...result, websocket };
 
 export type { ApiType } from "./api";

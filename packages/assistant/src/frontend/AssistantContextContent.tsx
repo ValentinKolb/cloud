@@ -53,7 +53,7 @@ export function AssistantContextSection(props: {
         </h2>
         {props.action}
         <Show when={props.onViewAll && (props.count ?? 0) > 0}>
-          <Button size="xs" variant="ghost" onClick={() => props.onViewAll?.()}>
+          <Button size="xs" variant="ghost" style={{ "font-size": "0.75rem", "font-weight": "400" }} onClick={() => props.onViewAll?.()}>
             View all
           </Button>
         </Show>

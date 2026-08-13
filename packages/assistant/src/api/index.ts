@@ -1,9 +1,12 @@
 import { createAiChatRoutes } from "@valentinkolb/cloud/ai";
-import { type AuthContext, auth, err, fail, type RequestActor, rateLimit, respond } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, err, fail, ok, type RequestActor, rateLimit, respond } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
 import { Hono } from "hono";
+import { loadAssistantChatContextSnapshot } from "../chat-context";
 import { chatTaskRoutes } from "../chat-tasks-routes";
+import { loadAssistantProjectContextSnapshot } from "../project-context";
 import { assistantChatPrompt } from "../prompt";
+import { loadAssistantSidebarSnapshot } from "../sidebar";
 
 const ASSISTANT_APP_ID = "assistant";
 
@@ -42,6 +45,21 @@ const app = new Hono<AuthContext>()
   .use(rateLimit())
   .use("*", auth.requireRole("authenticated"))
   .use("*", auth.requireUser())
+  .get("/workspace/sidebar", async (c) => {
+    const user = actorUser(c);
+    if (!user) return respond(c, fail(err.forbidden("Assistant requires a user-backed actor")));
+    return respond(c, ok(await loadAssistantSidebarSnapshot(user.id)));
+  })
+  .get("/workspace/conversations/:conversationId/context", async (c) => {
+    const user = actorUser(c);
+    if (!user) return respond(c, fail(err.forbidden("Assistant requires a user-backed actor")));
+    const snapshot = await loadAssistantChatContextSnapshot(user.id, c.req.param("conversationId")!);
+    return snapshot ? respond(c, ok(snapshot)) : respond(c, fail(err.notFound("Conversation")));
+  })
+  .get("/workspace/projects/:projectId/context", async (c) => {
+    const snapshot = await loadAssistantProjectContextSnapshot(c.get("accessSubject"), c.req.param("projectId")!);
+    return snapshot ? respond(c, ok(snapshot)) : respond(c, fail(err.notFound("Project")));
+  })
   .route("/", chatTaskRoutes)
   .route("/", chatRoutes);
 

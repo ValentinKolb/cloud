@@ -1,4 +1,4 @@
-import { type AiInterChatMessage, aiConversationStore, aiProjects, deliverAiInterChatMessage } from "@valentinkolb/cloud/ai";
+import { type AiInterChatMessage, aiConversations, aiProjects, deliverAiInterChatMessage } from "@valentinkolb/cloud/ai";
 import { accounts, logger } from "@valentinkolb/cloud/services";
 import { assistantChatPrompt } from "./prompt";
 
@@ -14,7 +14,7 @@ export const deliverPendingAssistantMessages = async (
   const outcomes = new Map<string, AssistantMessageDeliveryStatus>();
   let pending: AiInterChatMessage[];
   try {
-    pending = await aiConversationStore.listPendingInterChatMessages({ targetConversationId, limit: 50 });
+    pending = await aiConversations.listPendingInterChatMessages({ targetConversationId, limit: 50 });
   } catch (error) {
     log.warn("Could not load pending inter-chat messages", { error: error instanceof Error ? error.message : String(error) });
     return outcomes;
@@ -23,29 +23,31 @@ export const deliverPendingAssistantMessages = async (
     try {
       const [user, activeTarget] = await Promise.all([
         accounts.users.get({ id: message.actorUserId }),
-        aiConversationStore.getConversation({
+        aiConversations.getConversation({
           conversationId: message.targetConversationId,
           appId: ASSISTANT_APP_ID,
           ownerUserId: message.actorUserId,
         }),
       ]);
       if (!user) {
-        await aiConversationStore.failInterChatMessage({ messageId: message.id, error: "Message actor is unavailable" });
+        await aiConversations.failInterChatMessage({ messageId: message.id, error: "Message actor is unavailable" });
         outcomes.set(message.id, "failed");
         continue;
       }
       const target =
         activeTarget ??
-        (await aiConversationStore.getConversationByShortId({
+        (await aiConversations.getConversationByShortId({
           shortId: message.targetChatId,
           appId: ASSISTANT_APP_ID,
           ownerUserId: message.actorUserId,
           archived: true,
         }));
       if (!target) continue;
-      const project = target.projectId ? await aiProjects.snapshot(target.projectId, { type: "user", userId: user.id }) : null;
+      const project = target.projectId
+        ? await aiProjects.snapshot(target.projectId, ASSISTANT_APP_ID, { type: "user", userId: user.id })
+        : null;
       if (target.projectId && !project) {
-        await aiConversationStore.failInterChatMessage({ messageId: message.id, error: "Target Project is unavailable" });
+        await aiConversations.failInterChatMessage({ messageId: message.id, error: "Target Project is unavailable" });
         outcomes.set(message.id, "failed");
         continue;
       }

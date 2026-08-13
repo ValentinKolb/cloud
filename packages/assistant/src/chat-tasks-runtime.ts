@@ -1,5 +1,5 @@
 import { job, mutex, scheduler } from "@k2b/sync";
-import { aiChatTasks, aiConversationStore, aiProjects, enqueueExistingAiTurn, validateAiTurnRequest } from "@valentinkolb/cloud/ai";
+import { aiChatTasks, aiConversations, aiProjects, enqueueExistingAiTurn, validateAiTurnRequest } from "@valentinkolb/cloud/ai";
 import { accounts, coreSettings, logger } from "@valentinkolb/cloud/services";
 import { isAccountExpired } from "@valentinkolb/cloud/services/account-model";
 import { assistantChatPrompt } from "./prompt";
@@ -24,13 +24,15 @@ const taskJob = job<{ occurrenceId: string }, { status: "gone" | "failed" | "not
       const { occurrence, task } = pending;
       const [user, conversation] = await Promise.all([
         accounts.users.get({ id: task.sponsorUserId }),
-        aiConversationStore.getConversation({ conversationId: task.conversationId, appId: APP_ID, ownerUserId: task.sponsorUserId }),
+        aiConversations.getConversation({ conversationId: task.conversationId, appId: APP_ID, ownerUserId: task.sponsorUserId }),
       ]);
       if (!user || isAccountExpired(user.accountExpires) || !conversation) {
         const status = await aiChatTasks.failOccurrence({ occurrenceId: occurrence.id, error: "Task sponsor or chat is unavailable" });
         return { status: status === "gone" ? ("not_found" as const) : status, retry: status === "stale" };
       }
-      const project = conversation.projectId ? await aiProjects.snapshot(conversation.projectId, { type: "user", userId: user.id }) : null;
+      const project = conversation.projectId
+        ? await aiProjects.snapshot(conversation.projectId, APP_ID, { type: "user", userId: user.id })
+        : null;
       if (conversation.projectId && !project) {
         const status = await aiChatTasks.failOccurrence({ occurrenceId: occurrence.id, error: "Current Project access is unavailable" });
         return { status: status === "gone" ? ("not_found" as const) : status, retry: status === "stale" };

@@ -8,7 +8,6 @@ const conversation = (id: string): AiConversation => ({
   appId: "assistant",
   title: id,
   titleSource: "default",
-  icon: "ti ti-message",
   description: "",
   descriptionSource: "default",
   keywords: [],

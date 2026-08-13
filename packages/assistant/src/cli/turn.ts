@@ -1,5 +1,15 @@
 import { basename } from "node:path";
-import { type AiConversation, type AiFileStat, type AiTurnBlock, type AiTurnContentPart, guessAiMediaType } from "@valentinkolb/cloud/ai";
+import {
+  AI_IMAGE_INPUT_MAX_BYTES,
+  AI_TURN_ATTACHMENT_MAX_ITEMS,
+  AI_TURN_IMAGE_MAX_TOTAL_BYTES,
+  type AiConversation,
+  type AiFileStat,
+  type AiTurnBlock,
+  type AiTurnContentPart,
+  guessAiMediaType,
+  isAiImageMediaType,
+} from "@valentinkolb/cloud/ai";
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 import { ASSISTANT_API, jsonRequest, printValue, readApi } from "./shared";
 import { type AssistantTurnStreamResult, streamAssistantTurn } from "./stream";
@@ -17,8 +27,25 @@ export const conversationPath = (conversationId: string, suffix = ""): string =>
 export const readConversationDetail = (ctx: CloudCliContext, conversationId: string): Promise<ConversationDetail> =>
   readApi<ConversationDetail>(ctx, conversationPath(conversationId));
 
-const isSupportedImageType = (mediaType: string): mediaType is "image/gif" | "image/jpeg" | "image/png" | "image/webp" | "image/jpg" =>
-  ["image/gif", "image/jpeg", "image/png", "image/webp", "image/jpg"].includes(mediaType);
+export const validateLocalAttachments = async (paths: readonly string[]): Promise<void> => {
+  if (paths.length > AI_TURN_ATTACHMENT_MAX_ITEMS) {
+    throw new Error(`At most ${AI_TURN_ATTACHMENT_MAX_ITEMS} attachments can be sent with one message.`);
+  }
+  let imageBytes = 0;
+  for (const path of paths) {
+    const file = Bun.file(path);
+    if (!(await file.exists())) throw new Error(`Attachment not found: ${path}`);
+    const mediaType = file.type || guessAiMediaType(path);
+    if (!isAiImageMediaType(mediaType)) continue;
+    if (file.size > AI_IMAGE_INPUT_MAX_BYTES) {
+      throw new Error(`Image attachment exceeds the ${AI_IMAGE_INPUT_MAX_BYTES / (1024 * 1024)} MB limit: ${path}`);
+    }
+    imageBytes += file.size;
+  }
+  if (imageBytes > AI_TURN_IMAGE_MAX_TOTAL_BYTES) {
+    throw new Error(`Image attachments exceed the ${AI_TURN_IMAGE_MAX_TOTAL_BYTES / (1024 * 1024)} MB total limit.`);
+  }
+};
 
 export const resolveConversation = async (
   ctx: CloudCliContext,
@@ -36,12 +63,11 @@ export const uploadAttachment = async (ctx: CloudCliContext, conversationId: str
   const file = Bun.file(localPath);
   if (!(await file.exists())) throw new Error(`Attachment not found: ${localPath}`);
   const mediaType = file.type || guessAiMediaType(localPath);
-  if (isSupportedImageType(mediaType)) {
-    return { type: "file", data: Buffer.from(await file.arrayBuffer()).toString("base64"), mediaType };
+  if (isAiImageMediaType(mediaType) && file.size > AI_IMAGE_INPUT_MAX_BYTES) {
+    throw new Error(`Image attachment exceeds the ${AI_IMAGE_INPUT_MAX_BYTES / (1024 * 1024)} MB limit: ${localPath}`);
   }
   const form = new FormData();
   form.set("file", new File([await file.arrayBuffer()], basename(localPath), { type: mediaType }));
-  form.set("dir", "/input");
   const uploaded = await ctx.readJson<{ file: AiFileStat }>(
     await ctx.fetch(`${ASSISTANT_API}${conversationPath(conversationId, "/files")}`, { method: "POST", body: form }),
   );

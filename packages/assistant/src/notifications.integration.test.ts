@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { aiChatTasks, aiConversationStore, createAiShortId, migrateCloudAi } from "@valentinkolb/cloud/ai";
+import { aiChatTasks, aiConversations, createAiShortId, migrateCloudAi } from "@valentinkolb/cloud/ai";
 import { registerNotificationDefinitions } from "@valentinkolb/cloud/services/notifications/catalog";
 import { sql } from "bun";
 import { app } from "./config";
@@ -37,13 +37,13 @@ suite("Assistant completion notifications", () => {
     const service = createAssistantNotificationService(app.notifications);
 
     try {
-      const direct = await aiConversationStore.createConversation({ appId: "assistant", ownerUserId: userId });
-      const resource = await aiConversationStore.createConversation({
+      const direct = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId });
+      const resource = await aiConversations.createConversation({
         appId: "assistant",
         ownerUserId: userId,
         resource: { kind: "resource", appId: "grids", resourceType: "table", resourceId: crypto.randomUUID() },
       });
-      const compaction = await aiConversationStore.createConversation({ appId: "assistant", ownerUserId: userId });
+      const compaction = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId });
       conversationIds.push(direct.id, resource.id, compaction.id);
 
       const turns = await sql<{ id: string; conversation_id: string }[]>`
@@ -115,7 +115,7 @@ suite("Assistant completion notifications", () => {
       VALUES (${`assistant-task-notify-${suffix}`}, 'local', 'user', 'Assistant Task Notify', ${`assistant-task-notify-${suffix}@example.test`}, 'Assistant', 'Notify')
       RETURNING id
     `;
-    const conversation = await aiConversationStore.createConversation({ appId: "assistant", ownerUserId: user!.id });
+    const conversation = await aiConversations.createConversation({ appId: "assistant", ownerUserId: user!.id });
     const service = createAssistantNotificationService(app.notifications);
 
     try {

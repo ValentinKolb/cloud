@@ -1,9 +1,16 @@
-import { mutation } from "@k2b/stdlib/solid";
-import { Button, dialogCore, PanelDialog, panelDialogFixedOptions, Placeholder, SegmentedControl, TextInput } from "@k2b/ui";
-import type { AiConversation, AiConversationPage, AiConversationStatusFilter } from "@valentinkolb/cloud/ai";
-import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { query as solidQuery } from "@k2b/stdlib/solid";
+import { Button, dialogCore, PanelDialog, Placeholder, panelDialogFixedOptions, SegmentedControl, TextInput } from "@k2b/ui";
+import type { AiConversation, AiConversationPage, AiConversationStatusFilter, AiProject } from "@valentinkolb/cloud/ai";
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import AssistantAllChatsList from "./AssistantAllChatsList";
+import {
+  type AssistantLiveHub,
+  type AssistantLiveInvalidation,
+  AssistantLiveProvider,
+  matchesAssistantInvalidation,
+  useAssistantLive,
+} from "./assistant-live";
 import type { ConversationOpenResult } from "./assistant-navigation";
 
 type ChatView = "all" | "running" | "needs_attention" | "failed" | "unread" | "archived";
@@ -29,59 +36,57 @@ const emptyViewText = (view: ChatView, search: string): string => {
   return "No chats yet.";
 };
 
-type PageRequest = { requestId: number; query: string; view: ChatView; page: number };
-type PageResult = { requestId: number; page: AiConversationPage };
 function AssistantAllChatsDialog(props: {
   close: () => void;
   openConversation: (conversation: AiConversation) => Promise<ConversationOpenResult>;
+  projects: () => readonly AiProject[];
 }) {
   const [query, setQuery] = createSignal("");
   const [view, setView] = createSignal<ChatView>("all");
   const [page, setPage] = createSignal(1);
-  const [result, setResult] = createSignal<AiConversationPage | null>(null);
-  let latestRequestId = 0;
+  const [requestQuery, setRequestQuery] = createSignal("");
   let latestOpenRequestId = 0;
-
-  const load = mutation.create<PageResult, PageRequest>({
-    mutation: async (input) => {
+  const source = createMemo(() => JSON.stringify({ query: requestQuery(), view: view(), page: page() }));
+  const result = solidQuery.create<string, AiConversationPage, AssistantLiveInvalidation>({
+    source,
+    load: async (serialized, { abortSignal }) => {
+      const input = JSON.parse(serialized) as { query: string; view: ChatView; page: number };
       const status = input.view !== "all" && input.view !== "archived" ? (input.view as AiConversationStatusFilter) : undefined;
-      const pageResult = await assistantApi.listConversationsPage({
+      return assistantApi.listConversationsPage({
         q: input.query || undefined,
         page: input.page,
         perPage: PER_PAGE,
         archived: input.view === "archived",
         status,
+        signal: abortSignal,
       });
-      return { requestId: input.requestId, page: pageResult };
-    },
-    onSuccess: (next) => {
-      if (next.requestId !== latestRequestId) return;
-      const lastPage = Math.max(1, Math.ceil(next.page.total / next.page.perPage));
-      if (next.page.page > lastPage) {
-        setPage(lastPage);
-        return;
-      }
-      setResult(next.page);
     },
   });
-
-  const refresh = () => {
-    setResult(null);
-    void load.mutate({ requestId: ++latestRequestId, query: query().trim(), view: view(), page: page() });
-  };
+  const live = useAssistantLive();
+  const unregister = live.register({
+    matches: matchesAssistantInvalidation(["conversation-list", "project-list"]),
+    invalidate: (invalidation) => result.invalidate(invalidation),
+  });
+  onCleanup(unregister);
 
   createEffect(() => {
-    const request = { requestId: ++latestRequestId, query: query().trim(), view: view(), page: page() };
-    setResult(null);
-    const timer = window.setTimeout(() => void load.mutate(request), 180);
+    const value = query().trim();
+    const timer = window.setTimeout(() => setRequestQuery(value), 180);
     onCleanup(() => window.clearTimeout(timer));
+  });
+
+  createEffect(() => {
+    const value = result.data();
+    if (!value) return;
+    const lastPage = Math.max(1, Math.ceil(value.total / value.perPage));
+    if (value.page > lastPage) setPage(lastPage);
   });
 
   const selectView = (next: ChatView) => {
     setPage(1);
     setView(next);
   };
-  const totalPages = () => Math.max(1, Math.ceil((result()?.total ?? 0) / (result()?.perPage ?? PER_PAGE)));
+  const totalPages = () => Math.max(1, Math.ceil((result.data()?.total ?? 0) / (result.data()?.perPage ?? PER_PAGE)));
   const openConversation = async (conversation: AiConversation): Promise<ConversationOpenResult> => {
     const requestId = ++latestOpenRequestId;
     const result = await props.openConversation(conversation);
@@ -97,7 +102,9 @@ function AssistantAllChatsDialog(props: {
     <PanelDialog>
       <PanelDialog.Header
         title="All chats"
-        subtitle={result() ? `${result()!.total} ${result()!.total === 1 ? "chat" : "chats"}` : "Search and manage your history"}
+        subtitle={
+          result.data() ? `${result.data()!.total} ${result.data()!.total === 1 ? "chat" : "chats"}` : "Search and manage your history"
+        }
         icon="ti ti-messages"
         close={props.close}
       />
@@ -130,7 +137,7 @@ function AssistantAllChatsDialog(props: {
           />
         </div>
 
-        <Show when={load.error()}>
+        <Show when={result.data() ? result.error() : null}>
           {(error) => (
             <div class="rounded-[var(--ui-radius-surface)] bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
               {error().message}
@@ -138,23 +145,45 @@ function AssistantAllChatsDialog(props: {
           )}
         </Show>
 
-        <Show
-          when={result() && result()!.items.length > 0}
-          fallback={
-            <Placeholder
-              state={load.loading() && !result() ? "loading" : "empty"}
-              variant="panel"
-              title={load.loading() && !result() ? "Loading chats…" : emptyViewText(view(), query().trim())}
+        <div aria-busy={result.loading() || result.refreshing()}>
+          <Show
+            when={result.data() && result.data()!.items.length > 0}
+            fallback={
+              <Show
+                when={!result.data() ? result.error() : null}
+                fallback={
+                  <Placeholder
+                    state={result.loading() && !result.data() ? "loading" : "empty"}
+                    variant="panel"
+                    title={result.loading() && !result.data() ? "Loading chats…" : emptyViewText(view(), query().trim())}
+                  />
+                }
+              >
+                {(error) => (
+                  <Placeholder
+                    state="error"
+                    variant="panel"
+                    title="Could not load chats"
+                    description={error().message}
+                    action={
+                      <Button size="sm" variant="secondary" onClick={() => void result.refresh()}>
+                        Retry
+                      </Button>
+                    }
+                  />
+                )}
+              </Show>
+            }
+          >
+            <AssistantAllChatsList
+              conversations={result.data()!.items}
+              archived={view() === "archived"}
+              projects={props.projects()}
+              onChanged={() => void result.refresh()}
+              onOpenConversation={openConversation}
             />
-          }
-        >
-          <AssistantAllChatsList
-            conversations={result()!.items}
-            archived={view() === "archived"}
-            onChanged={refresh}
-            onOpenConversation={openConversation}
-          />
-        </Show>
+          </Show>
+        </div>
       </PanelDialog.Body>
       <PanelDialog.Footer>
         <span class="text-xs text-dimmed">
@@ -164,13 +193,18 @@ function AssistantAllChatsDialog(props: {
           <Button
             variant="ghost"
             size="sm"
-            disabled={page() <= 1 || load.loading()}
+            disabled={page() <= 1 || result.loading() || result.refreshing()}
             onClick={() => setPage((value) => Math.max(1, value - 1))}
           >
             <i class="ti ti-chevron-left" aria-hidden="true" />
             Previous
           </Button>
-          <Button variant="ghost" size="sm" disabled={!result()?.hasNext || load.loading()} onClick={() => setPage((value) => value + 1)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={!result.data()?.hasNext || result.loading() || result.refreshing()}
+            onClick={() => setPage((value) => value + 1)}
+          >
             Next
             <i class="ti ti-chevron-right" aria-hidden="true" />
           </Button>
@@ -182,8 +216,14 @@ function AssistantAllChatsDialog(props: {
 
 export const openAssistantAllChatsDialog = (
   openConversation: (conversation: AiConversation) => Promise<ConversationOpenResult>,
+  live: AssistantLiveHub,
+  projects: () => readonly AiProject[] = () => [],
 ): Promise<void | undefined> =>
   dialogCore.open<void>(
-    (close) => <AssistantAllChatsDialog close={() => close()} openConversation={openConversation} />,
+    (close) => (
+      <AssistantLiveProvider value={live}>
+        <AssistantAllChatsDialog close={() => close()} openConversation={openConversation} projects={projects} />
+      </AssistantLiveProvider>
+    ),
     panelDialogFixedOptions,
   );

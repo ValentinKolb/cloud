@@ -8,7 +8,7 @@ import {
   type AiStoredMessage,
   aiCapabilityToolName,
   aiChatTasks,
-  aiConversationStore,
+  aiConversations,
   isConversationResourceCursor,
 } from "@valentinkolb/cloud/ai";
 import {
@@ -231,7 +231,7 @@ const ChatResourcesDataSchema = z.object({ chat: ChatSummarySchema, resources: z
 const ChatsResourcesDataSchema = z
   .array(
     ResourceDataSchema.extend({
-      chat: z.object({ id: ChatIdSchema, title: z.string().min(1).max(120), icon: z.string().max(120), updatedAt: z.string() }).strict(),
+      chat: z.object({ id: ChatIdSchema, title: z.string().min(1).max(120), updatedAt: z.string() }).strict(),
     }).strict(),
   )
   .max(50);
@@ -266,7 +266,6 @@ const toResourceView = (chat: AiConversation): CloudResourceView => ({
   ref: { type: "assistant.chat", id: chat.shortId },
   title: chat.title,
   ...(chat.description.trim() ? { preview: chat.description } : {}),
-  ...(chat.icon.trim() ? { icon: chat.icon } : {}),
   priority: chat.pinnedAt ? 8 : 6,
   metadata: [
     { label: "Status", value: chat.runStatus },
@@ -309,7 +308,7 @@ const resourceData = (resource: AiConversationResourceRef) => ({
 });
 
 const ownedChat = async (chatId: string, userId: string, archived = false): Promise<AiConversation | null> =>
-  aiConversationStore.getConversationByShortId({ shortId: chatId, appId: ASSISTANT_APP_ID, ownerUserId: userId, archived });
+  aiConversations.getConversationByShortId({ shortId: chatId, appId: ASSISTANT_APP_ID, ownerUserId: userId, archived });
 const readableOwnedChat = async (chatId: string, userId: string): Promise<AiConversation | null> =>
   (await ownedChat(chatId, userId)) ?? ownedChat(chatId, userId, true);
 
@@ -383,7 +382,7 @@ export const assistantCapabilities = defineCapabilities({
       openWorld: false,
       async run(input, context) {
         if (!context.user) return fail(err.forbidden("Assistant chats require a user-backed actor"));
-        const chats = await aiConversationStore.listConversations({
+        const chats = await aiConversations.listConversations({
           appId: ASSISTANT_APP_ID,
           ownerUserId: context.user.id,
           search: input.query || undefined,
@@ -406,7 +405,7 @@ export const assistantCapabilities = defineCapabilities({
         if (!chat) return fail(err.notFound("Chat"));
         const beforeSeq = input.cursor === undefined ? undefined : Number(input.cursor);
         if (beforeSeq !== undefined && (!Number.isSafeInteger(beforeSeq) || beforeSeq <= 0)) return fail(err.badInput("Invalid cursor"));
-        const page = await aiConversationStore.listMessagesPage({ conversationId: chat.id, beforeSeq, limit: input.limit });
+        const page = await aiConversations.listMessagesPage({ conversationId: chat.id, beforeSeq, limit: input.limit });
         const oldestSeq = page.messages[0]?.seq;
         return ok({
           data: { chat: chatSummary(chat), messages: page.messages.flatMap((message) => visibleMessage(message) ?? []) },
@@ -428,7 +427,7 @@ export const assistantCapabilities = defineCapabilities({
         if (!chat) return fail(err.notFound("Chat"));
         const beforeSeq = input.cursor === undefined ? undefined : Number(input.cursor);
         if (beforeSeq !== undefined && (!Number.isSafeInteger(beforeSeq) || beforeSeq <= 0)) return fail(err.badInput("Invalid cursor"));
-        const page = await aiConversationStore.searchConversationMessages({
+        const page = await aiConversations.searchConversationMessages({
           conversationId: chat.id,
           query: input.query,
           beforeSeq,
@@ -452,7 +451,7 @@ export const assistantCapabilities = defineCapabilities({
         if (!context.user) return fail(err.forbidden("Assistant chats require a user-backed actor"));
         const chat = await readableOwnedChat(input.chatId, context.user.id);
         if (!chat) return fail(err.notFound("Chat"));
-        const page = await aiConversationStore.listConversationResources({
+        const page = await aiConversations.listConversationResources({
           conversationId: chat.id,
           search: input.query,
           before: input.cursor,
@@ -474,7 +473,7 @@ export const assistantCapabilities = defineCapabilities({
       openWorld: false,
       async run(input, context) {
         if (!context.user) return fail(err.forbidden("Assistant chats require a user-backed actor"));
-        const page = await aiConversationStore.listUserConversationResources({
+        const page = await aiConversations.listUserConversationResources({
           appId: ASSISTANT_APP_ID,
           ownerUserId: context.user.id,
           search: input.query,
@@ -484,7 +483,7 @@ export const assistantCapabilities = defineCapabilities({
         return ok({
           data: page.resources.map((resource) => ({
             ...resourceData(resource),
-            chat: { id: resource.chat.shortId, title: resource.chat.title, icon: resource.chat.icon, updatedAt: resource.chat.updatedAt },
+            chat: { id: resource.chat.shortId, title: resource.chat.title, updatedAt: resource.chat.updatedAt },
           })),
           refs: page.resources.map((resource) => resource.ref),
           page: capabilityPage(page.nextCursor),
@@ -798,12 +797,12 @@ export const assistantCapabilities = defineCapabilities({
       async run(input, context) {
         if (!context.user) return fail(err.forbidden("Assistant chats require a user-backed actor"));
         if (!context.idempotencyKey) return fail(err.badInput("Idempotency-Key is required"));
-        const origin = await aiConversationStore.getCapabilityInvocationOrigin({
+        const origin = await aiConversations.getCapabilityInvocationOrigin({
           idempotencyKey: context.idempotencyKey,
           toolName: CHAT_MESSAGE_TOOL_NAME,
         });
         if (!origin) return fail(err.forbidden("Inter-chat messages require an Assistant AI turn"));
-        const created = await aiConversationStore.createInterChatMessage({
+        const created = await aiConversations.createInterChatMessage({
           appId: ASSISTANT_APP_ID,
           sourceConversationId: origin.conversationId,
           sourceTurnId: origin.turnId,

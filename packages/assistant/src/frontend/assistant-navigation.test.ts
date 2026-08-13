@@ -5,7 +5,10 @@ import {
   assistantConversationHref,
   assistantConversationIdFromHref,
   assistantProjectHref,
+  assistantProjectIdFromHref,
+  assistantProjectQueryFromHref,
   shouldCommitConversationNavigation,
+  shouldOpenProjectConversation,
 } from "./assistant-navigation";
 
 describe("Assistant conversation navigation", () => {
@@ -34,6 +37,13 @@ describe("Assistant conversation navigation", () => {
     expect(assistantConversationHref("/app/assistant?project=prj123&q=launch", "chat-2")).toBe("/app/assistant?conversation=chat-2");
   });
 
+  test("reads Project navigation state from absolute and relative hrefs", () => {
+    expect(assistantProjectIdFromHref("/app/assistant?project=prj123&q=launch+plan")).toBe("prj123");
+    expect(assistantProjectQueryFromHref("https://cloud.test/app/assistant?project=prj123&q=%20launch%20")).toBe("launch");
+    expect(assistantProjectIdFromHref("/app/assistant")).toBeNull();
+    expect(assistantProjectQueryFromHref("/app/assistant")).toBe("");
+  });
+
   test("keeps an artifact within one conversation and clears it when switching chats", () => {
     const withArtifact = assistantArtifactHref("/app/assistant?conversation=chat-1", "/files/report.md");
     expect(withArtifact).toBe("/app/assistant?conversation=chat-1&artifact=%2Ffiles%2Freport.md");
@@ -49,5 +59,11 @@ describe("Assistant conversation navigation", () => {
     expect(shouldCommitConversationNavigation("unchanged", current, target)).toBe(true);
     expect(shouldCommitConversationNavigation("unchanged", current, current)).toBe(false);
     expect(shouldCommitConversationNavigation("stale", current, target)).toBe(false);
+  });
+
+  test("reopens the underlying active chat when the visible view is a Project", () => {
+    expect(shouldOpenProjectConversation("project-1", "chat-1", "chat-1")).toBe(true);
+    expect(shouldOpenProjectConversation(null, "chat-1", "chat-1")).toBe(false);
+    expect(shouldOpenProjectConversation(null, "chat-1", "chat-2")).toBe(true);
   });
 });

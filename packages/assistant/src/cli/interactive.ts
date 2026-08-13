@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { createInterface } from "node:readline";
 import {
+  AI_TURN_ATTACHMENT_MAX_ITEMS,
   type AiFileStat,
   type AiPendingTurnAction,
   type AiPublicModelProfile,
@@ -13,7 +14,14 @@ import { deniedLocalBashResult, parseLocalBashInput, runLocalBash } from "./loca
 import { jsonRequest, readApi } from "./shared";
 import { type AssistantTurnStreamResult, streamAssistantTurn } from "./stream";
 import { selectNumberedChoice, terminalInfo, terminalSafeText } from "./terminal";
-import { conversationPath, readConversationDetail, resolveConversation, submitAssistantTurn, uploadAttachment } from "./turn";
+import {
+  conversationPath,
+  readConversationDetail,
+  resolveConversation,
+  submitAssistantTurn,
+  uploadAttachment,
+  validateLocalAttachments,
+} from "./turn";
 
 type LineReader = {
   read(prompt: string): Promise<string | null>;
@@ -272,7 +280,7 @@ export const runInteractiveAssistant = async (
   let activeConversation: Awaited<ReturnType<typeof resolveConversation>> | undefined;
   let model = options.model;
   let attachments = [...(options.attachments ?? [])];
-  let preparedAttachments: Awaited<ReturnType<typeof uploadAttachment>>[] | null = null;
+  const preparedAttachments = new Map<string, Awaited<ReturnType<typeof uploadAttachment>>>();
   let activeAbort: AbortController | null = null;
   let streaming = false;
   let exitRequested = false;
@@ -287,6 +295,7 @@ export const runInteractiveAssistant = async (
   });
 
   const send = async (message: string): Promise<number> => {
+    await validateLocalAttachments(attachments);
     if (!activeConversation)
       activeConversation = await resolveConversation(ctx, { conversationId, title: options.title, projectId: options.projectId });
     const conversation = activeConversation;
@@ -294,10 +303,10 @@ export const runInteractiveAssistant = async (
       conversationId = conversation.id;
       printResumeHint(ctx, conversation.id, true);
     }
-    if (preparedAttachments === null) {
-      preparedAttachments = [];
-      for (const path of attachments) preparedAttachments.push(await uploadAttachment(ctx, conversation.id, path));
+    for (const path of attachments) {
+      if (!preparedAttachments.has(path)) preparedAttachments.set(path, await uploadAttachment(ctx, conversation.id, path));
     }
+    const attachmentContent = attachments.map((path) => preparedAttachments.get(path)!);
     const abort = new AbortController();
     activeAbort = abort;
     try {
@@ -308,7 +317,7 @@ export const runInteractiveAssistant = async (
         path: conversationPath(conversation.id, "/turns"),
         body: {
           message,
-          ...(preparedAttachments.length > 0 ? { content: preparedAttachments } : {}),
+          ...(attachmentContent.length > 0 ? { content: attachmentContent } : {}),
           ...(model ? { modelProfileId: model } : {}),
           ...(options.allowBash ? { clientToolIds: ["local_bash"] } : {}),
         },
@@ -321,7 +330,7 @@ export const runInteractiveAssistant = async (
         streaming = false;
       });
       attachments = [];
-      preparedAttachments = null;
+      preparedAttachments.clear();
       if (!result) return 0;
       if (result.status === "aborted") {
         await readApi(ctx, conversationPath(conversation.id, `/turns/${encodeURIComponent(submitted.turn.id)}/abort`), { method: "POST" });
@@ -437,10 +446,10 @@ export const runInteractiveAssistant = async (
     if (line.startsWith("/attach ")) {
       const path = line.slice(8).trim();
       if (!path || !(await Bun.file(path).exists())) ctx.error(`Attachment not found: ${path || "<path>"}`);
-      else if (attachments.length >= 11) ctx.error("At most 11 attachments can be sent with one message.");
-      else {
+      else if (attachments.length >= AI_TURN_ATTACHMENT_MAX_ITEMS) {
+        ctx.error(`At most ${AI_TURN_ATTACHMENT_MAX_ITEMS} attachments can be sent with one message.`);
+      } else {
         attachments.push(path);
-        preparedAttachments = null;
         printInfo(ctx, `Attached for next message: ${basename(path)}`);
       }
       return true;
@@ -534,7 +543,9 @@ export const assistantRootCommand = command("", {
     'cld assistant -p --chat <id> --attach report.pdf "What matters here?"',
   ],
   async run({ ctx, args, flags }) {
-    if (flags.attach.length > 11) throw new Error("At most 11 attachments can be sent with one message.");
+    if (flags.attach.length > AI_TURN_ATTACHMENT_MAX_ITEMS) {
+      throw new Error(`At most ${AI_TURN_ATTACHMENT_MAX_ITEMS} attachments can be sent with one message.`);
+    }
     const positional = args.prompt.join(" ").trim();
     if (!flags.print) {
       if (ctx.options.output !== "text") throw new Error("--json and --jsonl require --print.");
@@ -558,6 +569,7 @@ export const assistantRootCommand = command("", {
     if (positional && piped) throw new Error("Pass the message either as arguments or through stdin.");
     const message = positional || piped;
     if (!message) throw new Error("Missing message.");
+    await validateLocalAttachments(flags.attach);
     const conversation = await resolveConversation(ctx, { conversationId: flags.chat, title: flags.title, projectId: flags.project });
     const content = [];
     for (const path of flags.attach) content.push(await uploadAttachment(ctx, conversation.id, path));

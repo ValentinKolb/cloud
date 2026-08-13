@@ -1,29 +1,32 @@
 import { Link, type LinkNavigateEvent, refreshCurrentPath } from "@k2b/ssr/nav";
 import { mutation } from "@k2b/stdlib/solid";
-import { IconButton, Placeholder, prompts, Tooltip } from "@k2b/ui";
-import type { AiConversation } from "@valentinkolb/cloud/ai";
+import { IconButton, Placeholder, prompts, StatusBadge, Tooltip } from "@k2b/ui";
+import type { AiConversation, AiProject } from "@valentinkolb/cloud/ai";
 import { formatDateTime as formatUpdatedAt } from "@valentinkolb/cloud/shared";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { assistantApi } from "../api/client";
-import { conversationIcon, openAssistantConversationEditor } from "./AssistantConversationEditor";
+import { openAssistantConversationEditor } from "./AssistantConversationEditor";
 import { assistantConversationHref, type ConversationOpenResult, shouldCommitConversationNavigation } from "./assistant-navigation";
 import { ConversationStatusMeta } from "./conversation-status";
 
 type Props = {
   conversations: AiConversation[];
+  projects?: readonly AiProject[];
   archived?: boolean;
   onOpenConversation: (conversation: AiConversation) => Promise<ConversationOpenResult>;
   onChanged?: () => void;
 };
 
-function ConversationSummary(props: { conversation: AiConversation }) {
+function ConversationSummary(props: { conversation: AiConversation; projectName?: string }) {
   return (
     <>
-      <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--ui-surface-subtle)] text-dimmed">
-        <i class={`${conversationIcon(props.conversation)} text-base`} />
-      </span>
       <span class="min-w-0 flex-1">
-        <span class="block truncate font-medium text-primary">{props.conversation.title}</span>
+        <span class="flex min-w-0 items-center gap-2">
+          <span class="min-w-0 truncate font-medium text-primary">{props.conversation.title}</span>
+          <Show when={props.projectName}>
+            {(name) => <StatusBadge tone="neutral" variant="chip" icon={null} label={name()} class="shrink-0" />}
+          </Show>
+        </span>
         <span class="block truncate text-xs text-dimmed">
           {props.conversation.description || `Updated ${formatUpdatedAt(props.conversation.updatedAt)}`}
         </span>
@@ -36,6 +39,8 @@ export default function AssistantAllChatsList(props: Props) {
   const [conversations, setConversations] = createSignal(props.conversations);
   createEffect(() => setConversations(props.conversations));
   const [restoringId, setRestoringId] = createSignal<string | null>(null);
+  const projectName = (conversation: AiConversation) =>
+    conversation.projectId ? props.projects?.find((project) => project.id === conversation.projectId)?.name : undefined;
   const restore = mutation.create<AiConversation, AiConversation>({
     mutation: (conversation) => {
       setRestoringId(conversation.id);
@@ -85,7 +90,7 @@ export default function AssistantAllChatsList(props: Props) {
               when={!props.archived}
               fallback={
                 <span class="flex min-w-0 flex-1 cursor-default items-center gap-3 text-left">
-                  <ConversationSummary conversation={conversation} />
+                  <ConversationSummary conversation={conversation} projectName={projectName(conversation)} />
                 </span>
               }
             >
@@ -95,7 +100,7 @@ export default function AssistantAllChatsList(props: Props) {
                 onNavigate={(nav) => openConversation(conversation, nav)}
                 class="flex min-w-0 flex-1 items-center gap-3 text-left"
               >
-                <ConversationSummary conversation={conversation} />
+                <ConversationSummary conversation={conversation} projectName={projectName(conversation)} />
               </Link>
             </Show>
             <ConversationStatusMeta conversation={conversation} labels />

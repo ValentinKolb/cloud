@@ -5,7 +5,6 @@ import {
   confirmDiscardIfDirty,
   DataTable,
   type DataTableColumn,
-  IconInput,
   prompts,
   SettingsField,
   SettingsGroup,
@@ -30,10 +29,6 @@ type EditConversationFormProps = {
 };
 
 type EditConversationOptions = Pick<EditConversationFormProps, "archiveDisabled" | "archiveDisabledReason">;
-
-const DEFAULT_CHAT_ICON = "ti ti-message";
-
-export const conversationIcon = (conversation: AiConversation): string => conversation.icon?.trim() || DEFAULT_CHAT_ICON;
 
 const RUN_STATUS_BADGES: Record<AiEnrichmentRun["status"], { label: string; tone: StatusTone }> = {
   ok: { label: "ok", tone: "ok" },
@@ -186,23 +181,17 @@ function SearchIndexSection(props: { conversationId: string }) {
 
 function EditConversationForm(props: EditConversationFormProps) {
   const [title, setTitle] = createSignal(props.conversation.title);
-  const [icon, setIcon] = createSignal(conversationIcon(props.conversation));
   const [description, setDescription] = createSignal(props.conversation.description);
   const [pinned, setPinned] = createSignal(Boolean(props.conversation.pinnedAt));
   const initial = {
     title: props.conversation.title,
-    icon: conversationIcon(props.conversation),
     description: props.conversation.description,
     pinned: Boolean(props.conversation.pinnedAt),
   };
   const changeCount = () =>
-    Number(title() !== initial.title) +
-    Number(icon() !== initial.icon) +
-    Number(description() !== initial.description) +
-    Number(pinned() !== initial.pinned);
+    Number(title() !== initial.title) + Number(description() !== initial.description) + Number(pinned() !== initial.pinned);
   const discard = () => {
     setTitle(initial.title);
-    setIcon(initial.icon);
     setDescription(initial.description);
     setPinned(initial.pinned);
   };
@@ -211,7 +200,6 @@ function EditConversationForm(props: EditConversationFormProps) {
     mutation: async () =>
       assistantApi.updateConversation(props.conversation.id, {
         title: title().trim(),
-        icon: icon().trim() || DEFAULT_CHAT_ICON,
         description: description().trim(),
         pinned: pinned(),
       }),
@@ -252,26 +240,16 @@ function EditConversationForm(props: EditConversationFormProps) {
     <div class="dialog-fixed-frame flex min-h-0 flex-col overflow-hidden">
       <SettingsModal title="Chat settings" onClose={() => void requestClose()} closeLabel="Close chat settings">
         <SettingsModal.Group title="Chat">
-          <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, icon, description, and list placement.">
+          <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, description, and list placement.">
             <SettingsGroup title="Identity" description="Choose how this chat appears in navigation and search results.">
-              <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <SettingsField
-                  label="Name"
-                  description="Shown in the chat list and header."
-                  error={() => (!title().trim() ? "Name is required" : undefined)}
-                  changed={() => title() !== initial.title}
-                >
-                  <TextInput aria-label="Name" value={title} onValueChange={setTitle} required maxLength={120} disabled={busy()} />
-                </SettingsField>
-                <SettingsField
-                  label="Icon"
-                  description="Used beside this chat in navigation."
-                  error={() => undefined}
-                  changed={() => icon() !== initial.icon}
-                >
-                  <IconInput aria-label="Icon" value={icon} onValueChange={setIcon} required clearable={false} disabled={busy()} />
-                </SettingsField>
-              </div>
+              <SettingsField
+                label="Name"
+                description="Shown in the chat list and header."
+                error={() => (!title().trim() ? "Name is required" : undefined)}
+                changed={() => title() !== initial.title}
+              >
+                <TextInput aria-label="Name" value={title} onValueChange={setTitle} required maxLength={120} disabled={busy()} />
+              </SettingsField>
               <SettingsField
                 label="Description"
                 description="Optional context shown with this chat."

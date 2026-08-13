@@ -7,6 +7,13 @@ export const shouldCommitConversationNavigation = (result: ConversationOpenResul
   result === "opened" ||
   (result === "unchanged" && relativeHref(new URL(currentHref, URL_BASE)) !== relativeHref(new URL(targetHref, URL_BASE)));
 
+/** A Project page must reopen its underlying active chat so the visible view can change back to that chat. */
+export const shouldOpenProjectConversation = (
+  activeProjectId: string | null | undefined,
+  activeConversationId: string | null,
+  targetConversationId: string,
+): boolean => Boolean(activeProjectId) || activeConversationId !== targetConversationId;
+
 export const assistantConversationHref = (currentHref: string, conversationId: string | null): string => {
   const url = new URL(currentHref, URL_BASE);
   const previousConversationId = url.searchParams.get("conversation");
@@ -29,6 +36,10 @@ export const assistantProjectHref = (currentHref: string, projectId: string, que
 };
 
 export const assistantConversationIdFromHref = (href: string): string | null => new URL(href, URL_BASE).searchParams.get("conversation");
+
+export const assistantProjectIdFromHref = (href: string): string | null => new URL(href, URL_BASE).searchParams.get("project");
+
+export const assistantProjectQueryFromHref = (href: string): string => new URL(href, URL_BASE).searchParams.get("q")?.trim() ?? "";
 
 export const assistantArtifactHref = (currentHref: string, path: string | null): string => {
   const url = new URL(currentHref, URL_BASE);

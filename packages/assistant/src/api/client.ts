@@ -7,6 +7,7 @@ import type {
   AiConversationStatusFilter,
   AiEnrichmentRun,
   AiEnrichmentStatus,
+  AiFileStat,
   AiMemory,
   AiMemoryKind,
   AiMemoryPriority,
@@ -14,6 +15,10 @@ import type {
   AiUserPrefs,
 } from "@valentinkolb/cloud/ai";
 import { api } from "@valentinkolb/cloud/browser";
+import type { AssistantChatContextSnapshot } from "../chat-context";
+import type { AssistantChatTask } from "../chat-tasks-contracts";
+import type { AssistantProjectContextSnapshot } from "../project-context";
+import type { AssistantSidebarSnapshot } from "../sidebar";
 import type { ApiType } from ".";
 
 const client = api.create<ApiType>({ baseUrl: "/api/assistant" });
@@ -25,6 +30,27 @@ const readError = async (response: Response, fallback: string): Promise<string> 
 
 /** Typed conversation-management facade used by the Assistant UI. */
 export const assistantApi = {
+  loadSidebar: async (signal?: AbortSignal): Promise<AssistantSidebarSnapshot> => {
+    const response = await client.workspace.sidebar.$get({}, { init: { signal } });
+    if (!response.ok) throw new Error(await readError(response, "Failed to load Assistant navigation"));
+    return (await response.json()) as AssistantSidebarSnapshot;
+  },
+
+  loadChatContext: async (conversationId: string, signal?: AbortSignal): Promise<AssistantChatContextSnapshot> => {
+    const response = await client.workspace.conversations[":conversationId"].context.$get(
+      { param: { conversationId } },
+      { init: { signal } },
+    );
+    if (!response.ok) throw new Error(await readError(response, "Failed to load chat context"));
+    return (await response.json()) as AssistantChatContextSnapshot;
+  },
+
+  loadProjectContext: async (projectId: string, signal?: AbortSignal): Promise<AssistantProjectContextSnapshot> => {
+    const response = await client.workspace.projects[":projectId"].context.$get({ param: { projectId } }, { init: { signal } });
+    if (!response.ok) throw new Error(await readError(response, "Failed to load Project context"));
+    return (await response.json()) as AssistantProjectContextSnapshot;
+  },
+
   listConversations: async (input: {
     q?: string;
     limit?: number;
@@ -48,9 +74,7 @@ export const assistantApi = {
       { init: { signal: input.signal } },
     );
     if (!response.ok) throw new Error(await readError(response, "Failed to search chats"));
-    const conversations = await response.json();
-    const projectId = input.projectId;
-    return projectId ? conversations.map((conversation) => ({ ...conversation, projectId })) : conversations;
+    return response.json();
   },
 
   listConversationsPage: async (input: {
@@ -78,9 +102,7 @@ export const assistantApi = {
       { init: { signal: input.signal } },
     );
     if (!response.ok) throw new Error(await readError(response, "Failed to load chats"));
-    const page = await response.json();
-    const projectId = input.projectId;
-    return projectId ? { ...page, items: page.items.map((conversation) => ({ ...conversation, projectId })) } : page;
+    return response.json();
   },
 
   searchMessages: async (input: {
@@ -141,6 +163,24 @@ export const assistantApi = {
     return response.json();
   },
 
+  listConversationFiles: async (input: { conversationId: string; signal?: AbortSignal }): Promise<AiFileStat[]> => {
+    const response = await client.conversations[":conversationId"].files.$get(
+      { param: { conversationId: input.conversationId }, query: {} },
+      { init: { signal: input.signal } },
+    );
+    if (!response.ok) throw new Error(await readError(response, "Failed to load chat files"));
+    return (await response.json()).files;
+  },
+
+  listChatTasks: async (input: { chatId: string; limit?: number; signal?: AbortSignal }): Promise<AssistantChatTask[]> => {
+    const response = await client.tasks.$get(
+      { query: { chatId: input.chatId, limit: String(input.limit ?? 50) } },
+      { init: { signal: input.signal } },
+    );
+    if (!response.ok) throw new Error(await readError(response, "Failed to load scheduled tasks"));
+    return response.json();
+  },
+
   listResources: async (
     input: { q?: string; cursor?: string; limit?: number; signal?: AbortSignal } = {},
   ): Promise<{
@@ -158,13 +198,12 @@ export const assistantApi = {
   createConversation: async (input: { title?: string; projectId?: string } = {}): Promise<AiConversation> => {
     const response = await client.conversations.$post({ json: input });
     if (!response.ok) throw new Error(await readError(response, "Failed to create chat"));
-    const conversation = await response.json();
-    return input.projectId ? { ...conversation, projectId: input.projectId } : conversation;
+    return response.json();
   },
 
   updateConversation: async (
     conversationId: string,
-    input: { title: string; icon?: string; description?: string; pinned?: boolean },
+    input: { title: string; description?: string; pinned?: boolean },
   ): Promise<AiConversation> => {
     const response = await client.conversations[":conversationId"].$patch({ param: { conversationId }, json: input });
     if (!response.ok) throw new Error(await readError(response, "Failed to save chat"));

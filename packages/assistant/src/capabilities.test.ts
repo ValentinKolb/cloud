@@ -4,7 +4,7 @@ import {
   type AiInterChatMessage,
   type AiStoredMessage,
   aiCapabilityToolName,
-  aiConversationStore,
+  aiConversations,
 } from "@valentinkolb/cloud/ai";
 import { compileCapabilityManifest } from "@valentinkolb/cloud/capabilities/testing";
 import type { CapabilityExecutionContext, User } from "@valentinkolb/cloud/contracts";
@@ -43,7 +43,6 @@ const chat: AiConversation = {
   appId: "assistant",
   title: "Release planning",
   titleSource: "user",
-  icon: "ti ti-message-chatbot",
   description: "Plan the next Cloud release.",
   descriptionSource: "auto",
   keywords: ["release", "cloud"],
@@ -123,7 +122,7 @@ describe("Assistant capabilities", () => {
   });
 
   test("searches only the current user's chats and returns an open link", async () => {
-    const list = spyOn(aiConversationStore, "listConversations").mockResolvedValue([chat]);
+    const list = spyOn(aiConversations, "listConversations").mockResolvedValue([chat]);
 
     const result = await assistantCapabilities.queries["chats.search"].run({ query: "release", archived: false, limit: 10 }, context);
 
@@ -151,8 +150,8 @@ describe("Assistant capabilities", () => {
 
   test("reads bounded visible text without thinking or tool results", async () => {
     const longText = "x".repeat(8_001);
-    const get = spyOn(aiConversationStore, "getConversationByShortId").mockResolvedValue(chat);
-    spyOn(aiConversationStore, "listMessagesPage").mockResolvedValue({
+    const get = spyOn(aiConversations, "getConversationByShortId").mockResolvedValue(chat);
+    spyOn(aiConversations, "listMessagesPage").mockResolvedValue({
       messages: [
         storedMessage(1, { role: "user", content: [{ type: "text", text: "Please plan it." }] }),
         storedMessage(2, {
@@ -194,8 +193,8 @@ describe("Assistant capabilities", () => {
   });
 
   test("searches visible messages in one explicitly owned chat", async () => {
-    spyOn(aiConversationStore, "getConversationByShortId").mockResolvedValue(chat);
-    const search = spyOn(aiConversationStore, "searchConversationMessages").mockResolvedValue({
+    spyOn(aiConversations, "getConversationByShortId").mockResolvedValue(chat);
+    const search = spyOn(aiConversations, "searchConversationMessages").mockResolvedValue({
       messages: [storedMessage(4, { role: "assistant", content: [{ type: "text", text: "The release is Friday." }] })],
       nextCursor: "4",
     });
@@ -210,7 +209,7 @@ describe("Assistant capabilities", () => {
   });
 
   test("lists structured resources in one chat and across owned chats", async () => {
-    spyOn(aiConversationStore, "getConversationByShortId").mockResolvedValue(chat);
+    spyOn(aiConversations, "getConversationByShortId").mockResolvedValue(chat);
     const resource = {
       ref: { type: "notebooks.note", id: "nT1234" },
       title: "Release notes",
@@ -222,9 +221,9 @@ describe("Assistant capabilities", () => {
       firstSeenAt: chat.createdAt,
       lastSeenAt: chat.updatedAt,
     };
-    const local = spyOn(aiConversationStore, "listConversationResources").mockResolvedValue({ resources: [resource] });
-    const global = spyOn(aiConversationStore, "listUserConversationResources").mockResolvedValue({
-      resources: [{ ...resource, chat: { shortId: chat.shortId, title: chat.title, icon: chat.icon, updatedAt: chat.updatedAt } }],
+    const local = spyOn(aiConversations, "listConversationResources").mockResolvedValue({ resources: [resource] });
+    const global = spyOn(aiConversations, "listUserConversationResources").mockResolvedValue({
+      resources: [{ ...resource, chat: { shortId: chat.shortId, title: chat.title, updatedAt: chat.updatedAt } }],
     });
 
     const localResult = await assistantCapabilities.queries["chat.resources"].run({ chatId: chat.shortId, limit: 20 }, context);
@@ -237,7 +236,7 @@ describe("Assistant capabilities", () => {
   });
 
   test("reviews the exact inter-chat target and refuses untrusted action origins", async () => {
-    spyOn(aiConversationStore, "getConversationByShortId").mockResolvedValue(chat);
+    spyOn(aiConversations, "getConversationByShortId").mockResolvedValue(chat);
     const review = await assistantCapabilities.actions["chat.message"].review!(
       { chatId: chat.shortId, text: "Please verify it." },
       context,
@@ -247,7 +246,7 @@ describe("Assistant capabilities", () => {
       data: { message: `Send this message to ${chat.title} (${chat.shortId}).`, details: [{ label: "Target chat" }, { label: "Message" }] },
     });
 
-    const origin = spyOn(aiConversationStore, "getCapabilityInvocationOrigin").mockResolvedValue(null);
+    const origin = spyOn(aiConversations, "getCapabilityInvocationOrigin").mockResolvedValue(null);
     const result = await assistantCapabilities.actions["chat.message"].run(
       { chatId: chat.shortId, text: "Please verify it." },
       { ...context, idempotencyKey: "ai-test" },
@@ -263,7 +262,7 @@ describe("Assistant capabilities", () => {
   });
 
   test("returns the persisted status for an idempotent message retry", async () => {
-    spyOn(aiConversationStore, "getCapabilityInvocationOrigin").mockResolvedValue({
+    spyOn(aiConversations, "getCapabilityInvocationOrigin").mockResolvedValue({
       conversationId: chat.id,
       conversationShortId: chat.shortId,
       turnId: "33333333-3333-4333-8333-333333333333",
@@ -292,7 +291,7 @@ describe("Assistant capabilities", () => {
       createdAt: chat.createdAt,
       deliveredAt: chat.updatedAt,
     };
-    spyOn(aiConversationStore, "createInterChatMessage").mockResolvedValue({ ok: true, message });
+    spyOn(aiConversations, "createInterChatMessage").mockResolvedValue({ ok: true, message });
 
     const result = await assistantCapabilities.actions["chat.message"].run(
       { chatId: message.targetChatId, text: message.text },
@@ -303,7 +302,7 @@ describe("Assistant capabilities", () => {
   });
 
   test("does not reveal missing or other users' chats", async () => {
-    spyOn(aiConversationStore, "getConversationByShortId").mockResolvedValue(null);
+    spyOn(aiConversations, "getConversationByShortId").mockResolvedValue(null);
 
     const result = await assistantCapabilities.queries["chat.read"].run({ id: chat.shortId, limit: 20 }, context);
 
@@ -312,8 +311,8 @@ describe("Assistant capabilities", () => {
 
   test("reads an explicitly discovered archived chat without making it a message target", async () => {
     const archived = { ...chat, archivedAt: "2026-08-05T12:00:00.000Z" };
-    const get = spyOn(aiConversationStore, "getConversationByShortId").mockResolvedValueOnce(null).mockResolvedValueOnce(archived);
-    spyOn(aiConversationStore, "listMessagesPage").mockResolvedValue({ messages: [], hasMore: false });
+    const get = spyOn(aiConversations, "getConversationByShortId").mockResolvedValueOnce(null).mockResolvedValueOnce(archived);
+    spyOn(aiConversations, "listMessagesPage").mockResolvedValue({ messages: [], hasMore: false });
 
     const result = await assistantCapabilities.queries["chat.read"].run({ id: chat.shortId, limit: 20 }, context);
 
@@ -322,7 +321,7 @@ describe("Assistant capabilities", () => {
   });
 
   test("rejects actors without a delegated user", async () => {
-    const list = spyOn(aiConversationStore, "listConversations");
+    const list = spyOn(aiConversations, "listConversations");
     const result = await assistantCapabilities.queries["chats.search"].run(
       { query: "", archived: false, limit: 10 },
       { ...context, user: null },

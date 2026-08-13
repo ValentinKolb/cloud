@@ -1,6 +1,10 @@
-import { Button, Placeholder, prompts, TextInput, toast } from "@k2b/ui";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { dates } from "@k2b/stdlib";
+import { query } from "@k2b/stdlib/solid";
+import { Button, DateTimePicker, Placeholder, prompts, Select, StatusBadge, TextInput, toast } from "@k2b/ui";
+import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { assistantApi } from "../api/client";
 import type { AssistantChatTask, AssistantChatTaskOccurrence } from "../chat-tasks-contracts";
+import { type AssistantLiveInvalidation, matchesAssistantInvalidation, useAssistantLive } from "./assistant-live";
 
 const request = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(`/api/assistant${path}`, init);
@@ -11,179 +15,406 @@ const request = async <T,>(path: string, init?: RequestInit): Promise<T> => {
 
 const idempotencyKey = () => crypto.randomUUID().replaceAll("-", "");
 
-function AssistantTasksDialog(props: { chatId: string }) {
-  const [tasks, { refetch }] = createResource(
-    () => props.chatId,
-    (chatId) => request<AssistantChatTask[]>(`/tasks?chatId=${chatId}&limit=100`),
-  );
+const localDateTime = (instant: string, timeZone: string): string => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(instant));
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}T${value("hour")}:${value("minute")}`;
+};
+
+const statePresentation = (state: AssistantChatTask["state"]) => {
+  if (state === "active") return { label: "Active", tone: "ok" as const };
+  if (state === "paused") return { label: "Paused", tone: "neutral" as const };
+  if (state === "completed") return { label: "Completed", tone: "neutral" as const };
+  return { label: "Needs attention", tone: "warning" as const };
+};
+
+const occurrencePresentation = (state: AssistantChatTaskOccurrence["state"]) => {
+  if (state === "completed") return { label: "Completed", tone: "ok" as const };
+  if (state === "failed") return { label: "Failed", tone: "error" as const };
+  if (state === "running") return { label: "Running", tone: "running" as const };
+  return { label: "Queued", tone: "neutral" as const };
+};
+
+export const formatAssistantTaskSchedule = (task: AssistantChatTask): string =>
+  task.schedule.kind === "once"
+    ? dates.formatDateTime(task.schedule.runAt, { timeZone: task.timezone })
+    : `${task.schedule.cron} · ${task.timezone}`;
+
+export function AssistantTasksView(props: { chatId: string }) {
+  const tasks = query.create<string, AssistantChatTask[], AssistantLiveInvalidation>({
+    source: () => props.chatId,
+    load: (chatId, { abortSignal }) => assistantApi.listChatTasks({ chatId, limit: 100, signal: abortSignal }),
+  });
+  const live = useAssistantLive();
+  const unregister = live.register({
+    matches: matchesAssistantInvalidation(["conversation-tasks"], { conversationId: props.chatId }),
+    invalidate: async (invalidation) => {
+      await Promise.all([tasks.invalidate(invalidation), history.invalidate(invalidation)]);
+    },
+  });
+  onCleanup(unregister);
   const [timezone] = createResource(() => request<{ timezone: string }>("/tasks/status"));
   const [prompt, setPrompt] = createSignal("");
   const [kind, setKind] = createSignal<"once" | "cron">("once");
-  const [localAt, setLocalAt] = createSignal("");
+  const [runAt, setRunAt] = createSignal<string | null>(null);
   const [cron, setCron] = createSignal("0 9 * * 1-5");
   const [editing, setEditing] = createSignal<AssistantChatTask | null>(null);
-  const [busy, setBusy] = createSignal(false);
-  const [occurrences, setOccurrences] = createSignal<AssistantChatTaskOccurrence[]>([]);
+  const [initialSchedule, setInitialSchedule] = createSignal("");
+  const [submitted, setSubmitted] = createSignal(false);
+  const [busyAction, setBusyAction] = createSignal<string | null>(null);
+  const [formError, setFormError] = createSignal<string | null>(null);
+  const [actionError, setActionError] = createSignal<string | null>(null);
+  const [historyTask, setHistoryTask] = createSignal<AssistantChatTask | null>(null);
+  const history = query.create<
+    string,
+    { task: AssistantChatTask; occurrences: AssistantChatTaskOccurrence[] } | null,
+    AssistantLiveInvalidation
+  >({
+    source: () => historyTask()?.id ?? "",
+    load: async (taskId, { abortSignal }) => {
+      if (!taskId) return null;
+      const response = await fetch(`/api/assistant/tasks/${taskId}`, { signal: abortSignal });
+      if (response.status === 404) return null;
+      const body = (await response.json().catch(() => null)) as {
+        task: AssistantChatTask;
+        occurrences: AssistantChatTaskOccurrence[];
+        message?: string;
+      } | null;
+      if (!response.ok || !body) throw new Error(body?.message || "Could not load occurrence history");
+      return body;
+    },
+  });
+  const historyDetail = createMemo(() => {
+    const selected = historyTask();
+    const detail = history.data();
+    return selected && detail?.task.id === selected.id ? detail : null;
+  });
+
+  createEffect(() => {
+    const selected = historyTask();
+    const current = tasks.data();
+    if (selected && current && !current.some((task) => task.id === selected.id)) setHistoryTask(null);
+  });
+
+  const promptError = createMemo(() => (submitted() && !prompt().trim() ? "Enter what Assistant should do." : undefined));
+  const scheduleError = createMemo(() => {
+    if (!submitted()) return undefined;
+    if (kind() === "once" && !runAt()) return "Choose a future date and time.";
+    if (kind() === "cron" && !cron().trim()) return "Enter a five-field cron expression.";
+    return undefined;
+  });
+  const busy = () => busyAction() !== null;
 
   const reset = () => {
     setEditing(null);
     setPrompt("");
     setKind("once");
-    setLocalAt("");
+    setRunAt(null);
     setCron("0 9 * * 1-5");
+    setInitialSchedule("");
+    setSubmitted(false);
+    setFormError(null);
   };
+
+  const edit = (task: AssistantChatTask) => {
+    setEditing(task);
+    setPrompt(task.prompt);
+    setKind(task.schedule.kind);
+    setRunAt(task.schedule.kind === "once" ? task.schedule.runAt : null);
+    setCron(task.schedule.kind === "cron" ? task.schedule.cron : "0 9 * * 1-5");
+    setInitialSchedule(JSON.stringify(task.schedule));
+    setSubmitted(false);
+    setFormError(null);
+  };
+
+  const scheduleInput = () => {
+    if (kind() === "cron") return { kind: "cron" as const, cron: cron().trim() };
+    const value = runAt();
+    const zone = timezone()?.timezone;
+    return value && zone ? { kind: "once" as const, localAt: localDateTime(value, zone) } : null;
+  };
+
+  const scheduleChanged = () => {
+    const current = editing();
+    if (!current) return true;
+    if (kind() !== current.schedule.kind) return true;
+    if (kind() === "once") return JSON.stringify({ kind: "once", runAt: runAt() }) !== initialSchedule();
+    return JSON.stringify({ kind: "cron", cron: cron().trim() }) !== initialSchedule();
+  };
+
   const save = async (event: SubmitEvent) => {
     event.preventDefault();
-    if (!prompt().trim() || (!editing() && (kind() === "once" ? !localAt() : !cron().trim()))) return;
-    setBusy(true);
+    setSubmitted(true);
+    setFormError(null);
+    const current = editing();
+    const includeSchedule = !current || scheduleChanged();
+    const schedule = includeSchedule ? scheduleInput() : null;
+    if (!prompt().trim() || (includeSchedule && (!schedule || scheduleError()))) return;
+    setBusyAction("save");
     try {
-      const schedule = kind() === "once" ? { kind: "once" as const, localAt: localAt() } : { kind: "cron" as const, cron: cron().trim() };
-      const current = editing();
       await request(current ? `/tasks/${current.id}` : "/tasks", {
         method: current ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json", ...(current ? {} : { "Idempotency-Key": idempotencyKey() }) },
         body: JSON.stringify(
           current
-            ? { prompt: prompt().trim(), ...(kind() === "cron" || localAt() ? { schedule } : {}) }
+            ? { prompt: prompt().trim(), ...(includeSchedule && schedule ? { schedule } : {}) }
             : { chatId: props.chatId, prompt: prompt().trim(), schedule },
         ),
       });
       reset();
-      await refetch();
+      await tasks.refresh();
       toast.success(current ? "Task updated" : "Task scheduled");
     } catch (error) {
-      await prompts.error(error instanceof Error ? error.message : "Could not save task");
+      setFormError(error instanceof Error ? error.message : "Could not save task");
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
+
   const action = async (task: AssistantChatTask, name: "pause" | "resume" | "run" | "delete") => {
     if (name === "delete" && !(await prompts.confirm(`Delete scheduled task “${task.prompt.slice(0, 80)}”?`))) return;
+    setBusyAction(`${task.id}:${name}`);
+    setActionError(null);
     try {
       await request(`/tasks/${task.id}${name === "delete" ? "" : `/${name}`}`, {
         method: name === "delete" ? "DELETE" : "POST",
         headers: name === "run" ? { "Idempotency-Key": idempotencyKey() } : undefined,
       });
-      await refetch();
+      await tasks.refresh();
+      if (name === "delete" && historyTask()?.id === task.id) {
+        setHistoryTask(null);
+      }
     } catch (error) {
-      await prompts.error(error instanceof Error ? error.message : "Could not update task");
+      setActionError(error instanceof Error ? error.message : "Could not update task");
+    } finally {
+      setBusyAction(null);
     }
   };
-  const showHistory = async (task: AssistantChatTask) => {
-    const detail = await request<{ task: AssistantChatTask; occurrences: AssistantChatTaskOccurrence[] }>(`/tasks/${task.id}`);
-    setOccurrences(detail.occurrences);
+
+  const showHistory = (task: AssistantChatTask) => {
+    setHistoryTask(task);
+    setActionError(null);
   };
 
   return (
     <div class="flex flex-col gap-6">
-      <form class="flex flex-col gap-3 rounded-xl bg-[var(--ui-surface-subtle)] p-4" onSubmit={save}>
-        <h2 class="font-semibold text-primary">{editing() ? "Edit task" : "Schedule a task"}</h2>
+      <form class="flex flex-col gap-4 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] p-4" onSubmit={save}>
+        <div>
+          <h3 class="font-semibold text-primary">{editing() ? "Edit task" : "Schedule a task"}</h3>
+          <p class="mt-1 text-sm text-secondary">Tasks stay attached to this chat and use its current Project context when they run.</p>
+        </div>
         <TextInput
-          aria-label="Task prompt"
+          label="Prompt"
           multiline
           lines={3}
           value={prompt}
           onValueChange={setPrompt}
           placeholder="What should Assistant do?"
           maxLength={10_000}
+          error={promptError}
+          disabled={busy()}
         />
-        <label class="flex flex-col gap-1 text-sm text-secondary">
-          Schedule
-          <select
-            class="rounded-md border bg-transparent px-2 py-2"
-            value={kind()}
-            onChange={(event) => setKind(event.currentTarget.value as "once" | "cron")}
-          >
-            <option value="once">Once</option>
-            <option value="cron">Recurring</option>
-          </select>
-        </label>
-        <Show when={kind() === "once"} fallback={<TextInput aria-label="Cron expression" value={cron} onValueChange={setCron} />}>
-          <input
-            aria-label="Local date and time"
-            type="datetime-local"
-            class="rounded-md border bg-transparent px-2 py-2"
-            value={localAt()}
-            onInput={(event) => setLocalAt(event.currentTarget.value)}
+        <Select
+          label="Schedule"
+          value={kind}
+          onValueChange={(value) => value && setKind(value as "once" | "cron")}
+          options={[
+            { value: "once", label: "Once", icon: "ti ti-calendar-event" },
+            { value: "cron", label: "Recurring", icon: "ti ti-repeat" },
+          ]}
+          disabled={busy()}
+        />
+        <Show
+          when={kind() === "once"}
+          fallback={
+            <TextInput
+              label="Cron expression"
+              description={`Five fields interpreted in ${timezone()?.timezone ?? "app.timezone"}.`}
+              value={cron}
+              onValueChange={setCron}
+              placeholder="0 9 * * 1-5"
+              monospace
+              error={scheduleError}
+              disabled={busy()}
+            />
+          }
+        >
+          <DateTimePicker
+            label="Run at"
+            description={`Local time in ${timezone()?.timezone ?? "app.timezone"}.`}
+            value={runAt}
+            onValueChange={setRunAt}
+            dateConfig={{ timeZone: timezone()?.timezone ?? "UTC" }}
+            error={scheduleError}
+            disabled={busy() || timezone.loading}
+            clearable
           />
         </Show>
-        <p class="text-xs text-dimmed">Times use {timezone()?.timezone ?? "app.timezone"}.</p>
+        <Show when={formError()}>
+          {(message) => (
+            <p class="text-sm text-red-600 dark:text-red-300" role="alert">
+              {message()}
+            </p>
+          )}
+        </Show>
         <div class="flex justify-end gap-2">
           <Show when={editing()}>
-            <Button type="button" variant="ghost" onClick={reset}>
+            <Button type="button" variant="secondary" size="sm" onClick={reset} disabled={busy()}>
               Cancel
             </Button>
           </Show>
-          <Button type="submit" loading={busy()}>
+          <Button type="submit" size="sm" loading={busyAction() === "save"} disabled={busy() && busyAction() !== "save"}>
             {editing() ? "Save task" : "Schedule task"}
           </Button>
         </div>
       </form>
+
+      <Show when={actionError()}>{(message) => <Placeholder state="error" title="Task action failed" description={message()} />}</Show>
       <Show
-        when={tasks()}
-        fallback={<Placeholder state={tasks.error ? "error" : "loading"} title={tasks.error ? "Could not load tasks" : "Loading tasks"} />}
+        when={tasks.data()}
+        fallback={
+          <Placeholder
+            state={tasks.error() ? "error" : "loading"}
+            title={tasks.error() ? "Could not load tasks" : "Loading tasks"}
+            description={tasks.error()?.message}
+          />
+        }
       >
-        <div class="flex flex-col gap-2">
-          <For each={tasks()}>
-            {(task) => (
-              <article class="rounded-lg px-2 py-2 hover:bg-[var(--ui-surface-subtle)]">
-                <p class="text-sm font-medium text-primary">{task.prompt}</p>
-                <p class="text-xs text-dimmed">
-                  {task.schedule.kind === "once" ? new Date(task.schedule.runAt).toLocaleString() : task.schedule.cron} · {task.state}
-                </p>
-                <div class="mt-2 flex flex-wrap gap-1">
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    onClick={() => {
-                      setEditing(task);
-                      setPrompt(task.prompt);
-                      setKind(task.schedule.kind);
-                      if (task.schedule.kind === "cron") setCron(task.schedule.cron);
-                    }}
-                  >
-                    Edit
-                  </Button>
-                  <Button size="xs" variant="ghost" onClick={() => void action(task, task.state === "paused" ? "resume" : "pause")}>
-                    {task.state === "paused" ? "Resume" : "Pause"}
-                  </Button>
-                  <Button size="xs" variant="ghost" disabled={task.state !== "active"} onClick={() => void action(task, "run")}>
-                    Run now
-                  </Button>
-                  <Button size="xs" variant="ghost" onClick={() => void showHistory(task)}>
-                    History
-                  </Button>
-                  <Button size="xs" variant="ghost" onClick={() => void action(task, "delete")}>
-                    Delete
-                  </Button>
-                </div>
-              </article>
-            )}
-          </For>
-        </div>
+        {(items) => (
+          <Show
+            when={items().length > 0}
+            fallback={<Placeholder title="No scheduled tasks" description="Create a one-time or recurring task for this chat." />}
+          >
+            <div class="flex flex-col gap-5">
+              <For each={items()}>
+                {(task) => {
+                  const state = () => statePresentation(task.state);
+                  return (
+                    <article class="flex flex-col gap-2">
+                      <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                          <p class="line-clamp-3 text-sm font-medium text-primary">{task.prompt}</p>
+                          <p class="mt-1 text-xs text-dimmed">{formatAssistantTaskSchedule(task)}</p>
+                        </div>
+                        <StatusBadge label={state().label} tone={state().tone} variant="chip" />
+                      </div>
+                      <Show when={task.lastError}>
+                        {(message) => (
+                          <p class="text-xs text-red-600 dark:text-red-300" role="alert">
+                            {message()}
+                          </p>
+                        )}
+                      </Show>
+                      <div class="flex flex-wrap gap-1">
+                        <Button size="xs" variant="ghost" onClick={() => edit(task)} disabled={busy()}>
+                          Edit
+                        </Button>
+                        <Show when={task.state === "active"}>
+                          <Button
+                            size="xs"
+                            variant="ghost"
+                            loading={busyAction() === `${task.id}:pause`}
+                            onClick={() => void action(task, "pause")}
+                            disabled={busy()}
+                          >
+                            Pause
+                          </Button>
+                        </Show>
+                        <Show when={task.state === "paused" || (task.state === "needs_attention" && task.schedule.kind === "cron")}>
+                          <Button
+                            size="xs"
+                            variant="ghost"
+                            loading={busyAction() === `${task.id}:resume`}
+                            onClick={() => void action(task, "resume")}
+                            disabled={busy()}
+                          >
+                            Resume
+                          </Button>
+                        </Show>
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          loading={busyAction() === `${task.id}:run`}
+                          disabled={busy() || task.state !== "active"}
+                          onClick={() => void action(task, "run")}
+                        >
+                          Run now
+                        </Button>
+                        <Button size="xs" variant="ghost" onClick={() => showHistory(task)} disabled={busy()}>
+                          History
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="danger"
+                          loading={busyAction() === `${task.id}:delete`}
+                          onClick={() => void action(task, "delete")}
+                          disabled={busy()}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </article>
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
+        )}
       </Show>
-      <Show when={occurrences().length}>
-        <section>
-          <h2 class="font-semibold text-primary">Occurrence history</h2>
-          <ul class="mt-2 flex flex-col gap-1">
-            <For each={occurrences()}>
-              {(item) => (
-                <li class="text-xs text-secondary">
-                  {new Date(item.scheduledFor).toLocaleString()} · {item.state}
-                  {item.error ? ` · ${item.error}` : ""}
-                </li>
+
+      <Show when={historyTask()}>
+        {(task) => (
+          <section class="flex flex-col gap-3" aria-live="polite">
+            <div>
+              <h3 class="font-semibold text-primary">Occurrence history</h3>
+              <p class="mt-1 line-clamp-2 text-sm text-secondary">{historyDetail()?.task.prompt ?? task().prompt}</p>
+            </div>
+            <Show
+              when={historyDetail()}
+              fallback={
+                <Placeholder
+                  state={history.error() ? "error" : "loading"}
+                  title={history.error() ? "Could not load occurrence history" : "Loading occurrence history"}
+                  description={history.error()?.message}
+                />
+              }
+            >
+              {(detail) => (
+                <Show when={detail().occurrences.length > 0} fallback={<Placeholder title="No occurrences yet" />}>
+                  <ul class="flex flex-col gap-3">
+                    <For each={detail().occurrences}>
+                      {(item) => {
+                        const state = () => occurrencePresentation(item.state);
+                        return (
+                          <li class="flex items-start justify-between gap-3 text-sm">
+                            <span class="min-w-0">
+                              <span class="block text-secondary">
+                                {dates.formatDateTime(item.scheduledFor, { timeZone: detail().task.timezone })}
+                              </span>
+                              <Show when={item.error}>
+                                {(message) => <span class="block text-xs text-red-600 dark:text-red-300">{message()}</span>}
+                              </Show>
+                            </span>
+                            <StatusBadge label={state().label} tone={state().tone} variant="text" />
+                          </li>
+                        );
+                      }}
+                    </For>
+                  </ul>
+                </Show>
               )}
-            </For>
-          </ul>
-        </section>
+            </Show>
+          </section>
+        )}
       </Show>
     </div>
   );
 }
-
-export const openAssistantTasksDialog = (chatId: string) =>
-  prompts.dialog<void>(() => <AssistantTasksDialog chatId={chatId} />, {
-    title: "Scheduled tasks",
-    icon: "ti ti-calendar-time",
-    size: "large",
-  });

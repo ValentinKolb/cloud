@@ -119,16 +119,15 @@ export const assistantChatCommands = [
   command("chats update", {
     summary: "Update chat metadata",
     args: { chat: arg.required({ valueLabel: "chat-id" }) },
-    flags: { title: flag.string(), icon: flag.string(), description: flag.string() },
+    flags: { title: flag.string(), description: flag.string() },
     async run({ ctx, args, flags }) {
-      if (!flags.title && !flags.icon && flags.description === undefined) throw new Error("Pass --title, --icon, or --description.");
+      if (!flags.title && flags.description === undefined) throw new Error("Pass --title or --description.");
       const current = await readApi<FullConversationDetail>(ctx, conversationPath(args.chat));
       const updated = await readApi<AiConversation>(
         ctx,
         conversationPath(args.chat),
         jsonRequest("PATCH", {
           title: flags.title ?? current.conversation.title,
-          ...(flags.icon ? { icon: flags.icon } : {}),
           ...(flags.description !== undefined ? { description: flags.description } : {}),
         }),
       );
@@ -485,18 +484,16 @@ export const assistantManagementCommands = [
     },
   }),
   command("files upload", {
-    summary: "Upload a local file to /input or /files",
+    summary: "Upload a local file to the chat",
     args: {
       chat: arg.required({ valueLabel: "chat-id" }),
       file: arg.required({ valueLabel: "local-file" }),
     },
-    flags: { workspace: flag.boolean({ description: "Upload to editable /files instead of immutable /input" }) },
-    async run({ ctx, args, flags }) {
+    async run({ ctx, args }) {
       const local = Bun.file(args.file);
       if (!(await local.exists())) throw new Error(`File not found: ${args.file}`);
       const form = new FormData();
       form.set("file", new File([await local.arrayBuffer()], basename(args.file), { type: local.type || guessAiMediaType(args.file) }));
-      form.set("dir", flags.workspace ? "/files" : "/input");
       const result = await ctx.readJson<{ file: AiFileStat }>(
         await ctx.fetch(`${ASSISTANT_API}${conversationPath(args.chat, "/files")}`, { method: "POST", body: form }),
       );
@@ -521,10 +518,10 @@ export const assistantManagementCommands = [
     },
   }),
   command("files write", {
-    summary: "Write an editable file under /files",
+    summary: "Write a chat file",
     args: {
       chat: arg.required({ valueLabel: "chat-id" }),
-      path: arg.required({ valueLabel: "/files/path" }),
+      path: arg.required({ valueLabel: "/path" }),
     },
     flags: { content: flag.input({ required: true }) },
     async run({ ctx, args, flags }) {
@@ -538,7 +535,7 @@ export const assistantManagementCommands = [
     },
   }),
   command("files rename", {
-    summary: "Rename an editable file under /files",
+    summary: "Rename a chat file",
     args: {
       chat: arg.required({ valueLabel: "chat-id" }),
       from: arg.required(),

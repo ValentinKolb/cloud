@@ -18,10 +18,8 @@ afterAll(() => {
   if (createdSerovalLink) unlinkSync(serovalLink);
 });
 
-const [{ default: AssistantProjectView }, { AssistantLiveProvider, createAssistantLiveInvalidationHub }] = await Promise.all([
-  import("./AssistantProjectView"),
-  import("./assistant-live"),
-]);
+const [{ default: AssistantProjectView }, { AssistantContextSection }, { AssistantLiveProvider, createAssistantLiveInvalidationHub }] =
+  await Promise.all([import("./AssistantProjectView"), import("./AssistantContextContent"), import("./assistant-live")]);
 
 const project = {
   id: "project123",
@@ -99,6 +97,19 @@ describe("Assistant Project view", () => {
     expect(html).toContain('aria-label="Add reference"');
     expect(html).toContain("Add files");
     expect(html).not.toContain("admin access");
+  });
+
+  test("matches View all typography to section counts", () => {
+    const html = renderToString(() =>
+      createComponent(AssistantContextSection, {
+        title: "Images",
+        count: 1,
+        onViewAll: () => undefined,
+        children: "Image row",
+      }),
+    );
+
+    expect(html).toContain('style="font-size:0.75rem;font-weight:400"');
   });
 
   test("keeps Project context management out of a read-only workspace", () => {
