@@ -230,12 +230,16 @@ export type AppWorkspaceSidebarBodyProps = {
   scrollPreserveKey?: string | false;
   sidebarMode?: AppWorkspaceSidebarVisibility;
 };
-export type AppWorkspaceSidebarSectionProps = AppWorkspaceSidebarBodyProps & { title?: string };
+export type AppWorkspaceSidebarSectionProps = AppWorkspaceSidebarBodyProps & {
+  title?: string;
+  actions?: JSX.Element;
+};
 export type AppWorkspaceSidebarItemTone = "default" | "success" | "danger";
 export type AppWorkspaceSidebarIconActionTone = "default" | "success" | "danger";
 export type AppWorkspaceSidebarItemProps = {
   children: JSX.Element;
   href?: string;
+  /** Document navigation by default; opt into enhanced navigation only when the owning island applies the target state. */
   navigation?: "enhanced" | "document";
   replace?: boolean;
   scroll?: NavigationScrollMode;
@@ -262,6 +266,7 @@ export type AppWorkspaceSidebarItemProps = {
 export type AppWorkspaceSidebarIconGridProps = AppWorkspaceSidebarBodyProps & { title?: string; columns?: 2 | 3 };
 export type AppWorkspaceSidebarIconActionProps = {
   href?: string | null;
+  /** Document navigation by default; opt into enhanced navigation only when the owning island applies the target state. */
   navigation?: "enhanced" | "document";
   replace?: boolean;
   scroll?: NavigationScrollMode;
@@ -311,6 +316,7 @@ export type AppWorkspaceNavTreeItemProps = {
   label: JSX.Element;
   children?: JSX.Element;
   href?: string;
+  /** Document navigation by default; opt into enhanced navigation only when the owning island applies the target state. */
   navigation?: "enhanced" | "document";
   replace?: boolean;
   scroll?: NavigationScrollMode;
@@ -630,7 +636,14 @@ const AppWorkspaceSidebarFooter = (props: AppWorkspaceSidebarBodyProps) => (
 );
 const AppWorkspaceSidebarSection = (props: AppWorkspaceSidebarSectionProps) => (
   <section class={`k2b-app-workspace__sidebar-section ${props.class ?? ""}`} {...modeAttrs(props.sidebarMode)}>
-    <Show when={props.title}>{(title) => <h2>{title()}</h2>}</Show>
+    <Show when={props.title || props.actions}>
+      <header class="k2b-app-workspace__sidebar-section-header">
+        <Show when={props.title}>{(title) => <h2>{title()}</h2>}</Show>
+        <Show when={props.actions}>
+          <div class="k2b-app-workspace__sidebar-section-actions">{props.actions}</div>
+        </Show>
+      </header>
+    </Show>
     {props.children}
   </section>
 );
@@ -648,6 +661,133 @@ const AppWorkspaceSidebarItemActions = (props: AppWorkspaceSidebarItemActionsPro
     {props.children}
   </div>
 );
+
+type AppWorkspaceSidebarRowProps = {
+  children: JSX.Element;
+  actions?: JSX.Element;
+  hasActions: boolean;
+  href?: string;
+  navigation?: "enhanced" | "document";
+  replace?: boolean;
+  scroll?: NavigationScrollMode;
+  onNavigate?: (event: LinkNavigateEvent) => void | Promise<void>;
+  onClick?: (event: MouseEvent) => void;
+  active?: boolean;
+  activeClass?: string;
+  disabled?: boolean;
+  tone?: AppWorkspaceSidebarItemTone;
+  title?: string;
+  viewTransitionName?: string;
+  class?: string;
+  depth?: number;
+  tabIndex?: number;
+  mode: SidebarMode;
+  data?: Record<string, string | number | boolean | null | undefined>;
+};
+
+/** Shared visual and semantic row frame for flat sidebar items and tree items. */
+function AppWorkspaceSidebarRow(props: AppWorkspaceSidebarRowProps): JSX.Element {
+  const className = () =>
+    `k2b-app-workspace__sidebar-item ${props.hasActions ? "has-action" : ""} ${props.active ? (props.activeClass ?? "is-active") : ""} ${props.class ?? ""}`;
+  const data = () =>
+    Object.fromEntries(
+      Object.entries(props.data ?? {})
+        .filter(([, value]) => value !== undefined && value !== null)
+        .map(([key, value]) => [`data-${key}`, String(value)]),
+    );
+  const common = () => ({
+    class: className(),
+    title: props.title,
+    "data-tone": props.tone,
+    "data-mode": props.mode,
+    style: {
+      "view-transition-name": props.viewTransitionName,
+      "--k2b-sidebar-item-depth": props.depth === undefined ? undefined : String(Math.max(0, props.depth)),
+    },
+    ...data(),
+  });
+  const current = () => (props.active ? ("page" as const) : undefined);
+
+  if (props.hasActions) {
+    if (!props.href || props.disabled) {
+      return (
+        <div {...common()} data-disabled={props.disabled ? "true" : undefined}>
+          <button
+            type="button"
+            class="k2b-app-workspace__sidebar-item-main"
+            tabIndex={props.tabIndex}
+            disabled={props.disabled}
+            onClick={props.onClick}
+          >
+            {props.children}
+          </button>
+          {props.actions}
+        </div>
+      );
+    }
+    if (props.navigation !== "enhanced") {
+      return (
+        <div {...common()}>
+          <a
+            href={props.href}
+            class="k2b-app-workspace__sidebar-item-main"
+            tabIndex={props.tabIndex}
+            aria-current={current()}
+            onClick={props.onClick}
+          >
+            {props.children}
+          </a>
+          {props.actions}
+        </div>
+      );
+    }
+    return (
+      <div {...common()}>
+        <Link
+          href={props.href}
+          class="k2b-app-workspace__sidebar-item-main"
+          tabIndex={props.tabIndex}
+          aria-current={current()}
+          replace={props.replace}
+          scroll={props.scroll}
+          onNavigate={props.onNavigate}
+          onClick={props.onClick}
+        >
+          {props.children}
+        </Link>
+        {props.actions}
+      </div>
+    );
+  }
+  if (!props.href || props.disabled) {
+    return (
+      <button type="button" {...common()} tabIndex={props.tabIndex} disabled={props.disabled} onClick={props.onClick}>
+        {props.children}
+      </button>
+    );
+  }
+  if (props.navigation !== "enhanced") {
+    return (
+      <a href={props.href} {...common()} tabIndex={props.tabIndex} aria-current={current()} onClick={props.onClick}>
+        {props.children}
+      </a>
+    );
+  }
+  return (
+    <Link
+      href={props.href}
+      {...common()}
+      tabIndex={props.tabIndex}
+      aria-current={current()}
+      replace={props.replace}
+      scroll={props.scroll}
+      onNavigate={props.onNavigate}
+      onClick={props.onClick}
+    >
+      {props.children}
+    </Link>
+  );
+}
 
 function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Element {
   const mode = useContext(SidebarModeContext);
@@ -688,14 +828,6 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
   const customActions = () => resolvedActions();
   const hasCustomActions = () => Boolean(customActions());
   const hasAction = () => Boolean(actionSlot() || props.actionIcon || hasCustomActions());
-  const className = () =>
-    `k2b-app-workspace__sidebar-item ${hasAction() ? "has-action" : ""} ${props.active ? (props.activeClass ?? "is-active") : ""} ${props.class ?? ""}`;
-  const data = () =>
-    Object.fromEntries(
-      Object.entries({ ...props.data, ...modeData(props.sidebarMode) })
-        .filter(([, value]) => value !== undefined && value !== null)
-        .map(([key, value]) => [`data-${key}`, String(value)]),
-    );
   const mainContent = (
     <>
       <Show when={iconContent() || icon()}>
@@ -763,86 +895,34 @@ function AppWorkspaceSidebarItem(props: AppWorkspaceSidebarItemProps): JSX.Eleme
       {singleAction()}
     </>
   );
-  const common = () => ({
-    class: className(),
-    title: props.title,
-    "data-tone": props.tone,
-    "data-mode": mode,
-    "data-has-actions": hasCustomActions() ? "true" : undefined,
-    "data-action-visibility": actionSlot()?.visibility === "hover" ? "hover" : undefined,
-    style: {
-      "view-transition-name": props.viewTransitionName,
-      "--k2b-sidebar-item-depth": props.depth === undefined ? undefined : String(Math.max(0, props.depth)),
-    },
-    ...data(),
-  });
-  // `aria-current="page"` is a link state; it never belongs on the button
-  // fallback or on the wrapper that only groups a link and its row action.
-  const current = () => (props.active ? ("page" as const) : undefined);
-  if (hasAction()) {
-    if (!props.href || props.disabled) {
-      return (
-        <div {...common()} data-disabled={props.disabled ? "true" : undefined}>
-          <button type="button" class="k2b-app-workspace__sidebar-item-main" disabled={props.disabled} onClick={props.onClick}>
-            {mainContent}
-          </button>
-          {actions()}
-        </div>
-      );
-    }
-    if (props.navigation === "document") {
-      return (
-        <div {...common()}>
-          <a href={props.href} class="k2b-app-workspace__sidebar-item-main" aria-current={current()} onClick={props.onClick}>
-            {mainContent}
-          </a>
-          {actions()}
-        </div>
-      );
-    }
-    return (
-      <div {...common()}>
-        <Link
-          href={props.href}
-          class="k2b-app-workspace__sidebar-item-main"
-          aria-current={current()}
-          replace={props.replace}
-          scroll={props.scroll}
-          onNavigate={props.onNavigate}
-          onClick={props.onClick}
-        >
-          {mainContent}
-        </Link>
-        {actions()}
-      </div>
-    );
-  }
-  if (!props.href || props.disabled) {
-    return (
-      <button type="button" {...common()} disabled={props.disabled} onClick={props.onClick}>
-        {mainContent}
-      </button>
-    );
-  }
-  if (props.navigation === "document") {
-    return (
-      <a href={props.href} {...common()} aria-current={current()} onClick={props.onClick}>
-        {mainContent}
-      </a>
-    );
-  }
   return (
-    <Link
+    <AppWorkspaceSidebarRow
+      mode={mode}
+      hasActions={hasAction()}
       href={props.href}
-      {...common()}
-      aria-current={current()}
+      navigation={props.navigation}
       replace={props.replace}
       scroll={props.scroll}
       onNavigate={props.onNavigate}
       onClick={props.onClick}
+      active={props.active}
+      activeClass={props.activeClass}
+      disabled={props.disabled}
+      tone={props.tone}
+      title={props.title}
+      viewTransitionName={props.viewTransitionName}
+      class={props.class}
+      depth={props.depth}
+      actions={actions()}
+      data={{
+        ...props.data,
+        ...modeData(props.sidebarMode),
+        "has-actions": hasCustomActions() ? "true" : undefined,
+        "action-visibility": actionSlot()?.visibility === "hover" ? "hover" : undefined,
+      }}
     >
       {mainContent}
-    </Link>
+    </AppWorkspaceSidebarRow>
   );
 }
 
@@ -852,6 +932,7 @@ const AppWorkspaceNavTreeItem = (props: AppWorkspaceNavTreeItemProps): JSX.Eleme
   ({ kind: NAV_TREE_ITEM, ...props }) as unknown as JSX.Element;
 
 const AppWorkspaceNavTree = ((props: AppWorkspaceNavTreeProps) => {
+  const mode = useContext(SidebarModeContext);
   let root: HTMLDivElement | undefined;
   const resolved = children(() => props.children);
   const roots = createMemo(() => navTreeItems(resolved()));
@@ -934,7 +1015,7 @@ const AppWorkspaceNavTree = ((props: AppWorkspaceNavTreeProps) => {
         };
         const rowControl = () => {
           const firstChild = treeItem?.firstElementChild as HTMLElement | null | undefined;
-          if (!firstChild?.classList.contains("k2b-app-workspace__nav-tree-row-shell")) return firstChild;
+          if (!firstChild?.classList.contains("has-action")) return firstChild;
           return firstChild.firstElementChild as HTMLElement | null;
         };
         const onKeyDown = (event: KeyboardEvent) => {
@@ -1010,63 +1091,30 @@ const AppWorkspaceNavTree = ((props: AppWorkspaceNavTreeProps) => {
             </Show>
           </>
         );
-        const rowClass = () =>
-          `k2b-app-workspace__sidebar-item k2b-app-workspace__nav-tree-row ${selected() ? "is-active" : ""} ${item.class ?? ""}`;
-        const rowStyle = () => ({
-          "view-transition-name": item.viewTransitionName,
-          "--k2b-sidebar-item-depth": String(props.indented === false ? 0 : Math.max(0, depth)),
-        });
-        const row = () => {
-          if (!item.href || item.disabled) {
-            return (
-              <button
-                type="button"
-                class={rowClass()}
-                title={item.title}
-                data-tone={item.tone}
-                style={rowStyle()}
-                tabIndex={-1}
-                disabled={item.disabled}
-                onClick={onRowClick}
-              >
-                {rowContent}
-              </button>
-            );
-          }
-          if (item.navigation === "document") {
-            return (
-              <a
-                href={item.href}
-                class={rowClass()}
-                title={item.title}
-                data-tone={item.tone}
-                style={rowStyle()}
-                tabIndex={-1}
-                aria-current={selected() ? "page" : undefined}
-                onClick={onRowClick}
-              >
-                {rowContent}
-              </a>
-            );
-          }
-          return (
-            <Link
-              href={item.href}
-              class={rowClass()}
-              title={item.title}
-              data-tone={item.tone}
-              style={rowStyle()}
-              tabIndex={-1}
-              aria-current={selected() ? "page" : undefined}
-              replace={item.replace}
-              scroll={item.scroll}
-              onNavigate={item.onNavigate}
-              onClick={onRowClick}
-            >
-              {rowContent}
-            </Link>
-          );
-        };
+        const row = () => (
+          <AppWorkspaceSidebarRow
+            mode={mode}
+            hasActions={Boolean(item.actions)}
+            href={item.href}
+            navigation={item.navigation}
+            replace={item.replace}
+            scroll={item.scroll}
+            onNavigate={item.onNavigate}
+            onClick={onRowClick}
+            active={selected()}
+            disabled={item.disabled}
+            tone={item.tone}
+            title={item.title}
+            viewTransitionName={item.viewTransitionName}
+            class={`k2b-app-workspace__nav-tree-row ${item.class ?? ""}`}
+            depth={props.indented === false ? 0 : depth}
+            tabIndex={-1}
+            actions={item.actions}
+            data={{ "has-actions": item.actions ? "true" : undefined }}
+          >
+            {rowContent}
+          </AppWorkspaceSidebarRow>
+        );
 
         return (
           <div
@@ -1087,14 +1135,7 @@ const AppWorkspaceNavTree = ((props: AppWorkspaceNavTreeProps) => {
             onDragLeave={item.onDragLeave}
             onDrop={item.onDrop}
           >
-            <Show when={item.actions} fallback={row()}>
-              {(actions) => (
-                <div class="k2b-app-workspace__nav-tree-row-shell">
-                  {row()}
-                  {actions()}
-                </div>
-              )}
-            </Show>
+            {row()}
             <Show when={hasChildren() && isExpanded(item.id)}>
               <div class="k2b-app-workspace__nav-tree-group" role="group">
                 {renderItems(nested(), depth + 1, item.id)}
@@ -1140,7 +1181,7 @@ const AppWorkspaceSidebarIconAction = (props: AppWorkspaceSidebarIconActionProps
         {content}
       </button>
     );
-  if (props.navigation === "document")
+  if (props.navigation !== "enhanced")
     return (
       <a href={props.href} {...attrs()} onClick={props.onClick}>
         {content}

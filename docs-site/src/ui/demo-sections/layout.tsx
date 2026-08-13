@@ -67,38 +67,47 @@ const WorkspaceDemo = () => {
                 <AppWorkspace.SidebarItemAction icon="ti ti-settings" label="Issue settings" visibility="hover" />
               </AppWorkspace.SidebarItem>
             </AppWorkspace.SidebarSection>
-            <AppWorkspace.NavTree
-              ariaLabel="Inventory navigation"
-              selectedId={activeView()}
-              expandedIds={expandedNavigation()}
-              onSelectedIdChange={setActiveView}
-              onExpandedIdsChange={setExpandedNavigation}
+            <AppWorkspace.SidebarSection
+              title="Views"
+              actions={
+                <IconButton size="xs" variant="ghost" label="Add inventory view">
+                  <i class="ti ti-plus" aria-hidden="true" />
+                </IconButton>
+              }
             >
-              <AppWorkspace.NavTree.Item id="items" label="Items" icon="ti ti-folder" expandedIcon="ti ti-folder-open" meta={12}>
-                <AppWorkspace.NavTree.Item
-                  id="available"
-                  label="Available"
-                  icon="ti ti-circle-check"
-                  meta={8}
-                  actions={
-                    <AppWorkspace.SidebarItemActions visibility="hover">
-                      <IconButton size="xs" label="Pin available items">
-                        <i class="ti ti-pin" />
-                      </IconButton>
-                      <IconButton size="xs" label="Available item actions">
-                        <i class="ti ti-dots" />
-                      </IconButton>
-                    </AppWorkspace.SidebarItemActions>
-                  }
-                />
-                <AppWorkspace.NavTree.Item id="maintenance" label="Maintenance" icon="ti ti-tool" meta={4} />
-              </AppWorkspace.NavTree.Item>
-              <AppWorkspace.NavTree.Item id="activity" label="Activity" icon="ti ti-history" />
-              <AppWorkspace.NavTree.Item id="tags" label="Tags" icon="ti ti-tags">
-                <AppWorkspace.NavTree.Item id="ready" label="Ready" icon="ti ti-tag" meta={8} />
-                <AppWorkspace.NavTree.Item id="repair" label="Repair" icon="ti ti-tag" meta={4} />
-              </AppWorkspace.NavTree.Item>
-            </AppWorkspace.NavTree>
+              <AppWorkspace.NavTree
+                ariaLabel="Inventory navigation"
+                selectedId={activeView()}
+                expandedIds={expandedNavigation()}
+                onSelectedIdChange={setActiveView}
+                onExpandedIdsChange={setExpandedNavigation}
+              >
+                <AppWorkspace.NavTree.Item id="items" label="Items" icon="ti ti-folder" expandedIcon="ti ti-folder-open" meta={12}>
+                  <AppWorkspace.NavTree.Item
+                    id="available"
+                    label="Available"
+                    icon="ti ti-circle-check"
+                    meta={8}
+                    actions={
+                      <AppWorkspace.SidebarItemActions visibility="hover">
+                        <IconButton size="xs" label="Pin available items">
+                          <i class="ti ti-pin" />
+                        </IconButton>
+                        <IconButton size="xs" label="Available item actions">
+                          <i class="ti ti-dots" />
+                        </IconButton>
+                      </AppWorkspace.SidebarItemActions>
+                    }
+                  />
+                  <AppWorkspace.NavTree.Item id="maintenance" label="Maintenance" icon="ti ti-tool" meta={4} />
+                </AppWorkspace.NavTree.Item>
+                <AppWorkspace.NavTree.Item id="activity" label="Activity" icon="ti ti-history" />
+                <AppWorkspace.NavTree.Item id="tags" label="Tags" icon="ti ti-tags">
+                  <AppWorkspace.NavTree.Item id="ready" label="Ready" icon="ti ti-tag" meta={8} />
+                  <AppWorkspace.NavTree.Item id="repair" label="Repair" icon="ti ti-tag" meta={4} />
+                </AppWorkspace.NavTree.Item>
+              </AppWorkspace.NavTree>
+            </AppWorkspace.SidebarSection>
           </AppWorkspace.SidebarBody>
           <AppWorkspace.SidebarFooter>
             <AppWorkspace.SidebarItem icon="ti ti-settings">Settings</AppWorkspace.SidebarItem>
@@ -166,19 +175,28 @@ const [drawerOpen, setDrawerOpen] = createSignal(true);
 
 <AppWorkspace layoutState={layout} onLayoutChange={setLayout}>
   <AppWorkspace.Sidebar collapsible>
-    <AppWorkspace.NavTree
-      ariaLabel="Inventory navigation"
-      selectedId={active()}
-      expandedIds={expanded()}
-      onSelectedIdChange={setActive}
-      onExpandedIdsChange={setExpanded}
+    <AppWorkspace.SidebarSection
+      title="Views"
+      actions={
+        <IconButton size="xs" variant="ghost" label="Add inventory view">
+          <i class="ti ti-plus" aria-hidden="true" />
+        </IconButton>
+      }
     >
-      <AppWorkspace.NavTree.Item id="items" label="Items" icon="ti ti-folder" expandedIcon="ti ti-folder-open">
-        <AppWorkspace.NavTree.Item id="available" label="Available" meta={8} />
-        <AppWorkspace.NavTree.Item id="maintenance" label="Maintenance" meta={4} />
-      </AppWorkspace.NavTree.Item>
-      <AppWorkspace.NavTree.Item id="activity" label="Activity" icon="ti ti-history" />
-    </AppWorkspace.NavTree>
+      <AppWorkspace.NavTree
+        ariaLabel="Inventory navigation"
+        selectedId={active()}
+        expandedIds={expanded()}
+        onSelectedIdChange={setActive}
+        onExpandedIdsChange={setExpanded}
+      >
+        <AppWorkspace.NavTree.Item id="items" label="Items" icon="ti ti-folder" expandedIcon="ti ti-folder-open">
+          <AppWorkspace.NavTree.Item id="available" label="Available" meta={8} />
+          <AppWorkspace.NavTree.Item id="maintenance" label="Maintenance" meta={4} />
+        </AppWorkspace.NavTree.Item>
+        <AppWorkspace.NavTree.Item id="activity" label="Activity" icon="ti ti-history" />
+      </AppWorkspace.NavTree>
+    </AppWorkspace.SidebarSection>
   </AppWorkspace.Sidebar>
   <AppWorkspace.Content>
     <AppWorkspace.Main>

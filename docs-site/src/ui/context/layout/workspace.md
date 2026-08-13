@@ -45,6 +45,11 @@ controls visibility, so local state and SSR DOM identity remain stable.
 
 Provide both `SidebarMobile` and `SidebarDesktop` when the workspace has navigation. Sidebar items with an `href` remain real links.
 
+Sidebar links use document navigation by default. Set `navigation="enhanced"`
+only inside an island that loads and applies the target state before committing
+history through `onNavigate`. The enhanced helper does not run server loaders
+or re-render an SSR page. See [URL state and navigation](/en/docs/frontend/url-state-and-navigation).
+
 Set `collapsible` on `Sidebar` to let the shared resize controller snap it to
 the compact rail. The collapsed flag is part of `AppWorkspaceLayoutState`, so
 the host can restore the same navigation state on the next mount.
@@ -75,8 +80,28 @@ not a repeated application title. Put persistent secondary navigation in
 trigger is mobile-only and deliberately owns no application-specific icon or
 accent tile.
 
+Pass labelled shared controls through `SidebarSection.actions` when a section
+needs a compact header action such as creating a resource. The section owns
+the header alignment; the control still owns its accessible name and action
+behavior. Section headers and their actions are hidden with the compact rail
+and mobile section layout, so expose an equivalent reachable action in those
+compositions.
+
 Section titles are quiet sentence-case labels. Keep them short and let the
 navigation rows carry the stronger visual emphasis.
+
+```tsx
+<AppWorkspace.SidebarSection
+  title="Projects"
+  actions={
+    <IconButton size="xs" variant="ghost" label="Create Project">
+      <i class="ti ti-plus" aria-hidden="true" />
+    </IconButton>
+  }
+>
+  <ProjectsTree />
+</AppWorkspace.SidebarSection>
+```
 
 ### Row metadata and actions
 
@@ -261,7 +286,6 @@ The package exports parse, normalize, serialize, and style helpers for layout st
           href="/app/inventory"
           icon="ti ti-list"
           active
-          navigation="document"
         >
           All items
         </AppWorkspace.SidebarItem>
@@ -274,7 +298,6 @@ The package exports parse, normalize, serialize, and style helpers for layout st
             href="/app/inventory"
             icon="ti ti-list"
             active
-            navigation="document"
           >
             All items
           </AppWorkspace.SidebarItem>

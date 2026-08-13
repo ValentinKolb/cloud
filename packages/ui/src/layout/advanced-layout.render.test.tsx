@@ -148,7 +148,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     expect(html).toContain('data-action-visibility="hover"');
     expect(html).toContain('data-visibility="hover"');
     expect(html).toContain("k2b-app-workspace__sidebar-item-actions");
-    expect(html).toContain("k2b-app-workspace__nav-tree-row-shell");
+    expect(html).not.toContain("k2b-app-workspace__nav-tree-row-shell");
     expect(html).toContain('role="tree"');
     expect(html).toContain('aria-label="Inventory navigation"');
     expect(html).toContain('role="treeitem"');
@@ -156,6 +156,20 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain('data-k2b-nav-tree-parent-id="items"');
     expect(html).toContain('class="k2b-app-workspace__sidebar-item-meta k2b-app-workspace__nav-tree-leaf-meta"');
+  });
+
+  test("renders labelled actions beside a sidebar section title", () => {
+    const html = renderToString(() =>
+      createComponent(AppWorkspace.SidebarSection, {
+        title: "Projects",
+        actions: "Create Project",
+        children: "Project navigation",
+      }),
+    );
+
+    expect(html).toContain("k2b-app-workspace__sidebar-section-header");
+    expect(html).toContain("k2b-app-workspace__sidebar-section-actions");
+    expect(html).toContain("Create Project");
   });
 
   test("normalizes and serializes bounded workspace state", () => {

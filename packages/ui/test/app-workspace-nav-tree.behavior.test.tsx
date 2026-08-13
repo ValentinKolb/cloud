@@ -95,7 +95,11 @@ describe("@k2b/ui AppWorkspace.NavTree behavior", () => {
     expect(recipes()).not.toBeNull();
 
     const recipeActions = recipes()?.querySelector<HTMLButtonElement>('[aria-label="Recipe actions"]');
-    expect(recipes()?.querySelector(".k2b-app-workspace__nav-tree-row-shell")).not.toBeNull();
+    const recipeRow = recipes()?.firstElementChild as HTMLElement | null | undefined;
+    expect(recipes()?.querySelector(".k2b-app-workspace__nav-tree-row-shell")).toBeNull();
+    expect(recipeRow?.classList.contains("k2b-app-workspace__sidebar-item")).toBe(true);
+    expect(recipeRow?.classList.contains("k2b-app-workspace__nav-tree-row")).toBe(true);
+    expect(recipeRow?.querySelector(":scope > .k2b-app-workspace__sidebar-item-actions")).not.toBeNull();
     recipeActions?.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }) as unknown as Event);
     expect(selectedId()).toBe("notes");
     recipeActions?.click();
@@ -104,6 +108,8 @@ describe("@k2b/ui AppWorkspace.NavTree behavior", () => {
 
     recipes()?.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }) as unknown as Event);
     expect(selectedId()).toBe("recipes");
+    expect(recipeRow?.classList.contains("is-active")).toBe(true);
+    expect(recipeRow?.contains(recipeActions ?? null)).toBe(true);
     setSelectedId("notes");
 
     notes()?.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }) as unknown as Event);
