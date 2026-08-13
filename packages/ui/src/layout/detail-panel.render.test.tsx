@@ -193,6 +193,13 @@ describe("DetailPanel", () => {
     const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
 
     expect(css).toContain(".k2b-ui .k2b-detail-panel__action {");
+    expect(css).toContain(".k2b-ui .k2b-button.k2b-detail-panel__action {");
+    const leadingRule = css.match(/\.k2b-ui \.k2b-detail-panel__action-leading \{([^}]*)\}/)?.[1] ?? "";
+    expect(leadingRule).toContain("width: 1rem;");
+    expect(leadingRule).toContain("justify-content: flex-start;");
+    const titleRule = css.match(/\.k2b-ui \.k2b-detail-panel__action-title \{([^}]*)\}/)?.[1] ?? "";
+    expect(titleRule).toContain("color: var(--k2b-text-muted);");
+    expect(titleRule).toContain("font-size: 0.75rem;");
     expect(css).toContain('.k2b-ui .k2b-description-list[data-size="sm"] .k2b-description-list__item dt');
     expect(css).toContain('.k2b-description-list[data-action-visibility="progressive"]');
     expect(css).toContain(".k2b-description-list__item:focus-within");

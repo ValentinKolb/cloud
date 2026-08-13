@@ -2068,6 +2068,12 @@
   text-align: left;
 }
 
+/* The generic small-button selector is more specific than the base action
+ * class, so keep the shared action explicitly flush with its section. */
+.k2b-ui .k2b-button.k2b-detail-panel__action {
+  padding: 0.375rem 0;
+}
+
 .k2b-ui .k2b-detail-panel__action-row {
   display: flex;
   min-width: 0;
@@ -2097,10 +2103,10 @@
 
 .k2b-ui .k2b-detail-panel__action-leading {
   display: inline-flex;
-  width: 1.25rem;
-  flex: 0 0 1.25rem;
+  width: 1rem;
+  flex: 0 0 1rem;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   color: var(--k2b-text-muted);
 }
 
@@ -2113,12 +2119,18 @@
 
 .k2b-ui .k2b-detail-panel__action-title {
   overflow: hidden;
-  color: var(--k2b-text);
-  font-size: 0.8125rem;
+  color: var(--k2b-text-muted);
+  font-size: 0.75rem;
   font-weight: 400;
-  line-height: 1.25rem;
+  line-height: 1rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color 120ms ease-out;
+}
+
+.k2b-ui .k2b-button.k2b-detail-panel__action:hover .k2b-detail-panel__action-title,
+.k2b-ui .k2b-button.k2b-detail-panel__action:focus-visible .k2b-detail-panel__action-title {
+  color: var(--k2b-text-secondary);
 }
 
 .k2b-ui .k2b-detail-panel__action-description {
