@@ -13,6 +13,7 @@ export type FieldDisplayIntent =
   | { kind: "text"; text: string }
   | { kind: "markdown"; text: string }
   | { kind: "select"; items: SelectBadgeItem[]; text: string }
+  | { kind: "principal"; text: string }
   | { kind: "relation"; items: RelationDisplayItem[]; targetTableId?: string }
   | { kind: "barcode"; value: string; format: Extract<FormatSpec, { kind: "barcode" }> }
   | { kind: "progress"; ratio: number; label: string; text: string; format: Extract<FormatSpec, { kind: "progress" }> };
@@ -78,6 +79,25 @@ export const resolveFieldDisplay = (options: ResolveFieldDisplayOptions): FieldD
       items: relationIds(value).map((id) => ({ id, label: relationLabel(id, options), linkable: true })),
       targetTableId: (field.config as { targetTableId?: string }).targetTableId,
     };
+  }
+
+  if (field.type === "principal") {
+    const values = Array.isArray(value) ? value : [];
+    const labels = values.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const id = (item as { id?: unknown }).id;
+      const type = (item as { type?: unknown }).type;
+      if (typeof id !== "string" || (type !== "user" && type !== "group")) return [];
+      return [options.relationLabels?.[id] ?? (type === "user" ? "Private user" : "Private group")];
+    });
+    if (labels.length > 0) return { kind: "principal", text: labels.join(", ") };
+    const users = values.filter((item) => item && typeof item === "object" && (item as { type?: unknown }).type === "user").length;
+    const groups = values.filter((item) => item && typeof item === "object" && (item as { type?: unknown }).type === "group").length;
+    const parts = [
+      users ? `${users} ${users === 1 ? "user" : "users"}` : "",
+      groups ? `${groups} ${groups === 1 ? "group" : "groups"}` : "",
+    ].filter(Boolean);
+    return parts.length ? { kind: "principal", text: parts.join(", ") } : { kind: "empty" };
   }
 
   const displayField = field.type === "lookup" ? effectiveDisplayField(field, options.fieldsByTable) : field;

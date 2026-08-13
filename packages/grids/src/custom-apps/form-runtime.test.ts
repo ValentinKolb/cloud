@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Field } from "../contracts";
 import type { Form } from "../service/forms";
-import type { CustomAppCapabilities, CustomAppFormBlock, CustomAppPage } from "./contracts";
+import type { CustomAppCapabilities, CustomAppFormBlock, CustomAppPage, CustomAppSidebarAction } from "./contracts";
 import { customAppFormFieldHash, customAppFormSecurityHash } from "./form-capability";
 import { customAppFormMatchesPublishedCapability } from "./form-runtime";
 
@@ -111,6 +111,63 @@ describe("Grids App Form runtime capability", () => {
         capability,
       }),
     ).toBe(true);
+  });
+
+  test("accepts the current user only for principal fields in page-independent sidebar Forms", () => {
+    const principalField = {
+      ...fields[0]!,
+      id: uuid(6),
+      type: "principal",
+      config: { cardinality: "single" },
+    } as Field;
+    const sidebarForm = {
+      ...form,
+      config: { fields: [{ kind: "user_input" as const, fieldId: principalField.id }] },
+    };
+    const sidebarAction: Extract<CustomAppSidebarAction, { kind: "form" }> = {
+      id: "new-request",
+      kind: "form",
+      label: "New request",
+      tone: "success",
+      formId,
+      fixedValues: { [principalField.id]: { source: "AUTH", path: "currentUser" } },
+    };
+    const sidebarCapability: CustomAppCapabilities["forms"][number] = {
+      sidebarActionId: sidebarAction.id,
+      formId,
+      tableId,
+      userInputFieldIds: [principalField.id],
+      fixedFieldIds: [principalField.id],
+      fieldHash: customAppFormFieldHash([principalField.id], [principalField]),
+      formSecurityHash: customAppFormSecurityHash({ tableId, config: sidebarForm.config, fields: [principalField] }),
+    };
+
+    expect(
+      customAppFormMatchesPublishedCapability({
+        block: sidebarAction,
+        form: sidebarForm,
+        fields: [principalField],
+        inlineTargetFields: [],
+        capability: sidebarCapability,
+      }),
+    ).toBe(true);
+    expect(
+      customAppFormMatchesPublishedCapability({
+        block: sidebarAction,
+        form: sidebarForm,
+        fields: [{ ...principalField, type: "text" }],
+        inlineTargetFields: [],
+        capability: {
+          ...sidebarCapability,
+          fieldHash: customAppFormFieldHash([principalField.id], [{ ...principalField, type: "text" }]),
+          formSecurityHash: customAppFormSecurityHash({
+            tableId,
+            config: sidebarForm.config,
+            fields: [{ ...principalField, type: "text" }],
+          }),
+        },
+      }),
+    ).toBe(false);
   });
 
   test("fails closed when fields or relation targets drift after publish", () => {

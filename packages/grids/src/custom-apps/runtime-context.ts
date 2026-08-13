@@ -1,5 +1,6 @@
 import type { DateContext } from "@k2b/stdlib";
 import { dates } from "@k2b/stdlib";
+import { getEffectiveGroupIds } from "@valentinkolb/cloud/server";
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import type { GridsAccessContext } from "../api/permissions";
 import { accessActorUser } from "../api/permissions";
@@ -21,6 +22,13 @@ type GlobalRuntimeContextParams = {
   base: RuntimeBase;
   dateConfig: DateContext;
   now?: Date;
+  authSubjectIds: readonly string[];
+};
+
+export const loadCustomAppAuthSubjectIds = async (access: GridsAccessContext): Promise<string[]> => {
+  const user = accessActorUser(access);
+  if (!user) return [];
+  return [user.id, ...(await getEffectiveGroupIds({ userId: user.id }))];
 };
 
 /** Build app-global context. Page values are inert sentinels and are rejected by the global compiler contract. */
@@ -42,6 +50,7 @@ export const buildCustomAppRuntimeContext = (params: {
   pageParams: Readonly<Record<string, string>>;
   dateConfig: DateContext;
   now?: Date;
+  authSubjectIds: readonly string[];
 }): CustomAppRuntimeContext => {
   const now = params.now ?? new Date();
   const timeZone = normalizeTimeZone(params.dateConfig.timeZone, "UTC");
@@ -53,6 +62,7 @@ export const buildCustomAppRuntimeContext = (params: {
       "auth.name": user?.displayName ?? null,
       "auth.username": user?.uid ?? null,
       "auth.email": user?.mail ?? null,
+      "auth.subjects": [...new Set(params.authSubjectIds)],
       "page.id": params.page.id,
       "page.title": params.page.title,
       "page.url": params.pageUrl,

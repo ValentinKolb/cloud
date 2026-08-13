@@ -19,4 +19,11 @@ describe("App actions", () => {
     expect(client).toContain('status.status === "succeeded"');
     expect(client).toContain('status.status === "failed"');
   });
+
+  test("uses the shared prompt for workflow confirmation", async () => {
+    const source = await Bun.file(new URL("./Actions.island.tsx", import.meta.url)).text();
+
+    expect(source).toContain("prompts.confirm");
+    expect(source).not.toContain("window.confirm");
+  });
 });

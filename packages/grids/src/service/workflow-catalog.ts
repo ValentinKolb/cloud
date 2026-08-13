@@ -1,5 +1,6 @@
 import { sql } from "bun";
 import { z } from "zod";
+import { parseJsonbRow } from "./jsonb";
 
 export type WorkflowCatalogEntry = { id: string; name: string; shortId: string };
 export type WorkflowFieldCatalogEntry = WorkflowCatalogEntry & {
@@ -136,8 +137,9 @@ export const loadWorkflowCatalog = async (baseId: string): Promise<WorkflowCatal
       fields = createCatalogIndex<WorkflowFieldCatalogEntry>();
       fieldsByTable.set(row.table_id, fields);
     }
-    const targetTableId = row.type === "relation" && typeof row.config.targetTableId === "string" ? row.config.targetTableId : null;
-    const cardinality = row.config.cardinality === "single" ? "single" : "multiple";
+    const config = parseJsonbRow<Record<string, unknown>>(row.config, {});
+    const targetTableId = row.type === "relation" && typeof config.targetTableId === "string" ? config.targetTableId : null;
+    const cardinality = config.cardinality === "single" ? "single" : "multiple";
     addRefAliases(fields, {
       id: row.id,
       shortId: row.short_id,

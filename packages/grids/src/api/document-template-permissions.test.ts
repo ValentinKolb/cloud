@@ -94,6 +94,15 @@ const field = {
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
+const relationField = {
+  ...field,
+  id: "88888888-8888-4888-8888-888888888888",
+  shortId: "REL01",
+  name: "Related record",
+  type: "relation",
+  config: { targetTableId: tableId, cardinality: "single" },
+};
+
 let baseLevel: "none" | "read" = "read";
 let fieldListCalls = 0;
 let snapshotListCalls = 0;
@@ -216,7 +225,7 @@ describe("document template permission surfaces", () => {
       listTemplatesForTable: async (id) => (id === tableId ? [template] : []),
       listFieldsByTable: async () => {
         fieldListCalls += 1;
-        return [field];
+        return [field, relationField];
       },
       listEmailTemplatesForBase: async () => [],
     });
@@ -224,6 +233,10 @@ describe("document template permission surfaces", () => {
     expect([...catalog.tables.refs.values()].map((entry) => entry.name)).toContain(table.name);
     expect([...catalog.templates.refs.values()].map((entry) => entry.name)).toContain(template.name);
     expect(catalog.fieldsByTable.has(tableId)).toBe(true);
+    expect(catalog.fieldsByTable.get(tableId)?.refs.get(relationField.name)?.relation).toEqual({
+      targetTableId: tableId,
+      cardinality: "single",
+    });
     expect(fieldListCalls).toBe(1);
   });
 

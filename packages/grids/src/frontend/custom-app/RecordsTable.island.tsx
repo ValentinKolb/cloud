@@ -1,5 +1,5 @@
 import type { DateContext } from "@k2b/stdlib";
-import { Button, Checkbox, DataTable, type DataTableColumn, IconButton, Placeholder, TextInput, toast } from "@k2b/ui";
+import { Button, Checkbox, DataTable, type DataTableColumn, IconButton, Placeholder, prompts, TextInput, toast } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { DslQueryPreviewResponse, Field, GridRecord, RecordDisplayConfig } from "../../contracts";
 import type { CustomAppRowNavigation } from "../../custom-apps/contracts";
@@ -191,11 +191,13 @@ export default function RecordsTable(props: {
   const invokeBulk = async (action: CustomAppRenderedBulkAction) => {
     const recordIds = [...selectedRecordIds()];
     const key = `bulk:${action.id}`;
-    if (props.preview || recordIds.length === 0 || pendingKey() || (action.confirm && !window.confirm(action.confirm))) return;
+    if (props.preview || recordIds.length === 0 || pendingKey()) return;
     setPendingKey(key);
-    const controller = new AbortController();
-    workflowController = controller;
+    let controller: AbortController | null = null;
     try {
+      if (action.confirm && !(await prompts.confirm(action.confirm, { title: action.label, confirmText: action.label }))) return;
+      controller = new AbortController();
+      workflowController = controller;
       const outcome = await invokeCustomAppWorkflow({
         endpoint: action.endpoint,
         body: { recordIds, search: appliedQuery() || undefined, cursor: cursor() || undefined },
@@ -208,7 +210,7 @@ export default function RecordsTable(props: {
       } else if (outcome.kind === "error") toast.error(outcome.message);
       else toast(outcome.message);
     } catch (cause) {
-      if (!controller.signal.aborted) toast.error(cause instanceof Error ? cause.message : "The workflow could not be started.");
+      if (!controller?.signal.aborted) toast.error(cause instanceof Error ? cause.message : "The workflow could not be started.");
     } finally {
       if (workflowController === controller) workflowController = null;
       setPendingKey(null);
@@ -217,11 +219,13 @@ export default function RecordsTable(props: {
 
   const invoke = async (rowId: string, action: CustomAppRenderedRowAction) => {
     const key = `${rowId}:${action.id}`;
-    if (props.preview || pendingKey() || (action.confirm && !window.confirm(action.confirm))) return;
+    if (props.preview || pendingKey()) return;
     setPendingKey(key);
-    const controller = new AbortController();
-    workflowController = controller;
+    let controller: AbortController | null = null;
     try {
+      if (action.confirm && !(await prompts.confirm(action.confirm, { title: action.label, confirmText: action.label }))) return;
+      controller = new AbortController();
+      workflowController = controller;
       const outcome = await invokeCustomAppWorkflow({
         endpoint: action.endpoint,
         body: { rowId, search: appliedQuery() || undefined, cursor: cursor() || undefined },
@@ -233,7 +237,7 @@ export default function RecordsTable(props: {
       } else if (outcome.kind === "error") toast.error(outcome.message);
       else toast(outcome.message);
     } catch (cause) {
-      if (!controller.signal.aborted) toast.error(cause instanceof Error ? cause.message : "The workflow could not be started.");
+      if (!controller?.signal.aborted) toast.error(cause instanceof Error ? cause.message : "The workflow could not be started.");
     } finally {
       if (workflowController === controller) workflowController = null;
       setPendingKey(null);

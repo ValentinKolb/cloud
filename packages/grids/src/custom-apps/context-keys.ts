@@ -1,7 +1,13 @@
 import type { DslQueryContextKey } from "../query-dsl/parameters";
 import type { CustomAppPage } from "./contracts";
 
-const AUTH_CONTEXT_KEYS = ["auth.id", "auth.name", "auth.username", "auth.email"] as const satisfies readonly DslQueryContextKey[];
+const AUTH_CONTEXT_KEYS = [
+  "auth.id",
+  "auth.name",
+  "auth.username",
+  "auth.email",
+  "auth.subjects",
+] as const satisfies readonly DslQueryContextKey[];
 
 const APP_BASE_TIME_CONTEXT_KEYS = [
   "app.id",

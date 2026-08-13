@@ -69,7 +69,7 @@ Records reads either an existing saved view or an inline GQL query. A saved View
 
 `pageSize` controls how many rows the server returns at once. Readers move through protected cursor pages; search and pagination run on the server and never load the full result into the browser. A GQL `limit` caps the complete result when the author intentionally wants only the first N matching rows. Shared query budgets remain enforced independently.
 
-An inline query receives typed `@auth.id`, `@auth.name`, `@auth.username`, `@auth.email`, `@params`, `@page`, `@app`, `@base`, and `@time` context automatically. Values are bound separately from query text. Unknown namespaces and undeclared page parameters fail publication.
+An inline query receives typed `@auth.id`, `@auth.name`, `@auth.username`, `@auth.email`, `@auth.subjects`, `@params`, `@page`, `@app`, `@base`, and `@time` context automatically. `@auth.subjects` contains the signed-in user UUID plus effective group UUIDs and is empty for anonymous readers. Values are bound separately from query text. Unknown namespaces and undeclared page parameters fail publication.
 
 Use `ROW.id` only for that Records block's row link or workflow row actions. A row action is rechecked against the exact published query result before its workflow starts. Configure up to six actions with a required accessible label and an optional icon; the table may show the label, the icon, or both.
 
@@ -87,7 +87,7 @@ The published capability records the exact tables and fields behind the block. A
 
 Form references one existing Grids form. The form owns visible fields, validation, required inputs, defaults, and record creation.
 
-The block may supply trusted values to any user-input field. Use `LITERAL` for a validated fixed value. Compatible relation fields may use a declared Record `PARAMS` value or the current page `RECORD.id`. Supplied inputs are omitted from the rendered Form, resolved again by the server, and cannot be overridden by the browser. This supports flows such as “add another article to this list” without asking for the same relation again.
+The block may supply trusted values to any user-input field. Use `LITERAL` for a validated fixed value. Compatible relation fields may use a declared Record `PARAMS` value or the current page `RECORD.id`. A Principal field may use `AUTH.currentUser` to assign the signed-in person without displaying another picker. Supplied inputs are omitted from the rendered Form, resolved again by the server, and cannot be overridden by the browser. This supports flows such as “add another article to this list” without asking for the same relation again.
 
 After success, the block may stay on the page or replace-navigate inside the same app. Navigation parameters may preserve declared `PARAMS` values or use the created Form record's `RESULT.recordId`.
 

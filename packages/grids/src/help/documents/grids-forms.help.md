@@ -33,7 +33,7 @@ Cross-field validation belongs to the Form when two answers must agree before an
 
 ## Reuse a Form in a Grids App {icon="app-window"}
 
-A Grids App may render an existing active Form as one block. The Form keeps ownership of its inputs and validation. The app may add fixed relation values from declared page parameters and navigate to another page after a successful submission.
+A Grids App may render an existing active Form as one block. The Form keeps ownership of its inputs and validation. The app may add fixed relation values from declared page parameters, assign the current signed-in user to a Principal input, and navigate to another page after a successful submission.
 
 Use this composition when people need context before entering data, a repeated “add another” flow, or a detail page after creation. Keep the Form useful on its own and put multi-page navigation in the Grids App.
 

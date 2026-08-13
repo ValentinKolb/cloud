@@ -82,6 +82,7 @@ describe("grids help", () => {
       "Date",
       "Duration",
       "Select",
+      "Principal",
       "JSON",
       "File",
       "Relation",

@@ -21,6 +21,7 @@ Choose a field type for the meaning of the value, not merely for how it should l
 | Date | A day or an exact date-time | Date-time values represent a moment; a current-time default uses the time when a new record is saved |
 | Duration | Elapsed time | Stored as seconds; accepts seconds, `MM:SS`, or `HH:MM:SS` |
 | Select | A value from a controlled list | Options can have labels, colors, and descriptions; a select may allow several values |
+| Principal | One or several responsible people or groups | Stores typed Cloud user and group references; the picker shows only identities the current account may discover |
 | JSON | Structured data that does not need its own Grids fields | Use sparingly; individual properties are less convenient to filter and explain |
 | File | Attachments and images | The field controls accepted file types and file count; Grids enforces the configured upload-size limit |
 
@@ -31,6 +32,7 @@ Date-time display, date-based filters, formulas, exports, and document folders u
 ## Fields that connect or calculate {icon="table"}
 
 - **Relation** links one record to one or several records in another table. The target table's record label is shown in pickers and cells.
+- **Principal** assigns one or several Cloud users or groups to a record. Use it for participants, owners, reviewers, or responsible teams instead of copying names or email addresses into business data.
 - **Lookup** displays one field from a related record without copying it.
 - **Rollup** summarizes values reached through a relation.
 - **Formula** calculates a value from fields in the current record whenever the record is read.
@@ -38,6 +40,8 @@ Date-time display, date-based filters, formulas, exports, and document folders u
 - **Created at, Created by, Updated at, and Updated by** are system-managed fields. They describe record activity and cannot be entered as ordinary business values.
 
 Choose a relation when the target has its own details or lifecycle. A customer name typed into every invoice is only text; a Customer relation keeps the invoice connected when the customer's details change.
+
+Principal values use the Cloud identity directory without becoming Cloud permissions. Full accounts can select from the directory. Guest accounts can select themselves and their direct or nested groups, but cannot discover other users or group members. The server applies the same visibility check again when saving, so a hidden UUID cannot be guessed through the API.
 
 ## Formulas in a table {icon="table"}
 

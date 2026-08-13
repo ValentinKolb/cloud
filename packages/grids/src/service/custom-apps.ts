@@ -174,6 +174,7 @@ const representativeQueryContext = (
   "auth.name": "Reader",
   "auth.username": "reader",
   "auth.email": "reader@example.test",
+  "auth.subjects": ["00000000-0000-4000-8000-000000000001"],
   "page.id": page.id,
   "page.title": page.title,
   "page.url": `/app/grids/custom/${definition.shortId ?? definition.id}/${page.id}`,
@@ -195,6 +196,7 @@ const representativeGlobalQueryContext = (definition: CustomAppDefinition, baseN
   "auth.name": "Reader",
   "auth.username": "reader",
   "auth.email": "reader@example.test",
+  "auth.subjects": ["00000000-0000-4000-8000-000000000001"],
   "page.id": "global",
   "page.title": definition.name,
   "page.url": `/apps/${definition.shortId ?? definition.id}`,
@@ -849,6 +851,15 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
         continue;
       }
       if (!field) continue;
+      if (value.source === "AUTH") {
+        if (field.type !== "principal") {
+          diagnostics.push({
+            path: [...formPath, "fixedValues", fieldId],
+            message: "The current user may only bind a People and groups field",
+          });
+        }
+        continue;
+      }
       if (value.source === "LITERAL") {
         const handler = getRecordWritableFieldType(field.type);
         const normalized = handler?.validate(value.value, field.config, field.required);

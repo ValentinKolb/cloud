@@ -52,6 +52,7 @@ type FormatKind =
   | "date"
   | "datetime"
   | "select"
+  | "principal"
   | "percent"
   | "duration"
   | "json"
@@ -197,6 +198,17 @@ const STORAGE: Record<string, StorageDescriptor> = {
     sortable: false /* arrays have no canonical scalar sort */,
     filterable: true,
     groupable: true,
+    aggregatable: false,
+    cursorable: false,
+    searchable: false,
+  },
+  principal: {
+    kind: "jsonbArray",
+    project: () => null,
+    formatKind: "principal",
+    sortable: false,
+    filterable: true,
+    groupable: false,
     aggregatable: false,
     cursorable: false,
     searchable: false,

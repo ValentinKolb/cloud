@@ -352,6 +352,38 @@ describe("Grids App Form runtime", () => {
         `;
         expect(sidebarRecord).toEqual({ value: "Sidebar request", supplied: "Sidebar" });
 
+        await sql`
+          DELETE FROM grids.custom_app_access
+          WHERE custom_app_id = ${appId}::uuid AND access_id = ${appGrant.data.accessId}::uuid
+        `;
+        const authenticatedGrant = await grantAccess({
+          resourceType: "customApp",
+          resourceId: appId,
+          permission: "read",
+          principal: { type: "authenticated" },
+        });
+        expect(authenticatedGrant.ok).toBe(true);
+        if (!authenticatedGrant.ok) throw new Error(authenticatedGrant.error.message);
+        accessIds.push(authenticatedGrant.data.accessId);
+        try {
+          const authenticatedSidebarResponse = await api.request(`/apps/runtime/${applied.data.shortId}/sidebar/forms/new-request/submit`, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-authenticated-${baseId}` },
+            body: JSON.stringify({}),
+          });
+          expect(authenticatedSidebarResponse.status).toBe(400);
+          expect(await authenticatedSidebarResponse.json()).toMatchObject({ code: "BAD_INPUT" });
+        } finally {
+          await sql`
+            DELETE FROM grids.custom_app_access
+            WHERE custom_app_id = ${appId}::uuid AND access_id = ${authenticatedGrant.data.accessId}::uuid
+          `;
+          await sql`
+            INSERT INTO grids.custom_app_access (custom_app_id, access_id)
+            VALUES (${appId}::uuid, ${appGrant.data.accessId}::uuid)
+          `;
+        }
+
         const snapshotId = testUuid();
         const documentRunId = testUuid();
         const otherDocumentRunId = testUuid();
@@ -591,6 +623,7 @@ describe("Grids App Form runtime", () => {
           pageUrl: `/apps/${applied.data.shortId}/request?request_id=${body.recordId}`,
           pageParams: { request_id: body.recordId },
           dateConfig: { timeZone: "UTC" },
+          authSubjectIds: [authUser.id],
         });
         const compiledActionAvailability = await compileCustomAppQuery({
           baseId,

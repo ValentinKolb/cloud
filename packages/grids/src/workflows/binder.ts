@@ -208,10 +208,17 @@ const resolveReference = (
   if (value.type === "grids.record") {
     if (fieldParts.length === 1 && fieldParts[0] === "recordId") return valueDescriptor("core.text");
     if (value.tableId) {
-      const field = bindField(context, value.tableId, fieldParts.join("."), path);
-      if (field) return relationValue(field, path, context) ?? valueDescriptor("core.value");
+      const field = bindField(context, value.tableId, fieldParts.length <= 2 ? fieldParts[0]! : fieldParts.join("."), path);
+      if (field) {
+        const relation = relationValue(field, path, context);
+        if (!relation || fieldParts.length === 1) return relation ?? valueDescriptor("core.value");
+        if (fieldParts.length === 2 && fieldParts[1] === "recordId" && field.relation?.cardinality === "single") {
+          return valueDescriptor("core.text");
+        }
+      }
     }
-    return valueDescriptor("core.value");
+    addDiagnostic(context, "reference.path", `Reference "${reference}" does not support field path "${fieldParts.join(".")}"`, path);
+    return null;
   }
   const resolved = resolveWorkflowValuePathDescriptor(value, fieldParts);
   if (resolved) {

@@ -51,6 +51,7 @@ export const TYPE_OPTIONS = [
   { value: "boolean", label: "Boolean" },
   { value: "date", label: "Date" },
   { value: "select", label: "Select" },
+  { value: "principal", label: "People and groups" },
   { value: "id", label: "ID" },
   // Tier 2
   { value: "percent", label: "Percent" },
@@ -86,6 +87,7 @@ export const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
   boolean: "A yes/no checkbox.",
   date: "A calendar date, optionally with a time. Bound it to a min and/or max date if you only want values in a certain range.",
   select: "A fixed list of choices. Use single mode for one choice, or multiple mode for tags/categories.",
+  principal: "One or more Cloud users or groups. People can only select identities they are allowed to discover.",
   id: "A server-generated identifier. Use it for inventory numbers, loan numbers, short codes, UUIDs, or other values users should not type manually.",
   percent: "A percentage from 0 to 100.",
   duration: "A length of time. Type as HH:MM:SS or seconds; displayed as HH:MM:SS.",
@@ -103,6 +105,8 @@ export const defaultConfigForType = (type: string): FieldConfigState => {
   switch (type) {
     case "select":
       return { multiple: false, options: [] };
+    case "principal":
+      return { cardinality: "multiple" };
     case "id":
       return { strategy: "sequence", padding: 4 };
     case "date":
@@ -150,6 +154,7 @@ const CONFIGURABLE = new Set([
   "duration",
   "date",
   "select",
+  "principal",
   "id",
   "relation",
   "lookup",
@@ -184,6 +189,9 @@ export function FieldConfigEditor(props: EditorProps) {
       </Show>
       <Show when={props.type === "select"}>
         <SelectConstraints config={props.config} onChange={props.onChange} />
+      </Show>
+      <Show when={props.type === "principal"}>
+        <PrincipalConstraints config={props.config} onChange={props.onChange} />
       </Show>
       <Show when={props.type === "id"}>
         <IdConstraints config={props.config} onChange={props.onChange} />
@@ -224,6 +232,22 @@ export function FieldConfigEditor(props: EditorProps) {
         <p class="text-xs text-dimmed">This field type has no extra configuration.</p>
       </Show>
     </div>
+  );
+}
+
+function PrincipalConstraints(props: { config: () => FieldConfigState; onChange: (next: FieldConfigState) => void }) {
+  const cardinality = () => (props.config().cardinality === "single" ? "single" : "multiple");
+  return (
+    <Select
+      label="Cardinality"
+      description="Choose whether a record can name one identity or several participants."
+      value={cardinality}
+      onValueChange={(value) => props.onChange({ ...props.config(), cardinality: value })}
+      options={[
+        { id: "single", label: "One user or group" },
+        { id: "multiple", label: "Multiple users or groups" },
+      ]}
+    />
   );
 }
 

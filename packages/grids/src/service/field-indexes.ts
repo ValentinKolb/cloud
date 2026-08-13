@@ -169,16 +169,16 @@ const ensureFieldIndexOnConnection = async (
       });
     }
     // Multi-select uses JSONB containment; unsupported types have no index.
-    if (type === "select") {
+    if (type === "select" || type === "principal") {
       try {
         await db.unsafe(
           `CREATE INDEX CONCURRENTLY ${idx}
            ON grids.records USING gin ((data->'${fieldId}') jsonb_path_ops)
            ${fieldIndexWhere(fieldId, tableId)}`,
         );
-        log.info("Created multi-select GIN index", { fieldId, tableId, idx });
+        log.info("Created JSONB containment GIN index", { fieldId, tableId, idx });
       } catch (e) {
-        log.error("Failed to create multi-select GIN index", { fieldId, tableId, error: String(e) });
+        log.error("Failed to create JSONB containment GIN index", { fieldId, tableId, error: String(e) });
       }
     }
     return;

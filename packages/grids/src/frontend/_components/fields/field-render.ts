@@ -11,7 +11,7 @@ const SYSTEM_OR_COMPUTED_FIELD_TYPES = new Set([
   "updated_by",
 ]);
 
-const USER_EDITABLE_FIELD_TYPES = new Set(["text", "longtext", "number", "boolean", "date", "select", "percent", "duration", "json"]);
+const USER_EDITABLE_FIELD_TYPES = new Set(["text", "longtext", "number", "boolean", "date", "select", "percent", "duration", "json", "principal"]);
 export const RECORD_INPUT_FIELD_TYPES = new Set([...USER_EDITABLE_FIELD_TYPES, "relation"]);
 
 const isSystemOrComputedField = (type: string): boolean => SYSTEM_OR_COMPUTED_FIELD_TYPES.has(type);
@@ -32,9 +32,10 @@ const stringArray = (value: unknown): string[] => {
 export const initialFieldInputValue = (field: Field, current?: unknown): unknown => {
   if (current !== undefined && current !== null) {
     if (field.type === "relation" || field.type === "select") return stringArray(current);
+    if (field.type === "principal") return Array.isArray(current) ? current : [];
     return current;
   }
-  if (field.type === "relation" || field.type === "select") return [];
+  if (field.type === "relation" || field.type === "select" || field.type === "principal") return [];
   if (field.type === "boolean") return false;
   if (field.type === "date" && isNowDefault(field.defaultValue)) return "";
   return field.defaultValue !== null && field.defaultValue !== undefined ? field.defaultValue : "";
@@ -47,6 +48,7 @@ const sanitizeFieldValue = (field: Field, raw: unknown): unknown => {
     const multiple = Boolean((field.config as { multiple?: boolean }).multiple);
     return multiple ? values : values.slice(0, 1);
   }
+  if (field.type === "principal") return Array.isArray(raw) ? raw : [];
   return raw;
 };
 

@@ -15,5 +15,6 @@ export const renderCustomAppMarkdown = (source: string, context: DslQueryContext
   source.replace(CONTEXT_REFERENCE, (reference, path: string) => {
     if (!isDslQueryContextKey(path) || !Object.hasOwn(context, path)) return reference;
     const value = context[path];
-    return value === null || value === undefined ? "" : escapeCustomAppMarkdownValue(value);
+    if (value === null || value === undefined) return "";
+    return typeof value === "string" ? escapeCustomAppMarkdownValue(value) : reference;
   });

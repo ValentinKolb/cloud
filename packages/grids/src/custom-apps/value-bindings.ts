@@ -1,14 +1,15 @@
 import type { GridRecord } from "../contracts";
-import type { CustomAppPage, CustomAppRowValueBinding, CustomAppValueBinding } from "./contracts";
+import type { CustomAppFormValueBinding, CustomAppPage, CustomAppRowValueBinding, CustomAppValueBinding } from "./contracts";
 
 export type CustomAppBindingContext = {
   parameterRecords: ReadonlyMap<string, GridRecord>;
   pageRecord?: GridRecord;
   rowRecordId?: string;
+  currentUserId?: string;
 };
 
 export const customAppBindingRecordTableId = (
-  binding: CustomAppRowValueBinding,
+  binding: CustomAppRowValueBinding | CustomAppFormValueBinding,
   page: CustomAppPage,
   rowTableId?: string,
 ): string | null => {
@@ -19,10 +20,13 @@ export const customAppBindingRecordTableId = (
 };
 
 export const resolveCustomAppValueBinding = (
-  binding: CustomAppValueBinding | CustomAppRowValueBinding,
+  binding: CustomAppValueBinding | CustomAppRowValueBinding | CustomAppFormValueBinding,
   context: CustomAppBindingContext,
 ): { ok: true; value: unknown } | { ok: false } => {
   if (binding.source === "LITERAL") return { ok: true, value: binding.value };
+  if (binding.source === "AUTH") {
+    return context.currentUserId ? { ok: true, value: [{ type: "user", id: context.currentUserId }] } : { ok: false };
+  }
   if (binding.source === "PARAMS") {
     const record = context.parameterRecords.get(binding.path);
     return record ? { ok: true, value: record.id } : { ok: false };

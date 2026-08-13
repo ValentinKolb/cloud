@@ -61,6 +61,12 @@ const FIELD_TYPE_DETAILS: Record<string, FieldReferenceDetails> = {
     recordValue: '["open"]',
     notes: "Record values are arrays of option ids. Single select still uses an array with at most one id.",
   },
+  principal: {
+    config: '{ "cardinality": "multiple" }',
+    recordValue: '[{ "type": "user", "id": "<user-uuid>" }, { "type": "group", "id": "<group-uuid>" }]',
+    notes:
+      "Stores Cloud users and groups as typed references. The server rejects identities outside the writing actor's discoverable account scope.",
+  },
   percent: {
     config: '{ "range": "percent", "decimals": 2 }',
     recordValue: "42.5",
@@ -218,6 +224,8 @@ const fieldExampleValue = (field: Field): unknown => {
       return fieldConfig(field).includeTime ? "2026-07-07T12:00:00.000Z" : "2026-07-07";
     case "select":
       return selectExampleValue(field);
+    case "principal":
+      return [{ type: "user", id: "<user-uuid>" }];
     case "percent":
       return 42.5;
     case "duration":

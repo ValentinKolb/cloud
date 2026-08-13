@@ -26,6 +26,8 @@ describe("GQL where predicates — first-class per field type", () => {
     ],
   };
   const optionFields: Field[] = fields.map((f) => (f.id === statusFieldId ? { ...f, config: statusOptions } : f));
+  const principalFieldId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa11";
+  optionFields.push(field({ id: principalFieldId, shortId: "participants", name: "Participants", type: "principal", position: 8 }));
   const optCtx = (overrides: Partial<DslResolverContext> = {}): DslResolverContext =>
     ctx({ fieldsByTableId: { ...ctx().fieldsByTableId, [orders.id]: optionFields }, ...overrides });
 
@@ -99,7 +101,7 @@ describe("GQL where predicates — first-class per field type", () => {
 
   test("containsall rejects scalar fields instead of inventing a special meaning", () => {
     expect(errorOf(`where containsall(Customer, 'a', 'b')`)).toEqual([
-      'CONTAINSALL is only valid on select and relation fields; use explicit comparisons for "Customer"',
+      'CONTAINSALL is only valid on select, relation, and principal fields; use explicit comparisons for "Customer"',
     ]);
   });
 
@@ -127,6 +129,18 @@ describe("GQL where predicates — first-class per field type", () => {
       op: "containsAny",
       value: [a, b],
     });
+  });
+
+  test("principal membership compiles to indexed identity containment", () => {
+    const user = "99999999-9999-4999-8999-999999999991";
+    const group = "99999999-9999-4999-8999-999999999992";
+    expect(filterOf(`where oneof(Participants, '${user}', '${group}')`)).toEqual({
+      fieldId: principalFieldId,
+      op: "containsAny",
+      value: [user, group],
+    });
+    const compiled = planSql(`where oneof(Participants, '${user}')`);
+    expect(compiled).toContain("@>");
   });
 
   test("text matching functions map to like-style filter ops", () => {

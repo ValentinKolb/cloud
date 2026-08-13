@@ -46,6 +46,7 @@ export const customAppFormMatchesPublishedCapability = (input: {
       const validated = getRecordWritableFieldType(field.type)?.validate(value.value, field.config, field.required);
       return validated?.ok === true && validated.value !== undefined;
     }
+    if (value.source === "AUTH") return field.type === "principal";
     const targetTableId = field?.type === "relation" ? (field.config as { targetTableId?: unknown }).targetTableId : null;
     return Boolean(page) && typeof targetTableId === "string" && targetTableId === customAppBindingRecordTableId(value, page!);
   });

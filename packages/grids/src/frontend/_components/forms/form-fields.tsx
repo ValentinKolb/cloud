@@ -1,10 +1,11 @@
-import { Checkbox, CheckboxCard, DatePicker, DateTimePicker, NumberInput, Select, TextInput, Tooltip, Button, IconButton } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { Button, Checkbox, CheckboxCard, DatePicker, DateTimePicker, IconButton, NumberInput, Select, TextInput, Tooltip } from "@k2b/ui";
 import { createMemo, createSignal, For, Index, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Field, FormFieldEntry } from "../../../service";
 import RelationPicker from "../records/RelationPicker";
 import type { InlineCreateDraft, InlineCreateState } from "./form-submit-payload";
+import PrincipalInput from "./PrincipalInput";
 
 export { buildFormSubmitPayload, type InlineCreateState } from "./form-submit-payload";
 
@@ -61,6 +62,7 @@ export const buildInitialValues = (entries: UserInputEntry[]): Record<string, un
  * - relation → RelationPicker (requires `baseId` prop). Picker disabled
  *   without baseId — used by the default-value editor where deep-link
  *   chips don't apply.
+ * - principal → caller-scoped Cloud user/group search
  *
  * Optional `error` getter (function form, so the platform components
  * react to signal updates) renders the inline error string. Mirrors
@@ -396,6 +398,29 @@ export function FieldInput(props: {
               dateConfig={props.dateConfig}
             />
           </Show>
+          <Show when={error()}>
+            <p class="text-[11px] text-red-500">{error()}</p>
+          </Show>
+        </div>
+      );
+    }
+
+    case "principal": {
+      const cfg = props.field.config as { cardinality?: "single" | "multiple" };
+      return (
+        <div class="flex flex-col gap-1">
+          <p class="text-sm font-medium">
+            {label}
+            <Show when={required}>
+              <span class="ml-0.5 text-red-500" aria-hidden="true">
+                *
+              </span>
+            </Show>
+          </p>
+          <Show when={helpText}>
+            <p class="text-xs leading-snug text-dimmed">{helpText}</p>
+          </Show>
+          <PrincipalInput value={props.value} multi={cfg.cardinality !== "single"} onChange={props.onChange} />
           <Show when={error()}>
             <p class="text-[11px] text-red-500">{error()}</p>
           </Show>

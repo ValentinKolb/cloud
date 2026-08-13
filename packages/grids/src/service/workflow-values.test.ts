@@ -227,6 +227,16 @@ describe("workflow kernel value resolver", () => {
     ).toEqual({ state: "resolved", value: { kind: "record", tableId: targetTableId, recordId: otherRecordId } });
     expect(
       await resolver.resolve({
+        reference: "inputs.item.Current archive.recordId",
+        path: relationPath,
+        plan: relationPlan,
+        invocation,
+        variables,
+        fallback: () => undefined,
+      }),
+    ).toEqual({ state: "resolved", value: otherRecordId });
+    expect(
+      await resolver.resolve({
         reference: "inputs.item.Related archives",
         path: listPath,
         plan: relationPlan,

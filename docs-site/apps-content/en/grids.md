@@ -53,9 +53,13 @@ all authenticated accounts, or the public, but not service accounts. Delegated
 credentials access a Custom App through their user identity.
 
 Custom App pages, blocks, Forms, and actions can use server-enforced GQL
-availability rules with request context such as `@auth.id`, `@params.*`, and
-`@time.now`. Public apps receive `@auth.id = null`; Workflow actions still
-require an authenticated account.
+availability rules with request context such as `@auth.id`, `@auth.subjects`,
+`@params.*`, and `@time.now`. A Principal field stores typed user and group
+references. `@auth.subjects` flattens the signed-in user plus effective groups
+to UUIDs, so `oneof(Participants, @auth.subjects)` supports individual and team
+participation without exposing group membership. Public apps receive
+`@auth.id = null` and `@auth.subjects = []`; Workflow actions still require an
+authenticated account.
 
 ## How Grids fits Cloud
 

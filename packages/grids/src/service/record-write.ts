@@ -6,6 +6,7 @@ import { logAudit, type SqlClient } from "./audit";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import { generatedIdRequiresRetry, generateIdValue, isGeneratedIdUniqueCollision } from "./generated-ids";
 import { requireStoredTableWritable } from "./parent-checks";
+import { validatePrincipalValuesForActor } from "./principal-values";
 import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
 import { buildRecordAuditContext, loadTableAuditPolicy } from "./record-audit";
 import { captureRecordEventSnapshot, notifyRecordEventOutbox } from "./record-event-outbox";
@@ -81,7 +82,7 @@ const preflightRelationTargets = async (
 const validateForCreate = async (
   tableId: string,
   payload: Record<string, unknown>,
-  options: { dateConfig?: DateContext; client?: SqlClient; fields?: Field[] } = {},
+  options: { actorId: string | null; dateConfig?: DateContext; client?: SqlClient; fields?: Field[] },
 ): Promise<Result<Record<string, unknown>>> => {
   const fields = options.fields ?? (await listFields(tableId, false, options.client));
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
@@ -114,7 +115,8 @@ const validateForCreate = async (
       out[field.id] = result.value;
     }
   }
-  return ok(out);
+  const principals = await validatePrincipalValuesForActor(out, fields, options.actorId);
+  return principals.ok ? ok(out) : principals;
 };
 
 /**
@@ -126,6 +128,7 @@ const validateForUpdate = async (
   tableId: string,
   payload: Record<string, unknown>,
   fields: Field[],
+  actorId: string | null,
 ): Promise<Result<Record<string, unknown>>> => {
   const fieldsById = new Map(fields.map((f) => [f.id, f]));
 
@@ -144,7 +147,8 @@ const validateForUpdate = async (
     if (!result.ok) return fail(err.badInput(formatFieldValidationError(field.name, result.error)));
     out[fieldId] = result.value;
   }
-  return ok(out);
+  const principals = await validatePrincipalValuesForActor(out, fields, actorId);
+  return principals.ok ? ok(out) : principals;
 };
 
 /** Keep update preflight on the caller's transaction connection once parent
@@ -228,6 +232,7 @@ export const createInTransaction = async (
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     validated = await validateForCreate(tableId, payload, {
+      actorId,
       dateConfig: opts.dateConfig,
       client,
       fields,
@@ -414,7 +419,7 @@ export const updateInTransaction = async (
     return fail(recordVersionConflict());
   }
 
-  const validated = await validateForUpdate(tableId, payload, fields);
+  const validated = await validateForUpdate(tableId, payload, fields, actorId);
   if (!validated.ok) return validated;
 
   const fieldsIncludingDeleted = await listFields(tableId, true, client);

@@ -6,7 +6,7 @@ This complements the test suite and `soak:100k`. The direct soak script checks S
 
 ## Prerequisites
 
-- Run the local Cloud stack, for example with `bun run infra` and the normal development server. Rebuild Grids with `bun run dev:rebuild grids` from the repository root when the image does not match the working tree.
+- Run the local Cloud stack with `bun run dev`. Rebuild Grids with `bun run dev:rebuild grids` from the repository root when the image does not match the working tree.
 - Keep Docker running. The harness starts only a temporary k6 container and does not restart the stack.
 - Set `GRIDS_LOAD_ADMIN_TOKEN` if the local admin token is not `dev-admin`.
 - Configure Gotenberg only when running the optional PDF workload.

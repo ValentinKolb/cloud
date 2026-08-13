@@ -15,6 +15,7 @@ import { collectDslFieldTableIds } from "../../../query-dsl/source-plan";
 import type { DslQueryAst } from "../../../query-dsl/types";
 import type { Field, GridRecord, Table, View } from "../../../service";
 import { gridsService } from "../../../service";
+import { buildPrincipalLabelCache, principalReferencesFromRecords } from "../../../service/principal-values";
 import type { AuthorizedRecordAccess } from "../../../service/record-access";
 import { calendarQueryFilter, cardImageFieldIds } from "../records-view/display-mode";
 import { resolveEffectiveQuery } from "../records-view/effective-query";
@@ -263,7 +264,10 @@ const loadListedInitialRecords = async (
     };
     data.aggregates = data.records.aggregates ?? {};
   }
-  data.relationLabels = await gridsService.relations.buildLabelCache(data.records.items, args.fields, viewer);
+  data.relationLabels = {
+    ...(await gridsService.relations.buildLabelCache(data.records.items, args.fields, viewer)),
+    ...(await buildPrincipalLabelCache(principalReferencesFromRecords(data.records.items, args.fields), viewer.userId)),
+  };
   if (args.trashMode || args.fields.length === 0 || query.effectiveAggregations.length === 0) return data;
 
   const aggregateResult = await gridsService.record.aggregate({

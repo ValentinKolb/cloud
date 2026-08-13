@@ -661,6 +661,7 @@ export default function WorkflowScannerSurface(props: Props) {
   };
 
   onMount(() => {
+    if (typeof window === "undefined") return;
     window.addEventListener("resize", updateVideoBox);
     document.addEventListener("visibilitychange", syncLiveVisibility);
     if (props.transport?.live === false) startFallback();
@@ -673,6 +674,7 @@ export default function WorkflowScannerSurface(props: Props) {
 
   onCleanup(() => {
     disposed = true;
+    if (typeof window === "undefined") return;
     window.removeEventListener("resize", updateVideoBox);
     document.removeEventListener("visibilitychange", syncLiveVisibility);
     stopFallback();

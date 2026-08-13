@@ -8,6 +8,7 @@ import { runBoundedQuery } from "../service/bounded-query";
 import { buildComputedFieldSqlMap } from "../service/computed-projections";
 import { type FederatedRevisionScope, verifyRevisionScope } from "../service/federated-tables";
 import { isMultiSelectField, storageOf } from "../service/field-storage";
+import { buildPrincipalLabelCache, principalReferencesFromValue } from "../service/principal-values";
 import { type AuthorizedRecordAccess, recordAccessPredicate } from "../service/record-access";
 import { buildRelationLabelCacheForIds, type ExpansionViewer } from "../service/relations";
 import { compileSearchClause } from "../service/search";
@@ -422,6 +423,34 @@ const labelRelationPreviewValues = async (
   });
 };
 
+const labelPrincipalPreviewValues = async (
+  rows: DslQueryPreviewRow[],
+  columns: DslQueryPreviewColumn[],
+  options: DslQueryPreviewOptions,
+): Promise<DslQueryPreviewRow[]> => {
+  const keys = columns.filter((column) => column.type === "principal").map((column) => column.key);
+  if (keys.length === 0) return rows;
+  const references = rows.flatMap((row) => keys.flatMap((key) => principalReferencesFromValue(row.values[key])));
+  if (references.length === 0) return rows;
+  const labels = await buildPrincipalLabelCache(references, options.viewer?.userId ?? null);
+  return rows.map((row) => ({
+    ...row,
+    values: Object.fromEntries(
+      Object.entries(row.values).map(([key, value]) => {
+        if (!keys.includes(key)) return [key, value];
+        const principals = principalReferencesFromValue(value);
+        return [key, principals.map((principal) => labels[principal.id] ?? (principal.type === "user" ? "Private user" : "Private group"))];
+      }),
+    ),
+  }));
+};
+
+const labelPreviewValues = async (
+  rows: DslQueryPreviewRow[],
+  columns: DslQueryPreviewColumn[],
+  options: DslQueryPreviewOptions,
+): Promise<DslQueryPreviewRow[]> => labelPrincipalPreviewValues(await labelRelationPreviewValues(rows, columns, options), columns, options);
+
 const joinOr = (parts: unknown[]): unknown => parts.slice(1).reduce((acc, part) => sql`${acc} OR ${part}`, parts[0]!);
 
 const compileDslSearchClause = async (
@@ -699,8 +728,7 @@ export const previewDslQuery = async (
       const previewRows = visible.map((row) => ({
         values: Object.fromEntries(columns.map((column) => [column.key, rowValue(row, column)])),
       }));
-      const displayRows =
-        options.labelRelationValues === false ? previewRows : await labelRelationPreviewValues(previewRows, columns, options);
+      const displayRows = options.labelRelationValues === false ? previewRows : await labelPreviewValues(previewRows, columns, options);
       const bounded = fitPagedResponse(
         rows,
         displayRows,
@@ -742,8 +770,7 @@ export const previewDslQuery = async (
       const previewRows = visible.map((row) => ({
         values: Object.fromEntries(columns.map((column) => [column.key, rowValue(row, column)])),
       }));
-      const displayRows =
-        options.labelRelationValues === false ? previewRows : await labelRelationPreviewValues(previewRows, columns, options);
+      const displayRows = options.labelRelationValues === false ? previewRows : await labelPreviewValues(previewRows, columns, options);
       const bounded = fitPagedResponse(
         rows,
         displayRows,
@@ -832,8 +859,7 @@ export const previewDslQuery = async (
         : {}),
       values: Object.fromEntries(columns.map((column) => [column.key, rowValue(row, column)])),
     }));
-    const displayRows =
-      options.labelRelationValues === false ? previewRows : await labelRelationPreviewValues(previewRows, columns, options);
+    const displayRows = options.labelRelationValues === false ? previewRows : await labelPreviewValues(previewRows, columns, options);
     const bounded = fitPagedResponse(
       rows,
       displayRows,

@@ -218,6 +218,7 @@ describe("CustomAppBuilder", () => {
       "auth.name",
       "auth.username",
       "auth.email",
+      "auth.subjects",
       "page.id",
       "page.title",
       "page.url",
@@ -578,7 +579,7 @@ describe("CustomAppBuilder", () => {
     expect(source).toContain('title="App sidebar"');
     expect(source).toContain("Add Form");
     expect(source).toContain("Add Workflow");
-    expect(source).toContain("Hide this input and inject one trusted fixed value on the server.");
+    expect(source).toContain("Hide this input and inject one trusted value on the server.");
   });
 
   test("uses shared large editors and documented DetailPanel groups", async () => {

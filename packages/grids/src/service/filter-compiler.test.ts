@@ -32,6 +32,7 @@ const fields: Field[] = [
   mkField("fld_status", "select"),
   mkField("fld_tags", "select", { multiple: true }),
   mkField("fld_author", "relation"),
+  mkField("fld_participants", "principal"),
 ];
 
 describe("compileFilter — structural compilation", () => {
@@ -253,5 +254,25 @@ describe("compileFilter — structural compilation", () => {
     const r = compileFilter({ fieldId: "fld_author", op: "containsAny", value: ["nope"] }, fields);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toMatch(/UUID/);
+  });
+
+  test("principal membership validates UUIDs and compiles as JSONB containment", () => {
+    const ids = ["019a0000-0000-7000-8000-000000000001"];
+    const result = compileFilter({ fieldId: "fld_participants", op: "containsAny", value: ids }, fields);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.clause).toMatchObject({ kind: "predicate", fieldType: "principal", value: ids });
+      const rendered = normalizedSql(renderClause(result.clause));
+      expect(rendered).toContain("@>");
+      expect(rendered).toContain("CASE WHEN jsonb_typeof");
+    }
+
+    const negative = compileFilter({ fieldId: "fld_participants", op: "notContainsAny", value: ids }, fields);
+    expect(negative.ok).toBe(true);
+    if (negative.ok) expect(normalizedSql(renderClause(negative.clause))).toContain("NOT");
+
+    const invalid = compileFilter({ fieldId: "fld_participants", op: "containsAny", value: ["hidden-name"] }, fields);
+    expect(invalid.ok).toBe(false);
+    if (!invalid.ok) expect(invalid.error).toMatch(/UUID/);
   });
 });

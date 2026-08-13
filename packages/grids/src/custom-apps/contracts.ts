@@ -85,6 +85,20 @@ export const CustomAppValueBindingSchema = z.discriminatedUnion("source", [
   CustomAppRecordIdValueSchema,
 ]);
 
+const CustomAppAuthPrincipalValueSchema = z.object({ source: z.literal("AUTH"), path: z.literal("currentUser") }).strict();
+
+export const CustomAppFormValueBindingSchema = z.discriminatedUnion("source", [
+  z.object({ source: z.literal("LITERAL"), value: z.json() }).strict(),
+  CustomAppParamValueSchema,
+  CustomAppRecordIdValueSchema,
+  CustomAppAuthPrincipalValueSchema,
+]);
+
+export const CustomAppGlobalFormValueBindingSchema = z.discriminatedUnion("source", [
+  z.object({ source: z.literal("LITERAL"), value: z.json() }).strict(),
+  CustomAppAuthPrincipalValueSchema,
+]);
+
 export const CustomAppLiteralValueBindingSchema = z.object({ source: z.literal("LITERAL"), value: z.json() }).strict();
 
 export const CustomAppRowValueBindingSchema = z.discriminatedUnion("source", [
@@ -215,7 +229,7 @@ export const CustomAppSidebarActionSchema = z.discriminatedUnion("kind", [
       ...CustomAppSidebarActionShape,
       kind: z.literal("form"),
       formId: z.string().uuid(),
-      fixedValues: z.record(z.string().uuid(), CustomAppLiteralValueBindingSchema).default({}),
+      fixedValues: z.record(z.string().uuid(), CustomAppGlobalFormValueBindingSchema).default({}),
       onSuccessNavigate: CustomAppGlobalFormSuccessNavigationSchema.optional(),
     })
     .strict(),
@@ -394,7 +408,7 @@ export const CustomAppFormBlockSchema = z
     type: z.literal("form"),
     title: z.string().trim().min(1).max(160).optional(),
     formId: z.string().uuid(),
-    fixedValues: z.record(z.string().uuid(), CustomAppValueBindingSchema).default({}),
+    fixedValues: z.record(z.string().uuid(), CustomAppFormValueBindingSchema).default({}),
     onSuccessNavigate: CustomAppFormSuccessNavigationSchema.optional(),
     ...CustomAppAvailabilityShape,
   })
@@ -1047,6 +1061,7 @@ export type CustomAppActionsBlock = Extract<CustomAppBlock, { type: "actions" }>
 export type CustomAppScannerBlock = Extract<CustomAppBlock, { type: "scanner" }>;
 export type CustomAppAction = CustomAppActionsBlock["actions"][number];
 export type CustomAppValueBinding = z.infer<typeof CustomAppValueBindingSchema>;
+export type CustomAppFormValueBinding = z.infer<typeof CustomAppFormValueBindingSchema>;
 export type CustomAppRowValueBinding = z.infer<typeof CustomAppRowValueBindingSchema>;
 export type CustomAppRowAction = z.infer<typeof CustomAppRowActionSchema>;
 export type CustomAppBulkAction = z.infer<typeof CustomAppBulkActionSchema>;
@@ -1112,7 +1127,18 @@ export const CUSTOM_APP_REFERENCE = {
   availability: {
     availableWhen: "Optional bounded GQL query on pages, blocks, and individual actions",
     semantics: "Available only when the server-side query returns at least one row; errors fail closed",
-    context: ["@auth.id", "@auth.name", "@auth.username", "@auth.email", "@params.*", "@page.*", "@app.*", "@base.*", "@time.*"],
+    context: [
+      "@auth.id",
+      "@auth.name",
+      "@auth.username",
+      "@auth.email",
+      "@auth.subjects",
+      "@params.*",
+      "@page.*",
+      "@app.*",
+      "@base.*",
+      "@time.*",
+    ],
   },
   blocks: {
     markdown: { required: ["id", "type", "markdown"] },

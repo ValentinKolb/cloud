@@ -239,7 +239,12 @@ export class GridsWorkflowValueResolver implements WorkflowValueResolverPort {
       if (!(await this.readRecord(targetTableId, recordId))) throw new Error("related workflow record no longer exists");
     }
     const references = recordIds.map((recordId) => recordReference(targetTableId, recordId));
-    return { state: "resolved", value: cardinality === "single" ? (references[0] ?? null) : references };
+    const resolvedRelation = cardinality === "single" ? (references[0] ?? null) : references;
+    if (remaining.length === 1) return { state: "resolved", value: resolvedRelation };
+    if (remaining.length === 2 && remaining[1] === "recordId" && cardinality === "single") {
+      return { state: "resolved", value: references[0]?.recordId ?? null };
+    }
+    throw new Error(`workflow relation does not support path "${remaining.slice(1).join(".")}"`);
   }
 }
 

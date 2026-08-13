@@ -35,7 +35,7 @@ const TEXT_TYPES = new Set(["text", "longtext", "id"]);
 // Field types GQL can turn into a typed filter leaf. Everything else
 // (json, file, formula, lookup, rollup) is rejected with a clear error
 // instead of silently doing nothing.
-const FILTERABLE_TYPES = new Set([...TEXT_TYPES, ...NUMBER_TYPES, "date", "boolean", "select", "relation"]);
+const FILTERABLE_TYPES = new Set([...TEXT_TYPES, ...NUMBER_TYPES, "date", "boolean", "select", "relation", "principal"]);
 const PREDICATE_FNS = new Set([
   "ONEOF",
   "NONEOF",
@@ -221,10 +221,15 @@ const typedComparisonLeaf = (
     if (isDiagnostic(optionId)) return optionId;
     return filterLeaf(field.id, op === "=" ? "is" : "isNot", optionId);
   }
-  // relation
+  // relation / principal
   if (op !== "=" && op !== "!=") return unsupportedOp(field, op, span);
   if (typeof value !== "string" || !UUID_RE.test(value)) {
-    return diagnostic(`"${field.name}" is a relation; compare it to a record id (uuid)`, span);
+    return diagnostic(
+      field.type === "principal"
+        ? `"${field.name}" expects a user or group id (uuid)`
+        : `"${field.name}" is a relation; compare it to a record id (uuid)`,
+      span,
+    );
   }
   return filterLeaf(field.id, op === "=" ? "containsAny" : "notContainsAny", [value]);
 };
@@ -263,7 +268,6 @@ const membershipLeaf = (
   mode: "any" | "all" | "none",
   span?: DslSourceSpan,
 ): DslWherePredicate | DslResolverDiagnostic => {
-  if (values.length === 0) return diagnostic(`"${field.name}" membership needs at least one value`, span);
   if (!FILTERABLE_TYPES.has(field.type)) return diagnostic(`field "${field.name}" (type "${field.type}") cannot be filtered`, span);
 
   if (field.type === "select") {
@@ -278,10 +282,10 @@ const membershipLeaf = (
     if (mode === "none") return filterLeaf(field.id, "isNoneOf", ids);
     return { kind: "and", parts: ids.map((id) => filterLeaf(field.id, "is", id)) };
   }
-  if (field.type === "relation") {
+  if (field.type === "relation" || field.type === "principal") {
     const ids: string[] = [];
     for (const value of values) {
-      if (typeof value !== "string" || !UUID_RE.test(value)) return diagnostic(`"${field.name}" expects record ids (uuid)`, span);
+      if (typeof value !== "string" || !UUID_RE.test(value)) return diagnostic(`"${field.name}" expects ids (uuid)`, span);
       ids.push(value);
     }
     if (mode === "any") return filterLeaf(field.id, "containsAny", ids);
@@ -289,7 +293,10 @@ const membershipLeaf = (
     return { kind: "and", parts: ids.map((id) => filterLeaf(field.id, "containsAny", [id])) };
   }
   if (mode === "all")
-    return diagnostic(`CONTAINSALL is only valid on select and relation fields; use explicit comparisons for "${field.name}"`, span);
+    return diagnostic(
+      `CONTAINSALL is only valid on select, relation, and principal fields; use explicit comparisons for "${field.name}"`,
+      span,
+    );
   // Scalar types: OR of equals (any), AND of not-equals (none), AND of equals (all).
   const op = mode === "none" ? "!=" : "=";
   const parts: DslWherePredicate[] = [];
@@ -378,7 +385,7 @@ const buildPredicateFunction = (
     case "CONTAINS": {
       if (values.length !== 1) return diagnostic("CONTAINS takes a field and one value", callSpan);
       const value = values[0]!;
-      if (field.type === "select" || field.type === "relation")
+      if (field.type === "select" || field.type === "relation" || field.type === "principal")
         return diagnostic(`use oneof for membership filters on ${field.type} field "${field.name}"`, callSpan);
       return textMatchLeaf(field, "contains", "contains", value, callSpan);
     }
@@ -391,7 +398,7 @@ const buildPredicateFunction = (
     case "ICONTAINS": {
       if (values.length !== 1) return diagnostic("ICONTAINS takes a field and one value", callSpan);
       const value = values[0]!;
-      if (field.type === "select" || field.type === "relation")
+      if (field.type === "select" || field.type === "relation" || field.type === "principal")
         return diagnostic(`use oneof for membership filters on ${field.type} field "${field.name}"`, callSpan);
       return textMatchLeaf(field, "contains", "icontains", value, callSpan, { caseInsensitive: true });
     }

@@ -15,6 +15,8 @@ describe("App Records table actions", () => {
     expect(source).toContain("<DataTable.Footer>");
     expect(source).toContain("props.preview || Boolean(pendingKey())");
     expect(source).toContain("if (props.preview || !props.endpoint) return");
+    expect(source).toContain("prompts.confirm");
+    expect(source).not.toContain("window.confirm");
   });
 
   test("keeps bulk selection on the current published result page", async () => {

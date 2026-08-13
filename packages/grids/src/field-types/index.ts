@@ -2,6 +2,7 @@ import { booleanHandler } from "./boolean";
 import { dateHandler } from "./date";
 import { formulaHandler } from "./formula";
 import { numberHandler } from "./number";
+import { principalHandler } from "./principal";
 import { lookupHandler, relationHandler, rollupHandler } from "./relations";
 import { selectHandler } from "./select";
 import { createdAtHandler, createdByHandler, idHandler, updatedAtHandler, updatedByHandler } from "./system";
@@ -30,6 +31,7 @@ export const VALUE_FIELD_TYPES: Record<string, ValueFieldType> = Object.fromEntr
     percentHandler,
     durationHandler,
     jsonHandler,
+    principalHandler,
   ].map((fieldType) => [fieldType.type, fieldType]),
 );
 

@@ -916,6 +916,7 @@ const DslQueryAutocompleteBaseBodySchema = z.object({
               "auth.name",
               "auth.username",
               "auth.email",
+              "auth.subjects",
               "page.id",
               "page.title",
               "page.url",

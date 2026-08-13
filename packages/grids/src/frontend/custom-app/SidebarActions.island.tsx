@@ -1,5 +1,5 @@
 import type { DateContext } from "@k2b/stdlib";
-import { AppWorkspace, dialogCore, PanelDialog, panelDialogWideOptions, toast } from "@k2b/ui";
+import { AppWorkspace, dialogCore, PanelDialog, panelDialogOptions, prompts, toast } from "@k2b/ui";
 import { createSignal, For, onCleanup } from "solid-js";
 import type { Field } from "../../contracts";
 import type { PublicRenderableForm } from "../../service/forms";
@@ -57,22 +57,31 @@ export default function SidebarActions(props: { actions: CustomAppRenderedSideba
           </PanelDialog.Body>
         </PanelDialog>
       ),
-      panelDialogWideOptions,
+      panelDialogOptions,
     );
   };
 
   const invokeWorkflow = async (action: Extract<CustomAppRenderedSidebarAction, { kind: "workflow" }>) => {
-    if (props.preview || pendingId() || (action.confirm && !window.confirm(action.confirm))) return;
+    if (props.preview || pendingId()) return;
     setPendingId(action.id);
-    controller = new AbortController();
     try {
+      if (
+        action.confirm &&
+        !(await prompts.confirm(action.confirm, {
+          title: action.label,
+          confirmText: action.label,
+          variant: action.tone === "danger" ? "danger" : action.tone === "success" ? "success" : "primary",
+        }))
+      )
+        return;
+      controller = new AbortController();
       const outcome = await invokeCustomAppWorkflow({ endpoint: action.endpoint, signal: controller.signal });
       if (outcome.kind === "success") {
         toast.success(outcome.message);
         window.setTimeout(() => window.location.reload(), 600);
       } else if (outcome.kind === "error") toast.error(outcome.message);
     } catch (cause) {
-      if (!controller.signal.aborted) toast.error(cause instanceof Error ? cause.message : "The workflow could not be started.");
+      if (!controller?.signal.aborted) toast.error(cause instanceof Error ? cause.message : "The workflow could not be started.");
     } finally {
       controller = null;
       setPendingId(null);

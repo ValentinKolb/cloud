@@ -138,6 +138,24 @@ describe("FieldValue helpers", () => {
     });
   });
 
+  test("renders visible principal labels without exposing hidden UUIDs", () => {
+    const participants = field({ id: "participants", name: "Participants", type: "principal" });
+    expect(
+      resolveFieldDisplay({
+        field: participants,
+        value: [
+          { type: "user", id: "u1" },
+          { type: "group", id: "g1" },
+        ],
+        relationLabels: { u1: "Ada", g1: "Design team" },
+      }),
+    ).toEqual({ kind: "principal", text: "Ada, Design team" });
+    expect(resolveFieldDisplay({ field: participants, value: [{ type: "user", id: "hidden" }] })).toEqual({
+      kind: "principal",
+      text: "Private user",
+    });
+  });
+
   test("normalizes date, barcode, and progress display semantics", () => {
     const due = field({ id: "due", name: "Due", type: "date" });
     const code = field({ id: "code", name: "Code", type: "text" });

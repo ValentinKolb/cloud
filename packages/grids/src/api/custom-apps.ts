@@ -1,4 +1,4 @@
-import { type AuthContext, auth, getDateConfig, rateLimit, respond, v } from "@valentinkolb/cloud/server";
+import { type AuthContext, auth, getDateConfig, respond, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { type GridRecord, RecordUpdateBodySchema } from "../contracts";
@@ -18,7 +18,11 @@ import {
   resolveCustomAppPage,
   resolveCustomAppPageParams,
 } from "../custom-apps/routing";
-import { buildCustomAppGlobalRuntimeContext, buildCustomAppRuntimeContext } from "../custom-apps/runtime-context";
+import {
+  buildCustomAppGlobalRuntimeContext,
+  buildCustomAppRuntimeContext,
+  loadCustomAppAuthSubjectIds,
+} from "../custom-apps/runtime-context";
 import { resolveCustomAppValueBinding } from "../custom-apps/value-bindings";
 import { isRecordWritableFieldType } from "../field-types";
 import { toWorkflowRunEventSummary } from "../lib/workflow-run-events";
@@ -30,6 +34,7 @@ import { getWorkflowRunScope } from "../service/workflow-runs";
 import { encodeHeaderValue, pdfResponse } from "./download-response";
 import { FormSubmitSchema, parseFormSubmission } from "./form-api-shared";
 import {
+  accessActorUser,
   actorViewerFor,
   currentActorUserId,
   currentWorkflowPrincipal,
@@ -85,6 +90,7 @@ const resolvePublishedRuntime = async (c: Context<AuthContext>) => {
   const base = await gridsService.base.get(app.baseId);
   if (!base) return null;
   const dateConfig = getDateConfig(c);
+  const authSubjectIds = await loadCustomAppAuthSubjectIds(access);
   const runtimeContext = buildCustomAppRuntimeContext({
     access,
     app,
@@ -93,6 +99,7 @@ const resolvePublishedRuntime = async (c: Context<AuthContext>) => {
     pageUrl: customAppPageHref(app.shortId, page.id, pageParams),
     pageParams,
     dateConfig,
+    authSubjectIds,
   });
   const viewer = { ...actorViewerFor(access), isAdmin: true };
   const available = async (target: "page" | "block" | "action", query: string | undefined, blockId?: string, actionId?: string) => {
@@ -131,7 +138,8 @@ const resolvePublishedSidebarRuntime = async (c: Context<AuthContext>) => {
   const base = await gridsService.base.get(app.baseId);
   if (!base) return null;
   const dateConfig = getDateConfig(c);
-  const runtimeContext = buildCustomAppGlobalRuntimeContext({ access, app, base, dateConfig });
+  const authSubjectIds = await loadCustomAppAuthSubjectIds(access);
+  const runtimeContext = buildCustomAppGlobalRuntimeContext({ access, app, base, dateConfig, authSubjectIds });
   const viewer = { ...actorViewerFor(access), isAdmin: true };
   if (action.availableWhen) {
     const capability = app.publishedCapabilities.availability.find(
@@ -168,7 +176,7 @@ const loadRuntimeBindingContext = async (runtime: PublishedRuntime) => {
   }
   const pageRecord = runtime.page.record ? parameterRecords.get(runtime.page.record.id.path) : undefined;
   if (runtime.page.record && !pageRecord) return null;
-  return { parameterRecords, pageRecord };
+  return { parameterRecords, pageRecord, currentUserId: accessActorUser(runtime.access)?.id };
 };
 
 const resolveRuntimeComments = async (c: Context<AuthContext>) => {
@@ -306,7 +314,15 @@ const submitPublishedSidebarForm = async (c: Context<AuthContext>, submitted: Re
   }
   const submission = parseFormSubmission(submitted);
   if (!submission) return c.json({ message: "Invalid form submission" }, 400);
-  const fixedValues = Object.fromEntries(Object.entries(action.fixedValues).map(([fieldId, binding]) => [fieldId, binding.value]));
+  const fixedValues: Record<string, unknown> = {};
+  for (const [fieldId, binding] of Object.entries(action.fixedValues)) {
+    const resolved = resolveCustomAppValueBinding(binding, {
+      parameterRecords: new Map(),
+      currentUserId: accessActorUser(runtime.access)?.id,
+    });
+    if (!resolved.ok) return c.json({ message: "Form not found" }, 404);
+    fixedValues[fieldId] = resolved.value;
+  }
   const result = await gridsService.form.submit({
     form,
     submission,
@@ -358,7 +374,6 @@ export const createCustomAppsApi = (
   return new Hono<AuthContext>()
     .get(
       "/runtime/:shortId/:pageId/:blockId/records",
-      rateLimit({ keyBy: "ip", limitPerSecond: 12, windowSecs: 60 }),
       loadOptionalActor,
       v("query", CustomAppRecordsQuerySchema),
       async (c) => {
@@ -391,19 +406,19 @@ export const createCustomAppsApi = (
     )
     .post(
       "/runtime/:shortId/:pageId/:blockId/submit",
-      rateLimit({ keyBy: "ip", limitPerSecond: 3, windowSecs: 60 }),
+      loadOptionalActor,
       v("json", FormSubmitSchema),
       (c) => submitPublishedCustomAppForm(c, c.req.valid("json")),
     )
     .post(
       "/runtime/:shortId/sidebar/forms/:actionId/submit",
-      rateLimit({ keyBy: "ip", limitPerSecond: 3, windowSecs: 60 }),
+      loadOptionalActor,
       v("json", FormSubmitSchema),
       (c) => submitPublishedSidebarForm(c, c.req.valid("json")),
     )
     .get(
       "/runtime/:shortId/:pageId/:blockId/documents/:runId/download",
-      rateLimit({ keyBy: "ip", limitPerSecond: 8, windowSecs: 60 }),
+      loadOptionalActor,
       requireUuidParam("runId", "Document run"),
       async (c) => {
         const runtime = await resolvePublishedRuntime(c);
@@ -451,7 +466,6 @@ export const createCustomAppsApi = (
     )
     .get(
       "/runtime/:shortId/:pageId/:blockId/files/:token",
-      rateLimit({ keyBy: "ip", limitPerSecond: 24, windowSecs: 60 }),
       loadOptionalActor,
       async (c) => {
         const runtime = await resolvePublishedRuntime(c);

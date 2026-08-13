@@ -6,9 +6,13 @@ describe("Grids App sidebar launchers", () => {
     expect(source).toContain("AppWorkspace.SidebarItem");
     expect(source).toContain("dialogCore.open");
     expect(source).toContain("<PanelDialog>");
+    expect(source).toContain("panelDialogOptions");
+    expect(source).not.toContain("panelDialogWideOptions");
     expect(source).toContain("<FormSubmit");
     expect(source).toContain("invokeCustomAppWorkflow");
     expect(source).toContain("toast.success");
     expect(source).toContain("toast.error");
+    expect(source).toContain("prompts.confirm");
+    expect(source).not.toContain("window.confirm");
   });
 });

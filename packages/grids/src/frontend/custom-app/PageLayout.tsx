@@ -203,10 +203,10 @@ export function CustomAppPageLayout(props: {
       <AppWorkspace.Content>
         <AppWorkspace.Main class="p-0" mobilePane="main">
           <div
-            class="custom-app-page flex min-h-full w-full flex-col gap-10"
+            class="custom-app-page flex min-h-full w-full flex-col gap-10 p-5 sm:p-7 lg:p-8"
             data-dnd-dragging={props.editor?.dnd.isDragging() ? "true" : undefined}
           >
-            <header class="mx-auto flex w-full max-w-[96rem] flex-wrap items-center justify-between gap-4 px-5 pt-5 sm:px-7 sm:pt-7 lg:px-10 lg:pt-10">
+            <header class="mx-auto flex w-full max-w-[96rem] flex-wrap items-center justify-between gap-4">
               <div class="flex items-center gap-3">
                 {props.definition.icon ? <i class={`ti ti-${props.definition.icon} text-2xl text-accent`} aria-hidden="true" /> : null}
                 <div>
@@ -216,7 +216,7 @@ export function CustomAppPageLayout(props: {
               </div>
             </header>
 
-            <div class="mx-auto flex w-full max-w-[96rem] flex-col gap-10 px-5 pb-5 sm:px-7 sm:pb-7 lg:px-10 lg:pb-10">
+            <div class="mx-auto flex w-full max-w-[96rem] flex-col gap-10">
               <For each={props.page.rows}>
                 {(row, rowIndex) => {
                   const multiColumnRow = row.columns.length > 1;

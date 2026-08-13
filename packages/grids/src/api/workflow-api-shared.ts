@@ -124,7 +124,15 @@ export const permissionedWorkflowCatalog = async (
   const gate = await gateAt(c, { baseId }, "read");
   if (!gate.ok) return buildWorkflowCatalog({ tables: [], fieldsByTable: new Map(), templates: [], emailTemplates: [] });
   const visibleTables = [];
-  const fieldsByTable = new Map<string, Array<{ id: string; shortId: string; name: string }>>();
+  const fieldsByTable = new Map<
+    string,
+    Array<{
+      id: string;
+      shortId: string;
+      name: string;
+      relation?: { targetTableId: string; cardinality: "single" | "multiple" };
+    }>
+  >();
   const templates = [];
   const emailTemplates = [];
   for (const table of await deps.listTablesByBase(baseId)) {
@@ -135,7 +143,19 @@ export const permissionedWorkflowCatalog = async (
     const fields = await deps.listFieldsByTable(table.id);
     fieldsByTable.set(
       table.id,
-      fields.filter((field) => !field.deletedAt).map((field) => ({ id: field.id, shortId: field.shortId, name: field.name })),
+      fields
+        .filter((field) => !field.deletedAt)
+        .map((field) => {
+          const config = field.config as { targetTableId?: unknown; cardinality?: unknown };
+          const relation =
+            field.type === "relation" && typeof config.targetTableId === "string"
+              ? {
+                  targetTableId: config.targetTableId,
+                  cardinality: config.cardinality === "single" ? ("single" as const) : ("multiple" as const),
+                }
+              : undefined;
+          return { id: field.id, shortId: field.shortId, name: field.name, ...(relation ? { relation } : {}) };
+        }),
     );
   }
   for (const template of await deps.listEmailTemplatesForBase(baseId)) {

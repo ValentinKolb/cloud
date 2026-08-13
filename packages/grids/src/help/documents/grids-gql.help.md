@@ -205,6 +205,7 @@ Grids App queries receive typed request context automatically. Values are bound 
 | Reference | Value |
 | --- | --- |
 | `@auth.id` | Current account UUID, or `null` for an anonymous visitor |
+| `@auth.subjects` | Flat UUID list containing the current user and all effective direct or nested groups; empty for anonymous visitors |
 | `@params.<name>` | A declared and validated page parameter |
 | `@page.id`, `@page.title`, `@page.url` | Current page identity and canonical relative URL |
 | `@app.id`, `@app.shortId`, `@app.name` | Published Grids App identity |
@@ -212,6 +213,13 @@ Grids App queries receive typed request context automatically. Values are bound 
 | `@time.now`, `@time.today`, `@time.timeZone` | One request timestamp, local date, and IANA timezone |
 
 Use `@auth.id != null` when a query requires a signed-in account. An anonymous app request can be matched explicitly with `@auth.id = null`. Unknown namespaces and undeclared parameters are publish errors.
+
+Use `oneof(Participants, @auth.subjects)` when a Principal field grants the current user or any of their effective groups access to a record. Effective group memberships are resolved server-side; the query never receives group members or names. `@auth.subjects` is a list and is therefore valid only in `oneof`, `noneof`, or `containsall` membership predicates.
+
+```gql
+from table Loans
+where oneof(Participants, @auth.subjects)
+```
 
 ```gql
 from table Loans

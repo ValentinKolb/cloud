@@ -1,6 +1,7 @@
 import type { DateContext } from "@k2b/stdlib";
 import { Button, DatePicker, DateRangePicker, DateTimePicker, IconButton, MultiSelectInput, NumberInput, Select, TextInput } from "@k2b/ui";
-import { createMemo, Index, Match, Switch } from "solid-js";
+import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/account/ui";
+import { createEffect, createMemo, createSignal, For, Index, Match, onMount, Switch, untrack } from "solid-js";
 import type { Field } from "../../../service";
 import { fieldOption } from "../fields/field-type-meta";
 import RelationPicker from "../records/RelationPicker";
@@ -152,7 +153,7 @@ export default function FilterPanel(props: Props) {
   );
 }
 
-type ValueKind = "none" | "range" | "select" | "multi" | "boolean" | "relation" | "number-days" | "date" | "number" | "text";
+type ValueKind = "none" | "range" | "select" | "multi" | "boolean" | "relation" | "principal" | "number-days" | "date" | "number" | "text";
 
 /**
  * Renders the right-hand value input for a filter row, type-aware:
@@ -192,6 +193,7 @@ function FilterValueInput(props: {
     }
     if (field.type === "boolean") return "boolean";
     if (field.type === "relation" && op.id === "containsAny") return "relation";
+    if (field.type === "principal") return "principal";
     if (field.type === "date" && op.id === "lastNDays") return "number-days";
     if (field.type === "date") return "date";
     if (field.type === "number" || field.type === "percent" || field.type === "duration") {
@@ -331,6 +333,10 @@ function FilterValueInput(props: {
         </div>
       </Match>
 
+      <Match when={kind() === "principal"}>
+        <PrincipalFilterInput value={props.value} onChange={props.onChange} />
+      </Match>
+
       <Match when={kind() === "number-days"}>
         <div class="w-56">
           <NumberInput
@@ -393,5 +399,93 @@ function FilterValueInput(props: {
         </div>
       </Match>
     </Switch>
+  );
+}
+
+type PrincipalFilterOption = { id: string; type: "user" | "group"; label: string };
+
+function PrincipalFilterInput(props: { value: unknown; onChange: (value: unknown) => void }) {
+  const ids = () => (Array.isArray(props.value) ? props.value.filter((item): item is string => typeof item === "string") : []);
+  const [options, setOptions] = createSignal<PrincipalFilterOption[]>([]);
+
+  createEffect(() => {
+    const nextIds = ids();
+    const current = new Map(untrack(options).map((option) => [option.id, option]));
+    setOptions(nextIds.map((id) => current.get(id) ?? { id, type: "user", label: "Selected identity" }));
+  });
+
+  onMount(async () => {
+    const initialIds = ids();
+    if (initialIds.length === 0) return;
+    const url = new URL("/api/accounts/entities", window.location.origin);
+    url.searchParams.set("kinds", "user,group");
+    url.searchParams.set("user_ids", initialIds.join(","));
+    url.searchParams.set("group_ids", initialIds.join(","));
+    url.searchParams.set("per_page", String(Math.min(100, initialIds.length * 2)));
+    const response = await fetch(url, { credentials: "same-origin" });
+    if (!response.ok) return;
+    const body = (await response.json()) as {
+      items?: Array<{
+        kind: "user" | "group";
+        user?: { id: string; uid: string; displayName: string };
+        group?: { id: string; name: string };
+      }>;
+    };
+    const resolved = new Map<string, PrincipalFilterOption>();
+    for (const item of body.items ?? []) {
+      if (item.kind === "user" && item.user) {
+        resolved.set(item.user.id, { id: item.user.id, type: "user", label: item.user.displayName || item.user.uid });
+      }
+      if (item.kind === "group" && item.group) {
+        resolved.set(item.group.id, { id: item.group.id, type: "group", label: item.group.name });
+      }
+    }
+    setOptions((current) => current.map((option) => resolved.get(option.id) ?? option));
+  });
+
+  const add = (principal: EntitySearchPrincipal) => {
+    const option: PrincipalFilterOption | null =
+      principal.type === "user"
+        ? { id: principal.userId, type: "user", label: principal.displayName || principal.uid }
+        : principal.type === "group"
+          ? { id: principal.groupId, type: "group", label: principal.name }
+          : null;
+    if (!option) return;
+    const next = [...options().filter((item) => item.id !== option.id), option];
+    setOptions(next);
+    props.onChange(next.map((item) => item.id));
+  };
+
+  const remove = (id: string) => {
+    const next = options().filter((item) => item.id !== id);
+    setOptions(next);
+    props.onChange(next.map((item) => item.id));
+  };
+
+  return (
+    <div class="w-96">
+      <div class="flex flex-col gap-1.5">
+        <For each={options()}>
+          {(option) => (
+            <div class="flex items-center gap-2 rounded-md bg-[var(--ui-surface-subtle)] px-2 py-1.5">
+              <i class={`ti ${option.type === "user" ? "ti-user" : "ti-users-group"} text-dimmed`} aria-hidden="true" />
+              <span class="min-w-0 flex-1 truncate text-sm">{option.label}</span>
+              <IconButton size="xs" variant="ghost" label={`Remove ${option.label}`} onClick={() => remove(option.id)}>
+                <i class="ti ti-x" aria-hidden="true" />
+              </IconButton>
+            </div>
+          )}
+        </For>
+        <EntitySearch
+          includeUsers
+          includeGroups
+          excludeUserIds={ids()}
+          excludeGroupIds={ids()}
+          placeholder="Search users and groups..."
+          resultsHeightClass="max-h-48"
+          onSelect={add}
+        />
+      </div>
+    </div>
   );
 }

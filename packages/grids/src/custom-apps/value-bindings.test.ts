@@ -18,11 +18,20 @@ const record = { id: uuid(10), tableId: uuid(1) } as GridRecord;
 
 describe("Grids App value bindings", () => {
   test("resolves literals, parameters, the page record, and a selected row", () => {
-    const context = { parameterRecords: new Map([["loan_id", record]]), pageRecord: record, rowRecordId: uuid(11) };
+    const context = {
+      parameterRecords: new Map([["loan_id", record]]),
+      pageRecord: record,
+      rowRecordId: uuid(11),
+      currentUserId: uuid(12),
+    };
     expect(resolveCustomAppValueBinding({ source: "LITERAL", value: "draft" }, context)).toEqual({ ok: true, value: "draft" });
     expect(resolveCustomAppValueBinding({ source: "PARAMS", path: "loan_id" }, context)).toEqual({ ok: true, value: record.id });
     expect(resolveCustomAppValueBinding({ source: "RECORD", path: "id" }, context)).toEqual({ ok: true, value: record.id });
     expect(resolveCustomAppValueBinding({ source: "ROW", path: "id" }, context)).toEqual({ ok: true, value: uuid(11) });
+    expect(resolveCustomAppValueBinding({ source: "AUTH", path: "currentUser" }, context)).toEqual({
+      ok: true,
+      value: [{ type: "user", id: uuid(12) }],
+    });
   });
 
   test("fails closed for missing runtime records and reports source tables", () => {
@@ -31,5 +40,9 @@ describe("Grids App value bindings", () => {
     expect(customAppBindingRecordTableId({ source: "RECORD", path: "id" }, page)).toBe(uuid(1));
     expect(customAppBindingRecordTableId({ source: "ROW", path: "id" }, page, uuid(2))).toBe(uuid(2));
     expect(customAppBindingRecordTableId({ source: "LITERAL", value: null }, page)).toBeNull();
+    expect(resolveCustomAppValueBinding({ source: "AUTH", path: "currentUser" }, { parameterRecords: new Map() })).toEqual({
+      ok: false,
+    });
+    expect(customAppBindingRecordTableId({ source: "AUTH", path: "currentUser" }, page)).toBeNull();
   });
 });

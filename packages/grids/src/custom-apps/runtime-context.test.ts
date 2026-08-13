@@ -10,6 +10,7 @@ const common = {
   pageParams: { state: "open" },
   dateConfig: { timeZone: "Europe/Berlin" },
   now: new Date("2026-08-10T22:30:00.000Z"),
+  authSubjectIds: ["019fa000-0000-7000-8000-000000000003", "019fa000-0000-7000-8000-000000000004"],
 };
 
 describe("Grids App runtime context", () => {
@@ -49,6 +50,7 @@ describe("Grids App runtime context", () => {
       "auth.name": "App Reader",
       "auth.username": "reader",
       "auth.email": "reader@example.test",
+      "auth.subjects": ["019fa000-0000-7000-8000-000000000003", "019fa000-0000-7000-8000-000000000004"],
       "params.state": "open",
       "page.id": "mine",
       "page.title": "My loans",
@@ -65,11 +67,16 @@ describe("Grids App runtime context", () => {
   });
 
   test("uses null auth identity for anonymous requests", () => {
-    const query = buildCustomAppRuntimeContext({ ...common, access: { actor: undefined, accessSubject: null } }).query;
+    const query = buildCustomAppRuntimeContext({
+      ...common,
+      authSubjectIds: [],
+      access: { actor: undefined, accessSubject: null },
+    }).query;
     expect(query["auth.id"]).toBeNull();
     expect(query["auth.name"]).toBeNull();
     expect(query["auth.username"]).toBeNull();
     expect(query["auth.email"]).toBeNull();
+    expect(query["auth.subjects"]).toEqual([]);
   });
 
   test("removes unavailable navigation pages but retains route-only targets", () => {

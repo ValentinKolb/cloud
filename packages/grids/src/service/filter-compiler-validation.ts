@@ -36,6 +36,7 @@ export const filterOperatorsForType = (type: string): Set<string> => {
     case "select":
       return SELECT_OPS;
     case "relation":
+    case "principal":
       return RELATION_OPS;
     default:
       return new Set();
@@ -116,7 +117,7 @@ export const validateFilterValue = (fieldType: string, op: string, value: unknow
   if (fieldType === "date") return validateDateValue(op, value, dateIncludeTime);
   if (NUMBER_TYPES.has(fieldType)) return validateNumberValue(op, value);
   if (fieldType === "select") return validateSelectValue(op, value);
-  if (fieldType === "relation") return validateRelationValue(op, value);
+  if (fieldType === "relation" || fieldType === "principal") return validateRelationValue(op, value);
   if (op === "regex" && typeof value === "string" && value.length > MAX_FILTER_REGEX_LENGTH) {
     return `regex patterns may contain at most ${MAX_FILTER_REGEX_LENGTH} characters`;
   }

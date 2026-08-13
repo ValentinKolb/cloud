@@ -144,7 +144,7 @@ cld grids fields type select --json
 
 The shipped field types are:
 
-- Writable values: `boolean`, `date`, `duration`, `json`, `longtext`, `number`, `percent`, `select`, `text`.
+- Writable values: `boolean`, `date`, `duration`, `json`, `longtext`, `number`, `percent`, `principal`, `select`, `text`.
 - Writable links: `relation`.
 - Read-only computed values: `formula`, `lookup`, `rollup`.
 - Read-only system or generated values: `created_at`, `created_by`, `id`, `updated_at`, `updated_by`.
@@ -155,6 +155,7 @@ Important encodings:
 - `number` stores a canonical decimal string, although writes accept strings or numbers.
 - `select` stores an array of option ids, including single-select fields.
 - `relation` stores target record UUIDs. A single relation can be written as one UUID string; multiple relations use an array.
+- `principal` always stores an array of typed Cloud references such as `[{"type":"user","id":"..."},{"type":"group","id":"..."}]`, even when its cardinality is `single`. Writes are revalidated against the current actor's identity-discovery scope.
 - `date` uses `YYYY-MM-DD` unless `includeTime` is enabled; date-time values must include a timezone.
 - `duration` accepts seconds, `MM:SS`, or `HH:MM:SS` and stores integer seconds.
 - `id`, formula, lookup, rollup, and timestamp fields must not be sent in record writes.
@@ -407,6 +408,7 @@ Conditions use `=`, `!=`, `<`, `<=`, `>`, `>=`, `and`, `or`, `not`, and parenthe
 - boolean: equality with `true` or `false`, inequality, or the field by itself;
 - select: `=`, `!=`, `oneof`, `noneof`, `containsall` with option label or id values;
 - relation: `=`, `!=`, `oneof`, `noneof`, `containsall` with record UUID values.
+- principal: `=`, `!=`, `oneof`, `noneof`, `containsall` with user or group UUID values.
 
 `field = null` means empty and `field != null` means not empty. Other comparisons with `null` are invalid. A true/false formula may compare
 fields and calculated expressions. Use operators in GQL conditions, not function-style `AND(...)`, `OR(...)`, or `NOT(...)`.
@@ -417,6 +419,7 @@ Grids App GQL receives typed request context automatically:
 - `@auth.name`: current account display name or `null`;
 - `@auth.username`: current account username or `null`;
 - `@auth.email`: current account email address or `null`;
+- `@auth.subjects`: current user UUID plus effective direct and nested group UUIDs, or `[]` for anonymous visitors; valid only inside `oneof`, `noneof`, or `containsall`;
 - `@params.<name>`: one declared and validated page parameter;
 - `@page.id`, `@page.title`, `@page.url`;
 - `@app.id`, `@app.shortId`, `@app.name`;
@@ -575,7 +578,7 @@ Saved-view Records blocks can use `display: { kind: table, columnIds: [...] }` o
 
 Pages, blocks, Forms, and actions may use one `availableWhen.query`. At least one returned row means available. An empty result, invalid query, missing context, timeout, or cancellation means unavailable. The server rechecks Forms and actions before execution.
 
-The optional root `sidebar.actions` list adds ordered app-global Form and Workflow launchers to the AppWorkspace navigation. Global Form fixed values and Workflow inputs accept `LITERAL` only; they never inherit `PARAMS`, page `RECORD`, or `ROW`. Global availability receives only `@auth.*`, `@app.*`, `@base.*`, and `@time.*`. Form launchers can serve public app readers in a large dialog, while Workflow launchers require sign-in. Visible pages use `navigation.order` and an optional `navigation.icon`; the runtime hides the whole sidebar when it would contain neither another page nor an action.
+The optional root `sidebar.actions` list adds ordered app-global Form and Workflow launchers to the AppWorkspace navigation. Global Form fixed values accept `LITERAL` and `AUTH.currentUser` for Principal inputs. Global Workflow inputs accept `LITERAL` only. They never inherit `PARAMS`, page `RECORD`, or `ROW`. Global availability receives only `@auth.*`, `@app.*`, `@base.*`, and `@time.*`. Form launchers can serve public app readers in a large dialog, while Workflow launchers and `AUTH.currentUser` require sign-in. Visible pages use `navigation.order` and an optional `navigation.icon`; the runtime hides the whole sidebar when it would contain neither another page nor an action.
 
 ```bash
 cld grids apps reference

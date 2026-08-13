@@ -22,6 +22,7 @@ test("registry: covers all field kinds", () => {
     "boolean",
     "date",
     "select",
+    "principal",
     "id",
     "created_at",
     "created_by",
@@ -41,6 +42,7 @@ test("registry: covers all field kinds", () => {
 
 test("field kind registries separate write policies", () => {
   expect(VALUE_FIELD_TYPES.text?.kind).toBe("value");
+  expect(VALUE_FIELD_TYPES.principal?.kind).toBe("value");
   expect(LINK_FIELD_TYPES.relation?.kind).toBe("link");
   expect(SERVER_GENERATED_FIELD_TYPES.id?.kind).toBe("serverGenerated");
   expect(COMPUTED_FIELD_TYPES.formula?.kind).toBe("computed");
@@ -71,6 +73,7 @@ test("recordWritableFieldTypes: includes value and link fields only", () => {
   expect(writable).not.toContain("file");
   expect(writable).toContain("text");
   expect(writable).toContain("number");
+  expect(writable).toContain("principal");
   expect(writable).toContain("relation");
 });
 

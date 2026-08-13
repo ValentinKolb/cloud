@@ -6,6 +6,7 @@ export type DslQueryContextKey =
   | "auth.name"
   | "auth.username"
   | "auth.email"
+  | "auth.subjects"
   | `params.${string}`
   | "page.id"
   | "page.title"
@@ -24,6 +25,7 @@ export type DslQueryContextValues = {
   "auth.name": string | null;
   "auth.username": string | null;
   "auth.email": string | null;
+  "auth.subjects": string[];
   "page.id": string;
   "page.title": string;
   "page.url": string;
@@ -46,6 +48,7 @@ const FIXED_CONTEXT_KEYS = new Set<DslQueryContextKey>([
   "auth.name",
   "auth.username",
   "auth.email",
+  "auth.subjects",
   "page.id",
   "page.title",
   "page.url",
@@ -64,6 +67,7 @@ export const isDslQueryContextKey = (value: string): value is DslQueryContextKey
   FIXED_CONTEXT_KEYS.has(value as DslQueryContextKey) || PARAM_CONTEXT_KEY.test(value);
 
 const isContextValue = (value: unknown): value is string | null => value === null || typeof value === "string";
+const MEMBERSHIP_FUNCTIONS = new Set(["ONEOF", "NONEOF", "CONTAINSALL"]);
 
 const contextPath = (expression: Extract<Expr, { kind: "call" }>): string | null => {
   if (expression.fn !== "@" || expression.args.length !== 1) return null;
@@ -111,12 +115,24 @@ const bindExpression = (expression: Expr, values: DslQueryContextInput): Expr | 
     if (!path || !isDslQueryContextKey(path)) return `Unknown query context reference "@${path ?? ""}"`;
     if (!Object.hasOwn(values, path)) return `Missing query context value "@${path}"`;
     const value = values[path as keyof DslQueryContextValues];
+    if (Array.isArray(value)) return `Query context reference "@${path}" is only valid inside oneof, noneof, or containsall`;
     if (!isContextValue(value)) return `Invalid query context value "@${path}"`;
     return { kind: "literal", value, ...(expression.span ? { span: expression.span } : {}) };
   }
   if (expression.kind === "call") {
     const args: Expr[] = [];
     for (const argument of expression.args) {
+      if (argument.kind === "call" && argument.fn === "@" && contextPath(argument) === "auth.subjects") {
+        if (!MEMBERSHIP_FUNCTIONS.has(expression.fn)) {
+          return 'Query context reference "@auth.subjects" is only valid inside oneof, noneof, or containsall';
+        }
+        const subjects = values["auth.subjects"];
+        if (!Array.isArray(subjects) || subjects.some((value) => typeof value !== "string")) {
+          return 'Invalid query context value "@auth.subjects"';
+        }
+        args.push(...subjects.map((value) => ({ kind: "literal" as const, value, ...(argument.span ? { span: argument.span } : {}) })));
+        continue;
+      }
       const bound = bindExpression(argument, values);
       if (typeof bound === "string") return bound;
       args.push(bound);

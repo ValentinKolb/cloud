@@ -30,6 +30,7 @@ import {
   buildCustomAppGlobalRuntimeContext,
   buildCustomAppRuntimeContext,
   customAppDefinitionWithAvailableNavigation,
+  loadCustomAppAuthSubjectIds,
 } from "../../custom-apps/runtime-context";
 import { customAppScannerConfigHash } from "../../custom-apps/scanner-capability";
 import type { DslQueryContextValues } from "../../query-dsl/parameters";
@@ -48,6 +49,7 @@ import {
 import { executePublishedCustomAppRecords } from "../../service/custom-app-records-query";
 import { executePublishedCustomAppQuery, publishedCustomAppAvailability } from "../../service/custom-app-runtime-query";
 import type { PublicRenderableForm } from "../../service/forms";
+import { buildPrincipalLabelCache, principalReferencesFromRecords } from "../../service/principal-values";
 import { ALL_RECORD_ACCESS } from "../../service/record-access";
 import { scannerLauncherPromptInputSources } from "../../workflows/contracts";
 import FormSubmit from "../_components/forms/PublicFormSubmit.island";
@@ -340,6 +342,7 @@ export default ssr<AuthContext>(async (c) => {
   const base = await gridsService.base.get(app.baseId);
   if (!base) return c.notFound();
   const pageUrl = customAppPageHref(app.shortId, page.id, pageParams);
+  const authSubjectIds = await loadCustomAppAuthSubjectIds(requestAccess);
   const runtimeContext = buildCustomAppRuntimeContext({
     access: requestAccess,
     app,
@@ -348,6 +351,7 @@ export default ssr<AuthContext>(async (c) => {
     pageUrl,
     pageParams,
     dateConfig,
+    authSubjectIds,
   });
   const globalRuntimeContext = buildCustomAppGlobalRuntimeContext({
     access: requestAccess,
@@ -355,6 +359,7 @@ export default ssr<AuthContext>(async (c) => {
     base,
     dateConfig,
     now: runtimeContext.now,
+    authSubjectIds,
   });
   const viewer = {
     ...actorViewerFor(requestAccess),
@@ -407,6 +412,7 @@ export default ssr<AuthContext>(async (c) => {
         pageParams: candidateParams,
         dateConfig,
         now: runtimeContext.now,
+        authSubjectIds,
       });
       return evaluateAvailability(candidate.id, candidateContext.query, "page", candidate.availableWhen?.query);
     },
@@ -498,12 +504,15 @@ export default ssr<AuthContext>(async (c) => {
       readableTableIds: new Set(relationTableIds),
       recordAccessByTableId: new Map(relationTableIds.map((tableId) => [tableId, ALL_RECORD_ACCESS])),
     };
-    const relationLabels = await gridsService.relations.buildPinnedLabelCache(
-      [record],
-      fields,
-      customAppRelationLabelFieldIdsByTableId(capability.relationLabels),
-      relationViewer,
-    );
+    const relationLabels = {
+      ...(await gridsService.relations.buildPinnedLabelCache(
+        [record],
+        fields,
+        customAppRelationLabelFieldIdsByTableId(capability.relationLabels),
+        relationViewer,
+      )),
+      ...(await buildPrincipalLabelCache(principalReferencesFromRecords([record], fields), relationViewer.userId)),
+    };
     pageRecord = { record, fields, relationLabels, tableName: table.name, auditPolicy: table.auditPolicy };
 
     if (expectedEditableFieldIds.length > 0 && accessActorUser(requestAccess)) {

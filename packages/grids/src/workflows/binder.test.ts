@@ -187,6 +187,13 @@ steps:
       record: inputs.item.Current archive
       set:
         Name: Current
+  - if:
+      equals:
+        - "\${{ inputs.item.Current archive.recordId }}"
+        - expected
+    then:
+      - succeed:
+          message: Relation id resolved
   - forEach: inputs.item.Related archives
     as: archive
     do:
@@ -204,10 +211,13 @@ steps:
       "steps.0.updateRecord.record.$relationCardinality": "single",
       "steps.0.updateRecord.record.$relationTarget": ids.archive,
       "steps.0.updateRecord.set.Name": ids.archivedName,
-      "steps.1.do.0.updateRecord.set.Name": ids.archivedName,
-      "steps.1.forEach": ids.related,
-      "steps.1.forEach.$relationCardinality": "multiple",
-      "steps.1.forEach.$relationTarget": ids.archive,
+      "steps.1.if.equals.0": ids.current,
+      "steps.1.if.equals.0.$relationCardinality": "single",
+      "steps.1.if.equals.0.$relationTarget": ids.archive,
+      "steps.2.do.0.updateRecord.set.Name": ids.archivedName,
+      "steps.2.forEach": ids.related,
+      "steps.2.forEach.$relationCardinality": "multiple",
+      "steps.2.forEach.$relationTarget": ids.archive,
     });
   });
 

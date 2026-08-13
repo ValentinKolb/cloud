@@ -48,6 +48,7 @@ describe("CustomAppPageLayout", () => {
     );
 
     expect(html).toContain('class="custom-app-page ');
+    expect(html).toContain("gap-10 p-5 sm:p-7 lg:p-8");
     expect(html).toContain("k2b-app-workspace__main");
     expect(html).toContain("min-h-full");
     expect(html.match(/max-w-\[96rem\]/g)).toHaveLength(2);
@@ -83,5 +84,21 @@ describe("CustomAppPageLayout", () => {
     expect(html).toContain("k2b-app-workspace__sidebar");
     expect(html).toContain("Reports");
     expect(html).toContain("ti-chart-bar");
+  });
+
+  test("keeps a single-page app sidebar when it contains a global action", () => {
+    const html = renderToString(() =>
+      createComponent(CustomAppPageLayout, {
+        definition,
+        page: definition.pages[0]!,
+        shortId: "APP1",
+        hasSidebarActions: true,
+        sidebarActions: "New loan",
+        renderBlock: () => "Rendered content",
+      }),
+    );
+
+    expect(html).toContain("k2b-app-workspace__sidebar");
+    expect(html).toContain("New loan");
   });
 });

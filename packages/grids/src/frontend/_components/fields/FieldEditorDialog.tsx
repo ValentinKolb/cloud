@@ -1,12 +1,12 @@
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
-  NoticeCard,
   Button,
   CheckboxCard,
   confirmDiscardIfDirty,
   dialogCore,
   IconInput,
+  NoticeCard,
   PanelDialog,
   panelDialogOptions,
   prompts,
@@ -25,7 +25,7 @@ import { FIELD_TYPE_DESCRIPTIONS, FieldConfigEditor, type FieldConfigState, TYPE
 import { RECORD_INPUT_FIELD_TYPES } from "./field-render";
 
 const PRESENTABLE_TYPES = new Set(["text", "id", "number", "boolean", "date", "select", "percent", "duration"]);
-const INDEXABLE_TYPES = new Set(["text", "longtext", "id", "number", "percent", "duration", "date", "boolean", "select"]);
+const INDEXABLE_TYPES = new Set(["text", "longtext", "id", "number", "percent", "duration", "date", "boolean", "select", "principal"]);
 const UNIQUE_TYPES = new Set(["text", "longtext", "id", "number", "percent", "date", "boolean"]);
 
 // =============================================================================

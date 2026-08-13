@@ -12,6 +12,7 @@ export const canonicalCustomAppQueryContext = (context: DslQueryContextValues): 
   "auth.name": "Reader",
   "auth.username": "reader",
   "auth.email": "reader@example.test",
+  "auth.subjects": [CANONICAL_UUID],
   "page.id": "page",
   "page.title": "Page",
   "page.url": "/custom-app/page",

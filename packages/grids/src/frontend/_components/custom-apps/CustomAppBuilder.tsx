@@ -2001,23 +2001,37 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                                   {(binding) => {
                                     const current = () =>
                                       sidebarAction.kind === "form" ? sidebarAction.fixedValues[binding.field.id] : undefined;
+                                    const literal = () => {
+                                      const value = current();
+                                      return value?.source === "LITERAL" ? value : null;
+                                    };
                                     return (
                                       <div class="flex flex-col gap-2">
-                                        <Switch
-                                          label={`Supply ${binding.label}`}
-                                          description="Hide this input and inject one trusted fixed value on the server."
-                                          value={() => Boolean(current())}
-                                          onValueChange={(enabled) =>
+                                        <Select
+                                          label={binding.label}
+                                          description="Hide this input and inject one trusted value on the server."
+                                          placeholder="Ask in Form"
+                                          clearable
+                                          value={() => current()?.source ?? null}
+                                          options={[
+                                            { id: "LITERAL", label: "Fixed value" },
+                                            ...(binding.field.type === "principal"
+                                              ? [{ id: "AUTH", label: "Current signed-in user" }]
+                                              : []),
+                                          ]}
+                                          onValueChange={(source) =>
                                             updateSidebarAction(sidebarAction.id, (action) => {
                                               if (action.kind !== "form") return action;
                                               const fixedValues = { ...action.fixedValues };
-                                              if (enabled) fixedValues[binding.field.id] = { source: "LITERAL", value: null };
-                                              else delete fixedValues[binding.field.id];
+                                              if (!source) delete fixedValues[binding.field.id];
+                                              else if (source === "AUTH") {
+                                                fixedValues[binding.field.id] = { source: "AUTH", path: "currentUser" };
+                                              } else fixedValues[binding.field.id] = { source: "LITERAL", value: null };
                                               return { ...action, fixedValues };
                                             })
                                           }
                                         />
-                                        <Show when={current()}>
+                                        <Show when={literal()}>
                                           {(value) => (
                                             <JsonValueInput
                                               label={`${binding.label} value`}
@@ -2421,7 +2435,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                       />
                       <Show when={selected().block.type === "markdown"}>
                         <CustomAppMarkdownField
-                          contextKeys={contextKeys()}
+                          contextKeys={contextKeys().filter((key) => key !== "auth.subjects")}
                           value={() => {
                             const block = selected().block;
                             return block.type === "markdown" ? block.markdown : "";
@@ -3089,6 +3103,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                                   };
                                   const sourceOptions = () => [
                                     { id: "LITERAL", label: "Fixed value" },
+                                    ...(binding.field.type === "principal" ? [{ id: "AUTH", label: "Current signed-in user" }] : []),
                                     ...(binding.targetTableId && selectedPage().record?.tableId === binding.targetTableId
                                       ? [{ id: "RECORD", label: "Current page record" }]
                                       : []),
@@ -3114,7 +3129,10 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                                             if (block.type !== "form") return block;
                                             const fixedValues = { ...block.fixedValues };
                                             if (!source) delete fixedValues[binding.field.id];
-                                            else if (source === "RECORD") fixedValues[binding.field.id] = { source: "RECORD", path: "id" };
+                                            else if (source === "AUTH") {
+                                              fixedValues[binding.field.id] = { source: "AUTH", path: "currentUser" };
+                                            } else if (source === "RECORD")
+                                              fixedValues[binding.field.id] = { source: "RECORD", path: "id" };
                                             else if (source.startsWith("PARAMS:")) {
                                               fixedValues[binding.field.id] = {
                                                 source: "PARAMS",

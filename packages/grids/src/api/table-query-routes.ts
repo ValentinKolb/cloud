@@ -18,6 +18,7 @@ import { gridsService } from "../service";
 import { isBoundedQueryTimeoutError } from "../service/bounded-query";
 import { verifyRevisionScope } from "../service/federated-tables";
 import type { GroupAggregationSpec } from "../service/group-compiler";
+import { buildPrincipalLabelCache, principalReferencesFromRecords } from "../service/principal-values";
 import { validateRecordQueryForFields } from "../service/query-validation";
 import { ALL_RECORD_ACCESS, type AuthorizedRecordAccess } from "../service/record-access";
 import { compileGqlToRecordQuery, executeGqlSource } from "./gql-runtime";
@@ -195,7 +196,10 @@ const runFederatedQuery = async (
     const record = gridRecordForPreviewRow(row, response.columns, pageQuery, target.table.id);
     return record ? [record] : [];
   });
-  const relationLabels = await deps.service.relations.buildLabelCache(items, tableFields, viewer);
+  const relationLabels = {
+    ...(await deps.service.relations.buildLabelCache(items, tableFields, viewer)),
+    ...(await buildPrincipalLabelCache(principalReferencesFromRecords(items, tableFields), viewer.userId)),
+  };
   let aggregates: Record<string, unknown> | undefined;
   if ((query.aggregations?.length ?? 0) > 0) {
     const aggregateSource = aggregateQueryToGqlSource({

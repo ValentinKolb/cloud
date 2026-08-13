@@ -107,6 +107,7 @@ export function FieldValue(props: FieldValueProps) {
       return <RelationValue {...props} items={intent.items} targetTableId={intent.targetTableId} emptyValue={emptyValue()} />;
     }
     if (intent.kind === "select") return <SelectValueBadges items={intent.items} empty={emptyValue()} />;
+    if (intent.kind === "principal") return intent.text;
     if (intent.kind === "markdown") {
       return intent.text.trim() ? (
         <MarkdownView markdown={intent.text} smallHeadings class={props.markdownClass ?? "text-sm"} />

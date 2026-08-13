@@ -262,6 +262,8 @@ const fieldValueHint = (field: Field): string | null => {
       return "Non-negative seconds or a MM:SS/HH:MM:SS string.";
     case "select":
       return "Array of option IDs; load them with gql.context kind options for this field.";
+    case "principal":
+      return 'Array of typed Cloud identity references: { "type": "user"|"group", "id": "<uuid>" }.';
     case "json":
       return "Any JSON value; use null to clear an optional field.";
     case "relation":

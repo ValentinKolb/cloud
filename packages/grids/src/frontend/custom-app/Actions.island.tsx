@@ -1,4 +1,4 @@
-import { Button, ButtonLink } from "@k2b/ui";
+import { Button, ButtonLink, prompts } from "@k2b/ui";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { invokeCustomAppWorkflow } from "./workflow-action-client";
 
@@ -31,11 +31,19 @@ export default function Actions(props: { actions: CustomAppRenderedAction[] }) {
   });
 
   const invoke = async (action: Extract<CustomAppRenderedAction, { kind: "workflow" }>) => {
-    if (pendingId() || (action.confirm && !window.confirm(action.confirm))) return;
+    if (pendingId()) return;
     setPendingId(action.id);
     setStatus(null);
-    controller = new AbortController();
     try {
+      if (
+        action.confirm &&
+        !(await prompts.confirm(action.confirm, {
+          title: action.label,
+          confirmText: action.label,
+        }))
+      )
+        return;
+      controller = new AbortController();
       const outcome = await invokeCustomAppWorkflow({
         endpoint: action.endpoint,
         signal: controller.signal,
@@ -44,7 +52,7 @@ export default function Actions(props: { actions: CustomAppRenderedAction[] }) {
       setStatus(outcome);
       if (outcome.kind === "success") reloadTimer = window.setTimeout(() => window.location.reload(), 600);
     } catch (cause) {
-      if (controller.signal.aborted) return;
+      if (controller?.signal.aborted) return;
       setStatus({ kind: "error", message: cause instanceof Error ? cause.message : "The workflow could not be started." });
     } finally {
       controller = null;

@@ -13,6 +13,7 @@ const context = (overrides: Partial<DslQueryContextValues> = {}): DslQueryContex
   "auth.name": "App Reader",
   "auth.username": "reader",
   "auth.email": "reader@example.test",
+  "auth.subjects": ["10000000-0000-4000-8000-000000000001", "10000000-0000-4000-8000-000000000002"],
   "page.id": "loans",
   "page.title": "My loans",
   "page.url": "/apps/loans/my-loans",
@@ -44,6 +45,7 @@ describe("GQL query context binding", () => {
       "auth.name",
       "auth.username",
       "auth.email",
+      "auth.subjects",
       "page.id",
       "page.title",
       "page.url",
@@ -62,6 +64,35 @@ describe("GQL query context binding", () => {
     expect(isDslQueryContextKey("auth.avatar")).toBe(false);
     expect(isDslQueryContextKey("params.bad-name")).toBe(false);
     expect(isDslQueryContextKey("params.foo.bar")).toBe(false);
+  });
+
+  test("expands auth subjects only inside membership predicates", () => {
+    const result = bindDslQueryContext(parse("from table Articles\nwhere oneof(Participants, @auth.subjects)"), context());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.ast.where?.expression).toMatchObject({
+      kind: "call",
+      fn: "ONEOF",
+      args: [
+        { kind: "field" },
+        { kind: "literal", value: "10000000-0000-4000-8000-000000000001" },
+        { kind: "literal", value: "10000000-0000-4000-8000-000000000002" },
+      ],
+    });
+    expect(bindDslQueryContext(parse("from table Articles\nwhere @auth.subjects = null"), context())).toEqual({
+      ok: false,
+      error: 'Query context reference "@auth.subjects" is only valid inside oneof, noneof, or containsall',
+    });
+  });
+
+  test("binds anonymous auth subjects as an empty membership list", () => {
+    const result = bindDslQueryContext(
+      parse("from table Articles\nwhere oneof(Participants, @auth.subjects)"),
+      context({ "auth.subjects": [] }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect((result.ast.where?.expression as { args?: unknown[] }).args).toHaveLength(1);
   });
 
   test("binds implicit context references as typed literals", () => {

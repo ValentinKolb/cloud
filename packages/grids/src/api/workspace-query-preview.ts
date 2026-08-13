@@ -2,7 +2,7 @@ import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
 import type { CustomAppBlock } from "../custom-apps/contracts";
 import { customAppPageHref } from "../custom-apps/routing";
-import { buildCustomAppRuntimeContext } from "../custom-apps/runtime-context";
+import { buildCustomAppRuntimeContext, loadCustomAppAuthSubjectIds } from "../custom-apps/runtime-context";
 import type { GridsWorkspaceState } from "../frontend/_components/workspace/workspace-state";
 import { type DslCurrentSource, executeGqlSource, executeSavedViewSource } from "./gql-runtime";
 import { gridsAccessContext } from "./permissions";
@@ -23,6 +23,8 @@ export const withInitialGqlResults = async <T extends GridsWorkspaceState>(c: Co
   if (route.kind === "customApp") {
     const definition = route.app.draftDefinition;
     if (!definition) return { ...state, route: { ...route, initialPreviewResults: {} } } as T;
+    const access = gridsAccessContext(authContext);
+    const authSubjectIds = await loadCustomAppAuthSubjectIds(access);
     const blocks = definition.pages.flatMap((page) =>
       page.rows.flatMap((row) => row.columns.flatMap((column) => column.blocks.map((block) => ({ page, block })))),
     );
@@ -35,13 +37,14 @@ export const withInitialGqlResults = async <T extends GridsWorkspaceState>(c: Co
         const maxRows = block.type === "records" ? block.pageSize : block.type === "metrics" ? 1 : block.limit;
         try {
           const runtime = buildCustomAppRuntimeContext({
-            access: gridsAccessContext(authContext),
+            access,
             app: { id: route.app.id, shortId: route.app.shortId, name: route.app.name },
             base: state.base,
             page,
             pageUrl: customAppPageHref(route.app.shortId, page.id),
             pageParams: Object.fromEntries(Object.keys(page.parameters).map((name) => [name, "00000000-0000-4000-8000-000000000000"])),
             dateConfig: getDateConfig(authContext),
+            authSubjectIds,
           });
           const result =
             block.source.kind === "view"

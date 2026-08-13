@@ -143,7 +143,7 @@ The Form, saved view, and `request_id` parameter must use the same records table
 
 The Record block may also list existing PDFs generated for that record by exact template ID. Generation remains a Workflow responsibility; the block offers downloads only when the published app capability includes that template and the current app grant is valid.
 
-A Form block may hide user inputs and supply them with the same typed binding model as workflow inputs. `LITERAL` values are validated against the live field type. Compatible relation inputs may use a declared Record parameter or the current page record. The server resolves every value again and rejects browser attempts to override it:
+A Form block may hide user inputs and supply them with typed bindings. `LITERAL` values are validated against the live field type. Compatible relation inputs may use a declared Record parameter or the current page record. Principal inputs may use the current signed-in user. The server resolves every value again and rejects browser attempts to override it:
 
 ```yaml
 fixedValues:
@@ -152,11 +152,11 @@ fixedValues:
     path: parent_id
 ```
 
-`fixedValues` accepts `LITERAL`, compatible `PARAMS`, and compatible `RECORD.id` bindings. Success navigation accepts declared `PARAMS` plus the submitted Form's `RESULT.recordId`; it always stays inside the same Grids App and uses replace navigation.
+`fixedValues` accepts `LITERAL`, compatible `PARAMS`, compatible `RECORD.id`, and `AUTH.currentUser` for Principal fields. App-global sidebar Forms accept `LITERAL` and `AUTH.currentUser`, but never page or row context. Success navigation accepts declared `PARAMS` plus the submitted Form's `RESULT.recordId`; it always stays inside the same Grids App and uses replace navigation.
 
 Pages, blocks, and actions may use one optional `availableWhen.query`. The server runs this bounded GQL with the same implicit context as the page. At least one returned row means available; an empty result, invalid query, missing context, timeout, or cancellation means unavailable. Unavailable resources are omitted and cannot be called directly.
 
-Grids App GQL receives `@auth.id`, `@auth.name`, `@auth.username`, `@auth.email`, declared `@params.<name>`, `@page.*`, `@app.*`, `@base.*`, and `@time.*` automatically. Anonymous visitors receive `null` for every `@auth.*` value. Values are bound separately from query text; there is no per-source inputs map or `param()` helper.
+Grids App GQL receives `@auth.id`, `@auth.name`, `@auth.username`, `@auth.email`, `@auth.subjects`, declared `@params.<name>`, `@page.*`, `@app.*`, `@base.*`, and `@time.*` automatically. Anonymous visitors receive `null` for scalar `@auth.*` values and `[]` for `@auth.subjects`. The subject list contains only UUIDs: the current user plus effective direct or nested groups. Use it in a membership predicate such as `oneof(Participants, @auth.subjects)`. Values are bound separately from query text; there is no per-source inputs map or `param()` helper.
 
 Markdown blocks use the same context names as safe text placeholders. Type `@` or choose **Add placeholder**, for example `Hello @auth.name`. Grids replaces known placeholders on the server before rendering the sanitized Markdown; anonymous `@auth.*` values become empty text. Markdown placeholders do not add Liquid conditions, loops, or executable template code.
 

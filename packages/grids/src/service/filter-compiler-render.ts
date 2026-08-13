@@ -240,6 +240,31 @@ const renderMultiSelectPredicate = (predicate: PredicateClause, projection: Pred
 const renderSelectPredicate = (predicate: PredicateClause, projection: PredicateProjection): any =>
   predicate.selectMultiple ? renderMultiSelectPredicate(predicate, projection) : renderSingleSelectPredicate(predicate, projection);
 
+const principalContains = (values: any, id: string): any =>
+  sql`(
+    ${values} @> ${[{ type: "user", id }]}::jsonb
+    OR ${values} @> ${[{ type: "group", id }]}::jsonb
+  )`;
+
+const renderPrincipalPredicate = (predicate: PredicateClause, projection: PredicateProjection): any => {
+  const values = sql`CASE WHEN jsonb_typeof(${projection.rawJson}) = 'array' THEN ${projection.rawJson} ELSE '[]'::jsonb END`;
+  const items = (predicate.value as string[]) ?? [];
+  const containsAny =
+    items.length === 0 ? sql`FALSE` : items.map((item) => principalContains(values, item)).reduce((acc, part) => sql`${acc} OR ${part}`);
+  switch (predicate.op) {
+    case "containsAny":
+      return sql`(${containsAny})`;
+    case "notContainsAny":
+      return sql`NOT (${containsAny})`;
+    case "isEmpty":
+      return sql`jsonb_array_length(${values}) = 0`;
+    case "isNotEmpty":
+      return sql`jsonb_array_length(${values}) > 0`;
+    default:
+      return sql`FALSE`;
+  }
+};
+
 const renderRelationPredicate = (predicate: PredicateClause, options: RenderOptions = {}): any => {
   const recordAlias = options.recordAlias ?? "r";
   if (options.relationSource === "recordData") {
@@ -316,6 +341,8 @@ const renderPredicate = (predicate: PredicateClause, options: RenderOptions = {}
       return renderSelectPredicate(predicate, projection);
     case "relation":
       return renderRelationPredicate(predicate, options);
+    case "principal":
+      return renderPrincipalPredicate(predicate, projection);
     default:
       return sql`FALSE`;
   }

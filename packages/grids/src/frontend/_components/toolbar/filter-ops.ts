@@ -83,6 +83,19 @@ const RELATION_OPS: FilterOp[] = [
   { id: "isNotEmpty", label: "not empty", icon: "ti ti-circle-check", description: "Has a linked record", needsValue: false },
 ];
 
+const PRINCIPAL_OPS: FilterOp[] = [
+  { id: "containsAny", label: "contains", icon: "ti ti-users", description: "Includes any selected user or group", needsValue: true },
+  {
+    id: "notContainsAny",
+    label: "does not contain",
+    icon: "ti ti-users-minus",
+    description: "Includes none of the selected identities",
+    needsValue: true,
+  },
+  { id: "isEmpty", label: "empty", icon: "ti ti-circle-dashed", description: "No assigned user or group", needsValue: false },
+  { id: "isNotEmpty", label: "not empty", icon: "ti ti-circle-check", description: "Has an assigned user or group", needsValue: false },
+];
+
 export const opsForType = (type: string): FilterOp[] => {
   switch (type) {
     case "text":
@@ -101,6 +114,8 @@ export const opsForType = (type: string): FilterOp[] => {
       return SELECT_OPS;
     case "relation":
       return RELATION_OPS;
+    case "principal":
+      return PRINCIPAL_OPS;
     // json: opaque to filter — no ops surfaced.
     default:
       return [];
