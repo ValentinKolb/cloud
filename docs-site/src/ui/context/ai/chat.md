@@ -34,6 +34,12 @@ used by message, menu, and context actions.
 
 `Chat.Timeline` follows new messages while the reader remains near the bottom. Set `hasMore` and `onLoadOlder` to load history while preserving the visible scroll position.
 
+On hover-capable fine pointers, the timeline keeps its scrollbar thumb hidden
+until the timeline is hovered or contains keyboard focus. Its stable scrollbar
+gutter prevents the conversation from shifting when the thumb appears. Touch,
+coarse-pointer, and forced-color environments retain their normal visible
+scrollbar treatment.
+
 Pass `timeLabel` for visible localized timestamps and `createdAt` for the
 machine-readable `dateTime` value. `createdAt` alone intentionally renders no
 runtime-locale text, which keeps SSR and hydration stable.

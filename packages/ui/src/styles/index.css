@@ -1653,6 +1653,7 @@
   flex-direction: column;
   gap: 1rem;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 0.5rem 0 1rem;
   overscroll-behavior: contain;
 }
@@ -1852,6 +1853,33 @@
 
 .k2b-ui .k2b-discussion__composer {
   gap: 0.5rem;
+}
+
+.k2b-ui .k2b-discussion__composer-field {
+  position: relative;
+  min-width: 0;
+}
+
+.k2b-ui .k2b-discussion__composer-inset-action {
+  position: absolute;
+  z-index: 3;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  display: flex;
+}
+
+.k2b-ui .k2b-discussion__composer-inset-action .k2b-icon-button {
+  border-radius: 9999px;
+}
+
+.k2b-ui
+  .k2b-discussion__composer-field[data-has-inset-action="true"]
+  :is(.k2b-markdown-editor__input, .k2b-markdown-editor__preview, .k2b-markdown-editor__placeholder) {
+  padding-right: 3rem !important;
+}
+
+.k2b-ui .k2b-discussion__composer-field[data-has-inset-action="true"] :is(.k2b-markdown-editor__input, .k2b-markdown-editor__preview) {
+  overflow-y: auto !important;
 }
 
 .k2b-ui .k2b-discussion__composer footer {
@@ -5012,6 +5040,42 @@
   scrollbar-gutter: stable;
 }
 
+/* Large workspace scrollers stay visually quiet until the pointer or keyboard
+   enters their region. The scrollbar geometry never changes, and touch or
+   coarse-pointer devices keep their normal always-visible treatment. */
+@media (hover: hover) and (pointer: fine) {
+  .k2b-ui .k2b-app-workspace__sidebar-body,
+  .k2b-ui .k2b-chat-timeline__viewport {
+    scrollbar-color: transparent transparent;
+  }
+
+  .k2b-ui .k2b-app-workspace__sidebar-body::-webkit-scrollbar-track,
+  .k2b-ui .k2b-chat-timeline__viewport::-webkit-scrollbar-track,
+  .k2b-ui .k2b-app-workspace__sidebar-body::-webkit-scrollbar-thumb,
+  .k2b-ui .k2b-chat-timeline__viewport::-webkit-scrollbar-thumb {
+    background: transparent;
+  }
+
+  .k2b-ui .k2b-app-workspace__sidebar-body:is(:hover, :focus-within),
+  .k2b-ui .k2b-chat-timeline__viewport:is(:hover, :focus-within) {
+    scrollbar-color: color-mix(in srgb, var(--k2b-text-muted) 55%, transparent) transparent;
+  }
+
+  .k2b-ui .k2b-app-workspace__sidebar-body:is(:hover, :focus-within)::-webkit-scrollbar-thumb,
+  .k2b-ui .k2b-chat-timeline__viewport:is(:hover, :focus-within)::-webkit-scrollbar-thumb {
+    border: 1px solid transparent;
+    border-radius: 9999px;
+    background: color-mix(in srgb, var(--k2b-text-muted) 55%, transparent);
+    background-clip: padding-box;
+  }
+
+  .k2b-ui .k2b-app-workspace__sidebar-body:is(:hover, :focus-within)::-webkit-scrollbar-thumb:hover,
+  .k2b-ui .k2b-chat-timeline__viewport:is(:hover, :focus-within)::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--k2b-text-muted) 75%, transparent);
+    background-clip: padding-box;
+  }
+}
+
 .k2b-ui .k2b-chat-timeline__viewport:focus-visible {
   outline: 2px solid var(--k2b-focus-ring);
   outline-offset: -2px;
@@ -5870,6 +5934,19 @@
 }
 
 @media (forced-colors: active) {
+  .k2b-ui .k2b-app-workspace__sidebar-body,
+  .k2b-ui .k2b-chat-timeline__viewport {
+    scrollbar-color: auto;
+  }
+
+  .k2b-ui .k2b-app-workspace__sidebar-body::-webkit-scrollbar-track,
+  .k2b-ui .k2b-chat-timeline__viewport::-webkit-scrollbar-track,
+  .k2b-ui .k2b-app-workspace__sidebar-body::-webkit-scrollbar-thumb,
+  .k2b-ui .k2b-chat-timeline__viewport::-webkit-scrollbar-thumb {
+    border: revert;
+    background: revert;
+  }
+
   .k2b-ui .k2b-number-input__step:focus-visible,
   .k2b-ui .k2b-panes__separator:focus-visible > span,
   .k2b-ui .k2b-chart[data-interactive="true"]:focus-visible,

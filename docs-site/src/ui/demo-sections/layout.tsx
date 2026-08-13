@@ -30,6 +30,7 @@ import {
   Tag,
   TextInput,
   Toolbar,
+  Tooltip,
 } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import { DemoCard } from "../DemoCard";
@@ -696,7 +697,14 @@ const DiscussionDemo = () => {
 <Discussion label="Notes" as="h2" surface="bare" count={3}>
   <Discussion.Composer
     onSubmit={postNote}
-    actions={<><Button>Cancel</Button><Button>Post note</Button></>}
+    actions={<Button>Cancel</Button>}
+    insetAction={
+      <Tooltip.Anchor content="Post note (Ctrl/Cmd+Enter)">
+        <IconButton type="submit" label="Post note" disabled={!draft().trim()}>
+          <i class="ti ti-send" aria-hidden="true" />
+        </IconButton>
+      </Tooltip.Anchor>
+    }
   >
     <MarkdownEditor value={draft()} onValueChange={setDraft} noToolbar showStats={false} />
   </Discussion.Composer>
@@ -738,14 +746,16 @@ const DiscussionDemo = () => {
                 closeComposer();
               }}
               actions={
-                <>
-                  <Button type="button" variant="ghost" size="xs" onClick={closeComposer}>
-                    Cancel
-                  </Button>
-                  <Button type="submit" size="xs" disabled={!draft().trim()}>
-                    <i class="ti ti-send" aria-hidden="true" /> Post note
-                  </Button>
-                </>
+                <Button type="button" variant="ghost" size="xs" onClick={closeComposer}>
+                  Cancel
+                </Button>
+              }
+              insetAction={
+                <Tooltip.Anchor content="Post note (Ctrl/Cmd+Enter)">
+                  <IconButton type="submit" label="Post note" size="sm" variant="primary" disabled={!draft().trim()}>
+                    <i class="ti ti-send" aria-hidden="true" />
+                  </IconButton>
+                </Tooltip.Anchor>
               }
             >
               <MarkdownEditor
@@ -826,6 +836,7 @@ const DiscussionDemo = () => {
 const DetailPanelDemo = () => {
   const [status, setStatus] = createSignal("needs-response");
   const [assignee, setAssignee] = createSignal("unassigned");
+  const [commentDraft, setCommentDraft] = createSignal("");
 
   return (
     <DemoCard
@@ -833,15 +844,32 @@ const DetailPanelDemo = () => {
       chip={[
         { kind: "component", name: "DetailPanel", from: "@k2b/ui" },
         { kind: "component", name: "DescriptionList", from: "@k2b/ui" },
+        { kind: "component", name: "Discussion", from: "@k2b/ui" },
       ]}
-      description="Two production-shaped inspectors demonstrate the final contract: related sections share clear white surfaces, compact rows keep dense data scannable, and restrained icon tones preserve identity and state."
+      description="Two production-shaped inspectors demonstrate the final contract: padded identity headers, one stable scroll gutter, related surfaces, compact data, and a panel-native comment thread."
       code={`<DetailPanel.Group label="Customer context">
   <DetailPanel.Section title="Company" icon="ti ti-building" tone="accent">
     <DescriptionList layout="rows" size="sm" items={companyItems} />
   </DetailPanel.Section>
   <DetailPanel.Section title="Contact" icon="ti ti-user" tone="warning">…</DetailPanel.Section>
   <DetailPanel.Section title="Recent threads" icon="ti ti-history" tone="success">…</DetailPanel.Section>
-</DetailPanel.Group>`}
+</DetailPanel.Group>
+
+<Discussion label="Comments" icon="ti ti-messages" count="1 comment">
+  <Discussion.List>…</Discussion.List>
+  <Discussion.Composer
+    onSubmit={postComment}
+    insetAction={
+      <Tooltip.Anchor content="Post comment (Ctrl/Cmd+Enter)">
+        <IconButton type="submit" label="Post comment" disabled={!draft().trim()}>
+          <i class="ti ti-send" aria-hidden="true" />
+        </IconButton>
+      </Tooltip.Anchor>
+    }
+  >
+    <MarkdownEditor value={draft()} onValueChange={setDraft} noToolbar showStats={false} />
+  </Discussion.Composer>
+</Discussion>`}
     >
       <div class="ui-detail-panel-patterns">
         <article class="ui-detail-panel-pattern">
@@ -1043,6 +1071,51 @@ const DetailPanelDemo = () => {
                     </ol>
                   </DetailPanel.Section>
                 </DetailPanel.Group>
+
+                <Discussion label="Comments" icon="ti ti-messages" count="1 comment">
+                  <Discussion.List>
+                    <Discussion.Item
+                      avatar={<Avatar name="Mara Klein" size="xs" />}
+                      author="Mara Klein"
+                      timestamp={<time dateTime="2026-08-13T12:31:00Z">18 min ago</time>}
+                      actions={
+                        <IconButton variant="ghost" size="xs" label="Reply to Mara Klein">
+                          <i class="ti ti-arrow-back-up" aria-hidden="true" />
+                        </IconButton>
+                      }
+                    >
+                      <MarkdownView markdown="The introduction is ready for review." smallHeadings />
+                    </Discussion.Item>
+                  </Discussion.List>
+                  <Discussion.Composer
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (!commentDraft().trim()) return;
+                      setCommentDraft("");
+                    }}
+                    insetAction={
+                      <Tooltip.Anchor content="Post comment (Ctrl/Cmd+Enter)">
+                        <IconButton type="submit" label="Post comment" size="sm" variant="primary" disabled={!commentDraft().trim()}>
+                          <i class="ti ti-send" aria-hidden="true" />
+                        </IconButton>
+                      </Tooltip.Anchor>
+                    }
+                  >
+                    <MarkdownEditor
+                      value={commentDraft}
+                      onValueChange={setCommentDraft}
+                      onSubmit={() => {
+                        if (!commentDraft().trim()) return;
+                        setCommentDraft("");
+                      }}
+                      aria-label="Add comment"
+                      placeholder="Add a comment"
+                      lines={3}
+                      noToolbar
+                      showStats={false}
+                    />
+                  </Discussion.Composer>
+                </Discussion>
 
                 <DetailPanel.Group label="Collaboration context">
                   <DetailPanel.Section title="Online · 1" icon="ti ti-users" tone="success">

@@ -13,7 +13,8 @@ export type DiscussionProps = Omit<JSX.HTMLAttributes<HTMLElement>, "children" |
 
 export type DiscussionComposerProps = Omit<JSX.FormHTMLAttributes<HTMLFormElement>, "children" | "class"> & {
   children: JSX.Element;
-  actions: JSX.Element;
+  actions?: JSX.Element;
+  insetAction?: JSX.Element;
   class?: string;
 };
 
@@ -77,11 +78,18 @@ const DiscussionRoot = (props: DiscussionProps): JSX.Element => {
 };
 
 const DiscussionComposer = (props: DiscussionComposerProps): JSX.Element => {
-  const [local, formProps] = splitProps(props, ["children", "actions", "class"]);
+  const [local, formProps] = splitProps(props, ["children", "actions", "insetAction", "class"]);
   return (
     <form {...formProps} class={classNames("k2b-discussion__composer", local.class)}>
-      {local.children}
-      <footer>{local.actions}</footer>
+      <div class="k2b-discussion__composer-field" data-has-inset-action={local.insetAction !== undefined ? "true" : undefined}>
+        {local.children}
+        <Show when={local.insetAction !== undefined}>
+          <div class="k2b-discussion__composer-inset-action">{local.insetAction}</div>
+        </Show>
+      </div>
+      <Show when={local.actions !== undefined}>
+        <footer>{local.actions}</footer>
+      </Show>
     </form>
   );
 };

@@ -90,6 +90,7 @@ describe("DetailPanel", () => {
     expect(summaryRule).not.toContain("box-shadow");
     expect(headerRule).toContain("padding: 0.875rem 0 0.75rem");
     expect(bodyRule).toContain("overflow-y: auto");
+    expect(bodyRule).toContain("scrollbar-gutter: stable");
     expect(bodyRule).toContain("padding: 0.5rem 0 1rem");
   });
 

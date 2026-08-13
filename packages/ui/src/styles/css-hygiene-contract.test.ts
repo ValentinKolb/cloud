@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { shippedStyleFiles } from "./css-contract-test-helpers";
+import { cssDeclarations, readShippedCssRules, shippedStyleFiles } from "./css-contract-test-helpers";
 
 const stylesDir = import.meta.dir;
 const styleSources = shippedStyleFiles(stylesDir).map((file) => ({
@@ -11,6 +11,31 @@ const styleSources = shippedStyleFiles(stylesDir).map((file) => ({
 const shippedCss = styleSources.map(({ source }) => source).join("\n");
 
 describe("@k2b/ui stylesheet hygiene", () => {
+  test("reveals workspace scrollbars for pointer and keyboard use without changing their geometry", () => {
+    const rules = readShippedCssRules(stylesDir);
+    const scrollers = [".k2b-ui .k2b-app-workspace__sidebar-body", ".k2b-ui .k2b-chat-timeline__viewport"];
+    const finePointer = "@media (hover: hover) and (pointer: fine)";
+    const forcedColors = "@media (forced-colors: active)";
+    const declarations = (selector: string, context: string) => {
+      const rule = rules.find((candidate) => candidate.selector === selector && candidate.context === context);
+      expect(rule, `${context} ${selector}`).toBeDefined();
+      return cssDeclarations(rule!.body);
+    };
+
+    for (const selector of scrollers) {
+      const idle = declarations(selector, finePointer);
+      expect(idle.get("scrollbar-color")).toEqual(["transparent transparent"]);
+      expect(idle.has("scrollbar-width")).toBe(false);
+      expect(declarations(`${selector}::-webkit-scrollbar-thumb`, finePointer).get("background")).toEqual(["transparent"]);
+      expect(declarations(`${selector}:is(:hover, :focus-within)`, finePointer).get("scrollbar-color")?.[0]).not.toStartWith("transparent");
+      expect(declarations(`${selector}:is(:hover, :focus-within)::-webkit-scrollbar-thumb`, finePointer).get("background")?.[0]).not.toBe(
+        "transparent",
+      );
+      expect(declarations(selector, forcedColors).get("scrollbar-color")).toEqual(["auto"]);
+      expect(declarations(`${selector}::-webkit-scrollbar-thumb`, forcedColors).get("background")).toEqual(["revert"]);
+    }
+  });
+
   test("does not restore selectors and tokens proven dead during migration", () => {
     const removed = [
       "k2b-button--secondary",

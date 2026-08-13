@@ -86,7 +86,7 @@ export default function MailDetailsPanel(props: {
   const [comments, setComments] = createSignal(props.initialComments);
   const [commentBody, setCommentBody] = createSignal("");
   const [replyingTo, setReplyingTo] = createSignal<ConversationComment | null>(null);
-  const [commentError, setCommentError] = createSignal<string | null>(null);
+  const [commentInvalid, setCommentInvalid] = createSignal(false);
   const [reminderDueAt, setReminderDueAt] = createSignal(props.initialReminder?.state === "pending" ? props.initialReminder.dueAt : null);
   let confirmedState = props.initialState;
   let confirmedTagState = props.initialConversationLocalTags;
@@ -98,6 +98,7 @@ export default function MailDetailsPanel(props: {
   );
   const attachmentCount = () => attachments().length;
   const activityItems = createMemo(() => presentMailActivity(props.activity));
+  const visibleComments = createMemo(() => comments().filter((comment) => !comment.deletedAt));
   const unavailableSections = createMemo(() => listUnavailableMailDetailSections(props.detailErrors));
   const addressList = (addresses: Array<{ name: string | null; address: string }>) =>
     addresses.map((address) => address.name || address.address).join(", ");
@@ -265,10 +266,10 @@ export default function MailDetailsPanel(props: {
     mutation: async (_input, { abortSignal }) => {
       const body = commentBody().trim();
       if (!body) {
-        setCommentError("Write a comment first.");
+        setCommentInvalid(true);
         return null;
       }
-      setCommentError(null);
+      setCommentInvalid(false);
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].comments.$post(
         {
           param: {
@@ -290,6 +291,7 @@ export default function MailDetailsPanel(props: {
       setComments((current) => [...current, comment]);
       setCommentBody("");
       setReplyingTo(null);
+      setCommentInvalid(false);
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -318,10 +320,9 @@ export default function MailDetailsPanel(props: {
       return comment.id;
     },
     onSuccess: (commentId) => {
-      if (commentId)
-        setComments((current) =>
-          current.map((comment) => (comment.id === commentId ? { ...comment, deletedAt: new Date().toISOString(), body: null } : comment)),
-        );
+      if (!commentId) return;
+      setComments((current) => current.filter((comment) => comment.id !== commentId));
+      if (replyingTo()?.id === commentId) setReplyingTo(null);
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -391,7 +392,7 @@ export default function MailDetailsPanel(props: {
         confirmedAvailableTagIds = new Set(props.initialLocalTags.map((tag) => tag.id));
         setCommentBody("");
         setReplyingTo(null);
-        setCommentError(null);
+        setCommentInvalid(false);
       },
       { defer: true },
     ),
@@ -628,9 +629,13 @@ export default function MailDetailsPanel(props: {
             </Show>
           </DetailPanel.Group>
 
-          <Discussion label="Team notes" icon="ti ti-messages" count={`${comments().length} ${comments().length === 1 ? "note" : "notes"}`}>
+          <Discussion
+            label="Team notes"
+            icon="ti ti-messages"
+            count={`${visibleComments().length} ${visibleComments().length === 1 ? "note" : "notes"}`}
+          >
             <Show
-              when={comments().length > 0}
+              when={visibleComments().length > 0}
               fallback={
                 <Show when={!props.detailErrors.comments}>
                   <Placeholder align="left" class="px-0 py-2" description="No team notes yet." />
@@ -638,12 +643,11 @@ export default function MailDetailsPanel(props: {
               }
             >
               <Discussion.List>
-                <For each={comments()}>
+                <For each={visibleComments()}>
                   {(comment) => {
-                    const parent = () => comments().find((candidate) => candidate.id === comment.parentCommentId);
+                    const parent = () => visibleComments().find((candidate) => candidate.id === comment.parentCommentId);
                     const canModerate = () =>
-                      !comment.deletedAt &&
-                      (props.canAdmin || (comment.author.kind === "user" && comment.author.id === props.currentUserId));
+                      props.canAdmin || (comment.author.kind === "user" && comment.author.id === props.currentUserId);
                     return (
                       <Discussion.Item
                         avatar={
@@ -683,30 +687,24 @@ export default function MailDetailsPanel(props: {
                                 </Tooltip.Anchor>
                               </>
                             </Show>
-                            <Show when={!comment.deletedAt}>
-                              <Tooltip.Anchor content={`Reply to ${comment.author.displayName}`}>
-                                <IconButton
-                                  type="button"
-                                  label={`Reply to ${comment.author.displayName}`}
-                                  size="xs"
-                                  onClick={() => {
-                                    setReplyingTo(comment);
-                                    setCommentBody("");
-                                  }}
-                                >
-                                  <i class="ti ti-arrow-back-up" aria-hidden="true" />
-                                </IconButton>
-                              </Tooltip.Anchor>
-                            </Show>
+                            <Tooltip.Anchor content={`Reply to ${comment.author.displayName}`}>
+                              <IconButton
+                                type="button"
+                                label={`Reply to ${comment.author.displayName}`}
+                                size="xs"
+                                onClick={() => {
+                                  setReplyingTo(comment);
+                                  setCommentBody("");
+                                  setCommentInvalid(false);
+                                }}
+                              >
+                                <i class="ti ti-arrow-back-up" aria-hidden="true" />
+                              </IconButton>
+                            </Tooltip.Anchor>
                           </>
                         }
                       >
-                        <Show
-                          when={!comment.deletedAt && comment.body}
-                          fallback={<p class="text-sm italic text-dimmed">Comment deleted</p>}
-                        >
-                          {(body) => <MarkdownView markdown={body()} smallHeadings />}
-                        </Show>
+                        <Show when={comment.body}>{(body) => <MarkdownView markdown={body()} smallHeadings />}</Show>
                       </Discussion.Item>
                     );
                   }}
@@ -733,31 +731,34 @@ export default function MailDetailsPanel(props: {
                   event.preventDefault();
                   addComment.mutate();
                 }}
-                actions={
-                  <>
-                    <Show when={commentError()}>
-                      {(error) => (
-                        <p class="mr-auto text-xs text-red-600 dark:text-red-300" role="alert">
-                          {error()}
-                        </p>
-                      )}
-                    </Show>
-                    <Button size="xs" type="submit" disabled={addComment.loading()}>
-                      <i class="ti ti-send" aria-hidden="true" /> Comment
-                    </Button>
-                  </>
+                insetAction={
+                  <Tooltip.Anchor content="Post comment (Ctrl/Cmd+Enter)">
+                    <IconButton
+                      type="submit"
+                      label="Post comment"
+                      size="sm"
+                      variant="primary"
+                      loading={addComment.loading()}
+                      disabled={!commentBody().trim() || addComment.loading()}
+                    >
+                      <i class="ti ti-send" aria-hidden="true" />
+                    </IconButton>
+                  </Tooltip.Anchor>
                 }
               >
                 <MarkdownEditor
                   value={commentBody}
-                  onValueChange={setCommentBody}
+                  onValueChange={(value) => {
+                    setCommentBody(value);
+                    if (value.trim()) setCommentInvalid(false);
+                  }}
                   onSubmit={() => addComment.mutate()}
                   placeholder="Add internal comment"
                   aria-label="Internal comment"
                   lines={4}
                   noToolbar
                   showStats={false}
-                  error={Boolean(commentError())}
+                  error={commentInvalid()}
                   disabled={addComment.loading()}
                 />
               </Discussion.Composer>

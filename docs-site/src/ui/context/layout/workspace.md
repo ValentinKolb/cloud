@@ -51,6 +51,11 @@ the host can restore the same navigation state on the next mount.
 
 Set `scrollPreserveKey` on scrolling sidebar bodies when enhanced navigation should restore their position.
 
+On hover-capable fine pointers, `SidebarBody` keeps its scrollbar thumb hidden
+until the sidebar is hovered or contains keyboard focus. Its scrollbar geometry
+does not change. Touch, coarse-pointer, and forced-color environments retain
+their normal visible scrollbar treatment.
+
 The sidebar compound members cover these jobs:
 
 - `SidebarMobileTrigger` supplies the compact menu label and standard menu icon;

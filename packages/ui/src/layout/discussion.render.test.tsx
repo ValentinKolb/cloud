@@ -25,6 +25,7 @@ describe("Discussion", () => {
           return [
             createComponent(Discussion.Composer, {
               actions: "Cancel Post note",
+              insetAction: "Quick post",
               children: "Markdown editor",
             }),
             createComponent(Discussion.List, {
@@ -49,11 +50,35 @@ describe("Discussion", () => {
     expect(html).toMatch(/<section[^>]+class="k2b-discussion[^"]*"[^>]+aria-labelledby="k2b-discussion-[^"]+"/);
     expect(html).toContain("<h3 id=");
     expect(html).toContain('class="k2b-discussion__composer');
+    expect(html).toContain('class="k2b-discussion__composer-field" data-has-inset-action="true"');
+    expect(html).toContain('class="k2b-discussion__composer-inset-action"');
     expect(html).toContain('class="k2b-discussion__list"');
     expect(html).toContain('data-has-avatar="true"');
     expect(html).toContain('aria-busy="true"');
     expect(html).toContain('data-visibility="progressive"');
     expect(html).toContain("Reply to Alex Smith");
+  });
+
+  test("supports an inset primary action without requiring footer actions", async () => {
+    const html = renderToString(() =>
+      createComponent(Discussion.Composer, {
+        insetAction: "Post note",
+        children: "Markdown editor",
+      }),
+    );
+    const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
+    const insetRule = css.match(/\.k2b-ui \.k2b-discussion__composer-inset-action \{([^}]*)\}/)?.[1];
+
+    expect(html).toContain('data-has-inset-action="true"');
+    expect(html).toContain("Post note");
+    expect(html).not.toContain("<footer");
+    expect(insetRule).toContain("position: absolute");
+    expect(insetRule).toContain("right: 0.5rem");
+    expect(insetRule).toContain("bottom: 0.5rem");
+    expect(css).toContain('.k2b-discussion__composer-field[data-has-inset-action="true"]');
+    expect(css).toContain("padding-right: 3rem !important");
+    expect(css).toContain("overflow-y: auto !important");
+    expect(css).not.toContain("padding-bottom: 3rem !important");
   });
 
   test("supports a bare page section without changing the default surface", async () => {

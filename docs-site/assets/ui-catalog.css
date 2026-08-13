@@ -547,9 +547,13 @@
   background: var(--k2b-surface-muted);
 }
 
+.ui-detail-panel-grouped .k2b-detail-panel__header {
+  padding-inline: 0.75rem;
+}
+
 .ui-detail-panel-grouped .k2b-detail-panel__body {
   gap: 0.5rem;
-  padding: 0.5rem 0.75rem 0.75rem;
+  padding: 0.5rem 0 0.75rem 0.75rem;
 }
 
 .ui-detail-panel-grouped .k2b-select-chip > i:first-child {

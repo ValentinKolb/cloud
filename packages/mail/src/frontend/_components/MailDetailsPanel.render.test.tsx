@@ -70,6 +70,21 @@ const comment: ConversationComment = {
   updatedAt: now,
 };
 
+const deletedComment: ConversationComment = {
+  ...comment,
+  id: "CommDeleted",
+  body: null,
+  author: {
+    kind: "user",
+    id: "user-deleted",
+    displayName: "Deleted Author",
+    avatarHash: null,
+  },
+  revision: 2,
+  deletedAt: "2026-08-09T10:05:00.000Z",
+  updatedAt: "2026-08-09T10:05:00.000Z",
+};
+
 const activity: MailActivityEvent = {
   id: "00000000-0000-4000-8000-000000000005",
   conversationId,
@@ -203,6 +218,13 @@ describe("Mail conversation detail panel", () => {
     expect(html).toContain('class="k2b-detail-panel__section-icon" data-tone="accent"');
     expect(html).toContain('class="k2b-discussion');
     expect(html).toContain('class="k2b-discussion__item');
+    expect(html).toContain('class="k2b-discussion__composer-inset-action"');
+    expect(html).toContain('aria-label="Post comment"');
+    expect(html).toContain("Post comment (Ctrl/Cmd+Enter)");
+    const postButton = html.slice(html.indexOf('aria-label="Post comment"') - 180, html.indexOf('aria-label="Post comment"') + 220);
+    expect(postButton).toContain("disabled");
+    expect(postButton).toContain('data-variant="primary"');
+    expect(html).not.toContain("Write a comment first.");
     expect(html).toContain('class="k2b-content-markdown');
     expect(html).toContain('href="/api/mail/mailboxes/Box001/messages/Msg001/attachments/Att001"');
     expect(html).toContain('download="review.pdf"');
@@ -219,6 +241,15 @@ describe("Mail conversation detail panel", () => {
     expect(html).not.toContain('class="detail-stack');
     expect(html).not.toContain('class="detail-section');
     expect(html).not.toContain("overflow-y-auto");
+  });
+
+  test("omits deleted comments from the visible discussion", () => {
+    const html = renderPanel({ initialComments: [comment, deletedComment] });
+
+    expect(html).toContain("1 note");
+    expect(html).toContain("Valentin Kolb");
+    expect(html).not.toContain("Deleted Author");
+    expect(html).not.toContain("Comment deleted");
   });
 
   test("keeps comment action order and read-only workflow permissions", () => {
