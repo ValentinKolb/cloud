@@ -11,6 +11,33 @@ const styleSources = shippedStyleFiles(stylesDir).map((file) => ({
 const shippedCss = styleSources.map(({ source }) => source).join("\n");
 
 describe("@k2b/ui stylesheet hygiene", () => {
+  test("keeps inspector and navigation section labels quiet and sentence-case", () => {
+    const rules = readShippedCssRules(stylesDir);
+    const declarations = (selector: string) => {
+      const rule = rules.find((candidate) => candidate.selector === selector && candidate.context === "");
+      expect(rule, selector).toBeDefined();
+      return cssDeclarations(rule!.body);
+    };
+
+    const sidebarSelector = [
+      ".k2b-ui .k2b-app-workspace__sidebar-section-header > h2",
+      ".k2b-ui .k2b-app-workspace__sidebar-section > h2",
+    ].find((selector) => rules.some((candidate) => candidate.selector === selector && candidate.context === ""));
+    expect(sidebarSelector).toBeDefined();
+
+    for (const selector of [
+      sidebarSelector!,
+      ".k2b-ui .k2b-detail-panel__summary-header h3",
+      ".k2b-ui .k2b-detail-panel__section-header h3",
+      ".k2b-ui .k2b-detail-panel__section-title",
+    ]) {
+      const label = declarations(selector);
+      expect(label.get("text-transform")).toEqual(["none"]);
+      expect(label.get("letter-spacing")).toEqual(["normal"]);
+      expect(Number(label.get("font-weight")?.[0])).toBeLessThanOrEqual(600);
+    }
+  });
+
   test("reveals workspace scrollbars for pointer and keyboard use without changing their geometry", () => {
     const rules = readShippedCssRules(stylesDir);
     const scrollers = [".k2b-ui .k2b-app-workspace__sidebar-body", ".k2b-ui .k2b-chat-timeline__viewport"];

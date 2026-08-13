@@ -75,6 +75,9 @@ not a repeated application title. Put persistent secondary navigation in
 trigger is mobile-only and deliberately owns no application-specific icon or
 accent tile.
 
+Section titles are quiet sentence-case labels. Keep them short and let the
+navigation rows carry the stronger visual emphasis.
+
 ### Row metadata and actions
 
 Use `SidebarItemMeta` for passive trailing information such as counts and

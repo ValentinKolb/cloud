@@ -7,6 +7,7 @@ type PaperOwnProps<T extends PaperTag> = {
   as?: T;
   children?: JSX.Element;
   class?: string;
+  elevated?: boolean;
   interactive?: boolean;
   tabIndex?: number;
 };
@@ -16,7 +17,7 @@ export type PaperProps<T extends PaperTag = "div"> = PaperOwnProps<T> & Omit<JSX
 const PaperElement = Dynamic as unknown as (props: Record<string, unknown>) => JSX.Element;
 
 export function Paper<T extends PaperTag = "div">(props: PaperProps<T>): JSX.Element {
-  const [local, elementProps] = splitProps(props, ["as", "children", "class", "interactive", "tabIndex"]);
+  const [local, elementProps] = splitProps(props, ["as", "children", "class", "elevated", "interactive", "tabIndex"]);
   const className = () => local.class?.trim();
 
   return (
@@ -24,6 +25,7 @@ export function Paper<T extends PaperTag = "div">(props: PaperProps<T>): JSX.Ele
       component={local.as ?? "div"}
       {...elementProps}
       class={className() ? `k2b-paper ${className()}` : "k2b-paper"}
+      data-elevated={local.elevated ? "true" : undefined}
       data-interactive={local.interactive ? "true" : undefined}
       tabindex={local.tabIndex}
     >

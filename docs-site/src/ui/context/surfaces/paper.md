@@ -1,9 +1,9 @@
 # Paper
 
 `Paper` gives application-owned content one neutral work surface without
-borrowing Cloud's internal `paper` utility. It owns the shared border, radius,
-background, surface shadow, and optional interactive focus treatment. Content
-spacing and layout stay with the application.
+borrowing Cloud's internal `paper` utility. It owns a deliberately quiet
+border, radius, background, optional elevation, and optional interactive focus
+treatment. Content spacing and layout stay with the application.
 
 ## Use Paper
 
@@ -14,6 +14,10 @@ finding, and `PanelDialog` for dialog geometry.
 
 Do not nest papers to manufacture hierarchy. Use spacing, headings, or one of
 the specific shared components inside the outer surface instead.
+
+Set `elevated` only when the complete surface sits visually above its
+surroundings, such as a compact contextual inspector. Elevation adds the shared
+subtle frame shadow; it does not change the border, radius, or content spacing.
 
 `Paper` has no default padding. This lets the content owner choose its density
 without overriding the surface contract.
@@ -29,6 +33,7 @@ import { Paper } from "@k2b/ui";
 | Property | Type | Default | Purpose |
 | --- | --- | --- | --- |
 | `as` | `"div" \| "section" \| "article" \| "a"` | `"div"` | Preserves the native meaning of the grouped content. |
+| `elevated` | `boolean` | `false` | Adds the subtle frame shadow for a visually lifted outer surface. |
 | `interactive` | `boolean` | `false` | Adds the shared hover and visible focus treatment. |
 | `class` | `string` | none | Adds application-owned spacing or layout. |
 | `children` | `JSX.Element` | none | Renders the grouped content. |
@@ -67,6 +72,7 @@ tables, and widgets reuse this same surface contract internally.
   as="a"
   href="/projects/current"
   class="project-summary-link"
+  elevated
   interactive
 >
   Open the current project

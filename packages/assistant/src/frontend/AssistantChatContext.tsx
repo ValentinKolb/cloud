@@ -131,7 +131,7 @@ export function AssistantChatContextPanel(props: { chatId: string; onClose: () =
           <>
             <section class="flex flex-col gap-2">
               <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-primary">Sources</h3>
+                <h3 class="text-xs font-medium text-secondary">Sources</h3>
                 <Button
                   size="xs"
                   variant="ghost"
@@ -146,7 +146,7 @@ export function AssistantChatContextPanel(props: { chatId: string; onClose: () =
             </section>
             <section>
               <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-primary">
+                <h3 class="text-xs font-medium text-secondary">
                   Files <span class="font-normal text-dimmed">{value().files.length}</span>
                 </h3>
                 <Button
@@ -161,7 +161,7 @@ export function AssistantChatContextPanel(props: { chatId: string; onClose: () =
             </section>
             <section>
               <div class="flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-primary">
+                <h3 class="text-xs font-medium text-secondary">
                   Scheduled <span class="font-normal text-dimmed">{value().tasks.length}</span>
                 </h3>
                 <Button size="xs" variant="ghost" onClick={() => void openAssistantTasksDialog(props.chatId)}>

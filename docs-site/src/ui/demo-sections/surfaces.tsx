@@ -145,7 +145,7 @@ const PaperDemo = () => (
   <DemoCard
     id="paper"
     chip={{ kind: "component", name: "Paper", from: "@k2b/ui" }}
-    description="Paper provides one neutral boundary without choosing content spacing. The static section and complete-surface link keep their native semantics."
+    description="Paper provides one quiet neutral boundary without choosing content spacing. Elevation is opt-in for a complete surface that sits above its surroundings."
     code={`import { Paper } from "@k2b/ui";
 
 <Paper as="section" class="project-summary">
@@ -153,7 +153,7 @@ const PaperDemo = () => (
   <p>Three services are ready for deployment.</p>
 </Paper>
 
-<Paper as="a" href="/projects/current" class="project-summary-link" interactive>
+<Paper as="a" href="/projects/current" class="project-summary-link" elevated interactive>
   Open the current project
 </Paper>`}
   >
@@ -163,7 +163,7 @@ const PaperDemo = () => (
         <h2>Three services are ready</h2>
         <p>Content spacing belongs to the application.</p>
       </Paper>
-      <Paper as="a" href="#paper" class="ui-paper-demo ui-paper-demo--link" interactive>
+      <Paper as="a" href="#paper" class="ui-paper-demo ui-paper-demo--link" elevated interactive>
         <span>
           <strong>Current project</strong>
           <small>Open deployment details</small>

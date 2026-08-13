@@ -33,14 +33,14 @@ const ownedSelectors =
 const ownedSelectorFiles = new Set(stylesheets.filter((file) => ownedSelectors.test(readFileSync(resolve(stylesDir, file), "utf8"))));
 
 describe("@k2b/ui Cloud-faithful surfaces", () => {
-  test("renders a padding-free semantic paper with opt-in interaction", () => {
+  test("renders a quiet padding-free paper with opt-in elevation and interaction", () => {
     const section = renderToString(() => (
       <Paper as="section" class="project-summary">
         Summary
       </Paper>
     ));
     const link = renderToString(() => (
-      <Paper as="a" href="/projects" interactive aria-label="Projects">
+      <Paper as="a" href="/projects" elevated interactive aria-label="Projects">
         Open
       </Paper>
     ));
@@ -49,11 +49,14 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
     expect(section).toContain("<section");
     expect(section).toContain('class="k2b-paper project-summary');
     expect(link).toContain('href="/projects"');
+    expect(link).toContain('data-elevated="true"');
     expect(link).toContain('data-interactive="true"');
     expect(link).toContain('aria-label="Projects"');
-    expect(rule).toContain("border: 1px solid var(--k2b-border)");
+    expect(rule).toContain("border: 1px solid color-mix(in srgb, var(--k2b-border) 72%, transparent)");
     expect(rule).toContain("box-shadow: var(--k2b-shadow-surface)");
     expect(rule).not.toContain("padding:");
+    expect(parityCss).toContain('.k2b-paper[data-elevated="true"]');
+    expect(parityCss).toContain("box-shadow: var(--k2b-shadow-frame)");
     expect(parityCss).toContain('.k2b-paper[data-interactive="true"]:focus-visible');
   });
 

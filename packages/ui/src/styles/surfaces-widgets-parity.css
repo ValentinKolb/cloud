@@ -13,7 +13,9 @@
  * regardless of the grid's `surface` prop, and every `paper` surface has
  * `box-shadow: none` because `--ui-shadow-surface` is `none` in both themes.
  * This file reproduces what Cloud actually paints, not what its class list
- * suggests.
+ * suggests. Paper itself now keeps a deliberately quiet edge; an explicit
+ * elevated paper may use the existing frame shadow for a lifted inspector or
+ * similar outer surface without turning every card into a floating layer.
  *
  * Colours route through the `--k2b-*` tokens wherever a token already carries
  * the exact value, so a consumer retheme reaches them. The remaining literals
@@ -28,7 +30,7 @@
 
 /* ---------------------------------------------------------------- Paper -- */
 .k2b-ui .k2b-paper {
-  border: 1px solid var(--k2b-border);
+  border: 1px solid color-mix(in srgb, var(--k2b-border) 72%, transparent);
   border-radius: var(--k2b-radius-surface);
   background: var(--k2b-surface);
   box-shadow: var(--k2b-shadow-surface);
@@ -36,6 +38,10 @@
     color 150ms,
     background-color 150ms,
     border-color 150ms;
+}
+
+.k2b-ui .k2b-paper[data-elevated="true"] {
+  box-shadow: var(--k2b-shadow-frame);
 }
 
 .k2b-ui .k2b-paper[data-interactive="true"]:hover {

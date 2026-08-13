@@ -643,10 +643,11 @@
 .k2b-ui .k2b-app-workspace__sidebar-section > h2 {
   margin: 0.5rem 0.5rem 0.25rem;
   color: var(--k2b-text-muted);
-  font-size: 0.625rem;
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1rem;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .k2b-ui .k2b-app-workspace__sidebar-item {
@@ -1688,12 +1689,12 @@
   min-width: 0;
   flex: 1;
   margin: 0;
-  color: var(--k2b-text-secondary);
-  font-size: 0.6875rem;
-  font-weight: 700;
+  color: var(--k2b-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
   line-height: 1rem;
-  letter-spacing: 0.045em;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .k2b-ui .k2b-detail-panel__summary-body {
@@ -1992,13 +1993,13 @@
 .k2b-ui .k2b-detail-panel__section-header h3,
 .k2b-ui .k2b-detail-panel__section-title {
   margin: 0;
-  color: var(--k2b-text-secondary);
-  font-size: 0.6875rem;
+  color: var(--k2b-text-muted);
+  font-size: 0.75rem;
   font-family: inherit;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .k2b-ui .k2b-detail-panel__summary-actions .k2b-button[data-variant="ghost"],
