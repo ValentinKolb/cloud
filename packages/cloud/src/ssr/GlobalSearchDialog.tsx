@@ -1,4 +1,4 @@
-import { mutation, timed } from "@k2b/stdlib/solid";
+import { query, timed } from "@k2b/stdlib/solid";
 import { dialogCore, NoticeCard } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { CloudResourceRef } from "../contracts";
@@ -146,14 +146,27 @@ const removeTagFromInput = (raw: string, tag: string): string => {
 const metadataRows = (metadata?: SearchMetadata[]) =>
   (metadata ?? []).filter((entry) => entry.label.trim().length > 0 && entry.value.trim().length > 0).slice(0, 5);
 
+const searchRequestUrl = (input: ParsedInput): string => {
+  const params = new URLSearchParams({ provider_limit: String(PROVIDER_LIMIT) });
+  if (input.query.length > 0) params.set("q", input.query);
+  for (const tag of input.tags) params.append("tag", tag);
+  return `/api/search?${params.toString()}`;
+};
+
+const loadSearch = async (url: string, abortSignal: AbortSignal): Promise<SearchResponse> => {
+  const response = await fetch(url, { signal: abortSignal });
+  const payload = (await response.json()) as SearchResponse | { message?: string };
+  if (!response.ok) {
+    throw new Error("message" in payload ? (payload.message ?? "Search failed.") : "Search failed.");
+  }
+  return payload as SearchResponse;
+};
+
 export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
   const [rawInput, setRawInput] = createSignal("");
-  const [resultItems, setResultItems] = createSignal<SearchItem[]>([]);
-  const [unsupportedTags, setUnsupportedTags] = createSignal<string[]>([]);
+  const [searchUrl, setSearchUrl] = createSignal("");
   const [activeIndex, setActiveIndex] = createSignal(0);
   const [previewFailed, setPreviewFailed] = createSignal(false);
-  const [requestError, setRequestError] = createSignal<string | null>(null);
-  const [hasReceivedResponse, setHasReceivedResponse] = createSignal(false);
   const [cursorPos, setCursorPos] = createSignal(0);
   const [suggestionIndex, setSuggestionIndex] = createSignal(0);
 
@@ -162,6 +175,16 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
 
   const parsedInput = createMemo(() => parseInput(rawInput()));
   const canSearch = createMemo(() => parsedInput().tags.length > 0 || parsedInput().query.length >= MIN_QUERY_LENGTH);
+  const searchQuery = query.create({
+    source: searchUrl,
+    enabled: () => searchUrl().length > 0,
+    load: (url, { abortSignal }) => loadSearch(url, abortSignal),
+  });
+  const resultItems = createMemo(() => {
+    const sorted = (searchQuery.data()?.items ?? []).slice().sort(sortByPriorityAndTitle);
+    return groupByApp(sorted);
+  });
+  const unsupportedTags = createMemo(() => searchQuery.data()?.unsupportedTags ?? []);
 
   // Tag suggestions for the empty state — flat list of every tag declared by
   // any app, deduped on tag name (first declaration wins) so we don't render
@@ -270,41 +293,6 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
     inputRef?.focus();
   };
 
-  const searchMutation = mutation.create<SearchResponse, ParsedInput>({
-    mutation: async (input, ctx) => {
-      const params = new URLSearchParams({ provider_limit: String(PROVIDER_LIMIT) });
-      if (input.query.length > 0) params.set("q", input.query);
-      for (const tag of input.tags) params.append("tag", tag);
-
-      const response = await fetch(`/api/search?${params.toString()}`, {
-        signal: ctx.abortSignal,
-      });
-
-      const payload = (await response.json()) as SearchResponse | { message?: string };
-      if (!response.ok) {
-        throw new Error("message" in payload ? (payload.message ?? "Search failed.") : "Search failed.");
-      }
-
-      return payload as SearchResponse;
-    },
-    onSuccess: (payload) => {
-      const sorted = (payload.items ?? []).slice().sort(sortByPriorityAndTitle);
-      setResultItems(groupByApp(sorted));
-      setUnsupportedTags(payload.unsupportedTags ?? []);
-      setActiveIndex(0);
-      setRequestError(null);
-      setHasReceivedResponse(true);
-    },
-    onError: (error) => {
-      if (error.name === "AbortError") return;
-      setResultItems([]);
-      setUnsupportedTags([]);
-      setActiveIndex(0);
-      setRequestError(error.message || "Search failed.");
-      setHasReceivedResponse(true);
-    },
-  });
-
   const activeItem = createMemo(() => resultItems()[activeIndex()] ?? null);
   const listEntries = createMemo(() => buildListEntries(resultItems()));
 
@@ -318,18 +306,13 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
   const bodyMode = createMemo<BodyMode>(() => {
     if (!canSearch()) return "suggestions";
     if (resultItems().length > 0) return "ready";
-    if (searchMutation.loading() || !hasReceivedResponse()) return "idle";
+    if (searchQuery.loading() || searchQuery.refreshing() || (!searchQuery.data() && !searchQuery.error())) return "idle";
     if (unsupportedTags().length > 0) return "unsupported-tags";
     return "no-results";
   });
 
   const { debouncedFn: debounceSearch, cancel: cancelDebounce } = timed.debounce((input: ParsedInput) => {
-    setResultItems([]);
-    setUnsupportedTags([]);
-    setActiveIndex(0);
-    setHasReceivedResponse(false);
-    searchMutation.abort();
-    void searchMutation.mutate(input);
+    setSearchUrl(searchRequestUrl(input));
   }, SEARCH_DEBOUNCE_MS);
 
   const bindRowRef = (key: string, element?: HTMLButtonElement) => {
@@ -429,6 +412,11 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
   };
 
   createEffect(() => {
+    const response = searchQuery.data();
+    if (response) setActiveIndex(0);
+  });
+
+  createEffect(() => {
     const maxIndex = resultItems().length - 1;
     if (maxIndex < 0) {
       setActiveIndex(0);
@@ -453,14 +441,10 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
   createEffect(() => {
     const input = parsedInput();
 
-    setRequestError(null);
     if (!canSearch()) {
       cancelDebounce();
-      searchMutation.abort();
-      setResultItems([]);
-      setUnsupportedTags([]);
+      setSearchUrl("");
       setActiveIndex(0);
-      setHasReceivedResponse(false);
       return;
     }
 
@@ -469,7 +453,6 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
 
   onCleanup(() => {
     cancelDebounce();
-    searchMutation.abort();
   });
 
   onMount(() => {
@@ -478,10 +461,13 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
 
   return (
     <div
-      class="flex h-full min-h-0 flex-col text-zinc-900 dark:text-zinc-100 [--spotlight-body-max:calc(var(--spotlight-dialog-height)-5.5rem)]"
+      class="grid h-full min-h-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] text-zinc-900 dark:text-zinc-100"
+      classList={{
+        "md:grid-cols-[minmax(0,1fr)_18rem] md:gap-x-3": bodyMode() === "ready",
+      }}
       onWheel={(event) => event.stopPropagation()}
     >
-      <div class="relative">
+      <div class="relative min-w-0">
         <label class="flex items-center gap-3 px-4 py-3.5">
           <i class="ti ti-search text-xl text-dimmed" />
           <input
@@ -505,7 +491,7 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
             autocomplete="off"
             autocorrect="off"
           />
-          <Show when={searchMutation.loading()}>
+          <Show when={searchQuery.loading() || searchQuery.refreshing()}>
             <i class="ti ti-loader-2 animate-spin text-dimmed" />
           </Show>
         </label>
@@ -550,13 +536,7 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
         </Show>
       </div>
 
-      <div
-        class="overflow-hidden transition-[height,opacity] duration-200 ease-out"
-        style={{
-          height: "var(--spotlight-body-max)",
-          opacity: "1",
-        }}
-      >
+      <div class="min-h-0 overflow-hidden">
         <div class="flex h-full min-h-0 flex-col gap-2 px-3 pb-3">
           {/* Active-tag chip row + meta. Hidden in suggestions mode. */}
           <Show when={bodyMode() !== "suggestions"}>
@@ -604,10 +584,10 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
           </Show>
 
           <div class="min-h-0 flex-1 overflow-hidden">
-            <Show when={requestError()}>
-              {(message) => (
+            <Show when={searchQuery.error()}>
+              {(error) => (
                 <NoticeCard tone="danger" icon={false} class="mb-2">
-                  {message()}
+                  {error().message}
                 </NoticeCard>
               )}
             </Show>
@@ -620,16 +600,16 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
                   on one app.
                 </p>
                 <Show when={tagSuggestions().length > 0} fallback={<p class="text-xs text-dimmed">No tags available.</p>}>
-                  <div class="flex flex-wrap gap-1.5">
+                  <div class="flex flex-wrap gap-1">
                     <For each={tagSuggestions()}>
                       {(suggestion) => (
                         <button
                           type="button"
                           onClick={() => insertTagAtCursor(suggestion.tag)}
-                          class="inline-flex items-center gap-1.5 rounded-full bg-zinc-100/80 px-2.5 py-1 text-[11px] text-zinc-700 transition-colors hover:bg-zinc-200/80 dark:bg-zinc-900/55 dark:text-zinc-200 dark:hover:bg-zinc-800/80"
+                          class="inline-flex items-center gap-1 rounded-full bg-zinc-100/80 px-2 py-0.5 text-[10px] leading-4 text-zinc-700 transition-colors hover:bg-zinc-200/80 dark:bg-zinc-900/55 dark:text-zinc-200 dark:hover:bg-zinc-800/80"
                           title={`Add #${suggestion.tag} (${suggestion.appName})`}
                         >
-                          <i class={`${suggestion.appIcon} text-[11px] text-dimmed`} />
+                          <i class={`${suggestion.appIcon} text-[10px] text-dimmed`} />
                           <span>#{suggestion.tag}</span>
                         </button>
                       )}
@@ -697,17 +677,10 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
               </div>
             </Show>
 
-            {/* Idle (debounce / loading first response) — keep the area quiet. */}
-            <Show when={bodyMode() === "idle"}>
-              <div class="flex h-full min-h-0 flex-col items-center justify-center text-dimmed">
-                <i class="ti ti-loader-2 animate-spin text-base" />
-              </div>
-            </Show>
-
-            {/* Ready: results list + detail aside. */}
+            {/* Ready: the left result list; the detail spans both grid rows below. */}
             <Show when={bodyMode() === "ready"}>
-              <div class="grid h-full min-h-0 grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_18rem]">
-                <section class="min-h-0 overflow-y-auto overscroll-y-contain pr-1" onWheel={(event) => event.stopPropagation()}>
+              <div class="h-full min-h-0">
+                <section class="h-full min-h-0 overflow-y-auto overscroll-y-contain pr-1" onWheel={(event) => event.stopPropagation()}>
                   <div class="flex flex-col">
                     <For each={listEntries()}>
                       {(entry) => {
@@ -753,61 +726,63 @@ export default function GlobalSearchDialog(props: GlobalSearchDialogProps) {
                     </For>
                   </div>
                 </section>
-
-                <aside
-                  class="hidden min-h-0 overflow-y-auto overscroll-y-contain rounded-xl bg-zinc-50/80 p-3 dark:bg-zinc-900/55 md:block"
-                  onWheel={(event) => event.stopPropagation()}
-                >
-                  <Show when={activeItem()} fallback={<div class="text-xs text-dimmed">Select a result to preview details.</div>}>
-                    {(item) => (
-                      <div class="flex flex-col gap-4">
-                        <div class="flex items-center gap-3">
-                          <div class="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-900">
-                            <Show
-                              when={isValidImagePreviewUrl(item().previewUrl) && !previewFailed()}
-                              fallback={<i class={`${item().icon ?? item().appIcon} text-lg text-dimmed`} />}
-                            >
-                              <img
-                                src={item().previewUrl}
-                                alt={item().title}
-                                class="h-full w-full object-cover"
-                                onError={() => setPreviewFailed(true)}
-                              />
-                            </Show>
-                          </div>
-                          <div class="min-w-0">
-                            <p class="truncate text-sm">{item().title}</p>
-                            <p class="mt-0.5 truncate text-xs text-dimmed">{item().appName}</p>
-                          </div>
-                        </div>
-
-                        <Show when={item().preview}>
-                          <p class="text-xs leading-relaxed text-dimmed">{item().preview}</p>
-                        </Show>
-
-                        <Show when={metadataRows(item().metadata).length > 0}>
-                          <div class="rounded-lg bg-zinc-100/65 p-2 dark:bg-zinc-900/65">
-                            <div class="flex flex-col gap-1">
-                              <For each={metadataRows(item().metadata)}>
-                                {(entry) => (
-                                  <div class="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-2 rounded-md px-1 py-1 text-xs">
-                                    <span class="truncate text-dimmed">{entry.label}</span>
-                                    <span class="truncate">{entry.value}</span>
-                                  </div>
-                                )}
-                              </For>
-                            </div>
-                          </div>
-                        </Show>
-                      </div>
-                    )}
-                  </Show>
-                </aside>
               </div>
             </Show>
           </div>
         </div>
       </div>
+
+      <Show when={bodyMode() === "ready"}>
+        <aside
+          class="hidden min-h-0 overflow-y-auto overscroll-y-contain rounded-xl bg-zinc-50/80 p-3 dark:bg-zinc-900/55 md:col-start-2 md:row-start-1 md:row-span-2 md:my-3 md:mr-3 md:block"
+          onWheel={(event) => event.stopPropagation()}
+        >
+          <Show when={activeItem()} fallback={<div class="text-xs text-dimmed">Select a result to preview details.</div>}>
+            {(item) => (
+              <div class="flex flex-col gap-4">
+                <div class="flex items-center gap-3">
+                  <div class="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-900">
+                    <Show
+                      when={isValidImagePreviewUrl(item().previewUrl) && !previewFailed()}
+                      fallback={<i class={`${item().icon ?? item().appIcon} text-lg text-dimmed`} />}
+                    >
+                      <img
+                        src={item().previewUrl}
+                        alt={item().title}
+                        class="h-full w-full object-cover"
+                        onError={() => setPreviewFailed(true)}
+                      />
+                    </Show>
+                  </div>
+                  <div class="min-w-0">
+                    <p class="truncate text-sm">{item().title}</p>
+                    <p class="mt-0.5 truncate text-xs text-dimmed">{item().appName}</p>
+                  </div>
+                </div>
+
+                <Show when={item().preview}>
+                  <p class="text-xs leading-relaxed text-dimmed">{item().preview}</p>
+                </Show>
+
+                <Show when={metadataRows(item().metadata).length > 0}>
+                  <div class="rounded-lg bg-zinc-100/65 p-2 dark:bg-zinc-900/65">
+                    <div class="flex flex-col gap-1">
+                      <For each={metadataRows(item().metadata)}>
+                        {(entry) => (
+                          <div class="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-2 rounded-md px-1 py-1 text-xs">
+                            <span class="truncate text-dimmed">{entry.label}</span>
+                            <span class="truncate">{entry.value}</span>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+              </div>
+            )}
+          </Show>
+        </aside>
+      </Show>
     </div>
   );
 }

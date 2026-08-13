@@ -12,8 +12,6 @@ export type GlobalSearchHelpApp = {
 
 type GlobalSearchHelpDialogProps = { apps: GlobalSearchHelpApp[] };
 
-const examples = ["#note test", "report #file #excel", "#weather ulm"];
-
 export default function GlobalSearchHelpDialog(props: GlobalSearchHelpDialogProps) {
   const apps = createMemo(() =>
     props.apps
@@ -38,19 +36,6 @@ export default function GlobalSearchHelpDialog(props: GlobalSearchHelpDialogProp
           </p>
         </div>
       </div>
-
-      <section class="text-sm rounded-lg ring-1 ring-inset ring-zinc-200 dark:ring-zinc-800 p-3 bg-zinc-50/50 dark:bg-zinc-900/35">
-        <p class="mb-2 text-dimmed">Examples</p>
-        <ul class="space-y-1 text-xs text-dimmed">
-          <For each={examples}>
-            {(entry) => (
-              <li>
-                <code>{entry}</code>
-              </li>
-            )}
-          </For>
-        </ul>
-      </section>
 
       <div class="min-h-0 flex-1 overflow-y-auto pr-1">
         <div class="flex flex-col gap-2">
