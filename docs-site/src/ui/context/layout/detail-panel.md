@@ -64,8 +64,11 @@ Use `DetailPanel.Action` for a full-width destination or command such as a
 related record, attachment, or in-panel jump. Pass `href` for native link
 semantics; omit it for a native button. `leading`, `title`, optional
 `description`, and `trailing` keep row geometry and interaction states
-consistent. Do not use it for static key-value data, comments, history, or form
-fields.
+consistent. When a destination has secondary actions, pass declarative
+`menuItems` together with the required accessible `menuLabel`. The primary link
+and the Dots trigger render as sibling controls, so the whole main row remains
+a native destination without nesting a button inside the link. Do not use it
+for static key-value data, comments, history, or form fields.
 
 ## Accessibility
 

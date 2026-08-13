@@ -338,14 +338,9 @@ export default function MailConversationContext(props: { mailboxId: string; conv
                                 type="button"
                                 disabled={createParticipantContact.loading()}
                                 onClick={() => void chooseBookAndCreate(participant)}
-                                leading={<i class="ti ti-user" aria-hidden="true" />}
-                                title={participant.displayName || participant.email}
-                                description={participant.displayName ? participant.email : undefined}
-                                trailing={
-                                  <span class="flex items-center gap-1 text-[0.6875rem] font-normal">
-                                    <i class="ti ti-user-plus" aria-hidden="true" /> New contact
-                                  </span>
-                                }
+                                leading={<i class="ti ti-user-plus text-[var(--app-accent)]" aria-hidden="true" />}
+                                title={participant.email}
+                                trailing={<span class="text-[0.6875rem] font-normal">New contact</span>}
                               />
                             </Show>
                           }
@@ -363,6 +358,7 @@ export default function MailConversationContext(props: { mailboxId: string; conv
                             </Show>
                             <For each={participant.contacts}>
                               {(contact) => {
+                                const relatedMailHref = buildExactParticipantSearchHref(new URL(props.requestUrl), participant.email);
                                 const description = () =>
                                   [
                                     participant.showParticipantHeading ? null : participant.email,
@@ -391,10 +387,24 @@ export default function MailConversationContext(props: { mailboxId: string; conv
                                       {(href) => (
                                         <DetailPanel.Action
                                           href={href()}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
                                           leading={<i class="ti ti-address-book" aria-hidden="true" />}
                                           title={contact.displayName}
                                           description={description() || undefined}
-                                          trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+                                          {...(relatedMailHref
+                                            ? {
+                                                menuLabel: `More actions for ${contact.displayName}`,
+                                                menuItems: [
+                                                  {
+                                                    label: "Related Mail",
+                                                    icon: "ti ti-mail",
+                                                    href: relatedMailHref,
+                                                    external: true,
+                                                  },
+                                                ],
+                                              }
+                                            : {})}
                                         />
                                       )}
                                     </Show>
@@ -412,18 +422,6 @@ export default function MailConversationContext(props: { mailboxId: string; conv
                                 );
                               }}
                             </For>
-                            <Show when={buildExactParticipantSearchHref(new URL(props.requestUrl), participant.email)}>
-                              {(href) => (
-                                <DetailPanel.Action
-                                  href={href()}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  leading={<i class="ti ti-mail" aria-hidden="true" />}
-                                  title="Related Mail"
-                                  trailing={<i class="ti ti-external-link" aria-hidden="true" />}
-                                />
-                              )}
-                            </Show>
                           </div>
                         </Show>
                       </article>
@@ -476,29 +474,28 @@ export default function MailConversationContext(props: { mailboxId: string; conv
               fallback={<Placeholder state="error" align="left" title="Spaces unavailable" icon="ti ti-layout-kanban-off" />}
             >
               <For each={current().spaces.status === "ready" ? current().spaces.items : []}>
-                {(item) => (
-                  <div class="flex min-w-0 items-center gap-1">
-                    <div class="min-w-0 flex-1">
-                      <DetailPanel.Action
-                        href={item.links?.find((link) => link.rel === "open")?.href}
-                        leading={<i class={item.icon ?? "ti ti-checkbox"} aria-hidden="true" />}
-                        title={item.title}
-                        description={item.metadata?.find((entry) => entry.label === "Space")?.value}
-                        trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      class="h-8 w-8 px-0"
-                      aria-label={`Unlink ${item.title}`}
-                      onClick={() => void unlinkSpaceItem(item.ref.id)}
-                    >
-                      <i class="ti ti-unlink" aria-hidden="true" />
-                    </Button>
-                  </div>
-                )}
+                {(item) => {
+                  const openHref = item.links.find((link) => link.rel === "open")?.href;
+                  if (!openHref) return null;
+                  return (
+                    <DetailPanel.Action
+                      href={openHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      leading={<i class={item.icon ?? "ti ti-checkbox"} aria-hidden="true" />}
+                      title={item.title}
+                      description={item.metadata?.find((entry) => entry.label === "Space")?.value}
+                      menuLabel={`More actions for ${item.title}`}
+                      menuItems={[
+                        {
+                          label: "Unlink",
+                          icon: "ti ti-unlink",
+                          action: () => void unlinkSpaceItem(item.ref.id),
+                        },
+                      ]}
+                    />
+                  );
+                }}
               </For>
               <Show when={current().spaces.status === "ready" && current().spaces.truncated}>
                 <p class="px-2 py-1 text-xs text-dimmed">More linked Space items exist. Open Spaces to manage all links.</p>
@@ -506,20 +503,23 @@ export default function MailConversationContext(props: { mailboxId: string; conv
               <DetailPanel.Action
                 type="button"
                 onClick={() => void linkExistingSpaceItem()}
-                leading={<i class="ti ti-link" aria-hidden="true" />}
-                title="Link Space item"
+                leading={<i class="ti ti-link-plus text-[var(--k2b-action)]" aria-hidden="true" />}
+                title="Link Spaces"
+                trailing={<span class="text-[0.6875rem] font-normal">existing item</span>}
               />
               <DetailPanel.Action
                 type="button"
                 onClick={() => void createSpaceItem("task")}
-                leading={<i class="ti ti-checkbox" aria-hidden="true" />}
-                title="New Space task"
+                leading={<i class="ti ti-checkbox text-[var(--k2b-action)]" aria-hidden="true" />}
+                title="Spaces Task"
+                trailing={<span class="text-[0.6875rem] font-normal">new item</span>}
               />
               <DetailPanel.Action
                 type="button"
                 onClick={() => void createSpaceItem("event")}
-                leading={<i class="ti ti-calendar-event" aria-hidden="true" />}
-                title="New Space event"
+                leading={<i class="ti ti-calendar-event text-[var(--k2b-action)]" aria-hidden="true" />}
+                title="Spaces Event"
+                trailing={<span class="text-[0.6875rem] font-normal">new item</span>}
               />
             </Show>
           )}

@@ -851,7 +851,16 @@ const DetailPanelDemo = () => {
   <DetailPanel.Section title="Company" icon="ti ti-building" tone="accent">
     <DescriptionList layout="rows" size="sm" items={companyItems} />
   </DetailPanel.Section>
-  <DetailPanel.Section title="Contact" icon="ti ti-user" tone="warning">…</DetailPanel.Section>
+  <DetailPanel.Section title="Contact" icon="ti ti-user" tone="warning">
+    <DetailPanel.Action
+      href="/contacts/ada"
+      target="_blank"
+      rel="noopener noreferrer"
+      title="Ada Lovelace"
+      menuLabel="More actions for Ada Lovelace"
+      menuItems={[{ label: "Related requests", href: "/requests?contact=ada" }]}
+    />
+  </DetailPanel.Section>
   <DetailPanel.Section title="Recent threads" icon="ti ti-history" tone="success">…</DetailPanel.Section>
 </DetailPanel.Group>
 
@@ -983,6 +992,16 @@ const DetailPanelDemo = () => {
                         { term: "Email", description: "alexsmith@content-mobbin.com" },
                         { term: "Groups", description: "Not assigned" },
                       ]}
+                    />
+                    <DetailPanel.Action
+                      href="#detail-panel"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      leading={<i class="ti ti-user" aria-hidden="true" />}
+                      title="alexsmith"
+                      description="alexsmith@content-mobbin.com"
+                      menuLabel="More actions for alexsmith"
+                      menuItems={[{ label: "Related requests", icon: "ti ti-message-circle", action: () => {} }]}
                     />
                   </DetailPanel.Section>
 

@@ -177,6 +177,50 @@ describe("@k2b/ui action runtime behavior", () => {
     dom.cleanup();
   });
 
+  test("keeps DetailPanel destination and overflow actions independent", async () => {
+    const dom = createDomTestHarness();
+    installPopoverStub();
+    const { default: DetailPanel } = await import("../src/layout/DetailPanel");
+    let destinationCalls = 0;
+    let menuCalls = 0;
+
+    const dispose = render(
+      () =>
+        createComponent(DetailPanel.Action, {
+          href: "/contacts/Contact01",
+          target: "_blank",
+          rel: "noopener noreferrer",
+          title: "Ada Lovelace",
+          menuLabel: "More actions for Ada Lovelace",
+          menuItems: [{ label: "Related Mail", action: () => menuCalls++ }],
+          onClick: (event) => {
+            event.preventDefault();
+            destinationCalls++;
+          },
+        }),
+      dom.root,
+    );
+
+    const destination = dom.root.querySelector<HTMLAnchorElement>(".k2b-detail-panel__action");
+    const trigger = dom.root.querySelector<HTMLButtonElement>(".k2b-detail-panel__action-menu-trigger");
+    expect(destination?.contains(trigger ?? null)).toBe(false);
+    expect(destination?.target).toBe("_blank");
+    expect(destination?.rel).toBe("noopener noreferrer");
+
+    trigger?.click();
+    await flush();
+    dom.root.querySelector<HTMLButtonElement>("[role='menuitem']")?.click();
+    await flush();
+    expect(menuCalls).toBe(1);
+    expect(destinationCalls).toBe(0);
+
+    destination?.click();
+    expect(destinationCalls).toBe(1);
+
+    dispose();
+    dom.cleanup();
+  });
+
   test("keeps explicit checkbox choices open when requested", async () => {
     const dom = createDomTestHarness();
     installPopoverStub();

@@ -1,5 +1,6 @@
 import { createUniqueId, type JSX, Show, splitProps } from "solid-js";
 import { Button, ButtonLink, type ButtonLinkProps, type ButtonProps } from "../actions/Button";
+import { Dropdown, type DropdownItem } from "../actions/Dropdown";
 
 export type DetailPanelProps = {
   children: JSX.Element;
@@ -65,12 +66,24 @@ type DetailPanelActionBaseProps = {
   class?: string;
 };
 
+type DetailPanelActionMenuProps =
+  | {
+      menuItems?: never;
+      menuLabel?: never;
+    }
+  | {
+      menuItems: readonly DropdownItem[];
+      menuLabel: string;
+    };
+
 export type DetailPanelActionLinkProps = DetailPanelActionBaseProps &
+  DetailPanelActionMenuProps &
   Omit<ButtonLinkProps, "children" | "class" | "size" | "title" | "variant"> & {
     href: string;
   };
 
 export type DetailPanelActionButtonProps = DetailPanelActionBaseProps &
+  DetailPanelActionMenuProps &
   Omit<ButtonProps, "children" | "class" | "size" | "title" | "variant"> & {
     href?: never;
   };
@@ -196,13 +209,13 @@ const DetailPanelActionContent = (props: DetailPanelActionBaseProps): JSX.Elemen
 );
 
 const DetailPanelAction = (props: DetailPanelActionProps): JSX.Element => {
-  const [local, rest] = splitProps(props, ["class", "description", "href", "leading", "title", "trailing"]);
+  const [local, rest] = splitProps(props, ["class", "description", "href", "leading", "menuItems", "menuLabel", "title", "trailing"]);
   const className = classNames("k2b-detail-panel__action", local.class);
   const content = () => (
     <DetailPanelActionContent title={local.title} description={local.description} leading={local.leading} trailing={local.trailing} />
   );
 
-  return (
+  const action = () => (
     <Show
       when={local.href !== undefined}
       fallback={
@@ -225,6 +238,19 @@ const DetailPanelAction = (props: DetailPanelActionProps): JSX.Element => {
       >
         {content()}
       </ButtonLink>
+    </Show>
+  );
+
+  return (
+    <Show when={local.menuItems?.length} fallback={action()}>
+      <div class="k2b-detail-panel__action-row">
+        {action()}
+        <Dropdown.Root items={local.menuItems ?? []} align="end" label={local.menuLabel} class="k2b-detail-panel__action-menu">
+          <Dropdown.Trigger iconOnly size="sm" variant="ghost" label={local.menuLabel} class="k2b-detail-panel__action-menu-trigger">
+            <i class="ti ti-dots" aria-hidden="true" />
+          </Dropdown.Trigger>
+        </Dropdown.Root>
+      </div>
     </Show>
   );
 };

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConfig } from "@k2b/ssr";
@@ -17,6 +17,27 @@ const [{ default: MailCalendarInvitation }, { default: MailConversationContext }
 ]);
 
 describe("Mail app integration states", () => {
+  test("keeps contact and Space add actions compact and semantically labelled", () => {
+    const source = readFileSync(new URL("./MailConversationContext.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain('class="ti ti-user-plus text-[var(--app-accent)]"');
+    expect(source).toContain("title={participant.email}");
+    expect(source).not.toContain("title={participant.displayName || participant.email}");
+    expect(source).toContain('class="ti ti-link-plus text-[var(--k2b-action)]"');
+    expect(source.match(/text-\[var\(--k2b-action\)\]/g)).toHaveLength(3);
+    expect(source).toContain('title="Link Spaces"');
+    expect(source).toContain(">existing item</span>");
+    expect(source).toContain('title="Spaces Task"');
+    expect(source).toContain('title="Spaces Event"');
+    expect(source.match(/>new item<\/span>/g)).toHaveLength(2);
+    expect(source.match(/target="_blank"/g)).toHaveLength(2);
+    expect(source.match(/rel="noopener noreferrer"/g)).toHaveLength(2);
+    expect(source).toContain('label: "Related Mail"');
+    expect(source).not.toContain('title="Related Mail"');
+    expect(source).toContain('label: "Unlink"');
+    expect(source).not.toContain("aria-label={`Unlink ${item.title}`}");
+  });
+
   test("exposes calendar invitation loading through the shared region contract", () => {
     const html = renderToString(() =>
       createComponent(MailCalendarInvitation, {

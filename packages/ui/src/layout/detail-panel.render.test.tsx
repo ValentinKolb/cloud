@@ -156,10 +156,14 @@ describe("DetailPanel", () => {
           return [
             createComponent(DetailPanel.Action, {
               href: "/files/invoice.pdf",
+              target: "_blank",
+              rel: "noopener noreferrer",
               download: "invoice.pdf",
               leading: "PDF",
               title: "invoice.pdf",
               trailing: "Download",
+              menuLabel: "More actions for invoice.pdf",
+              menuItems: [{ label: "Open folder", href: "/files", external: true }],
             }),
             createComponent(DetailPanel.Action, {
               onClick: () => undefined,
@@ -172,9 +176,14 @@ describe("DetailPanel", () => {
     );
 
     expect(html).toMatch(/<a[^>]+href="\/files\/invoice\.pdf"/);
+    expect(html).toContain('target="_blank" rel="noopener noreferrer"');
     expect(html).toContain("download");
     expect(html).toContain('<button type="button"');
     expect(html.match(/class="k2b-button k2b-detail-panel__action ?"/g)).toHaveLength(2);
+    expect(html).toContain('class="k2b-detail-panel__action-row"');
+    expect(html).toContain('aria-label="More actions for invoice.pdf"');
+    expect(html).toContain('aria-haspopup="menu"');
+    expect(html).not.toMatch(/<a[^>]*>[^<]*<button/s);
     expect(html).toContain('class="k2b-detail-panel__action-leading"');
     expect(html).toContain('class="k2b-detail-panel__action-description"');
     expect(html).toContain('class="k2b-detail-panel__action-trailing"');
