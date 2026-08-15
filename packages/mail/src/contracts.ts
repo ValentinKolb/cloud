@@ -781,6 +781,12 @@ export const mailSearchFolderIdSchema = z
     folderId: ResourceShortIdSchema.describe("Stable folder ID."),
   })
   .strict();
+export const mailSearchLocalTagIdSchema = z
+  .object({
+    type: z.literal("local_tag_id").describe("Local-tag search expression."),
+    tagId: ResourceShortIdSchema.describe("Stable local tag ID."),
+  })
+  .strict();
 export const mailSearchAssignedToMeSchema = z
   .object({ type: z.literal("assigned_to_me").describe("Match conversations assigned to the current user.") })
   .strict();
@@ -834,6 +840,7 @@ export type MailSearchExpression =
   | z.infer<typeof mailSearchSnoozedSchema>
   | z.infer<typeof mailSearchAllSchema>
   | z.infer<typeof mailSearchFolderIdSchema>
+  | z.infer<typeof mailSearchLocalTagIdSchema>
   | z.infer<typeof mailSearchAssignedToMeSchema>
   | { type: "and"; expressions: MailSearchExpression[] }
   | { type: "or"; expressions: MailSearchExpression[] }
@@ -849,6 +856,7 @@ const mailSearchExpressionRecursiveSchema: z.ZodType<MailSearchExpression> = z.l
     mailSearchSnoozedSchema,
     mailSearchAllSchema,
     mailSearchFolderIdSchema,
+    mailSearchLocalTagIdSchema,
     mailSearchAssignedToMeSchema,
     z
       .object({
@@ -958,6 +966,15 @@ const mailSearchExpressionOpenApi = {
         folderId: { type: "string", pattern: "^[0-9A-Za-z]{6}$" },
       },
       required: ["type", "folderId"],
+      additionalProperties: false,
+    },
+    {
+      type: "object",
+      properties: {
+        type: { const: "local_tag_id" },
+        tagId: { type: "string", pattern: "^[0-9A-Za-z]{6}$" },
+      },
+      required: ["type", "tagId"],
       additionalProperties: false,
     },
     {
@@ -1727,12 +1744,16 @@ export const updateConversationCollaborationSchema = z
   .object({
     expectedRevision: z.number().int().positive(),
     assigneeUserId: z.string().uuid().nullable().optional(),
-    workStatus: conversationWorkStatusSchema.optional(),
+    completion: z.enum(["done", "open"]).optional(),
     snoozedUntil: z.string().datetime().nullable().optional(),
   })
   .refine(
-    (value) => value.assigneeUserId !== undefined || value.workStatus !== undefined || value.snoozedUntil !== undefined,
+    (value) => value.assigneeUserId !== undefined || value.completion !== undefined || value.snoozedUntil !== undefined,
     "At least one collaboration field is required",
+  )
+  .refine(
+    (value) => value.completion === undefined || value.snoozedUntil === undefined,
+    "Completion and snooze changes must be made separately",
   );
 export type UpdateConversationCollaboration = z.infer<typeof updateConversationCollaborationSchema>;
 

@@ -200,7 +200,7 @@ suite("mail collaboration backend", () => {
       context: readerContext,
       mailboxId,
       conversationId,
-      input: { expectedRevision: 1, workStatus: "waiting" },
+      input: { expectedRevision: 1, completion: "done" },
     });
     expect(deniedState.ok).toBe(false);
     if (!deniedState.ok) expect(deniedState.error.status).toBe(403);
@@ -224,13 +224,12 @@ suite("mail collaboration backend", () => {
       input: {
         expectedRevision: 1,
         assigneeUserId: writer.id,
-        workStatus: "waiting",
         snoozedUntil: future,
       },
     });
     expect(waiting.ok).toBe(true);
     if (!waiting.ok) return;
-    expect(waiting.data).toMatchObject({ workStatus: "waiting", revision: 2 });
+    expect(waiting.data).toMatchObject({ workStatus: "needs_action", revision: 2 });
     expect(waiting.data.assignee?.id).toBe(writer.id);
     const liveEvent = await Promise.race([
       nextEvent,
@@ -251,7 +250,7 @@ suite("mail collaboration backend", () => {
       context: writerContext,
       mailboxId,
       conversationId,
-      input: { expectedRevision: 1, workStatus: "needs_action" },
+      input: { expectedRevision: 1, completion: "open" },
     });
     expect(stale.ok).toBe(false);
     if (!stale.ok) expect(stale.error.status).toBe(409);
@@ -269,7 +268,7 @@ suite("mail collaboration backend", () => {
     if (!unsnoozed.ok) return;
     const waitingCounts = await getConversationViewCounts({ context: writerContext, mailboxId });
     expect(waitingCounts.ok && waitingCounts.data.mine).toBe(1);
-    expect(waitingCounts.ok && waitingCounts.data.waiting).toBe(1);
+    expect(waitingCounts.ok && waitingCounts.data.needs_action).toBe(1);
 
     const secretBody = `Internal secret ${suffix}`;
     const comment = await createConversationComment({
@@ -366,11 +365,30 @@ suite("mail collaboration backend", () => {
       context: writerContext,
       mailboxId,
       conversationId,
-      input: { expectedRevision: 3, workStatus: "done" },
+      input: { expectedRevision: 3, completion: "done" },
     });
     expect(completed.ok).toBe(true);
     if (!completed.ok) return;
     expect(completed.data).toMatchObject({ workStatus: "done", snoozedUntil: null, revision: 4 });
+
+    const manuallyReopened = await updateConversationCollaboration({
+      context: writerContext,
+      mailboxId,
+      conversationId,
+      input: { expectedRevision: 4, completion: "open" },
+    });
+    expect(manuallyReopened.ok && manuallyReopened.data).toMatchObject({
+      workStatus: "needs_action",
+      snoozedUntil: null,
+      revision: 5,
+    });
+    const completedAgain = await updateConversationCollaboration({
+      context: writerContext,
+      mailboxId,
+      conversationId,
+      input: { expectedRevision: 5, completion: "done" },
+    });
+    expect(completedAgain.ok && completedAgain.data).toMatchObject({ workStatus: "done", revision: 6 });
 
     const inbound: ConnectorEnvelope = {
       remoteRef: { folderStableKey: folderId, uidValidity: "1", uid: "2", modseq: null },
@@ -399,7 +417,7 @@ suite("mail collaboration backend", () => {
     expect(pendingHydration.ok && pendingHydration.data).toMatchObject({
       workStatus: "done",
       snoozedUntil: null,
-      revision: 4,
+      revision: 6,
     });
     await hydrateMessageFromSource({
       messageId: inboundMessageId,
@@ -419,7 +437,7 @@ suite("mail collaboration backend", () => {
       ]),
     });
     const reopened = await getConversationCollaboration({ context: writerContext, mailboxId, conversationId });
-    expect(reopened.ok && reopened.data).toMatchObject({ workStatus: "needs_action", snoozedUntil: null, revision: 5 });
+    expect(reopened.ok && reopened.data).toMatchObject({ workStatus: "needs_action", snoozedUntil: null, revision: 7 });
     const reopenActivity = await listActivity({ context: writerContext, mailboxId, conversationId, limit: 20 });
     expect(reopenActivity.ok && reopenActivity.data.items.some((event) => event.action === "conversation.work_state_changed")).toBe(true);
     const mine = await listConversations({ context: writerContext, mailboxId, view: "mine" });

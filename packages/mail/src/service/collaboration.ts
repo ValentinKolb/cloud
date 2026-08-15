@@ -14,8 +14,10 @@ import { requireMailboxPermission } from "./access";
 import { projectActivityItems } from "./activity-public";
 import { actorRefFromRequest, type MailRequestContext } from "./auth";
 import { listCurrentMailboxUsers } from "./collaborators";
+import { deriveReopenedConversationWorkStatus, isAutomaticSubmission } from "./conversation-work-state";
 import { type MailConversationChangedEvent, publishMailCollaborationEvent } from "./events";
 import { resolveMailExecution } from "./execution";
+import { parseMessageProtocolFacts } from "./message-protocol";
 
 type SqlClient = typeof sql;
 type CommentActorKind = "user" | "service_account" | "workflow";
@@ -86,6 +88,12 @@ type CollaborationRow = {
   snoozed_until: Date | string | null;
   revision: string | number;
 };
+
+type WorkflowConversationCollaborationInput = Omit<UpdateConversationCollaboration, "completion"> & {
+  workStatus?: ConversationCollaboration["workStatus"];
+};
+
+type AppliedConversationCollaborationInput = UpdateConversationCollaboration | WorkflowConversationCollaborationInput;
 
 type CommentRow = {
   id: string;
@@ -384,7 +392,7 @@ const applyConversationCollaborationInTransaction = async (params: {
   context: MailRequestContext | null;
   mailboxId: string;
   conversationId: string;
-  input: UpdateConversationCollaboration;
+  input: AppliedConversationCollaborationInput;
   db: SqlClient;
   actorOverride?: ActorRef;
   activityMetadata?: Record<string, unknown>;
@@ -418,7 +426,59 @@ const applyConversationCollaborationInTransaction = async (params: {
     if (!validAssignee.ok) return validAssignee;
   }
 
-  const nextStatus = params.input.workStatus ?? current.work_status;
+  let nextStatus = "workStatus" in params.input && params.input.workStatus ? params.input.workStatus : current.work_status;
+  if ("completion" in params.input && params.input.completion === "done") nextStatus = "done";
+  if ("completion" in params.input && params.input.completion === "open") {
+    const [latest] = await params.db<
+      {
+        outbound: boolean;
+        in_reply_to: string | null;
+        reference_ids: string[];
+        protocol_facts: Record<string, unknown> | string;
+      }[]
+    >`
+      SELECT
+        EXISTS (
+          SELECT 1
+          FROM mail.message_addresses sender
+          JOIN mail.sender_identities identity
+            ON identity.mailbox_id = conversation.mailbox_id
+           AND lower(identity.from_address) = sender.normalized_email
+          WHERE sender.message_id = message.id AND sender.role = 'from'
+        ) AS outbound,
+        message.in_reply_to,
+        message.reference_ids,
+        message.protocol_facts
+      FROM mail.conversations conversation
+      JOIN mail.conversation_messages link ON link.conversation_id = conversation.id
+      JOIN mail.message_contents message ON message.id = link.message_id
+      WHERE conversation.id = ${params.conversationId}::uuid
+        AND message.hydration_status = 'complete'
+        AND (
+          NOT EXISTS (SELECT 1 FROM mail.outbox_submissions submission WHERE submission.message_id = message.id)
+          OR EXISTS (
+            SELECT 1
+            FROM mail.outbox_submissions submission
+            WHERE submission.message_id = message.id
+              AND submission.state IN ('accepted', 'sent_sync_pending', 'sent', 'reconciled_accepted')
+          )
+        )
+      ORDER BY message.internal_date DESC, message.id DESC
+      LIMIT 1
+    `;
+    if (!latest) {
+      nextStatus = "needs_action";
+    } else {
+      const facts = parseMessageProtocolFacts(
+        typeof latest.protocol_facts === "string" ? JSON.parse(latest.protocol_facts) : latest.protocol_facts,
+      );
+      nextStatus = deriveReopenedConversationWorkStatus({
+        direction: latest.outbound ? "outbound" : "inbound",
+        intent: latest.outbound && (latest.in_reply_to || latest.reference_ids.length > 0) ? "observed_reply" : "observed_message",
+        automatic: isAutomaticSubmission(facts.autoSubmitted),
+      });
+    }
+  }
   const requestedSnooze =
     params.input.snoozedUntil === undefined
       ? undefined
@@ -431,8 +491,13 @@ const applyConversationCollaborationInTransaction = async (params: {
   }
 
   const nextAssignee = params.input.assigneeUserId === undefined ? current.assignee_user_id : params.input.assigneeUserId;
+  const completionChanged = "completion" in params.input && params.input.completion !== undefined;
   const nextSnoozedUntil =
-    nextStatus === "done" ? null : requestedSnooze === undefined ? toNullableIso(current.snoozed_until) : requestedSnooze;
+    nextStatus === "done" || completionChanged
+      ? null
+      : requestedSnooze === undefined
+        ? toNullableIso(current.snoozed_until)
+        : requestedSnooze;
   const unchanged =
     nextAssignee === current.assignee_user_id &&
     nextStatus === current.work_status &&
@@ -494,7 +559,7 @@ export const updateConversationCollaborationInTransaction = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   conversationId: string;
-  input: UpdateConversationCollaboration;
+  input: AppliedConversationCollaborationInput;
   db: SqlClient;
   actorOverride?: ActorRef;
   activityMetadata?: Record<string, unknown>;
@@ -507,7 +572,7 @@ export const updateWorkflowConversationCollaborationInTransaction = async (param
   mailboxId: string;
   workflowVersionId: string;
   conversationId: string;
-  input: UpdateConversationCollaboration;
+  input: WorkflowConversationCollaborationInput;
   db: SqlClient;
   activityMetadata?: Record<string, unknown>;
 }): Promise<Result<CollaborationMutation<ConversationCollaboration>>> => {

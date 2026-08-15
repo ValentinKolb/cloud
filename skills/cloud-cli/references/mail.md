@@ -369,11 +369,11 @@ cld --json mail conversation update \
   <conversation-id> \
   --revision <revision> \
   --assignee <user-id> \
-  --status waiting
+  --done
 cld --json mail conversation activity <conversation-id>
 ```
 
-The work states are `needs_action`, `waiting`, and `done`. Inbound human mail normally moves a conversation to `needs_action`; a confirmed human reply normally moves it to `waiting`. Automatic or ambiguous mail does not silently advance the state.
+People can mark a conversation with `--done` or clear Done with `--reopen`. Mail derives `needs_action` and `waiting` from verified mail flow: incoming mail needs action, while a confirmed human reply waits for someone else. Automatic or ambiguous mail does not invent a next step. Done and reopen clear an active snooze, so change completion and snooze in separate commands.
 
 Resolve permission-scoped Contacts from server-derived conversation participants:
 

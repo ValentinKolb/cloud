@@ -359,6 +359,7 @@ suite("mail local tags and structured search", () => {
       { type: "text", field: "comment", query: "internal context", match: "words" },
       { type: "text", field: "folder", query: "Priority Queue", match: "phrase" },
       { type: "text", field: "tag", query: tags.data[0].name, match: "exact" },
+      { type: "local_tag_id", tagId: tags.data[0].id },
       { type: "text", field: "keyword", query: "RemoteImportant", match: "exact" },
       { type: "date", field: "internal_date", operator: "after", value: "2026-01-01T00:00:00.000Z" },
       { type: "size", field: "message", operator: "at_least", bytes: 4096 },

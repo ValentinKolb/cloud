@@ -6,15 +6,16 @@ description: Assign work, coordinate replies, comment internally, and understand
 order: 40
 ---
 
-Cloud collaboration stays attached to a conversation while the underlying email remains normal provider mail. Open **Conversation details** to see shared **Work** state separately from your private **For me** reminder.
+Cloud collaboration stays attached to a conversation while the underlying email remains normal provider mail. Open **Conversation details** to see shared follow-up state separately from your private personal reminder.
 
-## Use ownership and status consistently {icon="route"}
+## Use ownership and follow-up consistently {icon="route"}
 
 - **Assignee** names the person currently responsible for the conversation.
-- **Next step** is **Needs action**, **Waiting for reply**, or **Done**. Needs action means the team must review or act. Waiting for reply means a confirmed human reply was sent and the next step belongs to someone else. Done means no current action remains.
+- **Next step** is derived by Mail. **Needs action** means the team must review or act. **Waiting for reply** means a confirmed human reply was sent and the next step belongs to someone else.
+- **Mark as done** is the only manual follow-up state. Select it when no current action remains; clear it to reopen the conversation. Mail then derives the next step from the latest verified message.
 - **Snooze until** temporarily removes the conversation from active work without changing its next step. Use it when the next review depends on time rather than another person. Its due time reveals the conversation again; new incoming mail ends the snooze immediately.
 
-New incoming mail changes any conversation to **Needs action**. A confirmed human reply or reply-all changes it to **Waiting for reply**. Automatic replies, forwards, new messages, retries, failed sends, and ambiguous delivery outcomes leave the current next step unchanged. Treat **Done** as a team state, not as an email archive action.
+New incoming mail changes any conversation to **Needs action**. A confirmed human reply or reply-all changes it to **Waiting for reply**. Automatic replies, forwards, new messages, retries, failed sends, and ambiguous delivery outcomes do not invent a new next step. Treat **Done** as a team state, not as an email archive action. Done and reopening also end an active snooze.
 
 ## Add internal comments {icon="point"}
 
@@ -37,7 +38,7 @@ Mailbox access is granted in **Settings > Access**.
 | Permission | What it allows |
 | --- | --- |
 | Read | Read and search mail, download attachments, view collaboration context, write internal comments, and use personal reminders |
-| Write | All Read actions plus compose and send, change provider mail state, assign work, change status, snooze, and manage conversation tags |
+| Write | All Read actions plus compose and send, change provider mail state, assign work, mark conversations done or reopen them, snooze, and manage conversation tags |
 | Admin | All Write actions plus connections, identities, folder mappings, shared settings, access, response policy, workflows, and mailbox deletion |
 
 Access can be granted through the standard Cloud permission editor to the supported people, groups, or service accounts. Removing access takes effect for the mailbox, including open live views and future agent or service-account actions.

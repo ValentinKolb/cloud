@@ -13,6 +13,7 @@ export type MailSearchFieldKey =
   | "snoozed"
   | "all"
   | "folder_id"
+  | "local_tag_id"
   | "assigned_to_me";
 
 export const MAIL_SEARCH_FIELD_OPTIONS: Array<{ id: MailSearchFieldKey; label: string; icon: string }> = [
@@ -39,6 +40,7 @@ export const MAIL_SEARCH_FIELD_OPTIONS: Array<{ id: MailSearchFieldKey; label: s
   { id: "assignee", label: "Assignee", icon: "ti ti-user-check" },
   { id: "snoozed", label: "Snoozed", icon: "ti ti-alarm-snooze" },
   { id: "folder_id", label: "Specific folder", icon: "ti ti-folder-check" },
+  { id: "local_tag_id", label: "Specific tag", icon: "ti ti-tag" },
   { id: "assigned_to_me", label: "Assigned to me", icon: "ti ti-user-pin" },
   { id: "all", label: "All conversations", icon: "ti ti-mail" },
 ];
@@ -121,6 +123,7 @@ export const createMailSearchCondition = (
   if (field === "work_status") return { type: "work_status", value: "needs_action" };
   if (field === "assignee") return { type: "assignee", userId: null };
   if (field === "folder_id") return { type: "folder_id", folderId: "" };
+  if (field === "local_tag_id") return { type: "local_tag_id", tagId: "" };
   if (field === "assigned_to_me") return { type: "assigned_to_me" };
   if (field === "all") return { type: "all" };
   return { type: "snoozed", value: true };
@@ -219,6 +222,7 @@ export const summarizeMailSearchExpression = (expression: MailSearchExpression):
   if (expression.type === "assignee") return expression.userId ? `Assigned to ${expression.userId}` : "Unassigned";
   if (expression.type === "snoozed") return expression.value ? "Is snoozed" : "Is not snoozed";
   if (expression.type === "folder_id") return `In folder ${expression.folderId}`;
+  if (expression.type === "local_tag_id") return `Has tag ${expression.tagId}`;
   if (expression.type === "assigned_to_me") return "Assigned to me";
   return "All conversations";
 };

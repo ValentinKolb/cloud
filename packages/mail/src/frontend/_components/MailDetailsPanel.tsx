@@ -4,6 +4,7 @@ import {
   Avatar,
   Button,
   ButtonLink,
+  CheckboxCard,
   ColorInput,
   DateTimePicker,
   DescriptionList,
@@ -463,6 +464,19 @@ export default function MailDetailsPanel(props: {
           icon="ti ti-mail"
           title={props.subject || "(no subject)"}
           subtitle={addressList(latestMessage()?.from ?? []) || "Unknown sender"}
+          meta={
+            <StatusBadge
+              tone={state().workStatus === "done" ? "ok" : state().workStatus === "waiting" ? "neutral" : "warning"}
+              label={state().workStatus === "done" ? "Done" : state().workStatus === "waiting" ? "Waiting for reply" : "Needs action"}
+              icon={
+                state().workStatus === "done"
+                  ? "ti ti-circle-check"
+                  : state().workStatus === "waiting"
+                    ? "ti ti-hourglass"
+                    : "ti ti-message-reply"
+              }
+            />
+          }
         />
 
         <DetailPanel.Body scrollPreserveKey="mail-conversation-detail">
@@ -482,6 +496,15 @@ export default function MailDetailsPanel(props: {
               />
             </DetailPanel.Section>
           </Show>
+
+          <CheckboxCard
+            label="Mark as done"
+            description="No further follow-up is needed."
+            icon="ti ti-circle-check"
+            value={() => state().workStatus === "done"}
+            onValueChange={(done) => updateCollaboration({ completion: done ? "done" : "open" })}
+            disabled={!props.canWrite}
+          />
 
           <DetailPanel.Summary
             title="Workflow"
@@ -516,36 +539,19 @@ export default function MailDetailsPanel(props: {
                 clearable
                 disabled={!props.canWrite}
               />
-              <div class="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
-                <Select
-                  label="Assignee"
-                  value={() => state().assignee?.id ?? null}
-                  selectedLabel={() => state().assignee?.displayName}
-                  onValueChange={(userId) => updateCollaboration({ assigneeUserId: userId || null })}
-                  options={props.assignableUsers.map((user) => ({
-                    id: user.id,
-                    label: user.displayName,
-                    description: user.description,
-                  }))}
-                  clearable
-                  disabled={!props.canWrite || Boolean(props.detailErrors.assignableUsers)}
-                />
-                <Select
-                  label="Status"
-                  value={() => state().workStatus}
-                  onValueChange={(workStatus) =>
-                    updateCollaboration({
-                      workStatus: workStatus as MailCollaborationPatch["workStatus"],
-                    })
-                  }
-                  options={[
-                    { id: "needs_action", label: "Needs action", icon: "ti ti-message-reply" },
-                    { id: "waiting", label: "Waiting for reply", icon: "ti ti-hourglass" },
-                    { id: "done", label: "Done", icon: "ti ti-circle-check" },
-                  ]}
-                  disabled={!props.canWrite}
-                />
-              </div>
+              <Select
+                label="Assignee"
+                value={() => state().assignee?.id ?? null}
+                selectedLabel={() => state().assignee?.displayName}
+                onValueChange={(userId) => updateCollaboration({ assigneeUserId: userId || null })}
+                options={props.assignableUsers.map((user) => ({
+                  id: user.id,
+                  label: user.displayName,
+                  description: user.description,
+                }))}
+                clearable
+                disabled={!props.canWrite || Boolean(props.detailErrors.assignableUsers)}
+              />
               <DateTimePicker
                 label="Snooze until"
                 value={() => state().snoozedUntil}
@@ -632,14 +638,7 @@ export default function MailDetailsPanel(props: {
             icon="ti ti-messages"
             count={`${visibleComments().length} ${visibleComments().length === 1 ? "note" : "notes"}`}
           >
-            <Show
-              when={visibleComments().length > 0}
-              fallback={
-                <Show when={!props.detailErrors.comments}>
-                  <Placeholder align="left" class="px-0 py-2" description="No team notes yet." />
-                </Show>
-              }
-            >
+            <Show when={visibleComments().length > 0}>
               <Discussion.List>
                 <For each={visibleComments()}>
                   {(comment) => {

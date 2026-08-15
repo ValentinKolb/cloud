@@ -8,7 +8,7 @@ order: 10
 
 Mail organizes email around **mailboxes**. A mailbox connects one email account, contains the folders exposed by that provider, and defines who may read, operate, or administer it.
 
-The email provider remains the source for portable mail state. Moving a message, changing its read state, flagging it, or sending mail can therefore appear in other mail clients connected to the same account. Cloud adds collaboration data such as assignees, internal comments, local tags, reminders, and work status. Those Cloud-only details do not appear in other mail clients.
+The email provider remains the source for portable mail state. Moving a message, changing its read state, flagging it, or sending mail can therefore appear in other mail clients connected to the same account. Cloud adds collaboration data such as assignees, internal comments, local tags, reminders, and follow-up state. Those Cloud-only details do not appear in other mail clients.
 
 ## Choose the right starting point {icon="square-plus"}
 
@@ -48,11 +48,13 @@ Open **Settings > Accounts & identities > Sending identities**. An identity grou
 
 The left navigation contains:
 
-- **Work** for Needs action, Assigned to me, Waiting for reply, Snoozed, and Done.
+- **Follow-up** for Needs action, Waiting for reply, Snoozed, and Done.
+- **Assignment** for Assigned to me and Unassigned.
 - **Mail** for Inbox, Drafts, Scheduled, Sent, and All mail.
 - **Folders** for custom provider folders and their nested hierarchy. Mailbox administrators can hide folders here without deleting or unsubscribing them.
+- **Tags** for opening every conversation with a mailbox-local tag. This section appears only when at least one tag exists.
 - **Saved views** created from reusable mailbox and collaboration filters. This section appears only when at least one view exists.
-- **More** for Unassigned, Recent activity, Archive, Trash, and Junk. It opens automatically when one of these destinations is active.
+- **More** for Recent activity, Archive, Trash, and Junk. It opens automatically when one of these destinations is active.
 - **Mailbox tools** for synchronization, health, automations, mailing lists, remote images, shared links, and browser email-link handling. Available tools depend on your permission.
 - **Settings** at the bottom when your permission allows it.
 

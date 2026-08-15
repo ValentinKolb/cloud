@@ -100,22 +100,32 @@ export const resolveSsrWorkspaceUrl = async (
   if (!encodedSearch) return internalUrl;
   try {
     const state = JSON.parse(encodedSearch) as { expression?: unknown };
-    const folders: Array<{ owner: Record<string, unknown>; shortId: string }> = [];
+    const resources: Array<{ owner: Record<string, unknown>; field: "folderId" | "tagId"; table: "folders" | "tags"; shortId: string }> =
+      [];
     const visit = (value: unknown): void => {
       if (!value || typeof value !== "object" || Array.isArray(value)) return;
       const node = value as Record<string, unknown>;
-      if (node.type === "folder_id" && typeof node.folderId === "string") folders.push({ owner: node, shortId: node.folderId });
+      if (node.type === "folder_id" && typeof node.folderId === "string") {
+        resources.push({ owner: node, field: "folderId", table: "folders", shortId: node.folderId });
+      }
+      if (node.type === "local_tag_id" && typeof node.tagId === "string") {
+        resources.push({ owner: node, field: "tagId", table: "tags", shortId: node.tagId });
+      }
       for (const child of Object.values(node)) Array.isArray(child) ? child.forEach(visit) : visit(child);
     };
     visit(state.expression);
-    if (folders.some(({ shortId }) => !ResourceShortIdSchema.safeParse(shortId).success)) return null;
-    const ids = await resolve(
-      "folders",
-      mailboxId,
-      folders.map(({ shortId }) => shortId),
-    );
-    if (!ids) return null;
-    folders.forEach(({ owner }, index) => Object.assign(owner, { folderId: ids[index] }));
+    if (resources.some(({ shortId }) => !ResourceShortIdSchema.safeParse(shortId).success)) return null;
+    for (const table of ["folders", "tags"] as const) {
+      const selected = resources.filter((resource) => resource.table === table);
+      if (selected.length === 0) continue;
+      const ids = await resolve(
+        table,
+        mailboxId,
+        selected.map(({ shortId }) => shortId),
+      );
+      if (!ids) return null;
+      selected.forEach(({ owner, field }, index) => Object.assign(owner, { [field]: ids[index] }));
+    }
     internalUrl.searchParams.set("search", JSON.stringify(state));
   } catch {
     // Keep malformed search state intact so the workspace can render its normal validation error.
@@ -150,6 +160,7 @@ export const projectMailboxPageData = async (data: MailboxPageData, loadPublicId
     if (!value || typeof value !== "object" || Array.isArray(value)) return;
     const expression = value as Record<string, unknown>;
     if (expression.type === "folder_id") add(paths, "folders", [...prefix, "folderId"], expression.folderId);
+    if (expression.type === "local_tag_id") add(paths, "tags", [...prefix, "tagId"], expression.tagId);
     for (const [field, child] of Object.entries(expression)) {
       if (Array.isArray(child)) child.forEach((item, index) => visitSearchExpression(item, [...prefix, field, index]));
       else visitSearchExpression(child, [...prefix, field]);

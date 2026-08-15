@@ -5,14 +5,14 @@ section: Work
 order: 110
 description: Connected mailboxes with search, team context, reliable sending, and automation.
 tags: [mail, email, collaboration]
-updated: 2026-08-06
+updated: 2026-08-15
 ---
 
 # Mail
 
 Mail connects email accounts and turns their messages into a shared workspace.
 It keeps portable mail state synchronized with the provider while adding team
-context such as assignments, comments, local tags, reminders, and work status.
+context such as assignments, comments, local tags, reminders, and follow-up state.
 
 ## Use Mail
 
@@ -21,7 +21,8 @@ context such as assignments, comments, local tags, reminders, and work status.
 - Organize provider mail with folders, read state, flags, archive, junk, and
   trash actions.
 - Assign conversations, maintain a shared summary, leave internal comments,
-  add local tags, and track whether work needs action or is waiting for a reply.
+  browse by local tag, and mark work done while Mail derives whether the next
+  step needs action or is waiting for a reply.
 - Continue the newest unfinished conversation draft directly from the reader.
 - Compose and schedule messages through verified sender identities.
 - Review detected mailing lists and safely request unsubscribe or clean up existing messages when permitted.
@@ -38,7 +39,7 @@ collaboration fields stay in Mail.
 | Mailbox | One connected email account with provider settings and its own access rules |
 | Conversation and message | A synchronized thread and its individual received or sent messages |
 | Sender identity and draft | Verified sending context and message content before delivery |
-| Collaboration state | Editable summaries, assignees, comments, local tags, reminders, and work status |
+| Collaboration state | Editable summaries, assignees, comments, local tags, reminders, and a derived next step with manual Done |
 | Incoming automation and workflow | Reviewed flows that match incoming mail and mix bounded Mail and AI actions |
 
 The email provider remains the source for portable mail state. Mail keeps a

@@ -6,6 +6,7 @@ import {
   draftContentInputSchema,
   draftSeedOriginSchema,
   mailSearchFolderIdSchema,
+  mailSearchLocalTagIdSchema,
   mergeConversationsInputSchema,
   ResourceShortIdSchema,
 } from "./contracts";
@@ -24,6 +25,8 @@ describe("Mail public resource IDs", () => {
   test("uses short IDs in search and conversation mutation relations", () => {
     expect(mailSearchFolderIdSchema.safeParse({ type: "folder_id", folderId: shortId }).success).toBe(true);
     expect(mailSearchFolderIdSchema.safeParse({ type: "folder_id", folderId: uuid }).success).toBe(false);
+    expect(mailSearchLocalTagIdSchema.safeParse({ type: "local_tag_id", tagId: shortId }).success).toBe(true);
+    expect(mailSearchLocalTagIdSchema.safeParse({ type: "local_tag_id", tagId: uuid }).success).toBe(false);
     expect(
       mergeConversationsInputSchema.safeParse({
         sourceConversationId: shortId,

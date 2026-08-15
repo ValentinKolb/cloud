@@ -4,6 +4,8 @@ import { AppWorkspace, ButtonLink, Dropdown, prompts, toast } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { ConversationView } from "../../contracts";
+import { serializeMailSearchState } from "../../search-state";
+import type { LocalTag } from "../../service/local-tags";
 import type { ConversationViewCounts, MailFolderView } from "../../service/messages";
 import type { SavedConversationView } from "../../service/saved-views";
 import { readApiError } from "./api-response";
@@ -17,9 +19,8 @@ type MailViewItem = {
   description?: string;
 };
 
-const WORK_VIEW_ITEMS: MailViewItem[] = [
+const FOLLOW_UP_VIEW_ITEMS: MailViewItem[] = [
   { id: "needs_action", label: "Needs action", icon: "ti ti-message-reply" },
-  { id: "mine", label: "Assigned to me", icon: "ti ti-user-check" },
   {
     id: "waiting",
     label: "Waiting for reply",
@@ -35,10 +36,12 @@ const WORK_VIEW_ITEMS: MailViewItem[] = [
   { id: "done", label: "Done", icon: "ti ti-checkbox" },
 ];
 
-const SECONDARY_VIEW_ITEMS: MailViewItem[] = [
+const ASSIGNMENT_VIEW_ITEMS: MailViewItem[] = [
+  { id: "mine", label: "Assigned to me", icon: "ti ti-user-check" },
   { id: "unassigned", label: "Unassigned", icon: "ti ti-user-question" },
-  { id: "recently_active", label: "Recent activity", icon: "ti ti-activity" },
 ];
+
+const SECONDARY_VIEW_ITEMS: MailViewItem[] = [{ id: "recently_active", label: "Recent activity", icon: "ti ti-activity" }];
 
 const PRIMARY_FOLDER_ROLES = new Set(["inbox", "drafts", "sent"]);
 const SECONDARY_FOLDER_ROLES = new Set(["archive", "trash", "junk"]);
@@ -67,12 +70,15 @@ export default function MailSidebar(props: {
   mailboxName: string;
   syncEnabled: boolean;
   folders: MailFolderView[];
+  localTags: LocalTag[];
   savedViews: SavedConversationView[];
   scheduledMode: boolean;
   scheduledCount: number;
   activeFolderId: string | null;
   activeView: ConversationView | null;
   activeSavedViewId: string | null;
+  activeTagId: string | null;
+  searchActive: boolean;
   viewCounts: ConversationViewCounts;
   canWrite: boolean;
   canAdmin: boolean;
@@ -330,7 +336,7 @@ export default function MailSidebar(props: {
     <AppWorkspace.SidebarItem
       href={`/app/mail/${props.mailboxId}`}
       icon="ti ti-mail"
-      active={!props.scheduledMode && !props.activeFolderId && !props.activeView && !props.activeSavedViewId}
+      active={!props.scheduledMode && !props.activeFolderId && !props.activeView && !props.activeSavedViewId && !props.searchActive}
       navigation="enhanced"
       onNavigate={props.onNavigate}
       scroll="preserve"
@@ -385,6 +391,29 @@ export default function MailSidebar(props: {
     </For>
   );
 
+  const tagItems = (suffix: string) => (
+    <For each={props.localTags}>
+      {(tag) => {
+        const search = serializeMailSearchState({ expression: { type: "local_tag_id", tagId: tag.id }, sort: "newest" });
+        return (
+          <AppWorkspace.SidebarItem
+            href={`/app/mail/${props.mailboxId}?search=${encodeURIComponent(search.ok ? search.value : "")}`}
+            icon="ti ti-tag"
+            active={props.activeTagId === tag.id}
+            meta={<span class="size-2 rounded-full" style={{ "background-color": tag.color }} aria-hidden="true" />}
+            title={tag.name}
+            viewTransitionName={`mail-tag-${tag.id}-${suffix}`}
+            navigation="enhanced"
+            onNavigate={props.onNavigate}
+            scroll="preserve"
+          >
+            {tag.name}
+          </AppWorkspace.SidebarItem>
+        );
+      }}
+    </For>
+  );
+
   return (
     <AppWorkspace.Sidebar class="mail-workspace-navigation">
       <AppWorkspace.SidebarMobileTrigger label={props.mailboxName} />
@@ -408,11 +437,13 @@ export default function MailSidebar(props: {
           </AppWorkspace.SidebarItem>
         </AppWorkspace.SidebarMobileItems>
         <AppWorkspace.SidebarMobileBody scrollPreserveKey={`mail-sidebar-mobile-${props.mailboxId}`}>
-          <AppWorkspace.SidebarSection title="Work">{viewItems(WORK_VIEW_ITEMS, "mobile")}</AppWorkspace.SidebarSection>
+          <AppWorkspace.SidebarSection title="Follow-up">{viewItems(FOLLOW_UP_VIEW_ITEMS, "mobile")}</AppWorkspace.SidebarSection>
+          <AppWorkspace.SidebarSection title="Assignment">{viewItems(ASSIGNMENT_VIEW_ITEMS, "mobile")}</AppWorkspace.SidebarSection>
           <AppWorkspace.SidebarSection title="Mail">{mailItems("mobile")}</AppWorkspace.SidebarSection>
           <Show when={flattenMailFolderTree(customFolderTree()).length > 0}>
             <AppWorkspace.SidebarSection title="Folders">{customFolderItems("mobile")}</AppWorkspace.SidebarSection>
           </Show>
+          {props.localTags.length > 0 && <AppWorkspace.SidebarSection title="Tags">{tagItems("mobile")}</AppWorkspace.SidebarSection>}
           {props.savedViews.length > 0 && (
             <AppWorkspace.SidebarSection title="Saved views">{savedViewItems("mobile")}</AppWorkspace.SidebarSection>
           )}
@@ -427,11 +458,13 @@ export default function MailSidebar(props: {
           </ButtonLink>
         )}
         <AppWorkspace.SidebarBody scrollPreserveKey={`mail-sidebar-${props.mailboxId}`}>
-          <AppWorkspace.SidebarSection title="Work">{viewItems(WORK_VIEW_ITEMS, "desktop")}</AppWorkspace.SidebarSection>
+          <AppWorkspace.SidebarSection title="Follow-up">{viewItems(FOLLOW_UP_VIEW_ITEMS, "desktop")}</AppWorkspace.SidebarSection>
+          <AppWorkspace.SidebarSection title="Assignment">{viewItems(ASSIGNMENT_VIEW_ITEMS, "desktop")}</AppWorkspace.SidebarSection>
           <AppWorkspace.SidebarSection title="Mail">{mailItems("desktop")}</AppWorkspace.SidebarSection>
           <Show when={flattenMailFolderTree(customFolderTree()).length > 0}>
             <AppWorkspace.SidebarSection title="Folders">{customFolderItems("desktop")}</AppWorkspace.SidebarSection>
           </Show>
+          {props.localTags.length > 0 && <AppWorkspace.SidebarSection title="Tags">{tagItems("desktop")}</AppWorkspace.SidebarSection>}
           {props.savedViews.length > 0 && (
             <AppWorkspace.SidebarSection title="Saved views">{savedViewItems("desktop")}</AppWorkspace.SidebarSection>
           )}

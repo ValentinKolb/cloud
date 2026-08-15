@@ -8,6 +8,7 @@ import { batch, createEffect, createMemo, createSignal, onCleanup, onMount, Show
 import { createStore, reconcile } from "solid-js/store";
 import { apiClient } from "../api/client";
 import { MAIL_LIVE_WS_TYPE, type MailLiveClientMessage, type MailLiveServerMessage, parseMailLiveServerMessage } from "../live-events";
+import { resolveMailSearchRoute } from "../search-state";
 import type { ConversationCollaboration } from "../service/collaboration";
 import type { ConversationLocalTags } from "../service/local-tags";
 import type { ConversationPresenceSnapshot } from "../service/presence";
@@ -92,6 +93,11 @@ export default function MailWorkspace(props: {
   const [liveTransportDegraded, setLiveTransportDegraded] = createSignal(false);
   const [liveSnapshotDegraded, setLiveSnapshotDegraded] = createSignal(false);
   const liveDegraded = createMemo(() => liveTransportDegraded() || liveSnapshotDegraded());
+  const activeSearch = createMemo(() => resolveMailSearchRoute(new URL(requestUrl(), "http://mail.local")));
+  const activeTagId = createMemo(() => {
+    const expression = activeSearch().expression;
+    return expression?.type === "local_tag_id" ? expression.tagId : null;
+  });
   const [conversationSelection, setConversationSelection] = createSignal(emptyMailConversationSelection());
   const [selectionMode, setSelectionMode] = createSignal(false);
   const [conversationOpenIntent, setConversationOpenIntent] = createSignal(0);
@@ -1305,12 +1311,15 @@ export default function MailWorkspace(props: {
         mailboxName={data.mailbox.name}
         syncEnabled={data.mailbox.syncEnabled}
         folders={data.folders}
+        localTags={data.localTags}
         savedViews={data.savedViews}
         scheduledMode={data.scheduledMode}
         scheduledCount={data.scheduledCount}
         activeFolderId={data.folderId}
         activeView={data.query ? null : data.activeView}
         activeSavedViewId={data.savedViewId}
+        activeTagId={activeTagId()}
+        searchActive={activeSearch().expression !== null}
         viewCounts={data.viewCounts}
         canWrite={canWrite()}
         canAdmin={canAdmin()}

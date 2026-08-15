@@ -1,6 +1,6 @@
 import type { ConversationWorkStatus, DraftIntent } from "../contracts";
 
-type ConversationMessageTransition = {
+export type ConversationMessageTransition = {
   direction: "inbound" | "outbound";
   intent: DraftIntent | "observed_reply" | "observed_message";
   automatic: boolean;
@@ -27,3 +27,6 @@ export const deriveConversationWorkState = (
 
   return { workStatus: current, clearSnooze: false };
 };
+
+export const deriveReopenedConversationWorkStatus = (latest: ConversationMessageTransition | null): ConversationWorkStatus =>
+  latest ? deriveConversationWorkState("needs_action", latest).workStatus : "needs_action";

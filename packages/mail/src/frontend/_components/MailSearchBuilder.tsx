@@ -98,6 +98,17 @@ function MailSearchConditionEditor(props: {
       .filter((folder) => folder.selectable)
       .map((folder) => ({ id: folder.id, label: folder.name, description: folder.role, icon: "ti ti-folder" }));
   };
+  const fetchLocalTags = async (query: string, signal: AbortSignal) => {
+    const response = await apiClient.mailboxes[":mailboxId"]["local-tags"].$get(
+      { param: { mailboxId: props.mailboxId } },
+      { init: { signal } },
+    );
+    if (!response.ok) throw new Error(await readApiError(response, "Could not load mailbox tags"));
+    const normalized = query.trim().toLocaleLowerCase();
+    return (await response.json())
+      .filter((tag) => !normalized || tag.name.toLocaleLowerCase().includes(normalized))
+      .map((tag) => ({ id: tag.id, label: tag.name, icon: "ti ti-tag", color: tag.color }));
+  };
 
   return (
     <div
@@ -136,6 +147,7 @@ function MailSearchConditionEditor(props: {
                   replace={replace}
                   fetchAssignableUsers={fetchAssignableUsers}
                   fetchFolders={fetchFolders}
+                  fetchLocalTags={fetchLocalTags}
                 />
               </div>
             }
@@ -224,6 +236,10 @@ function SearchConditionValue(props: {
     signal: AbortSignal,
   ) => Promise<Array<{ id: string; label: string; description?: string; icon?: string }>>;
   fetchFolders: (query: string, signal: AbortSignal) => Promise<Array<{ id: string; label: string; description?: string; icon?: string }>>;
+  fetchLocalTags: (
+    query: string,
+    signal: AbortSignal,
+  ) => Promise<Array<{ id: string; label: string; description?: string; icon?: string; color?: string }>>;
 }) {
   const node = () => unwrapMailSearchNot(props.expression).expression;
   const textTerm = () => node() as Extract<MailSearchExpression, { type: "text" }>;
@@ -233,6 +249,7 @@ function SearchConditionValue(props: {
   const assigneeTerm = () => node() as Extract<MailSearchExpression, { type: "assignee" }>;
   const snoozedTerm = () => node() as Extract<MailSearchExpression, { type: "snoozed" }>;
   const folderTerm = () => node() as Extract<MailSearchExpression, { type: "folder_id" }>;
+  const localTagTerm = () => node() as Extract<MailSearchExpression, { type: "local_tag_id" }>;
 
   return (
     <>
@@ -354,6 +371,15 @@ function SearchConditionValue(props: {
           selectedLabel={() => (folderTerm().folderId ? undefined : "Choose a folder")}
           onValueChange={(folderId) => props.replace({ ...folderTerm(), folderId: folderId ?? "" })}
           fetchData={props.fetchFolders}
+        />
+      </Show>
+      <Show when={node().type === "local_tag_id"}>
+        <Select
+          label="Tag"
+          value={() => localTagTerm().tagId}
+          selectedLabel={() => (localTagTerm().tagId ? undefined : "Choose a tag")}
+          onValueChange={(tagId) => props.replace({ ...localTagTerm(), tagId: tagId ?? "" })}
+          fetchData={props.fetchLocalTags}
         />
       </Show>
       <Show when={node().type === "assigned_to_me"}>

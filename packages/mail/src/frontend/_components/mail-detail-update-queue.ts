@@ -3,7 +3,7 @@ import type { ConversationLocalTags, LocalTag } from "../../service/local-tags";
 
 export type MailCollaborationPatch = {
   assigneeUserId?: string | null;
-  workStatus?: "needs_action" | "waiting" | "done";
+  completion?: "done" | "open";
   snoozedUntil?: string | null;
 };
 
@@ -28,8 +28,10 @@ export const applyMailCollaborationPatch = (
             : null,
         }
       : {}),
-    ...(patch.workStatus !== undefined ? { workStatus: patch.workStatus } : {}),
     ...(patch.snoozedUntil !== undefined ? { snoozedUntil: patch.snoozedUntil } : {}),
+    ...(patch.completion !== undefined
+      ? { workStatus: patch.completion === "done" ? ("done" as const) : ("needs_action" as const), snoozedUntil: null }
+      : {}),
   };
 };
 
@@ -61,6 +63,12 @@ const coalesceOperation = (
 ): MailDetailUpdateOperation | null => {
   if (!current || current.kind !== incoming.kind) return null;
   if (current.kind === "collaboration" && incoming.kind === "collaboration") {
+    if (
+      (current.patch.completion !== undefined && incoming.patch.snoozedUntil !== undefined) ||
+      (current.patch.snoozedUntil !== undefined && incoming.patch.completion !== undefined)
+    ) {
+      return null;
+    }
     return { kind: "collaboration", patch: { ...current.patch, ...incoming.patch } };
   }
   if (incoming.kind === "tags" || incoming.kind === "reminder") return incoming;

@@ -3970,7 +3970,7 @@ export default defineCliCommands({
       },
     }),
     command("conversation update", {
-      summary: "Update assignment, work state, or snooze",
+      summary: "Update assignment, completion, or snooze",
       args: {
         conversationId: arg.required({ description: "Conversation id" }),
       },
@@ -3985,7 +3985,8 @@ export default defineCliCommands({
           description: "User id with current mailbox write access",
         }),
         unassign: flag.boolean({ description: "Clear the current assignee" }),
-        status: flag.enum(["needs_action", "waiting", "done"] as const),
+        done: flag.boolean({ description: "Mark the conversation done" }),
+        reopen: flag.boolean({ description: "Reopen the conversation and derive its next step" }),
         snoozeUntil: flag.string({
           name: "snooze-until",
           description: "Future ISO date-time",
@@ -3995,8 +3996,11 @@ export default defineCliCommands({
       run: async ({ ctx, args, flags }) => {
         if (!flags.revision) throw new Error("Missing expected conversation revision.");
         if (flags.assignee && flags.unassign) throw new Error("Use either --assignee or --unassign.");
+        if (flags.done && flags.reopen) throw new Error("Use either --done or --reopen.");
         if (flags.snoozeUntil && flags.unsnooze) throw new Error("Use either --snooze-until or --unsnooze.");
-
+        if ((flags.done || flags.reopen) && (flags.snoozeUntil || flags.unsnooze)) {
+          throw new Error("Change completion and snooze in separate commands.");
+        }
         let snoozedUntil: string | null | undefined;
         if (flags.snoozeUntil) {
           const date = new Date(flags.snoozeUntil);
@@ -4006,7 +4010,7 @@ export default defineCliCommands({
         const input = {
           expectedRevision: flags.revision,
           ...(flags.assignee !== undefined || flags.unassign ? { assigneeUserId: flags.unassign ? null : flags.assignee } : {}),
-          ...(flags.status ? { workStatus: flags.status } : {}),
+          ...(flags.done || flags.reopen ? { completion: flags.done ? ("done" as const) : ("open" as const) } : {}),
           ...(snoozedUntil !== undefined ? { snoozedUntil } : {}),
         };
         if (Object.keys(input).length === 1) throw new Error("Pass at least one collaboration change.");

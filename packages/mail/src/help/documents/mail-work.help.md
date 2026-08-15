@@ -32,26 +32,26 @@ Provider keywords are advanced synchronized metadata rather than a normal labeli
 
 Search results are permission-checked and use the synchronized Cloud copy. During an initial sync, older messages or bodies can become searchable later as synchronization and body hydration continue.
 
-## Use Work views and folders for different purposes {icon="layout-list"}
+## Use follow-up, assignment, and folders for different purposes {icon="layout-list"}
 
-The built-in **Work** views organize Cloud collaboration state:
+The built-in **Follow-up** views show what should happen next. **Assignment** shows who owns it:
 
-| View | What it shows |
-| --- | --- |
-| Needs action | Conversations where the team needs to review or act |
-| Assigned to me | Conversations assigned to you |
-| Unassigned | Conversations without an assignee |
-| Waiting for reply | Conversations where a confirmed team reply is waiting on someone else. New incoming mail moves them to Needs action. |
-| Snoozed | Conversations hidden until their snooze time. The due time reveals them without changing their work state; new incoming mail reveals them immediately. |
-| Done | Conversations marked Done |
-| Recent activity | Recently changed conversations |
-| Scheduled | Messages waiting for future delivery |
+| Section | View | What it shows |
+| --- | --- | --- |
+| Follow-up | Needs action | Conversations where the team needs to review or act |
+| Follow-up | Waiting for reply | Conversations where a confirmed team reply is waiting on someone else. New incoming mail moves them to Needs action. |
+| Follow-up | Snoozed | Conversations hidden until their snooze time. The due time reveals them without changing their next step; new incoming mail reveals them immediately. |
+| Follow-up | Done | Conversations marked Done |
+| Assignment | Assigned to me | Conversations assigned to you |
+| Assignment | Unassigned | Conversations without an assignee |
+| More | Recent activity | Recently changed conversations |
+| Mail | Scheduled | Messages waiting for future delivery |
 
-Provider folders are a different layer. Moving a conversation to Archive, Trash, Junk, or another provider folder changes remote mail placement and can be visible in other clients. Marking a conversation **Done** changes only Cloud work status; it does not archive or move the email.
+Provider folders are a different layer. Moving a conversation to Archive, Trash, Junk, or another provider folder changes remote mail placement and can be visible in other clients. Marking a conversation **Done** changes only Cloud follow-up state; it does not archive or move the email.
 
 Use **Waiting for reply** when your team's next step depends on another person. Mail applies it after a human reply or reply-all is confirmed as sent, including replies synchronized from another email client. Use **Snooze until** when the next review depends on a date or time. Snoozed conversations stay out of active views until their selected time unless new incoming mail arrives first.
 
-New incoming mail always changes the conversation to **Needs action** and ends its snooze. Sending a human reply or reply-all changes it to **Waiting for reply** only after delivery is confirmed. New messages, forwards, automatic replies, retries, and ambiguous delivery outcomes do not infer a new work state. You can always choose a state manually from **Conversation details**.
+New incoming mail always changes the conversation to **Needs action** and ends its snooze. Sending a human reply or reply-all changes it to **Waiting for reply** only after delivery is confirmed. New messages, forwards, automatic replies, retries, and ambiguous delivery outcomes do not infer a new next step. In **Conversation details**, you only decide whether the conversation is **Done**. Clearing Done reopens it and Mail derives the next step from the latest verified message.
 
 Use **Move to folder** from the conversation actions or Mail commands to choose a destination with the keyboard, pointer, or touch. On desktop you can also drag a conversation row onto a selectable folder in the left navigation. Mail queues the move and synchronization confirms the provider result.
 
@@ -147,13 +147,13 @@ For composing, drafts, attachments, signatures, and delivery options, see [Write
 
 ## Create reusable views and local tags {icon="layout-list"}
 
-Open **Settings > Organization** to create a saved view from folder and collaboration filters. A view can filter by folder, assignee, work status, and snooze state.
+Open **Settings > Organization** to create a saved view from folder and collaboration filters. A view can filter by folder, assignee, next step, local tag, and snooze state.
 
 - **Only me** creates a private view.
 - **Everyone with mailbox access** creates a mailbox view and requires write access.
 - Visibility is fixed after creation. Create a replacement view if you need a different visibility.
 
-Local tags are mailbox labels used by people, search, and automations. They are not IMAP folders or provider keywords and do not appear in other clients. Deleting a local tag removes it from every conversation in that mailbox.
+Local tags are mailbox labels used by people, search, and automations. Select a tag under **Tags** in the left navigation to open all matching conversations. They are not IMAP folders or provider keywords and do not appear in other clients. Deleting a local tag removes it from every conversation in that mailbox.
 
 ## Correct conversation grouping {icon="arrows-split-2"}
 

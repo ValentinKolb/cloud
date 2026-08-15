@@ -1159,7 +1159,7 @@ test("conversation update sends one optimistic collaboration mutation", async ()
         conversationId: CONVERSATION_ID,
         assignee: { id: USER_ID, uid: "writer", displayName: "Writer", avatarHash: null },
         workStatus: "waiting",
-        snoozedUntil: "2026-08-01T12:00:00.000Z",
+        snoozedUntil: null,
         revision: 5,
       });
     }
@@ -1179,18 +1179,14 @@ test("conversation update sends one optimistic collaboration mutation", async ()
     "4",
     "--assignee",
     USER_ID,
-    "--status",
-    "waiting",
-    "--snooze-until",
-    "2026-08-01T12:00:00Z",
+    "--reopen",
   ]);
 
   expect(result.exitCode).toBe(0);
   expect(requestBody).toEqual({
     expectedRevision: 4,
     assigneeUserId: USER_ID,
-    workStatus: "waiting",
-    snoozedUntil: "2026-08-01T12:00:00.000Z",
+    completion: "open",
   });
   expect(JSON.parse(result.stdout)).toMatchObject({ revision: 5, workStatus: "waiting" });
 });

@@ -42,7 +42,7 @@ describe("Mail detail update queue", () => {
     expect(
       applyMailCollaborationPatch(
         collaboration,
-        { assigneeUserId: assignee.id, workStatus: "waiting", snoozedUntil: "2026-07-23T08:00:00Z" },
+        { assigneeUserId: assignee.id, completion: "done", snoozedUntil: "2026-07-23T08:00:00Z" },
         [assignee],
       ),
     ).toEqual({
@@ -53,8 +53,8 @@ describe("Mail detail update queue", () => {
         displayName: assignee.displayName,
         avatarHash: assignee.avatarHash,
       },
-      workStatus: "waiting",
-      snoozedUntil: "2026-07-23T08:00:00Z",
+      workStatus: "done",
+      snoozedUntil: null,
     });
 
     const firstTag = {
@@ -87,15 +87,15 @@ describe("Mail detail update queue", () => {
       onError: () => undefined,
     });
 
-    queue.enqueue({ kind: "collaboration", patch: { workStatus: "needs_action" } });
-    queue.enqueue({ kind: "collaboration", patch: { workStatus: "waiting" } });
+    queue.enqueue({ kind: "collaboration", patch: { completion: "done" } });
+    queue.enqueue({ kind: "collaboration", patch: { completion: "open" } });
     queue.enqueue({ kind: "collaboration", patch: { snoozedUntil: "2026-07-23T08:00:00Z" } });
     queue.enqueue({ kind: "tags", tagIds: ["one"] });
     queue.enqueue({ kind: "tags", tagIds: ["one", "two"] });
 
-    expect(calls).toEqual([{ kind: "collaboration", patch: { workStatus: "needs_action" } }]);
+    expect(calls).toEqual([{ kind: "collaboration", patch: { completion: "done" } }]);
     expect(queuedCollaborationPatch(queue.pending())).toEqual({
-      workStatus: "waiting",
+      completion: "open",
       snoozedUntil: "2026-07-23T08:00:00Z",
     });
     expect(queuedTagIds(queue.pending())).toEqual(["one", "two"]);
@@ -106,8 +106,9 @@ describe("Mail detail update queue", () => {
     await Bun.sleep(0);
 
     expect(calls).toEqual([
-      { kind: "collaboration", patch: { workStatus: "needs_action" } },
-      { kind: "collaboration", patch: { workStatus: "waiting", snoozedUntil: "2026-07-23T08:00:00Z" } },
+      { kind: "collaboration", patch: { completion: "done" } },
+      { kind: "collaboration", patch: { completion: "open" } },
+      { kind: "collaboration", patch: { snoozedUntil: "2026-07-23T08:00:00Z" } },
       { kind: "tags", tagIds: ["one", "two"] },
     ]);
     expect(successes.at(-1)?.queued).toEqual([]);
@@ -134,7 +135,7 @@ describe("Mail detail update queue", () => {
       },
     });
 
-    queue.enqueue({ kind: "collaboration", patch: { workStatus: "needs_action" } });
+    queue.enqueue({ kind: "collaboration", patch: { completion: "open" } });
     queue.enqueue({ kind: "tags", tagIds: ["one"] });
     await Bun.sleep(0);
 

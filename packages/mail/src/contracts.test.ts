@@ -692,6 +692,16 @@ describe("mail collaboration contracts", () => {
   test("requires one collaboration change", () => {
     expect(updateConversationCollaborationSchema.safeParse({ expectedRevision: 1 }).success).toBe(false);
     expect(updateConversationCollaborationSchema.safeParse({ expectedRevision: 1, assigneeUserId: null }).success).toBe(true);
+    expect(updateConversationCollaborationSchema.safeParse({ expectedRevision: 1, completion: "done" }).success).toBe(true);
+    expect(updateConversationCollaborationSchema.safeParse({ expectedRevision: 1, completion: "open" }).success).toBe(true);
+    expect(updateConversationCollaborationSchema.safeParse({ expectedRevision: 1, workStatus: "waiting" }).success).toBe(false);
+    expect(
+      updateConversationCollaborationSchema.safeParse({
+        expectedRevision: 1,
+        completion: "done",
+        snoozedUntil: "2026-08-15T18:00:00.000Z",
+      }).success,
+    ).toBe(false);
   });
 
   test("preserves comment whitespace while rejecting blank comments", () => {
@@ -761,11 +771,13 @@ describe("mail workflow contracts", () => {
       { type: "assignee", userId: null },
       { type: "snoozed", value: false },
       { type: "folder_id", folderId: "Foldr1" },
+      { type: "local_tag_id", tagId: "Tag001" },
       { type: "assigned_to_me" },
       { type: "all" },
     ];
     for (const expression of expressions) expect(mailSearchExpressionSchema.safeParse(expression).success).toBe(true);
     expect(mailSearchExpressionSchema.safeParse({ type: "folder_id", folderId: crypto.randomUUID() }).success).toBe(false);
+    expect(mailSearchExpressionSchema.safeParse({ type: "local_tag_id", tagId: crypto.randomUUID() }).success).toBe(false);
     expect(mailSearchExpressionSchema.safeParse({ field: "subject", query: "legacy" }).success).toBe(false);
     expect(mailSearchExpressionSchema.safeParse({ and: expressions }).success).toBe(false);
   });

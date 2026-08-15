@@ -202,13 +202,18 @@ describe("Mail conversation detail panel", () => {
     expect(html).toContain('class="k2b-detail-panel"');
     expect(html).toContain("<h2>Quarterly review</h2>");
     expect(header).toContain("Ada Lovelace");
-    expect(header).not.toContain("message");
-    expect(header).not.toContain("attachment");
-    expect(header).not.toContain("k2b-detail-panel__meta");
+    expect(header).not.toContain("1 message");
+    expect(header).not.toContain("1 attachment");
+    expect(header).toContain('class="k2b-detail-panel__meta"');
+    expect(header).toContain("Needs action");
     expect(html).toContain('class="k2b-detail-panel__summary"');
     expect(html).not.toContain(">Active collaborators<");
     expect(html).not.toContain("Here now");
     expect(html).toContain(">Tags<");
+    expect(html).not.toContain("Next step");
+    expect(html).toContain("Mark as done");
+    expect(html).toContain('class="k2b-checkbox-card-field');
+    expect(html.indexOf("Mark as done")).toBeLessThan(html.indexOf(">Workflow<"));
     expect(html).toContain('data-scroll-preserve="mail-conversation-detail"');
     expect(html.match(/k2b-detail-panel__body/g)).toHaveLength(1);
     expect(html).toContain('aria-label="Conversation context"');
@@ -280,7 +285,8 @@ describe("Mail conversation detail panel", () => {
 
     expect(html).toContain("Some conversation details are temporarily unavailable");
     expect(html).toContain("Retry");
-    expect(html).toContain("No team notes yet.");
+    expect(html).toContain("0 notes");
+    expect(html).not.toContain("No team notes yet.");
     expect(html).toContain("Loading contacts...");
     expect(html).not.toContain(">Attachments<");
     expect(html).not.toContain(">Here now<");

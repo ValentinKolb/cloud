@@ -629,13 +629,17 @@ export const CollaborationUpdateInputSchema = z
     conversationId: ConversationIdInputSchema,
     expectedRevision: ExpectedRevisionInputSchema,
     assigneeUserId: UuidSchema.nullable().optional().describe("User UUID to assign, or null to unassign."),
-    workStatus: z.enum(["needs_action", "waiting", "done"]).optional().describe("Replacement collaboration status."),
+    completion: z.enum(["done", "open"]).optional().describe("Mark the conversation done or reopen it."),
     snoozedUntil: NullableTimestampSchema.optional().describe("Snooze deadline, or null to clear it."),
   })
   .strict()
   .refine(
-    (value) => value.assigneeUserId !== undefined || value.workStatus !== undefined || value.snoozedUntil !== undefined,
+    (value) => value.assigneeUserId !== undefined || value.completion !== undefined || value.snoozedUntil !== undefined,
     "At least one collaboration field is required",
+  )
+  .refine(
+    (value) => value.completion === undefined || value.snoozedUntil === undefined,
+    "Completion and snooze changes must be made separately",
   );
 
 export const ReminderDataSchema = z

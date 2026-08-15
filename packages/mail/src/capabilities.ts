@@ -83,6 +83,10 @@ const resolveSearchExpression = async (mailboxId: string, expression: MailSearch
     const folder = await resolveMailboxResource("folders", mailboxId, expression.folderId);
     return folder.ok ? ok({ ...expression, folderId: folder.data }) : folder;
   }
+  if (expression.type === "local_tag_id") {
+    const tag = await resolveMailboxResource("tags", mailboxId, expression.tagId);
+    return tag.ok ? ok({ ...expression, tagId: tag.data }) : tag;
+  }
   if (expression.type === "not") {
     const nested = await resolveSearchExpression(mailboxId, expression.expression);
     return nested.ok ? ok({ ...expression, expression: nested.data }) : nested;
@@ -1964,7 +1968,7 @@ const actionDefinitions = {
   },
   "conversation.collaboration.update": {
     title: "Update collaboration",
-    description: "Assign, snooze, or change the work status of a conversation.",
+    description: "Assign, snooze, mark done, or reopen a conversation.",
     input: c.CollaborationUpdateInputSchema,
     data: c.CollaborationDataSchema,
     destructive: true,
@@ -1976,7 +1980,7 @@ const actionDefinitions = {
       if (!conversation.ok) return conversation;
       const details = [{ label: "Conversation", value: conversation.data.subject }];
       if (input.assigneeUserId !== undefined) details.push({ label: "Assignee", value: input.assigneeUserId ?? "Unassigned" });
-      if (input.workStatus !== undefined) details.push({ label: "Status", value: input.workStatus });
+      if (input.completion !== undefined) details.push({ label: "Next step", value: input.completion === "done" ? "Done" : "Reopen" });
       if (input.snoozedUntil !== undefined) details.push({ label: "Snoozed until", value: input.snoozedUntil ?? "Not snoozed" });
       return ok({
         message: `Update collaboration state for ${conversation.data.subject}.`,
@@ -1995,7 +1999,7 @@ const actionDefinitions = {
           input: {
             expectedRevision: input.expectedRevision,
             assigneeUserId: input.assigneeUserId,
-            workStatus: input.workStatus,
+            completion: input.completion,
             snoozedUntil: input.snoozedUntil,
           },
         }),

@@ -334,6 +334,14 @@ export const compileSearchExpression = (
         AND exact_folder.deleted_at IS NULL
     )`;
   }
+  if (expression.type === "local_tag_id") {
+    return sql`EXISTS (
+      SELECT 1
+      FROM mail.conversation_local_tags selected_tag
+      WHERE selected_tag.conversation_id = ${conversationId}
+        AND selected_tag.tag_id = ${expression.tagId}::uuid
+    )`;
+  }
   if (expression.type === "assigned_to_me") {
     return sql`${currentUserId}::uuid IS NOT NULL AND EXISTS (
       SELECT 1
@@ -560,7 +568,8 @@ const isConversationOnlyExpression = (expression: MailSearchExpression): boolean
     expression.type === "work_status" ||
     expression.type === "assignee" ||
     expression.type === "snoozed" ||
-    expression.type === "assigned_to_me"
+    expression.type === "assigned_to_me" ||
+    expression.type === "local_tag_id"
   ) {
     return true;
   }
