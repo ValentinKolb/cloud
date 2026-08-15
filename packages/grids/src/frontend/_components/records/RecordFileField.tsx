@@ -22,8 +22,12 @@ type RecordFileLocation = {
   endpoint: string;
 };
 
-const recordFileContentHref = (location: RecordFileLocation, file: GridFile, inline = false) =>
-  `${location.endpoint}/${encodeURIComponent(file.id)}/content${inline ? "?inline=true" : ""}`;
+export const recordFileContentHref = (location: RecordFileLocation, file: GridFile, inline = false) => {
+  const url = new URL(location.endpoint, "http://grids.local");
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/${encodeURIComponent(file.id)}/content`;
+  if (inline) url.searchParams.set("inline", "true");
+  return `${url.pathname}${url.search}`;
+};
 
 function RecordFilePreviewDialog(props: { location: RecordFileLocation; file: GridFile; close: () => void }) {
   const downloadHref = () => recordFileContentHref(props.location, props.file);
@@ -121,6 +125,7 @@ export default function RecordFileField(props: {
       mediaType: file.mimeType,
       size: file.sizeBytes,
     });
+  const previewableImages = () => files().filter((file) => file.mimeType.startsWith("image/") && previewable(file));
 
   const upload = async (file: File) => {
     setUploading(true);
@@ -179,6 +184,27 @@ export default function RecordFileField(props: {
         <span class="text-dimmed">—</span>
       </Show>
       <Show when={files().length > 0}>
+        <Show when={previewableImages().length > 0}>
+          <div class="flex flex-wrap gap-2">
+            <For each={previewableImages()}>
+              {(file) => (
+                <button
+                  type="button"
+                  class="grids-record-file-thumbnail relative overflow-hidden rounded-[var(--ui-radius-control)] bg-[var(--k2b-surface-muted)] shadow-xs transition-[background-color,box-shadow] hover:bg-[var(--k2b-hover)] hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--k2b-focus-ring)]"
+                  aria-label={`Preview ${file.filename}`}
+                  onClick={() => void openRecordFilePreview(location(), file)}
+                >
+                  <img
+                    src={recordFileContentHref(location(), file, true)}
+                    alt=""
+                    class="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
         <div class="flex flex-col gap-1">
           <For each={files()}>
             {(file) => (

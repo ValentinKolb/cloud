@@ -56,6 +56,10 @@ describe("RecordCardsView sizing", () => {
     const html = renderCards("medium", record.id);
 
     expect(html).toContain("grids-record-card");
+    expect(html).toContain("grid px-3 pb-3 pt-0.5");
+    expect(html).toContain("bg-[var(--k2b-surface-muted)]");
+    expect(html).toContain("hover:bg-[var(--k2b-hover)] hover:shadow-xs");
+    expect(html).not.toContain("grids-record-card paper");
     expect(html).toContain('data-selected="true"');
   });
 
@@ -69,14 +73,14 @@ describe("RecordCardsView sizing", () => {
     expect(readOnly).not.toContain("<button");
   });
 
-  test("keeps widths monotonic and the selected border stable on hover", async () => {
+  test("keeps widths monotonic and the selected outline stable on hover", async () => {
     const css = await Bun.file(resolve(import.meta.dir, "../../../styles/app.css")).text();
 
     expect(css).toMatch(/\.grids-record-card-grid\s*\{[^}]*--grids-record-card-width:\s*13rem/);
     expect(css).toMatch(/data-card-size="small"[^}]*--grids-record-card-width:\s*10rem/);
     expect(css).toMatch(/data-card-size="large"[^}]*--grids-record-card-width:\s*16rem/);
     expect(css).toMatch(
-      /\.grids-record-card\[data-selected="true"\],\s*\.grids-record-card\[data-selected="true"\]:hover\s*\{[^}]*border-color:\s*var\(--ui-app-accent-border\)/,
+      /\.grids-record-card\[data-selected="true"\],\s*\.grids-record-card\[data-selected="true"\]:hover\s*\{[^}]*outline:\s*1px solid var\(--ui-app-accent-border\)/,
     );
   });
 });

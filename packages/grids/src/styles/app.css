@@ -298,7 +298,14 @@
 
 .grids-record-card[data-selected="true"],
 .grids-record-card[data-selected="true"]:hover {
-  border-color: var(--ui-app-accent-border);
+  outline: 1px solid var(--ui-app-accent-border);
+  outline-offset: -1px;
+}
+
+.grids-record-file-thumbnail {
+  width: 5rem;
+  height: 5rem;
+  flex: 0 0 5rem;
 }
 
 .grids-code-display {

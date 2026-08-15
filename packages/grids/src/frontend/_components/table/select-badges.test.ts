@@ -17,6 +17,14 @@ describe("select badge helpers", () => {
     expect(selectBadgeItems(["new", "paid"], "select", config).map((item) => item.label)).toEqual(["New", "Paid"]);
   });
 
+  test("normalizes stored palette names for every badge renderer", () => {
+    expect(
+      selectBadgeItems("audio", "select", {
+        options: [{ id: "audio", label: "Audio", color: "purple" }],
+      }),
+    ).toEqual([{ id: "audio", label: "Audio", color: "#800080", known: true }]);
+  });
+
   test("unknown options fall back to raw id", () => {
     expect(selectBadgeItems(["archived"], "select", config)).toEqual([{ id: "archived", label: "archived", known: false }]);
   });
@@ -36,6 +44,7 @@ describe("select badge helpers", () => {
       "border-color": "rgba(59, 130, 246, 0.34)",
       color: "rgb(59, 130, 246)",
     });
+    expect(selectBadgeStyle("green")).toMatchObject({ color: "rgb(0, 128, 0)" });
     expect(selectBadgeStyle("not-a-color")).toEqual({});
   });
 });

@@ -63,11 +63,15 @@ describe("FieldValue rendering", () => {
       id: "status",
       name: "Status",
       type: "select",
-      config: { options: [{ id: "ready", label: "Ready", color: "#16a34a" }] },
+      config: { options: [{ id: "ready", label: "Ready", color: "purple" }] },
     });
     const notes = field({ id: "notes", name: "Notes", type: "longtext", config: { markdown: true } });
 
-    expect(renderToString(() => createComponent(FieldValue, { field: status, value: "ready" }))).toContain("Ready");
+    for (const mode of ["table", "card", "detail"] as const) {
+      const html = renderToString(() => createComponent(FieldValue, { field: status, value: "ready", mode }));
+      expect(html).toContain("Ready");
+      expect(html).toContain("--k2b-choice-color:#800080");
+    }
     expect(renderToString(() => createComponent(FieldValue, { field: notes, value: "**Important**" }))).toContain(
       "<strong>Important</strong>",
     );

@@ -91,7 +91,7 @@ export function RecordCardsView(props: {
         when={props.items.length > 0}
         fallback={<Placeholder icon="ti ti-table" class="min-h-48 justify-center" description={props.emptyText ?? <>No records</>} />}
       >
-        <div class="grids-record-card-grid grid p-0.5" data-card-size={size()}>
+        <div class="grids-record-card-grid grid px-3 pb-3 pt-0.5" data-card-size={size()}>
           <For each={props.items}>
             {(record) => {
               const preview = () => coverPreview(record);
@@ -99,8 +99,8 @@ export function RecordCardsView(props: {
               const highlighted = () => props.highlightedIds?.has(record.id);
               return (
                 <article
-                  class={`grids-record-card paper relative flex min-w-0 flex-col overflow-hidden text-left transition ${
-                    props.onRecordClick ? "hover:paper-highlighted" : ""
+                  class={`grids-record-card relative flex min-w-0 flex-col overflow-hidden rounded-[var(--ui-radius-surface)] bg-[var(--k2b-surface-muted)] text-left transition-[background-color,box-shadow] ${
+                    props.onRecordClick ? "hover:bg-[var(--k2b-hover)] hover:shadow-xs" : ""
                   } ${cardPaddingClass[size()]} ${
                     selected() ? "bg-[var(--ui-selected)]" : ""
                   } ${highlighted() ? "bg-[var(--ui-active)]" : ""}`}

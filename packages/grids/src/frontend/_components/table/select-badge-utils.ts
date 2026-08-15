@@ -14,6 +14,26 @@ export type SelectBadgeItem = {
 
 type SelectBadgeStyle = Record<string, string>;
 
+const NAMED_SELECT_COLORS: Record<string, string> = {
+  blue: "#0000ff",
+  cyan: "#00ffff",
+  gray: "#808080",
+  green: "#008000",
+  orange: "#ffa500",
+  purple: "#800080",
+  red: "#ff0000",
+  yellow: "#ffff00",
+};
+
+const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+const normalizeSelectColor = (color?: string): string | undefined => {
+  const value = color?.trim();
+  if (!value) return undefined;
+  if (HEX_COLOR.test(value)) return value;
+  return NAMED_SELECT_COLORS[value.toLowerCase()];
+};
+
 const optionList = (fieldConfig?: Record<string, unknown>): SelectOption[] =>
   ((fieldConfig?.options as SelectOption[] | undefined) ?? []).filter(
     (option) => typeof option.id === "string" && typeof option.label === "string",
@@ -33,11 +53,9 @@ export const selectBadgeItems = (value: unknown, type: string, fieldConfig?: Rec
   const options = new Map(optionList(fieldConfig).map((option) => [option.id, option]));
   return normalizeIds(value, type).map((id) => {
     const option = options.get(id);
-    return option ? { id, label: option.label, color: option.color, known: true } : { id, label: id, known: false };
+    return option ? { id, label: option.label, color: normalizeSelectColor(option.color), known: true } : { id, label: id, known: false };
   });
 };
-
-const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 const expandHex = (color: string): string => {
   if (color.length !== 4) return color;
@@ -55,8 +73,9 @@ const hexToRgb = (color: string): { r: number; g: number; b: number } | null => 
 };
 
 export const selectBadgeStyle = (color?: string): SelectBadgeStyle => {
-  if (!color) return {};
-  const rgb = hexToRgb(color.trim());
+  const normalized = normalizeSelectColor(color);
+  if (!normalized) return {};
+  const rgb = hexToRgb(normalized);
   if (!rgb) return {};
   const { r, g, b } = rgb;
   return {
