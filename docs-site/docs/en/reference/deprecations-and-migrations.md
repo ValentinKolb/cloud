@@ -10,6 +10,14 @@ updated: 2026-07-27
 
 # Deprecations and migrations
 
+## Conversation files use one namespace
+
+The alpha `/input` versus `/files` path policy was removed. Uploads and
+assistant-created artifacts now share the absolute conversation namespace, and
+the durable `origin` field owns overwrite policy. Turn payloads reference every
+attachment, including images; inline base64 image parts and the CLI
+`--workspace` upload switch were removed without a compatibility shim.
+
 Deprecated APIs remain for source compatibility.
 
 Do not use them in new code. Migrate one boundary at a time and keep behavior
@@ -98,8 +106,9 @@ Cloud-specific shared helpers remain on the Cloud path.
 | --- | --- |
 | `AiDataPolicy` | `AiDataBoundary` |
 | `startAiRuntimeRecovery()` | `startAiRuntime()` |
+| `aiConversationStore` | `aiConversations` |
 
-The runtime recovery name is an alias. Replace it without changing behavior.
+The alpha AI service and runtime renames are hard cuts; there are no compatibility aliases.
 
 ## Remove compatibility code safely
 
