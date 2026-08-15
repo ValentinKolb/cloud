@@ -1,0 +1,216 @@
+schemaVersion: 4
+kind: grids.custom-app
+id: 11000000-0000-4000-8000-000000000101
+baseId: 11000000-0000-4000-8000-000000000001
+name: Reimbursement requests
+icon: receipt
+startPageId: submit
+pages:
+  - id: submit
+    title: Submit request
+    navigation:
+      visible: true
+    parameters: {}
+    rows:
+      - id: submit
+        columns:
+          - id: content
+            span: 12
+            blocks:
+              - id: guidance
+                type: markdown
+                markdown: |
+                  ## Request reimbursement
+                  Start with the purpose, then add each expense and its receipt.
+              - id: request-form
+                type: form
+                formId: 11000000-0000-4000-8000-000000000501
+                fixedValues: {}
+                onSuccessNavigate:
+                  kind: navigate
+                  pageId: request
+                  params:
+                    request_id: { source: RESULT, path: recordId }
+
+  - id: requests
+    title: My requests
+    navigation:
+      visible: true
+    parameters: {}
+    rows:
+      - id: requests
+        columns:
+          - id: content
+            span: 12
+            blocks:
+              - id: requests
+                type: records
+                title: My reimbursement requests
+                emptyText: You have not submitted a reimbursement request yet.
+                searchable: true
+                pageSize: 25
+                source:
+                  kind: view
+                  viewId: 11000000-0000-4000-8000-000000000401
+                display:
+                  kind: table
+                  columnIds:
+                    - 11000000-0000-4000-8000-000000000301
+                    - 11000000-0000-4000-8000-000000000302
+                rowNavigate:
+                  kind: navigate
+                  pageId: request
+                  history: push
+                  params:
+                    request_id: { source: ROW, path: id }
+
+  - id: request
+    title: Request detail
+    navigation:
+      visible: false
+    availableWhen:
+      query: |
+        from table {11000000-0000-4000-8000-000000000201}
+        where record.id = @params.request_id and record.createdBy = @auth.id
+        limit 1
+    parameters:
+      request_id:
+        type: record
+        tableId: 11000000-0000-4000-8000-000000000201
+        required: true
+    record:
+      tableId: 11000000-0000-4000-8000-000000000201
+      id: { source: PARAMS, path: request_id }
+    rows:
+      - id: request
+        columns:
+          - id: detail
+            span: 8
+            blocks:
+              - id: request
+                type: record
+                fieldIds:
+                  - 11000000-0000-4000-8000-000000000301
+                  - 11000000-0000-4000-8000-000000000302
+                editableFieldIds: []
+              - id: expenses
+                type: records
+                title: Expenses
+                emptyText: Add the first expense and receipt.
+                searchable: true
+                pageSize: 25
+                source:
+                  kind: gql
+                  query: |
+                    from table {11000000-0000-4000-8000-000000000202}
+                    where {11000000-0000-4000-8000-000000000311} = @params.request_id
+                    select {11000000-0000-4000-8000-000000000312}, {11000000-0000-4000-8000-000000000313}, {11000000-0000-4000-8000-000000000315}
+                    sort record.createdAt asc
+                display:
+                  kind: table
+                  columnIds:
+                    - 11000000-0000-4000-8000-000000000312
+                    - 11000000-0000-4000-8000-000000000313
+                    - 11000000-0000-4000-8000-000000000315
+                rowNavigate:
+                  kind: navigate
+                  pageId: expense
+                  history: push
+                  params:
+                    expense_id: { source: ROW, path: id }
+          - id: actions
+            span: 4
+            blocks:
+              - id: actions
+                type: actions
+                actions:
+                  - id: add-expense
+                    label: Add expense
+                    icon: plus
+                    kind: navigate
+                    pageId: add-expense
+                    history: push
+                    params:
+                      request_id: { source: RECORD, path: id }
+              - id: comments
+                type: comments
+                title: Questions and updates
+
+  - id: add-expense
+    title: Add expense
+    navigation:
+      visible: false
+    availableWhen:
+      query: |
+        from table {11000000-0000-4000-8000-000000000201}
+        where record.id = @params.request_id and record.createdBy = @auth.id
+        limit 1
+    parameters:
+      request_id:
+        type: record
+        tableId: 11000000-0000-4000-8000-000000000201
+        required: true
+    record:
+      tableId: 11000000-0000-4000-8000-000000000201
+      id: { source: PARAMS, path: request_id }
+    rows:
+      - id: expense
+        columns:
+          - id: content
+            span: 12
+            blocks:
+              - id: request-context
+                type: record
+                fieldIds:
+                  - 11000000-0000-4000-8000-000000000301
+                  - 11000000-0000-4000-8000-000000000302
+                editableFieldIds: []
+              - id: expense-form
+                type: form
+                formId: 11000000-0000-4000-8000-000000000502
+                fixedValues:
+                  11000000-0000-4000-8000-000000000311: { source: PARAMS, path: request_id }
+                onSuccessNavigate:
+                  kind: navigate
+                  pageId: expense
+                  params:
+                    expense_id: { source: RESULT, path: recordId }
+
+  - id: expense
+    title: Expense detail
+    navigation:
+      visible: false
+    availableWhen:
+      query: |
+        from table {11000000-0000-4000-8000-000000000202}
+        where record.id = @params.expense_id and record.createdBy = @auth.id
+        limit 1
+    parameters:
+      expense_id:
+        type: record
+        tableId: 11000000-0000-4000-8000-000000000202
+        required: true
+    record:
+      tableId: 11000000-0000-4000-8000-000000000202
+      id: { source: PARAMS, path: expense_id }
+    rows:
+      - id: expense
+        columns:
+          - id: content
+            span: 12
+            blocks:
+              - id: expense
+                type: record
+                title: Expense and receipt
+                fieldIds:
+                  - 11000000-0000-4000-8000-000000000312
+                  - 11000000-0000-4000-8000-000000000313
+                  - 11000000-0000-4000-8000-000000000314
+                  - 11000000-0000-4000-8000-000000000315
+                  - 11000000-0000-4000-8000-000000000316
+                editableFieldIds:
+                  - 11000000-0000-4000-8000-000000000312
+                  - 11000000-0000-4000-8000-000000000313
+                  - 11000000-0000-4000-8000-000000000314
+                  - 11000000-0000-4000-8000-000000000315
+                  - 11000000-0000-4000-8000-000000000316

@@ -1,0 +1,154 @@
+schemaVersion: 4
+kind: grids.custom-app
+id: 11000000-0000-4000-8000-000000000102
+baseId: 11000000-0000-4000-8000-000000000001
+name: Reimbursement review
+icon: receipt
+startPageId: queue
+pages:
+  - id: queue
+    title: Review queue
+    navigation:
+      visible: true
+    parameters: {}
+    rows:
+      - id: queue
+        columns:
+          - id: content
+            span: 12
+            blocks:
+              - id: requests
+                type: records
+                title: Pending reimbursements
+                emptyText: There are no pending reimbursement requests.
+                searchable: true
+                pageSize: 25
+                source:
+                  kind: gql
+                  query: |
+                    from table {11000000-0000-4000-8000-000000000201}
+                    where {11000000-0000-4000-8000-000000000302} = 'pending'
+                    select {11000000-0000-4000-8000-000000000301}, {11000000-0000-4000-8000-000000000302}
+                    sort record.createdAt asc
+                display:
+                  kind: table
+                  columnIds: []
+                rowNavigate:
+                  kind: navigate
+                  pageId: request
+                  history: push
+                  params:
+                    request_id: { source: ROW, path: id }
+
+  - id: request
+    title: Reimbursement review
+    navigation:
+      visible: false
+    parameters:
+      request_id:
+        type: record
+        tableId: 11000000-0000-4000-8000-000000000201
+        required: true
+    record:
+      tableId: 11000000-0000-4000-8000-000000000201
+      id: { source: PARAMS, path: request_id }
+    rows:
+      - id: request
+        columns:
+          - id: detail
+            span: 8
+            blocks:
+              - id: request
+                type: record
+                fieldIds:
+                  - 11000000-0000-4000-8000-000000000301
+                  - 11000000-0000-4000-8000-000000000302
+                editableFieldIds: []
+              - id: expenses
+                type: records
+                title: Expenses
+                searchable: true
+                pageSize: 25
+                source:
+                  kind: gql
+                  query: |
+                    from table {11000000-0000-4000-8000-000000000202}
+                    where {11000000-0000-4000-8000-000000000311} = @params.request_id
+                    select {11000000-0000-4000-8000-000000000312}, {11000000-0000-4000-8000-000000000313}, {11000000-0000-4000-8000-000000000315}
+                    sort record.createdAt asc
+                display:
+                  kind: table
+                  columnIds:
+                    - 11000000-0000-4000-8000-000000000312
+                    - 11000000-0000-4000-8000-000000000313
+                    - 11000000-0000-4000-8000-000000000315
+                rowNavigate:
+                  kind: navigate
+                  pageId: expense
+                  history: push
+                  params:
+                    expense_id: { source: ROW, path: id }
+          - id: review
+            span: 4
+            blocks:
+              - id: decisions
+                type: actions
+                actions:
+                  - id: approve
+                    label: Approve
+                    icon: check
+                    kind: workflow
+                    launcherId: 11000000-0000-4000-8000-000000000802
+                    inputs:
+                      request: { source: RECORD, path: id }
+                    confirm: Approve this reimbursement request?
+                    availableWhen:
+                      query: |
+                        from table {11000000-0000-4000-8000-000000000201}
+                        where record.id = @params.request_id and {11000000-0000-4000-8000-000000000302} = 'pending'
+                        limit 1
+                  - id: reject
+                    label: Reject
+                    icon: x
+                    kind: workflow
+                    launcherId: 11000000-0000-4000-8000-000000000804
+                    inputs:
+                      request: { source: RECORD, path: id }
+                    confirm: Reject this reimbursement request?
+                    availableWhen:
+                      query: |
+                        from table {11000000-0000-4000-8000-000000000201}
+                        where record.id = @params.request_id and {11000000-0000-4000-8000-000000000302} = 'pending'
+                        limit 1
+              - id: comments
+                type: comments
+                title: Questions and updates
+
+  - id: expense
+    title: Expense receipt
+    navigation:
+      visible: false
+    parameters:
+      expense_id:
+        type: record
+        tableId: 11000000-0000-4000-8000-000000000202
+        required: true
+    record:
+      tableId: 11000000-0000-4000-8000-000000000202
+      id: { source: PARAMS, path: expense_id }
+    rows:
+      - id: expense
+        columns:
+          - id: content
+            span: 12
+            blocks:
+              - id: expense
+                type: record
+                title: Expense and receipt
+                fieldIds:
+                  - 11000000-0000-4000-8000-000000000312
+                  - 11000000-0000-4000-8000-000000000313
+                  - 11000000-0000-4000-8000-000000000314
+                  - 11000000-0000-4000-8000-000000000315
+                  - 11000000-0000-4000-8000-000000000316
+                editableFieldIds: []
