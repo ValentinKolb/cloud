@@ -1537,12 +1537,16 @@
   border-top: 0;
 }
 
+/* A host may expose its trailing inset to the panel. The scrollport expands
+   into that space so its stable gutter replaces the inset instead of adding a
+   second gap, while the non-scrolling header keeps its original alignment. */
 .k2b-ui .k2b-detail-panel {
   display: flex;
-  width: 100%;
+  width: calc(100% + var(--k2b-detail-panel-scroll-inset, 0rem));
   height: 100%;
   min-width: 0;
   min-height: 0;
+  margin-inline-end: calc(-1 * var(--k2b-detail-panel-scroll-inset, 0rem));
   flex-direction: column;
   overflow: hidden;
   color: var(--k2b-text);
@@ -1555,6 +1559,7 @@
   flex-direction: column;
   gap: 0.5rem;
   padding: 0.875rem 0 0.75rem;
+  padding-inline-end: var(--k2b-detail-panel-scroll-inset, 0rem);
 }
 
 .k2b-ui .k2b-detail-panel__header-main {

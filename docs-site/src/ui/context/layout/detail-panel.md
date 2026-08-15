@@ -23,7 +23,11 @@ compact utilities such as more and close, and `primaryActions` for the small
 set of prominent commands below the identity row. Optional metadata sits
 beside the subtitle instead of competing with the title.
 `DetailPanel.Body` is the single scrolling element and accepts a
-`scrollPreserveKey`. Do not add a second full-height scroller inside it.
+`scrollPreserveKey`. Its stable scrollbar gutter prevents content from shifting
+when expanding content first makes the panel overflow. Inside
+`AppWorkspace.Detail`, that gutter occupies the host's existing trailing inset
+instead of adding a second gap. Do not add a second full-height scroller inside
+it.
 
 Use `DetailPanel.Summary` once, directly below the header, when the selected
 item has a primary set of facts or controls. Summary and grouped sections share

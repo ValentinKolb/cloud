@@ -864,7 +864,7 @@ const DetailPanelDemo = () => {
         { kind: "component", name: "DescriptionList", from: "@k2b/ui" },
         { kind: "component", name: "Discussion", from: "@k2b/ui" },
       ]}
-      description="Two production-shaped inspectors demonstrate the final contract: padded identity headers, one stable scroll gutter, related surfaces, compact data, and a panel-native comment thread."
+      description="Two production-shaped inspectors demonstrate the final contract: padded identity headers, one stable scroll gutter absorbed by the trailing host inset, related surfaces, compact data, and a panel-native comment thread."
       code={`<DetailPanel.Group label="Customer context">
   <DetailPanel.Section title="Company" icon="ti ti-building" tone="accent">
     <DescriptionList layout="rows" size="sm" items={companyItems} />

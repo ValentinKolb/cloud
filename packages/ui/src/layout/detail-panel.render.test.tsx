@@ -94,6 +94,21 @@ describe("DetailPanel", () => {
     expect(bodyRule).toContain("padding: 0.5rem 0 1rem");
   });
 
+  test("absorbs its stable scrollbar gutter into the workspace trailing inset", async () => {
+    const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
+    const layoutCss = await Bun.file(resolve(import.meta.dir, "../styles/layout-parity.css")).text();
+    const panelRule = css.match(/\.k2b-ui \.k2b-detail-panel \{([^}]*)\}/)?.[1];
+    const headerRule = css.match(/\.k2b-ui \.k2b-detail-panel__header \{([^}]*)\}/)?.[1];
+    const bodyRule = css.match(/\.k2b-ui \.k2b-detail-panel__body \{([^}]*)\}/)?.[1];
+    const workspaceDetailRule = layoutCss.match(/\.k2b-ui \.k2b-app-workspace__detail \{([^}]*)\}/)?.[1];
+
+    expect(workspaceDetailRule).toContain("--k2b-detail-panel-scroll-inset: 0.75rem");
+    expect(panelRule).toContain("width: calc(100% + var(--k2b-detail-panel-scroll-inset, 0rem))");
+    expect(panelRule).toContain("margin-inline-end: calc(-1 * var(--k2b-detail-panel-scroll-inset, 0rem))");
+    expect(headerRule).toContain("padding-inline-end: var(--k2b-detail-panel-scroll-inset, 0rem)");
+    expect(bodyRule).toContain("scrollbar-gutter: stable");
+  });
+
   test("groups related sections and keeps semantic section icons color-only", async () => {
     const html = renderToString(() =>
       createComponent(DetailPanel, {
