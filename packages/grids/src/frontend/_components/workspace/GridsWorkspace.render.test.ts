@@ -2,15 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
 import "../ssr-test-plugin";
-import type { OkWorkspaceState } from "./workspace-state-model";
+import type { PublicOkWorkspaceState } from "./workspace-public-state-model";
 
 const { default: GridsWorkspace } = await import("./GridsWorkspace");
 
-const workspaceState = (): OkWorkspaceState => ({
+const workspaceState = (): PublicOkWorkspaceState => ({
   kind: "ok",
   base: {
-    id: "12345678-abcd-4000-8000-000000000000",
-    shortId: "demo1",
+    id: "DEMO01",
     name: "Inventory",
     description: null,
     documentProfile: {},
@@ -19,7 +18,6 @@ const workspaceState = (): OkWorkspaceState => ({
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
   },
-  baseShortId: "demo1",
   title: [{ title: "Inventory" }],
   rememberPath: "/app/grids/demo1",
   adminModeRequested: false,
@@ -42,7 +40,6 @@ const workspaceState = (): OkWorkspaceState => ({
     formsByTable: {},
     documentTemplatesByTable: {},
     documentTemplateLevels: {},
-    tableShortIds: {},
     sidebarForms: [],
     sidebarDocumentTemplates: [],
   },

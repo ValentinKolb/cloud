@@ -109,8 +109,8 @@ Every input has `type`. Optional `label` and `description` text appears in gener
 
 | Type | Run value | Additional declaration |
 | --- | --- | --- |
-| `record` | One record UUID | Required `table` name, short id, or uuid |
-| `recordList` | Ordered list of record UUIDs, at most 10,000 | Required `table` name, short id, or uuid |
+| `record` | One record public ID | Required `table` exact name or public ID |
+| `recordList` | Ordered list of record public IDs, at most 10,000 | Required `table` exact name or public ID |
 | `text` | String | None |
 | `number` | Finite number | None |
 | `boolean` | `true` or `false` | None |
@@ -216,11 +216,11 @@ steps:
 ```
 
 :::reference
-- **Filter shape:** A leaf uses fieldId, op, and value; fieldId accepts a field name, short id, or uuid. Text leaves may also set caseInsensitive. Combine leaves with a group containing op: AND or op: OR and a filters list. isEmpty, isNotEmpty, today, thisWeek, and thisMonth omit value.
+- **Filter shape:** A leaf uses fieldId, op, and value; fieldId accepts an exact field name or public ID. Text leaves may also set caseInsensitive. Combine leaves with a group containing op: AND or op: OR and a filters list. isEmpty, isNotEmpty, today, thisWeek, and thisMonth omit value.
 - **Text operators:** equals, notEquals, contains, notContains, startsWith, endsWith, regex, isEmpty, isNotEmpty.
 - **Number operators:** =, !=, <, <=, >, >=, between, isEmpty, isNotEmpty. between takes a two-number \[from, to] list.
 - **Date operators:** =, notEquals, before, after, onOrBefore, onOrAfter, between, today, thisWeek, thisMonth, lastNDays, isEmpty, isNotEmpty. between takes a two-value \[from, to] list. Use ISO dates, timezone-aware ISO date-times for fields with time, and a non-negative integer for lastNDays.
-- **Boolean, select, and relation operators:** Boolean fields use =, isEmpty, isNotEmpty. Select fields use is, isNot, isAnyOf, isNoneOf, isEmpty, isNotEmpty; list operators take option-id arrays. Relation fields use containsAny, notContainsAny, isEmpty, isNotEmpty; list operators take non-empty record UUID arrays.
+- **Boolean, select, and relation operators:** Boolean fields use =, isEmpty, isNotEmpty. Select fields use is, isNot, isAnyOf, isNoneOf, isEmpty, isNotEmpty; list operators take option-id arrays. Relation fields use containsAny, notContainsAny, isEmpty, isNotEmpty; list operators take non-empty record public-ID arrays.
 :::
 
 :::note Required inputs
@@ -255,7 +255,7 @@ Run options are configured separately from the workflow source. One workflow can
 | `succeed` | `message` | None | Stops planning with a successful terminal result |
 | `fail` | `message` | None | Stops planning with the failure that execution would produce |
 
-`updateRecord` and `createRecord` field keys accept readable field names, short ids, or UUIDs when unambiguous. If a table requires change context, `updateRecord.audit` must answer the applicable questions by their question UUID. `generateDocument.template` and `sendEmail.template` accept an enabled template name, short id, or UUID. Ambiguous and inaccessible references are rejected during validation.
+`updateRecord` and `createRecord` field keys accept exact field names or public IDs. If a table requires change context, `updateRecord.audit` must answer the applicable questions by their question UUID. `generateDocument.template` and `sendEmail.template` accept an enabled template exact name or public ID. Ambiguous and inaccessible references are rejected during validation.
 
 ### Commit related record changes together
 
@@ -480,7 +480,7 @@ steps:
 
 :::reference
 - **Literal strings:** Plain strings are always literal values. Write `Checked`, URLs, email addresses, and dotted text directly when the workflow should use that exact text.
-- **Dynamic values:** A dynamic value must be the whole `${{ ... }}` string. Use `${{ inputs.name }}`, append a record field such as `${{ inputs.item.Status }}`, use `${{ inputs.item.recordId }}` for the stable record UUID, read a saved value with `${{ savedValue }}`, or evaluate `${{ now() }}`. The expression language does not perform arithmetic, concatenate text, or call other functions.
+- **Dynamic values:** A dynamic value must be the whole `${{ ... }}` string. Use `${{ inputs.name }}`, append a record field such as `${{ inputs.item.Status }}`, use `${{ inputs.item.recordId }}` for the stable record public ID, read a saved value with `${{ savedValue }}`, or evaluate `${{ now() }}`. The expression language does not perform arithmetic, concatenate text, or call other functions.
 - **Dedicated references:** Reference-only slots stay raw: `record: inputs.item`, `forEach: inputs.items`, `document: savedDocument`, and `exists: inputs.item.Field`. Do not wrap these slots in expression syntax.
 - **Relation references:** A single relation field may fill any raw `record` slot, for example `record: inputs.asset.Current loan item`. A multiple relation field may fill `forEach`, for example `forEach: inputs.loan.Items`. Grids resolves the stored IDs to authorized records in the relation's target table and fails the run if a target is missing or inaccessible.
 - **Scope:** Inputs are available for the whole run. `saveAs` and `setVariable` names are available only after their step. A `forEach` alias exists only inside its `do` steps; values created inside branches and loops do not escape that scope.
@@ -489,7 +489,7 @@ steps:
 :::
 
 :::note Saved output paths
-Saved outputs expose structured paths. Documents provide `id`, `shortId`, `templateId`, `workflowRunId`, `snapshotId`, `baseId`, `tableId`, `recordId`, `documentNumber`, `filename`, `tags`, `generatedBy`, and `generatedAt`. Document links provide `kind`, `id`, `url`, `expiresAt`, and `documentRunId`. Email results provide `subject`, `templateId`, and `recipients`; each recipient provides `id`, `deliveryId`, `kind`, `recipient`, and `status`. HTTP results provide `status`, `ok`, and `body`. Read them with expressions such as `${{ link.url }}`, `${{ emailResult.recipients }}`, or `${{ hook.status }}`.
+Saved outputs expose structured paths. Documents provide `id`, `templateId`, `workflowRunId`, `snapshotId`, `baseId`, `tableId`, `recordId`, `documentNumber`, `filename`, `tags`, `generatedBy`, and `generatedAt`. Document links provide `kind`, `id`, `url`, `expiresAt`, and `documentRunId`. Email results provide `subject`, `templateId`, and `recipients`; each recipient provides `id`, `deliveryId`, `kind`, `recipient`, and `status`. HTTP results provide `status`, `ok`, and `body`. Read them with expressions such as `${{ link.url }}`, `${{ emailResult.recipients }}`, or `${{ hook.status }}`.
 :::
 
 ## Email templates {icon="file-description"}
@@ -497,7 +497,7 @@ Saved outputs expose structured paths. Documents provide `id`, `shortId`, `templ
 Email templates are managed from the workflow page in Edit mode. They are base-level Liquid templates with a subject, HTML, stored sample data, and preview. A workflow step chooses one template and passes only the `data` that email needs. Sample data is used only by the editor preview; changing it does not affect sent messages.
 
 :::reference
-- **Template lookup:** `sendEmail.template` accepts an enabled email template name, short id, or uuid. Ambiguous names are rejected.
+- **Template lookup:** `sendEmail.template` accepts an enabled email template exact name or public ID. Ambiguous names are rejected.
 - **Recipients:** Use `email` for an email address value or `user` for a Cloud user id. Each entry must pick one recipient type.
 - **Liquid roots:** Templates can read `data`, `app`, `business`, `workflow`, `run`, and `date`.
 - **Preview data:** The template's sample-data JSON appears under `data`. Its nested keys also drive editor suggestions. App, business, workflow, run, and date examples are preview-only system values.

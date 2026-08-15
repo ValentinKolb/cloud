@@ -1,9 +1,10 @@
+import { Buffer } from "node:buffer";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
-import { Buffer } from "node:buffer";
-import { type SqlClient } from "./audit";
-import { captureRecordEventSnapshot, enqueueRecordEvent, notifyRecordEventOutbox } from "./record-event-outbox";
+import type { SqlClient } from "./audit";
 import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
+import { captureRecordEventSnapshot, enqueueRecordEvent, notifyRecordEventOutbox } from "./record-event-outbox";
+import { insertWithShortIdForDb } from "./short-id";
 
 const MAX_BODY_LENGTH = 10_000;
 const DEFAULT_PAGE_SIZE = 30;
@@ -11,6 +12,7 @@ const MAX_PAGE_SIZE = 100;
 
 type CommentRow = {
   id: string;
+  short_id: string;
   author_user_id: string | null;
   body: string;
   deleted_at: Date | string | null;
@@ -22,6 +24,7 @@ type CommentRow = {
 
 export type RecordComment = {
   id: string;
+  shortId: string;
   authorUserId: string | null;
   authorDisplayName: string;
   authorAvatarHash: string | null;
@@ -37,6 +40,7 @@ const iso = (value: Date | string): string => (value instanceof Date ? value.toI
 
 const mapRow = (row: CommentRow): RecordComment => ({
   id: row.id,
+  shortId: row.short_id,
   authorUserId: row.author_user_id,
   authorDisplayName: row.author_display_name?.trim() || "Former user",
   authorAvatarHash: row.author_avatar_hash,
@@ -82,7 +86,7 @@ export const list = async (params: {
   const cursor = parseCursor(params.cursor);
   if (params.cursor && !cursor) return fail(err.badInput("Invalid comment cursor."));
   const rows = await sql<CommentRow[]>`
-    SELECT comment.id::text,
+    SELECT comment.id::text, comment.short_id,
            comment.author_user_id::text,
            comment.body,
            comment.deleted_at,
@@ -127,7 +131,8 @@ export const create = async (params: {
 
   let outboxId: string | null = null;
   const created = await sql.begin(async (tx): Promise<RecordComment | null> => {
-    const [row] = await tx<Array<CommentRow & { record_version: number }>>`
+    const row = await insertWithShortIdForDb(tx, "idx_grids_record_comments_short_id", async (attempt, shortId) => {
+      const [created] = await attempt<Array<CommentRow & { record_version: number }>>`
       WITH target AS (
         SELECT r.id, r.version, r.table_id, table_ref.base_id
         FROM grids.records r
@@ -139,12 +144,12 @@ export const create = async (params: {
           AND r.deleted_at IS NULL
           AND ${recordAccessPredicate(params.recordAccess, "r")}
       ), inserted AS (
-        INSERT INTO grids.record_comments (base_id, table_id, record_id, author_user_id, body)
-        SELECT base_id, table_id, id, ${params.actorUserId}::uuid, ${body.data}
+        INSERT INTO grids.record_comments (short_id, base_id, table_id, record_id, author_user_id, body)
+        SELECT ${shortId}, base_id, table_id, id, ${params.actorUserId}::uuid, ${body.data}
         FROM target
         RETURNING *
       )
-      SELECT inserted.id::text,
+      SELECT inserted.id::text, inserted.short_id,
              inserted.author_user_id::text,
              inserted.body,
              inserted.deleted_at,
@@ -156,7 +161,9 @@ export const create = async (params: {
       FROM inserted
       JOIN target ON target.id = inserted.record_id
       LEFT JOIN auth.users author ON author.id = inserted.author_user_id
-    `;
+      `;
+      return created ?? null;
+    });
     if (!row) return null;
     outboxId = await enqueueRecordEvent(tx as SqlClient, {
       type: "comment.created",
@@ -210,7 +217,7 @@ const existingForMutation = async (params: {
 
 const getById = async (params: { tableId: string; recordId: string; commentId: string }): Promise<RecordComment | null> => {
   const [row] = await sql<CommentRow[]>`
-    SELECT comment.id::text,
+    SELECT comment.id::text, comment.short_id,
            comment.author_user_id::text,
            comment.body,
            comment.deleted_at,
@@ -223,6 +230,23 @@ const getById = async (params: { tableId: string; recordId: string; commentId: s
     WHERE comment.id = ${params.commentId}::uuid
       AND comment.table_id = ${params.tableId}::uuid
       AND comment.record_id = ${params.recordId}::uuid
+  `;
+  return row ? mapRow(row) : null;
+};
+
+/** Resolves the only public comment identifier to a live internal comment. */
+export const getByShortId = async (shortId: string): Promise<RecordComment | null> => {
+  const [row] = await sql<CommentRow[]>`
+    SELECT comment.id::text, comment.short_id, comment.author_user_id::text,
+           comment.body, comment.deleted_at, comment.created_at, comment.updated_at,
+           COALESCE(author.display_name, author.uid) AS author_display_name,
+           author.avatar_hash AS author_avatar_hash
+    FROM grids.record_comments comment
+    JOIN grids.records record ON record.id = comment.record_id AND record.deleted_at IS NULL
+    JOIN grids.tables table_ref ON table_ref.id = record.table_id AND table_ref.deleted_at IS NULL
+    JOIN grids.bases base ON base.id = table_ref.base_id AND base.deleted_at IS NULL
+    LEFT JOIN auth.users author ON author.id = comment.author_user_id
+    WHERE comment.short_id = ${shortId}
   `;
   return row ? mapRow(row) : null;
 };
@@ -242,7 +266,8 @@ export const update = async (params: {
   if (!body.ok) return body;
   const existing = await existingForMutation(params);
   if (!existing || existing.deleted_at) return fail(err.notFound("Comment"));
-  if (!params.canModerate && existing.author_user_id !== params.actorUserId) return fail(err.forbidden("You can only edit your own comments."));
+  if (!params.canModerate && existing.author_user_id !== params.actorUserId)
+    return fail(err.forbidden("You can only edit your own comments."));
   const result = await sql`
     UPDATE grids.record_comments
     SET body = ${body.data}, updated_at = now()
@@ -268,7 +293,8 @@ export const remove = async (params: {
   if (!params.actorUserId) return fail(err.forbidden("Comments require a Cloud user account."));
   const existing = await existingForMutation(params);
   if (!existing || existing.deleted_at) return fail(err.notFound("Comment"));
-  if (!params.canModerate && existing.author_user_id !== params.actorUserId) return fail(err.forbidden("You can only delete your own comments."));
+  if (!params.canModerate && existing.author_user_id !== params.actorUserId)
+    return fail(err.forbidden("You can only delete your own comments."));
   const result = await sql`
     UPDATE grids.record_comments
     SET deleted_at = now(), updated_at = now()

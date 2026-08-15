@@ -10,8 +10,10 @@ import type {
 import { workflowPathKey } from "@valentinkolb/cloud/workflows";
 import {
   bindWorkflow,
+  compileWorkflow,
   isWorkflowReservedReferenceRoot,
   parseWorkflowValueString,
+  parseWorkflowYaml,
   resolveWorkflowValuePathDescriptor,
   type WorkflowValuePathDescriptor,
   workflowMessageExpressions,
@@ -27,7 +29,13 @@ import {
 } from "../service/workflow-catalog";
 import { gridsWorkflows } from "./module";
 
-export type BindGridsWorkflowResult = { ok: true; plan: WorkflowBoundPlan } | { ok: false; diagnostics: WorkflowDiagnostic[] };
+export type BindGridsWorkflowResult =
+  | { ok: true; plan: WorkflowBoundPlan; source?: string }
+  | { ok: false; diagnostics: WorkflowDiagnostic[] };
+
+type CanonicalEdit =
+  | { kind: "value" | "key"; path: Array<string | number>; value: string }
+  | { kind: "reference"; path: Array<string | number>; from: string; to: string };
 
 type ValueInfo = WorkflowValuePathDescriptor & { tableId?: string };
 
@@ -89,6 +97,7 @@ type BindingContext = {
   inputs: Map<string, ValueInfo>;
   bindings: Record<string, WorkflowJsonValue>;
   diagnostics: WorkflowDiagnostic[];
+  canonicalEdits: CanonicalEdit[];
 };
 
 const locationForPath = (
@@ -117,6 +126,7 @@ const resolveCatalogRef = <T extends WorkflowCatalogEntry>(
   reference: string,
   label: string,
   path: Array<string | number>,
+  canonicalKind: "value" | "key" | null = "value",
 ): T | null => {
   if (index.ambiguous.has(reference)) {
     addDiagnostic(context, "binding.ambiguous", `Ambiguous ${label} reference "${reference}"`, path);
@@ -128,6 +138,7 @@ const resolveCatalogRef = <T extends WorkflowCatalogEntry>(
     return null;
   }
   bindId(context, path, entry.id);
+  if (canonicalKind) context.canonicalEdits.push({ kind: canonicalKind, path, value: entry.shortId });
   return entry;
 };
 
@@ -141,13 +152,14 @@ const bindField = (
   tableId: string,
   reference: string,
   path: Array<string | number>,
+  canonicalKind: "value" | "key" | null = "value",
 ): WorkflowFieldCatalogEntry | null => {
   const fields = context.catalog.fieldsByTable.get(tableId);
   if (!fields) {
     addDiagnostic(context, "binding.unknown", `No accessible fields exist for the referenced table`, path);
     return null;
   }
-  return resolveCatalogRef(context, fields, reference, "field", path);
+  return resolveCatalogRef(context, fields, reference, "field", path, canonicalKind);
 };
 
 const relationValue = (field: WorkflowFieldCatalogEntry, path: Array<string | number>, context: BindingContext): ValueInfo | null => {
@@ -208,8 +220,17 @@ const resolveReference = (
   if (value.type === "grids.record") {
     if (fieldParts.length === 1 && fieldParts[0] === "recordId") return valueDescriptor("core.text");
     if (value.tableId) {
-      const field = bindField(context, value.tableId, fieldParts.length <= 2 ? fieldParts[0]! : fieldParts.join("."), path);
+      const fieldReference = fieldParts.length <= 2 ? fieldParts[0]! : fieldParts.join(".");
+      const field = bindField(context, value.tableId, fieldReference, path, null);
       if (field) {
+        const sourcePath = path.slice(-2)[0] === "expression" && typeof path.at(-1) === "number" ? path.slice(0, -2) : path;
+        const referenceParts = reference.split(".");
+        const canonicalReference = [
+          ...referenceParts.slice(0, referenceParts.length - fieldParts.length),
+          field.shortId,
+          ...fieldParts.slice(1),
+        ].join(".");
+        context.canonicalEdits.push({ kind: "reference", path: sourcePath, from: reference, to: canonicalReference });
         const relation = relationValue(field, path, context);
         if (!relation || fieldParts.length === 1) return relation ?? valueDescriptor("core.value");
         if (fieldParts.length === 2 && fieldParts[1] === "recordId" && field.relation?.cardinality === "single") {
@@ -302,7 +323,7 @@ const bindFieldMap = (
 ): void => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return;
   for (const [field, fieldValue] of Object.entries(value)) {
-    if (tableId) bindField(context, tableId, field, [...path, field]);
+    if (tableId) bindField(context, tableId, field, [...path, field], "key");
     bindValue(fieldValue, [...path, field], scope, context);
   }
 };
@@ -316,7 +337,10 @@ const bindAtomicFieldMap = (
 ): void => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return;
   for (const [field, fieldValue] of Object.entries(value)) {
-    if (tableId) bindField(context, tableId, field, [...path, field, "$target"]);
+    if (tableId) {
+      const target = bindField(context, tableId, field, [...path, field, "$target"], null);
+      if (target) context.canonicalEdits.push({ kind: "key", path: [...path, field], value: target.shortId });
+    }
     bindValue(fieldValue, [...path, field], scope, context);
   }
 };
@@ -629,7 +653,55 @@ const bindInputs = (context: BindingContext): void => {
   }
 };
 
-export const bindGridsWorkflow = async (ir: WorkflowIr, catalog: WorkflowCatalog): Promise<BindGridsWorkflowResult> => {
+const parentAt = (
+  root: WorkflowJsonValue,
+  path: Array<string | number>,
+): { parent: Record<string, WorkflowJsonValue> | WorkflowJsonValue[]; key: string | number } | null => {
+  if (path.length === 0) return null;
+  let value: WorkflowJsonValue = root;
+  for (const part of path.slice(0, -1)) {
+    if (!value || typeof value !== "object") return null;
+    value = Array.isArray(value) ? value[Number(part)]! : value[String(part)]!;
+  }
+  if (!value || typeof value !== "object") return null;
+  return { parent: value, key: path.at(-1)! };
+};
+
+const canonicalizeWorkflowSource = (source: string, edits: CanonicalEdit[]): string => {
+  const parsed = parseWorkflowYaml(source);
+  if (!parsed.ok) return source;
+  const root = parsed.parsed.value;
+
+  for (const edit of edits) {
+    if (edit.kind === "key") continue;
+    const target = parentAt(root, edit.path);
+    if (!target) continue;
+    const current = Array.isArray(target.parent) ? target.parent[Number(target.key)] : target.parent[String(target.key)];
+    if (edit.kind === "value") {
+      if (typeof current === "string") {
+        if (Array.isArray(target.parent)) target.parent[Number(target.key)] = edit.value;
+        else target.parent[String(target.key)] = edit.value;
+      }
+    } else if (edit.kind === "reference" && typeof current === "string") {
+      const next = current.replace(edit.from, edit.to);
+      if (Array.isArray(target.parent)) target.parent[Number(target.key)] = next;
+      else target.parent[String(target.key)] = next;
+    }
+  }
+
+  for (const edit of edits) {
+    if (edit.kind !== "key") continue;
+    const target = parentAt(root, edit.path);
+    if (!target || Array.isArray(target.parent) || typeof target.key !== "string" || !(target.key in target.parent)) continue;
+    const current = target.parent[target.key];
+    delete target.parent[target.key];
+    target.parent[edit.value] = current!;
+  }
+
+  return Bun.YAML.stringify(root);
+};
+
+export const bindGridsWorkflow = async (ir: WorkflowIr, catalog: WorkflowCatalog, source?: string): Promise<BindGridsWorkflowResult> => {
   const manifest = gridsWorkflows.manifest;
   if (ir.languageId !== manifest.id || ir.languageVersion !== manifest.version) {
     return {
@@ -644,7 +716,7 @@ export const bindGridsWorkflow = async (ir: WorkflowIr, catalog: WorkflowCatalog
       ],
     };
   }
-  const context: BindingContext = { ir, catalog, inputs: new Map(), bindings: {}, diagnostics: [] };
+  const context: BindingContext = { ir, catalog, inputs: new Map(), bindings: {}, diagnostics: [], canonicalEdits: [] };
   bindInputs(context);
   bindTriggers(context);
   bindSteps(ir.steps, new Map(), context);
@@ -654,5 +726,53 @@ export const bindGridsWorkflow = async (ir: WorkflowIr, catalog: WorkflowCatalog
     catalog: snapshotWorkflowCatalog(catalog),
     bindings: context.bindings,
   }));
-  return { ok: true, plan };
+  return { ok: true, plan, ...(source === undefined ? {} : { source: canonicalizeWorkflowSource(source, context.canonicalEdits) }) };
 };
+
+/** Compile, bind, and structurally rewrite every Grids resource reference to its public short ID. */
+export const compileAndBindGridsWorkflowSource = async (source: string, catalog: WorkflowCatalog): Promise<BindGridsWorkflowResult> => {
+  const compiled = await compileWorkflow(source, gridsWorkflows);
+  if (!compiled.ok) return compiled;
+  const bound = await bindGridsWorkflow(compiled.ir, catalog, source);
+  if (!bound.ok || bound.source === undefined || bound.source === source) return bound;
+  const canonical = await compileWorkflow(bound.source, gridsWorkflows);
+  if (!canonical.ok) return canonical;
+  return bindGridsWorkflow(canonical.ir, catalog, bound.source);
+};
+
+const workflowCatalogIndexWithMigrationAliases = <T extends WorkflowCatalogEntry>(
+  index: WorkflowCatalogIndex<T>,
+  aliasesByInternalId: ReadonlyMap<string, readonly string[]>,
+): WorkflowCatalogIndex<T> => {
+  const refs = new Map(index.refs);
+  const ambiguous = new Set(index.ambiguous);
+  const entries = new Map([...index.refs.values()].map((entry) => [entry.id, entry]));
+  for (const [internalId, aliases] of aliasesByInternalId) {
+    const entry = entries.get(internalId);
+    if (!entry) continue;
+    for (const alias of aliases) {
+      const existing = refs.get(alias);
+      if (existing && existing.id !== internalId) ambiguous.add(alias);
+      else refs.set(alias, entry);
+    }
+  }
+  return { refs, ambiguous };
+};
+
+/** One-time migration seam. Legacy aliases are accepted only by the temporary catalog passed to this call. */
+export const canonicalizeGridsWorkflowSourceForMigration = async (
+  source: string,
+  catalog: WorkflowCatalog,
+  aliasesByInternalId: ReadonlyMap<string, readonly string[]>,
+): Promise<BindGridsWorkflowResult> =>
+  compileAndBindGridsWorkflowSource(source, {
+    tables: workflowCatalogIndexWithMigrationAliases(catalog.tables, aliasesByInternalId),
+    fieldsByTable: new Map(
+      [...catalog.fieldsByTable].map(([tableId, fields]) => [
+        tableId,
+        workflowCatalogIndexWithMigrationAliases(fields, aliasesByInternalId),
+      ]),
+    ),
+    templates: workflowCatalogIndexWithMigrationAliases(catalog.templates, aliasesByInternalId),
+    emailTemplates: workflowCatalogIndexWithMigrationAliases(catalog.emailTemplates, aliasesByInternalId),
+  });

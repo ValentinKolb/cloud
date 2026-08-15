@@ -222,13 +222,25 @@ const mapRow = (row: DbRow): Form => ({
  * Look up a form by (tableId, slug). Used for slug-based URL routing.
  * Returns null for soft-deleted forms.
  */
-export const getByShortId = async (tableId: string, shortId: string): Promise<Form | null> => {
+export const getByShortIdForTable = async (tableId: string, shortId: string): Promise<Form | null> => {
   const [row] = await sql<DbRow[]>`
     SELECT f.id, f.short_id, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
     FROM grids.forms f
     JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
     JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
     WHERE f.table_id = ${tableId}::uuid AND f.short_id = ${shortId} AND f.deleted_at IS NULL
+  `;
+  return row ? mapRow(row) : null;
+};
+
+/** Resolves the only public stored-form identifier to the internal resource. */
+export const getByShortId = async (shortId: string): Promise<Form | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT f.id, f.short_id, f.table_id, f.name, f.config, f.public_token, f.is_active, f.owner_user_id, f.position, f.deleted_at, f.created_at, f.updated_at
+    FROM grids.forms f
+    JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE f.short_id = ${shortId} AND f.deleted_at IS NULL
   `;
   return row ? mapRow(row) : null;
 };

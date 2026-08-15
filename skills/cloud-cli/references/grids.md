@@ -21,9 +21,9 @@ Grids stores structured operational data in bases made of tables, fields, record
 
 - A **base** is the complete raw data and access boundary. Base Read sees every record in the Base. `cld grids use <base>` stores a default base for later commands.
 - A **table** owns fields and records. A stored table owns writable records; a Combined table publishes a read-only canonical schema over
-  explicitly mapped stored tables. Tables, fields, and most other named resources have a UUID, a short id, and a name.
-- A **field** defines storage, validation, and presentation for one record value. Record write payloads use field UUIDs as keys.
-- A **record** is a versioned row. Relations store target record UUIDs. Computed and system fields are read-only.
+  explicitly mapped stored tables. Tables, fields, and other named resources expose one 6-character public `id` and a name.
+- A **field** defines storage, validation, and presentation for one record value. Record write payloads use field public IDs as keys.
+- A **record** is a versioned row. Relations store target record public IDs. Computed and system fields are read-only.
 - A **view** is a saved GQL query plus display settings. Views can be shared or personal.
 - A **form** writes records through a configured set of fields. A table also has a virtual default form.
 - A **Grids App** is an independently shared, Base-owned published capability surface. Its readers do not need raw Base access, and it may be public.
@@ -55,11 +55,11 @@ Work from discovery to mutation, then read the result back.
    cld grids records shape Authors --json
    ```
 
-3. Read current data before updating it. Keep the returned UUID and `version` when the next write depends on current state:
+3. Read current data before updating it. Keep the returned public ID and `version` when the next write depends on current state:
 
    ```bash
    cld grids records list Authors --limit 100 --json
-   cld grids records get Authors <record-uuid> --json
+   cld grids records get Authors <record-id> --json
    ```
 
 4. Validate languages and templates before saving them:
@@ -87,7 +87,7 @@ cld grids use Bookshop
 cld grids tables list --json
 ```
 
-A base reference can be a UUID, short id, or exact name. Table, field, view, form, Grids App, document-template, workflow, and launcher commands likewise resolve documented id, short-id, or exact-name references inside their parent scope. Prefer UUIDs from JSON output in unattended automation.
+A base reference can be an exact name or 6-character public ID. Table, field, view, form, Grids App, document-template, workflow, and launcher commands resolve the same two forms inside their parent scope. Prefer public IDs from JSON output in unattended automation.
 
 ### Structured input
 
@@ -128,8 +128,8 @@ Base commands are `list`, `use`, `current`, and `bases list|get|create|update|de
 
 Pass `--kind stored` for a normal table or `--kind federated` for a user-facing Combined table. Stored is the default.
 
-`bases restore`, `tables restore`, and the other restore commands require the deleted resource UUID rather than a name lookup. Base
-admins can discover deleted table, field, and form UUIDs with `cld grids bases trash <base> --json`. A deleted table owns its
+`bases restore`, `tables restore`, and the other restore commands require the deleted resource public ID rather than a name lookup. Base
+admins can discover deleted table, field, and form public IDs with `cld grids bases trash <base> --json`. A deleted table owns its
 deleted fields and forms, so those nested resources are restored with the table rather than duplicated in the trash response.
 
 ### Field types
@@ -154,7 +154,7 @@ Important encodings:
 
 - `number` stores a canonical decimal string, although writes accept strings or numbers.
 - `select` stores an array of option ids, including single-select fields.
-- `relation` stores target record UUIDs. A single relation can be written as one UUID string; multiple relations use an array.
+- `relation` stores target record public IDs. A single relation can be written as one public ID string; multiple relations use an array.
 - `principal` always stores an array of typed Cloud references such as `[{"type":"user","id":"..."},{"type":"group","id":"..."}]`, even when its cardinality is `single`. Writes are revalidated against the current actor's identity-discovery scope.
 - `date` uses `YYYY-MM-DD` unless `includeTime` is enabled; date-time values must include a timezone.
 - `duration` accepts seconds, `MM:SS`, or `HH:MM:SS` and stores integer seconds.
@@ -174,12 +174,12 @@ Field commands are `fields types|type|list|get|create|update|delete|restore|depe
 
 ### Record payloads and versions
 
-`records shape` returns writable field UUIDs, types, and example values for one table. Create and update bodies are plain objects keyed by those UUIDs.
+`records shape` returns writable field public IDs, types, and example values for one table. Create and update bodies are plain objects keyed by those public IDs.
 
 ```bash
 cld grids records shape Authors --json
-cld grids records create Authors --body '{"<field-uuid>":"Octavia Butler"}' --json
-cld grids records update Authors <record-uuid> \
+cld grids records create Authors --body '{"<field-id>":"Octavia Butler"}' --json
+cld grids records update Authors <record-id> \
   --if-version 3 \
   --body-file record-update.json \
   --json
@@ -195,7 +195,7 @@ Read and transfer records with:
 ```bash
 cld grids records list Authors --q Butler --limit 100 --json
 cld grids records export Authors --format csv --out authors.csv
-cld grids records audit Authors <record-uuid> --json
+cld grids records audit Authors <record-id> --json
 ```
 
 `records audit` shows one stored or Combined record's history. `records audit list` browses the published lifecycle history across an
@@ -209,17 +209,17 @@ Record commands are `records shape|list|query|get|create|import|export|update|de
 File fields use dedicated blob commands:
 
 ```bash
-cld grids records files upload Assets <record-uuid> Photo --file image.png --json
-cld grids records files list Assets <record-uuid> Photo --json
-cld grids records files download Assets <record-uuid> Photo <file-uuid> --out image.png
-cld grids records files delete Assets <record-uuid> Photo <file-uuid> --yes
+cld grids records files upload Assets <record-id> Photo --file image.png --json
+cld grids records files list Assets <record-id> Photo --json
+cld grids records files download Assets <record-id> Photo <file-id> --out image.png
+cld grids records files delete Assets <record-id> Photo <file-id> --yes
 ```
 
 Manual recursive record snapshots use `snapshots list|create|get`:
 
 ```bash
-cld grids snapshots create Assets <record-uuid> --json
-cld grids snapshots list Assets <record-uuid> --json
+cld grids snapshots create Assets <record-id> --json
+cld grids snapshots list Assets <record-id> --json
 ```
 
 ## Publish Combined tables
@@ -258,7 +258,7 @@ Candidates include only stored tables whose base the current actor may administe
 cld grids tables combined candidates Reporting "All inventory" --json
 ```
 
-The friendly JSON body resolves base, table, and field names, short ids, or UUIDs. Select-option mappings run from source option to
+The friendly JSON body resolves base, table, and field exact names or public IDs. Select-option mappings run from source option to
 canonical target option.
 
 ```json
@@ -296,30 +296,30 @@ cld grids tables combined publish Reporting "All inventory" --json
 ```
 
 `validate` returns `{ "valid": boolean, "diagnostics": [...] }`. `draft` and `publish` return one permission-shaped revision view;
-`get` returns `{ "current": revision|null, "draft": revision }`. A source entry contains its publication-entry `id`, position, authorization
-time, revocation time, and a nullable `sourceTableId`. The source table id and its mappings are shown only when the actor also administers
-that source base.
+`get` returns `{ "current": revision|null, "draft": revision }`. A source entry contains its position, authorization time, revocation time,
+and a nullable `sourceTableId`. The source table ID and its mappings are shown only when the actor also administers that source base.
+Publication listings expose the target base and table by public ID, but do not expose an internal publication-entry ID.
 
-When editing as a target admin without access to an existing source, preserve its opaque source-entry id with a raw body:
+Raw draft input contains only the complete visible source-table list and its mappings:
 
 ```json
 {
-  "sourceTableIds": ["<new-or-visible-source-table-uuid>"],
-  "retainedSourceIds": ["<existing-publication-entry-uuid>"],
+  "sourceTableIds": ["<visible-source-table-id>"],
   "mappings": [
     {
-      "targetFieldId": "<canonical-field-uuid>",
-      "sourceTableId": "<visible-source-table-uuid>",
-      "sourceFieldId": "<source-field-uuid>",
+      "targetFieldId": "<canonical-field-id>",
+      "sourceTableId": "<visible-source-table-id>",
+      "sourceFieldId": "<source-field-id>",
       "config": {}
     }
   ]
 }
 ```
 
-Publishing always requires admin access to the target base. Source-base admin access is required only for scope that is new, broadened,
-or being restored after revocation. Retaining, narrowing, or removing an existing unrevoked mapping does not reauthorize it. The grant
-persists if the original authorizer later loses their role.
+Do not add source-entry IDs or retention fields. Sources the target admin cannot inspect are retained automatically by the server and stay
+opaque. Publishing always requires admin access to the target base. Source-base admin access is required only for scope that is new,
+broadened, or being restored after revocation. Narrowing or removing an existing visible mapping does not reauthorize it. The grant persists
+if the original authorizer later loses their role.
 
 ### Read, inspect, revoke, and repair
 
@@ -337,14 +337,14 @@ cld grids records export Reporting "All inventory" --format csv --out inventory.
 cld grids records audit list Reporting "All inventory" --action deleted --json
 ```
 
-A source-base admin can inspect every Combined target and exact mapped scope that publishes one stored table. The target UUID in this
+A source-base admin can inspect every Combined target and exact mapped scope that publishes one stored table. The target public ID in this
 response is required for revocation:
 
 ```bash
 cld grids tables combined publications "Warehouse East" Items --json
 
 cld grids tables combined revoke "Warehouse East" Items \
-  --target-table <combined-table-uuid> \
+  --target-table <combined-table-id> \
   --yes
 ```
 
@@ -393,7 +393,7 @@ groups, aggregates, and sorts. Multiple joins are allowed. Line breaks are optio
 when preceded by whitespace.
 
 Names without punctuation may be bare. Double-quote names containing spaces or punctuation and escape an embedded double quote by doubling
-it. Text literals use single quotes. Stable fields and sources use `{uuid}`. Do not use removed `#field` aliases. An `as` alias starts with a
+it. Text literals use single quotes. Stable fields and sources use `{public-id}`. Do not use removed `#field` aliases. An `as` alias starts with a
 letter or underscore, continues with letters, digits, or underscores, is at most 64 characters, and cannot be a GQL keyword, logical operator,
 or reserved literal. Aliases are case-insensitive when referenced later. Sort defaults to ascending order with missing values last.
 
@@ -407,7 +407,7 @@ Conditions use `=`, `!=`, `<`, `<=`, `>`, `>=`, `and`, `or`, `not`, and parenthe
 - number, percent, duration, date: all six comparison operators;
 - boolean: equality with `true` or `false`, inequality, or the field by itself;
 - select: `=`, `!=`, `oneof`, `noneof`, `containsall` with option label or id values;
-- relation: `=`, `!=`, `oneof`, `noneof`, `containsall` with record UUID values.
+- relation: `=`, `!=`, `oneof`, `noneof`, `containsall` with record public-ID values.
 - principal: `=`, `!=`, `oneof`, `noneof`, `containsall` with user or group UUID values.
 
 `field = null` means empty and `field != null` means not empty. Other comparisons with `null` are invalid. A true/false formula may compare
@@ -422,14 +422,14 @@ Grids App GQL receives typed request context automatically:
 - `@auth.subjects`: current user UUID plus effective direct and nested group UUIDs, or `[]` for anonymous visitors; valid only inside `oneof`, `noneof`, or `containsall`;
 - `@params.<name>`: one declared and validated page parameter;
 - `@page.id`, `@page.title`, `@page.url`;
-- `@app.id`, `@app.shortId`, `@app.name`;
+- `@app.id`, `@app.name`;
 - `@base.id`, `@base.name`;
 - `@time.now`, `@time.today`, `@time.timeZone`.
 
 Use `@auth.id != null` for authenticated-only data and `@auth.id = null` for anonymous data. Unknown namespaces and undeclared parameters fail compilation. Context values are bound separately from query text; Grids App GQL has no `inputs` map or `param()` helper. Grids App Markdown may insert the same names as safe text placeholders, such as `Hello @auth.name`; it does not support Liquid control flow or executable templates.
 
 Record metadata filters are `record.id`, `record.createdBy`, `record.updatedBy`, and `record.deletedBy`; they accept `=` or `oneof(...)` with
-record or user UUIDs and may be combined only with `and`. Metadata sorts are `record.createdAt`, `record.updatedAt`, and `record.deletedAt`.
+record public IDs or user UUIDs and may be combined only with `and`. Metadata sorts are `record.createdAt`, `record.updatedAt`, and `record.deletedAt`.
 
 Aggregates are:
 
@@ -468,7 +468,7 @@ or follows cursors with `--all` up to `--max-rows` (1–10,000, default 10,000).
 current permissions. `gql compile-view` canonicalizes valid source and returns diagnostics with a nonzero exit status for invalid source.
 `gql autocomplete` accepts a UTF-16 `--caret` offset and returns permission-safe completion items.
 
-Use exact source and field names when unambiguous, quote names containing spaces, and use `{uuid}` references where renames must not break saved automation.
+Use exact source and field names when unambiguous, quote names containing spaces, and use `{public-id}` references where renames must not break saved automation.
 
 Formula fields, GQL predicates, computed columns, and parts of document and workflow authoring share the formula engine:
 
@@ -479,7 +479,7 @@ cld grids formulas check Authors --expression 'LEN(Name)' --json
 
 ### Formula language reference
 
-Field references are `Name`, `"Birth year"`, or `{field-uuid}`. Literals are single-quoted text, numbers, `true`, `false`, and `null`.
+Field references are `Name`, `"Birth year"`, or `{field-id}`. Literals are single-quoted text, numbers, `true`, `false`, and `null`.
 Inside text, `\\'`, `\\\\`, `\\n`, `\\r`, and `\\t` escape a quote, backslash, or control character. Parentheses group expressions and
 a leading `=` is optional. Function names are case-insensitive.
 
@@ -550,12 +550,12 @@ Commands are `views list|get|create|update|delete|restore`. Create accepts `--sh
 
 ### Forms
 
-Form configuration uses field UUIDs. Inspect `fields list` and `records shape` first.
+Form configuration uses field public IDs. Inspect `fields list` and `records shape` first.
 
 ```bash
 cld grids forms create Orders \
   --name Checkout \
-  --config '{"fields":[{"kind":"user_input","fieldId":"<field-uuid>"}]}' \
+  --config '{"fields":[{"kind":"user_input","fieldId":"<field-id>"}]}' \
   --json
 cld grids forms submit Orders Checkout --body-file submission.json --json
 ```
@@ -564,7 +564,7 @@ Commands are `forms list|default|get|create|update|delete|restore|submit`. `--pu
 
 ## Publish a Grids App
 
-Grids Apps are strict schema-v4 YAML definitions owned by one base. The current contract supports up to 12 pages containing responsive rows and
+Grids Apps are strict schema-v5 YAML definitions owned by one base. The current contract supports up to 12 pages containing responsive rows and
 columns plus Markdown, Records, Metrics, Chart, Record, Form, Comments, Actions, and Scanner blocks. Records and insight blocks can use a saved view
 or GQL. A Records block can navigate its row id or one selected single relation into one required
 record parameter on a detail page. Record and Comments blocks use that page record; Record renders only its explicit field allowlist.
@@ -586,7 +586,7 @@ cld grids apps plan Bookshop --source-file app.yaml
 cld grids apps apply Bookshop --source-file app.yaml --json
 ```
 
-The definition chooses a stable UUID. Omit `shortId` on creation; Grids assigns and preserves it, and the original file remains safe to
+The definition chooses a stable 6-character public `id`, and the original file remains safe to
 apply again. `apply` changes the draft only. Grant explicit read access to the app, then publish the current validated draft:
 
 ```bash
@@ -595,7 +595,7 @@ cld grids access grant app Bookshop "Public catalog" --public --permission read
 cld grids apps publish Bookshop "Request overview" --yes
 ```
 
-The standalone app is available to authenticated or public readers at `/apps/<shortId>`; named pages use `/apps/<shortId>/<pageId>` and record parameters
+The standalone app is available to authenticated or public readers at `/apps/<id>`; named pages use `/apps/<id>/<pageId>` and record parameters
 stay in the query string. Readers need only the Grids App grant; the immutable publication capability supplies its declared data and operations without granting raw Base access. Applying a later draft does not affect the published snapshot until the next publish. Commands are
 `apps reference|list|create|get|validate|plan|apply|export|publish|unpublish|restore|delete`; `export --out <path>` writes normalized deterministic YAML and `export --published` selects the live definition.
 `restore --yes` replaces the draft with the live definition. `unpublish --yes` removes only the live snapshot, while `delete --yes` removes the app and its route.
@@ -620,7 +620,7 @@ cld grids document-templates reference
 cld grids document-templates create Invoices --body-file invoice-template.json --json
 cld grids document-templates preview-draft-pdf Invoices \
   --body-file invoice-template.json \
-  --record <record-uuid> \
+  --record <record-id> \
   --out preview.pdf
 ```
 
@@ -636,11 +636,11 @@ Generate and manage immutable document output from a selected record:
 
 ```bash
 cld grids documents generate Invoices Invoice \
-  --record <record-uuid> \
+  --record <record-id> \
   --tag issued \
   --out invoice.pdf \
   --json
-cld grids documents by-record Invoices <record-uuid> --json
+cld grids documents by-record Invoices <record-id> --json
 ```
 
 Document commands are `documents list|browse|by-record|generate|update|download`. `documents browse --mode folders --path 2026/07` traverses generated documents by year and month. Search matches filenames, numbers, or tags; tag filters are repeatable.
@@ -648,9 +648,9 @@ Document commands are `documents list|browse|by-record|generate|update|download`
 Public document links are bearer links. Create only the lifetime the user needs and revoke them when no longer required:
 
 ```bash
-cld grids documents links create <document-run-uuid> --expires-in 30d --comment "Customer copy" --json
-cld grids documents links list <document-run-uuid> --json
-cld grids documents links revoke <link-uuid> --json
+cld grids documents links create <document-run-id> --expires-in 30d --comment "Customer copy" --json
+cld grids documents links list <document-run-id> --json
+cld grids documents links revoke <link-id> --json
 ```
 
 Supported lifetimes are `1d`, `7d`, `30d`, and `90d`; the default is `30d`.
@@ -705,8 +705,8 @@ Every input may set `label`, `description`, and `required`. Type-specific declar
 
 | Type | Declaration | Invocation value |
 | --- | --- | --- |
-| `record` | required `table` name, short id, or UUID | one record UUID |
-| `recordList` | required `table` name, short id, or UUID | ordered record UUID list, at most 10,000 |
+| `record` | required `table` exact name or public ID | one record public ID |
+| `recordList` | required `table` exact name or public ID | ordered record public-ID list, at most 10,000 |
 | `text` | none | string |
 | `number` | none | finite number |
 | `boolean` | none | `true` or `false` |
@@ -746,7 +746,7 @@ Action fields are:
 | `fail` | `message` | none | terminates with failure |
 
 `sendEmail.to` entries contain exactly one of `email` or `user`. HTTP methods are `GET`, `POST`, `PUT`, `PATCH`, and `DELETE`; requests
-carry optional JSON only. Field, table, document-template, and email-template references accept an unambiguous name, short id, or UUID.
+carry optional JSON only. Field, table, document-template, and email-template references accept an exact name or public ID.
 
 `atomicRecords` is a bounded Grids-only transaction. `locks` contains existing record references acquired in stable order. Each `checks`
 entry selects a bound `table`, has 1–20 `where` predicates combined with AND, and uses `assert: empty|notEmpty`; predicates contain
@@ -859,7 +859,7 @@ Lists and objects may contain dynamic values recursively.
 
 A single relation field is a typed record reference in raw record slots, for example `record: inputs.asset.Current loan item`. A multiple relation field is a typed record list and may drive `forEach`, for example `forEach: inputs.loan.Items`. Resolution verifies the target table, current access, and every referenced record before the step runs.
 
-Saved document outputs expose `id`, `shortId`, `templateId`, `workflowRunId`, `snapshotId`, `baseId`, `tableId`, `recordId`,
+Saved document outputs expose `id`, `templateId`, `workflowRunId`, `snapshotId`, `baseId`, `tableId`, `recordId`,
 `documentNumber`, `filename`, `tags`, `generatedBy`, and `generatedAt`. Link outputs expose `kind`, `id`, `url`, `expiresAt`, and
 `documentRunId`. Email outputs expose `subject`, `templateId`, and `recipients`, whose entries include `id`, `deliveryId`, `kind`, `recipient`,
 and `status`. HTTP outputs expose `status`, `ok`, and `body`.
@@ -875,7 +875,7 @@ A run and a step do not share a vocabulary, and reading one as the other is how 
 - A **step** is `running`, `completed`, `waiting`, `failed`, `needs_attention`, `terminal`, `planned`, `unsupported`, `indeterminate`, or
   `canceled`. A step *completes* where a run *succeeds*. `terminal` is the step that ended the run early — a `succeed` step, or one cut
   short by a cancel request; a `fail` step records `failed`. A dry run records `planned` steps, or `unsupported`/`indeterminate` where it
-  could not say what would happen. `cld grids workflow-runs steps <run-uuid>` prints these.
+  could not say what would happen. `cld grids workflow-runs steps <run-id>` prints these.
 
 A minimal manually invoked workflow is:
 
@@ -926,7 +926,7 @@ Direct CLI invocation requires a stable idempotency key. Reuse a key only for th
 
 ```bash
 cld grids workflows invoke "Check in" \
-  --inputs '{"item":"<record-uuid>"}' \
+  --inputs '{"item":"<record-id>"}' \
   --idempotency-key check-in-2026-07-15-001 \
   --json
 
@@ -948,9 +948,9 @@ Inspect execution with:
 
 ```bash
 cld grids workflow-runs list --workflow "Check in" --status failed --json
-cld grids workflow-runs get <run-uuid> --json
-cld grids workflow-runs steps <run-uuid> --json
-cld grids workflow-runs documents <run-uuid> --json
+cld grids workflow-runs get <run-id> --json
+cld grids workflow-runs steps <run-id> --json
+cld grids workflow-runs documents <run-id> --json
 cld grids workflow-emails list --workflow "Check in" --json
 ```
 
@@ -963,7 +963,7 @@ that caused a run, its effect budget, stranded effects, and events that never tu
 Cancel a queued, running, or waiting run explicitly:
 
 ```bash
-cld grids workflow-runs cancel <run-uuid> --yes --json
+cld grids workflow-runs cancel <run-id> --yes --json
 ```
 
 Cancellation is a request, not a write. A queued run is canceled at once; a running or waiting one stops when the worker holding it next

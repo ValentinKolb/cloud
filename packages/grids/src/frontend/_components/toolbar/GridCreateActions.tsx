@@ -1,10 +1,10 @@
-import { Dropdown, prompts, Button } from "@k2b/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, Dropdown, prompts } from "@k2b/ui";
 import { createMemo, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Field, Form, GridRecord } from "../../../service";
+import type { PublicField as Field, PublicForm as Form, PublicGridRecord } from "../../../api/public-dto";
 import { isUserEditable } from "../fields/field-prompt-schema";
 import { openFormModal } from "../records/FormSubmitModal";
 import { openRecordUpsertDialog } from "../records/RecordUpsertDialog";
@@ -18,14 +18,14 @@ type Props = {
   fields: Field[];
   forms?: Form[];
   canWrite: boolean;
-  onRecordCreated?: (record: GridRecord) => void;
+  onRecordCreated?: (record: PublicGridRecord) => void;
   onRecordsChanged?: () => void;
   dateConfig?: DateContext;
 };
 
 export function GridCreateActions(props: Props) {
   const activeForms = createMemo(() => (props.forms ?? []).filter((form) => form.isActive));
-  const addMutation = mutations.create<GridRecord, Record<string, unknown>>({
+  const addMutation = mutations.create<PublicGridRecord, Record<string, unknown>>({
     mutation: async (payload) => {
       const response = await apiClient.records["by-table"][":tableId"].$post({
         param: { tableId: props.tableId },

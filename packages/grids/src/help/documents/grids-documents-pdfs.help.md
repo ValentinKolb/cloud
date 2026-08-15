@@ -80,7 +80,7 @@ Think of the data in layers: `record` is the selected record, `rows` and `column
 :::reference
 - **record:** The current record: `record.id`, `record.tableId`, `record.version`, `record.data`, created and updated timestamps.
 - **rows and columns:** The rows and columns returned by the GQL source. Use column.key for row access and column.label for human-readable headers.
-- **template, run, date:** Stable metadata for patterns and document copy: `{{ template.name }}`, `{{ template.shortId }}`, `{{ run.shortId }}`, `{{ date.iso }}`, and `{{ date.yyyyMMdd }}`. Draft previews use draft run values until a saved run exists.
+- **template, run, date:** Stable metadata for patterns and document copy: `{{ template.name }}`, `{{ template.id }}`, `{{ run.id }}`, `{{ date.iso }}`, and `{{ date.yyyyMMdd }}`. Draft previews use draft run values until a saved run exists.
 - **app:** Public platform values for document branding: `{{ app.name }}`, `{{ app.contactEmail }}`, `{{ app.url }}`, `{{ app.logoDataUri }}`, and `{{ app.timezone }}`.
 - **business:** Base-level document profile values such as `{{ business.legalName }}`, `{{ business.senderLine }}`, `{{ business.address }}`, `{{ business.paymentTerms }}`, `{{ business.iban }}`, and footer/contact fields. Edit them in Base settings → Documents.
 - **images:** Image files attached to file fields on the selected record. Use `{{ primaryImage.url }}` for the first supported image or loop over `images`. Oversized and unsupported files are omitted.
@@ -125,12 +125,12 @@ limit 100
 
 A generated document has a stable `document.number` and a PDF filename. The number pattern is rendered first. The filename pattern can then use `{{ document.number }}`. This keeps business identifiers separate from the downloadable file name.
 
-The default number pattern is non-sequential and designed to stay unique: `{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}`. It avoids record UUIDs and app-wide prefixes. If a business process needs legally consecutive invoice numbers, use a dedicated generated ID field on the source record instead of hand-writing counters in Liquid.
+The default number pattern is non-sequential and designed to stay unique: `{{ template.id }}-{{ date.yyyyMMdd }}-{{ run.id }}`. It avoids internal database IDs and app-wide prefixes. If a business process needs legally consecutive invoice numbers, use a dedicated generated ID field on the source record instead of hand-writing counters in Liquid.
 
 **Default number**
 
 ```text
-{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}
+{{ template.id }}-{{ date.yyyyMMdd }}-{{ run.id }}
 ```
 
 **Default filename**
@@ -142,7 +142,7 @@ The default number pattern is non-sequential and designed to stay unique: `{{ te
 **Business-style number**
 
 ```text
-INV-{{ date.yyyy }}-{{ run.shortId }}
+INV-{{ date.yyyy }}-{{ run.id }}
 ```
 
 **Readable filename**

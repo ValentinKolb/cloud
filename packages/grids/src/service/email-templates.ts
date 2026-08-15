@@ -1,5 +1,5 @@
-import { isUniqueViolation } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { isUniqueViolation } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type {
   CreateEmailTemplateInput,
@@ -133,7 +133,7 @@ export const get = async (templateId: string, opts: { includeDeleted?: boolean }
   return row ? mapEmailTemplate(row) : null;
 };
 
-export const getByShortId = async (baseId: string, shortId: string): Promise<EmailTemplate | null> => {
+export const getByShortIdForBase = async (baseId: string, shortId: string): Promise<EmailTemplate | null> => {
   const [row] = await sql<DbRow[]>`
     SELECT *
     FROM grids.email_templates
@@ -142,23 +142,12 @@ export const getByShortId = async (baseId: string, shortId: string): Promise<Ema
   return row ? mapEmailTemplate(row) : null;
 };
 
-export const getByIdOrShortId = async (baseId: string, idOrShortId: string): Promise<EmailTemplate | null> => {
-  if (idOrShortId.length === 36 && idOrShortId.includes("-")) {
-    const template = await get(idOrShortId);
-    return template && template.baseId === baseId ? template : null;
-  }
-  return getByShortId(baseId, idOrShortId);
-};
-
-export const getByRef = async (baseId: string, ref: string): Promise<EmailTemplate | null> => {
+export const getByShortId = async (shortId: string): Promise<EmailTemplate | null> => {
   const [row] = await sql<DbRow[]>`
-    SELECT *
-    FROM grids.email_templates
-    WHERE base_id = ${baseId}::uuid
-      AND deleted_at IS NULL
-      AND (id::text = ${ref} OR short_id = ${ref} OR name = ${ref})
-    ORDER BY CASE WHEN id::text = ${ref} THEN 0 WHEN short_id = ${ref} THEN 1 ELSE 2 END
-    LIMIT 2
+    SELECT template.*
+    FROM grids.email_templates template
+    JOIN grids.bases base ON base.id = template.base_id AND base.deleted_at IS NULL
+    WHERE template.short_id = ${shortId} AND template.deleted_at IS NULL
   `;
   return row ? mapEmailTemplate(row) : null;
 };

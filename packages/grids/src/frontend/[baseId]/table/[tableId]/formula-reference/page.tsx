@@ -8,7 +8,7 @@ export default ssr<AuthContext>(async (c) => {
   c.get("page").title = "Formula reference";
   const baseSlug = c.req.param("baseId")!;
   const tableSlug = c.req.param("tableId")!;
-  const base = await gridsService.base.getByIdOrShortId(baseSlug);
+  const base = await gridsService.base.getByShortId(baseSlug);
 
   if (!base) {
     return () => (
@@ -18,7 +18,7 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
 
-  const table = await gridsService.table.getByIdOrShortId(base.id, tableSlug);
+  const table = await gridsService.table.getByShortIdForBase(base.id, tableSlug);
   if (!table) {
     return () => (
       <main class="min-h-screen bg-[var(--ui-canvas)] p-[var(--ui-space-shell)]">

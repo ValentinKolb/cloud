@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import { err, fail, ok } from "@k2b/stdlib";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
@@ -11,11 +11,15 @@ import { createAccessResourceRoutes } from "./access-resource-routes";
 type Fixture = {
   userId: string;
   baseId: string;
+  baseShortId: string;
   customAppId: string;
+  customAppShortId: string;
   baseAccessId: string;
   customAppAccessId: string;
   foreignBaseId: string;
+  foreignBaseShortId: string;
   foreignCustomAppId: string;
+  foreignCustomAppShortId: string;
   foreignAccessId: string;
   accessIds: string[];
 };
@@ -27,6 +31,19 @@ const appFor = (fixture: Fixture) => {
     gate,
     actorId: () => fixture.userId,
     authorization: () => ({ subject: { type: "user" as const, userId: fixture.userId }, permissionCap: "admin" as const }),
+    resolvePublicId: async (type: "base" | "customApp", publicId: string) => {
+      const ids =
+        type === "base"
+          ? new Map([
+              [fixture.baseShortId, fixture.baseId],
+              [fixture.foreignBaseShortId, fixture.foreignBaseId],
+            ])
+          : new Map([
+              [fixture.customAppShortId, fixture.customAppId],
+              [fixture.foreignCustomAppShortId, fixture.foreignCustomAppId],
+            ]);
+      return ids.get(publicId) ?? null;
+    },
   };
   return new Hono<AuthContext>().route("/", createAccessResourceRoutes(deps)).route("/", createAccessEntryRoutes(deps));
 };
@@ -48,17 +65,21 @@ const insertFixture = async (): Promise<Fixture> => {
   const customAppId = uuid();
   const foreignBaseId = uuid();
   const foreignCustomAppId = uuid();
+  const baseShortId = shortId("B");
+  const customAppShortId = shortId("A");
+  const foreignBaseShortId = shortId("F");
+  const foreignCustomAppShortId = shortId("X");
   await sql`
     INSERT INTO grids.bases (id, short_id, name)
     VALUES
-      (${baseId}::uuid, ${shortId("B")}, 'Access routes'),
-      (${foreignBaseId}::uuid, ${shortId("F")}, 'Foreign access routes')
+      (${baseId}::uuid, ${baseShortId}, 'Access routes'),
+      (${foreignBaseId}::uuid, ${foreignBaseShortId}, 'Foreign access routes')
   `;
   await sql`
     INSERT INTO grids.custom_apps (id, short_id, base_id, name, draft_definition, draft_capabilities)
     VALUES
-      (${customAppId}::uuid, ${shortId("A")}, ${baseId}::uuid, 'Portal', '{}'::jsonb, '{}'::jsonb),
-      (${foreignCustomAppId}::uuid, ${shortId("X")}, ${foreignBaseId}::uuid, 'Foreign portal', '{}'::jsonb, '{}'::jsonb)
+      (${customAppId}::uuid, ${customAppShortId}, ${baseId}::uuid, 'Portal', '{}'::jsonb, '{}'::jsonb),
+      (${foreignCustomAppId}::uuid, ${foreignCustomAppShortId}, ${foreignBaseId}::uuid, 'Foreign portal', '{}'::jsonb, '{}'::jsonb)
   `;
 
   const baseAccessId = await insertAccess("admin", authUser.id);
@@ -70,11 +91,15 @@ const insertFixture = async (): Promise<Fixture> => {
   return {
     userId: authUser.id,
     baseId,
+    baseShortId,
     customAppId,
+    customAppShortId,
     baseAccessId,
     customAppAccessId,
     foreignBaseId,
+    foreignBaseShortId,
     foreignCustomAppId,
+    foreignCustomAppShortId,
     foreignAccessId,
     accessIds: [baseAccessId, customAppAccessId, foreignAccessId],
   };
@@ -91,16 +116,40 @@ beforeAll(async () => {
 });
 
 describe("access routes integration", () => {
+  test("rejects UUID and five-character public resource identifiers before authorization", async () => {
+    const fixture = {
+      userId: uuid(),
+      baseId: uuid(),
+      baseShortId: "BASE01",
+      customAppId: uuid(),
+      customAppShortId: "APP001",
+      baseAccessId: uuid(),
+      customAppAccessId: uuid(),
+      foreignBaseId: uuid(),
+      foreignBaseShortId: "BASE02",
+      foreignCustomAppId: uuid(),
+      foreignCustomAppShortId: "APP002",
+      foreignAccessId: uuid(),
+      accessIds: [],
+    } satisfies Fixture;
+    const app = appFor(fixture);
+
+    expect((await app.request(`/by-base/${fixture.baseId}`)).status).toBe(404);
+    expect((await app.request("/by-base/ABCDE")).status).toBe(404);
+    expect((await app.request(`/by-custom-app/${fixture.customAppId}`)).status).toBe(404);
+  });
+
   postgresTest("preserves Base list and mutation permission boundaries after route extraction", async () => {
     const fixture = await insertFixture();
     const app = appFor(fixture);
     try {
-      const listed = await app.request(`/by-base/${fixture.baseId}`);
+      const listed = await app.request(`/by-base/${fixture.baseShortId}`);
       expect(listed.status).toBe(200);
       expect(await listed.json()).toHaveLength(1);
 
-      expect((await app.request(`/by-base/${uuid()}`)).status).toBe(403);
-      expect((await app.request(`/by-base/${fixture.foreignBaseId}`)).status).toBe(403);
+      expect((await app.request(`/by-base/${uuid()}`)).status).toBe(404);
+      expect((await app.request("/by-base/ABCDE")).status).toBe(404);
+      expect((await app.request(`/by-base/${fixture.foreignBaseShortId}`)).status).toBe(403);
 
       const updated = await app.request(`/${fixture.baseAccessId}`, {
         method: "PATCH",
@@ -120,7 +169,7 @@ describe("access routes integration", () => {
     const fixture = await insertFixture();
     const app = appFor(fixture);
     try {
-      const createdResponse = await app.request(`/by-custom-app/${fixture.customAppId}`, {
+      const createdResponse = await app.request(`/by-custom-app/${fixture.customAppShortId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -132,14 +181,14 @@ describe("access routes integration", () => {
       const created = (await createdResponse.json()) as { accessId: string };
       fixture.accessIds.push(created.accessId);
 
-      const appEntries = (await (await app.request(`/by-custom-app/${fixture.customAppId}`)).json()) as Array<{
+      const appEntries = (await (await app.request(`/by-custom-app/${fixture.customAppShortId}`)).json()) as Array<{
         id: string;
         permission: string;
       }>;
       expect(appEntries.map((entry) => entry.id).sort()).toEqual([fixture.customAppAccessId, created.accessId].sort());
       expect(appEntries.find((entry) => entry.id === created.accessId)?.permission).toBe("read");
 
-      const baseEntries = (await (await app.request(`/by-base/${fixture.baseId}`)).json()) as Array<{ id: string }>;
+      const baseEntries = (await (await app.request(`/by-base/${fixture.baseShortId}`)).json()) as Array<{ id: string }>;
       expect(baseEntries.map((entry) => entry.id)).toEqual([fixture.baseAccessId]);
 
       const updated = await app.request(`/${created.accessId}`, {
@@ -155,7 +204,7 @@ describe("access routes integration", () => {
         body: JSON.stringify({ permission: "write" }),
       });
       expect(invalid.status).toBe(400);
-      expect((await app.request(`/by-custom-app/${fixture.foreignCustomAppId}`)).status).toBe(403);
+      expect((await app.request(`/by-custom-app/${fixture.foreignCustomAppShortId}`)).status).toBe(403);
     } finally {
       await cleanup(fixture);
     }

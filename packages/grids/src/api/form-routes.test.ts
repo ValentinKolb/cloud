@@ -8,10 +8,12 @@ import formsRoutes from "./forms";
 const baseId = "11111111-1111-4111-8111-111111111111";
 const tableId = "22222222-2222-4222-8222-222222222222";
 const formId = "33333333-3333-4333-8333-333333333333";
+const tablePublicId = "T4BL01";
+const formPublicId = "F0RM01";
 
 const form = {
   id: formId,
-  shortId: "abcde",
+  shortId: formPublicId,
   tableId,
   name: "Intake",
   config: {
@@ -45,16 +47,23 @@ describe("public form routes", () => {
   });
 
   test("returns only public render fields", async () => {
-    const app = createPublicFormRoutes({ getByPublicToken: async () => form as never });
+    const app = createPublicFormRoutes({
+      getByPublicToken: async () => form as never,
+      projectForm: async () => ({
+        id: formPublicId,
+        name: "Intake",
+        config: { title: "Public intake", fields: [{ kind: "user_input", fieldId: "F1ELD1" }] },
+      }),
+    });
     const response = await app.request("/public/token");
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      id: formId,
+      id: formPublicId,
       name: "Intake",
       config: {
         title: "Public intake",
-        fields: [{ kind: "user_input", fieldId: "44444444-4444-4444-8444-444444444444" }],
+        fields: [{ kind: "user_input", fieldId: "F1ELD1" }],
       },
     });
   });
@@ -88,10 +97,11 @@ describe("authenticated form routes", () => {
       listForTable: async () => [form],
     },
   };
+  const resolveId = async (_context: unknown, _name: string, type: string) => (type === "table" ? tableId : formId);
 
   test("returns 404 for an unknown table", async () => {
-    const app = createAuthenticatedFormRoutes({ service: service as never });
-    const response = await app.request(`/by-table/${baseId}`);
+    const app = createAuthenticatedFormRoutes({ service: service as never, resolveId: async () => baseId });
+    const response = await app.request(`/by-table/B4SE01`);
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ message: "Table not found" });
@@ -103,7 +113,7 @@ describe("authenticated form routes", () => {
       service: {
         ...service,
         table: {
-          get: async () => {
+          getByShortId: async () => {
             calls += 1;
             return null;
           },
@@ -111,7 +121,7 @@ describe("authenticated form routes", () => {
       } as never,
     });
 
-    const response = await app.request("/by-table/not-a-uuid");
+    const response = await app.request("/by-table/not-an-id");
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ message: "Invalid table id" });
@@ -121,9 +131,10 @@ describe("authenticated form routes", () => {
   test("denies list access without table read", async () => {
     const app = createAuthenticatedFormRoutes({
       service: service as never,
+      resolveId: resolveId as never,
       gate: async () => fail(err.forbidden("Forbidden")),
     });
-    const response = await app.request(`/by-table/${tableId}`);
+    const response = await app.request(`/by-table/${tablePublicId}`);
 
     expect(response.status).toBe(403);
   });
@@ -131,11 +142,28 @@ describe("authenticated form routes", () => {
   test("lists forms for a readable table", async () => {
     const app = createAuthenticatedFormRoutes({
       service: service as never,
+      resolveId: resolveId as never,
       gate: async () => ok("read"),
+      projectForms: async () => [
+        {
+          id: formPublicId,
+          tableId: tablePublicId,
+          name: form.name,
+          config: { title: "Public intake", fields: [] },
+          publicToken: form.publicToken,
+          isActive: true,
+          ownerUserId: null,
+          position: 0,
+          isDefault: false,
+          deletedAt: null,
+          createdAt: form.createdAt,
+          updatedAt: form.updatedAt,
+        },
+      ],
     });
-    const response = await app.request(`/by-table/${tableId}`);
+    const response = await app.request(`/by-table/${tablePublicId}`);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual([form]);
+    expect(await response.json()).toEqual([expect.objectContaining({ id: formPublicId, tableId: tablePublicId, name: "Intake" })]);
   });
 });

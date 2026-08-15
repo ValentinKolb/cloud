@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { WorkflowIrInput } from "@valentinkolb/cloud/workflows";
-import type { GridsWorkflowLauncher } from "../../../workflows/contracts";
+import type { PublicWorkflowLauncher } from "../workspace/workspace-public-state-model";
 import { customAppLauncherConfigForSave, missingLauncherRequiredInputs } from "./workflow-launcher-draft";
 
 describe("workflow launcher editor", () => {
   test("preserves App labels and fixed input bindings while editing metadata", () => {
     const launcher = {
       config: { kind: "customApp", label: "Refresh", inputMode: "fixed", inputBindings: { range: "30d" } },
-    } as unknown as GridsWorkflowLauncher;
+    } satisfies Pick<PublicWorkflowLauncher, "config">;
 
     expect(customAppLauncherConfigForSave(launcher)).toEqual({
       kind: "customApp",
@@ -20,7 +20,7 @@ describe("workflow launcher editor", () => {
   test("replaces App fixed input bindings when edited", () => {
     const launcher = {
       config: { kind: "customApp", label: "Refresh", inputMode: "fixed", inputBindings: { range: "30d" } },
-    } as unknown as GridsWorkflowLauncher;
+    } satisfies Pick<PublicWorkflowLauncher, "config">;
 
     expect(customAppLauncherConfigForSave(launcher, "fixed", { range: "7d", notify: false })).toEqual({
       kind: "customApp",
@@ -33,7 +33,7 @@ describe("workflow launcher editor", () => {
   test("stores prompt mode without fixed values", () => {
     const launcher = {
       config: { kind: "customApp", label: "Run", inputMode: "fixed", inputBindings: { range: "30d" } },
-    } as unknown as GridsWorkflowLauncher;
+    } satisfies Pick<PublicWorkflowLauncher, "config">;
 
     expect(customAppLauncherConfigForSave(launcher, "prompt", { range: "7d" })).toEqual({
       kind: "customApp",

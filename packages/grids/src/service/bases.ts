@@ -1,5 +1,5 @@
-import { type AccessSubject, buildAccessPrincipalTierConditions } from "@valentinkolb/cloud/server";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { type AccessSubject, buildAccessPrincipalTierConditions } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import { DocumentProfileSchema } from "../contracts";
 import { grantAccess } from "./access";
@@ -149,32 +149,13 @@ export const get = async (id: string, opts: { includeDeleted?: boolean } = {}): 
   return row ? mapRow(row) : null;
 };
 
-/**
- * Look up a base by its short slug. Used at the SSR-route boundary to
- * resolve URL slugs (`/app/grids/k3Mp9`) to UUIDs that the rest of the
- * service layer + API works with. Returns null for soft-deleted bases.
- */
+/** Resolves the only public base identifier to the internal resource. */
 export const getByShortId = async (shortId: string): Promise<Base | null> => {
   const [row] = await sql<DbRow[]>`
     SELECT ${COLS}
     FROM grids.bases WHERE short_id = ${shortId} AND deleted_at IS NULL
   `;
   return row ? mapRow(row) : null;
-};
-
-/**
- * Tolerant lookup — accepts either the short slug (5 chars) or the full
- * UUID (36 chars with hyphens). Used by URL handlers that may receive
- * either form: sidebar links and breadcrumbs use slugs, but deep-link
- * URLs from relation cells (record-cross-table navigation) still pass
- * UUIDs from `field.config.targetTableId`. Cheap to support both — slugs
- * and UUIDs are length-distinguishable so no DB round-trip is wasted.
- */
-export const getByIdOrShortId = async (idOrSlug: string): Promise<Base | null> => {
-  if (idOrSlug.length === 36 && idOrSlug.includes("-")) {
-    return get(idOrSlug);
-  }
-  return getByShortId(idOrSlug);
 };
 
 export const create = async (input: CreateBaseInput, actorId: string | null): Promise<Result<Base>> => {

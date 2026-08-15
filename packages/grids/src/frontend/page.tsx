@@ -1,10 +1,11 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { currentActorUser } from "../api/permissions";
+import { toPublicBases } from "../api/public-dto";
 import { ssr } from "../config";
 import { gridsService } from "../service";
 import BasesOverview from "./_components/overview/BasesOverview.island";
-import { parseLastGridsPath } from "./_components/sidebar/GridsSettingsStore";
+import { recentBasePath } from "./recent-base-path";
 
 /**
  * Bases list page — shows every base the user has access to.
@@ -38,22 +39,17 @@ export default ssr<AuthContext>(async (c) => {
   });
 
   if (url.searchParams.get("recent") === "true" && visible.items.length > 0) {
-    const lastPath = parseLastGridsPath(c.req.header("Cookie"));
-    if (lastPath) {
-      const lastUrl = new URL(lastPath, "http://grids.local");
-      const baseSegment = lastUrl.pathname.split("/")[3] ?? "";
-      if (visible.items.some((base) => base.id === baseSegment || base.shortId === baseSegment)) {
-        return c.redirect(`${lastUrl.pathname}${lastUrl.search}`, 302);
-      }
-    }
+    const lastPath = recentBasePath(c.req.header("Cookie"), visible.items);
+    if (lastPath) return c.redirect(lastPath, 302);
   }
 
   const templates = gridsService.template.list();
+  const publicBases = await toPublicBases(visible.items);
 
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Grids" }]}>
       <BasesOverview
-        bases={visible.items}
+        bases={publicBases}
         total={visible.total}
         limit={limit}
         offset={offset}

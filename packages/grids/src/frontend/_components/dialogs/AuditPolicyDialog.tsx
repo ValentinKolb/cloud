@@ -1,7 +1,9 @@
 import {
+  Button,
   CheckboxCard,
   CopyButton,
   dialogCore,
+  IconButton,
   MultiSelectInput,
   PanelDialog,
   panelDialogOptions,
@@ -9,10 +11,9 @@ import {
   Select,
   TextInput,
   Tooltip,
-  Button,
-  IconButton,
 } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
+import type { PublicField as Field } from "../../../api/public-dto";
 import {
   type AuditQuestion,
   AuditQuestionSchema,
@@ -21,7 +22,6 @@ import {
   type TableAuditPolicy,
   TableAuditPolicySchema,
 } from "../../../contracts";
-import type { Field } from "../../../service";
 
 type Operation = "delete" | "restore" | "update";
 

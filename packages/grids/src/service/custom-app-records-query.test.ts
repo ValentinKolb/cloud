@@ -7,6 +7,7 @@ const uuid = (suffix: number) => `00000000-0000-4000-8000-${String(suffix).padSt
 
 const record = (id: string, data: Record<string, unknown>): GridRecord => ({
   id,
+  shortId: "REC001",
   tableId: uuid(1),
   data,
   version: 1,

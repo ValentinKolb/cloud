@@ -1,8 +1,8 @@
 import type { DateContext } from "@k2b/stdlib";
 import { MarkdownView, ProgressBar } from "@k2b/ui";
 import { createMemo, For, type JSX, Show } from "solid-js";
+import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import type { FormatSpec } from "../../../contracts";
-import type { Field, GridRecord } from "../../../service";
 import { BarcodeDisplay } from "./BarcodeCell";
 import { type FieldDisplayIntent, type RelationDisplayItem, relationIds, resolveFieldDisplay } from "./field-display";
 import { RecordLink } from "./RecordLink";
@@ -16,7 +16,6 @@ type FieldValueProps = {
   record?: GridRecord;
   allFields?: Field[];
   baseId?: string;
-  tableShortIds?: Record<string, string>;
   fieldsByTable?: Record<string, Field[]>;
   relationLabels?: Record<string, string>;
   dateConfig?: DateContext;
@@ -59,7 +58,6 @@ function RelationValue(
               <RecordLink
                 label={item.label}
                 targetTableId={props.targetTableId}
-                targetTableShortId={props.targetTableId ? props.tableShortIds?.[props.targetTableId] : undefined}
                 targetRecordId={item.id}
                 baseId={props.baseId}
                 comma={index() < props.items.length - 1}
@@ -136,19 +134,11 @@ export function FieldValue(props: FieldValueProps) {
     const target = lookupTarget(props);
     if (!target?.targetTableId || !props.baseId) return value;
     if (typeof value === "string") {
-      return (
-        <RecordLink
-          label={value}
-          targetTableId={target.targetTableId}
-          targetTableShortId={props.tableShortIds?.[target.targetTableId]}
-          targetRecordId={target.targetId}
-          baseId={props.baseId}
-        />
-      );
+      return <RecordLink label={value} targetTableId={target.targetTableId} targetRecordId={target.targetId} baseId={props.baseId} />;
     }
     return (
       <a
-        href={`/app/grids/${props.baseId}/table/${props.tableShortIds?.[target.targetTableId] ?? target.targetTableId}?record=${target.targetId}`}
+        href={`/app/grids/${props.baseId}/table/${target.targetTableId}?record=${target.targetId}`}
         class="inline-flex items-baseline gap-1 hover:underline"
         onClick={(event) => event.stopPropagation()}
       >

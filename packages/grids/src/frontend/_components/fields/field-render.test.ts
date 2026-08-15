@@ -3,7 +3,7 @@ import type { Field } from "../../../service";
 import { initialFieldInputValue, isRecordInputField, sanitizeFieldValues } from "./field-render";
 
 const field = (patch: Partial<Field> & Pick<Field, "id" | "type">): Field => ({
-  shortId: patch.id.slice(0, 5),
+  shortId: patch.id.slice(0, 6),
   tableId: "table",
   name: patch.id,
   description: null,

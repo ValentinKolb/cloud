@@ -1,7 +1,7 @@
 import { Button, IconButton, Select } from "@k2b/ui";
 import { createMemo, Index } from "solid-js";
+import type { PublicField as Field } from "../../../api/public-dto";
 import type { RecordMetaSortKey, RecordQuery } from "../../../contracts";
-import type { Field } from "../../../service";
 import { fieldOption } from "../fields/field-type-meta";
 
 export type SortRow = NonNullable<RecordQuery["sort"]>[number];

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { DslQueryPreviewResponse } from "../../../contracts";
-import type { Field, Table, View } from "../../../service";
+import type { PublicDslQueryPreviewResponse } from "../../../api/gql-public";
+import type { PublicField as Field, PublicTable as Table, PublicView as View } from "../../../api/public-dto";
 import {
   currentSourceForApi,
   previewSummary,
@@ -13,7 +13,6 @@ import {
 
 const table = (id: string, deletedAt: string | null = null): Table => ({
   id,
-  shortId: id,
   baseId: "base",
   kind: "stored",
   name: id,
@@ -31,7 +30,6 @@ const table = (id: string, deletedAt: string | null = null): Table => ({
 
 const field = (id: string, tableId: string, deletedAt: string | null = null): Field => ({
   id,
-  shortId: id,
   tableId,
   name: id,
   description: null,
@@ -52,7 +50,6 @@ const field = (id: string, tableId: string, deletedAt: string | null = null): Fi
 
 const view = (id: string, tableId: string, deletedAt: string | null = null): View => ({
   id,
-  shortId: id,
   tableId,
   name: id,
   description: null,
@@ -96,7 +93,7 @@ describe("query workspace model", () => {
       diagnostics: 2,
     });
 
-    const ready: DslQueryPreviewResponse = {
+    const ready: PublicDslQueryPreviewResponse = {
       ok: true,
       mode: "groups",
       columns: [{ key: "total", label: "Total", type: "number", sqlType: "number" }],

@@ -1,5 +1,6 @@
-import { arg, command, confirmFlag, flag, printStructured } from "@valentinkolb/cloud/cli";
-import type { DslQueryAutocompleteResponse, DslQueryCompileViewResponse, DslQueryExecuteResponse, View } from "../contracts";
+import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
+import type { PublicView as View } from "../api/public-dto";
+import type { DslQueryAutocompleteResponse, DslQueryCompileViewResponse, DslQueryExecuteResponse } from "../contracts";
 import { customAppContextKeys } from "../custom-apps/context-keys";
 import { GRID_FORMULA_FUNCTIONS } from "../formula/function-catalog";
 import { resolveCustomApp } from "./custom-apps";
@@ -20,6 +21,7 @@ import {
   jsonRequest,
   type MessageResponse,
   printAutocomplete,
+  printCliStructured,
   printJsonOrMessage,
   printJsonOrTable,
   printReference,
@@ -98,7 +100,12 @@ export const gqlCommands = [
       const body = {
         query: await readGql(flags.query),
         ...(table ? { currentTableId: table.id, currentSource: { kind: "table", tableId: table.id } } : {}),
-        ...(view ? { currentTableId: view.tableId, currentSource: { kind: "view", viewId: view.id } } : {}),
+        ...(view
+          ? {
+              currentTableId: table ? table.id : view.tableId,
+              currentSource: { kind: "view", viewId: view.id },
+            }
+          : {}),
       };
       const execute = (cursor: string | undefined, pageSize: number) =>
         readApi<DslQueryExecuteResponse>(
@@ -133,7 +140,12 @@ export const gqlCommands = [
         query: await readGql(flags.query),
         ...(flags.limit !== undefined ? { limit: flags.limit } : {}),
         ...(table ? { currentTableId: table.id, currentSource: { kind: "table", tableId: table.id } } : {}),
-        ...(view ? { currentTableId: view.tableId, currentSource: { kind: "view", viewId: view.id } } : {}),
+        ...(view
+          ? {
+              currentTableId: table ? table.id : view.tableId,
+              currentSource: { kind: "view", viewId: view.id },
+            }
+          : {}),
       };
       return printGqlResult(
         ctx,
@@ -152,7 +164,12 @@ export const gqlCommands = [
       const body = {
         query: await readGql(flags.query),
         ...(table ? { currentTableId: table.id, currentSource: { kind: "table", tableId: table.id } } : {}),
-        ...(view ? { currentTableId: view.tableId, currentSource: { kind: "view", viewId: view.id } } : {}),
+        ...(view
+          ? {
+              currentTableId: table ? table.id : view.tableId,
+              currentSource: { kind: "view", viewId: view.id },
+            }
+          : {}),
       };
       const payload = await readApi<DslQueryCompileViewResponse>(
         ctx,
@@ -178,7 +195,7 @@ export const gqlCommands = [
       ...baseFlag,
       ...tableFlag,
       ...viewFlag,
-      app: flag.string({ description: "App UUID, short id, or exact name for page-context suggestions" }),
+      app: flag.string({ description: "App public id or exact name for page-context suggestions" }),
       page: flag.string({ description: "App page ID or exact title for page-context suggestions" }),
       query: GQL_INPUT,
       caret: flag.int({ min: 0, max: 20_000, description: "UTF-16 caret offset" }),
@@ -205,7 +222,12 @@ export const gqlCommands = [
         query: await readGql(flags.query),
         ...(flags.caret !== undefined ? { caret: flags.caret } : {}),
         ...(table ? { currentTableId: table.id, currentSource: { kind: "table", tableId: table.id } } : {}),
-        ...(view ? { currentTableId: view.tableId, currentSource: { kind: "view", viewId: view.id } } : {}),
+        ...(view
+          ? {
+              currentTableId: table ? table.id : view.tableId,
+              currentSource: { kind: "view", viewId: view.id },
+            }
+          : {}),
         ...(contextKeys ? { contextKeys } : {}),
       };
       printAutocomplete(
@@ -269,7 +291,7 @@ export const formulaCommands = [
       ...baseFlag,
       ...tableFlag,
       expression: FORMULA_INPUT,
-      currentField: flag.string({ name: "current-field", description: "Current formula field id, short id, or exact name" }),
+      currentField: flag.string({ name: "current-field", description: "Current formula field public id or exact name" }),
     },
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
@@ -279,7 +301,7 @@ export const formulaCommands = [
       const payload = await readApi<FormulaPreviewResponse>(
         ctx,
         `/formulas/by-table/${encodeURIComponent(table.id)}/check`,
-        jsonRequest("POST", applyDefined({ expression }, { currentFieldId: currentField?.id })),
+        jsonRequest("POST", applyDefined({ expression }, { currentFieldId: currentField ? currentField.id : undefined })),
       );
       if (ctx.options.output === "json") {
         ctx.json(payload);
@@ -315,7 +337,7 @@ export const viewCommands = [
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const views = await listViews(ctx, table.id);
       printJsonOrTable(ctx, views, viewRows(views), [
-        { key: "shortId", label: "SHORT" },
+        { key: "id", label: "ID" },
         { key: "name", label: "NAME" },
         { key: "scope", label: "SCOPE" },
         { key: "updatedAt", label: "UPDATED" },
@@ -338,8 +360,8 @@ export const viewCommands = [
         ? await resolveOptionalView(ctx, table, flags.view)
         : await resolveOptionalView(ctx, table, table ? rest[1] : rest[0]);
       if (!view) throw new Error("Missing view.");
-      if (!printStructured(ctx, view)) {
-        ctx.print(`${view.name} (${view.shortId})`);
+      if (!printCliStructured(ctx, view)) {
+        ctx.print(`${view.name} (${view.id})`);
         ctx.print(`scope: ${view.ownerUserId ? "personal" : "shared"}`);
         ctx.print(`id: ${view.id}`);
         ctx.print("");
@@ -373,7 +395,7 @@ export const viewCommands = [
       });
       if (!body.name) throw new Error("Missing view name. Pass --name or --body JSON.");
       const view = await readApi<View>(ctx, `/views/by-table/${encodeURIComponent(table.id)}`, jsonRequest("POST", body));
-      printJsonOrMessage(ctx, view, `Created view ${view.name} (${view.shortId}).`);
+      printJsonOrMessage(ctx, view, `Created view ${view.name} (${view.id}).`);
     },
   }),
   command("views update", {
@@ -409,7 +431,7 @@ export const viewCommands = [
         shared: flags.shared ? true : flags.personal ? false : undefined,
       });
       const updated = await readApi<View>(ctx, `/views/${encodeURIComponent(view.id)}`, jsonRequest("PATCH", body));
-      printJsonOrMessage(ctx, updated, `Updated view ${updated.name} (${updated.shortId}).`);
+      printJsonOrMessage(ctx, updated, `Updated view ${updated.name} (${updated.id}).`);
     },
   }),
   command("views delete", {
@@ -429,15 +451,15 @@ export const viewCommands = [
         : await resolveOptionalView(ctx, table, table ? rest[1] : rest[0]);
       if (!view) throw new Error("Missing view.");
       await readApi<MessageResponse>(ctx, `/views/${encodeURIComponent(view.id)}`, jsonRequest("DELETE"));
-      printJsonOrMessage(ctx, { deleted: view.id }, `Deleted view ${view.name} (${view.shortId}).`);
+      printJsonOrMessage(ctx, { deleted: view.id }, `Deleted view ${view.name} (${view.id}).`);
     },
   }),
   command("views restore", {
-    summary: "Restore a deleted view by UUID",
-    args: { view: arg.required({ description: "View UUID" }) },
+    summary: "Restore a deleted view by public id",
+    args: { view: arg.required({ description: "View public id" }) },
     async run({ ctx, args }) {
       const view = await readApi<View>(ctx, `/views/${encodeURIComponent(args.view)}/restore`, jsonRequest("POST"));
-      printJsonOrMessage(ctx, view, `Restored view ${view.name} (${view.shortId}).`);
+      printJsonOrMessage(ctx, view, `Restored view ${view.name} (${view.id}).`);
     },
   }),
 ];

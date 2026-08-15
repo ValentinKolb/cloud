@@ -55,7 +55,7 @@ const form = {
 
 describe("loadGridsWorkspaceState — Base access boundary", () => {
   beforeEach(() => {
-    spyOn(gridsService.base, "getByIdOrShortId").mockImplementation(async () => base as never);
+    spyOn(gridsService.base, "getByShortId").mockImplementation(async () => base as never);
     spyOn(gridsService.base, "catalog").mockImplementation(
       async () =>
         ({
@@ -71,8 +71,8 @@ describe("loadGridsWorkspaceState — Base access boundary", () => {
     );
     spyOn(gridsService.permission, "loadBaseGrantsForSubject").mockImplementation(async () => []);
     spyOn(gridsService.permission, "resolve").mockImplementation(() => "none");
-    spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(async () => null);
-    spyOn(gridsService.view, "getByIdOrShortId").mockImplementation(async () => null);
+    spyOn(gridsService.table, "getByShortIdForBase").mockImplementation(async () => null);
+    spyOn(gridsService.view, "getByShortIdForTable").mockImplementation(async () => null);
     spyOn(gridsService.workflow, "listForBase").mockImplementation(async () => []);
     spyOn(gridsService.workflow.launcher, "listForBase").mockImplementation(async () => []);
   });
@@ -166,7 +166,7 @@ describe("loadGridsWorkspaceState — Base access boundary", () => {
   });
 
   test("does not resolve a hidden table through an unreadable view slug", async () => {
-    spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(async () => formTable as never);
+    spyOn(gridsService.table, "getByShortIdForBase").mockImplementation(async () => formTable as never);
     const listRecords = spyOn(gridsService.record, "list");
     const getRecord = spyOn(gridsService.record, "get");
 

@@ -2,14 +2,14 @@ import { timed } from "@k2b/stdlib/solid";
 import { AutocompleteEditor, Button, DataTable, type DataTableColumn, NoticeCard } from "@k2b/ui";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { Field } from "../../../service";
+import type { PublicField as Field } from "../../../api/public-dto";
 import { errorMessage } from "../utils/api-helpers";
 import { buildFormulaCompletions, formulaFieldRefs, formulaFieldToken, formulaHighlight } from "./formula-authoring";
 
 type FormulaPreviewResponse = {
   ok: boolean;
   diagnostics: { severity: "error" | "info"; message: string }[];
-  fields: { id: string; shortId: string; name: string; type: string }[];
+  fields: { id: string; name: string; type: string }[];
   rows: { recordId: string; values: Record<string, unknown>; result: unknown }[];
 };
 
@@ -20,8 +20,8 @@ const previewValue = (value: unknown): string => {
   return JSON.stringify(value);
 };
 
-const formulaReferenceHref = (args: { baseShortId?: string; tableShortId?: string; currentFieldId?: string }) => {
-  if (!args.baseShortId || !args.tableShortId) return null;
+const formulaReferenceHref = (args: { baseId?: string; tableId?: string; currentFieldId?: string }) => {
+  if (!args.baseId || !args.tableId) return null;
   const params = args.currentFieldId ? `?field=${encodeURIComponent(args.currentFieldId)}` : "";
   return `/app/grids/help/grids-formulas${params}`;
 };
@@ -116,16 +116,16 @@ export function FormulaExpressionEditor(props: {
   fields: Field[];
   currentTableId: string;
   currentFieldId?: string;
-  baseShortId?: string;
-  tableShortId?: string;
+  baseId?: string;
+  tableId?: string;
   ariaLabel?: string;
 }) {
   const refs = () => formulaFieldRefs(props.fields, props.currentFieldId);
   const completions = () => buildFormulaCompletions(refs());
   const referenceHref = () =>
     formulaReferenceHref({
-      baseShortId: props.baseShortId,
-      tableShortId: props.tableShortId,
+      baseId: props.baseId,
+      tableId: props.tableId,
       currentFieldId: props.currentFieldId,
     });
 

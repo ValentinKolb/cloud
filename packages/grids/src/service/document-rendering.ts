@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { type DateContext, err, fail, ok, type Result } from "@k2b/stdlib";
 import {
   coreSettings,
   type GotenbergConfig,
@@ -7,8 +8,7 @@ import {
   type TemplatePdfPreviewResult,
 } from "@valentinkolb/cloud/services";
 import { CLOUD_LOGO_SVG } from "@valentinkolb/cloud/shared";
-import { type DateContext, err, fail, ok, type Result } from "@k2b/stdlib";
-import type { DocumentProfile, DocumentRun, DocumentTemplate, RecordSnapshot } from "../contracts";
+import type { DocumentProfile, DocumentRun, DocumentTemplate } from "../contracts";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { previewDslQuery } from "../query-dsl/preview";
 import { resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
@@ -23,7 +23,7 @@ import {
   templatePatternContext,
 } from "./document-liquid";
 import { normalizeDocumentTags, safePdfFilename } from "./document-run-values";
-import type { SnapshotRecord } from "./document-snapshots";
+import type { RecordSnapshotDraft, SnapshotRecord } from "./document-snapshots";
 import { listByTable as listFields } from "./fields";
 import { getContent as getFileContent, listForRecordField } from "./files";
 import { buildTrustedGqlResolverContext } from "./gql-resolver-context";
@@ -321,7 +321,7 @@ export const buildRenderData = (params: {
   columns: unknown[];
   rows: unknown[];
   template?: Partial<Pick<DocumentTemplate, "id" | "shortId" | "name">> | null;
-  run?: { id?: string | null; shortId?: string | null } | null;
+  run?: { id?: string | null } | null;
   images?: DocumentTemplateImage[];
   primaryImage?: DocumentTemplateImage | null;
   recordMeta?: DocumentTemplateRecordMeta;
@@ -330,7 +330,7 @@ export const buildRenderData = (params: {
   documentNumber?: string;
   generatedAt?: string;
   dateConfig?: DateContext;
-  snapshot?: RecordSnapshot;
+  snapshot?: RecordSnapshotDraft;
 }): Record<string, unknown> => ({
   record: recordContextWithMeta(params.record, params.recordMeta),
   table: params.table,
@@ -341,7 +341,7 @@ export const buildRenderData = (params: {
   rows: params.rows,
   columns: params.columns,
   template: templatePatternContext(params.template),
-  run: runPatternContext(params.run?.id ?? null, params.run?.shortId ?? null),
+  run: runPatternContext(params.run?.id ?? null),
   date: datePatternContext(params.generatedAt ? new Date(params.generatedAt) : new Date(), params.dateConfig),
   images: params.images ?? [],
   primaryImage: params.primaryImage ?? params.images?.[0] ?? null,
@@ -499,7 +499,6 @@ export const renderDocumentPdfPreview = async (
 export const buildDocumentRunRenderData = async (params: {
   template: Partial<Pick<DocumentTemplate, "id" | "shortId" | "name" | "numberTemplate" | "filenameTemplate">>;
   renderData: Record<string, unknown>;
-  runId: string;
   runShortId: string;
   generatedAt?: Date;
   dateConfig?: DateContext;
@@ -509,7 +508,6 @@ export const buildDocumentRunRenderData = async (params: {
   const generatedAt = params.generatedAt ?? new Date();
   const documentNumber = documentNumberFor({
     template: params.template,
-    runId: params.runId,
     runShortId: params.runShortId,
     generatedAt,
     dateConfig: params.dateConfig,
@@ -521,7 +519,7 @@ export const buildDocumentRunRenderData = async (params: {
   const renderDataBase = {
     ...params.renderData,
     template: templatePatternContext(params.template),
-    run: runPatternContext(params.runId, params.runShortId),
+    run: runPatternContext(params.runShortId),
     date: datePatternContext(generatedAt, params.dateConfig),
     document: {
       ...((typeof params.renderData.document === "object" && params.renderData.document !== null

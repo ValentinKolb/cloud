@@ -2,14 +2,16 @@ import { mutation as mutations, timed } from "@k2b/stdlib/solid";
 import { Button, CheckboxCard, dialogCore, PanelDialog, Placeholder, panelDialogOptions, prompts, Select, TextInput } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { FederatedDiagnostic, FederatedRevisionView, FederatedSourceCandidate, FederatedTableConfig, Field } from "../../../contracts";
+import type { PublicFederatedRevisionView, PublicFederatedSourceCandidate, PublicField } from "../../../api/public-dto";
 import { errorMessage } from "../utils/api-helpers";
 
-type MappingDraft = FederatedRevisionView["mappings"][number];
+type MappingDraft = PublicFederatedRevisionView["mappings"][number];
+type FederatedDiagnostic = PublicFederatedRevisionView["diagnostics"][number];
+type PublicFederatedTableConfig = { current: PublicFederatedRevisionView | null; draft: PublicFederatedRevisionView };
 type SelectOption = { id: string; label: string };
 const MAX_SOURCES = 50;
 
-const selectOptions = (field: Field | undefined): SelectOption[] => {
+const selectOptions = (field: PublicField | undefined): SelectOption[] => {
   if (!field || field.type !== "select") return [];
   const options = (field.config as { options?: unknown }).options;
   if (!Array.isArray(options)) return [];
@@ -20,20 +22,18 @@ const selectOptions = (field: Field | undefined): SelectOption[] => {
   });
 };
 
-export const openFederatedTableDialog = (args: { tableId: string; tableName: string; targetFields: Field[] }) =>
+export const openFederatedTableDialog = (args: { tableId: string; tableName: string; targetFields: PublicField[] }) =>
   dialogCore.open<void>((close) => <FederatedTableDialog {...args} close={close} />, panelDialogOptions);
 
-function FederatedTableDialog(props: { tableId: string; tableName: string; targetFields: Field[]; close: () => void }) {
-  const [config, setConfig] = createSignal<FederatedTableConfig | null>(null);
-  const [candidates, setCandidates] = createSignal<FederatedSourceCandidate[]>([]);
-  const [candidateCache, setCandidateCache] = createSignal<Record<string, FederatedSourceCandidate>>({});
+function FederatedTableDialog(props: { tableId: string; tableName: string; targetFields: PublicField[]; close: () => void }) {
+  const [config, setConfig] = createSignal<PublicFederatedTableConfig | null>(null);
+  const [candidates, setCandidates] = createSignal<PublicFederatedSourceCandidate[]>([]);
+  const [candidateCache, setCandidateCache] = createSignal<Record<string, PublicFederatedSourceCandidate>>({});
   const [candidateQuery, setCandidateQuery] = createSignal("");
   const [candidateTotal, setCandidateTotal] = createSignal(0);
   const [candidateLoading, setCandidateLoading] = createSignal(false);
-  const [sourceFields, setSourceFields] = createSignal<Record<string, Field[]>>({});
+  const [sourceFields, setSourceFields] = createSignal<Record<string, PublicField[]>>({});
   const [selectedSources, setSelectedSources] = createSignal<string[]>([]);
-  const [opaqueSourceIds, setOpaqueSourceIds] = createSignal<string[]>([]);
-  const [retainedSourceIds, setRetainedSourceIds] = createSignal<string[]>([]);
   const [mappingSourceId, setMappingSourceId] = createSignal("");
   const [mappings, setMappings] = createSignal<MappingDraft[]>([]);
   const [validationDiagnostics, setValidationDiagnostics] = createSignal<FederatedDiagnostic[]>([]);
@@ -49,7 +49,7 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
   );
   const mappingTable = createMemo(() => selectedTables().find((table) => table.id === mappingSourceId()) ?? selectedTables()[0]);
   const candidateGroups = createMemo(() => {
-    const groups = new Map<string, { base: FederatedSourceCandidate["base"]; items: FederatedSourceCandidate[] }>();
+    const groups = new Map<string, { base: PublicFederatedSourceCandidate["base"]; items: PublicFederatedSourceCandidate[] }>();
     for (const candidate of candidates()) {
       const group = groups.get(candidate.base.id) ?? { base: candidate.base, items: [] };
       group.items.push(candidate);
@@ -60,6 +60,7 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
   const canonicalFields = createMemo(() =>
     props.targetFields.filter((field) => !field.deletedAt && !["formula", "lookup", "rollup"].includes(field.type)),
   );
+  const hiddenSourceCount = createMemo(() => config()?.draft.sources.filter((source) => source.sourceTableId === null).length ?? 0);
 
   const loadFields = async (tableId: string) => {
     if (sourceFields()[tableId]) return;
@@ -119,12 +120,9 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
       if (!configResponse.ok) throw new Error(await errorMessage(configResponse, "Could not load combined table configuration"));
       const nextConfig = await configResponse.json();
       const sourceIds = nextConfig.draft.sources.flatMap((source) => (source.sourceTableId ? [source.sourceTableId] : []));
-      const retainedIds = nextConfig.draft.sources.flatMap((source) => (source.sourceTableId ? [] : [source.id]));
       setConfig(nextConfig);
       setSelectedSources(sourceIds);
       setMappingSourceId(sourceIds[0] ?? "");
-      setOpaqueSourceIds(retainedIds);
-      setRetainedSourceIds(retainedIds);
       setMappings(nextConfig.draft.mappings);
       setValidationDiagnostics(nextConfig.draft.diagnostics);
       await loadCandidates({ reset: true, query: candidateQuery() });
@@ -137,15 +135,11 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
     }
   };
 
-  const toggleRetainedSources = (enabled: boolean) => {
-    setRetainedSourceIds(enabled ? opaqueSourceIds() : []);
-    setValidationDiagnostics([]);
-  };
   onMount(() => void load());
 
   const toggleSource = async (tableId: string, enabled: boolean) => {
     if (enabled) {
-      if (selectedSources().length + retainedSourceIds().length >= MAX_SOURCES) {
+      if (selectedSources().length + hiddenSourceCount() >= MAX_SOURCES) {
         prompts.error(`Combined tables support at most ${MAX_SOURCES} source tables.`);
         return;
       }
@@ -198,18 +192,17 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
     );
   };
 
-  const compatibleOptions = (sourceTableId: string, target: Field) =>
+  const compatibleOptions = (sourceTableId: string, target: PublicField) =>
     (sourceFields()[sourceTableId] ?? [])
       .filter((field) => !field.deletedAt && (field.type === target.type || ["formula", "lookup", "rollup"].includes(field.type)))
       .map((field) => ({ id: field.id, label: `${field.name} · ${field.type}`, icon: "ti ti-columns" }));
 
   const draftInput = () => ({
     sourceTableIds: selectedSources(),
-    retainedSourceIds: retainedSourceIds(),
     mappings: mappings(),
   });
 
-  const saveDraft = async (): Promise<FederatedRevisionView> => {
+  const saveDraft = async (): Promise<PublicFederatedRevisionView> => {
     const draftToken = config()?.draft.revisionToken;
     if (!draftToken) throw new Error("Combined table configuration is not loaded.");
     const response = await apiClient.tables[":tableId"].federation.draft.$put({
@@ -239,12 +232,12 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
     onError: (error) => prompts.error(error.message),
   });
 
-  const saveMutation = mutations.create<FederatedRevisionView, void>({
+  const saveMutation = mutations.create<PublicFederatedRevisionView, void>({
     mutation: saveDraft,
     onSuccess: () => prompts.success("Combined table draft saved."),
     onError: (error) => prompts.error(error.message),
   });
-  const publishMutation = mutations.create<FederatedRevisionView, void>({
+  const publishMutation = mutations.create<PublicFederatedRevisionView, void>({
     mutation: async () => {
       await saveDraft();
       const response = await apiClient.tables[":tableId"].federation.publish.$post({ param: { tableId: props.tableId } });
@@ -341,15 +334,13 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
                 </Button>
               </Show>
             </Show>
-            <Show when={opaqueSourceIds().length > 0}>
-              <CheckboxCard
-                label={`Retain ${opaqueSourceIds().length} inaccessible published source${opaqueSourceIds().length === 1 ? "" : "s"}`}
-                description="Their physical schema stays private. Clear this option to remove all of them from the next publication."
-                icon="ti ti-lock"
-                variant="input"
-                value={() => retainedSourceIds().length > 0}
-                onValueChange={toggleRetainedSources}
-              />
+            <Show when={hiddenSourceCount() > 0}>
+              <div class="paper flex items-start gap-2 p-3 text-sm text-secondary">
+                <i class="ti ti-lock mt-0.5" aria-hidden="true" />
+                <span>
+                  {hiddenSourceCount()} inaccessible published source{hiddenSourceCount() === 1 ? " is" : "s are"} retained automatically.
+                </span>
+              </div>
             </Show>
           </PanelDialog.Section>
 
@@ -365,8 +356,8 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
                   icon="ti ti-columns"
                   title="No editable mappings"
                   description={
-                    retainedSourceIds().length > 0
-                      ? "Existing inaccessible publications can be retained or removed, but their physical schema stays private."
+                    hiddenSourceCount() > 0
+                      ? "Existing inaccessible publications are retained automatically, but their physical schema stays private."
                       : "Add a source and canonical fields first."
                   }
                 />
@@ -489,7 +480,7 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
             variant="secondary"
             size="sm"
             type="button"
-            disabled={validateMutation.loading() || selectedSources().length + retainedSourceIds().length === 0}
+            disabled={validateMutation.loading() || selectedSources().length + hiddenSourceCount() === 0}
             onClick={() => validateMutation.mutate(undefined)}
           >
             {validateMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-checkup-list" />} Validate
@@ -507,7 +498,7 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
             variant="primary"
             size="sm"
             type="button"
-            disabled={publishMutation.loading() || selectedSources().length + retainedSourceIds().length === 0}
+            disabled={publishMutation.loading() || selectedSources().length + hiddenSourceCount() === 0}
             onClick={() => publishMutation.mutate(undefined)}
           >
             {publishMutation.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-cloud-upload" />} Publish

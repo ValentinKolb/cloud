@@ -15,6 +15,7 @@ import { compileCustomAppQuery } from "../service/custom-app-query";
 import { executePublishedCustomAppQuery } from "../service/custom-app-runtime-query";
 import { apply, getPublishedByShortId, publish } from "../service/custom-apps";
 import { parseJsonbRow } from "../service/jsonb";
+import { resolvePublicId } from "../service/public-resources";
 import type { CustomAppLauncherInvocation, ScannerLauncherInvocation } from "../service/workflow-launcher-invocations";
 import type { GridsWorkflowAuthorization, GridsWorkflowRunScope } from "../service/workflow-runs";
 import type { GridsWorkflowPrincipal, GridsWorkflowRun } from "../workflows/contracts";
@@ -94,30 +95,42 @@ describe("Grids App Form runtime", () => {
       const viewId = testUuid();
       const documentTemplateId = testUuid();
       const otherDocumentTemplateId = testUuid();
-      const appId = testUuid();
       const launcherId = testUuid();
       const workflowId = testUuid();
+      const basePublicId = testShortId("B");
+      const tablePublicId = testShortId("T");
+      const fieldPublicId = testShortId("F");
+      const hiddenFieldPublicId = testShortId("H");
+      const suppliedFieldPublicId = testShortId("S");
+      const imageFieldPublicId = testShortId("I");
+      const formPublicId = testShortId("M");
+      const viewPublicId = testShortId("V");
+      const documentTemplatePublicId = testShortId("D");
+      const otherDocumentTemplatePublicId = testShortId("E");
+      const appPublicId = testShortId("A");
+      const launcherPublicId = testShortId("L");
+      const workflowPublicId = testShortId("W");
       const [authUser] = await sql<Array<{ id: string }>>`SELECT id::text FROM auth.users ORDER BY id LIMIT 1`;
       if (!authUser) throw new Error("Grids App API integration test needs one auth user");
       const accessIds: string[] = [];
       try {
-        await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${testShortId("B")}, 'Grids App API')`;
+        await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${basePublicId}, 'Grids App API')`;
         await sql`
         INSERT INTO grids.tables (id, short_id, base_id, name)
-        VALUES (${tableId}::uuid, ${testShortId("T")}, ${baseId}::uuid, 'Requests')
+        VALUES (${tableId}::uuid, ${tablePublicId}, ${baseId}::uuid, 'Requests')
       `;
         await sql`
         INSERT INTO grids.fields (id, short_id, table_id, name, type, config, required, default_value, position) VALUES
-          (${fieldId}::uuid, ${testShortId("F")}, ${tableId}::uuid, 'Subject', 'text', '{}'::jsonb, TRUE, NULL, 0),
-          (${hiddenFieldId}::uuid, ${testShortId("H")}, ${tableId}::uuid, 'Internal source', 'text', '{}'::jsonb, FALSE, NULL, 1),
-          (${suppliedFieldId}::uuid, ${testShortId("S")}, ${tableId}::uuid, 'Channel', 'text', '{}'::jsonb, FALSE, ${JSON.stringify("Web default")}::jsonb, 2),
-          (${imageFieldId}::uuid, ${testShortId("I")}, ${tableId}::uuid, 'Preview', 'file', '{}'::jsonb, FALSE, NULL, 3)
+          (${fieldId}::uuid, ${fieldPublicId}, ${tableId}::uuid, 'Subject', 'text', '{}'::jsonb, TRUE, NULL, 0),
+          (${hiddenFieldId}::uuid, ${hiddenFieldPublicId}, ${tableId}::uuid, 'Internal source', 'text', '{}'::jsonb, FALSE, NULL, 1),
+          (${suppliedFieldId}::uuid, ${suppliedFieldPublicId}, ${tableId}::uuid, 'Channel', 'text', '{}'::jsonb, FALSE, ${JSON.stringify("Web default")}::jsonb, 2),
+          (${imageFieldId}::uuid, ${imageFieldPublicId}, ${tableId}::uuid, 'Preview', 'file', '{}'::jsonb, FALSE, NULL, 3)
       `;
         await sql`
         INSERT INTO grids.views (id, short_id, table_id, name, source, ui)
         VALUES (
           ${viewId}::uuid,
-          ${testShortId("V")},
+          ${viewPublicId},
           ${tableId}::uuid,
           'Request search',
           ${`from table {${tableId}}\nselect {${fieldId}}`},
@@ -128,7 +141,7 @@ describe("Grids App Form runtime", () => {
         INSERT INTO grids.forms (id, short_id, table_id, name, config, is_active, position)
         VALUES (
           ${formId}::uuid,
-          ${testShortId("M")},
+          ${formPublicId},
           ${tableId}::uuid,
           'Apply',
           ${{
@@ -144,15 +157,34 @@ describe("Grids App Form runtime", () => {
         await sql`
         INSERT INTO grids.document_templates (id, short_id, table_id, name, source, html)
         VALUES
-          (${documentTemplateId}::uuid, ${testShortId("D")}, ${tableId}::uuid, 'Certificate', 'from table Requests', '<p>Certificate</p>'),
-          (${otherDocumentTemplateId}::uuid, ${testShortId("E")}, ${tableId}::uuid, 'Internal certificate', 'from table Requests', '<p>Internal</p>')
+          (${documentTemplateId}::uuid, ${documentTemplatePublicId}, ${tableId}::uuid, 'Certificate', 'from table Requests', '<p>Certificate</p>'),
+          (${otherDocumentTemplateId}::uuid, ${otherDocumentTemplatePublicId}, ${tableId}::uuid, 'Internal certificate', 'from table Requests', '<p>Internal</p>')
       `;
+        await sql`
+          INSERT INTO grids.workflow_profile (id, short_id, base_id, position, owner_user_id, enabled)
+          VALUES (${workflowId}::uuid, ${workflowPublicId}, ${baseId}::uuid, 0, ${authUser.id}::uuid, TRUE)
+        `;
+        await sql`
+          INSERT INTO grids.workflow_launchers (
+            id, short_id, base_id, workflow_id, name, kind, config, enabled, validated_revision
+          ) VALUES (
+            ${launcherId}::uuid,
+            ${launcherPublicId},
+            ${baseId}::uuid,
+            ${workflowId}::uuid,
+            'Approve request',
+            'customApp',
+            ${JSON.stringify({ kind: "customApp", inputSchema: {} })}::jsonb,
+            TRUE,
+            1
+          )
+        `;
 
         const definition: CustomAppDefinition = {
-          schemaVersion: 4,
+          schemaVersion: 5,
           kind: "grids.custom-app",
-          id: appId,
-          baseId,
+          id: appPublicId,
+          baseId: basePublicId,
           name: "Request portal",
           startPageId: "home",
           sidebar: {
@@ -162,8 +194,8 @@ describe("Grids App Form runtime", () => {
                 kind: "form",
                 label: "New request",
                 tone: "success",
-                formId,
-                fixedValues: { [suppliedFieldId]: { source: "LITERAL", value: "Sidebar" } },
+                formId: formPublicId,
+                fixedValues: { [suppliedFieldPublicId]: { source: "LITERAL", value: "Sidebar" } },
                 onSuccessNavigate: {
                   kind: "navigate",
                   pageId: "request",
@@ -189,8 +221,8 @@ describe("Grids App Form runtime", () => {
                         {
                           id: "apply",
                           type: "form",
-                          formId,
-                          fixedValues: { [suppliedFieldId]: { source: "LITERAL", value: "App portal" } },
+                          formId: formPublicId,
+                          fixedValues: { [suppliedFieldPublicId]: { source: "LITERAL", value: "App portal" } },
                           onSuccessNavigate: {
                             kind: "navigate",
                             pageId: "request",
@@ -200,7 +232,7 @@ describe("Grids App Form runtime", () => {
                         {
                           id: "requests",
                           type: "records",
-                          source: { kind: "view", viewId },
+                          source: { kind: "view", viewId: viewPublicId },
                           display: { kind: "cards" },
                           searchable: true,
                           pageSize: 25,
@@ -221,8 +253,8 @@ describe("Grids App Form runtime", () => {
               id: "request",
               title: "Request",
               navigation: { visible: false },
-              parameters: { request_id: { type: "record", tableId, required: true } },
-              record: { tableId, id: { source: "PARAMS", path: "request_id" } },
+              parameters: { request_id: { type: "record", tableId: tablePublicId, required: true } },
+              record: { tableId: tablePublicId, id: { source: "PARAMS", path: "request_id" } },
               rows: [
                 {
                   id: "main",
@@ -234,9 +266,9 @@ describe("Grids App Form runtime", () => {
                         {
                           id: "record",
                           type: "record",
-                          fieldIds: [fieldId, imageFieldId],
-                          editableFieldIds: [fieldId, imageFieldId],
-                          documents: { templateIds: [documentTemplateId] },
+                          fieldIds: [fieldPublicId, imageFieldPublicId],
+                          editableFieldIds: [fieldPublicId, imageFieldPublicId],
+                          documents: { templateIds: [documentTemplatePublicId] },
                         },
                         { id: "discussion", type: "comments" },
                       ],
@@ -250,6 +282,7 @@ describe("Grids App Form runtime", () => {
         const applied = await apply(definition);
         expect(applied.ok).toBe(true);
         if (!applied.ok) throw new Error(applied.error.message);
+        const appId = applied.data.id;
         const published = await publish(appId);
         expect(published.ok).toBe(true);
 
@@ -265,6 +298,23 @@ describe("Grids App Form runtime", () => {
 
         let actionInvocation: CustomAppLauncherInvocation | null = null;
         let scannerInvocation: ScannerLauncherInvocation | null = null;
+        const registerWorkflowRun = async (runId: string, channel: "customApp" | "scanner"): Promise<void> => {
+          await sql`
+            INSERT INTO grids.workflow_run_profile (
+              run_id, short_id, base_id, workflow_id, launcher_id, launcher_kind, channel, actor_user_id, request_fingerprint
+            ) VALUES (
+              ${runId}::uuid,
+              ${testShortId(channel === "scanner" ? "C" : "U")},
+              ${baseId}::uuid,
+              ${workflowId}::uuid,
+              ${launcherId}::uuid,
+              ${channel === "scanner" ? "scanner" : "customApp"},
+              ${channel},
+              ${authUser.id}::uuid,
+              ${testUuid()}
+            )
+          `;
+        };
         const renderDocumentRunPdf = async () => ok({ pdf: new Uint8Array([37, 80, 68, 70]), contentType: "application/pdf" as const });
         const publicApi = new Hono<AuthContext>().route(
           "/apps",
@@ -280,8 +330,10 @@ describe("Grids App Form runtime", () => {
             requireAuthenticated: authenticateAs(userFor(authUser.id)),
             invokeCustomAppLauncher: async (input) => {
               actionInvocation = input as CustomAppLauncherInvocation;
+              const runId = testUuid();
+              await registerWorkflowRun(runId, "customApp");
               return ok({
-                runId: testUuid(),
+                runId,
                 workflowId,
                 revision: "1",
                 mode: "execute",
@@ -292,8 +344,10 @@ describe("Grids App Form runtime", () => {
             },
             invokeScannerLauncher: async (input) => {
               scannerInvocation = input as ScannerLauncherInvocation;
+              const runId = testUuid();
+              await registerWorkflowRun(runId, "scanner");
               return ok({
-                runId: testUuid(),
+                runId,
                 workflowId,
                 revision: "1",
                 mode: "execute",
@@ -305,27 +359,44 @@ describe("Grids App Form runtime", () => {
             renderDocumentRunPdf,
           }),
         );
+        const appResponse = await api.request(`/apps/${applied.data.shortId}`);
+        expect(appResponse.status).toBe(200);
+        const publicApp = (await appResponse.json()) as Record<string, unknown>;
+        expect(publicApp.draftDefinition).not.toBeNull();
+        expect(publicApp.publishedDefinition).not.toBeNull();
+        expect(publicApp).not.toHaveProperty("draftDefinitionRaw");
+        expect(publicApp).not.toHaveProperty("publishedDefinitionRaw");
         const response = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
           method: "POST",
           headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-${baseId}` },
-          body: JSON.stringify({ [fieldId]: "Certificate request" }),
+          body: JSON.stringify({ [fieldPublicId]: "Certificate request" }),
         });
         expect(response.status).toBe(201);
         expect(response.headers.get("X-RateLimit-Limit")).toBeNull();
         const body = (await response.json()) as { recordId: string; navigateTo: string };
+        expect(body.recordId).toMatch(/^[A-Za-z0-9]{6}$/);
         expect(body.navigateTo).toBe(`/apps/${applied.data.shortId}/request?request_id=${body.recordId}`);
+        const recordId = await resolvePublicId("record", body.recordId);
+        if (!recordId) throw new Error("Created record public ID did not resolve");
+        const internalFieldSubmit = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ [fieldId]: "Internal IDs are not public inputs" }),
+        });
+        expect(internalFieldSubmit.status).toBe(400);
 
         const [record] = await sql<Array<{ value: string; supplied: string }>>`
         SELECT data ->> ${fieldId} AS value, data ->> ${suppliedFieldId} AS supplied
-        FROM grids.records WHERE id = ${body.recordId}::uuid
+        FROM grids.records WHERE id = ${recordId}::uuid
       `;
         expect(record?.value).toBe("Certificate request");
         expect(record?.supplied).toBe("App portal");
         const fileId = testUuid();
+        const filePublicId = testShortId("P");
         const imageBytes = new Uint8Array([137, 80, 78, 71]);
         await sql`
-          INSERT INTO grids.files (id, record_id, field_id, position, filename, mime_type, size_bytes, sha256, bytes)
-          VALUES (${fileId}::uuid, ${body.recordId}::uuid, ${imageFieldId}::uuid, 0, 'preview.png', 'image/png', ${imageBytes.length}, 'fixture', ${imageBytes})
+          INSERT INTO grids.files (id, short_id, record_id, field_id, position, filename, mime_type, size_bytes, sha256, bytes)
+          VALUES (${fileId}::uuid, ${filePublicId}, ${recordId}::uuid, ${imageFieldId}::uuid, 0, 'preview.png', 'image/png', ${imageBytes.length}, 'fixture', ${imageBytes})
         `;
         const previousAppSecret = process.env.APP_SECRET;
         process.env.APP_SECRET = "custom-app-file-test-secret";
@@ -339,8 +410,8 @@ describe("Grids App Form runtime", () => {
           cards?: { displayConfig: { mode: string }; records: Array<{ id: string; data: Record<string, unknown> }> };
         };
         expect(cardsBody.cards?.displayConfig.mode).toBe("cards");
-        expect(cardsBody.presentation?.fields).toContainEqual(expect.objectContaining({ id: fieldId, type: "text" }));
-        expect(cardsBody.cards?.records.find((item) => item.id === body.recordId)?.data).toEqual({ [suppliedFieldId]: "App portal" });
+        expect(cardsBody.presentation?.fields).toContainEqual(expect.objectContaining({ id: fieldPublicId, type: "text" }));
+        expect(cardsBody.cards?.records.find((item) => item.id === body.recordId)?.data).toEqual({ [suppliedFieldPublicId]: "App portal" });
 
         const searchedCardsResponse = await publicApi.request(
           `/apps/runtime/${applied.data.shortId}/home/requests/records?q=App%20portal`,
@@ -352,7 +423,7 @@ describe("Grids App Form runtime", () => {
           cards?: { filePreviews: Record<string, Record<string, { contentToken: string }>> };
         };
         expect(searchedCardsBody.rows.some((item) => item.recordId === body.recordId)).toBe(true);
-        const contentToken = searchedCardsBody.cards?.filePreviews[body.recordId]?.[imageFieldId]?.contentToken;
+        const contentToken = searchedCardsBody.cards?.filePreviews[body.recordId]?.[imageFieldPublicId]?.contentToken;
         expect(contentToken).toBeString();
         const filePath = `/apps/runtime/${applied.data.shortId}/home/requests/files/${encodeURIComponent(contentToken!)}`;
         const fileResponse = await publicApi.request(`${filePath}?q=App%20portal`);
@@ -361,13 +432,13 @@ describe("Grids App Form runtime", () => {
         await sql`
           UPDATE grids.records
           SET data = jsonb_set(data, ARRAY[${suppliedFieldId}], to_jsonb('No longer searchable'::text))
-          WHERE id = ${body.recordId}::uuid
+          WHERE id = ${recordId}::uuid
         `;
         expect((await publicApi.request(`${filePath}?q=App%20portal`)).status).toBe(404);
         await sql`
           UPDATE grids.records
           SET data = jsonb_set(data, ARRAY[${suppliedFieldId}], to_jsonb('App portal'::text))
-          WHERE id = ${body.recordId}::uuid
+          WHERE id = ${recordId}::uuid
         `;
         if (previousAppSecret === undefined) delete process.env.APP_SECRET;
         else process.env.APP_SECRET = previousAppSecret;
@@ -375,14 +446,16 @@ describe("Grids App Form runtime", () => {
         const sidebarResponse = await publicApi.request(`/apps/runtime/${applied.data.shortId}/sidebar/forms/new-request/submit`, {
           method: "POST",
           headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-sidebar-${baseId}` },
-          body: JSON.stringify({ [fieldId]: "Sidebar request" }),
+          body: JSON.stringify({ [fieldPublicId]: "Sidebar request" }),
         });
         expect(sidebarResponse.status).toBe(201);
         const sidebarBody = (await sidebarResponse.json()) as { recordId: string; navigateTo: string };
         expect(sidebarBody.navigateTo).toBe(`/apps/${applied.data.shortId}/request?request_id=${sidebarBody.recordId}`);
+        const sidebarRecordId = await resolvePublicId("record", sidebarBody.recordId);
+        if (!sidebarRecordId) throw new Error("Sidebar record public ID did not resolve");
         const [sidebarRecord] = await sql<Array<{ value: string; supplied: string }>>`
           SELECT data ->> ${fieldId} AS value, data ->> ${suppliedFieldId} AS supplied
-          FROM grids.records WHERE id = ${sidebarBody.recordId}::uuid
+          FROM grids.records WHERE id = ${sidebarRecordId}::uuid
         `;
         expect(sidebarRecord).toEqual({ value: "Sidebar request", supplied: "Sidebar" });
 
@@ -419,13 +492,18 @@ describe("Grids App Form runtime", () => {
         }
 
         const snapshotId = testUuid();
+        const snapshotPublicId = testShortId("N");
         const documentRunId = testUuid();
+        const documentRunPublicId = testShortId("R");
         const otherDocumentRunId = testUuid();
+        const otherDocumentRunPublicId = testShortId("Q");
         const otherRecordId = testUuid();
+        const otherRecordPublicId = testShortId("O");
         await sql`
-        INSERT INTO grids.records (id, table_id, data, created_by, updated_by)
+        INSERT INTO grids.records (id, short_id, table_id, data, created_by, updated_by)
         VALUES (
           ${otherRecordId}::uuid,
+          ${otherRecordPublicId},
           ${tableId}::uuid,
           ${{ [fieldId]: "Another request", [suppliedFieldId]: "App portal" }}::jsonb,
           ${authUser.id}::uuid,
@@ -433,12 +511,13 @@ describe("Grids App Form runtime", () => {
         )
       `;
         await sql`
-        INSERT INTO grids.record_snapshots (id, base_id, table_id, record_id, root, graph)
+        INSERT INTO grids.record_snapshots (id, short_id, base_id, table_id, record_id, root, graph)
         VALUES (
           ${snapshotId}::uuid,
+          ${snapshotPublicId},
           ${baseId}::uuid,
           ${tableId}::uuid,
-          ${body.recordId}::uuid,
+          ${recordId}::uuid,
           '{}'::jsonb,
           '{}'::jsonb
         )
@@ -449,12 +528,12 @@ describe("Grids App Form runtime", () => {
           document_number, filename, template_snapshot, render_data
         ) VALUES (
           ${documentRunId}::uuid,
-          ${testShortId("R")},
+          ${documentRunPublicId},
           ${documentTemplateId}::uuid,
           ${snapshotId}::uuid,
           ${baseId}::uuid,
           ${tableId}::uuid,
-          ${body.recordId}::uuid,
+          ${recordId}::uuid,
           'CERT-1',
           'certificate.pdf',
           '{}'::jsonb,
@@ -467,12 +546,12 @@ describe("Grids App Form runtime", () => {
           document_number, filename, template_snapshot, render_data
         ) VALUES (
           ${otherDocumentRunId}::uuid,
-          ${testShortId("Q")},
+          ${otherDocumentRunPublicId},
           ${otherDocumentTemplateId}::uuid,
           ${snapshotId}::uuid,
           ${baseId}::uuid,
           ${tableId}::uuid,
-          ${body.recordId}::uuid,
+          ${recordId}::uuid,
           'INTERNAL-1',
           'internal-certificate.pdf',
           '{}'::jsonb,
@@ -480,17 +559,17 @@ describe("Grids App Form runtime", () => {
         )
       `;
         const documentResponse = await publicApi.request(
-          `/apps/runtime/${applied.data.shortId}/request/record/documents/${documentRunId}/download?request_id=${body.recordId}`,
+          `/apps/runtime/${applied.data.shortId}/request/record/documents/${documentRunPublicId}/download?request_id=${body.recordId}`,
           { headers: { "x-forwarded-for": `custom-app-document-${baseId}` } },
         );
         expect(documentResponse.status).toBe(200);
         expect(documentResponse.headers.get("content-type")).toBe("application/pdf");
-        expect(documentResponse.headers.get("X-Grids-Document-Run-Id")).toBe(documentRunId);
+        expect(documentResponse.headers.get("X-Grids-Document-Run-Id")).toBe(documentRunPublicId);
         expect(new Uint8Array(await documentResponse.arrayBuffer())).toEqual(new Uint8Array([37, 80, 68, 70]));
         expect(
           (
             await publicApi.request(
-              `/apps/runtime/${applied.data.shortId}/request/record/documents/${documentRunId}/download?request_id=${otherRecordId}`,
+              `/apps/runtime/${applied.data.shortId}/request/record/documents/${documentRunPublicId}/download?request_id=${otherRecordPublicId}`,
               { headers: { "x-forwarded-for": `custom-app-document-record-${baseId}` } },
             )
           ).status,
@@ -498,7 +577,7 @@ describe("Grids App Form runtime", () => {
         expect(
           (
             await publicApi.request(
-              `/apps/runtime/${applied.data.shortId}/request/record/documents/${otherDocumentRunId}/download?request_id=${body.recordId}`,
+              `/apps/runtime/${applied.data.shortId}/request/record/documents/${otherDocumentRunPublicId}/download?request_id=${body.recordId}`,
               { headers: { "x-forwarded-for": `custom-app-document-template-${baseId}` } },
             )
           ).status,
@@ -507,7 +586,7 @@ describe("Grids App Form runtime", () => {
         const fixedOverride = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
           method: "POST",
           headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-override-${baseId}` },
-          body: JSON.stringify({ [fieldId]: "Override", [suppliedFieldId]: "Browser value" }),
+          body: JSON.stringify({ [fieldPublicId]: "Override", [suppliedFieldPublicId]: "Browser value" }),
         });
         expect(fixedOverride.status).toBe(400);
 
@@ -525,7 +604,7 @@ describe("Grids App Form runtime", () => {
         const driftedSubmit = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
           method: "POST",
           headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-drift-${baseId}` },
-          body: JSON.stringify({ [fieldId]: "Must not be written" }),
+          body: JSON.stringify({ [fieldPublicId]: "Must not be written" }),
         });
         expect(driftedSubmit.status).toBe(404);
         const [afterDrift] = await sql<Array<{ count: number; hidden_count: number }>>`
@@ -548,51 +627,52 @@ describe("Grids App Form runtime", () => {
       `;
 
         const recordUrl = `/apps/runtime/${applied.data.shortId}/request/record/record?request_id=${body.recordId}`;
+        expect((await api.request(`/apps/runtime/${applied.data.shortId}/request/record/record?request_id=${recordId}`)).status).toBe(404);
         const anonymousRecordEdit = await publicApi.request(recordUrl, {
           method: "PATCH",
           headers: { "content-type": "application/json", "If-Match": "1" },
-          body: JSON.stringify({ values: { [fieldId]: "Anonymous edit" } }),
+          body: JSON.stringify({ values: { [fieldPublicId]: "Anonymous edit" } }),
         });
         expect(anonymousRecordEdit.status).toBe(401);
         await sql`
           UPDATE grids.records
           SET data = data || ${JSON.stringify({ [hiddenFieldId]: "Internal only" })}::jsonb
-          WHERE id = ${body.recordId}::uuid
+          WHERE id = ${recordId}::uuid
         `;
         const updatedRecord = await api.request(recordUrl, {
           method: "PATCH",
           headers: { "content-type": "application/json", "If-Match": "1" },
-          body: JSON.stringify({ values: { [fieldId]: "Certificate request updated" } }),
+          body: JSON.stringify({ values: { [fieldPublicId]: "Certificate request updated" } }),
         });
         expect(updatedRecord.status).toBe(200);
         const updatedRecordBody = (await updatedRecord.json()) as { data: Record<string, unknown> };
         expect(updatedRecordBody).toMatchObject({
           id: body.recordId,
           version: 2,
-          data: { [fieldId]: "Certificate request updated" },
+          data: { [fieldPublicId]: "Certificate request updated" },
           relationLabels: {},
         });
-        expect(updatedRecordBody.data).not.toHaveProperty(hiddenFieldId);
+        expect(updatedRecordBody.data).not.toHaveProperty(hiddenFieldPublicId);
 
         const rejectedField = await api.request(recordUrl, {
           method: "PATCH",
           headers: { "content-type": "application/json", "If-Match": "2" },
-          body: JSON.stringify({ values: { [testUuid()]: "not published" } }),
+          body: JSON.stringify({ values: { [testShortId("Z")]: "not published" } }),
         });
         expect(rejectedField.status).toBe(400);
 
         const rejectedFilePatch = await api.request(recordUrl, {
           method: "PATCH",
           headers: { "content-type": "application/json", "If-Match": "2" },
-          body: JSON.stringify({ values: { [imageFieldId]: "not a file upload" } }),
+          body: JSON.stringify({ values: { [imageFieldPublicId]: "not a file upload" } }),
         });
         expect(rejectedFilePatch.status).toBe(400);
 
-        const filesUrl = `/apps/runtime/${applied.data.shortId}/request/record/record/files/${imageFieldId}?request_id=${body.recordId}`;
+        const filesUrl = `/apps/runtime/${applied.data.shortId}/request/record/record/files/${imageFieldPublicId}?request_id=${body.recordId}`;
         expect((await publicApi.request(filesUrl)).status).toBe(401);
         const listedFiles = await api.request(filesUrl);
         expect(listedFiles.status).toBe(200);
-        expect(await listedFiles.json()).toMatchObject({ items: [{ id: fileId, filename: "preview.png" }] });
+        expect(await listedFiles.json()).toMatchObject({ items: [{ id: filePublicId, filename: "preview.png" }] });
 
         const uploadBody = new FormData();
         uploadBody.set("file", new File([new Uint8Array([1, 2, 3])], "receipt.pdf", { type: "application/pdf" }));
@@ -616,7 +696,7 @@ describe("Grids App Form runtime", () => {
         const staleRecord = await api.request(recordUrl, {
           method: "PATCH",
           headers: { "content-type": "application/json", "If-Match": "1" },
-          body: JSON.stringify({ values: { [fieldId]: "stale update" } }),
+          body: JSON.stringify({ values: { [fieldPublicId]: "stale update" } }),
         });
         expect(staleRecord.status).toBe(409);
 
@@ -637,7 +717,8 @@ describe("Grids App Form runtime", () => {
         expect(page).toMatchObject({ items: [{ id: comment.id, body: "Ready for review" }], nextCursor: null });
 
         const actionDefinition = structuredClone(definition);
-        const actionAvailability = `from table {${tableId}}\nwhere record.id = @params.request_id and {${fieldId}} = 'Certificate request updated'\nlimit 1`;
+        const actionAvailability = `from table {${tablePublicId}}\nwhere record.id = @params.request_id and {${fieldPublicId}} = 'Certificate request updated'\nlimit 1`;
+        const internalActionAvailability = `from table {${tableId}}\nwhere record.id = @params.request_id and {${fieldId}} = 'Certificate request updated'\nlimit 1`;
         actionDefinition.pages[1]!.rows[0]!.columns[0]!.blocks.push({
           id: "actions",
           type: "actions",
@@ -646,22 +727,23 @@ describe("Grids App Form runtime", () => {
               id: "approve",
               label: "Approve",
               kind: "workflow",
-              launcherId,
+              launcherId: launcherPublicId,
               inputs: { request: { source: "RECORD", path: "id" } },
               availableWhen: { query: actionAvailability },
             },
           ],
         });
-        const viewSource = `from table {${tableId}}\nselect {${fieldId}}`;
+        const internalViewSource = `from table {${tableId}}\nselect {${fieldId}}`;
         actionDefinition.pages[1]!.rows[0]!.columns[0]!.blocks.push({
           id: "request-view",
           type: "records",
           searchable: true,
           pageSize: 25,
-          source: { kind: "view", viewId },
-          display: { kind: "table", columnIds: [fieldId] },
+          source: { kind: "view", viewId: viewPublicId },
+          display: { kind: "table", columnIds: [fieldPublicId] },
         });
-        const rowSource = `from table {${tableId}}`;
+        const rowSource = `from table {${tablePublicId}}`;
+        const internalRowSource = `from table {${tableId}}`;
         actionDefinition.pages[1]!.rows[0]!.columns[0]!.blocks.push({
           id: "requests",
           type: "records",
@@ -675,7 +757,7 @@ describe("Grids App Form runtime", () => {
               label: "Approve row",
               showLabel: true,
               kind: "workflow",
-              launcherId,
+              launcherId: launcherPublicId,
               inputs: { request: { source: "ROW", path: "id" } },
             },
           ],
@@ -683,8 +765,8 @@ describe("Grids App Form runtime", () => {
         const authenticatedUser = userFor(authUser.id);
         const actionContext = buildCustomAppRuntimeContext({
           access: { actor: { kind: "user", user: authenticatedUser }, accessSubject: { type: "user", userId: authUser.id } },
-          app: { id: appId, shortId: applied.data.shortId, name: definition.name },
-          base: { id: baseId, name: "Grids App API" },
+          app: { id: appPublicId, name: definition.name },
+          base: { id: basePublicId, name: "Grids App API" },
           page: actionDefinition.pages[1]!,
           pageUrl: `/apps/${applied.data.shortId}/request?request_id=${body.recordId}`,
           pageParams: { request_id: body.recordId },
@@ -693,20 +775,20 @@ describe("Grids App Form runtime", () => {
         });
         const compiledActionAvailability = await compileCustomAppQuery({
           baseId,
-          source: actionAvailability,
+          source: internalActionAvailability,
           context: actionContext.query,
         });
         if (!compiledActionAvailability.ok) throw new Error(compiledActionAvailability.error);
-        const compiledRowSource = await compileCustomAppQuery({ baseId, source: rowSource, context: actionContext.query });
+        const compiledRowSource = await compileCustomAppQuery({ baseId, source: internalRowSource, context: actionContext.query });
         if (!compiledRowSource.ok) throw new Error(compiledRowSource.error);
-        const compiledViewSource = await compileCustomAppQuery({ baseId, source: viewSource, context: actionContext.query });
+        const compiledViewSource = await compileCustomAppQuery({ baseId, source: internalViewSource, context: actionContext.query });
         if (!compiledViewSource.ok) throw new Error(compiledViewSource.error);
         const actionCapability = {
           target: "action" as const,
           pageId: "request",
           blockId: "actions",
           actionId: "approve",
-          sourceHash: customAppViewSourceHash(baseId, actionAvailability),
+          sourceHash: customAppViewSourceHash(baseId, internalActionAvailability),
           planHash: compiledActionAvailability.data.planHash,
           tableIds: [tableId],
         };
@@ -735,7 +817,7 @@ describe("Grids App Form runtime", () => {
                 {
                   viewId,
                   tableId,
-                  sourceHash: customAppViewSourceHash(tableId, viewSource),
+                  sourceHash: customAppViewSourceHash(tableId, internalViewSource),
                   planHash: compiledViewSource.data.planHash,
                   tableIds: [tableId],
                 },
@@ -748,10 +830,11 @@ describe("Grids App Form runtime", () => {
         WHERE id = ${appId}::uuid
       `;
         expect(await getPublishedByShortId(applied.data.shortId)).not.toBeNull();
-        const searchableRecords = await sql<Array<{ id: string; subject: string }>>`
-        INSERT INTO grids.records (id, table_id, data, created_by, updated_by)
+        const searchableRecords = await sql<Array<{ id: string; public_id: string; subject: string }>>`
+        INSERT INTO grids.records (id, short_id, table_id, data, created_by, updated_by)
         SELECT
           gen_random_uuid(),
+          'X' || lpad(generated.index::text, 5, '0'),
           ${tableId}::uuid,
           jsonb_build_object(
             ${fieldId}::text,
@@ -760,10 +843,11 @@ describe("Grids App Form runtime", () => {
           ${authUser.id}::uuid,
           ${authUser.id}::uuid
         FROM generate_series(0, 129) AS generated(index)
-        RETURNING id::text, data->>${fieldId}::text AS subject
+        RETURNING id::text, short_id AS public_id, data->>${fieldId}::text AS subject
       `;
-        const searchableRecordId = searchableRecords.find((record) => record.subject === "Unique searchable needle")?.id;
-        if (!searchableRecordId) throw new Error("Search fixture record is missing");
+        const searchableRecord = searchableRecords.find((record) => record.subject === "Unique searchable needle");
+        if (!searchableRecord) throw new Error("Search fixture record is missing");
+        const searchableRecordId = searchableRecord.public_id;
         const recordsUrl = `/apps/runtime/${applied.data.shortId}/request/requests/records?request_id=${body.recordId}`;
         const firstRecordsResponse = await api.request(recordsUrl);
         expect(firstRecordsResponse.status).toBe(200);
@@ -771,7 +855,7 @@ describe("Grids App Form runtime", () => {
           presentation?: { fields: Array<{ id: string; type: string }> };
         };
         expect(firstRecords.rows).toHaveLength(25);
-        expect(firstRecords.presentation?.fields).toContainEqual(expect.objectContaining({ id: fieldId, type: "text" }));
+        expect(firstRecords.presentation?.fields).toContainEqual(expect.objectContaining({ id: fieldPublicId, type: "text" }));
         expect(firstRecords.page?.nextCursor).toBeString();
         const secondRecordsResponse = await api.request(`${recordsUrl}&cursor=${encodeURIComponent(firstRecords.page?.nextCursor ?? "")}`);
         expect(secondRecordsResponse.status).toBe(200);
@@ -805,7 +889,7 @@ describe("Grids App Form runtime", () => {
         expect(anonymousAction.status).toBe(401);
         const directAvailability = await executePublishedCustomAppQuery({
           baseId,
-          source: actionAvailability,
+          source: internalActionAvailability,
           capability: actionCapability,
           context: actionContext.query,
           signal: new AbortController().signal,
@@ -819,7 +903,7 @@ describe("Grids App Form runtime", () => {
         expect(directAvailability.rows).toHaveLength(1);
         const changedPlanCapability = await executePublishedCustomAppQuery({
           baseId,
-          source: actionAvailability,
+          source: internalActionAvailability,
           capability: { ...actionCapability, planHash: "0".repeat(64) },
           context: actionContext.query,
           signal: new AbortController().signal,
@@ -834,7 +918,7 @@ describe("Grids App Form runtime", () => {
         });
         const changedTableCapability = await executePublishedCustomAppQuery({
           baseId,
-          source: actionAvailability,
+          source: internalActionAvailability,
           capability: { ...actionCapability, tableIds: [baseId] },
           context: actionContext.query,
           signal: new AbortController().signal,
@@ -859,13 +943,13 @@ describe("Grids App Form runtime", () => {
         expect(actionInvocation).toMatchObject({
           launcherId,
           expectedRevision: 1,
-          inputs: { request: body.recordId },
+          inputs: { request: recordId },
           authorization: {
             kind: "custom-app-action",
             customAppId: appId,
             publishedAt: expect.any(String),
             pageId: "request",
-            pageParams: { request_id: body.recordId },
+            pageParams: { request_id: recordId },
             timeZone: "UTC",
             blockId: "actions",
             actionId: "approve",
@@ -896,6 +980,7 @@ describe("Grids App Form runtime", () => {
                   launcherId: invocation.launcherId,
                   channel: "customApp",
                 });
+                await registerWorkflowRun(runId, "customApp");
                 return ok({
                   runId,
                   workflowId,
@@ -916,6 +1001,7 @@ describe("Grids App Form runtime", () => {
                   launcherId: invocation.launcherId,
                   channel: "scanner",
                 });
+                await registerWorkflowRun(runId, "scanner");
                 return ok({
                   runId,
                   workflowId,
@@ -995,7 +1081,7 @@ describe("Grids App Form runtime", () => {
           }),
         });
         expect(searchedRowAction.status).toBe(202);
-        expect(actionInvocation).toMatchObject({ inputs: { request: searchableRecordId } });
+        expect(actionInvocation).toMatchObject({ inputs: { request: searchableRecord.id } });
         actionInvocation = null;
         const rowActionResponse = await api.request(rowActionUrl, {
           method: "POST",
@@ -1004,12 +1090,12 @@ describe("Grids App Form runtime", () => {
         });
         expect(rowActionResponse.status).toBe(202);
         expect(actionInvocation).toMatchObject({
-          inputs: { request: body.recordId },
+          inputs: { request: recordId },
           authorization: { blockId: "requests", actionId: "approve-row" },
         });
         actionInvocation = null;
 
-        const scannerBlock = { id: "returns", type: "scanner" as const, launcherId };
+        const scannerBlock = { id: "returns", type: "scanner" as const, launcherId: launcherPublicId };
         actionDefinition.pages[0]!.rows[0]!.columns[0]!.blocks.push(scannerBlock);
         const scannerConfigHash = "a".repeat(64);
         const [scannerStored] = await sql<Array<{ published_capabilities: Record<string, unknown> }>>`
@@ -1088,7 +1174,7 @@ describe("Grids App Form runtime", () => {
         const forgedRowResponse = await api.request(rowActionUrl, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ operationId: testUuid(), rowId: testUuid() }),
+          body: JSON.stringify({ operationId: testUuid(), rowId: testShortId("Z") }),
         });
         expect(forgedRowResponse.status).toBe(404);
         expect(actionInvocation).toBeNull();
@@ -1096,7 +1182,7 @@ describe("Grids App Form runtime", () => {
         const hiddenRecord = await api.request(recordUrl, {
           method: "PATCH",
           headers: { "content-type": "application/json", "If-Match": "2" },
-          body: JSON.stringify({ values: { [fieldId]: "Hidden" } }),
+          body: JSON.stringify({ values: { [fieldPublicId]: "Hidden" } }),
         });
         expect(hiddenRecord.status).toBe(200);
         actionInvocation = null;
@@ -1172,7 +1258,7 @@ describe("Grids App Form runtime", () => {
         const unavailableFormResponse = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
           method: "POST",
           headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-block-${baseId}` },
-          body: JSON.stringify({ [fieldId]: "Must not be created" }),
+          body: JSON.stringify({ [fieldPublicId]: "Must not be created" }),
         });
         expect(unavailableFormResponse.status).toBe(404);
 
@@ -1206,7 +1292,7 @@ describe("Grids App Form runtime", () => {
         const unavailablePageResponse = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
           method: "POST",
           headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-page-${baseId}` },
-          body: JSON.stringify({ [fieldId]: "Must not be created" }),
+          body: JSON.stringify({ [fieldPublicId]: "Must not be created" }),
         });
         expect(unavailablePageResponse.status).toBe(404);
         const unavailableStatusPageDefinition = structuredClone(unavailablePageDefinition);
@@ -1239,7 +1325,7 @@ describe("Grids App Form runtime", () => {
         const legacyRuntime = await publicApi.request(`/apps/runtime/${applied.data.shortId}/home/apply/submit`, {
           method: "POST",
           headers: { "content-type": "application/json", "x-forwarded-for": `custom-app-v1-${baseId}` },
-          body: JSON.stringify({ [fieldId]: "Must not be created" }),
+          body: JSON.stringify({ [fieldPublicId]: "Must not be created" }),
         });
         expect(legacyRuntime.status).toBe(404);
       } finally {

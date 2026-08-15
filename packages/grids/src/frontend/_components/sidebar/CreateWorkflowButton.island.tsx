@@ -1,18 +1,17 @@
-import { AppWorkspace, dialogCore, panelDialogWorkspaceOptions } from "@k2b/ui";
 import { navigateTo } from "@k2b/ssr/nav";
-import type { Table } from "../../../service";
+import { AppWorkspace, dialogCore, panelDialogWorkspaceOptions } from "@k2b/ui";
+import type { PublicTable as Table } from "../../../api/public-dto";
 import { WorkflowEditor } from "../workflows/WorkflowEditor";
 
-export default function CreateWorkflowButton(props: { baseId: string; baseShortId: string; tables: Table[] }) {
+export default function CreateWorkflowButton(props: { baseId: string; tables: Table[] }) {
   const openEditor = async () => {
     await dialogCore.open<void>(
       (close) => (
         <WorkflowEditor
           baseId={props.baseId}
-          baseShortId={props.baseShortId}
           tables={props.tables}
           onChanged={(workflow) => {
-            if (workflow) navigateTo(`/app/grids/${props.baseShortId}/workflows/${workflow.shortId}?edit=true`);
+            if (workflow) navigateTo(`/app/grids/${props.baseId}/workflows/${workflow.id}?edit=true`);
           }}
           onClose={close}
         />

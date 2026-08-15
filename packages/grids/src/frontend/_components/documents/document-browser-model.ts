@@ -1,12 +1,12 @@
-import type { DocumentRunFolder, DocumentRunSummary } from "../../../contracts";
 import type { GridsDocumentViewMode } from "../sidebar/GridsSettingsStore";
+import type { PublicDocumentRunFolder, PublicDocumentRunSummary } from "./public-document-types";
 
 export type DocumentViewMode = GridsDocumentViewMode | "custom";
 type DocumentBrowserMode = "list" | "folders";
 type DocumentBrowserKey = { templateId: string; search: string; mode: DocumentBrowserMode; path: string[] };
 type DocumentBrowserPageState = {
-  runs: DocumentRunSummary[];
-  folders: DocumentRunFolder[];
+  runs: PublicDocumentRunSummary[];
+  folders: PublicDocumentRunFolder[];
   total: number;
   hasMore: boolean;
   nextCursor: string | null;
@@ -24,8 +24,8 @@ export const serializeDocumentBrowserKey = (key: DocumentBrowserKey): string =>
   `${key.templateId}:${key.mode}:${key.search.trim()}:${key.path.join("/")}`;
 
 export const replaceDocumentBrowserPage = (page: {
-  items: DocumentRunSummary[];
-  folders: DocumentRunFolder[];
+  items: PublicDocumentRunSummary[];
+  folders: PublicDocumentRunFolder[];
   total?: number;
   hasMore?: boolean;
   nextCursor?: string | null;
@@ -39,7 +39,7 @@ export const replaceDocumentBrowserPage = (page: {
 
 export const appendDocumentBrowserPage = (
   current: DocumentBrowserPageState,
-  page: { items: DocumentRunSummary[]; total?: number; hasMore?: boolean; nextCursor?: string | null },
+  page: { items: PublicDocumentRunSummary[]; total?: number; hasMore?: boolean; nextCursor?: string | null },
   requestKey: string,
   currentKey: string,
 ): DocumentBrowserPageState =>
@@ -55,8 +55,8 @@ export const appendDocumentBrowserPage = (
 
 export const documentCountLabel = (
   mode: DocumentBrowserMode,
-  folders: DocumentRunFolder[],
-  runs: DocumentRunSummary[],
+  folders: PublicDocumentRunFolder[],
+  runs: PublicDocumentRunSummary[],
   total: number,
 ): string => {
   const effectiveTotal = mode === "folders" && folders.length > 0 ? folders.reduce((sum, folder) => sum + folder.count, 0) : total;

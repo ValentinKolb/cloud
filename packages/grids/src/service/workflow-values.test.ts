@@ -6,6 +6,8 @@ import { GridsWorkflowValueResolver, prepareWorkflowInputs, WorkflowInputPrepara
 
 const recordId = "11111111-1111-4111-8111-111111111111";
 const otherRecordId = "22222222-2222-4222-8222-222222222222";
+const recordShortId = "REC001";
+const otherRecordShortId = "REC002";
 const tableId = "33333333-3333-4333-8333-333333333333";
 const fieldId = "44444444-4444-4444-8444-444444444444";
 const targetTableId = "55555555-5555-4555-8555-555555555555";
@@ -37,10 +39,14 @@ describe("workflow kernel inputs", () => {
   test("normalizes record inputs after permission and existence checks", async () => {
     const prepared = await prepareWorkflowInputs(
       plan,
-      { item: recordId, items: [recordId, otherRecordId], note: "ready" },
+      { item: recordShortId, items: [recordShortId, otherRecordShortId], note: "ready" },
       {
         canReadTable: async (id) => id === tableId,
-        existingRecordIds: async () => new Set([recordId, otherRecordId]),
+        resolveRecordIds: async () =>
+          new Map([
+            [recordShortId, recordId],
+            [otherRecordShortId, otherRecordId],
+          ]),
       },
     );
 
@@ -55,11 +61,12 @@ describe("workflow kernel inputs", () => {
   });
 
   test("rejects unknown, missing, inaccessible, and absent record inputs", async () => {
-    const deps = { canReadTable: async () => true, existingRecordIds: async () => new Set<string>() };
+    const deps = { canReadTable: async () => true, resolveRecordIds: async () => new Map<string, string>() };
     await expect(prepareWorkflowInputs(plan, { note: "ready" }, deps)).rejects.toThrow('workflow input "item" is required');
-    await expect(prepareWorkflowInputs(plan, { item: recordId, extra: true }, deps)).rejects.toThrow('unknown workflow input "extra"');
+    await expect(prepareWorkflowInputs(plan, { item: recordShortId, extra: true }, deps)).rejects.toThrow('unknown workflow input "extra"');
+    await expect(prepareWorkflowInputs(plan, { item: recordShortId }, deps)).rejects.toThrow("references missing record");
     await expect(prepareWorkflowInputs(plan, { item: recordId }, deps)).rejects.toThrow("references missing record");
-    await expect(prepareWorkflowInputs(plan, { item: recordId }, { ...deps, canReadTable: async () => false })).rejects.toThrow(
+    await expect(prepareWorkflowInputs(plan, { item: recordShortId }, { ...deps, canReadTable: async () => false })).rejects.toThrow(
       "cannot read the input table",
     );
   });
@@ -70,17 +77,17 @@ describe("workflow kernel inputs", () => {
       { note: "ready" },
       {
         canReadTable: async () => true,
-        existingRecordIds: async () => new Set(),
+        resolveRecordIds: async () => new Map(),
       },
     );
     await expect(invalid).rejects.toMatchObject({ name: "WorkflowInputPreparationError", status: 400 });
 
     const forbidden = prepareWorkflowInputs(
       plan,
-      { item: recordId },
+      { item: recordShortId },
       {
         canReadTable: async () => false,
-        existingRecordIds: async () => new Set(),
+        resolveRecordIds: async () => new Map(),
       },
     );
     await expect(forbidden).rejects.toMatchObject({ name: "WorkflowInputPreparationError", status: 403 });
@@ -89,10 +96,10 @@ describe("workflow kernel inputs", () => {
     await expect(
       prepareWorkflowInputs(
         plan,
-        { item: recordId },
+        { item: recordShortId },
         {
           canReadTable: async () => true,
-          existingRecordIds: async () => Promise.reject(databaseError),
+          resolveRecordIds: async () => Promise.reject(databaseError),
         },
       ),
     ).rejects.toBe(databaseError);
@@ -105,6 +112,7 @@ describe("workflow kernel value resolver", () => {
     let reads = 0;
     const record = {
       id: recordId,
+      shortId: recordShortId,
       tableId,
       data: { [fieldId]: "Returned" },
       version: 1,
@@ -116,6 +124,7 @@ describe("workflow kernel value resolver", () => {
     } satisfies GridRecord;
     const resolver = new GridsWorkflowValueResolver({
       canReadTable: async () => true,
+      recordShortId: async () => recordShortId,
       readRecord: async () => {
         reads += 1;
         return record;
@@ -144,7 +153,7 @@ describe("workflow kernel value resolver", () => {
     });
     expect(await resolve("inputs.item.recordId", ["steps", 0, "if", "contains", 1], undefined)).toEqual({
       state: "resolved",
-      value: recordId,
+      value: recordShortId,
     });
     expect(await resolve("inputs.item.Name", ["steps", 0, "setVariable", "value"], undefined)).toEqual({
       state: "resolved",
@@ -175,6 +184,7 @@ describe("workflow kernel value resolver", () => {
         `${tableId}:${recordId}`,
         {
           id: recordId,
+          shortId: recordShortId,
           tableId,
           data: { [relationFieldId]: [otherRecordId] },
           version: 1,
@@ -189,6 +199,7 @@ describe("workflow kernel value resolver", () => {
         `${targetTableId}:${otherRecordId}`,
         {
           id: otherRecordId,
+          shortId: otherRecordShortId,
           tableId: targetTableId,
           data: {},
           version: 1,
@@ -202,6 +213,8 @@ describe("workflow kernel value resolver", () => {
     ]);
     const resolver = new GridsWorkflowValueResolver({
       canReadTable: async () => true,
+      recordShortId: async (_resolvedTableId, resolvedRecordId) =>
+        resolvedRecordId === otherRecordId ? otherRecordShortId : recordShortId,
       readRecord: async (resolvedTableId, resolvedRecordId) => records.get(`${resolvedTableId}:${resolvedRecordId}`) ?? null,
     });
     const invocation = {
@@ -234,7 +247,7 @@ describe("workflow kernel value resolver", () => {
         variables,
         fallback: () => undefined,
       }),
-    ).toEqual({ state: "resolved", value: otherRecordId });
+    ).toEqual({ state: "resolved", value: otherRecordShortId });
     expect(
       await resolver.resolve({
         reference: "inputs.item.Related archives",
@@ -251,6 +264,7 @@ describe("workflow kernel value resolver", () => {
 
     const deniedTarget = new GridsWorkflowValueResolver({
       canReadTable: async (resolvedTableId) => resolvedTableId !== targetTableId,
+      recordShortId: async () => otherRecordShortId,
       readRecord: async (resolvedTableId, resolvedRecordId) => records.get(`${resolvedTableId}:${resolvedRecordId}`) ?? null,
     });
     expect(

@@ -20,11 +20,11 @@ type ApiError = Error & { status?: number; body?: string };
 
 type Fixture = {
   sessionToken: string;
-  base: { id: string; shortId: string };
-  table: { id: string; shortId: string };
-  view: { id: string; shortId: string };
-  statView: { id: string; shortId: string };
-  pagedView: { id: string; shortId: string };
+  base: { id: string };
+  table: { id: string };
+  view: { id: string };
+  statView: { id: string };
+  pagedView: { id: string };
   form: { id: string; publicToken: string };
   records: {
     first: string;
@@ -86,14 +86,14 @@ const createFixture = async (): Promise<Fixture> => {
   const sessionToken = await login();
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`;
 
-  const base = await api<{ id: string; shortId: string }>(
+  const base = await api<{ id: string }>(
     "POST",
     "/api/grids/bases",
     { name: `browser-smoke-${suffix}`, description: "Browser regression smoke fixture" },
     sessionToken,
     201,
   );
-  const table = await api<{ id: string; shortId: string }>(
+  const table = await api<{ id: string }>(
     "POST",
     `/api/grids/tables/by-base/${base.id}`,
     { name: "Tasks", icon: "ti ti-checklist" },
@@ -177,7 +177,7 @@ const createFixture = async (): Promise<Fixture> => {
     201,
   );
 
-  const view = await api<{ id: string; shortId: string }>(
+  const view = await api<{ id: string }>(
     "POST",
     `/api/grids/views/by-table/${table.id}`,
     {
@@ -195,7 +195,7 @@ const createFixture = async (): Promise<Fixture> => {
     sessionToken,
     201,
   );
-  const statView = await api<{ id: string; shortId: string }>(
+  const statView = await api<{ id: string }>(
     "POST",
     `/api/grids/views/by-table/${table.id}`,
     {
@@ -206,7 +206,7 @@ const createFixture = async (): Promise<Fixture> => {
     sessionToken,
     201,
   );
-  const pagedView = await api<{ id: string; shortId: string }>(
+  const pagedView = await api<{ id: string }>(
     "POST",
     `/api/grids/views/by-table/${table.id}`,
     {
@@ -239,7 +239,7 @@ const createFixture = async (): Promise<Fixture> => {
     sessionToken,
     201,
   );
-  if (!form.publicToken) fail("public form was created without a public token");
+  const publicToken = form.publicToken ?? fail("public form was created without a public token");
 
   ok("fixture created");
   return {
@@ -249,7 +249,7 @@ const createFixture = async (): Promise<Fixture> => {
     view,
     statView,
     pagedView,
-    form: { id: form.id, publicToken: form.publicToken },
+    form: { id: form.id, publicToken },
     records: { first: firstRecord.id },
     fields: { title: title.id, amount: amount.id, status: status.id, notes: notes.id, due: due.id },
   };
@@ -367,13 +367,13 @@ const runLiveRefresh = async (browser: Browser, fixture: Fixture) => {
     page.on("request", (request) => requests.push(request.url()));
   }
 
-  const tablePath = `/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}`;
+  const tablePath = `/app/grids/${fixture.base.id}/table/${fixture.table.id}`;
   await Promise.all([pageA.goto(tablePath, { waitUntil: "domcontentloaded" }), pageB.goto(tablePath, { waitUntil: "domcontentloaded" })]);
   await expectVisibleText(pageB, "Review invoices", "live tab B table route renders");
 
   const suffix = `${Date.now()}`;
   const metadataTableName = `Live metadata ${suffix}`;
-  await browserMutation<{ id: string; shortId: string }>(pageA, {
+  await browserMutation<{ id: string }>(pageA, {
     method: "POST",
     path: `/api/grids/tables/by-base/${fixture.base.id}`,
     expected: 201,
@@ -446,7 +446,7 @@ const runLiveRefresh = async (browser: Browser, fixture: Fixture) => {
 };
 
 const smokeTableWorkbench = async (page: Page, fixture: Fixture) => {
-  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`/app/grids/${fixture.base.id}/table/${fixture.table.id}`, { waitUntil: "domcontentloaded" });
   await expectVisibleText(page, "Tasks", "table route renders");
   await expectVisibleText(page, "Review invoices", "record row renders");
   await expectVisibleText(page, "Open", "select badge renders");
@@ -469,14 +469,14 @@ const smokeTableWorkbench = async (page: Page, fixture: Fixture) => {
   ok("table query panel initializes from active table");
   await page.getByRole("button", { name: "Done" }).click();
   await expectNoVisibleText(page, "Full workspace", "table query panel closes");
-  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/formula-reference`, {
+  await page.goto(`/app/grids/${fixture.base.id}/table/${fixture.table.id}/formula-reference`, {
     waitUntil: "domcontentloaded",
   });
   await expectVisibleText(page, "Formula reference", "formula reference route renders");
   await expectVisibleText(page, "Fields", "formula reference fields section renders");
   await expectVisibleText(page, "Functions", "formula reference functions section renders");
   await expectVisibleText(page, "Amount", "formula reference lists fields");
-  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`/app/grids/${fixture.base.id}/table/${fixture.table.id}`, { waitUntil: "domcontentloaded" });
 };
 
 const smokeEnhancedNavigation = async (page: Page, fixture: Fixture) => {
@@ -487,15 +487,15 @@ const smokeEnhancedNavigation = async (page: Page, fixture: Fixture) => {
     return el.scrollTop;
   });
   await page
-    .locator(`[data-scroll-preserve="grids-sidebar"] a[href$="/table/${fixture.table.shortId}/view/${fixture.view.shortId}"]`)
+    .locator(`[data-scroll-preserve="grids-sidebar"] a[href$="/table/${fixture.table.id}/view/${fixture.view.id}"]`)
     .first()
     .click();
-  await page.waitForURL(`**/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/view/${fixture.view.shortId}`, {
+  await page.waitForURL(`**/app/grids/${fixture.base.id}/table/${fixture.table.id}/view/${fixture.view.id}`, {
     timeout: TIMEOUT,
   });
   await expectVisibleText(page, "Open task amounts", "enhanced view sidebar navigation renders");
   const viewUrl = new URL(page.url());
-  if (!viewUrl.pathname.endsWith(`/table/${fixture.table.shortId}/view/${fixture.view.shortId}`)) {
+  if (!viewUrl.pathname.endsWith(`/table/${fixture.table.id}/view/${fixture.view.id}`)) {
     fail(`enhanced view navigation wrote wrong URL: ${viewUrl.pathname}`);
   }
   const sidebarScrollAfterView = await page.locator('[data-scroll-preserve="grids-sidebar"]').evaluate((el) => el.scrollTop);
@@ -508,17 +508,17 @@ const smokeEnhancedNavigation = async (page: Page, fixture: Fixture) => {
   }
   ok("enhanced view sidebar navigation updates URL and preserves scroll");
 
-  await page.locator(`[data-scroll-preserve="grids-sidebar"] a[href$="/table/${fixture.table.shortId}"]`).first().click();
-  await page.waitForURL(`**/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}`, { timeout: TIMEOUT });
+  await page.locator(`[data-scroll-preserve="grids-sidebar"] a[href$="/table/${fixture.table.id}"]`).first().click();
+  await page.waitForURL(`**/app/grids/${fixture.base.id}/table/${fixture.table.id}`, { timeout: TIMEOUT });
   await expectVisibleText(page, "Review invoices", "enhanced table sidebar navigation renders");
   const tableUrl = new URL(page.url());
-  if (!tableUrl.pathname.endsWith(`/table/${fixture.table.shortId}`)) {
+  if (!tableUrl.pathname.endsWith(`/table/${fixture.table.id}`)) {
     fail(`enhanced table navigation wrote wrong URL: ${tableUrl.pathname}`);
   }
   ok("enhanced table sidebar navigation updates URL");
 
-  await page.locator(`[data-scroll-preserve="grids-sidebar"] a[href$="/table/${fixture.table.shortId}"]`).first().click();
-  await page.waitForURL(`**/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}`, { timeout: TIMEOUT });
+  await page.locator(`[data-scroll-preserve="grids-sidebar"] a[href$="/table/${fixture.table.id}"]`).first().click();
+  await page.waitForURL(`**/app/grids/${fixture.base.id}/table/${fixture.table.id}`, { timeout: TIMEOUT });
   await page.getByRole("link", { name: "Edit mode" }).click();
   await page.waitForURL(/edit=true/, { timeout: TIMEOUT });
   await expectVisibleText(page, "Done editing", "enhanced edit-mode navigation renders");
@@ -533,7 +533,7 @@ const smokeRecordAndViews = async (page: Page, fixture: Fixture) => {
     if (new URL(request.url()).pathname === "/api/grids/workspace/record-detail") initialRecordDetailRequests += 1;
   };
   page.on("request", countInitialRecordDetailRequest);
-  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}?record=${fixture.records.first}`, {
+  await page.goto(`/app/grids/${fixture.base.id}/table/${fixture.table.id}?record=${fixture.records.first}`, {
     waitUntil: "domcontentloaded",
   });
   await expectVisibleText(page, "History", "record detail opens");
@@ -542,7 +542,7 @@ const smokeRecordAndViews = async (page: Page, fixture: Fixture) => {
   if (initialRecordDetailRequests !== 0) fail("record detail refetched during initial hydration");
   ok("record detail hydrates from server data without refetching");
 
-  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/view/${fixture.view.shortId}`, {
+  await page.goto(`/app/grids/${fixture.base.id}/table/${fixture.table.id}/view/${fixture.view.id}`, {
     waitUntil: "domcontentloaded",
   });
   await expectVisibleText(page, "Open task amounts", "view route renders");
@@ -554,8 +554,8 @@ const smokeRecordAndViews = async (page: Page, fixture: Fixture) => {
     { pageSize: 1, surface: "records-view" },
     fixture.sessionToken,
   );
-  const secondPageCursor = firstViewPage.ok ? firstViewPage.page?.nextCursor : null;
-  if (!secondPageCursor) fail("saved view did not return a pagination cursor");
+  const secondPageCursor =
+    (firstViewPage.ok ? firstViewPage.page?.nextCursor : null) ?? fail("saved view did not return a pagination cursor");
   const secondViewPage = await api<{ ok: boolean; rows?: Array<{ values: Record<string, unknown> }> }>(
     "POST",
     `/api/grids/gql/by-base/${fixture.base.id}/views/${fixture.pagedView.id}/execute`,
@@ -568,7 +568,7 @@ const smokeRecordAndViews = async (page: Page, fixture: Fixture) => {
     fail(`saved view API cursor page failed: ${JSON.stringify(secondViewPage)}; cursor=${decoded}`);
   }
   await page.goto(
-    `/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/view/${fixture.pagedView.shortId}?cursor=${encodeURIComponent(secondPageCursor)}`,
+    `/app/grids/${fixture.base.id}/table/${fixture.table.id}/view/${fixture.pagedView.id}?cursor=${encodeURIComponent(secondPageCursor)}`,
     { waitUntil: "domcontentloaded" },
   );
   const cursorPageText = await page.locator("body").innerText();
@@ -593,7 +593,7 @@ const smokeRecordAndViews = async (page: Page, fixture: Fixture) => {
   if (!firstPageResponse.ok()) fail(`query-result first-page request returned ${firstPageResponse.status()}`);
   await expectVisibleText(page, "300", "query-result pager returns to first page");
 
-  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}/view/${fixture.statView.shortId}`, {
+  await page.goto(`/app/grids/${fixture.base.id}/table/${fixture.table.id}/view/${fixture.statView.id}`, {
     waitUntil: "domcontentloaded",
   });
   await expectVisibleText(page, "Total amount", "aggregate-only view route renders");
@@ -706,7 +706,7 @@ const runResponsive = async (browser: Browser, fixture: Fixture) => {
   });
   if (!page) throw new Error("Could not create browser page");
 
-  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`/app/grids/${fixture.base.id}/table/${fixture.table.id}`, { waitUntil: "domcontentloaded" });
   await expectVisibleText(page, "Tasks", "mobile table route renders");
   await expectVisibleText(page, "Review invoices", "mobile table content renders");
   assertNoBrowserErrors(errors);
@@ -781,7 +781,7 @@ const runRecordAuditSmoke = async (browser: Browser, fixture: Fixture) => {
   });
   if (!page) throw new Error("Could not create browser page");
 
-  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}?edit=true`, {
+  await page.goto(`/app/grids/${fixture.base.id}/table/${fixture.table.id}?edit=true`, {
     waitUntil: "domcontentloaded",
   });
   await expectVisibleText(page, "Done editing", "audit policy route enters edit mode");
@@ -806,7 +806,7 @@ const runRecordAuditSmoke = async (browser: Browser, fixture: Fixture) => {
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
 
-  await page.goto(`/app/grids/${fixture.base.shortId}/table/${fixture.table.shortId}?record=${fixture.records.first}`, {
+  await page.goto(`/app/grids/${fixture.base.id}/table/${fixture.table.id}?record=${fixture.records.first}`, {
     waitUntil: "domcontentloaded",
   });
   const editDialog = page.getByRole("dialog").filter({ hasText: "Edit record · Tasks" });

@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 import type { CustomAppDefinition } from "../custom-apps/contracts";
-import type { CustomApp } from "../service/custom-apps";
-import { customAppCommands } from "./custom-apps";
+import { type CliCustomApp, customAppCommands } from "./custom-apps";
 import { gqlCommands } from "./views-gql";
 
-const baseId = "11111111-1111-4111-8111-111111111111";
-const appId = "13131313-1313-4313-8313-131313131313";
-const tableId = "14141414-1414-4414-8414-141414141414";
-const base = { id: baseId, shortId: "base1", name: "Requests" };
+const baseId = "base1A";
+const appId = "req001";
+const tableId = "table1";
+const base = { id: baseId, name: "Requests" };
+const basePage = { items: [base], total: 1, limit: 500, offset: 0 };
 const definition: CustomAppDefinition = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   kind: "grids.custom-app",
   id: appId,
   baseId,
@@ -43,18 +43,15 @@ const definition: CustomAppDefinition = {
     },
   ],
 };
-const app: CustomApp = {
+const app: CliCustomApp = {
   id: appId,
-  shortId: "request1",
   baseId,
   name: "Request portal",
   icon: null,
   draftDefinition: definition,
-  draftDefinitionRaw: definition,
   draftDiagnostics: [],
   draftCapabilities: null,
   publishedDefinition: definition,
-  publishedDefinitionRaw: definition,
   publishedDiagnostics: [],
   publishedCapabilities: null,
   publishedAt: "2026-08-11T12:00:00.000Z",
@@ -64,6 +61,7 @@ const app: CustomApp = {
   publishedValid: true,
   hasUnpublishedChanges: false,
 };
+const publicApp = app;
 
 type FetchCall = { path: string; init?: RequestInit };
 
@@ -146,7 +144,7 @@ describe("Grids Apps CLI", () => {
 
   test("routes apply --dry-run through the plan endpoint without applying", async () => {
     const planned = { valid: true, diagnostics: [], action: "noop", changes: [] };
-    const { calls, ctx, values } = createContext([Response.json(base), Response.json(planned)]);
+    const { calls, ctx, values } = createContext([Response.json(basePage), Response.json(planned)]);
 
     await command("apps apply").run({
       ctx,
@@ -158,14 +156,14 @@ describe("Grids Apps CLI", () => {
       },
     });
 
-    expect(calls.map((call) => call.path)).toEqual([`/api/grids/bases/${baseId}`, "/api/grids/apps/plan"]);
+    expect(calls.map((call) => call.path)).toEqual([`/api/grids/bases?q=${baseId}&limit=500&offset=0`, "/api/grids/apps/plan"]);
     expect(calls[1]?.init?.method).toBe("POST");
     expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ definition });
     expect(values).toEqual([planned]);
   });
 
   test("creates the same blank draft as the visual New App action", async () => {
-    const { calls, ctx, values } = createContext([Response.json(base), Response.json(app, { status: 201 })]);
+    const { calls, ctx, values } = createContext([Response.json(basePage), Response.json(app, { status: 201 })]);
 
     await command("apps create").run({
       ctx,
@@ -173,14 +171,17 @@ describe("Grids Apps CLI", () => {
       flags: { base: undefined, name: app.name },
     });
 
-    expect(calls.map((call) => call.path)).toEqual([`/api/grids/bases/${baseId}`, `/api/grids/apps/by-base/${baseId}`]);
+    expect(calls.map((call) => call.path)).toEqual([
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
+      `/api/grids/apps/by-base/${baseId}`,
+    ]);
     expect(calls[1]?.init?.method).toBe("POST");
     expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ name: app.name });
-    expect(values).toEqual([app]);
+    expect(values).toEqual([publicApp]);
   });
 
   test("restores the live definition as the draft", async () => {
-    const { calls, ctx, values } = createContext([Response.json(base), Response.json([app]), Response.json(app)]);
+    const { calls, ctx, values } = createContext([Response.json(basePage), Response.json([app]), Response.json(app)]);
 
     await command("apps restore").run({
       ctx,
@@ -189,16 +190,16 @@ describe("Grids Apps CLI", () => {
     });
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/apps/by-base/${baseId}`,
       `/api/grids/apps/${appId}/restore`,
     ]);
     expect(calls[2]?.init?.method).toBe("POST");
-    expect(values).toEqual([app]);
+    expect(values).toEqual([publicApp]);
   });
 
   test("exports the exact live definition without reading the draft endpoint", async () => {
-    const { calls, ctx, values } = createContext([Response.json(base), Response.json([app])]);
+    const { calls, ctx, values } = createContext([Response.json(basePage), Response.json([app])]);
 
     await command("apps export").run({
       ctx,
@@ -206,7 +207,10 @@ describe("Grids Apps CLI", () => {
       flags: { base: undefined, app: undefined, published: true, out: undefined },
     });
 
-    expect(calls.map((call) => call.path)).toEqual([`/api/grids/bases/${baseId}`, `/api/grids/apps/by-base/${baseId}`]);
+    expect(calls.map((call) => call.path)).toEqual([
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
+      `/api/grids/apps/by-base/${baseId}`,
+    ]);
     expect(values).toEqual([definition]);
   });
 
@@ -217,7 +221,7 @@ describe("Grids Apps CLI", () => {
       hasUnpublishedChanges: true,
       draftDiagnostics: [{ path: ["pages", 0], message: "Page needs content" }],
     };
-    const { ctx, lines } = createContext([Response.json(base), Response.json([attention])], "text");
+    const { ctx, lines } = createContext([Response.json(basePage), Response.json([attention])], "text");
 
     await command("apps get").run({
       ctx,
@@ -229,13 +233,13 @@ describe("Grids Apps CLI", () => {
     expect(lines).toContain("draft: needs attention");
     expect(lines).toContain(`live: ${app.publishedAt}`);
     expect(lines).toContain("unpublished changes: yes");
-    expect(lines).toContain(`url: /apps/${app.shortId}`);
+    expect(lines).toContain(`url: /apps/${appId}`);
     expect(lines).toContain("draft pages.0: Page needs content");
   });
 
   test("adds only the selected App page context to GQL autocomplete", async () => {
     const autocomplete = { ok: true as const, diagnostics: [], items: [] };
-    const { calls, ctx, values } = createContext([Response.json(base), Response.json([app]), Response.json(autocomplete)]);
+    const { calls, ctx, values } = createContext([Response.json(basePage), Response.json([app]), Response.json(autocomplete)]);
 
     await gqlCommand("gql autocomplete").run({
       ctx,
@@ -252,7 +256,7 @@ describe("Grids Apps CLI", () => {
     });
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/apps/by-base/${baseId}`,
       `/api/grids/gql/by-base/${baseId}/autocomplete`,
     ]);
@@ -269,7 +273,6 @@ describe("Grids Apps CLI", () => {
         "page.title",
         "page.url",
         "app.id",
-        "app.shortId",
         "app.name",
         "base.id",
         "base.name",

@@ -1,7 +1,7 @@
-schemaVersion: 4
+schemaVersion: 5
 kind: grids.custom-app
-id: 11000000-0000-4000-8000-000000000102
-baseId: 11000000-0000-4000-8000-000000000001
+id: r00102
+baseId: r00001
 name: Reimbursement review
 icon: receipt
 startPageId: queue
@@ -26,9 +26,9 @@ pages:
                 source:
                   kind: gql
                   query: |
-                    from table {11000000-0000-4000-8000-000000000201}
-                    where {11000000-0000-4000-8000-000000000302} = 'pending'
-                    select {11000000-0000-4000-8000-000000000301}, {11000000-0000-4000-8000-000000000302}
+                    from table {r00201}
+                    where {r00302} = 'pending'
+                    select {r00301}, {r00302}
                     sort record.createdAt asc
                 display:
                   kind: table
@@ -47,10 +47,10 @@ pages:
     parameters:
       request_id:
         type: record
-        tableId: 11000000-0000-4000-8000-000000000201
+        tableId: r00201
         required: true
     record:
-      tableId: 11000000-0000-4000-8000-000000000201
+      tableId: r00201
       id: { source: PARAMS, path: request_id }
     rows:
       - id: request
@@ -61,8 +61,8 @@ pages:
               - id: request
                 type: record
                 fieldIds:
-                  - 11000000-0000-4000-8000-000000000301
-                  - 11000000-0000-4000-8000-000000000302
+                  - r00301
+                  - r00302
                 editableFieldIds: []
               - id: expenses
                 type: records
@@ -72,16 +72,16 @@ pages:
                 source:
                   kind: gql
                   query: |
-                    from table {11000000-0000-4000-8000-000000000202}
-                    where {11000000-0000-4000-8000-000000000311} = @params.request_id
-                    select {11000000-0000-4000-8000-000000000312}, {11000000-0000-4000-8000-000000000313}, {11000000-0000-4000-8000-000000000315}
+                    from table {r00202}
+                    where {r00311} = @params.request_id
+                    select {r00312}, {r00313}, {r00315}
                     sort record.createdAt asc
                 display:
                   kind: table
                   columnIds:
-                    - 11000000-0000-4000-8000-000000000312
-                    - 11000000-0000-4000-8000-000000000313
-                    - 11000000-0000-4000-8000-000000000315
+                    - r00312
+                    - r00313
+                    - r00315
                 rowNavigate:
                   kind: navigate
                   pageId: expense
@@ -98,27 +98,27 @@ pages:
                     label: Approve
                     icon: check
                     kind: workflow
-                    launcherId: 11000000-0000-4000-8000-000000000802
+                    launcherId: r00802
                     inputs:
                       request: { source: RECORD, path: id }
                     confirm: Approve this reimbursement request?
                     availableWhen:
                       query: |
-                        from table {11000000-0000-4000-8000-000000000201}
-                        where record.id = @params.request_id and {11000000-0000-4000-8000-000000000302} = 'pending'
+                        from table {r00201}
+                        where record.id = @params.request_id and {r00302} = 'pending'
                         limit 1
                   - id: reject
                     label: Reject
                     icon: x
                     kind: workflow
-                    launcherId: 11000000-0000-4000-8000-000000000804
+                    launcherId: r00804
                     inputs:
                       request: { source: RECORD, path: id }
                     confirm: Reject this reimbursement request?
                     availableWhen:
                       query: |
-                        from table {11000000-0000-4000-8000-000000000201}
-                        where record.id = @params.request_id and {11000000-0000-4000-8000-000000000302} = 'pending'
+                        from table {r00201}
+                        where record.id = @params.request_id and {r00302} = 'pending'
                         limit 1
               - id: comments
                 type: comments
@@ -131,10 +131,10 @@ pages:
     parameters:
       expense_id:
         type: record
-        tableId: 11000000-0000-4000-8000-000000000202
+        tableId: r00202
         required: true
     record:
-      tableId: 11000000-0000-4000-8000-000000000202
+      tableId: r00202
       id: { source: PARAMS, path: expense_id }
     rows:
       - id: expense
@@ -146,9 +146,9 @@ pages:
                 type: record
                 title: Expense and receipt
                 fieldIds:
-                  - 11000000-0000-4000-8000-000000000312
-                  - 11000000-0000-4000-8000-000000000313
-                  - 11000000-0000-4000-8000-000000000314
-                  - 11000000-0000-4000-8000-000000000315
-                  - 11000000-0000-4000-8000-000000000316
+                  - r00312
+                  - r00313
+                  - r00314
+                  - r00315
+                  - r00316
                 editableFieldIds: []

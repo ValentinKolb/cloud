@@ -1,4 +1,4 @@
-import { arg, command, confirmFlag, flag, printStructured } from "@valentinkolb/cloud/cli";
+import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
 import type { WorkflowInvocationReceipt } from "@valentinkolb/cloud/workflows";
 import type { DocumentRunSummaryList, EmailTemplate } from "../contracts";
 import {
@@ -10,13 +10,14 @@ import {
   type GridsWorkflowRun as WorkflowRun,
 } from "../workflows/contracts";
 import { documentRunRows } from "./documents-support";
-import { baseArgs, baseFlag, resolveBaseFromCommand } from "./resources";
+import { baseArgs, baseFlag, requirePublicId, resolveBaseFromCommand } from "./resources";
 import {
   applyDefined,
   JSON_BODY_INPUT,
   jsonRequest,
   type MessageResponse,
   printAutocomplete,
+  printCliStructured,
   printDiagnostics,
   printJsonOrMessage,
   printJsonOrTable,
@@ -92,12 +93,11 @@ export const emailTemplateCommands = [
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
       const templates = await listEmailTemplates(ctx, base.id);
       printJsonOrTable(ctx, templates, emailTemplateRows(templates), [
-        { key: "shortId", label: "SHORT" },
+        { key: "id", label: "ID" },
         { key: "name", label: "NAME" },
         { key: "enabled", label: "ENABLED" },
         { key: "subject", label: "SUBJECT" },
         { key: "updatedAt", label: "UPDATED" },
-        { key: "id", label: "ID" },
       ]);
     },
   }),
@@ -107,8 +107,8 @@ export const emailTemplateCommands = [
     flags: { ...baseFlag, ...emailTemplateFlag },
     async run({ ctx, args, flags }) {
       const { template } = await resolveEmailTemplateFromCommand(ctx, args.args, flags.template);
-      if (!printStructured(ctx, template)) {
-        ctx.print(`${template.name} (${template.shortId})`);
+      if (!printCliStructured(ctx, template)) {
+        ctx.print(`${template.name} (${template.id})`);
         if (template.description) ctx.print(template.description);
         ctx.print(`subject: ${template.subject}`);
         ctx.print(`enabled: ${template.enabled ? "yes" : "no"}`);
@@ -158,7 +158,7 @@ export const emailTemplateCommands = [
         `/email-templates/by-base/${encodeURIComponent(base.id)}`,
         jsonRequest("POST", body),
       );
-      printJsonOrMessage(ctx, template, `Created email template ${template.name} (${template.shortId}).`);
+      printJsonOrMessage(ctx, template, `Created email template ${template.name} (${template.id}).`);
     },
   }),
   command("email-templates update", {
@@ -188,7 +188,7 @@ export const emailTemplateCommands = [
         position: flags.position,
       });
       const updated = await readApi<EmailTemplate>(ctx, `/email-templates/${encodeURIComponent(template.id)}`, jsonRequest("PATCH", body));
-      printJsonOrMessage(ctx, updated, `Updated email template ${updated.name} (${updated.shortId}).`);
+      printJsonOrMessage(ctx, updated, `Updated email template ${updated.name} (${updated.id}).`);
     },
   }),
   command("email-templates delete", {
@@ -199,7 +199,7 @@ export const emailTemplateCommands = [
       if (!flags.yes) throw new Error("Pass --yes to delete.");
       const { template } = await resolveEmailTemplateFromCommand(ctx, args.args, flags.template);
       await readApi<MessageResponse>(ctx, `/email-templates/${encodeURIComponent(template.id)}`, jsonRequest("DELETE"));
-      printJsonOrMessage(ctx, { deleted: template.id }, `Deleted email template ${template.name} (${template.shortId}).`);
+      printJsonOrMessage(ctx, { deleted: template.id }, `Deleted email template ${template.name} (${template.id}).`);
     },
   }),
 ];
@@ -294,11 +294,10 @@ export const workflowCommands = [
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
       const workflows = await listWorkflows(ctx, base.id);
       printJsonOrTable(ctx, workflows, workflowRows(workflows), [
-        { key: "shortId", label: "SHORT" },
+        { key: "id", label: "ID" },
         { key: "name", label: "NAME" },
         { key: "enabled", label: "ENABLED" },
         { key: "updatedAt", label: "UPDATED" },
-        { key: "id", label: "ID" },
       ]);
     },
   }),
@@ -308,8 +307,8 @@ export const workflowCommands = [
     flags: { ...baseFlag, ...workflowFlag },
     async run({ ctx, args, flags }) {
       const { workflow } = await resolveWorkflowFromCommand(ctx, args.args, flags.workflow);
-      if (!printStructured(ctx, workflow)) {
-        ctx.print(`${workflow.name} (${workflow.shortId})`);
+      if (!printCliStructured(ctx, workflow)) {
+        ctx.print(`${workflow.name} (${workflow.id})`);
         if (workflow.description) ctx.print(workflow.description);
         ctx.print(`enabled: ${workflow.enabled ? "yes" : "no"}`);
         ctx.print(`id: ${workflow.id}`);
@@ -351,7 +350,7 @@ export const workflowCommands = [
       if (!body.name) throw new Error("Missing workflow name. Pass --name or --body JSON.");
       if (!body.source) throw new Error("Missing workflow YAML. Pass --source, --source-file, -f, --stdin, or --body JSON.");
       const workflow = await readApi<Workflow>(ctx, `/workflows/by-base/${encodeURIComponent(base.id)}`, jsonRequest("POST", body));
-      printJsonOrMessage(ctx, workflow, `Created workflow ${workflow.name} (${workflow.shortId}).`);
+      printJsonOrMessage(ctx, workflow, `Created workflow ${workflow.name} (${workflow.id}).`);
     },
   }),
   command("workflows update", {
@@ -384,7 +383,7 @@ export const workflowCommands = [
         `/workflows/${encodeURIComponent(workflow.id)}`,
         jsonRequest("PATCH", body, { [WORKFLOW_REVISION_HEADER]: String(workflow.revision) }),
       );
-      printJsonOrMessage(ctx, updated, `Updated workflow ${updated.name} (${updated.shortId}).`);
+      printJsonOrMessage(ctx, updated, `Updated workflow ${updated.name} (${updated.id}).`);
     },
   }),
   command("workflows history", {
@@ -456,7 +455,7 @@ export const workflowCommands = [
       if (!flags.yes) throw new Error("Pass --yes to delete.");
       const { workflow } = await resolveWorkflowFromCommand(ctx, args.args, flags.workflow);
       await readApi<MessageResponse>(ctx, `/workflows/${encodeURIComponent(workflow.id)}`, jsonRequest("DELETE"));
-      printJsonOrMessage(ctx, { deleted: workflow.id }, `Deleted workflow ${workflow.name} (${workflow.shortId}).`);
+      printJsonOrMessage(ctx, { deleted: workflow.id }, `Deleted workflow ${workflow.name} (${workflow.id}).`);
     },
   }),
   command("workflows validate", {
@@ -471,7 +470,7 @@ export const workflowCommands = [
         `/workflows/by-base/${encodeURIComponent(base.id)}/validate`,
         jsonRequest("POST", { source }),
       );
-      if (printStructured(ctx, payload)) return payload.ok ? 0 : 1;
+      if (printCliStructured(ctx, payload)) return payload.ok ? 0 : 1;
       if (!payload.ok) {
         printDiagnostics(ctx, payload.diagnostics);
         return 1;
@@ -549,13 +548,12 @@ export const workflowCommands = [
       const { workflow } = await resolveWorkflowFromCommand(ctx, args.args, flags.workflow);
       const payload = await listWorkflowLaunchers(ctx, workflow.id);
       printJsonOrTable(ctx, payload, workflowLauncherRows(payload.items), [
-        { key: "shortId", label: "SHORT" },
+        { key: "id", label: "ID" },
         { key: "name", label: "NAME" },
         { key: "kind", label: "KIND" },
         { key: "enabled", label: "ENABLED" },
         { key: "revision", label: "REVISION" },
         { key: "diagnostics", label: "DIAGNOSTICS" },
-        { key: "id", label: "ID" },
       ]);
     },
   }),
@@ -574,7 +572,11 @@ export const workflowCommands = [
         `/workflows/${encodeURIComponent(workflow.id)}/launchers`,
         jsonRequest("POST", body),
       );
-      printJsonOrMessage(ctx, launcher, `Created ${launcher.config.kind === "customApp" ? "custom-app" : launcher.config.kind} launcher ${launcher.name} (${launcher.shortId}).`);
+      printJsonOrMessage(
+        ctx,
+        launcher,
+        `Created ${launcher.config.kind === "customApp" ? "custom-app" : launcher.config.kind} launcher ${launcher.name} (${launcher.id}).`,
+      );
     },
   }),
   command("workflow-launchers update", {
@@ -592,7 +594,7 @@ export const workflowCommands = [
         `/workflows/launchers/${encodeURIComponent(launcher.id)}`,
         jsonRequest("PATCH", body),
       );
-      printJsonOrMessage(ctx, updated, `Updated ${updated.config.kind} launcher ${updated.name} (${updated.shortId}).`);
+      printJsonOrMessage(ctx, updated, `Updated ${updated.config.kind} launcher ${updated.name} (${updated.id}).`);
     },
   }),
   command("workflow-launchers delete", {
@@ -608,13 +610,13 @@ export const workflowCommands = [
       if (!flags.yes) throw new Error("Pass --yes to delete.");
       const { launcher } = await resolveWorkflowLauncherFromCommand(ctx, args.args, flags.workflow, flags.launcher);
       await readApi<null>(ctx, `/workflows/launchers/${encodeURIComponent(launcher.id)}`, jsonRequest("DELETE"));
-      printJsonOrMessage(ctx, { deleted: launcher.id }, `Deleted workflow launcher ${launcher.name} (${launcher.shortId}).`);
+      printJsonOrMessage(ctx, { deleted: launcher.id }, `Deleted workflow launcher ${launcher.name} (${launcher.id}).`);
     },
   }),
   command("workflow-launchers invoke", {
     summary: "Invoke a scanner, bulk, or customApp launcher",
     description:
-      'The saved launcher kind selects the endpoint. Pass the exact JSON body: scanner {"operationId":"scan-42","mode":"execute","expectedRevision":3,"scannedText":"gsc_opaque","inputs":{}}; bulk uses either "recordIds":[uuid,...] or "query":{...}; customApp uses {"operationId":"customApp-42","mode":"execute","expectedRevision":3,"inputs":{...}}. Run `cld grids workflows reference` for complete shapes.',
+      'The saved launcher kind selects the endpoint. Pass the exact JSON body: scanner {"operationId":"scan-42","mode":"execute","expectedRevision":3,"scannedText":"gsc_opaque","inputs":{}}; bulk uses either "recordIds":[public-id,...] or "query":{...}; customApp uses {"operationId":"customApp-42","mode":"execute","expectedRevision":3,"inputs":{...}}. Run `cld grids workflows reference` for complete shapes.',
     args: baseArgs,
     flags: { ...baseFlag, ...workflowFlag, ...workflowLauncherFlag, body: WORKFLOW_LAUNCHER_BODY_INPUT },
     examples: ["cld grids workflow-launchers invoke Bookshop 'Check in' Scanner --body-file invocation.json"],
@@ -660,7 +662,7 @@ export const workflowRunCommands = [
       const payload = await readApi<WorkflowRunListResponse>(
         ctx,
         `/workflows/by-base/${encodeURIComponent(base.id)}/runs${queryString({
-          workflowId: workflow?.id,
+          workflowId: workflow ? workflow.id : undefined,
           status: flags.status,
           channel: flags.channel,
           mode: flags.mode,
@@ -669,14 +671,12 @@ export const workflowRunCommands = [
         })}`,
       );
       printJsonOrTable(ctx, payload, workflowRunRows(payload.items), [
-        { key: "id", label: "SHORT" },
-        { key: "workflowId", label: "WORKFLOW" },
+        { key: "id", label: "ID" },
         { key: "revision", label: "REVISION" },
         { key: "channel", label: "CHANNEL" },
         { key: "mode", label: "MODE" },
         { key: "status", label: "STATUS" },
         { key: "createdAt", label: "CREATED" },
-        { key: "runId", label: "ID" },
       ]);
       if (ctx.options.output === "text" && payload.nextCursor) ctx.print(`next cursor: ${payload.nextCursor}`);
     },
@@ -685,10 +685,10 @@ export const workflowRunCommands = [
     summary: "Show a workflow run",
     description:
       "Grids' view of the run: which workflow and revision, what asked for it, and how it ended. `cld admin workflows show <run-id>` adds the kernel's side — the event that caused it, its effect budget, and any child runs.",
-    args: { run: arg.required({ description: "Workflow run UUID" }) },
+    args: { run: arg.required({ description: "Workflow run public id" }) },
     async run({ ctx, args }) {
-      const run = await readApi<WorkflowRun>(ctx, `/workflows/runs/${encodeURIComponent(args.run)}`);
-      if (!printStructured(ctx, run)) {
+      const run = await readApi<WorkflowRun>(ctx, `/workflows/runs/${encodeURIComponent(requirePublicId(args.run, "Workflow run id"))}`);
+      if (!printCliStructured(ctx, run)) {
         ctx.print(`${run.id} (${run.status})`);
         ctx.print(`workflow: ${run.workflowId ?? "-"}`);
         ctx.print(`launcher: ${run.launcherId ?? "-"}`);
@@ -708,11 +708,15 @@ export const workflowRunCommands = [
     summary: "Cancel a queued, running, or waiting workflow run",
     description:
       "A request, not a write: a queued run is canceled at once, while a running or waiting one stops when the worker holding it next checks in. It never undoes an effect that already happened.",
-    args: { run: arg.required({ description: "Workflow run UUID" }) },
+    args: { run: arg.required({ description: "Workflow run public id" }) },
     flags: { yes: confirmFlag("Cancel this workflow run") },
     async run({ ctx, args, flags }) {
       if (!flags.yes) throw new Error("Pass --yes to cancel.");
-      const run = await readApi<WorkflowRun>(ctx, `/workflows/runs/${encodeURIComponent(args.run)}/cancel`, jsonRequest("POST", {}));
+      const run = await readApi<WorkflowRun>(
+        ctx,
+        `/workflows/runs/${encodeURIComponent(requirePublicId(args.run, "Workflow run id"))}/cancel`,
+        jsonRequest("POST", {}),
+      );
       printJsonOrMessage(
         ctx,
         run,
@@ -726,9 +730,12 @@ export const workflowRunCommands = [
     summary: "List workflow run steps",
     description:
       "A step has its own vocabulary, not the run's: STATUS is running, completed, waiting, failed, needs_attention, terminal, planned, unsupported, indeterminate, or canceled. A step completes where a run succeeds, and a dry run records planned steps. ATTEMPT counts re-runs of that one step and is 0 the first time.",
-    args: { run: arg.required({ description: "Workflow run UUID" }) },
+    args: { run: arg.required({ description: "Workflow run public id" }) },
     async run({ ctx, args }) {
-      const payload = await readApi<WorkflowStepRunListResponse>(ctx, `/workflows/runs/${encodeURIComponent(args.run)}/steps`);
+      const payload = await readApi<WorkflowStepRunListResponse>(
+        ctx,
+        `/workflows/runs/${encodeURIComponent(requirePublicId(args.run, "Workflow run id"))}/steps`,
+      );
       printJsonOrTable(ctx, payload, workflowStepRows(payload.items), [
         { key: "key", label: "KEY" },
         { key: "path", label: "PATH" },
@@ -744,7 +751,7 @@ export const workflowRunCommands = [
   }),
   command("workflow-runs documents", {
     summary: "List documents generated by a workflow run",
-    args: { run: arg.required({ description: "Workflow run UUID" }) },
+    args: { run: arg.required({ description: "Workflow run public id" }) },
     flags: {
       limit: flag.int({ min: 1, max: 500, description: "Maximum documents" }),
       offset: flag.int({ min: 0, description: "Document offset" }),
@@ -752,24 +759,28 @@ export const workflowRunCommands = [
     async run({ ctx, args, flags }) {
       const payload = await readApi<DocumentRunSummaryList>(
         ctx,
-        `/workflows/runs/${encodeURIComponent(args.run)}/documents${queryString({ limit: flags.limit, offset: flags.offset })}`,
+        `/workflows/runs/${encodeURIComponent(requirePublicId(args.run, "Workflow run id"))}/documents${queryString({ limit: flags.limit, offset: flags.offset })}`,
       );
       printJsonOrTable(ctx, payload, documentRunRows(payload.items), [
-        { key: "shortId", label: "SHORT" },
+        { key: "id", label: "ID" },
         { key: "number", label: "NUMBER" },
         { key: "filename", label: "FILENAME" },
         { key: "tags", label: "TAGS" },
         { key: "generatedAt", label: "GENERATED" },
-        { key: "id", label: "ID" },
       ]);
     },
   }),
   command("workflow-runs download-documents", {
     summary: "Download all documents generated by a workflow run as one PDF",
-    args: { run: arg.required({ description: "Workflow run UUID" }) },
+    args: { run: arg.required({ description: "Workflow run public id" }) },
     flags: { out: flag.string({ description: "Output PDF path" }) },
     async run({ ctx, args, flags }) {
-      await writeApiFile(ctx, `/workflows/runs/${encodeURIComponent(args.run)}/documents/download`, undefined, flags.out);
+      await writeApiFile(
+        ctx,
+        `/workflows/runs/${encodeURIComponent(requirePublicId(args.run, "Workflow run id"))}/documents/download`,
+        undefined,
+        flags.out,
+      );
     },
   }),
 ];
@@ -790,15 +801,12 @@ export const workflowEmailCommands = [
       const payload = await readApi<WorkflowEmailDeliveryListResponse>(
         ctx,
         `/workflows/by-base/${encodeURIComponent(base.id)}/email-deliveries${queryString({
-          workflowId: workflow?.id,
+          workflowId: workflow ? workflow.id : undefined,
           cursor: flags.cursor,
           limit: flags.limit,
         })}`,
       );
       printJsonOrTable(ctx, payload, workflowEmailRows(payload.items), [
-        { key: "id", label: "SHORT" },
-        { key: "workflowId", label: "WORKFLOW" },
-        { key: "runId", label: "RUN" },
         { key: "status", label: "STATUS" },
         { key: "subject", label: "SUBJECT" },
         { key: "recipients", label: "RECIPIENTS" },

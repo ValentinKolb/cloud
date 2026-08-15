@@ -2,8 +2,8 @@ import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation, timed } from "@k2b/stdlib/solid";
 import { IconButton, Placeholder, TextInput, Tooltip } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import type { AggregationSpec, FilterTree, GroupBySpec, RecordQuery, TableQueryResult } from "../../../contracts";
-import type { Field, GridRecord } from "../../../service";
+import type { PublicField as Field, PublicGridRecord as GridRecord, PublicTableQueryResult } from "../../../api/public-dto";
+import type { AggregationSpec, FilterTree, GroupBySpec, RecordQuery } from "../../../contracts";
 import { fetchTableQuery } from "../records-view/fetcher";
 import { formatFieldValueText } from "./field-value-format";
 import type { GroupBucket } from "./GroupedTable";
@@ -66,7 +66,7 @@ export default function GroupDetailPanel(props: Props) {
 
   const bucketKey = createMemo(() => JSON.stringify(props.bucket.keys));
 
-  const fetchMut = mutation.create<TableQueryResult, FetchVars, { reset: boolean }>({
+  const fetchMut = mutation.create<PublicTableQueryResult, FetchVars, { reset: boolean }>({
     onBefore: (vars) => ({ reset: vars.reset }),
     mutation: async (vars, { abortSignal }) => {
       const query = buildMemberQuery({

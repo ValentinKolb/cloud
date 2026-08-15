@@ -1,5 +1,6 @@
 import { CapabilitySemanticLinkSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
+import { ShortIdSchema } from "./contracts";
 
 const TimestampSchema = z.string().datetime({ offset: true });
 const CursorSchema = z.string().min(1).max(16_384).optional().describe("Opaque cursor returned by the previous page.");
@@ -8,8 +9,7 @@ const ResourceLinksSchema = z.array(CapabilitySemanticLinkSchema).min(1).max(10)
 
 export const BaseCapabilityDataSchema = z
   .object({
-    id: z.uuid(),
-    shortId: z.string().min(1).max(6),
+    id: ShortIdSchema,
     name: z.string().min(1).max(200),
     description: z.string().max(1_000).nullable(),
     createdAt: TimestampSchema,
@@ -28,7 +28,7 @@ export const BaseListInputSchema = z
   })
   .strict();
 
-export const BaseReadInputSchema = z.object({ id: z.uuid().describe("Stable readable Base UUID.") }).strict();
+export const BaseReadInputSchema = z.object({ id: ShortIdSchema.describe("Stable public Base ID.") }).strict();
 
 const ContextKindSchema = z.enum(["tables", "views", "fields", "options"]);
 const GridsPermissionSchema = z.enum(["read", "write", "admin"]);
@@ -36,9 +36,8 @@ const GridsPermissionSchema = z.enum(["read", "write", "admin"]);
 export const TableCapabilityDataSchema = z
   .object({
     kind: z.literal("table"),
-    id: z.uuid(),
-    shortId: z.string().min(1).max(6),
-    baseId: z.uuid(),
+    id: ShortIdSchema,
+    baseId: ShortIdSchema,
     tableKind: z.enum(["stored", "federated"]),
     name: z.string().min(1).max(200),
     description: z.string().max(1_000).nullable(),
@@ -53,9 +52,8 @@ export const TableCapabilityDataSchema = z
 export const ViewCapabilityDataSchema = z
   .object({
     kind: z.literal("view"),
-    id: z.uuid(),
-    shortId: z.string().min(1).max(6),
-    tableId: z.uuid(),
+    id: ShortIdSchema,
+    tableId: ShortIdSchema,
     name: z.string().min(1).max(200),
     description: z.string().max(2_000).nullable(),
     icon: z.string().max(200).nullable(),
@@ -66,9 +64,8 @@ export const ViewCapabilityDataSchema = z
 const FieldContextItemSchema = z
   .object({
     kind: z.literal("field"),
-    id: z.uuid(),
-    shortId: z.string().min(1).max(6),
-    tableId: z.uuid(),
+    id: ShortIdSchema,
+    tableId: ShortIdSchema,
     name: z.string().min(1).max(200),
     description: z.string().max(2_000).nullable(),
     type: z.string().min(1).max(100),
@@ -76,7 +73,7 @@ const FieldContextItemSchema = z
     required: z.boolean(),
     writable: z.boolean(),
     valueHint: z.string().min(1).max(500).nullable(),
-    targetTableId: z.uuid().nullable(),
+    targetTableId: ShortIdSchema.nullable(),
     relationCardinality: z.enum(["single", "multiple"]).nullable(),
   })
   .strict();
@@ -85,12 +82,14 @@ const OptionContextItemSchema = z
   .object({
     kind: z.literal("option"),
     id: z.string().min(1).max(10_000),
-    fieldId: z.uuid(),
+    fieldId: ShortIdSchema,
     label: z.string().min(1).max(500),
     description: z.string().max(1_000).nullable(),
   })
   .strict();
 
+// Audit question and option IDs are config-local keys, not public resource identities.
+// Actor IDs below are foreign Cloud identities. Neither is resolved as a Grids resource.
 const AuditOptionSchema = z.object({ id: z.uuid(), label: z.string().min(1).max(200) }).strict();
 const AuditQuestionBaseSchema = z.object({
   id: z.uuid(),
@@ -105,13 +104,13 @@ const AuditQuestionSchema = z.discriminatedUnion("type", [
 ]);
 const RecordWriteContextSchema = z
   .object({
-    tableId: z.uuid(),
+    tableId: ShortIdSchema,
     canCreateRecords: z.boolean(),
     canUpdateRecords: z.boolean(),
     updateAudit: z
       .object({
         scope: z.enum(["all", "selected"]),
-        fieldIds: z.array(z.uuid()).max(200),
+        fieldIds: z.array(ShortIdSchema).max(200),
         questions: z.array(AuditQuestionSchema).max(20),
       })
       .strict()
@@ -137,10 +136,10 @@ export const GqlContextDataSchema = z
 
 export const GqlContextInputSchema = z
   .object({
-    baseId: z.uuid().describe("Readable Base whose permission-shaped GQL context should be loaded."),
+    baseId: ShortIdSchema.describe("Public Base ID whose permission-shaped GQL context should be loaded."),
     kind: ContextKindSchema.default("tables").describe("Catalog section: tables, views, fields, or exact select option IDs."),
-    tableId: z.uuid().optional().describe("Readable Table UUID; required for fields and options, optional for views."),
-    fieldId: z.uuid().optional().describe("Readable Select Field UUID; required when kind is options."),
+    tableId: ShortIdSchema.optional().describe("Public Table ID; required for fields and options, optional for views."),
+    fieldId: ShortIdSchema.optional().describe("Public Select Field ID; required when kind is options."),
     cursor: CursorSchema,
     limit: PageLimitSchema,
   })
@@ -150,21 +149,21 @@ const CurrentSourceSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("table").describe("Select a Table as the current source."),
-      tableId: z.uuid().describe("Readable current Table UUID."),
+      tableId: ShortIdSchema.describe("Public current Table ID."),
     })
     .strict(),
   z
     .object({
       kind: z.literal("view").describe("Select a View as the current source."),
-      viewId: z.uuid().describe("Readable current View UUID."),
+      viewId: ShortIdSchema.describe("Public current View ID."),
     })
     .strict(),
 ]);
 
 const GqlInputShape = {
-  baseId: z.uuid().describe("Readable Base in which the GQL source is resolved."),
+  baseId: ShortIdSchema.describe("Public Base ID in which the GQL source is resolved."),
   query: z.string().trim().min(1).max(20_000).describe("Grids Query Language source to execute."),
-  currentTableId: z.uuid().optional().describe("Optional readable Table used when the source omits an explicit from clause."),
+  currentTableId: ShortIdSchema.optional().describe("Optional public Table ID used when the source omits an explicit from clause."),
   currentSource: CurrentSourceSchema.optional().describe("Optional current Table or View source used when GQL omits from."),
   cursor: CursorSchema,
 };
@@ -186,8 +185,8 @@ export const GqlExecuteInputSchema = z
 
 export const GqlViewExecuteInputSchema = z
   .object({
-    baseId: z.uuid().describe("Base containing the saved View."),
-    viewId: z.uuid().describe("Readable saved View whose exact stored GQL should execute."),
+    baseId: ShortIdSchema.describe("Public Base ID containing the saved View."),
+    viewId: ShortIdSchema.describe("Public saved View ID whose exact stored GQL should execute."),
     pageSize: z.number().int().min(1).max(100).default(100).describe("Maximum rows to return on this cursor page."),
     cursor: CursorSchema,
   })
@@ -206,8 +205,8 @@ const GqlColumnSchema = z
   .object({
     key: z.string().min(1).max(500),
     label: z.string().max(500),
-    tableId: z.uuid().optional(),
-    fieldId: z.uuid().optional(),
+    tableId: ShortIdSchema.optional(),
+    fieldId: ShortIdSchema.optional(),
     joinAlias: z.string().max(500).optional(),
     type: z.string().max(100),
     sqlType: z.string().max(100),
@@ -235,8 +234,8 @@ const GqlSuccessSchema = z
       .array(
         z
           .object({
-            recordId: z.uuid().optional(),
-            tableId: z.uuid().optional(),
+            recordId: ShortIdSchema.optional(),
+            tableId: ShortIdSchema.optional(),
             recordMeta: RecordMetaSchema.optional(),
             values: z.record(z.string(), z.unknown()),
             links: ResourceLinksSchema,
@@ -261,8 +260,8 @@ export const GqlResultDataSchema = z.discriminatedUnion("ok", [GqlSuccessSchema,
 
 export const RecordCapabilityDataSchema = z
   .object({
-    id: z.uuid(),
-    tableId: z.uuid(),
+    id: ShortIdSchema,
+    tableId: ShortIdSchema,
     version: z.number().int().positive(),
     deletedAt: TimestampSchema.nullable(),
     createdBy: z.uuid().nullable(),
@@ -272,11 +271,11 @@ export const RecordCapabilityDataSchema = z
   })
   .strict();
 
-export const TableReadInputSchema = z.object({ id: z.uuid().describe("Stable readable Table UUID.") }).strict();
-export const ViewReadInputSchema = z.object({ id: z.uuid().describe("Stable readable View UUID.") }).strict();
-export const RecordReadInputSchema = z.object({ id: z.uuid().describe("Stable live record UUID.") }).strict();
+export const TableReadInputSchema = z.object({ id: ShortIdSchema.describe("Stable public Table ID.") }).strict();
+export const ViewReadInputSchema = z.object({ id: ShortIdSchema.describe("Stable public View ID.") }).strict();
+export const RecordReadInputSchema = z.object({ id: ShortIdSchema.describe("Stable public live Record ID.") }).strict();
 
-const RecordValuesSchema = z.record(z.string().uuid(), z.unknown());
+const RecordValuesSchema = z.record(ShortIdSchema, z.unknown());
 const RecordAuditSchema = z
   .object({
     answers: z.record(z.string().uuid(), z.string().max(10_000)).default({}).describe("Audit question UUIDs mapped to their answers."),
@@ -285,16 +284,16 @@ const RecordAuditSchema = z
 
 export const RecordCreateInputSchema = z
   .object({
-    tableId: z.uuid().describe("Writable stored Table that should receive the record."),
-    values: RecordValuesSchema.describe("Field UUIDs mapped to explicitly supplied values."),
+    tableId: ShortIdSchema.describe("Public ID of the writable stored Table that should receive the record."),
+    values: RecordValuesSchema.describe("Public Field IDs mapped to explicitly supplied values."),
   })
   .strict();
 
 export const RecordUpdateInputSchema = z
   .object({
-    tableId: z.uuid().describe("Writable stored Table containing the record."),
-    recordId: z.uuid().describe("Stable live record UUID to update."),
-    values: RecordValuesSchema.describe("Field UUIDs mapped to explicitly supplied replacement values."),
+    tableId: ShortIdSchema.describe("Public ID of the writable stored Table containing the record."),
+    recordId: ShortIdSchema.describe("Stable public live Record ID to update."),
+    values: RecordValuesSchema.describe("Public Field IDs mapped to explicitly supplied replacement values."),
     ifVersion: z.number().int().positive().describe("Record version returned by record.read; stale versions are rejected."),
     audit: RecordAuditSchema.optional().describe("Answers required by the Table audit policy, when configured."),
   })

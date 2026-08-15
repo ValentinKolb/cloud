@@ -1,8 +1,9 @@
 import type { DateContext } from "@k2b/stdlib";
 import { Button, Placeholder } from "@k2b/ui";
 import { For, type JSX, Show } from "solid-js";
+import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import type { RecordDisplayConfig } from "../../../contracts";
-import type { Field, GridFilePreview, GridRecord } from "../../../service";
+import type { GridFilePreview } from "../../../service";
 import { recordDisplayTitle } from "../records/record-display";
 import { FieldValue } from "../table/FieldValue";
 import { fieldDisplayFormat, formatFieldValueText } from "../table/field-value-format";
@@ -34,7 +35,6 @@ export function RecordCardsView(props: {
   filePreviews?: Record<string, Record<string, GridFilePreview>>;
   baseId: string;
   tableId: string;
-  tableShortIds?: Record<string, string>;
   fieldsByTable?: Record<string, Field[]>;
   relationLabels?: Record<string, string>;
   selectedId?: string | null;
@@ -150,7 +150,6 @@ export function RecordCardsView(props: {
                                       field={field}
                                       value={record.data[field.id]}
                                       baseId={props.baseId}
-                                      tableShortIds={props.tableShortIds}
                                       fieldsByTable={props.fieldsByTable}
                                       relationLabels={props.relationLabels}
                                       dateConfig={props.dateConfig}

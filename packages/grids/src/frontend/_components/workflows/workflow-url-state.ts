@@ -1,11 +1,11 @@
-import type { GridsWorkflowChannel, GridsWorkflowRun, GridsWorkflowRunStatsWindow } from "../../../workflows/contracts";
 import { GRIDS_WORKFLOW_CHANNELS, GridsWorkflowRunStatsWindowSchema, GridsWorkflowRunStatusSchema } from "../../../workflows/contracts";
+import type { PublicWorkflowRun, PublicWorkflowRunStats } from "../workspace/workspace-public-state-model";
 
-export type WorkflowRunStatusFilter = "all" | GridsWorkflowRun["status"];
-export type WorkflowRunChannelFilter = "all" | GridsWorkflowChannel;
+export type WorkflowRunStatusFilter = "all" | PublicWorkflowRun["status"];
+export type WorkflowRunChannelFilter = "all" | PublicWorkflowRun["channel"];
 
 export type WorkflowUrlState = {
-  window: GridsWorkflowRunStatsWindow;
+  window: PublicWorkflowRunStats["window"];
   status: WorkflowRunStatusFilter;
   channel: WorkflowRunChannelFilter;
 };

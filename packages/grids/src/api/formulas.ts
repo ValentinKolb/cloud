@@ -5,12 +5,14 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { gridsService } from "../service";
 import { checkFormula } from "../service/formula-preview";
+import { projectPublicIds, resolvePublicId } from "../service/public-resources";
 import { ALL_RECORD_ACCESS } from "../service/record-access";
 import { currentActorViewer, gateAt } from "./permissions";
+import { internalIdParam, requirePublicIdParam } from "./route-params";
 
 const FormulaCheckBodySchema = z.object({
   expression: z.string().max(10_000),
-  currentFieldId: z.string().uuid().nullable().optional(),
+  currentFieldId: z.string().length(6).nullable().optional(),
 });
 
 const FormulaPreviewResponseSchema = z.object({
@@ -18,15 +20,14 @@ const FormulaPreviewResponseSchema = z.object({
   diagnostics: z.array(z.object({ severity: z.enum(["error", "info"]), message: z.string() })),
   fields: z.array(
     z.object({
-      id: z.string().uuid(),
-      shortId: z.string(),
+      id: z.string().length(6),
       name: z.string(),
       type: z.string(),
     }),
   ),
   rows: z.array(
     z.object({
-      recordId: z.string().uuid(),
+      recordId: z.string().length(6),
       values: z.record(z.string(), z.unknown()),
       result: z.unknown(),
     }),
@@ -35,6 +36,7 @@ const FormulaPreviewResponseSchema = z.object({
 
 const app = new Hono<AuthContext>().use(auth.requireRole("authenticated")).post(
   "/by-table/:tableId/check",
+  requirePublicIdParam("tableId", "table", "Table"),
   describeRoute({
     tags: ["Grids:Formula"],
     summary: "Validate a formula and preview latest records",
@@ -46,23 +48,45 @@ const app = new Hono<AuthContext>().use(auth.requireRole("authenticated")).post(
   }),
   v("json", FormulaCheckBodySchema),
   async (c) => {
-    const tableId = c.req.param("tableId")!;
+    const tableId = internalIdParam(c, "tableId")!;
     const table = await gridsService.table.get(tableId);
     if (!table) return c.json({ message: "Table not found" }, 404);
     const gate = await gateAt(c, { baseId: table.baseId }, "read");
     if (!gate.ok) return respond(c, () => Promise.resolve(gate));
     const body = c.req.valid("json");
+    const currentFieldId = body.currentFieldId ? await resolvePublicId("field", body.currentFieldId) : null;
+    if (body.currentFieldId && !currentFieldId) return c.json({ message: "Field not found" }, 404);
+    if (currentFieldId) {
+      const currentField = await gridsService.field.get(currentFieldId);
+      if (!currentField || currentField.tableId !== tableId) return c.json({ message: "Field not found" }, 404);
+    }
     const dateConfig = await getDateConfig(c);
-    return respond(c, () =>
-      checkFormula({
-        tableId,
-        expression: body.expression,
-        currentFieldId: body.currentFieldId ?? null,
-        dateConfig,
-        recordAccess: ALL_RECORD_ACCESS,
-        viewer: currentActorViewer(c),
-      }),
+    const result = await checkFormula({
+      tableId,
+      expression: body.expression,
+      currentFieldId,
+      dateConfig,
+      recordAccess: ALL_RECORD_ACCESS,
+      viewer: currentActorViewer(c),
+    });
+    if (!result.ok) return respond(c, () => Promise.resolve(result));
+    const fieldIds = await projectPublicIds(
+      "field",
+      result.data.fields.map((field) => field.id),
     );
+    const recordIds = await projectPublicIds(
+      "record",
+      result.data.rows.map((row) => row.recordId),
+    );
+    return c.json({
+      ...result.data,
+      fields: result.data.fields.map(({ shortId: _shortId, ...field }) => ({ ...field, id: fieldIds.get(field.id)! })),
+      rows: result.data.rows.map((row) => ({
+        ...row,
+        recordId: recordIds.get(row.recordId)!,
+        values: Object.fromEntries(Object.entries(row.values).map(([fieldId, value]) => [fieldIds.get(fieldId)!, value])),
+      })),
+    });
   },
 );
 

@@ -2,8 +2,8 @@ import type { DateContext } from "@k2b/stdlib";
 import { Button, CopyButton, dialogCore, NoticeCard, PanelDialog, panelDialogOptions } from "@k2b/ui";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import type { PublicField as Field, PublicForm as Form } from "../../../api/public-dto";
 import { evaluateFormValidations } from "../../../form-validations";
-import type { Field, Form } from "../../../service";
 import { buildFormSubmitPayload, buildInitialValues, FieldInput, type InlineCreateState, userInputEntriesOf } from "../forms/form-fields";
 import { errorMessage } from "../utils/api-helpers";
 
@@ -68,6 +68,8 @@ function FormSubmitBody(props: {
     }
     setSubmitting(true);
     try {
+      const formId = props.form.id;
+      if (!formId) throw new Error("This form cannot be submitted.");
       const payload = buildFormSubmitPayload(
         entries.map((entry) => fieldsById.get(entry.fieldId)).filter((field): field is Field => Boolean(field && !field.deletedAt)),
         values(),
@@ -75,7 +77,7 @@ function FormSubmitBody(props: {
         { omitEmpty: true },
       );
       const res = await apiClient.forms[":formId"].submit.$post({
-        param: { formId: props.form.id },
+        param: { formId },
         json: payload,
       });
       if (!res.ok) {

@@ -6,8 +6,10 @@ import { gridsService } from "../service";
 import { createAdminApi } from "./admin";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
+const basePublicId = "BASE01";
 const otherBaseId = "22222222-2222-4222-8222-222222222222";
 const customAppId = "33333333-3333-4333-8333-333333333333";
+const customAppPublicId = "APP001";
 const baseAccessId = "44444444-4444-4444-8444-444444444444";
 const tableAccessId = "55555555-5555-4555-8555-555555555555";
 const createdAccessId = "66666666-6666-4666-8666-666666666666";
@@ -34,7 +36,7 @@ const user: User = {
 
 const base = {
   id: baseId,
-  shortId: "BASE1",
+  shortId: basePublicId,
   name: "Admin Base",
   description: null,
   documentProfile: {},
@@ -90,7 +92,19 @@ const requireAdmin: MiddlewareHandler<AuthContext> = async (c, next) => {
   await next();
 };
 
-const app = () => createAdminApi({ requireAdmin });
+const app = () =>
+  createAdminApi({
+    requireAdmin,
+    resolvePublicId: async (type, publicId) => (type === "base" && publicId === basePublicId ? baseId : null),
+    projectPublicIds: async (type, ids) => {
+      const projected = new Map<string, string>();
+      for (const id of ids) {
+        if (type === "base" && id === baseId) projected.set(id, basePublicId);
+        if (type === "customApp" && id === customAppId) projected.set(id, customAppPublicId);
+      }
+      return projected;
+    },
+  });
 
 const jsonRequest = (method: "POST" | "PATCH", body: unknown): RequestInit => ({
   method,
@@ -140,23 +154,26 @@ describe("Grids admin API", () => {
   test("rejects non-platform-admin callers before reading base data", async () => {
     isPlatformAdmin = false;
 
-    const response = await app().request(`/bases/${baseId}/access`);
+    const response = await app().request(`/bases/${basePublicId}/access`);
 
     expect(response.status).toBe(403);
     expect(baseGetCalls).toBe(0);
   });
 
   test("lists base and Grids App ACL entries for platform admins", async () => {
-    const response = await app().request(`/bases/${baseId}/access`);
+    const response = await app().request(`/bases/${basePublicId}/access`);
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual([baseEntry, childEntry]);
+    expect(body).toEqual([
+      { ...baseEntry, resourceId: basePublicId },
+      { ...childEntry, resourceId: customAppPublicId },
+    ]);
   });
 
   test("creates base grants and returns the created access entry", async () => {
     const response = await app().request(
-      `/bases/${baseId}/access`,
+      `/bases/${basePublicId}/access`,
       jsonRequest("POST", { principal: { type: "authenticated" }, permission: "read" }),
     );
     const body = await response.json();
@@ -175,14 +192,14 @@ describe("Grids admin API", () => {
   });
 
   test("can update Grids App ACLs inside the requested base", async () => {
-    const response = await app().request(`/bases/${baseId}/access/${tableAccessId}`, jsonRequest("PATCH", { permission: "read" }));
+    const response = await app().request(`/bases/${basePublicId}/access/${tableAccessId}`, jsonRequest("PATCH", { permission: "read" }));
 
     expect(response.status).toBe(204);
     expect(updateCalls).toEqual([[tableAccessId, "read", user.id]]);
   });
 
   test("rejects invalid Grids App ACL levels in the admin repair route", async () => {
-    const response = await app().request(`/bases/${baseId}/access/${tableAccessId}`, jsonRequest("PATCH", { permission: "admin" }));
+    const response = await app().request(`/bases/${basePublicId}/access/${tableAccessId}`, jsonRequest("PATCH", { permission: "admin" }));
     const body = await response.json();
 
     expect(response.status).toBe(400);
@@ -192,7 +209,7 @@ describe("Grids admin API", () => {
 
   test("does not update ACLs from another base", async () => {
     const response = await app().request(
-      `/bases/${baseId}/access/99999999-9999-4999-8999-999999999999`,
+      `/bases/${basePublicId}/access/99999999-9999-4999-8999-999999999999`,
       jsonRequest("PATCH", { permission: "read" }),
     );
 
@@ -201,16 +218,22 @@ describe("Grids admin API", () => {
   });
 
   test("can revoke Grids App ACLs inside the requested base", async () => {
-    const response = await app().request(`/bases/${baseId}/access/${tableAccessId}`, { method: "DELETE" });
+    const response = await app().request(`/bases/${basePublicId}/access/${tableAccessId}`, { method: "DELETE" });
 
     expect(response.status).toBe(204);
     expect(revokeCalls).toEqual([[tableAccessId, user.id]]);
   });
 
   test("deletes bases only through the admin route", async () => {
-    const response = await app().request(`/bases/${baseId}`, { method: "DELETE" });
+    const response = await app().request(`/bases/${basePublicId}`, { method: "DELETE" });
 
     expect(response.status).toBe(204);
     expect(removedBaseId).toBe(`${baseId}:${user.id}`);
+  });
+
+  test("rejects UUID and five-character base route identifiers", async () => {
+    expect((await app().request(`/bases/${baseId}/access`)).status).toBe(404);
+    expect((await app().request("/bases/ABCDE/access")).status).toBe(404);
+    expect(baseGetCalls).toBe(0);
   });
 });

@@ -1,16 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
+import type { PublicField as Field, PublicTable as Table } from "../../../api/public-dto";
 import { formatIdentifierRef } from "../../../ref-syntax";
-import type { Field, Table } from "../../../service";
 import { QUERY_PANEL_DIALOG_OPTIONS } from "../records-view/RecordsView";
 import SearchBar from "../toolbar/SearchBar";
 import QueryWorkspace from "./QueryWorkspace";
 
 const table: Table = {
-  id: "11111111-1111-4111-8111-111111111111",
-  baseId: "22222222-2222-4222-8222-222222222222",
-  shortId: "items",
+  id: "items",
+  baseId: "inventory",
   name: "Items",
   description: null,
   icon: null,
@@ -26,8 +25,7 @@ const table: Table = {
 };
 
 const field: Field = {
-  id: "33333333-3333-4333-8333-333333333333",
-  shortId: "name",
+  id: "name",
   tableId: table.id,
   name: "Name",
   description: null,
@@ -48,8 +46,7 @@ const field: Field = {
 
 const quotedField: Field = {
   ...field,
-  id: "44444444-4444-4444-8444-444444444444",
-  shortId: "asset-id",
+  id: "asset-id",
   name: "Asset ID",
 };
 
@@ -58,7 +55,6 @@ describe("query workspace UI contracts", () => {
     const html = renderToString(() =>
       createComponent(QueryWorkspace, {
         baseId: table.baseId,
-        baseShortId: "inventory",
         initialQuery: "",
         queryPath: "/app/grids/inventory/query",
         tables: [table],

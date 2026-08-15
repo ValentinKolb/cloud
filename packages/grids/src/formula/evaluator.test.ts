@@ -9,10 +9,10 @@ const run = (src: string, fields: Record<string, unknown> = {}, ctx: FormulaRunt
   return evaluate(r.ast, { fields, ...ctx });
 };
 
-const runWithSlugs = (src: string, fields: Record<string, unknown>, slugToId: Record<string, string>): unknown => {
+const runWithPublicIds = (src: string, fields: Record<string, unknown>, publicIdToInternalId: Record<string, string>): unknown => {
   const r = parseFormula(src);
   if (!r.ok) throw new Error(r.error);
-  return evaluate(r.ast, { fields, slugToId });
+  return evaluate(r.ast, { fields, slugToId: publicIdToInternalId });
 };
 
 // ── Math ────────────────────────────────────────────────────────
@@ -29,12 +29,12 @@ test("division by zero → DIV_ZERO error", () => {
 
 // ── Null propagation ──────────────────────────────────────────────
 test("any null operand → null in arithmetic", () => {
-  expect(run("{a} + 1", { a: null })).toBeNull();
-  expect(run("1 + {a}", { a: null })).toBeNull();
+  expect(run("{FIELD1} + 1", { FIELD1: null })).toBeNull();
+  expect(run("1 + {FIELD1}", { FIELD1: null })).toBeNull();
 });
 test("equality treats null = null as true", () => {
-  expect(run("{a} = {b}", { a: null, b: null })).toBe(true);
-  expect(run("{a} = 0", { a: null })).toBe(false);
+  expect(run("{FIELD1} = {FIELD2}", { FIELD1: null, FIELD2: null })).toBe(true);
+  expect(run("{FIELD1} = 0", { FIELD1: null })).toBe(false);
 });
 
 // ── Comparison ────────────────────────────────────────────────────
@@ -54,10 +54,10 @@ test("comparison coercion is numeric, temporal, boolean, then text", () => {
 
 // ── Logic ────────────────────────────────────────────────────────
 test("logical AND short-circuits on falsy left", () => {
-  expect(run("false && {x}", { x: 1 })).toBe(false);
+  expect(run("false && {FIELD1}", { FIELD1: 1 })).toBe(false);
 });
 test("logical OR short-circuits on truthy left", () => {
-  expect(run("true || {x}", { x: 1 })).toBe(true);
+  expect(run("true || {FIELD1}", { FIELD1: 1 })).toBe(true);
 });
 
 // ── Functions: math ───────────────────────────────────────────────
@@ -114,8 +114,8 @@ test("IF returns then-branch when truthy", () => {
   expect(run("IF(false, 'yes', 'no')")).toBe("no");
 });
 test("IFEMPTY and IFERROR", () => {
-  expect(run("IFEMPTY({x}, 'fallback')", { x: "" })).toBe("fallback");
-  expect(run("IFEMPTY({x}, 'fallback')", { x: "value" })).toBe("value");
+  expect(run("IFEMPTY({FIELD1}, 'fallback')", { FIELD1: "" })).toBe("fallback");
+  expect(run("IFEMPTY({FIELD1}, 'fallback')", { FIELD1: "value" })).toBe("value");
   expect(run("IFEMPTY(5, 1 / 0)")).toBe(5);
   expect(run("IFERROR(1 / 0, 'fallback')")).toBe("fallback");
   expect(run("IFERROR(2 + 2, 'fallback')")).toBe(4);
@@ -123,9 +123,9 @@ test("IFEMPTY and IFERROR", () => {
   expect(renderResult(run("IFERROR(1 / 0)"))).toBe("#IFERROR_BAD_ARGS");
 });
 test("ISBLANK", () => {
-  expect(run("ISBLANK({x})", { x: null })).toBe(true);
-  expect(run("ISBLANK({x})", { x: "" })).toBe(true);
-  expect(run("ISBLANK({x})", { x: "set" })).toBe(false);
+  expect(run("ISBLANK({FIELD1})", { FIELD1: null })).toBe(true);
+  expect(run("ISBLANK({FIELD1})", { FIELD1: "" })).toBe(true);
+  expect(run("ISBLANK({FIELD1})", { FIELD1: "set" })).toBe(false);
 });
 
 // ── Functions: date ──────────────────────────────────────────────
@@ -168,7 +168,7 @@ test("DATEDIFF days compares local calendar days for instants", () => {
 
 // ── Field references ─────────────────────────────────────────────
 test("price * quantity", () => {
-  expect(run("{price} * {quantity}", { price: 9.99, quantity: 3 })).toBeCloseTo(29.97);
+  expect(run("{PRICE1} * {QUANT1}", { PRICE1: 9.99, QUANT1: 3 })).toBeCloseTo(29.97);
 });
 
 // ── Render ────────────────────────────────────────────────────────
@@ -192,61 +192,59 @@ test("function arity matches the SQL compiler catalog", () => {
 // double drift.
 describe("exact-arithmetic for decimal-string values", () => {
   test("decimal string * number literal preserves precision", () => {
-    expect(run("{x} * 1.19", { x: "24.50" })).toBe("29.155");
+    expect(run("{FIELD1} * 1.19", { FIELD1: "24.50" })).toBe("29.155");
   });
   test("0.1 + 0.2 — the canonical float-drift case", () => {
-    expect(run("{a} + {b}", { a: "0.1", b: "0.2" })).toBe("0.3");
+    expect(run("{FIELD1} + {FIELD2}", { FIELD1: "0.1", FIELD2: "0.2" })).toBe("0.3");
   });
   test("decimal-string + decimal-string adds (does NOT string-concat)", () => {
     // Pre-fix this concat'd to "24.501.19". Regression guard.
-    expect(run("{a} + {b}", { a: "24.50", b: "1.19" })).toBe("25.69");
+    expect(run("{FIELD1} + {FIELD2}", { FIELD1: "24.50", FIELD2: "1.19" })).toBe("25.69");
   });
   test("plain-text + plain-text still concats", () => {
-    expect(run("{a} + {b}", { a: "Hello, ", b: "world" })).toBe("Hello, world");
+    expect(run("{FIELD1} + {FIELD2}", { FIELD1: "Hello, ", FIELD2: "world" })).toBe("Hello, world");
   });
   test("comparison between decimal strings uses numeric ordering", () => {
     // Lexicographic would say "24.50" < "9.99" (true), which is wrong.
-    expect(run("{a} < {b}", { a: "9.99", b: "24.50" })).toBe(true);
+    expect(run("{FIELD1} < {FIELD2}", { FIELD1: "9.99", FIELD2: "24.50" })).toBe(true);
   });
   test("division by zero still surfaces #DIV_ZERO on the exact path", () => {
-    expect(renderResult(run("{x} / 0", { x: "24.50" }))).toBe("#DIV_ZERO");
+    expect(renderResult(run("{FIELD1} / 0", { FIELD1: "24.50" }))).toBe("#DIV_ZERO");
   });
   test("plain-number arithmetic keeps using JS numbers", () => {
     // 9.99 * 3 = 29.97 mathematically; expect the existing toBeCloseTo
     // behaviour the parser/evaluator has always had for unboxed numbers.
-    expect(run("{p} * {q}", { p: 9.99, q: 3 })).toBeCloseTo(29.97);
+    expect(run("{PRICE1} * {QUANT1}", { PRICE1: 9.99, QUANT1: 3 })).toBeCloseTo(29.97);
   });
   test("numeric functions keep decimal strings exact", () => {
-    expect(run("SUM({a}, {b})", { a: "0.1", b: "0.2" })).toBe("0.3");
-    expect(run("AVG({a}, {b})", { a: "0.1", b: "0.2" })).toBe("0.15");
-    expect(run("ROUND({a}, 2)", { a: "1.005" })).toBe("1.01");
-    expect(run("PERCENT({a}, {b})", { a: "1.50", b: "6.00" })).toBe("25");
+    expect(run("SUM({FIELD1}, {FIELD2})", { FIELD1: "0.1", FIELD2: "0.2" })).toBe("0.3");
+    expect(run("AVG({FIELD1}, {FIELD2})", { FIELD1: "0.1", FIELD2: "0.2" })).toBe("0.15");
+    expect(run("ROUND({FIELD1}, 2)", { FIELD1: "1.005" })).toBe("1.01");
+    expect(run("PERCENT({FIELD1}, {FIELD2})", { FIELD1: "1.50", FIELD2: "6.00" })).toBe("25");
   });
   test("legacy amount-shaped numeric objects still calculate", () => {
-    expect(run("{x} * 2", { x: { amount: "1.20" } })).toBe("2.4");
-    expect(run("SUM({x}, 0.30)", { x: { amount: "1.20" } })).toBe("1.5");
+    expect(run("{FIELD1} * 2", { FIELD1: { amount: "1.20" } })).toBe("2.4");
+    expect(run("SUM({FIELD1}, 0.30)", { FIELD1: { amount: "1.20" } })).toBe("1.5");
   });
 });
 
-// ── Legacy slug references ───────────────────────────────────────
-//
-// `#slug` remains supported for stored formula compatibility. Both
-// `#slug` and `{uuid}` emit the same `field` AST node — the
-// evaluator distinguishes them by looking up the UUID map first, then
-// falling back to the slug map.
-describe("slug references", () => {
+// ── Public field ID references ───────────────────────────────────
+describe("public field id references", () => {
   const fieldId = "00000000-0000-0000-0000-000000000001";
-  test("#slug resolves through slugToId map", () => {
-    expect(runWithSlugs("#price * 2", { [fieldId]: 5 }, { price: fieldId })).toBe(10);
+  test("a public id resolves to the internal field value", () => {
+    expect(runWithPublicIds("{PRICE1} * 2", { [fieldId]: 5 }, { PRICE1: fieldId })).toBe(10);
   });
-  test("#slug + decimal keeps precision", () => {
-    expect(runWithSlugs("#price * 1.19", { [fieldId]: "24.50" }, { price: fieldId })).toBe("29.155");
+  test("a public id keeps decimal precision", () => {
+    expect(runWithPublicIds("{PRICE1} * 1.19", { [fieldId]: "24.50" }, { PRICE1: fieldId })).toBe("29.155");
   });
-  test("#slug pointing to a missing field returns null (no throw)", () => {
-    expect(runWithSlugs("#price + 1", {}, { price: fieldId })).toBeNull();
+  test("a public id pointing to a missing field returns null", () => {
+    expect(runWithPublicIds("{PRICE1} + 1", {}, { PRICE1: fieldId })).toBeNull();
   });
-  test("{uuid} and #slug interoperate inside one expression", () => {
-    expect(runWithSlugs(`#price + {${fieldId}}`, { [fieldId]: 5 }, { price: fieldId })).toBe(10);
+  test("multiple public ids interoperate inside one expression", () => {
+    const otherFieldId = "00000000-0000-0000-0000-000000000002";
+    expect(runWithPublicIds("{PRICE1} + {PRICE2}", { [fieldId]: 5, [otherFieldId]: 7 }, { PRICE1: fieldId, PRICE2: otherFieldId })).toBe(
+      12,
+    );
   });
 });
 
@@ -265,21 +263,21 @@ describe("FN_LIBRARY edge cases", () => {
     expect(run("ROUND(127, -1)")).toBe(130);
   });
   test("MIN / MAX skip null inputs and use the rest", () => {
-    expect(run("MIN({a}, 3, 1, {b})", { a: null, b: null })).toBe(1);
-    expect(run("MAX({a}, 3, 1, {b})", { a: null, b: null })).toBe(3);
+    expect(run("MIN({FIELD1}, 3, 1, {FIELD2})", { FIELD1: null, FIELD2: null })).toBe(1);
+    expect(run("MAX({FIELD1}, 3, 1, {FIELD2})", { FIELD1: null, FIELD2: null })).toBe(3);
   });
   test("MIN / MAX of all-null args → null (no Math.min(...[])=Infinity bug)", () => {
-    expect(run("MIN({a}, {b})", { a: null, b: null })).toBeNull();
-    expect(run("MAX({a}, {b})", { a: null, b: null })).toBeNull();
+    expect(run("MIN({FIELD1}, {FIELD2})", { FIELD1: null, FIELD2: null })).toBeNull();
+    expect(run("MAX({FIELD1}, {FIELD2})", { FIELD1: null, FIELD2: null })).toBeNull();
   });
   test("CONCAT coerces nulls to empty string, numbers to digits", () => {
-    expect(run("CONCAT('a', {x}, 42)", { x: null })).toBe("a42");
+    expect(run("CONCAT('a', {FIELD1}, 42)", { FIELD1: null })).toBe("a42");
     expect(run("CONCAT('a', true)")).toBe("atrue");
   });
   test("ISBLANK considers '' and null blank, but 0 / false are NOT blank", () => {
-    expect(run("ISBLANK({x})", { x: 0 })).toBe(false);
-    expect(run("ISBLANK({x})", { x: false })).toBe(false);
-    expect(run("ISBLANK({x})", { x: " " })).toBe(false); // whitespace ≠ blank
+    expect(run("ISBLANK({FIELD1})", { FIELD1: 0 })).toBe(false);
+    expect(run("ISBLANK({FIELD1})", { FIELD1: false })).toBe(false);
+    expect(run("ISBLANK({FIELD1})", { FIELD1: " " })).toBe(false); // whitespace ≠ blank
   });
   test("AND / OR coerce truthy/falsy across types", () => {
     expect(run("AND(1, 'x', true)")).toBe(true);
@@ -301,10 +299,10 @@ describe("FN_LIBRARY edge cases", () => {
     expect(run("DATEDIFF('2026-01-01T00:00:00Z', '2026-01-01T00:05:30Z', 'minutes')")).toBe(5);
   });
   test("YEAR / MONTH / DAY return null on garbage input rather than throwing", () => {
-    expect(run("YEAR({x})", { x: "garbage" })).toBeNull();
+    expect(run("YEAR({FIELD1})", { FIELD1: "garbage" })).toBeNull();
     expect(run("YEAR('2025-13-45')")).toBeNull();
-    expect(run("MONTH({x})", { x: null })).toBeNull();
-    expect(run("DAY({x})", { x: 42 })).toBeNull(); // numbers aren't dates
+    expect(run("MONTH({FIELD1})", { FIELD1: null })).toBeNull();
+    expect(run("DAY({FIELD1})", { FIELD1: 42 })).toBeNull(); // numbers aren't dates
   });
   test("unknown function surfaces #UNKNOWN_FN:NAME", () => {
     expect(renderResult(run("FOO(1, 2)"))).toBe("#UNKNOWN_FN:FOO");
@@ -314,12 +312,12 @@ describe("FN_LIBRARY edge cases", () => {
 // ── Whitespace insensitivity ─────────────────────────────────────
 //
 // Regression guard: every form below tokenises to the same `[field,
-// op, num]` sequence. A user reported `#x *1.19` "not working" while
-// `#x * 1.19` did — the actual bug was missing decimal-string
-// handling, but locking down whitespace handling here keeps that red
-// herring from coming back.
+// op, num]` sequence around a canonical public field ID.
 describe("whitespace insensitivity around operators", () => {
-  test.each(["#x*1.19", "#x *1.19", "#x* 1.19", "#x * 1.19", "#x  *  1.19", "\t#x\t*\t1.19\t"])("'%s' → 119", (src) => {
-    expect(runWithSlugs(src, { XX: 100 }, { x: "XX" })).toBe(119);
-  });
+  test.each(["{FIELD1}*1.19", "{FIELD1} *1.19", "{FIELD1}* 1.19", "{FIELD1} * 1.19", "{FIELD1}  *  1.19", "\t{FIELD1}\t*\t1.19\t"])(
+    "'%s' → 119",
+    (src) => {
+      expect(runWithPublicIds(src, { internal: 100 }, { FIELD1: "internal" })).toBe(119);
+    },
+  );
 });

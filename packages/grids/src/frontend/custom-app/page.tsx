@@ -126,7 +126,7 @@ const Records = (props: {
       emptyText={props.block.emptyText ?? "No records found."}
       baseId={props.baseId}
       dateConfig={props.dateConfig}
-      shortId={props.shortId}
+      appId={props.shortId}
       selectedColumnIds={
         props.block.display.kind === "table" && props.block.display.columnIds.length > 0 ? props.block.display.columnIds : undefined
       }
@@ -250,7 +250,7 @@ const CustomAppPage = (props: {
     <CustomAppPageLayout
       definition={props.definition}
       page={props.page}
-      shortId={props.shortId}
+      appId={props.shortId}
       hasSidebarActions={props.sidebarActions.length > 0}
       sidebarActions={<SidebarActions actions={props.sidebarActions} />}
       renderBlock={(block) =>
@@ -834,11 +834,10 @@ export default ssr<AuthContext>(async (c) => {
       scanners.set(block.id, {
         endpoint: customAppScannerUrl(app.shortId, page.id, block.id, pageParams),
         state: {
-          baseShortId: base.shortId,
-          launcherId: launcher.id,
+          baseId: base.shortId,
+          launcherId: launcher.shortId,
           expectedRevision: capability.revision,
-          workflowId: workflow.id,
-          workflowShortId: workflow.shortId,
+          workflowId: workflow.shortId,
           workflowName: workflow.name,
           workflowDescription: workflow.description,
           initialCode: null,

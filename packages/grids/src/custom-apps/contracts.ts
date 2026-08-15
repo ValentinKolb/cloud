@@ -35,17 +35,20 @@ const CustomAppParameterIdSchema = z
   .max(80)
   .regex(/^[a-z][a-z0-9_]*$/, "Use a lowercase parameter id");
 
+/** Public Grids resource identity. UUIDs never cross the Custom App authoring boundary. */
+export const CustomAppResourceIdSchema = z.string().regex(/^[A-Za-z0-9]{6}$/, "Use a 6-character Grids resource id");
+
 const CustomAppRecordParameterSchema = z
   .object({
     type: z.literal("record"),
-    tableId: z.string().uuid(),
+    tableId: CustomAppResourceIdSchema,
     required: z.literal(true),
   })
   .strict();
 
 const CustomAppPageRecordSchema = z
   .object({
-    tableId: z.string().uuid(),
+    tableId: CustomAppResourceIdSchema,
     id: z.object({ source: z.literal("PARAMS"), path: CustomAppParameterIdSchema }).strict(),
   })
   .strict();
@@ -59,7 +62,7 @@ const CustomAppRowNavigationSchema = z
       CustomAppParameterIdSchema,
       z.discriminatedUnion("path", [
         z.object({ source: z.literal("ROW"), path: z.literal("id") }).strict(),
-        z.object({ source: z.literal("ROW"), path: z.literal("relation"), fieldId: z.string().uuid() }).strict(),
+        z.object({ source: z.literal("ROW"), path: z.literal("relation"), fieldId: CustomAppResourceIdSchema }).strict(),
       ]),
     ),
   })
@@ -142,7 +145,7 @@ const CustomAppActionSchema = z.discriminatedUnion("kind", [
         .regex(/^[a-z0-9-]+$/, "Use a Tabler icon slug")
         .optional(),
       kind: z.literal("workflow"),
-      launcherId: z.string().uuid(),
+      launcherId: CustomAppResourceIdSchema,
       inputs: z.record(z.string().trim().min(1).max(120), CustomAppValueBindingSchema).default({}),
       confirm: z.string().trim().min(1).max(240).optional(),
       ...CustomAppAvailabilityShape,
@@ -163,7 +166,7 @@ export const CustomAppRowActionSchema = z
       .optional(),
     showLabel: z.boolean().default(true),
     kind: z.literal("workflow"),
-    launcherId: z.string().uuid(),
+    launcherId: CustomAppResourceIdSchema,
     inputs: z.record(z.string().trim().min(1).max(120), CustomAppRowValueBindingSchema).default({}),
     confirm: z.string().trim().min(1).max(240).optional(),
     ...CustomAppAvailabilityShape,
@@ -214,8 +217,8 @@ export const CustomAppSidebarActionSchema = z
   .object({
     ...CustomAppSidebarActionShape,
     kind: z.literal("form"),
-    formId: z.string().uuid(),
-    fixedValues: z.record(z.string().uuid(), CustomAppGlobalFormValueBindingSchema).default({}),
+    formId: CustomAppResourceIdSchema,
+    fixedValues: z.record(CustomAppResourceIdSchema, CustomAppGlobalFormValueBindingSchema).default({}),
     onSuccessNavigate: CustomAppGlobalFormSuccessNavigationSchema.optional(),
   })
   .strict();
@@ -237,11 +240,11 @@ export const CustomAppRecordsBlockSchema = z
     title: z.string().trim().min(1).max(160).optional(),
     emptyText: z.string().trim().min(1).max(240).optional(),
     source: z.discriminatedUnion("kind", [
-      z.object({ kind: z.literal("view"), viewId: z.string().uuid() }).strict(),
+      z.object({ kind: z.literal("view"), viewId: CustomAppResourceIdSchema }).strict(),
       CustomAppGqlSourceSchema,
     ]),
     display: z.discriminatedUnion("kind", [
-      z.object({ kind: z.literal("table"), columnIds: z.array(z.string().uuid()).max(30) }).strict(),
+      z.object({ kind: z.literal("table"), columnIds: z.array(CustomAppResourceIdSchema).max(30) }).strict(),
       z.object({ kind: z.literal("cards") }).strict(),
     ]),
     searchable: z.boolean().default(true),
@@ -272,7 +275,7 @@ export const CustomAppRecordsBlockSchema = z
   });
 
 export const CustomAppInsightSourceSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("view"), viewId: z.string().uuid() }).strict(),
+  z.object({ kind: z.literal("view"), viewId: CustomAppResourceIdSchema }).strict(),
   CustomAppGqlSourceSchema,
 ]);
 
@@ -308,11 +311,11 @@ export const CustomAppRecordBlockSchema = z
     type: z.literal("record"),
     title: z.string().trim().min(1).max(160).optional(),
     emptyText: z.string().trim().min(1).max(240).optional(),
-    fieldIds: z.array(z.string().uuid()).min(1).max(30),
-    editableFieldIds: z.array(z.string().uuid()).max(30).default([]),
+    fieldIds: z.array(CustomAppResourceIdSchema).min(1).max(30),
+    editableFieldIds: z.array(CustomAppResourceIdSchema).max(30).default([]),
     documents: z
       .object({
-        templateIds: z.array(z.string().uuid()).min(1).max(12),
+        templateIds: z.array(CustomAppResourceIdSchema).min(1).max(12),
       })
       .strict()
       .optional(),
@@ -366,8 +369,8 @@ export const CustomAppFormBlockSchema = z
     id: CustomAppLocalIdSchema,
     type: z.literal("form"),
     title: z.string().trim().min(1).max(160).optional(),
-    formId: z.string().uuid(),
-    fixedValues: z.record(z.string().uuid(), CustomAppFormValueBindingSchema).default({}),
+    formId: CustomAppResourceIdSchema,
+    fixedValues: z.record(CustomAppResourceIdSchema, CustomAppFormValueBindingSchema).default({}),
     onSuccessNavigate: CustomAppFormSuccessNavigationSchema.optional(),
     ...CustomAppAvailabilityShape,
   })
@@ -396,7 +399,7 @@ export const CustomAppScannerBlockSchema = z
     id: CustomAppLocalIdSchema,
     type: z.literal("scanner"),
     title: z.string().trim().min(1).max(160).optional(),
-    launcherId: z.string().uuid(),
+    launcherId: CustomAppResourceIdSchema,
     ...CustomAppAvailabilityShape,
   })
   .strict();
@@ -465,10 +468,10 @@ const CustomAppPageSchema = z
 
 export const CustomAppDefinitionSchema = z
   .object({
-    schemaVersion: z.literal(4),
+    schemaVersion: z.literal(5),
     kind: z.literal("grids.custom-app"),
-    id: z.string().uuid(),
-    baseId: z.string().uuid(),
+    id: CustomAppResourceIdSchema,
+    baseId: CustomAppResourceIdSchema,
     name: z.string().trim().min(1).max(200),
     icon: z
       .string()
@@ -1018,15 +1021,7 @@ export type CustomAppDiagnostic = { path: Array<string | number>; message: strin
 export const parseStoredCustomAppDefinition = (raw: unknown, version: "draft" | "published") => {
   const parsed = CustomAppDefinitionSchema.safeParse(raw);
   if (parsed.success) return { definition: parsed.data, diagnostics: [] };
-  const schemaVersion = raw && typeof raw === "object" && "schemaVersion" in raw ? raw.schemaVersion : undefined;
-  const recovery =
-    schemaVersion === 1 || schemaVersion === 2 || schemaVersion === 3
-      ? `Stored ${version} uses unsupported Grids App schemaVersion ${schemaVersion}; replace it with a schemaVersion 4 definition${
-          version === "draft" ? " or restore a valid published version" : ""
-        }.`
-      : `Stored ${version} is not a valid Grids App schemaVersion 4 definition; replace it with a valid definition${
-          version === "draft" ? " or restore a valid published version" : ""
-        }.`;
+  const recovery = `Stored ${version} is not a valid Grids App schemaVersion 5 definition.`;
   const diagnostics: CustomAppDiagnostic[] = [
     { path: [version, "schemaVersion"], message: recovery },
     ...parsed.error.issues.map((issue) => ({
@@ -1038,12 +1033,11 @@ export const parseStoredCustomAppDefinition = (raw: unknown, version: "draft" | 
 };
 
 export const CUSTOM_APP_REFERENCE = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   kind: "grids.custom-app",
   identity: {
-    id: "Stable UUID chosen by the author",
-    baseId: "Owning Base UUID",
-    shortId: "Server-owned route identity returned outside the authoring definition",
+    id: "Stable 6-character Grids App id",
+    baseId: "Owning Base's 6-character id",
     icon: "Optional Tabler icon slug, for example app-window",
   },
   limits: {
@@ -1129,10 +1123,10 @@ export const CUSTOM_APP_REFERENCE = {
     },
   },
   example: {
-    schemaVersion: 4,
+    schemaVersion: 5,
     kind: "grids.custom-app",
-    id: "00000000-0000-4000-8000-000000000001",
-    baseId: "00000000-0000-4000-8000-000000000002",
+    id: "APP001",
+    baseId: "BASE01",
     name: "Request overview",
     icon: "app-window",
     startPageId: "home",
@@ -1153,7 +1147,7 @@ export const CUSTOM_APP_REFERENCE = {
                   {
                     id: "apply",
                     type: "form",
-                    formId: "00000000-0000-4000-8000-000000000006",
+                    formId: "FORM01",
                     fixedValues: {},
                     onSuccessNavigate: {
                       kind: "navigate",
@@ -1166,8 +1160,8 @@ export const CUSTOM_APP_REFERENCE = {
                     type: "records",
                     searchable: true,
                     pageSize: 25,
-                    source: { kind: "view", viewId: "00000000-0000-4000-8000-000000000003" },
-                    display: { kind: "table", columnIds: ["00000000-0000-4000-8000-000000000004"] },
+                    source: { kind: "view", viewId: "VIEW01" },
+                    display: { kind: "table", columnIds: ["FIELD1"] },
                     rowNavigate: {
                       kind: "navigate",
                       pageId: "request",
@@ -1186,10 +1180,10 @@ export const CUSTOM_APP_REFERENCE = {
         title: "Request detail",
         navigation: { visible: false },
         parameters: {
-          request_id: { type: "record", tableId: "00000000-0000-4000-8000-000000000005", required: true },
+          request_id: { type: "record", tableId: "TABLE1", required: true },
         },
         record: {
-          tableId: "00000000-0000-4000-8000-000000000005",
+          tableId: "TABLE1",
           id: { source: "PARAMS", path: "request_id" },
         },
         rows: [
@@ -1203,8 +1197,8 @@ export const CUSTOM_APP_REFERENCE = {
                   {
                     id: "request-details",
                     type: "record",
-                    fieldIds: ["00000000-0000-4000-8000-000000000004"],
-                    documents: { templateIds: ["00000000-0000-4000-8000-000000000007"] },
+                    fieldIds: ["FIELD1"],
+                    documents: { templateIds: ["DOC001"] },
                   },
                   { id: "request-comments", type: "comments" },
                 ],

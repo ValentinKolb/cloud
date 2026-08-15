@@ -5,28 +5,42 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import {
   CreateTableSchema,
+  type FederatedDraftInput,
   type FederatedRevision,
-  type FederatedRevisionView,
-  FederatedRevisionViewSchema,
-  FederatedSourceCandidatePageSchema,
   FederatedSourceCandidateQuerySchema,
-  FederatedSourcePublicationListSchema,
-  FederatedTableConfigSchema,
-  FederatedValidationSchema,
   RecordActorListResponseSchema,
   RecordMetaUserKeySchema,
-  RelationLookupResponseSchema,
-  TableListSchema,
-  TableSchema,
-  UpdateFederatedDraftSchema,
+  ShortIdSchema,
   UpdateTableSchema,
-  ValidateFederatedDraftSchema,
 } from "../contracts";
 import { gridsService } from "../service";
+import { projectPublicIds, resolvePublicIds } from "../service/public-resources";
 import { ALL_RECORD_ACCESS } from "../service/record-access";
 import { currentAccessSubject, currentActorUserId, currentCredentialPermission, currentResourceBoundBaseId, gateAt } from "./permissions";
-import { requireUuidParam } from "./route-params";
+import {
+  fromPublicFederatedDraft,
+  PublicFederatedDraftInputSchema,
+  PublicFederatedRevisionViewSchema,
+  PublicFederatedSourceCandidatePageSchema,
+  PublicFederatedSourcePublicationListSchema,
+  PublicFederatedTableConfigSchema,
+  PublicFederatedValidationSchema,
+  PublicTableListSchema,
+  PublicTableSchema,
+  PublicUpdateFederatedDraftSchema,
+  toPublicFederatedDiagnostics,
+  toPublicFederatedRevision,
+  toPublicFederatedSourceCandidates,
+  toPublicFederatedSourcePublications,
+  toPublicTable,
+  toPublicTables,
+} from "./public-dto";
+import { internalIdParam, requirePublicIdParam, requireStoredPublicIdParam } from "./route-params";
 import { tableQueryRoutes } from "./table-query-routes";
+
+const PublicRelationLookupResponseSchema = z.object({
+  items: z.array(z.object({ id: ShortIdSchema, label: z.string() })),
+});
 
 const requireSourceBaseAdmins = async (c: Parameters<typeof gateAt>[0], sourceTableIds: string[]) => {
   const administered = await Promise.all(
@@ -64,83 +78,56 @@ const sourceTablesAdministeredByActor = async (
   return new Set(checks.filter((sourceTableId): sourceTableId is string => sourceTableId !== null));
 };
 
-const diagnosticsForManagement = (diagnostics: FederatedRevision["diagnostics"], administeredSourceTableIds: Set<string>) =>
-  diagnostics.map((diagnostic) =>
-    diagnostic.sourceTableId && !administeredSourceTableIds.has(diagnostic.sourceTableId)
-      ? {
-          code: diagnostic.code,
-          message: diagnostic.message,
-          ...(diagnostic.targetFieldId ? { targetFieldId: diagnostic.targetFieldId } : {}),
-        }
-      : diagnostic,
-  );
-
-const revisionForManagement = (
-  revision: FederatedRevision & { revisionToken: string },
-  administeredSourceTableIds: Set<string>,
-): FederatedRevisionView => ({
-  id: revision.id,
-  tableId: revision.tableId,
-  revision: revision.revision,
-  status: revision.status,
-  diagnostics: diagnosticsForManagement(revision.diagnostics, administeredSourceTableIds),
-  revisionToken: revision.revisionToken,
-  createdBy: revision.createdBy,
-  publishedBy: revision.publishedBy,
-  createdAt: revision.createdAt,
-  updatedAt: revision.updatedAt,
-  publishedAt: revision.publishedAt,
-  sources: revision.sources.map((source) => ({
-    id: source.id,
-    sourceTableId: administeredSourceTableIds.has(source.sourceTableId) ? source.sourceTableId : null,
-    position: source.position,
-    authorizedAt: source.authorizedAt,
-    revokedAt: source.revokedAt,
-  })),
-  mappings: revision.mappings
-    .filter((mapping) => administeredSourceTableIds.has(mapping.sourceTableId))
-    .map(({ revisionId: _revisionId, ...mapping }) => mapping),
-});
+const retainUnadministeredDraftSources = (
+  input: FederatedDraftInput,
+  draft: FederatedRevision,
+  administeredSourceTableIds: ReadonlySet<string>,
+): FederatedDraftInput => {
+  const retainedSourceIds = draft.sources
+    .filter((source) => !administeredSourceTableIds.has(source.sourceTableId))
+    .map((source) => source.id);
+  return retainedSourceIds.length > 0 ? { ...input, retainedSourceIds } : input;
+};
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
 
   .get(
     "/:tableId/federation/publications",
-    requireUuidParam("tableId", "Source table"),
+    requirePublicIdParam("tableId", "table", "Source table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "List combined-table publications of a source table",
       responses: {
-        200: jsonResponse(FederatedSourcePublicationListSchema, "Combined-table publications"),
+        200: jsonResponse(PublicFederatedSourcePublicationListSchema, "Combined-table publications"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const source = await gridsService.table.get(tableId);
       if (!source || source.kind !== "stored") return c.json({ message: "Source table not found" }, 404);
       const gate = await gateAt(c, { baseId: source.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json(await gridsService.table.federation.listPublicationsForSource(tableId));
+      return c.json(await toPublicFederatedSourcePublications(await gridsService.table.federation.listPublicationsForSource(tableId)));
     },
   )
 
   .get(
     "/:tableId/federation",
-    requireUuidParam("tableId", "Combined table"),
+    requirePublicIdParam("tableId", "table", "Combined table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Get combined table configuration",
       responses: {
-        200: jsonResponse(FederatedTableConfigSchema, "Combined table configuration"),
+        200: jsonResponse(PublicFederatedTableConfigSchema, "Combined table configuration"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table || table.kind !== "federated") return c.json({ message: "Combined table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
@@ -152,27 +139,27 @@ const app = new Hono<AuthContext>()
       if (!draft) return c.json({ message: "Combined table draft not found" }, 404);
       const administeredSources = await sourceTablesAdministeredByActor(c, [draft, current]);
       return c.json({
-        current: current ? revisionForManagement(current, administeredSources) : null,
-        draft: revisionForManagement(draft, administeredSources),
+        current: current ? await toPublicFederatedRevision(current, administeredSources) : null,
+        draft: await toPublicFederatedRevision(draft, administeredSources),
       });
     },
   )
 
   .get(
     "/:tableId/federation/source-candidates",
-    requireUuidParam("tableId", "Combined table"),
+    requirePublicIdParam("tableId", "table", "Combined table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "List source tables available for a combined table",
       responses: {
-        200: jsonResponse(FederatedSourceCandidatePageSchema, "Source candidates"),
+        200: jsonResponse(PublicFederatedSourceCandidatePageSchema, "Source candidates"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
     v("query", FederatedSourceCandidateQuerySchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const target = await gridsService.table.get(tableId);
       if (!target || target.kind !== "federated") return c.json({ message: "Combined table not found" }, 404);
       const targetGate = await gateAt(c, { baseId: target.baseId }, "admin");
@@ -180,93 +167,104 @@ const app = new Hono<AuthContext>()
 
       const query = c.req.valid("query");
       return c.json(
-        await gridsService.table.federation.listSourceCandidates({
-          targetTableId: tableId,
-          authorization: publicationAuthorization(c),
-          q: query.q,
-          limit: query.limit,
-          offset: query.offset,
-        }),
+        toPublicFederatedSourceCandidates(
+          await gridsService.table.federation.listSourceCandidates({
+            targetTableId: tableId,
+            authorization: publicationAuthorization(c),
+            q: query.q,
+            limit: query.limit,
+            offset: query.offset,
+          }),
+        ),
       );
     },
   )
 
   .put(
     "/:tableId/federation/draft",
-    requireUuidParam("tableId", "Combined table"),
+    requirePublicIdParam("tableId", "table", "Combined table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Update combined table draft",
       responses: {
-        200: jsonResponse(FederatedRevisionViewSchema, "Updated draft"),
+        200: jsonResponse(PublicFederatedRevisionViewSchema, "Updated draft"),
         400: jsonResponse(ErrorResponseSchema, "Invalid draft"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
         409: jsonResponse(ErrorResponseSchema, "Configuration changed"),
       },
     }),
-    v("json", UpdateFederatedDraftSchema),
+    v("json", PublicUpdateFederatedDraftSchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const target = await gridsService.table.get(tableId);
       if (!target || target.kind !== "federated") return c.json({ message: "Combined table not found" }, 404);
       const targetGate = await gateAt(c, { baseId: target.baseId }, "admin");
       if (!targetGate.ok) return respond(c, () => Promise.resolve(targetGate));
-      const body = c.req.valid("json");
-      const sourceGate = await requireSourceBaseAdmins(c, body.sourceTableIds);
+      const { draftToken, ...body } = c.req.valid("json");
+      const internal = await fromPublicFederatedDraft(body);
+      if (!internal.ok) return respond(c, () => Promise.resolve(internal));
+      const sourceGate = await requireSourceBaseAdmins(c, internal.data.sourceTableIds);
       if (sourceGate.response) return sourceGate.response;
-      const { draftToken, ...input } = body;
+      const draft = await gridsService.table.federation.getDraft(tableId);
+      if (!draft) return c.json({ message: "Combined table draft not found" }, 404);
+      const administeredSources = await sourceTablesAdministeredByActor(c, [draft]);
       const result = await gridsService.table.federation.updateDraft(
         tableId,
-        input,
+        retainUnadministeredDraftSources(internal.data, draft, administeredSources),
         draftToken,
         currentActorUserId(c),
         publicationAuthorization(c),
       );
       if (!result.ok) return respond(c, () => Promise.resolve(result));
-      const administeredSources = await sourceTablesAdministeredByActor(c, [result.data]);
-      return c.json(revisionForManagement(result.data, administeredSources));
+      const administeredUpdatedSources = await sourceTablesAdministeredByActor(c, [result.data]);
+      return c.json(await toPublicFederatedRevision(result.data, administeredUpdatedSources));
     },
   )
 
   .post(
     "/:tableId/federation/validate",
-    requireUuidParam("tableId", "Combined table"),
+    requirePublicIdParam("tableId", "table", "Combined table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Validate a combined table draft without saving it",
       responses: {
-        200: jsonResponse(FederatedValidationSchema, "Draft validation"),
+        200: jsonResponse(PublicFederatedValidationSchema, "Draft validation"),
         400: jsonResponse(ErrorResponseSchema, "Invalid draft"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
-    v("json", ValidateFederatedDraftSchema),
+    v("json", PublicFederatedDraftInputSchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const target = await gridsService.table.get(tableId);
       if (!target || target.kind !== "federated") return c.json({ message: "Combined table not found" }, 404);
       const targetGate = await gateAt(c, { baseId: target.baseId }, "admin");
       if (!targetGate.ok) return respond(c, () => Promise.resolve(targetGate));
       const body = c.req.valid("json");
-      const sourceGate = await requireSourceBaseAdmins(c, body.sourceTableIds);
+      const internal = await fromPublicFederatedDraft(body);
+      if (!internal.ok) return respond(c, () => Promise.resolve(internal));
+      const sourceGate = await requireSourceBaseAdmins(c, internal.data.sourceTableIds);
       if (sourceGate.response) return sourceGate.response;
-      const validation = await gridsService.table.federation.validateDraft(tableId, body);
       const draft = await gridsService.table.federation.getDraft(tableId);
       const administeredSources = await sourceTablesAdministeredByActor(c, [draft]);
-      return c.json({ ...validation, diagnostics: diagnosticsForManagement(validation.diagnostics, administeredSources) });
+      const validation = await gridsService.table.federation.validateDraft(
+        tableId,
+        draft ? retainUnadministeredDraftSources(internal.data, draft, administeredSources) : internal.data,
+      );
+      return c.json({ ...validation, diagnostics: await toPublicFederatedDiagnostics(validation.diagnostics, administeredSources) });
     },
   )
 
   .post(
     "/:tableId/federation/publish",
-    requireUuidParam("tableId", "Combined table"),
+    requirePublicIdParam("tableId", "table", "Combined table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Publish combined table draft",
       responses: {
-        200: jsonResponse(FederatedRevisionViewSchema, "Published revision"),
+        200: jsonResponse(PublicFederatedRevisionViewSchema, "Published revision"),
         400: jsonResponse(ErrorResponseSchema, "Invalid draft"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -274,7 +272,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const target = await gridsService.table.get(tableId);
       if (!target || target.kind !== "federated") return c.json({ message: "Combined table not found" }, 404);
       const targetGate = await gateAt(c, { baseId: target.baseId }, "admin");
@@ -303,14 +301,14 @@ const app = new Hono<AuthContext>()
       });
       if (!result.ok) return respond(c, () => Promise.resolve(result));
       const administeredSources = await sourceTablesAdministeredByActor(c, [result.data]);
-      return c.json(revisionForManagement(result.data, administeredSources));
+      return c.json(await toPublicFederatedRevision(result.data, administeredSources));
     },
   )
 
   .post(
     "/:tableId/federation/sources/:sourceTableId/revoke",
-    requireUuidParam("tableId", "Combined table"),
-    requireUuidParam("sourceTableId", "Source table"),
+    requirePublicIdParam("tableId", "table", "Combined table"),
+    requirePublicIdParam("sourceTableId", "table", "Source table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Revoke a published combined table source",
@@ -322,8 +320,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
-      const sourceTableId = c.req.param("sourceTableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
+      const sourceTableId = internalIdParam(c, "sourceTableId")!;
       const source = await gridsService.table.get(sourceTableId, { includeDeleted: true });
       if (!source) return c.json({ message: "Source table not found" }, 404);
       const sourceGate = await gateAt(c, { baseId: source.baseId }, "admin");
@@ -342,33 +340,33 @@ const app = new Hono<AuthContext>()
   // List tables of a base.
   .get(
     "/by-base/:baseId",
-    requireUuidParam("baseId", "Base"),
+    requirePublicIdParam("baseId", "base", "Base"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "List tables in a base",
       responses: {
-        200: jsonResponse(TableListSchema, "Tables"),
+        200: jsonResponse(PublicTableListSchema, "Tables"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
     async (c) => {
-      const baseId = c.req.param("baseId")!;
+      const baseId = internalIdParam(c, "baseId")!;
       const gate = await gateAt(c, { baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json(await gridsService.table.listByBase(baseId));
+      return c.json(await toPublicTables(await gridsService.table.listByBase(baseId)));
     },
   )
 
   // Create table under a base.
   .post(
     "/by-base/:baseId",
-    requireUuidParam("baseId", "Base"),
+    requirePublicIdParam("baseId", "base", "Base"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Create a table",
       responses: {
-        201: jsonResponse(TableSchema, "Created"),
+        201: jsonResponse(PublicTableSchema, "Created"),
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -377,60 +375,56 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateTableSchema),
     async (c) => {
-      const baseId = c.req.param("baseId")!;
+      const baseId = internalIdParam(c, "baseId")!;
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const body = c.req.valid("json");
-      return respond(
-        c,
-        () =>
-          gridsService.table.create(
-            {
-              baseId,
-              kind: body.kind,
-              name: body.name,
-              description: body.description ?? null,
-              icon: body.icon ?? null,
-              columns: body.columns,
-              displayConfig: body.displayConfig,
-            },
-            currentActorUserId(c),
-          ),
-        201,
+      const result = await gridsService.table.create(
+        {
+          baseId,
+          kind: body.kind,
+          name: body.name,
+          description: body.description ?? null,
+          icon: body.icon ?? null,
+          columns: body.columns,
+          displayConfig: body.displayConfig,
+        },
+        currentActorUserId(c),
       );
+      return result.ok ? c.json(await toPublicTable(result.data), 201) : c.json({ message: result.error.message }, result.error.status);
     },
   )
 
   .get(
     "/:tableId",
-    requireUuidParam("tableId", "Table"),
+    requirePublicIdParam("tableId", "table", "Table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Get table",
       responses: {
-        200: jsonResponse(TableSchema, "Table"),
+        200: jsonResponse(PublicTableSchema, "Table"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json(table);
+      return c.json(await toPublicTable(table));
     },
   )
 
   .patch(
     "/:tableId",
-    requireUuidParam("tableId", "Table"),
+    requirePublicIdParam("tableId", "table", "Table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Update table",
       responses: {
-        200: jsonResponse(TableSchema, "Updated"),
+        200: jsonResponse(PublicTableSchema, "Updated"),
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -439,18 +433,19 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateTableSchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.table.update(tableId, c.req.valid("json"), currentActorUserId(c)));
+      const result = await gridsService.table.update(tableId, c.req.valid("json"), currentActorUserId(c));
+      return result.ok ? c.json(await toPublicTable(result.data)) : c.json({ message: result.error.message }, result.error.status);
     },
   )
 
   .delete(
     "/:tableId",
-    requireUuidParam("tableId", "Table"),
+    requirePublicIdParam("tableId", "table", "Table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Move a table to trash",
@@ -461,7 +456,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
@@ -474,24 +469,25 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/:tableId/restore",
-    requireUuidParam("tableId", "Table"),
+    requireStoredPublicIdParam("tableId", "table", "Table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Restore a soft-deleted table",
       responses: {
-        200: jsonResponse(TableSchema, "Restored"),
+        200: jsonResponse(PublicTableSchema, "Restored"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
         409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId, { includeDeleted: true });
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.table.restore(tableId, currentActorUserId(c)));
+      const result = await gridsService.table.restore(tableId, currentActorUserId(c));
+      return result.ok ? c.json(await toPublicTable(result.data)) : c.json({ message: result.error.message }, result.error.status);
     },
   )
 
@@ -499,7 +495,7 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/:tableId/record-actors",
-    requireUuidParam("tableId", "Table"),
+    requirePublicIdParam("tableId", "table", "Table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Search users available for record metadata filters",
@@ -532,7 +528,7 @@ const app = new Hono<AuthContext>()
       }),
     ),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "read");
@@ -549,12 +545,12 @@ const app = new Hono<AuthContext>()
   // Permission: needs `read` on the target table — same as listing it.
   .get(
     "/:tableId/lookup",
-    requireUuidParam("tableId", "Table"),
+    requirePublicIdParam("tableId", "table", "Table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Search records of this table for the relation picker",
       responses: {
-        200: jsonResponse(RelationLookupResponseSchema, "Lookup results"),
+        200: jsonResponse(PublicRelationLookupResponseSchema, "Lookup results"),
         400: jsonResponse(ErrorResponseSchema, "Invalid query"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Table not found"),
@@ -578,27 +574,33 @@ const app = new Hono<AuthContext>()
               .map((p) => p.trim())
               .filter(Boolean),
           )
-          .pipe(z.array(z.string().uuid())),
+          .pipe(z.array(ShortIdSchema)),
       }),
     ),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const access = await gateAt(c, { baseId: table.baseId }, "read");
       if (!access.ok) return respond(c, () => Promise.resolve(access));
 
       const { q, limit, excludeIds, includeDeleted } = c.req.valid("query");
+      const excluded = await resolvePublicIds("record", excludeIds);
+      if (excluded.size !== new Set(excludeIds).size) return c.json({ message: "Unknown excluded record" }, 400);
 
       const result = await gridsService.relations.lookup({
         targetTableId: tableId,
         q,
         limit,
-        excludeIds,
+        excludeIds: excludeIds.map((id) => excluded.get(id)!),
         includeDeleted: includeDeleted === "true",
         recordAccess: ALL_RECORD_ACCESS,
       });
-      return c.json(result);
+      const publicIds = await projectPublicIds(
+        "record",
+        result.items.map((item) => item.id),
+      );
+      return c.json({ items: result.items.map((item) => ({ ...item, id: publicIds.get(item.id)! })) });
     },
   );
 

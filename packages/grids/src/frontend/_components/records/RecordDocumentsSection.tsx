@@ -1,22 +1,21 @@
+import { fileIcons } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
-  NoticeCard,
   Button,
   Dropdown,
   dialogCore,
   isStructuredDataValue,
+  NoticeCard,
   PanelDialog,
-  Placeholder,
   PdfPreview,
+  Placeholder,
   panelDialogOptions,
   prompts,
   StructuredDataPreview,
   toast,
 } from "@k2b/ui";
-import { fileIcons } from "@k2b/stdlib";
-import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { DocumentRunSummary, DocumentTemplateSummary, RecordSnapshot, RecordSnapshotSummary } from "../../../contracts";
 import { downloadPdfResponse } from "../documents/document-download";
 import {
   isPdfResponse,
@@ -24,6 +23,12 @@ import {
   requestDocumentTemplateGeneration,
   requestDocumentTemplatePreview,
 } from "../documents/document-transfer-client";
+import type {
+  PublicDocumentRunSummary,
+  PublicDocumentTemplateSummary,
+  PublicRecordSnapshot,
+  PublicRecordSnapshotSummary,
+} from "../documents/public-document-types";
 import { errorMessage } from "../utils/api-helpers";
 import { formatRecordRelativeTime } from "./RecordHistorySection";
 import RecordReadView from "./RecordReadView";
@@ -35,11 +40,11 @@ import {
   snapshotTableName,
 } from "./record-snapshot-model";
 
-const openDocumentGenerationReviewDialog = (args: { tableId: string; recordId: string; template: DocumentTemplateSummary }) =>
+const openDocumentGenerationReviewDialog = (args: { tableId: string; recordId: string; template: PublicDocumentTemplateSummary }) =>
   dialogCore.open<boolean>((close) => <DocumentGenerationReviewDialog args={args} close={close} />, panelDialogOptions);
 
 function DocumentGenerationReviewDialog(props: {
-  args: { tableId: string; recordId: string; template: DocumentTemplateSummary };
+  args: { tableId: string; recordId: string; template: PublicDocumentTemplateSummary };
   close: (generated: boolean) => void;
 }) {
   const [previewed, setPreviewed] = createSignal(false);
@@ -132,12 +137,12 @@ export default function RecordDocumentsSection(props: {
   tableId: string;
   recordId: string;
   live: boolean;
-  templates: DocumentTemplateSummary[];
-  initialRuns: DocumentRunSummary[];
-  initialSnapshots: RecordSnapshotSummary[];
+  templates: PublicDocumentTemplateSummary[];
+  initialRuns: PublicDocumentRunSummary[];
+  initialSnapshots: PublicRecordSnapshotSummary[];
 }) {
-  const [runs, setRuns] = createSignal<DocumentRunSummary[]>(props.initialRuns);
-  const [snapshots, setSnapshots] = createSignal<RecordSnapshotSummary[]>(props.initialSnapshots);
+  const [runs, setRuns] = createSignal<PublicDocumentRunSummary[]>(props.initialRuns);
+  const [snapshots, setSnapshots] = createSignal<PublicRecordSnapshotSummary[]>(props.initialSnapshots);
   const [activeDownloadId, setActiveDownloadId] = createSignal<string | null>(null);
   const [activeSnapshotId, setActiveSnapshotId] = createSignal<string | null>(null);
 
@@ -149,7 +154,7 @@ export default function RecordDocumentsSection(props: {
       param: { tableId: props.tableId, recordId: props.recordId },
     });
     if (!res.ok) throw new Error(await errorMessage(res, "Failed to load generated documents"));
-    const value = (await res.json()) as { items: DocumentRunSummary[] } | DocumentRunSummary[];
+    const value = (await res.json()) as { items: PublicDocumentRunSummary[] } | PublicDocumentRunSummary[];
     return Array.isArray(value) ? value : value.items;
   };
 
@@ -158,10 +163,10 @@ export default function RecordDocumentsSection(props: {
       param: { tableId: props.tableId, recordId: props.recordId },
     });
     if (!res.ok) throw new Error(await errorMessage(res, "Failed to load snapshots"));
-    return ((await res.json()) as { items: RecordSnapshotSummary[] }).items;
+    return ((await res.json()) as { items: PublicRecordSnapshotSummary[] }).items;
   };
 
-  const refreshDocumentsMut = mutations.create<{ runs: DocumentRunSummary[]; snapshots: RecordSnapshotSummary[] }, void>({
+  const refreshDocumentsMut = mutations.create<{ runs: PublicDocumentRunSummary[]; snapshots: PublicRecordSnapshotSummary[] }, void>({
     mutation: async () => {
       const [nextRuns, nextSnapshots] = await Promise.all([loadRuns(), loadSnapshots()]);
       return { runs: nextRuns, snapshots: nextSnapshots };
@@ -173,7 +178,7 @@ export default function RecordDocumentsSection(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const redownloadMut = mutations.create<void, DocumentRunSummary>({
+  const redownloadMut = mutations.create<void, PublicDocumentRunSummary>({
     onBefore: (run) => setActiveDownloadId(run.id),
     mutation: async (run) => {
       const res = await requestDocumentRunDownload(run.id);
@@ -183,7 +188,7 @@ export default function RecordDocumentsSection(props: {
     onFinally: () => setActiveDownloadId(null),
   });
 
-  const createSnapshotMut = mutations.create<RecordSnapshotSummary[], void>({
+  const createSnapshotMut = mutations.create<PublicRecordSnapshotSummary[], void>({
     mutation: async () => {
       const createRes = await apiClient.documents.snapshots["by-record"][":tableId"][":recordId"].$post({
         param: { tableId: props.tableId, recordId: props.recordId },
@@ -198,12 +203,12 @@ export default function RecordDocumentsSection(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const inspectSnapshotMut = mutations.create<void, RecordSnapshotSummary>({
+  const inspectSnapshotMut = mutations.create<void, PublicRecordSnapshotSummary>({
     onBefore: (snapshot) => setActiveSnapshotId(snapshot.id),
     mutation: async (summary) => {
       const res = await apiClient.documents.snapshots[":snapshotId"].$get({ param: { snapshotId: summary.id } });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to load snapshot"));
-      const snapshot = (await res.json()) as RecordSnapshot;
+      const snapshot = (await res.json()) as PublicRecordSnapshot;
       const root = snapshot.root as SnapshotRecordNode;
       const fields = snapshotFields(root, snapshot.tableId);
       const snapshotRecord = snapshotGridRecord(snapshot);
@@ -273,7 +278,7 @@ export default function RecordDocumentsSection(props: {
     onFinally: () => setActiveSnapshotId(null),
   });
 
-  const generate = async (template: DocumentTemplateSummary) => {
+  const generate = async (template: PublicDocumentTemplateSummary) => {
     const generated = await openDocumentGenerationReviewDialog({
       template,
       tableId: props.tableId,

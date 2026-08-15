@@ -1,7 +1,7 @@
 import { Button, CopyButton, IconButton, Placeholder, prompts, Tooltip } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Field, Form } from "../../../service";
+import type { PublicField as Field, PublicForm } from "../../../api/public-dto";
 import type { FormConfig } from "../../../service/forms";
 import { isRecordInputField } from "../fields/field-render";
 import { errorMessage } from "../utils/api-helpers";
@@ -18,9 +18,9 @@ type Props = {
   /** All fields on this table — drives the "Add field" picker and the
    *  rendered field rows inside each form. */
   fields: Field[];
-  initialForms: Form[];
+  initialForms: PublicForm[];
   canManage: boolean;
-  onFormsChanged?: (forms: Form[]) => void;
+  onFormsChanged?: (forms: PublicForm[]) => void;
 };
 
 /**
@@ -36,9 +36,9 @@ type Props = {
  * forms here, the default is always available regardless.
  */
 export default function FormsManager(props: Props) {
-  const [forms, setForms] = createSignal<Form[]>(props.initialForms.filter((f) => !f.isDefault));
+  const [forms, setForms] = createSignal<PublicForm[]>(props.initialForms.filter((f) => !f.isDefault));
 
-  const updateForms = (next: Form[]) => {
+  const updateForms = (next: PublicForm[]) => {
     setForms(next);
     props.onFormsChanged?.(next);
   };
@@ -49,7 +49,7 @@ export default function FormsManager(props: Props) {
    * multiple screens. The modal keeps the row list compact and gives
    * the editor a fixed viewport — same UX as the field editor.
    */
-  const openFormEditor = (form: Form) =>
+  const openFormEditor = (form: PublicForm) =>
     openFormEditorDialog({
       form,
       tableFields: props.fields,
@@ -94,7 +94,8 @@ export default function FormsManager(props: Props) {
   };
 
   // ---- Delete ----------------------------------------------------------
-  const handleDelete = async (form: Form) => {
+  const handleDelete = async (form: PublicForm) => {
+    if (!form.id) return;
     const confirmed = await prompts.confirm(`Delete form "${form.name}"? Submissions already saved as records remain.`, {
       title: "Delete form?",
       variant: "danger",

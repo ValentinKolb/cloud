@@ -1,6 +1,6 @@
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 import { printStructured } from "@valentinkolb/cloud/cli";
-import type { Field, Table } from "../contracts";
+import type { PublicField as Field, PublicTable as Table } from "../api/public-dto";
 import {
   COMPUTED_FIELD_TYPES,
   EXTERNAL_FIELD_TYPES,
@@ -83,9 +83,9 @@ const FIELD_TYPE_DETAILS: Record<string, FieldReferenceDetails> = {
     notes: "Stores arbitrary JSON. Nested JSON paths are opaque to filter/sort.",
   },
   relation: {
-    config: '{ "targetTableId": "<table-uuid>", "cardinality": "multiple" }',
-    recordValue: '["<record-uuid>"]',
-    notes: "Links records by UUID. Use a single UUID string for single-cardinality fields if preferred.",
+    config: '{ "targetTableId": "<table-id>", "cardinality": "multiple" }',
+    recordValue: '["<record-id>"]',
+    notes: "Links records by public id. Use a single id string for single-cardinality fields if preferred.",
   },
   id: {
     config: '{ "strategy": "date_sequence", "prefix": "INV-", "padding": 5, "period": "year" }',
@@ -99,12 +99,12 @@ const FIELD_TYPE_DETAILS: Record<string, FieldReferenceDetails> = {
     notes: "Read-only computed field. Uses the Grids formula engine.",
   },
   lookup: {
-    config: '{ "relationFieldId": "<field-uuid>", "targetFieldId": "<field-uuid>" }',
+    config: '{ "relationFieldId": "<field-id>", "targetFieldId": "<field-id>" }',
     recordValue: "(computed)",
     notes: "Read-only projection through a relation field.",
   },
   rollup: {
-    config: '{ "relationFieldId": "<field-uuid>", "targetFieldId": "<field-uuid>", "agg": "sum" }',
+    config: '{ "relationFieldId": "<field-id>", "targetFieldId": "<field-id>", "agg": "sum" }',
     recordValue: "(computed)",
     notes: "Read-only relation aggregate. agg is one of count, sum, avg, min, max.",
   },
@@ -207,7 +207,7 @@ const selectExampleValue = (field: Field): unknown => {
   return first ? [first.id] : ["<option-id>"];
 };
 
-const relationExampleValue = (field: Field): unknown => (fieldConfig(field).cardinality === "single" ? "<record-uuid>" : ["<record-uuid>"]);
+const relationExampleValue = (field: Field): unknown => (fieldConfig(field).cardinality === "single" ? "<record-id>" : ["<record-id>"]);
 
 const fieldExampleValue = (field: Field): unknown => {
   if (field.defaultValue !== null && field.defaultValue !== undefined) return field.defaultValue;
@@ -245,15 +245,14 @@ export const recordShapeForFields = (table: Table, fields: Field[]) => {
   const readOnly = table.kind === "stored" ? alive.filter((field) => !(field.type in RECORD_WRITABLE_FIELD_TYPES)) : alive;
   const example = Object.fromEntries(writable.map((field) => [field.id, fieldExampleValue(field)]));
   return {
-    table: { id: table.id, shortId: table.shortId, name: table.name, kind: table.kind },
+    table: { id: table.id, name: table.name, kind: table.kind },
     payload:
       table.kind === "stored"
-        ? "Record create/update bodies are plain JSON objects keyed by field UUID."
+        ? "Record create/update bodies are plain JSON objects keyed by field public id."
         : "Combined tables are read-only. Query or export their canonical fields instead of sending record payloads.",
     example,
     writableFields: writable.map((field) => ({
       id: field.id,
-      shortId: field.shortId,
       name: field.name,
       type: field.type,
       required: field.required,
@@ -262,7 +261,6 @@ export const recordShapeForFields = (table: Table, fields: Field[]) => {
     })),
     readOnlyFields: readOnly.map((field) => ({
       id: field.id,
-      shortId: field.shortId,
       name: field.name,
       type: field.type,
     })),
@@ -271,12 +269,12 @@ export const recordShapeForFields = (table: Table, fields: Field[]) => {
 
 export const printRecordShape = (ctx: CloudCliContext, shape: ReturnType<typeof recordShapeForFields>) => {
   if (printStructured(ctx, shape)) return;
-  ctx.print(`Record payload for ${shape.table.name} (${shape.table.shortId})`);
+  ctx.print(`Record payload for ${shape.table.name} (${shape.table.id})`);
   if (shape.table.kind === "federated") {
     ctx.print("Combined tables are read-only. Use GQL, views, Grids Apps, documents, workflows, or export to consume their data.");
     ctx.print("");
   }
-  if (shape.table.kind === "stored") ctx.print("Use field UUID keys. Field names and short ids are only lookup aids.");
+  if (shape.table.kind === "stored") ctx.print("Use field public-id keys. Exact field names are lookup aids in CLI arguments only.");
   ctx.print("");
   ctx.print("Example body:");
   ctx.print(JSON.stringify(shape.example, null, 2));
@@ -314,20 +312,18 @@ export const printRecordShape = (ctx: CloudCliContext, shape: ReturnType<typeof 
 
 export const tableRows = (items: Table[]) =>
   items.map((table) => ({
-    shortId: table.shortId,
+    id: table.id,
     name: table.name,
     kind: table.kind === "federated" ? "combined" : "stored",
     fields: table.columns.length,
     updatedAt: table.updatedAt,
-    id: table.id,
   }));
 
 export const fieldRows = (items: Field[]) =>
   items.map((field) => ({
-    shortId: field.shortId,
+    id: field.id,
     name: field.name,
     type: field.type,
     required: field.required ? "yes" : "no",
     presentable: field.presentable ? "yes" : "no",
-    id: field.id,
   }));

@@ -1,13 +1,19 @@
-import { NoticeCard, PanelDialog, Placeholder, prompts, toast, Button } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, NoticeCard, PanelDialog, Placeholder, prompts, toast } from "@k2b/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
+import type { z } from "zod";
 import { apiClient } from "../../../api/client";
-import type { Workflow } from "../../../service";
-import type { GridsWorkflowRevision, GridsWorkflowRevisionSummary } from "../../../workflows/contracts";
+import {
+  PublicGridsWorkflowRevisionListSchema,
+  PublicGridsWorkflowRevisionSchema,
+  PublicGridsWorkflowSchema,
+} from "../../../api/workflow-public-contracts";
 import { errorMessage } from "../utils/api-helpers";
+import type { PublicWorkflow } from "../workspace/workspace-public-state-model";
 import { formatWorkflowRunDate } from "./workflow-display";
 
-type RevisionPage = { items: GridsWorkflowRevisionSummary[]; nextRevision: number | null };
+type PublicWorkflowRevision = z.infer<typeof PublicGridsWorkflowRevisionSchema>;
+type RevisionPage = z.infer<typeof PublicGridsWorkflowRevisionListSchema>;
 
 const revisionApi = apiClient.workflows as unknown as {
   [":workflowId"]: {
@@ -30,14 +36,14 @@ const revisionApi = apiClient.workflows as unknown as {
 };
 
 export function WorkflowRevisionHistory(props: {
-  workflow: Pick<Workflow, "id" | "name" | "revision">;
+  workflow: Pick<PublicWorkflow, "id" | "name" | "revision">;
   initialRevision?: number | null;
   canRestore: boolean;
-  onChanged: (workflow: Workflow) => void;
+  onChanged: (workflow: PublicWorkflow) => void;
   onClose: () => void;
 }) {
-  const [items, setItems] = createSignal<GridsWorkflowRevisionSummary[]>([]);
-  const [selected, setSelected] = createSignal<GridsWorkflowRevision | null>(null);
+  const [items, setItems] = createSignal<RevisionPage["items"]>([]);
+  const [selected, setSelected] = createSignal<PublicWorkflowRevision | null>(null);
   const [nextRevision, setNextRevision] = createSignal<number | null>(null);
 
   const loadPage = async (beforeRevision: number | null, signal: AbortSignal): Promise<RevisionPage> => {
@@ -49,7 +55,7 @@ export function WorkflowRevisionHistory(props: {
       { init: { signal } },
     );
     if (!response.ok) throw new Error(await errorMessage(response, "Could not load workflow history."));
-    return response.json();
+    return PublicGridsWorkflowRevisionListSchema.parse(await response.json());
   };
 
   const loadMut = mutations.create<{ page: RevisionPage; append: boolean }, { append: boolean }>({
@@ -64,19 +70,19 @@ export function WorkflowRevisionHistory(props: {
     },
   });
 
-  const loadRevisionMut = mutations.create<GridsWorkflowRevision, number>({
+  const loadRevisionMut = mutations.create<PublicWorkflowRevision, number>({
     mutation: async (revision, { abortSignal }) => {
       const response = await revisionApi[":workflowId"].revisions[":revision"].$get(
         { param: { workflowId: props.workflow.id, revision: String(revision) } },
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await errorMessage(response, "Could not load workflow revision."));
-      return response.json();
+      return PublicGridsWorkflowRevisionSchema.parse(await response.json());
     },
     onSuccess: setSelected,
   });
 
-  const restoreMut = mutations.create<{ workflow: Workflow; restoredRevision: number }, GridsWorkflowRevision>({
+  const restoreMut = mutations.create<{ workflow: PublicWorkflow; restoredRevision: number }, PublicWorkflowRevision>({
     mutation: async (revision, { abortSignal }) => {
       const response = await revisionApi[":workflowId"].revisions[":revision"].restore.$post(
         {
@@ -87,7 +93,7 @@ export function WorkflowRevisionHistory(props: {
       );
       if (!response.ok) throw new Error(await errorMessage(response, "Could not restore workflow revision."));
       return {
-        workflow: (await response.json()) as Workflow,
+        workflow: PublicGridsWorkflowSchema.parse(await response.json()),
         restoredRevision: revision.revision,
       };
     },
@@ -99,7 +105,7 @@ export function WorkflowRevisionHistory(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const restore = async (revision: GridsWorkflowRevision) => {
+  const restore = async (revision: PublicWorkflowRevision) => {
     const confirmed = await prompts.confirm(
       `Restore revision ${revision.revision}? This creates a new revision and keeps the complete history.`,
       {

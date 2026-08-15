@@ -15,6 +15,7 @@ import { createReader, get } from "./record-read";
 import { recordUniqueConflict } from "./record-unique-conflicts";
 import { resolveRecordAccessByTableIds } from "./relation-access";
 import { type ExpansionViewer, enrichRecordsWithFormulas, validateRelationTargets, writeRecordLinks } from "./relations";
+import { insertWithShortIdForDb } from "./short-id";
 import type { Field, GridRecord } from "./types";
 
 type DbRow = Record<string, unknown>;
@@ -240,6 +241,7 @@ export const createInTransaction = async (
     if (!validated.ok) return validated;
 
     split = splitRelationsFromData(validated.data, fields);
+    const recordData = split.data;
     const preflight = await preflightRelationTargets(split.relations, fieldsById, client, opts.viewer);
     if (!preflight.ok) return preflight;
 
@@ -254,18 +256,23 @@ export const createInTransaction = async (
     };
     if (hasRetryGeneratedId) await client`SAVEPOINT grids_generated_id_insert`;
     try {
-      const rows = await client<DbRow[]>`
-        INSERT INTO grids.records (id, table_id, data, version, created_by, updated_by)
-        VALUES (
-          ${id}::uuid,
-          ${tableId}::uuid,
-          ${split.data}::jsonb,
-          1,
-          ${actorId}::uuid,
-          ${actorId}::uuid
-        )
-        RETURNING *, grids.enqueue_record_event(${tableId}::uuid, ${id}::uuid, ${eventPayload}::jsonb)::text AS outbox_id
-      `;
+      const rows = await insertWithShortIdForDb(
+        client,
+        "idx_grids_records_short_id",
+        (attempt, shortId) => attempt<DbRow[]>`
+          INSERT INTO grids.records (id, short_id, table_id, data, version, created_by, updated_by)
+          VALUES (
+            ${id}::uuid,
+            ${shortId},
+            ${tableId}::uuid,
+            ${recordData}::jsonb,
+            1,
+            ${actorId}::uuid,
+            ${actorId}::uuid
+          )
+          RETURNING *, grids.enqueue_record_event(${tableId}::uuid, ${id}::uuid, ${eventPayload}::jsonb)::text AS outbox_id
+        `,
+      );
       row = rows[0];
       if (hasRetryGeneratedId) await client`RELEASE SAVEPOINT grids_generated_id_insert`;
       break;

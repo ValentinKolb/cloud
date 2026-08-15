@@ -1013,7 +1013,7 @@ steps:
     {
       key: "overview",
       definition: {
-        schemaVersion: 4,
+        schemaVersion: 5,
         kind: "grids.custom-app",
         name: "Finance overview",
         startPageId: "overview",

@@ -2,6 +2,14 @@ import { describe, expect, test } from "bun:test";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { generateSpecs } from "hono-openapi";
+import {
+  BulkLauncherRequestSchema,
+  PublicGridsWorkflowEmailDeliveryListSchema,
+  PublicGridsWorkflowRunSchema,
+  PublicWorkflowInvocationReceiptSchema,
+  toPublicWorkflowRuns,
+  WorkflowRunsQuerySchema,
+} from "./workflow-api-shared";
 import { createWorkflowRunRoutes } from "./workflow-run-routes";
 import { createWorkflowTriggerRoutes, DIRECT_WORKFLOW_CHANNEL } from "./workflow-trigger-routes";
 
@@ -18,7 +26,7 @@ describe("workflow route contracts", () => {
     expect(DIRECT_WORKFLOW_CHANNEL).toBe("api");
   });
 
-  test("rejects invalid base, workflow, launcher, and run ids before service calls", async () => {
+  test("rejects malformed public base, workflow, launcher, and run ids before service calls", async () => {
     const requests = [
       app().request("/workflows/by-base/not-a-uuid/runs"),
       app().request("/workflows/not-a-uuid/invoke", {
@@ -50,6 +58,102 @@ describe("workflow route contracts", () => {
       { message: "Invalid workflow run id" },
       { message: "Invalid workflow run id" },
     ]);
+  });
+
+  test("publishes only six-character public IDs in workflow DTOs", async () => {
+    const internalRunId = "11111111-1111-4111-8111-111111111111";
+    const internalWorkflowId = "22222222-2222-4222-8222-222222222222";
+    const internalUserId = "33333333-3333-4333-8333-333333333333";
+    const internalRecordId = "44444444-4444-4444-8444-444444444444";
+    const internalBaseId = "55555555-5555-4555-8555-555555555555";
+    const run = {
+      id: internalRunId,
+      workflowId: internalWorkflowId,
+      launcherId: null,
+      baseId: internalBaseId,
+      workflowRevision: 1,
+      mode: "execute",
+      channel: "api",
+      actorUserId: internalUserId,
+      serviceAccountId: null,
+      inputs: { recordId: internalRecordId },
+      status: "queued",
+      result: null,
+      error: null,
+      resultMessage: null,
+      createdAt: "2026-08-15T12:00:00.000Z",
+      startedAt: null,
+      finishedAt: null,
+    } as const;
+
+    const projected = await toPublicWorkflowRuns([run], async (type, ids) => {
+      const values: Partial<Record<typeof type, Record<string, string>>> = {
+        workflowRun: { [internalRunId]: "run001" },
+        workflow: { [internalWorkflowId]: "work01" },
+        record: { [internalRecordId]: "rec001" },
+        base: { [internalBaseId]: "base01" },
+      };
+      return new Map(ids.flatMap((id) => (values[type]?.[id] ? [[id, values[type]![id]!]] : [])));
+    });
+
+    expect(projected[0]).toMatchObject({
+      id: "run001",
+      workflowId: "work01",
+      baseId: "base01",
+      actorUserId: internalUserId,
+      inputs: { recordId: "rec001" },
+    });
+    expect(PublicGridsWorkflowRunSchema.safeParse(projected[0]).success).toBe(true);
+    expect(PublicGridsWorkflowRunSchema.safeParse({ ...projected[0], id: internalRunId }).success).toBe(false);
+    expect(
+      PublicWorkflowInvocationReceiptSchema.safeParse({
+        runId: "run001",
+        workflowId: "work01",
+        revision: "1",
+        mode: "execute",
+        channel: "api",
+        created: true,
+        status: "queued",
+      }).success,
+    ).toBe(true);
+    expect(
+      PublicGridsWorkflowEmailDeliveryListSchema.safeParse({
+        items: [
+          {
+            workflowId: "work01",
+            workflowRunId: "run001",
+            templateId: "mail01",
+            subject: "Hello",
+            recipients: [],
+            status: "sent",
+            error: null,
+            createdAt: "2026-08-15T12:00:00.000Z",
+          },
+        ],
+        nextCursor: null,
+      }).success,
+    ).toBe(true);
+  });
+
+  test("accepts public workflow filters and bulk record IDs, never UUIDs", () => {
+    expect(WorkflowRunsQuerySchema.safeParse({ workflowId: "work01" }).success).toBe(true);
+    expect(WorkflowRunsQuerySchema.safeParse({ workflowId: "22222222-2222-4222-8222-222222222222" }).success).toBe(false);
+    expect(
+      BulkLauncherRequestSchema.safeParse({
+        operationId: "bulk",
+        mode: "execute",
+        inputs: {},
+        recordIds: ["rec001"],
+      }).success,
+    ).toBe(true);
+    expect(
+      BulkLauncherRequestSchema.safeParse({
+        operationId: "bulk",
+        mode: "execute",
+        inputs: {},
+        recordIds: ["44444444-4444-4444-8444-444444444444"],
+      }).success,
+    ).toBe(false);
   });
 
   test("publishes actual run-route error statuses in OpenAPI", async () => {

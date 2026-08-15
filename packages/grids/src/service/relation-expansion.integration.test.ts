@@ -52,6 +52,7 @@ describe("relation expansion integration", () => {
       const sourceFields = await listByTable(sourceTableId);
       const record = (): GridRecord => ({
         id: sourceRecordId,
+        shortId: testShortId("R"),
         tableId: sourceTableId,
         data: { [relationFieldId]: [targetRecordId] },
         version: 1,

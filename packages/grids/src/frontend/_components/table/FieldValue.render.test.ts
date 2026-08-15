@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
-import type { Field, GridRecord } from "../../../service";
+import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import "../ssr-test-plugin";
 
 const { FieldValue } = await import("./FieldValue");
 
 const field = (overrides: Partial<Field> & Pick<Field, "id" | "name" | "type">): Field => ({
-  shortId: overrides.id.slice(0, 5),
   tableId: "table",
   description: null,
   config: {},
@@ -24,17 +23,18 @@ const field = (overrides: Partial<Field> & Pick<Field, "id" | "name" | "type">):
   ...overrides,
 });
 
-const record = (data: Record<string, unknown>, expanded?: GridRecord["expanded"]): GridRecord =>
-  ({
-    id: "record",
-    tableId: "table",
-    data,
-    expanded,
-    version: 1,
-    deletedAt: null,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  }) as GridRecord;
+const record = (data: Record<string, unknown>, expanded?: GridRecord["expanded"]): GridRecord => ({
+  id: "record",
+  tableId: "table",
+  data,
+  expanded,
+  version: 1,
+  createdBy: null,
+  updatedBy: null,
+  deletedAt: null,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+});
 
 describe("FieldValue rendering", () => {
   test("renders relation links and label-only relation values", () => {
@@ -45,14 +45,13 @@ describe("FieldValue rendering", () => {
         value: "author-1",
         relationLabels: { "author-1": "Ada Lovelace" },
         baseId: "base",
-        tableShortIds: { authors: "auth" },
       }),
     );
     const labels = renderToString(() =>
       createComponent(FieldValue, { field: relation, value: "Ada Lovelace", relationValueMode: "labels" }),
     );
 
-    expect(linked).toContain("/app/grids/base/table/auth?record=author-1");
+    expect(linked).toContain("/app/grids/base/table/authors?record=author-1");
     expect(linked).toContain("Ada Lovelace");
     expect(labels).not.toContain("<a");
     expect(labels).toContain("Ada Lovelace");
@@ -99,7 +98,6 @@ describe("FieldValue rendering", () => {
         allFields: [relation, lookup],
         fieldsByTable: { table: [relation, lookup], authors: [target] },
         baseId: "base",
-        tableShortIds: { authors: "auth" },
         linkLookup: true,
       }),
     );
@@ -110,7 +108,7 @@ describe("FieldValue rendering", () => {
       createComponent(FieldValue, { field: completion, value: 75, format: { kind: "progress", label: "percent" } }),
     );
 
-    expect(lookupHtml).toContain("/app/grids/base/table/auth?record=author-1");
+    expect(lookupHtml).toContain("/app/grids/base/table/authors?record=author-1");
     expect(lookupHtml).toContain("Ada Lovelace");
     expect(barcodeHtml).toContain("grids-code-display--linear");
     expect(barcodeHtml).toContain("ITEM-42");

@@ -31,13 +31,13 @@ const field = (overrides: Partial<Field> & Pick<Field, "id" | "shortId" | "name"
 
 describe("buildFormulaSqlProjections", () => {
   test("emits a SQL projection for scalar formula fields", () => {
-    const price = field({ id: "price_id", shortId: "price", name: "Price", type: "number" });
+    const price = field({ id: "price_id", shortId: "PRICE1", name: "Price", type: "number" });
     const total = field({
       id: "total_id",
-      shortId: "total",
+      shortId: "TOTAL1",
       name: "Total",
       type: "formula",
-      config: { expression: "#price * 1.19" },
+      config: { expression: "{PRICE1} * 1.19" },
     });
 
     const projections = buildFormulaSqlProjections([price, total]);
@@ -50,13 +50,13 @@ describe("buildFormulaSqlProjections", () => {
   });
 
   test("skips formula fields that need non-SQL projections", () => {
-    const relation = field({ id: "relation_id", shortId: "relat", name: "Relation", type: "relation" });
+    const relation = field({ id: "relation_id", shortId: "RELAT1", name: "Relation", type: "relation" });
     const formula = field({
       id: "formula_id",
-      shortId: "formu",
+      shortId: "FORMU1",
       name: "Formula",
       type: "formula",
-      config: { expression: "#relat" },
+      config: { expression: "{RELAT1}" },
     });
 
     expect(buildFormulaSqlProjections([relation, formula])).toEqual([]);
@@ -65,7 +65,7 @@ describe("buildFormulaSqlProjections", () => {
   test("keeps decimal formula values as canonical strings when merging result rows", () => {
     const formula = field({
       id: "total_id",
-      shortId: "total",
+      shortId: "TOTAL1",
       name: "Total",
       type: "formula",
       config: { expression: "0.1 + 0.2" },
@@ -82,7 +82,7 @@ describe("buildFormulaSqlProjections", () => {
 
 describe("buildComputedColumnSqlProjections", () => {
   test("uses postgres-stable aliases for mixed-case computed column ids", () => {
-    const name = field({ id: "name_id", shortId: "name", name: "Name", type: "text" });
+    const name = field({ id: "name_id", shortId: "NAME01", name: "Name", type: "text" });
 
     const { projections, sqlColumnIds } = buildComputedColumnSqlProjections(
       [{ kind: "computed", id: "computed_j3rz0Y3fwW", label: "Name length", expression: "LEN(Name)" }],
@@ -104,14 +104,14 @@ describe("buildComputedProjections", () => {
   test("omits lookup and rollup values whose relation target is not readable", async () => {
     const relation = field({
       id: "relation_id",
-      shortId: "relat",
+      shortId: "RELAT1",
       name: "Relation",
       type: "relation",
       config: { targetTableId: "target_table" },
     });
     const count = field({
       id: "count_id",
-      shortId: "count",
+      shortId: "COUNT1",
       name: "Count",
       type: "rollup",
       config: { relationFieldId: relation.id, agg: "count" },
@@ -124,14 +124,14 @@ describe("buildComputedProjections", () => {
   test("uses a caller-provided table policy for credential-scoped reads", async () => {
     const relation = field({
       id: "relation_id",
-      shortId: "relat",
+      shortId: "RELAT1",
       name: "Relation",
       type: "relation",
       config: { targetTableId: "target_table" },
     });
     const lookup = field({
       id: "lookup_id",
-      shortId: "lookup",
+      shortId: "LOOK01",
       name: "Lookup",
       type: "lookup",
       config: { relationFieldId: relation.id, targetFieldId: "target_field" },

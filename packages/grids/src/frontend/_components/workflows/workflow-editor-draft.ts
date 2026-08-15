@@ -1,4 +1,4 @@
-import type { Workflow } from "../../../service";
+import type { PublicWorkflow } from "../workspace/workspace-public-state-model";
 
 export type WorkflowEditorDraft = {
   name: string;
@@ -15,7 +15,7 @@ export type WorkflowEditorSavePayload = {
   source?: string;
 };
 
-export const workflowEditorDraft = (workflow: Workflow | undefined, fallbackSource: string): WorkflowEditorDraft => ({
+export const workflowEditorDraft = (workflow: PublicWorkflow | undefined, fallbackSource: string): WorkflowEditorDraft => ({
   name: workflow?.name ?? "",
   description: workflow?.description ?? "",
   enabled: workflow?.enabled ?? false,

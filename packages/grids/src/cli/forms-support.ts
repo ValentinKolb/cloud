@@ -1,63 +1,26 @@
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 import { flag } from "@valentinkolb/cloud/cli";
-import type { Base, Table } from "../contracts";
-import { listTables, resolveBaseFromCommand, resolveTable, UUID_RE } from "./resources";
-import { exactMatch, readApi } from "./runtime";
+import type { PublicBase as Base, PublicForm, PublicTable as Table } from "../api/public-dto";
+import { resolveBaseFromCommand, resolveNamedResource, resolveTable } from "./resources";
+import { readApi } from "./runtime";
 
-export type Form = {
-  id: string;
-  shortId: string;
-  tableId: string;
-  name: string;
-  config: unknown;
-  publicToken: string | null;
-  isActive: boolean;
-  ownerUserId: string | null;
-  position: number;
-  isDefault: boolean;
-  deletedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
+export type Form = Omit<PublicForm, "id"> & { id: string };
 
 export const formFlag = {
-  form: flag.string({ description: "Form id, short id, or exact name" }),
+  form: flag.string({ description: "Form public id or exact name" }),
 };
-
 
 export const listForms = (ctx: CloudCliContext, tableId: string): Promise<Form[]> =>
   readApi<Form[]>(ctx, `/forms/by-table/${encodeURIComponent(tableId)}`);
 
-const getFormById = (ctx: CloudCliContext, formId: string): Promise<Form> => readApi<Form>(ctx, `/forms/${encodeURIComponent(formId)}`);
-
-const assertFormScope = async (ctx: CloudCliContext, base: Base, table: Table | null, form: Form) => {
-  if (table) {
-    if (form.tableId !== table.id) throw new Error("Form does not belong to the selected table.");
-    return;
-  }
-  const tables = await listTables(ctx, base.id);
-  if (!tables.some((item) => item.id === form.tableId)) throw new Error("Form does not belong to the selected base.");
-};
-
-const resolveForm = async (ctx: CloudCliContext, base: Base, table: Table | null, ref: string): Promise<Form> => {
-  if (UUID_RE.test(ref)) {
-    const form = await getFormById(ctx, ref);
-    await assertFormScope(ctx, base, table, form);
-    return form;
-  }
-  if (!table) throw new Error("Resolving a form by name or short id requires --table.");
-  return exactMatch(
-    await listForms(ctx, table.id),
-    ref,
-    [(form) => form.id, (form) => form.shortId, (form) => form.name],
-    "form",
-    (form) => `${form.name} (${form.shortId || "default"})`,
-  );
+const resolveForm = async (ctx: CloudCliContext, table: Table | null, ref: string): Promise<Form> => {
+  if (!table) throw new Error("Resolving a form requires --table because form names and ids are table-scoped.");
+  return resolveNamedResource<Form>(await listForms(ctx, table.id), ref, "form");
 };
 
 export const formRows = (items: Form[]) =>
   items.map((form) => ({
-    shortId: form.shortId || "default",
+    id: form.id,
     name: form.name,
     active: form.isActive ? "yes" : "no",
     public: form.publicToken ? "yes" : "no",
@@ -66,9 +29,7 @@ export const formRows = (items: Form[]) =>
         ? (form.config as { fields: unknown[] }).fields.length
         : 0,
     updatedAt: form.updatedAt,
-    id: form.id,
   }));
-
 
 export const resolveFormFromCommand = async (
   ctx: CloudCliContext,
@@ -83,5 +44,5 @@ export const resolveFormFromCommand = async (
       : null;
   const formRef = refs.form ?? (table ? rest[1] : rest[0]);
   if (!formRef) throw new Error("Missing form.");
-  return { base, table, form: await resolveForm(ctx, base, table, formRef) };
+  return { base, table, form: await resolveForm(ctx, table, formRef) };
 };

@@ -1,16 +1,16 @@
-import { Placeholder, Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { Button, Placeholder } from "@k2b/ui";
 import { Show } from "solid-js";
-import type { AggregationSpec, ColumnSpec, DocumentTemplateSummary, GroupBySpec, RecordQuery, TableAuditPolicy } from "../../../contracts";
-import type { Field, GridRecord } from "../../../service";
+import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
+import type { AggregationSpec, ColumnSpec, GroupBySpec, RecordQuery, TableAuditPolicy } from "../../../contracts";
+import type { PublicDocumentTemplateSummary } from "../documents/public-document-types";
 import RecordDetailPanel from "../records/RecordDetailPanel";
 import GroupDetailPanel from "../table/GroupDetailPanel";
 import type { GroupBucket } from "../table/GroupedTable";
-import type { WorkspaceRecordDetail } from "../workspace/workspace-state-model";
+import type { PublicWorkspaceRecordDetail as WorkspaceRecordDetail } from "../workspace/workspace-public-state-model";
 
 type Props = {
   baseId: string;
-  baseShortId: string;
   tableId: string;
   tableName: string;
   fields: Field[];
@@ -22,11 +22,10 @@ type Props = {
   query: RecordQuery;
   groupBy: GroupBySpec[];
   aggregations: AggregationSpec[];
-  documentTemplates: DocumentTemplateSummary[];
+  documentTemplates: PublicDocumentTemplateSummary[];
   mode: () => "live" | "trash";
   canWrite: boolean;
   relationLabels: Record<string, string>;
-  tableShortIds: Record<string, string>;
   fieldsByTable: Record<string, Field[]>;
   viewColumns: ColumnSpec[] | undefined;
   dateConfig?: DateContext;
@@ -73,7 +72,6 @@ export default function RecordsDetailSurface(props: Props) {
           >
             <RecordDetailPanel
               baseId={props.baseId}
-              baseShortId={props.baseShortId}
               tableId={props.tableId}
               tableName={props.tableName}
               fields={props.fields}
@@ -84,7 +82,6 @@ export default function RecordsDetailSurface(props: Props) {
               mode={props.mode}
               canWrite={props.canWrite}
               relationLabels={props.relationLabels}
-              tableShortIds={props.tableShortIds}
               fieldsByTable={fieldsByTable()}
               viewColumns={props.viewColumns}
               onClose={props.onCloseRecord}

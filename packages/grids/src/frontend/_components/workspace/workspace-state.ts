@@ -36,7 +36,7 @@ export const loadGridsWorkspaceState = async (
   params: LoadWorkspaceParams,
   deps: WorkspaceStateDeps = defaultDeps,
 ): Promise<GridsWorkspaceState> => {
-  const base = await gridsService.base.getByIdOrShortId(params.baseShortId);
+  const base = await gridsService.base.getByShortId(params.baseShortId);
   if (!base) return { kind: "notFound", title: "Not found", message: "Base not found" };
   const [metadataCursor, recordCursor] = await Promise.all([
     loadEventCursor("metadata", () => deps.latestMetadataEventCursor(base.id)),

@@ -2,21 +2,24 @@ import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
-import {
-  DslQueryAutocompleteBodySchema,
-  DslQueryAutocompleteResponseSchema,
-  DslQueryCompileViewBodySchema,
-  DslQueryCompileViewResponseSchema,
-  DslQueryExecuteBodySchema,
-  DslQueryExecuteResponseSchema,
-  DslQueryPreviewBodySchema,
-  DslQueryPreviewResponseSchema,
-} from "../contracts";
+import { DslQueryAutocompleteResponseSchema } from "../contracts";
 import { renderGqlAssistantContext, renderGqlAssistantSkill } from "../query-dsl/assistant-docs";
 import { buildDslQueryIntelligence } from "../query-dsl/intelligence";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
 import { gridsService } from "../service";
+import { projectPublicId, type resolvePublicId } from "../service/public-resources";
+import {
+  fromPublicGqlScope,
+  PublicDslQueryAutocompleteBodySchema,
+  PublicDslQueryCompileViewBodySchema,
+  PublicDslQueryCompileViewResponseSchema,
+  PublicDslQueryExecuteBodySchema,
+  PublicDslQueryExecuteResponseSchema,
+  PublicDslQueryPreviewBodySchema,
+  PublicDslQueryPreviewResponseSchema,
+  toPublicGqlResponse,
+} from "./gql-public";
 import {
   buildPermissionedGqlResolverContext,
   canonicalGqlSource,
@@ -27,9 +30,11 @@ import {
 } from "./gql-runtime";
 import { gateAt } from "./permissions";
 import { queryAdmissionMiddleware } from "./query-admission";
+import { internalIdParam, requirePublicIdParam } from "./route-params";
 
 type GqlApiOptions = {
   requireAuthenticated?: MiddlewareHandler<AuthContext>;
+  resolveId?: typeof resolvePublicId;
 };
 
 const markdownAttachment = (c: Context, filename: string, body: string) =>
@@ -42,6 +47,8 @@ const markdownAttachment = (c: Context, filename: string, body: string) =>
 export const createGqlApi = (options: GqlApiOptions = {}) =>
   new Hono<AuthContext>()
     .use(options.requireAuthenticated ?? auth.requireRole("authenticated"))
+    .use("/by-base/:baseId/*", requirePublicIdParam("baseId", "base", "Base", options.resolveId))
+    .use("/by-base/:baseId/views/:viewId/*", requirePublicIdParam("viewId", "view", "View", options.resolveId))
     .use("/by-base/:baseId/preview", queryAdmissionMiddleware())
     .use("/by-base/:baseId/execute", queryAdmissionMiddleware())
     .use("/by-base/:baseId/views/:viewId/execute", queryAdmissionMiddleware())
@@ -56,7 +63,7 @@ export const createGqlApi = (options: GqlApiOptions = {}) =>
         },
       }),
       async (c) => {
-        const baseId = c.req.param("baseId")!;
+        const baseId = internalIdParam(c, "baseId")!;
         const gate = await gateAt(c, { baseId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
@@ -74,7 +81,7 @@ export const createGqlApi = (options: GqlApiOptions = {}) =>
         },
       }),
       async (c) => {
-        const baseId = c.req.param("baseId")!;
+        const baseId = internalIdParam(c, "baseId")!;
         const gate = await gateAt(c, { baseId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
@@ -102,20 +109,27 @@ export const createGqlApi = (options: GqlApiOptions = {}) =>
         tags: ["Grids:GQL"],
         summary: "Parse and preview a GQL statement",
         responses: {
-          200: jsonResponse(DslQueryPreviewResponseSchema, "Query diagnostics or tabular preview"),
+          200: jsonResponse(PublicDslQueryPreviewResponseSchema, "Query diagnostics or tabular preview"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           503: jsonResponse(ErrorResponseSchema, "Query capacity exhausted"),
         },
       }),
-      v("json", DslQueryPreviewBodySchema),
+      v("json", PublicDslQueryPreviewBodySchema),
       async (c) => {
-        const baseId = c.req.param("baseId")!;
+        const baseId = internalIdParam(c, "baseId")!;
         const gate = await gateAt(c, { baseId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
         const body = c.req.valid("json");
-        const result = await executeGqlSource(c, baseId, { ...body, surface: body.surface ?? "query-explorer" }, { operation: "preview" });
-        return c.json(result.response);
+        const scope = await fromPublicGqlScope(baseId, body);
+        if (!scope.ok) return c.json({ message: scope.error.message }, scope.error.status);
+        const result = await executeGqlSource(
+          c,
+          baseId,
+          { ...body, ...scope.data, surface: body.surface ?? "query-explorer" },
+          { operation: "preview" },
+        );
+        return c.json(await toPublicGqlResponse(result.response));
       },
     )
     .post(
@@ -124,19 +138,21 @@ export const createGqlApi = (options: GqlApiOptions = {}) =>
         tags: ["Grids:GQL"],
         summary: "Execute a GQL statement for records/table surfaces",
         responses: {
-          200: jsonResponse(DslQueryExecuteResponseSchema, "Query diagnostics or tabular result"),
+          200: jsonResponse(PublicDslQueryExecuteResponseSchema, "Query diagnostics or tabular result"),
           503: jsonResponse(ErrorResponseSchema, "Query capacity exhausted"),
         },
       }),
-      v("json", DslQueryExecuteBodySchema),
+      v("json", PublicDslQueryExecuteBodySchema),
       async (c) => {
-        const baseId = c.req.param("baseId")!;
+        const baseId = internalIdParam(c, "baseId")!;
         const gate = await gateAt(c, { baseId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
         const body = c.req.valid("json");
-        const result = await executeGqlSource(c, baseId, body, { maxRows: 10_000, operation: "execute" });
-        return c.json(result.response);
+        const scope = await fromPublicGqlScope(baseId, body);
+        if (!scope.ok) return c.json({ message: scope.error.message }, scope.error.status);
+        const result = await executeGqlSource(c, baseId, { ...body, ...scope.data }, { maxRows: 10_000, operation: "execute" });
+        return c.json(await toPublicGqlResponse(result.response));
       },
     )
     .post(
@@ -145,21 +161,21 @@ export const createGqlApi = (options: GqlApiOptions = {}) =>
         tags: ["Grids:GQL"],
         summary: "Execute the exact stored GQL source for one saved view",
         responses: {
-          200: jsonResponse(DslQueryExecuteResponseSchema, "Query diagnostics or tabular result"),
+          200: jsonResponse(PublicDslQueryExecuteResponseSchema, "Query diagnostics or tabular result"),
           503: jsonResponse(ErrorResponseSchema, "Query capacity exhausted"),
         },
       }),
-      v("json", DslQueryExecuteBodySchema.pick({ pageSize: true, cursor: true, surface: true })),
+      v("json", PublicDslQueryExecuteBodySchema.pick({ pageSize: true, cursor: true, surface: true })),
       async (c) => {
-        const baseId = c.req.param("baseId")!;
+        const baseId = internalIdParam(c, "baseId")!;
         const body = c.req.valid("json");
-        const response = await executeSavedViewSource(c, baseId, c.req.param("viewId")!, {
+        const response = await executeSavedViewSource(c, baseId, internalIdParam(c, "viewId")!, {
           maxRows: 10_000,
           pageSize: body.pageSize,
           cursor: body.cursor,
           surface: body.surface ?? "api",
         });
-        return c.json(response);
+        return c.json(await toPublicGqlResponse(response));
       },
     )
     .post(
@@ -172,13 +188,16 @@ export const createGqlApi = (options: GqlApiOptions = {}) =>
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
-      v("json", DslQueryAutocompleteBodySchema),
+      v("json", PublicDslQueryAutocompleteBodySchema),
       async (c) => {
-        const baseId = c.req.param("baseId")!;
+        const baseId = internalIdParam(c, "baseId")!;
         const gate = await gateAt(c, { baseId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-        const body = c.req.valid("json");
+        const publicBody = c.req.valid("json");
+        const scope = await fromPublicGqlScope(baseId, publicBody);
+        if (!scope.ok) return c.json({ message: scope.error.message }, scope.error.status);
+        const body = { ...publicBody, ...scope.data };
         const parsed = parseGridsQueryDsl(body.query);
         const seedAst = parsed.ok ? parsed.ast : emptyDslAst();
         const ctx = await buildPermissionedGqlResolverContext(c, baseId, body.currentTableId, body.currentSource, seedAst, {
@@ -210,21 +229,26 @@ export const createGqlApi = (options: GqlApiOptions = {}) =>
         tags: ["Grids:GQL"],
         summary: "Compile and canonicalize a GQL statement for a saved view",
         responses: {
-          200: jsonResponse(DslQueryCompileViewResponseSchema, "Canonical View source or diagnostics"),
+          200: jsonResponse(PublicDslQueryCompileViewResponseSchema, "Canonical View source or diagnostics"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
-      v("json", DslQueryCompileViewBodySchema),
+      v("json", PublicDslQueryCompileViewBodySchema),
       async (c) => {
-        const baseId = c.req.param("baseId")!;
+        const baseId = internalIdParam(c, "baseId")!;
         const gate = await gateAt(c, { baseId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-        const body = c.req.valid("json");
+        const publicBody = c.req.valid("json");
+        const scope = await fromPublicGqlScope(baseId, publicBody);
+        if (!scope.ok) return c.json({ message: scope.error.message }, scope.error.status);
+        const body = { ...publicBody, ...scope.data };
         const canonical = await canonicalGqlSource(c, baseId, body);
         if (!canonical.ok) return c.json({ ok: false, diagnostics: canonical.diagnostics });
 
-        return c.json({ ok: true, tableId: canonical.tableId, source: canonical.source });
+        const tableId = await projectPublicId("table", canonical.tableId);
+        if (!tableId) return c.json({ message: "Missing public table ID" }, 500);
+        return c.json({ ok: true, tableId, source: canonical.source });
       },
     );
 

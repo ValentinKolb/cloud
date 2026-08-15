@@ -3,7 +3,7 @@ import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/
 import { Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { BaseListSchema, BaseSchema, CreateBaseSchema, FieldSchema, TableSchema, UpdateBaseSchema } from "../contracts";
+import { CreateBaseSchema, UpdateBaseSchema } from "../contracts";
 import { gridsService } from "../service";
 import {
   currentActorUser,
@@ -13,16 +13,24 @@ import {
   gateAt,
   gateCredentialScope,
 } from "./permissions";
-import { requireUuidParam } from "./route-params";
+import {
+  PublicBaseListSchema,
+  PublicBaseSchema,
+  PublicFieldSchema,
+  PublicFormSchema,
+  PublicTableSchema,
+  toPublicBase,
+  toPublicBases,
+  toPublicFields,
+  toPublicForms,
+  toPublicTables,
+} from "./public-dto";
+import { internalIdParam, requirePublicIdParam, requireStoredPublicIdParam } from "./route-params";
 
 const TrashResponseSchema = z.object({
-  tables: z.array(TableSchema),
-  fields: z.array(FieldSchema),
-  // Forms are returned as opaque records — the FormSchema isn't
-  // exported from contracts.ts (it lives in api/forms.ts since the
-  // public-facing shape strips fields the trash UI doesn't need).
-  // The trash list cares about id / name / table_id / deleted_at.
-  forms: z.array(z.unknown()),
+  tables: z.array(PublicTableSchema),
+  fields: z.array(PublicFieldSchema),
+  forms: z.array(PublicFormSchema),
 });
 
 export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<AuthContext> } = {}) => {
@@ -37,7 +45,7 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         tags: ["Grids:Base"],
         summary: "List bases the user can access",
         responses: {
-          200: jsonResponse(BaseListSchema, "Bases"),
+          200: jsonResponse(PublicBaseListSchema, "Bases"),
           400: jsonResponse(ErrorResponseSchema, "Invalid query"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
@@ -64,7 +72,7 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
           limit,
           offset,
         });
-        return c.json({ ...result, limit, offset });
+        return c.json({ ...result, items: toPublicBases(result.items), limit, offset });
       },
     )
 
@@ -74,7 +82,7 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         tags: ["Grids:Base"],
         summary: "Create a base",
         responses: {
-          201: jsonResponse(BaseSchema, "Created"),
+          201: jsonResponse(PublicBaseSchema, "Created"),
           400: jsonResponse(ErrorResponseSchema, "Invalid input"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
@@ -88,40 +96,41 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         // User-backed actors with write-capable credentials become the base
         // admin through the access entry created by the service.
         const body = c.req.valid("json");
-        return respond(c, () => gridsService.base.create({ name: body.name, description: body.description ?? null }, user.id), 201);
+        const result = await gridsService.base.create({ name: body.name, description: body.description ?? null }, user.id);
+        return result.ok ? c.json(toPublicBase(result.data), 201) : c.json({ message: result.error.message }, result.error.status);
       },
     )
 
     .get(
       "/:baseId",
-      requireUuidParam("baseId", "Base"),
+      requirePublicIdParam("baseId", "base", "Base"),
       describeRoute({
         tags: ["Grids:Base"],
         summary: "Get a base",
         responses: {
-          200: jsonResponse(BaseSchema, "Base"),
+          200: jsonResponse(PublicBaseSchema, "Base"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
         },
       }),
       async (c) => {
-        const baseId = c.req.param("baseId")!;
+        const baseId = internalIdParam(c, "baseId")!;
         const gate = await gateAt(c, { baseId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const base = await gridsService.base.get(baseId);
         if (!base) return c.json({ message: "Base not found" }, 404);
-        return c.json(base);
+        return c.json(toPublicBase(base));
       },
     )
 
     .patch(
       "/:baseId",
-      requireUuidParam("baseId", "Base"),
+      requirePublicIdParam("baseId", "base", "Base"),
       describeRoute({
         tags: ["Grids:Base"],
         summary: "Update base metadata",
         responses: {
-          200: jsonResponse(BaseSchema, "Updated"),
+          200: jsonResponse(PublicBaseSchema, "Updated"),
           400: jsonResponse(ErrorResponseSchema, "Invalid input"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -129,17 +138,18 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
       }),
       v("json", UpdateBaseSchema),
       async (c) => {
-        const baseId = c.req.param("baseId")!;
+        const baseId = internalIdParam(c, "baseId")!;
         const gate = await gateAt(c, { baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const body = c.req.valid("json");
-        return respond(c, () => gridsService.base.update(baseId, body, currentActorUserId(c)));
+        const result = await gridsService.base.update(baseId, body, currentActorUserId(c));
+        return result.ok ? c.json(toPublicBase(result.data)) : c.json({ message: result.error.message }, result.error.status);
       },
     )
 
     .delete(
       "/:baseId",
-      requireUuidParam("baseId", "Base"),
+      requirePublicIdParam("baseId", "base", "Base"),
       describeRoute({
         tags: ["Grids:Base"],
         summary: "Move a base to trash",
@@ -150,7 +160,7 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         },
       }),
       async (c) => {
-        const baseId = c.req.param("baseId")!;
+        const baseId = internalIdParam(c, "baseId")!;
         const gate = await gateAt(c, { baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const result = await gridsService.base.remove(baseId, currentActorUserId(c));
@@ -161,27 +171,28 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
 
     .post(
       "/:baseId/restore",
-      requireUuidParam("baseId", "Base"),
+      requireStoredPublicIdParam("baseId", "base", "Base"),
       describeRoute({
         tags: ["Grids:Base"],
         summary: "Restore a soft-deleted base",
         responses: {
-          200: jsonResponse(BaseSchema, "Restored"),
+          200: jsonResponse(PublicBaseSchema, "Restored"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
         },
       }),
       async (c) => {
-        const baseId = c.req.param("baseId")!;
+        const baseId = internalIdParam(c, "baseId")!;
         const gate = await gateAt(c, { baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        return respond(c, () => gridsService.base.restore(baseId, currentActorUserId(c)));
+        const result = await gridsService.base.restore(baseId, currentActorUserId(c));
+        return result.ok ? c.json(toPublicBase(result.data)) : c.json({ message: result.error.message }, result.error.status);
       },
     )
 
     .get(
       "/:baseId/trash",
-      requireUuidParam("baseId", "Base"),
+      requirePublicIdParam("baseId", "base", "Base"),
       describeRoute({
         tags: ["Grids:Base"],
         summary: "List soft-deleted resources for a base (tables, fields, forms)",
@@ -195,7 +206,7 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         },
       }),
       async (c) => {
-        const baseId = c.req.param("baseId")!;
+        const baseId = internalIdParam(c, "baseId")!;
         // Trash management is a structural / recovery action — base-admin only.
         const gate = await gateAt(c, { baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
@@ -207,7 +218,7 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
           // only needs id / name / tableId / deletedAt though.
           gridsService.form.listTrashedByBase(baseId),
         ]);
-        return c.json({ tables, fields, forms });
+        return c.json({ tables: await toPublicTables(tables), fields: await toPublicFields(fields), forms: await toPublicForms(forms) });
       },
     );
 };

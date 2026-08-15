@@ -46,7 +46,6 @@ export const buildFieldMap = (fields: Field[]): Map<string, Field[]> => {
   const map = new Map<string, Field[]>();
   for (const field of fields) {
     addFieldRef(map, field.shortId, field);
-    addFieldRef(map, field.id, field);
     addFieldRef(map, field.name, field);
   }
   return map;

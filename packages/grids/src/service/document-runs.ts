@@ -1,13 +1,18 @@
 import { type DateContext, err, fail, ok, type Result, type ServiceError } from "@k2b/stdlib";
 import { GotenbergRenderError, isUniqueViolation, mergePdfs, type RenderHtmlToPdfResult } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
-import type { DocumentRun, DocumentTemplate, RecordSnapshot, UpdateDocumentRunMetadataInput } from "../contracts";
+import type { DocumentRun, DocumentTemplate, UpdateDocumentRunMetadataInput } from "../contracts";
 import { logAudit } from "./audit";
 import { type DocumentRunReadAuthorizer, loadReadableWorkflowRunDocumentScopes, workflowRunDocumentAccessWhere } from "./document-browse";
 import { type DocumentDbRow, mapDocumentRun } from "./document-mappers";
 import { buildDocumentRunRenderData, buildLiveRenderData, renderRunPdf } from "./document-rendering";
 import { normalizeDocumentTags, safePdfFilename } from "./document-run-values";
-import { createRecordSnapshotDraft, persistRecordSnapshot, type SnapshotRecordAccessResolver } from "./document-snapshots";
+import {
+  createRecordSnapshotDraft,
+  persistRecordSnapshot,
+  type RecordSnapshotDraft,
+  type SnapshotRecordAccessResolver,
+} from "./document-snapshots";
 import type { AuthorizedRecordAccess } from "./record-access";
 import { get as getRecord } from "./records";
 import type { ExpansionViewer } from "./relation-access";
@@ -103,7 +108,7 @@ export const createRunForRecord = async (params: {
 
 type CreateDocumentRunParams = {
   template: DocumentTemplate;
-  snapshot: RecordSnapshot;
+  snapshot: RecordSnapshotDraft;
   renderData: Record<string, unknown>;
   actorId: string | null;
   generatedAt?: Date;
@@ -123,8 +128,7 @@ const createDocumentRunInternal = async (
   const runId = Bun.randomUUIDv7();
   const generatedAt = params.generatedAt ?? new Date();
   const templateSnapshot = {
-    id: params.template.id,
-    shortId: params.template.shortId,
+    id: params.template.shortId,
     name: params.template.name,
     description: params.template.description,
     source: params.template.source,
@@ -140,7 +144,6 @@ const createDocumentRunInternal = async (
       const built = await buildDocumentRunRenderData({
         template: params.template,
         renderData: params.renderData,
-        runId,
         runShortId: shortId,
         generatedAt,
         dateConfig: params.dateConfig,
@@ -262,6 +265,11 @@ export const createRenderedDocumentRun = async (
 
 export const getDocumentRun = async (runId: string): Promise<DocumentRun | null> => {
   const [row] = await sql<DocumentDbRow[]>`SELECT * FROM grids.document_runs WHERE id = ${runId}::uuid`;
+  return row ? mapDocumentRun(row) : null;
+};
+
+export const getDocumentRunByShortId = async (shortId: string): Promise<DocumentRun | null> => {
+  const [row] = await sql<DocumentDbRow[]>`SELECT * FROM grids.document_runs WHERE short_id = ${shortId}`;
   return row ? mapDocumentRun(row) : null;
 };
 

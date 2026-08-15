@@ -3,6 +3,7 @@ import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
+import { ShortIdSchema } from "../contracts";
 import { gridsService } from "../service";
 import { ALL_RECORD_ACCESS } from "../service/record-access";
 import {
@@ -10,23 +11,33 @@ import {
   FormListSchema,
   FormSchema,
   FormSubmitSchema,
+  fromPublicFormConfig,
   type SubmitFormDeps,
   submitFormResponse,
   UpdateFormSchema,
 } from "./form-api-shared";
 import { currentActorUserId, currentActorViewer, gateAt } from "./permissions";
-import { uuidParam } from "./route-params";
+import { toPublicForm, toPublicForms } from "./public-dto";
+import { resolvePublicIdParam, resolveStoredPublicIdParam } from "./route-params";
 
 type AuthenticatedFormRoutesDeps = SubmitFormDeps & {
   service?: typeof gridsService;
   gate?: typeof gateAt;
   actorId?: typeof currentActorUserId;
+  resolveId?: typeof resolvePublicIdParam;
+  resolveStoredId?: typeof resolveStoredPublicIdParam;
+  projectForm?: typeof toPublicForm;
+  projectForms?: typeof toPublicForms;
 };
 
 export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps = {}) => {
   const service = deps.service ?? gridsService;
   const gateAtTarget = deps.gate ?? gateAt;
   const actorId = deps.actorId ?? currentActorUserId;
+  const resolveId = deps.resolveId ?? resolvePublicIdParam;
+  const resolveStoredId = deps.resolveStoredId ?? resolveStoredPublicIdParam;
+  const projectForm = deps.projectForm ?? toPublicForm;
+  const projectForms = deps.projectForms ?? toPublicForms;
 
   return new Hono<AuthContext>()
     .get(
@@ -37,13 +48,13 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         responses: { 200: jsonResponse(FormListSchema, "Forms") },
       }),
       async (context) => {
-        const tableId = uuidParam(context, "tableId");
+        const tableId = await resolveId(context, "tableId", "table");
         if (!tableId) return context.json({ message: "Invalid table id" }, 400);
         const table = await service.table.get(tableId);
         if (!table) return context.json({ message: "Table not found" }, 404);
         const gate = await gateAtTarget(context, { baseId: table.baseId }, "read");
         if (!gate.ok) return respond(context, () => Promise.resolve(gate));
-        return context.json(await service.form.listForTable(tableId));
+        return context.json(await projectForms(await service.form.listForTable(tableId)));
       },
     )
     .get(
@@ -54,13 +65,13 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         responses: { 200: jsonResponse(FormSchema, "Default form") },
       }),
       async (context) => {
-        const tableId = uuidParam(context, "tableId");
+        const tableId = await resolveId(context, "tableId", "table");
         if (!tableId) return context.json({ message: "Invalid table id" }, 400);
         const table = await service.table.get(tableId);
         if (!table) return context.json({ message: "Table not found" }, 404);
         const gate = await gateAtTarget(context, { baseId: table.baseId }, "read");
         if (!gate.ok) return respond(context, () => Promise.resolve(gate));
-        return context.json(await service.form.buildDefault(tableId));
+        return context.json(await projectForm(await service.form.buildDefault(tableId)));
       },
     )
     .post(
@@ -69,7 +80,7 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         tags: ["Grids:Form"],
         summary: "Submit a form with authenticated Base write access",
         responses: {
-          201: jsonResponse(z.object({ recordId: z.string().uuid() }), "Created"),
+          201: jsonResponse(z.object({ recordId: ShortIdSchema }), "Created"),
           400: jsonResponse(ErrorResponseSchema, "Invalid input"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -77,7 +88,7 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
       }),
       v("json", FormSubmitSchema),
       async (context) => {
-        const formId = uuidParam(context, "formId");
+        const formId = await resolveId(context, "formId", "form");
         if (!formId) return context.json({ message: "Invalid form id" }, 400);
         const form = await service.form.get(formId);
         if (!form || !form.isActive) return context.json({ message: "Form not found" }, 404);
@@ -102,7 +113,7 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         },
       }),
       async (context) => {
-        const formId = uuidParam(context, "formId");
+        const formId = await resolveId(context, "formId", "form");
         if (!formId) return context.json({ message: "Invalid form id" }, 400);
         const form = await service.form.get(formId);
         if (!form) return context.json({ message: "Form not found" }, 404);
@@ -110,7 +121,7 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         if (!table) return context.json({ message: "Form not found" }, 404);
         const tableGate = await gateAtTarget(context, { baseId: table.baseId }, "read");
         if (!tableGate.ok) return respond(context, () => Promise.resolve(tableGate));
-        return context.json(form);
+        return context.json(await projectForm(form));
       },
     )
     .post(
@@ -125,13 +136,18 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
       }),
       v("json", CreateFormSchema),
       async (context) => {
-        const tableId = uuidParam(context, "tableId");
+        const tableId = await resolveId(context, "tableId", "table");
         if (!tableId) return context.json({ message: "Invalid table id" }, 400);
         const table = await service.table.get(tableId);
         if (!table) return context.json({ message: "Table not found" }, 404);
         const gate = await gateAtTarget(context, { baseId: table.baseId }, "admin");
         if (!gate.ok) return respond(context, () => Promise.resolve(gate));
-        return respond(context, () => service.form.create({ tableId, ...context.req.valid("json") }, actorId(context)), 201);
+        const body = context.req.valid("json");
+        const config = body.config ? await fromPublicFormConfig(tableId, body.config) : undefined;
+        if (body.config && !config) return context.json({ message: "Invalid form field ID" }, 400);
+        const result = await service.form.create({ ...body, tableId, config: config ?? undefined }, actorId(context));
+        if (!result.ok) return respond(context, () => Promise.resolve(result), 201);
+        return context.json(await projectForm(result.data), 201);
       },
     )
     .patch(
@@ -143,7 +159,7 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
       }),
       v("json", UpdateFormSchema),
       async (context) => {
-        const formId = uuidParam(context, "formId");
+        const formId = await resolveId(context, "formId", "form");
         if (!formId) return context.json({ message: "Invalid form id" }, 400);
         const form = await service.form.get(formId);
         if (!form) return context.json({ message: "Form not found" }, 404);
@@ -151,7 +167,12 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         if (!table) return context.json({ message: "Table not found" }, 404);
         const gate = await gateAtTarget(context, { baseId: table.baseId }, "admin");
         if (!gate.ok) return respond(context, () => Promise.resolve(gate));
-        return respond(context, () => service.form.update(formId, context.req.valid("json"), actorId(context)));
+        const body = context.req.valid("json");
+        const config = body.config ? await fromPublicFormConfig(form.tableId, body.config) : undefined;
+        if (body.config && !config) return context.json({ message: "Invalid form field ID" }, 400);
+        const result = await service.form.update(formId, { ...body, config: config ?? undefined }, actorId(context));
+        if (!result.ok) return respond(context, () => Promise.resolve(result));
+        return context.json(await projectForm(result.data));
       },
     )
     .delete(
@@ -162,7 +183,7 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         responses: { 204: { description: "Moved to trash" } },
       }),
       async (context) => {
-        const formId = uuidParam(context, "formId");
+        const formId = await resolveId(context, "formId", "form");
         if (!formId) return context.json({ message: "Invalid form id" }, 400);
         const form = await service.form.get(formId);
         if (!form) return context.json({ message: "Form not found" }, 404);
@@ -186,7 +207,7 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         },
       }),
       async (context) => {
-        const formId = uuidParam(context, "formId");
+        const formId = await resolveStoredId(context, "formId", "form");
         if (!formId) return context.json({ message: "Invalid form id" }, 400);
         const form = await service.form.get(formId, { includeDeleted: true });
         if (!form) return context.json({ message: "Form not found" }, 404);
@@ -194,7 +215,9 @@ export const createAuthenticatedFormRoutes = (deps: AuthenticatedFormRoutesDeps 
         if (!table) return context.json({ message: "Table not found" }, 404);
         const gate = await gateAtTarget(context, { baseId: table.baseId }, "admin");
         if (!gate.ok) return respond(context, () => Promise.resolve(gate));
-        return respond(context, () => service.form.restore(formId, actorId(context)));
+        const result = await service.form.restore(formId, actorId(context));
+        if (!result.ok) return respond(context, () => Promise.resolve(result));
+        return context.json(await projectForm(result.data));
       },
     );
 };

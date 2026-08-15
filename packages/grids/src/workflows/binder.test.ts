@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import { buildWorkflowCatalog, type WorkflowCatalog } from "../service/workflow-catalog";
-import { bindGridsWorkflow } from "./binder";
+import { bindGridsWorkflow, canonicalizeGridsWorkflowSourceForMigration, compileAndBindGridsWorkflowSource } from "./binder";
 import { gridsWorkflows } from "./module";
 
 const ids = {
@@ -19,33 +19,33 @@ const ids = {
 const catalog = (): WorkflowCatalog =>
   buildWorkflowCatalog({
     tables: [
-      { id: ids.items, shortId: "tbl_items", name: "Items" },
-      { id: ids.archive, shortId: "tbl_archive", name: "Archive" },
+      { id: ids.items, shortId: "TBL001", name: "Items" },
+      { id: ids.archive, shortId: "TBL002", name: "Archive" },
     ],
     fieldsByTable: new Map([
       [
         ids.items,
         [
-          { id: ids.name, shortId: "fld_name", name: "Name" },
-          { id: ids.status, shortId: "fld_status", name: "Status" },
+          { id: ids.name, shortId: "FLD001", name: "Name" },
+          { id: ids.status, shortId: "FLD002", name: "Status" },
           {
             id: ids.current,
-            shortId: "current",
+            shortId: "FLD003",
             name: "Current archive",
             relation: { targetTableId: ids.archive, cardinality: "single" },
           },
           {
             id: ids.related,
-            shortId: "related",
+            shortId: "FLD004",
             name: "Related archives",
             relation: { targetTableId: ids.archive, cardinality: "multiple" },
           },
         ],
       ],
-      [ids.archive, [{ id: ids.archivedName, shortId: "fld_archived_name", name: "Name" }]],
+      [ids.archive, [{ id: ids.archivedName, shortId: "FLD005", name: "Name" }]],
     ]),
-    templates: [{ id: ids.document, shortId: "doc_item", name: "Item sheet", tableId: ids.items }],
-    emailTemplates: [{ id: ids.email, shortId: "mail_ready", name: "Ready notice" }],
+    templates: [{ id: ids.document, shortId: "DOC001", name: "Item sheet", tableId: ids.items }],
+    emailTemplates: [{ id: ids.email, shortId: "EML001", name: "Ready notice" }],
   });
 
 const compile = async (source: string) => {
@@ -56,6 +56,70 @@ const compile = async (source: string) => {
 };
 
 describe("Grids workflow binder", () => {
+  test("rejects private UUID references and canonicalizes author references to public IDs", async () => {
+    const source = `inputs:
+  item:
+    type: record
+    table: Items
+steps:
+  - updateRecord:
+      record: inputs.item
+      set:
+        Status: "\${{ inputs.item.Name }}"
+`;
+    const result = await compileAndBindGridsWorkflowSource(source, catalog());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.source).toContain("table: TBL001");
+    expect(result.source).toContain("FLD002:");
+    expect(result.source).toContain("inputs.item.FLD001");
+    expect(result.source).not.toContain("table: Items");
+    expect(result.source).not.toContain("Status:");
+    const canonical = await compile(result.source ?? "");
+    expect(result.plan.sourceHash).toBe(canonical.sourceHash);
+
+    const privateSource = source.replace("table: Items", `table: ${ids.items}`);
+    const rejected = await bindGridsWorkflow(await compile(privateSource), catalog(), privateSource);
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) expect(rejected.diagnostics[0]?.code).toBe("binding.unknown");
+  });
+
+  test("canonicalizes a relation field without corrupting its recordId suffix", async () => {
+    const result = await compileAndBindGridsWorkflowSource(
+      `inputs:
+  item:
+    type: record
+    table: Items
+steps:
+  - succeed:
+      message: "Archive: \${{ inputs.item.Current archive.recordId }}"
+`,
+      catalog(),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.source).toContain("inputs.item.FLD003.recordId");
+    expect(result.source).not.toContain("Current archive.recoFLD003");
+  });
+
+  test("migrates only binder-known legacy references", async () => {
+    const literalUuid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const source = `inputs:
+  item:
+    type: record
+    table: ${ids.items}
+steps:
+  - succeed:
+      message: ${literalUuid}
+`;
+    const result = await canonicalizeGridsWorkflowSourceForMigration(source, catalog(), new Map([[ids.items, [ids.items, "old-items"]]]));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.source).toContain("table: TBL001");
+    expect(result.source).toContain(literalUuid);
+  });
+
   test("accepts the commented record-event trigger", async () => {
     const ir = await compile(`inputs:
   item:

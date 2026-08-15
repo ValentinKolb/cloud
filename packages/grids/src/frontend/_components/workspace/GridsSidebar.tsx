@@ -7,11 +7,12 @@ import EmailTemplatesButton from "../sidebar/EmailTemplatesButton.island";
 import FormSidebarEntry from "../sidebar/FormSidebarEntry.island";
 import SidebarTableMeta from "../sidebar/SidebarTableMeta";
 import type {
-  OkWorkspaceState,
-  WorkspaceQueryResultViewRoute,
-  WorkspaceRecordsRoute,
-  WorkspaceWorkflowsRoute,
-} from "./workspace-state-model";
+  PublicOkWorkspaceState,
+  PublicWorkspaceQueryResultViewRoute,
+  PublicWorkspaceRecordsRoute,
+} from "./workspace-public-state-model";
+
+type PublicWorkspaceWorkflowsRoute = Extract<PublicOkWorkspaceState["route"], { kind: "workflows" }>;
 
 const urlWithParam = (href: string, key: string, value: string) => {
   const url = new URL(href, "http://grids.local");
@@ -27,12 +28,12 @@ const SidebarLink = (props: Parameters<typeof AppWorkspace.SidebarItem>[0]) => (
   <AppWorkspace.SidebarItem {...props} navigation="document" />
 );
 
-export default function GridsSidebar(props: { state: OkWorkspaceState }) {
+export default function GridsSidebar(props: { state: PublicOkWorkspaceState }) {
   const state = props.state;
   const route = state.route;
-  const recordsRoute = route.kind === "records" ? (route as WorkspaceRecordsRoute) : null;
-  const queryResultViewRoute = route.kind === "queryResultView" ? (route as WorkspaceQueryResultViewRoute) : null;
-  const workflowsRoute = route.kind === "workflows" ? (route as WorkspaceWorkflowsRoute) : null;
+  const recordsRoute = route.kind === "records" ? (route as PublicWorkspaceRecordsRoute) : null;
+  const queryResultViewRoute = route.kind === "queryResultView" ? (route as PublicWorkspaceQueryResultViewRoute) : null;
+  const workflowsRoute = route.kind === "workflows" ? (route as PublicWorkspaceWorkflowsRoute) : null;
   const activeCustomAppId = route.kind === "customApp" ? route.app.id : null;
   const canCreateStructure = state.adminModeRequested && state.canCreateTables;
   const sidebarViews = state.catalog.tables.flatMap((table) =>
@@ -40,7 +41,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
   );
   const renderQueryItem = () =>
     state.canUseQueryWorkspace ? (
-      <SidebarLink href={`/app/grids/${state.base.shortId}/query`} active={route.kind === "query"}>
+      <SidebarLink href={`/app/grids/${state.base.id}/query`} active={route.kind === "query"}>
         <AppWorkspace.SidebarItemIcon icon="ti ti-code" />
         <AppWorkspace.SidebarItemLabel>Query</AppWorkspace.SidebarItemLabel>
       </SidebarLink>
@@ -60,7 +61,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
             const active = recordsRoute?.activeTable.id === table.id && recordsRoute.activeView === null;
             return (
               <SidebarLink
-                href={keepEdit(`/app/grids/${state.base.shortId}/table/${table.shortId}`, state.adminModeRequested)}
+                href={keepEdit(`/app/grids/${state.base.id}/table/${table.id}`, state.adminModeRequested)}
                 active={active}
                 class={itemClass(active, state.adminModeRequested)}
                 title={table.name}
@@ -71,7 +72,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
             );
           })
         )}
-        {canCreateStructure && <CreateTableButton baseId={state.base.id} baseShortId={state.base.shortId} />}
+        {canCreateStructure && <CreateTableButton baseId={state.base.id} />}
       </AppWorkspace.SidebarSection>
 
       {sidebarViews.length > 0 && (
@@ -82,7 +83,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
               queryResultViewRoute?.activeView.id === view.id;
             return (
               <SidebarLink
-                href={keepEdit(`/app/grids/${state.base.shortId}/table/${table.shortId}/view/${view.shortId}`, state.adminModeRequested)}
+                href={keepEdit(`/app/grids/${state.base.id}/table/${table.id}/view/${view.id}`, state.adminModeRequested)}
                 active={active}
                 class={itemClass(active, state.adminModeRequested)}
                 title={`${view.name} (table: ${table.name})`}
@@ -116,7 +117,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
             const active = route.kind === "documentTemplate" && route.template.id === template.id;
             return (
               <SidebarLink
-                href={keepEdit(`/app/grids/${state.base.shortId}/document/${table.shortId}/${template.shortId}`, state.adminModeRequested)}
+                href={keepEdit(`/app/grids/${state.base.id}/document/${table.id}/${template.id}`, state.adminModeRequested)}
                 active={active}
                 class={itemClass(active, state.adminModeRequested)}
                 title={`${template.name} (table: ${table.name})`}
@@ -136,7 +137,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
             const active = workflowsRoute?.activeWorkflow?.id === workflow.id;
             return (
               <SidebarLink
-                href={keepEdit(`/app/grids/${state.base.shortId}/workflows/${workflow.shortId}`, state.adminModeRequested)}
+                href={keepEdit(`/app/grids/${state.base.id}/workflows/${workflow.id}`, state.adminModeRequested)}
                 active={active}
                 class={itemClass(active, state.adminModeRequested)}
                 title={workflow.name}
@@ -153,7 +154,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
           })}
           {state.adminModeRequested && state.canManageBase && (
             <>
-              <CreateWorkflowButton baseId={state.base.id} baseShortId={state.base.shortId} tables={state.catalog.tables} />
+              <CreateWorkflowButton baseId={state.base.id} tables={state.catalog.tables} />
               <EmailTemplatesButton baseId={state.base.id} />
             </>
           )}
@@ -164,7 +165,7 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
         <AppWorkspace.SidebarSection title="Apps">
           {state.catalog.customApps.map((app) => (
             <SidebarLink
-              href={keepEdit(`/app/grids/${state.base.shortId}/apps/${app.shortId}`, true)}
+              href={keepEdit(`/app/grids/${state.base.id}/apps/${app.id}`, true)}
               active={activeCustomAppId === app.id}
               title={app.name}
             >
@@ -179,15 +180,13 @@ export default function GridsSidebar(props: { state: OkWorkspaceState }) {
                 <AppWorkspace.SidebarItemAction
                   icon="ti ti-settings"
                   label={`Settings for ${app.name}`}
-                  href={`/app/grids/${state.base.shortId}/apps/${app.shortId}?edit=true&settings=app`}
+                  href={`/app/grids/${state.base.id}/apps/${app.id}?edit=true&settings=app`}
                   navigation="document"
                 />
               )}
             </SidebarLink>
           ))}
-          {state.adminModeRequested && state.canManageBase && (
-            <CreateCustomAppButton baseId={state.base.id} baseShortId={state.base.shortId} />
-          )}
+          {state.adminModeRequested && state.canManageBase && <CreateCustomAppButton baseId={state.base.id} />}
         </AppWorkspace.SidebarSection>
       )}
     </>

@@ -25,7 +25,8 @@ import {
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { DslQueryPreviewResponse } from "../../../contracts";
+import type { PublicDslQueryPreviewResponse as DslQueryPreviewResponse } from "../../../api/gql-public";
+import type { PublicField as Field, PublicView as View } from "../../../api/public-dto";
 import { customAppContextKeys, customAppGlobalContextKeys } from "../../../custom-apps/context-keys";
 import type {
   CustomAppAction,
@@ -35,14 +36,12 @@ import type {
   CustomAppRowAction,
   CustomAppSidebarAction,
 } from "../../../custom-apps/contracts";
-import type { CustomApp, Field, View } from "../../../service";
-import type { CustomAppDraftSave } from "../../../service/custom-apps";
 import { type CustomAppBlockDragMeta, type CustomAppBlockDropMeta, CustomAppPageLayout } from "../../custom-app/PageLayout";
 import { isRecordInputField } from "../fields/field-render";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
 import { WorkflowEditor } from "../workflows/WorkflowEditor";
-import type { WorkspaceCatalog } from "../workspace/workspace-state-model";
+import type { PublicCustomApp } from "../workspace/workspace-public-state-model";
 import CustomAppBlockPreview from "./CustomAppBlockPreview";
 import { CustomAppAvailabilitySection, CustomAppGqlField } from "./CustomAppGqlField";
 import { CustomAppMarkdownField } from "./CustomAppMarkdownField";
@@ -62,6 +61,9 @@ import {
   renameCustomAppPageParameter,
 } from "./custom-app-builder-model";
 import { createCustomAppBuilderState } from "./custom-app-builder-state";
+import type { CustomAppCatalog } from "./custom-app-catalog";
+
+type PublicCustomAppDraftSave = { app: PublicCustomApp; valid: boolean; diagnostics: CustomAppDiagnostic[] };
 
 type CustomAppPage = CustomAppDefinition["pages"][number];
 type CustomAppRow = CustomAppPage["rows"][number];
@@ -75,11 +77,11 @@ type SelectedBlock = {
 type SelectedAction = { action: CustomAppAction | CustomAppRowAction; index: number; owner: "actions" | "rows" };
 type CustomAppWorkflowAction = Extract<CustomAppAction, { kind: "workflow" }>;
 type CustomAppGqlSource = Extract<Extract<CustomAppBlock, { type: "records" }>["source"], { kind: "gql" }>;
-type CustomAppWorkflowLauncher = WorkspaceCatalog["workflowLaunchers"][number] & {
-  config: Extract<WorkspaceCatalog["workflowLaunchers"][number]["config"], { kind: "customApp" }>;
+type CustomAppWorkflowLauncher = CustomAppCatalog["workflowLaunchers"][number] & {
+  config: Extract<CustomAppCatalog["workflowLaunchers"][number]["config"], { kind: "customApp" }>;
 };
-type CustomAppScannerLauncher = WorkspaceCatalog["workflowLaunchers"][number] & {
-  config: Extract<WorkspaceCatalog["workflowLaunchers"][number]["config"], { kind: "scanner" }>;
+type CustomAppScannerLauncher = CustomAppCatalog["workflowLaunchers"][number] & {
+  config: Extract<CustomAppCatalog["workflowLaunchers"][number]["config"], { kind: "scanner" }>;
 };
 const iconInputValue = (slug: string | undefined): string | null => (slug ? `ti ti-${slug}` : null);
 const iconSlug = (value: string | null): string | undefined => value?.replace(/^ti ti-/, "") || undefined;
@@ -88,7 +90,7 @@ const isStarterChartGroupField = (field: Field): boolean =>
   !["file", "formula", "json", "lookup", "rollup"].includes(field.type) && field.deletedAt === null;
 
 export const customAppStarterGqlSources = (
-  catalog: WorkspaceCatalog,
+  catalog: CustomAppCatalog,
 ): { records: CustomAppGqlSource | null; metrics: CustomAppGqlSource | null; chart: CustomAppGqlSource | null } => {
   let records: CustomAppGqlSource | null = null;
   let metrics: CustomAppGqlSource | null = null;
@@ -113,7 +115,6 @@ export const customAppStarterGqlSources = (
 };
 
 const localId = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
-const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 const chartTypeFrom = (value: string): Extract<CustomAppBlock, { type: "chart" }>["chartType"] | null => {
   switch (value) {
     case "bar":
@@ -125,7 +126,7 @@ const chartTypeFrom = (value: string): Extract<CustomAppBlock, { type: "chart" }
   }
 };
 
-const fieldsForView = (view: View, fieldsByTable: WorkspaceCatalog["fieldsByTable"], fieldsById: ReadonlyMap<string, Field>): Field[] => {
+const fieldsForView = (view: View, fieldsByTable: CustomAppCatalog["fieldsByTable"], fieldsById: ReadonlyMap<string, Field>): Field[] => {
   const tableFields = (fieldsByTable[view.tableId] ?? [])
     .filter((field) => field.deletedAt === null)
     .sort((left, right) => left.position - right.position);
@@ -155,8 +156,8 @@ export const isCustomAppBlockSourceDiagnostic = (diagnostic: CustomAppDiagnostic
 export const isCustomAppAvailabilityDiagnostic = (diagnostic: CustomAppDiagnostic, targetId: string): boolean =>
   diagnostic.path.includes(targetId) && diagnostic.path.includes("availableWhen");
 
-export const blankCustomAppDefinition = (app: CustomApp): CustomAppDefinition => ({
-  schemaVersion: 4,
+export const blankCustomAppDefinition = (app: PublicCustomApp): CustomAppDefinition => ({
+  schemaVersion: 5,
   kind: "grids.custom-app",
   id: app.id,
   baseId: app.baseId,
@@ -178,15 +179,6 @@ export const blankCustomAppDefinition = (app: CustomApp): CustomAppDefinition =>
     },
   ],
 });
-
-const downloadRawDefinition = (app: CustomApp) => {
-  const href = URL.createObjectURL(new Blob([`${JSON.stringify(app.draftDefinitionRaw, null, 2)}\n`], { type: "application/json" }));
-  const anchor = document.createElement("a");
-  anchor.href = href;
-  anchor.download = `custom-app-${app.shortId}-draft.json`;
-  anchor.click();
-  URL.revokeObjectURL(href);
-};
 
 function PageParameterIdInput(props: { id: string; existingIds: readonly string[]; onRename: (id: string) => void }) {
   const [value, setValue] = createSignal(props.id);
@@ -288,12 +280,12 @@ function JsonValueInput(props: { label: string; value: WorkflowJsonValue; onValu
 }
 
 function CustomAppLifecycleActions(props: {
-  app: CustomApp;
-  baseShortId: string;
+  app: PublicCustomApp;
+  baseId: string;
   beforeDelete?: () => Promise<void>;
-  onUnpublished: (app: CustomApp) => void;
+  onUnpublished: (app: PublicCustomApp) => void;
 }) {
-  const unpublishMutation = mutations.create<CustomApp | null, void>({
+  const unpublishMutation = mutations.create<PublicCustomApp | null, void>({
     mutation: async (_, { abortSignal }) => {
       const confirmed = await prompts.confirm(
         `Unpublish "${props.app.name}"? Its public URL will stop working immediately. The draft and access grants are preserved.`,
@@ -310,7 +302,7 @@ function CustomAppLifecycleActions(props: {
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await errorMessage(response, "Could not unpublish the App."));
-      return (await response.json()) as CustomApp;
+      return (await response.json()) as PublicCustomApp;
     },
     onSuccess: (unpublished) => {
       if (!unpublished) return;
@@ -339,7 +331,7 @@ function CustomAppLifecycleActions(props: {
     },
     onSuccess: (deleted) => {
       if (!deleted) return;
-      window.location.assign(`/app/grids/${encodeURIComponent(props.baseShortId)}?edit=true`);
+      window.location.assign(`/app/grids/${encodeURIComponent(props.baseId)}?edit=true`);
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -370,11 +362,11 @@ function CustomAppLifecycleActions(props: {
   );
 }
 
-function InvalidCustomAppDraft(props: { app: CustomApp; baseShortId: string }) {
+function InvalidCustomAppDraft(props: { app: PublicCustomApp; baseId: string }) {
   const replaceMutation = mutations.create<void, void>({
     mutation: async (_, { abortSignal }) => {
       const confirmed = await prompts.confirm(
-        "Replace the stored draft with a new blank schema v4 definition? Download the stored JSON first if you still need it.",
+        "Replace the incompatible draft with a new blank schema v5 definition? This cannot be undone.",
         {
           title: "Replace incompatible draft",
           icon: "ti ti-file-plus",
@@ -407,7 +399,7 @@ function InvalidCustomAppDraft(props: { app: CustomApp; baseShortId: string }) {
         <NoticeCard
           tone="danger"
           title="This draft cannot be opened"
-          detail="The stored definition is preserved, but this editor only accepts App schema v4. Nothing will run or publish until you choose a recovery action."
+          detail="This editor only accepts App schema v5. The incompatible draft cannot run or publish until you restore the live version or replace it."
           role="alert"
         >
           <ul class="list-disc space-y-1 pl-4 text-sm">
@@ -415,9 +407,6 @@ function InvalidCustomAppDraft(props: { app: CustomApp; baseShortId: string }) {
           </ul>
         </NoticeCard>
         <div class="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => downloadRawDefinition(props.app)}>
-            <i class="ti ti-download" aria-hidden="true" /> Download stored JSON
-          </Button>
           <Show when={props.app.publishedDefinition}>
             <Button
               variant="secondary"
@@ -434,7 +423,7 @@ function InvalidCustomAppDraft(props: { app: CustomApp; baseShortId: string }) {
             disabled={restoreMutation.loading()}
             onClick={() => replaceMutation.mutate(undefined)}
           >
-            <i class="ti ti-file-plus" aria-hidden="true" /> Replace with blank schema v4 draft
+            <i class="ti ti-file-plus" aria-hidden="true" /> Replace with blank schema v5 draft
           </Button>
         </div>
         <NoticeCard
@@ -442,7 +431,7 @@ function InvalidCustomAppDraft(props: { app: CustomApp; baseShortId: string }) {
           title="App lifecycle"
           detail="You can still take the live app offline or delete it without replacing the incompatible draft."
         >
-          <CustomAppLifecycleActions app={props.app} baseShortId={props.baseShortId} onUnpublished={() => window.location.reload()} />
+          <CustomAppLifecycleActions app={props.app} baseId={props.baseId} onUnpublished={() => window.location.reload()} />
         </NoticeCard>
       </div>
     </AppWorkspace.Main>
@@ -472,16 +461,16 @@ const newPage = (definition: CustomAppDefinition): CustomAppPage => {
 };
 
 type CustomAppBuilderProps = {
-  app: CustomApp;
-  baseShortId: string;
-  catalog: WorkspaceCatalog;
+  app: PublicCustomApp;
+  baseId: string;
+  catalog: CustomAppCatalog;
   dateConfig?: DateContext;
   initialPreviewResults?: Record<string, DslQueryPreviewResponse>;
   initialInspectorMode?: "app" | "page";
 };
 
 export default function CustomAppBuilder(props: CustomAppBuilderProps) {
-  if (!props.app.draftDefinition) return <InvalidCustomAppDraft app={props.app} baseShortId={props.baseShortId} />;
+  if (!props.app.draftDefinition) return <InvalidCustomAppDraft app={props.app} baseId={props.baseId} />;
   return <CustomAppBuilderEditor {...props} initialDefinition={props.app.draftDefinition} />;
 }
 
@@ -607,7 +596,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
   const forms = createMemo(() =>
     Object.values(props.catalog.formsByTable)
       .flat()
-      .filter((form) => form.deletedAt === null && form.isActive && isUuid(form.id))
+      .filter((form): form is typeof form & { id: string } => Boolean(form.id) && form.deletedAt === null && form.isActive)
       .sort((left, right) => left.position - right.position),
   );
   const formsById = createMemo(() => new Map(forms().map((form) => [form.id, form])));
@@ -1155,11 +1144,11 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       setSaveState("saving");
       setSaveError(null);
       try {
-        const response = await apiClient.apps[":appId"].draft.$put({ param: { appId: app().id }, json: { definition } });
+        const response: Response = await apiClient.apps[":appId"].draft.$put({ param: { appId: app().id }, json: { definition } });
         if (!response.ok) throw new Error(await errorMessage(response, "Could not save the App draft."));
-        const saved = (await response.json()) as CustomAppDraftSave;
+        const saved: PublicCustomAppDraftSave = await response.json();
         if (!saved.app.draftDefinition) {
-          throw new Error(saved.app.draftDiagnostics[0]?.message ?? "The saved draft is not a valid schema v4 definition.");
+          throw new Error(saved.app.draftDiagnostics[0]?.message ?? "The saved draft is not a valid schema v5 definition.");
         }
         setApp(saved.app);
         setDiagnostics(saved.diagnostics);
@@ -1210,22 +1199,17 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     }
     const workflow = (workflowId ? workflowsById().get(workflowId) : null) ?? props.catalog.workflows[0];
     if (workflow) {
-      window.location.assign(
-        `/app/grids/${encodeURIComponent(props.baseShortId)}/workflows/${encodeURIComponent(workflow.shortId)}?edit=true`,
-      );
+      window.location.assign(`/app/grids/${encodeURIComponent(props.baseId)}/workflows/${encodeURIComponent(workflow.id)}?edit=true`);
       return;
     }
     await dialogCore.open<void>(
       (close) => (
         <WorkflowEditor
           baseId={draft.draft().baseId}
-          baseShortId={props.baseShortId}
           tables={props.catalog.tables}
           onChanged={(created) => {
             if (!created) return;
-            window.location.assign(
-              `/app/grids/${encodeURIComponent(props.baseShortId)}/workflows/${encodeURIComponent(created.shortId)}?edit=true`,
-            );
+            window.location.assign(`/app/grids/${encodeURIComponent(props.baseId)}/workflows/${encodeURIComponent(created.id)}?edit=true`);
           }}
           onClose={close}
         />
@@ -1242,16 +1226,16 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     saveQueued = false;
   };
 
-  const publishMutation = mutations.create<CustomApp, void>({
+  const publishMutation = mutations.create<PublicCustomApp, void>({
     mutation: async (_, { abortSignal }) => {
       if (!(await flushAutosave())) throw new Error("The latest changes could not be saved.");
       const response = await apiClient.apps[":appId"].publish.$post({ param: { appId: app().id } }, { init: { signal: abortSignal } });
       if (!response.ok) throw new Error(await errorMessage(response, "Could not publish the App."));
-      return (await response.json()) as CustomApp;
+      return (await response.json()) as PublicCustomApp;
     },
     onSuccess: (published) => {
       if (!published.draftDefinition) {
-        prompts.error(published.draftDiagnostics[0]?.message ?? "The published draft is not a valid schema v4 definition.");
+        prompts.error(published.draftDiagnostics[0]?.message ?? "The published draft is not a valid schema v5 definition.");
         return;
       }
       setApp(published);
@@ -1573,7 +1557,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     selectPage(nextPage.id);
   };
 
-  const restoreMutation = mutations.create<CustomApp, void>({
+  const restoreMutation = mutations.create<PublicCustomApp, void>({
     mutation: async (_, { abortSignal }) => {
       if (saveTimer) clearTimeout(saveTimer);
       saveTimer = undefined;
@@ -1581,11 +1565,11 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       saveQueued = false;
       const response = await apiClient.apps[":appId"].restore.$post({ param: { appId: app().id } }, { init: { signal: abortSignal } });
       if (!response.ok) throw new Error(await errorMessage(response, "Could not restore the live version."));
-      return (await response.json()) as CustomApp;
+      return (await response.json()) as PublicCustomApp;
     },
     onSuccess: (restored) => {
       if (!restored.draftDefinition) {
-        prompts.error(restored.draftDiagnostics[0]?.message ?? "The live version is not a valid schema v4 definition.");
+        prompts.error(restored.draftDiagnostics[0]?.message ?? "The live version is not a valid schema v5 definition.");
         return;
       }
       saveQueued = false;
@@ -1632,7 +1616,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
             <Toolbar.Spacer />
             <Show when={app().publishedAt}>
               <Toolbar.Group>
-                <ButtonLink href={`/apps/${app().shortId}`} target="_blank" rel="noreferrer" size="xs" aria-label="Open live app">
+                <ButtonLink href={`/apps/${app().id}`} target="_blank" rel="noreferrer" size="xs" aria-label="Open live app">
                   <i class="ti ti-external-link" aria-hidden="true" />
                 </ButtonLink>
               </Toolbar.Group>
@@ -1757,7 +1741,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
             <CustomAppPageLayout
               definition={draft.draft()}
               page={selectedPage()}
-              shortId={app().shortId}
+              appId={app().id}
               hasSidebarActions={sidebarActions().length > 0}
               sidebarActions={
                 <For each={sidebarActions()}>
@@ -1782,7 +1766,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                 <CustomAppBlockPreview
                   block={block}
                   baseId={draft.draft().baseId}
-                  shortId={app().shortId}
+                  appId={app().id}
                   catalog={props.catalog}
                   dateConfig={props.dateConfig}
                   initialResult={props.initialPreviewResults?.[block.id]}
@@ -2083,12 +2067,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                   collapsible
                   defaultOpen={false}
                 >
-                  <CustomAppLifecycleActions
-                    app={app()}
-                    baseShortId={props.baseShortId}
-                    beforeDelete={stopAutosave}
-                    onUnpublished={setApp}
-                  />
+                  <CustomAppLifecycleActions app={app()} baseId={props.baseId} beforeDelete={stopAutosave} onUnpublished={setApp} />
                 </DetailPanel.Section>
               </DetailPanel.Group>
             </Show>
@@ -2317,9 +2296,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                       }
                       error={() => diagnosticFor(selected().block.id, "availableWhen")}
                     />
-                    <Show
-                      when={selected().block.type === "records" || selected().block.type === "record"}
-                    >
+                    <Show when={selected().block.type === "records" || selected().block.type === "record"}>
                       <DetailPanel.Section
                         title="Empty state"
                         icon="ti ti-placeholder"

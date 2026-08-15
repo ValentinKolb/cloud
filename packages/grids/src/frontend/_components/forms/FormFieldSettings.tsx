@@ -1,16 +1,15 @@
-import { NoticeCard, Checkbox, dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, TextInput, Button } from "@k2b/ui";
+import { Button, Checkbox, dialogCore, MultiSelectInput, NoticeCard, PanelDialog, panelDialogOptions, TextInput } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Field } from "../../../service";
 import type { FormFieldEntry } from "../../../service/forms";
 import { TYPE_LABELS } from "../fields/field-config-editor";
 import { isRecordInputField } from "../fields/field-render";
 import { fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";
-import { FieldInput } from "./form-fields";
+import { FieldInput, type FrontendField } from "./form-fields";
 export function FormFieldInspector(props: {
   class?: string;
   entry: () => FormFieldEntry | null;
-  field: () => Field | undefined;
+  field: () => FrontendField | undefined;
   index: () => number;
   updateEntry: (index: number, patch: Partial<Extract<FormFieldEntry, { kind: "user_input" }>>) => void;
   updateFormValue: (index: number, value: unknown) => void;
@@ -47,7 +46,7 @@ export function FormFieldInspector(props: {
 
 function FormFieldSettings(props: {
   entry: () => FormFieldEntry | null;
-  field: () => Field | undefined;
+  field: () => FrontendField | undefined;
   userEntry: () => Extract<FormFieldEntry, { kind: "user_input" }> | null;
   valueEntry: () => Extract<FormFieldEntry, { kind: "form_value" }> | null;
   updateEntry: (patch: Partial<Extract<FormFieldEntry, { kind: "user_input" }>>) => void;
@@ -134,7 +133,7 @@ const cloneFormFieldEntry = (entry: FormFieldEntry): FormFieldEntry => {
   };
 };
 
-export const openFormFieldSettingsDialog = (args: { entry: FormFieldEntry; field: Field }) =>
+export const openFormFieldSettingsDialog = (args: { entry: FormFieldEntry; field: FrontendField }) =>
   dialogCore.open<FormFieldEntry | null>((close) => {
     const [draft, setDraft] = createSignal<FormFieldEntry>(cloneFormFieldEntry(args.entry));
     const userEntry = createMemo(() =>
@@ -182,13 +181,13 @@ export const openFormFieldSettingsDialog = (args: { entry: FormFieldEntry; field
     );
   }, panelDialogOptions);
 function InlineCreateEditor(props: {
-  field: Field;
+  field: FrontendField;
   entry: Extract<FormFieldEntry, { kind: "user_input" }> | null;
   onChange: (patch: Partial<Extract<FormFieldEntry, { kind: "user_input" }>>) => void;
 }) {
   const targetTableId = () =>
     props.field.type === "relation" ? (props.field.config as { targetTableId?: string }).targetTableId : undefined;
-  const [targetFields, setTargetFields] = createSignal<Field[]>([]);
+  const [targetFields, setTargetFields] = createSignal<FrontendField[]>([]);
 
   createEffect(() => {
     const tableId = targetTableId();
@@ -205,7 +204,7 @@ function InlineCreateEditor(props: {
   const candidateFields = createMemo(() =>
     targetFields().filter((field) => !field.deletedAt && isRecordInputField(field.type) && field.type !== "relation"),
   );
-  const fieldOption = (field: Field) => ({
+  const fieldOption = (field: FrontendField) => ({
     id: field.id,
     label: field.name,
     description: TYPE_LABELS[field.type] ?? field.type,
@@ -215,7 +214,7 @@ function InlineCreateEditor(props: {
   const selectedInlineOptions = createMemo(() =>
     selectedFieldIds()
       .map((fieldId) => targetFields().find((field) => field.id === fieldId))
-      .filter((field): field is Field => Boolean(field))
+      .filter((field): field is FrontendField => Boolean(field))
       .map(fieldOption),
   );
 

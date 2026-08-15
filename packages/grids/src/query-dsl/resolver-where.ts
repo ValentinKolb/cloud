@@ -18,6 +18,14 @@ export type DslWherePredicate =
   | { kind: "not"; part: DslWherePredicate }
   | { kind: "filter"; leaf: DslFilterLeaf }
   | { kind: "recordMeta"; meta: RecordMetaQuery }
+  | { kind: "publicRecordIds"; ids: string[] }
+  | {
+      kind: "publicRelationIds";
+      fieldId: string;
+      targetTableId: string;
+      ids: string[];
+      mode: "any" | "none" | "all";
+    }
   /** Pre-built FilterTree (e.g. a view source's saved filter) folded in. */
   | { kind: "tree"; tree: FilterTree }
   /** Boolean SQL formula — cross-field / arithmetic / scalar-function predicate. */
@@ -29,6 +37,7 @@ type WhereResolution =
   | { kind: "error"; diagnostic: DslResolverDiagnostic };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SHORT_ID_RE = /^[A-Za-z0-9]{6}$/;
 const COMPARISON_OPS = new Set(["=", "!=", "<", "<=", ">", ">="]);
 const NUMBER_TYPES = new Set(["number", "percent", "duration"]);
 const TEXT_TYPES = new Set(["text", "longtext", "id"]);
@@ -83,11 +92,24 @@ export const isRecordScopedRef = (ref: DslQualifiedRef): boolean => Boolean(ref.
 const recordIdPredicate = (values: Literal[], span?: DslSourceSpan): DslWherePredicate | DslResolverDiagnostic => {
   const ids: string[] = [];
   for (const value of values) {
-    if (typeof value !== "string" || !UUID_RE.test(value)) return diagnostic("record.id expects record ids (uuid)", span);
+    if (typeof value !== "string" || !SHORT_ID_RE.test(value)) return diagnostic("record.id expects public record ids", span);
     ids.push(value);
   }
   if (ids.length === 0) return diagnostic("record.id needs at least one record id", span);
-  return { kind: "recordMeta", meta: { ids: [...new Set(ids)] } };
+  return { kind: "publicRecordIds", ids: [...new Set(ids)] };
+};
+
+const publicRelationPredicate = (
+  field: Field,
+  ids: string[],
+  mode: "any" | "none" | "all",
+  span?: DslSourceSpan,
+): DslWherePredicate | DslResolverDiagnostic => {
+  const targetTableId = (field.config as { targetTableId?: unknown }).targetTableId;
+  if (typeof targetTableId !== "string" || !UUID_RE.test(targetTableId)) {
+    return diagnostic(`relation field "${field.name}" has no valid target table`, span);
+  }
+  return { kind: "publicRelationIds", fieldId: field.id, targetTableId, ids: [...new Set(ids)], mode };
 };
 
 const recordMetaPredicate = (
@@ -223,14 +245,13 @@ const typedComparisonLeaf = (
   }
   // relation / principal
   if (op !== "=" && op !== "!=") return unsupportedOp(field, op, span);
-  if (typeof value !== "string" || !UUID_RE.test(value)) {
-    return diagnostic(
-      field.type === "principal"
-        ? `"${field.name}" expects a user or group id (uuid)`
-        : `"${field.name}" is a relation; compare it to a record id (uuid)`,
-      span,
-    );
+  if (field.type === "relation") {
+    if (typeof value !== "string" || !SHORT_ID_RE.test(value)) {
+      return diagnostic(`"${field.name}" is a relation; compare it to a public record id`, span);
+    }
+    return publicRelationPredicate(field, [value], op === "=" ? "any" : "none", span);
   }
+  if (typeof value !== "string" || !UUID_RE.test(value)) return diagnostic(`"${field.name}" expects a user or group id (uuid)`, span);
   return filterLeaf(field.id, op === "=" ? "containsAny" : "notContainsAny", [value]);
 };
 
@@ -282,7 +303,15 @@ const membershipLeaf = (
     if (mode === "none") return filterLeaf(field.id, "isNoneOf", ids);
     return { kind: "and", parts: ids.map((id) => filterLeaf(field.id, "is", id)) };
   }
-  if (field.type === "relation" || field.type === "principal") {
+  if (field.type === "relation") {
+    const ids: string[] = [];
+    for (const value of values) {
+      if (typeof value !== "string" || !SHORT_ID_RE.test(value)) return diagnostic(`"${field.name}" expects public record ids`, span);
+      ids.push(value);
+    }
+    return publicRelationPredicate(field, ids, mode, span);
+  }
+  if (field.type === "principal") {
     const ids: string[] = [];
     for (const value of values) {
       if (typeof value !== "string" || !UUID_RE.test(value)) return diagnostic(`"${field.name}" expects ids (uuid)`, span);

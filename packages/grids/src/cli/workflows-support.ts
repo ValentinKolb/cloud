@@ -1,6 +1,7 @@
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 import { flag } from "@valentinkolb/cloud/cli";
-import type { Base, EmailTemplate } from "../contracts";
+import type { PublicBase as Base } from "../api/public-dto";
+import type { EmailTemplate } from "../contracts";
 import type {
   GridsWorkflowLauncher,
   GridsWorkflow as Workflow,
@@ -9,8 +10,8 @@ import type {
   GridsWorkflowStepRun as WorkflowStepRun,
 } from "../workflows/contracts";
 import { gridsWorkflows } from "../workflows/module";
-import { assertBaseScoped, resolveBaseFromCommand, UUID_RE } from "./resources";
-import { compactId, exactMatch, readApi, requireRestArg } from "./runtime";
+import { resolveBaseFromCommand, resolveNamedResource } from "./resources";
+import { readApi, requireRestArg } from "./runtime";
 
 export type WorkflowRunListResponse = { items: WorkflowRun[]; nextCursor?: string | null };
 
@@ -54,15 +55,15 @@ export const WORKFLOW_LAUNCHER_BODY_INPUT = flag.input({
 });
 
 export const emailTemplateFlag = {
-  template: flag.string({ description: "Email template id, short id, or exact name" }),
+  template: flag.string({ description: "Email template public id or exact name" }),
 };
 
 export const workflowFlag = {
-  workflow: flag.string({ description: "Workflow id, short id, or exact name" }),
+  workflow: flag.string({ description: "Workflow public id or exact name" }),
 };
 
 export const workflowLauncherFlag = {
-  launcher: flag.string({ description: "Launcher id, short id, or exact name" }),
+  launcher: flag.string({ description: "Launcher public id or exact name" }),
 };
 
 export const EMAIL_TEMPLATE_REFERENCE = {
@@ -176,16 +177,7 @@ export const listEmailTemplates = (ctx: CloudCliContext, baseId: string): Promis
   readApi<EmailTemplate[]>(ctx, `/email-templates/by-base/${encodeURIComponent(baseId)}`);
 
 const resolveEmailTemplate = async (ctx: CloudCliContext, baseId: string, ref: string): Promise<EmailTemplate> => {
-  const template = UUID_RE.test(ref)
-    ? await readApi<EmailTemplate>(ctx, `/email-templates/${encodeURIComponent(ref)}`)
-    : exactMatch(
-        await listEmailTemplates(ctx, baseId),
-        ref,
-        [(item) => item.id, (item) => item.shortId, (item) => item.name],
-        "email template",
-        (item) => `${item.name} (${item.shortId})`,
-      );
-  assertBaseScoped("Email template", baseId, template.baseId);
+  const template = resolveNamedResource(await listEmailTemplates(ctx, baseId), ref, "email template");
   return template;
 };
 
@@ -193,16 +185,7 @@ export const listWorkflows = (ctx: CloudCliContext, baseId: string): Promise<Wor
   readApi<Workflow[]>(ctx, `/workflows/by-base/${encodeURIComponent(baseId)}`);
 
 export const resolveWorkflow = async (ctx: CloudCliContext, baseId: string, ref: string): Promise<Workflow> => {
-  const workflow = UUID_RE.test(ref)
-    ? await readApi<Workflow>(ctx, `/workflows/${encodeURIComponent(ref)}`)
-    : exactMatch(
-        await listWorkflows(ctx, baseId),
-        ref,
-        [(item) => item.id, (item) => item.shortId, (item) => item.name],
-        "workflow",
-        (item) => `${item.name} (${item.shortId})`,
-      );
-  assertBaseScoped("Workflow", baseId, workflow.baseId);
+  const workflow = resolveNamedResource(await listWorkflows(ctx, baseId), ref, "workflow");
   return workflow;
 };
 
@@ -210,54 +193,40 @@ export const listWorkflowLaunchers = (ctx: CloudCliContext, workflowId: string):
   readApi<{ items: GridsWorkflowLauncher[] }>(ctx, `/workflows/${encodeURIComponent(workflowId)}/launchers`);
 
 const resolveWorkflowLauncher = async (ctx: CloudCliContext, workflow: Workflow, ref: string): Promise<GridsWorkflowLauncher> => {
-  const launcher = UUID_RE.test(ref)
-    ? await readApi<GridsWorkflowLauncher>(ctx, `/workflows/launchers/${encodeURIComponent(ref)}`)
-    : exactMatch(
-        (await listWorkflowLaunchers(ctx, workflow.id)).items,
-        ref,
-        [(item) => item.id, (item) => item.shortId, (item) => item.name],
-        "workflow launcher",
-        (item) => `${item.name} (${item.shortId})`,
-      );
-  if (launcher.workflowId !== workflow.id) throw new Error("Workflow launcher does not belong to the selected workflow.");
+  const launcher = resolveNamedResource((await listWorkflowLaunchers(ctx, workflow.id)).items, ref, "workflow launcher");
   return launcher;
 };
 
 export const emailTemplateRows = (items: EmailTemplate[]) =>
   items.map((template) => ({
-    shortId: template.shortId,
+    id: template.id,
     name: template.name,
     enabled: template.enabled ? "yes" : "no",
     subject: template.subject,
     updatedAt: template.updatedAt,
-    id: template.id,
   }));
 
 export const workflowRows = (items: Workflow[]) =>
   items.map((workflow) => ({
-    shortId: workflow.shortId,
+    id: workflow.id,
     name: workflow.name,
     enabled: workflow.enabled ? "yes" : "no",
     updatedAt: workflow.updatedAt,
-    id: workflow.id,
   }));
 
 export const workflowLauncherRows = (items: GridsWorkflowLauncher[]) =>
   items.map((launcher) => ({
-    shortId: launcher.shortId,
+    id: launcher.id,
     name: launcher.name,
     kind: launcher.config.kind,
     enabled: launcher.enabled ? "yes" : "no",
     revision: launcher.validatedRevision,
     diagnostics: launcher.diagnostics.length,
-    id: launcher.id,
   }));
 
 export const workflowRunRows = (items: WorkflowRun[]) =>
   items.map((run) => ({
-    id: compactId(run.id),
-    runId: run.id,
-    workflowId: run.workflowId ?? "-",
+    id: run.id,
     revision: run.workflowRevision,
     channel: run.channel,
     mode: run.mode,
@@ -286,9 +255,6 @@ export const workflowStepRows = (items: WorkflowStepRun[]) =>
 
 export const workflowEmailRows = (items: WorkflowEmailDelivery[]) =>
   items.map((delivery) => ({
-    id: compactId(delivery.id),
-    workflowId: delivery.workflowId ?? "-",
-    runId: delivery.workflowRunId ?? "-",
     status: delivery.status,
     subject: delivery.subject ?? "",
     recipients: delivery.recipients.map((recipient) => recipient.recipient).join(", "),

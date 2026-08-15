@@ -104,11 +104,11 @@ describe("resolveDslQueryToRecordQuery", () => {
     if (result.ok) expect(result.plan.source).toEqual(orders);
   });
 
-  test("maps explicit record metadata refs to the RecordQuery recordMeta contract", () => {
+  test("binds public record ids separately from internal user metadata ids", () => {
     const userId = "11111111-1111-4111-8111-111111111111";
     const otherUserId = "22222222-2222-4222-8222-222222222222";
-    const recordId = "33333333-3333-4333-8333-333333333333";
-    const result = resolveDslQueryToRecordQuery(
+    const recordId = "REC001";
+    const result = resolveDslQueryToQueryPlan(
       parseOk(`
         where record.id = '${recordId}' and oneof(record.createdBy, '${userId}', '${otherUserId}') and record.updatedBy = '${userId}'
         sort record.createdAt desc
@@ -118,12 +118,14 @@ describe("resolveDslQueryToRecordQuery", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.plan.query.recordMeta).toEqual({
-      ids: [recordId],
-      users: {
-        createdBy: [userId, otherUserId],
-        updatedBy: [userId],
-      },
+    expect(result.plan.query.recordMeta).toBeUndefined();
+    expect(result.plan.wherePredicate).toEqual({
+      kind: "and",
+      parts: [
+        { kind: "publicRecordIds", ids: [recordId] },
+        { kind: "recordMeta", meta: { users: { createdBy: [userId, otherUserId] } } },
+        { kind: "recordMeta", meta: { users: { updatedBy: [userId] } } },
+      ],
     });
     expect(result.plan.query.sort).toEqual([{ source: "record", key: "createdAt", direction: "desc" }]);
   });
@@ -994,12 +996,12 @@ sort missing desc`),
     expect(missing.ok).toBe(false);
     if (!missing.ok) expect(missing.diagnostics.map((d) => d.message)).toEqual(['where: Unknown formula field reference "missing"']);
 
-    // Relation `=` is now a first-class structured filter; a non-uuid literal
+    // Relation `=` is now a first-class structured predicate; an invalid public id
     // gets a clear, relation-specific error instead of a formula fallback.
     const relation = resolveDslQueryToQueryPlan(parseOk(`where customer_link = 'abc'`), ctx());
     expect(relation.ok).toBe(false);
     if (!relation.ok) {
-      expect(relation.diagnostics.map((d) => d.message)).toEqual(['"Customer link" is a relation; compare it to a record id (uuid)']);
+      expect(relation.diagnostics.map((d) => d.message)).toEqual(['"Customer link" is a relation; compare it to a public record id']);
     }
   });
 
@@ -2170,7 +2172,7 @@ sort missing desc`),
   });
 
   test("SQL compiler includes record metadata filters in row queries", () => {
-    const recordId = "33333333-3333-4333-8333-333333333333";
+    const recordId = "REC001";
     const resolved = resolveDslQueryToQueryPlan(
       parseOk(`
         select amount
@@ -2186,7 +2188,7 @@ sort missing desc`),
     expect(compiled.ok).toBe(true);
     if (!compiled.ok) return;
     const { text, values } = normalizedSqlParts(compiled.query.sql);
-    expect(text).toContain("r.id = ANY");
+    expect(text).toContain("r.short_id = ANY");
     expect(values.some((value) => String(value).includes(recordId))).toBe(true);
   });
 

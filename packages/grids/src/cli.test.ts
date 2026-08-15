@@ -42,28 +42,25 @@ type FetchCall = {
   init?: RequestInit;
 };
 
-const baseId = "11111111-1111-4111-8111-111111111111";
-const tableId = "22222222-2222-4222-8222-222222222222";
-const fieldId = "33333333-3333-4333-8333-333333333333";
-const recordId = "44444444-4444-4444-8444-444444444444";
-const viewId = "55555555-5555-4555-8555-555555555555";
-const documentTemplateId = "66666666-6666-4666-8666-666666666666";
-const emailTemplateId = "77777777-7777-4777-8777-777777777777";
-const workflowId = "88888888-8888-4888-8888-888888888888";
-const runId = "99999999-9999-4999-8999-999999999999";
-const formId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const snapshotId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
-const documentRunId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
-const documentLinkId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
-const fileId = "12121212-1212-4212-8212-121212121212";
+const baseId = "bk001A";
+const tableId = "auth1A";
+const fieldId = "name1A";
+const recordId = "rec001";
+const viewId = "view1A";
+const documentTemplateId = "doc01A";
+const emailTemplateId = "mail1A";
+const workflowId = "wf001A";
+const runId = "wrun01";
+const formId = "frm01A";
+const snapshotId = "snap01";
+const documentRunId = "run01A";
+const documentLinkId = "link01";
+const fileId = "file01";
 const accessId = "23232323-2323-4232-8232-232323232323";
 const auditQuestionId = "34343434-3434-4434-8434-343434343434";
-const combinedTableId = "24242424-2424-4242-8242-242424242424";
-const sourceTableId = "25252525-2525-4252-8252-252525252525";
-const federatedRevisionId = "27272727-2727-4272-8272-272727272727";
-const federatedSourceId = "28282828-2828-4282-8282-282828282828";
-const workflowLauncherId = "29292929-2929-4292-8292-292929292929";
-const customAppId = "30303030-3030-4030-8030-303030303030";
+const combinedTableId = "all01A";
+const sourceTableId = "src01A";
+const customAppId = "app01A";
 
 const jsonResponse = (value: unknown, status = 200) => Response.json(value, { status });
 
@@ -113,7 +110,6 @@ const createContext = (
 
 const base = {
   id: baseId,
-  shortId: "bk001",
   name: "Bookshop",
   description: "Books and authors",
   documentProfile: {},
@@ -123,9 +119,10 @@ const base = {
   updatedAt: "2026-07-07T00:00:00.000Z",
 };
 
+const basePage = { items: [base], total: 1, limit: 500, offset: 0 };
+
 const table = {
   id: tableId,
-  shortId: "auth1",
   baseId,
   name: "Authors",
   kind: "stored" as const,
@@ -143,7 +140,6 @@ const table = {
 const combinedTable = {
   ...table,
   id: combinedTableId,
-  shortId: "all01",
   name: "All authors",
   kind: "federated" as const,
   disableDirectInsert: true,
@@ -151,7 +147,6 @@ const combinedTable = {
 
 const field = {
   id: fieldId,
-  shortId: "name1",
   tableId,
   name: "Name",
   description: null,
@@ -171,7 +166,6 @@ const field = {
 };
 
 const combinedDraftView = {
-  id: federatedRevisionId,
   tableId: combinedTableId,
   revision: 2,
   status: "draft" as const,
@@ -184,7 +178,6 @@ const combinedDraftView = {
   publishedAt: null,
   sources: [
     {
-      id: federatedSourceId,
       sourceTableId: null,
       position: 0,
       authorizedAt: "2026-07-17T12:00:00.000Z",
@@ -208,7 +201,6 @@ const record = {
 
 const view = {
   id: viewId,
-  shortId: "view1",
   tableId,
   name: "Recent authors",
   description: null,
@@ -224,7 +216,6 @@ const view = {
 
 const form = {
   id: formId,
-  shortId: "frm01",
   tableId,
   name: "Author intake",
   config: { fields: [{ kind: "user_input", fieldId }] },
@@ -240,7 +231,6 @@ const form = {
 
 const documentTemplate = {
   id: documentTemplateId,
-  shortId: "doc01",
   tableId,
   name: "Invoice",
   description: null,
@@ -249,7 +239,7 @@ const documentTemplate = {
   headerHtml: null,
   footerHtml: null,
   pageCss: null,
-  numberTemplate: "{{ template.shortId }}-{{ run.shortId }}",
+  numberTemplate: "{{ template.id }}-{{ run.id }}",
   filenameTemplate: "{{ document.number }}.pdf",
   enabled: true,
   position: 0,
@@ -262,7 +252,6 @@ const documentTemplate = {
 
 const emailTemplate = {
   id: emailTemplateId,
-  shortId: "mail1",
   baseId,
   name: "Reminder",
   description: null,
@@ -279,7 +268,6 @@ const emailTemplate = {
 
 const workflow = {
   id: workflowId,
-  shortId: "wf001",
   baseId,
   name: "Send reminder",
   description: null,
@@ -307,29 +295,8 @@ const workflow = {
   updatedAt: "2026-07-07T00:00:00.000Z",
 };
 
-const workflowRun = {
-  id: runId,
-  workflowId,
-  launcherId: null,
-  baseId,
-  workflowRevision: 1,
-  mode: "execute",
-  channel: "api",
-  actorUserId: null,
-  serviceAccountId: null,
-  inputs: {},
-  status: "succeeded",
-  result: null,
-  error: null,
-  resultMessage: null,
-  createdAt: "2026-07-07T00:00:00.000Z",
-  startedAt: "2026-07-07T00:00:00.000Z",
-  finishedAt: "2026-07-07T00:00:01.000Z",
-};
-
 const documentRun = {
   id: documentRunId,
-  shortId: "run01",
   templateId: documentTemplateId,
   workflowRunId: null,
   snapshotId,
@@ -393,7 +360,6 @@ const accessEntry = {
 
 const customApp = {
   id: customAppId,
-  shortId: "app01",
   baseId,
   name: "Public catalog",
   definition: {},
@@ -419,16 +385,16 @@ describe("grids CLI", () => {
     }
   });
 
-  test("sets and reads the default base by short id", async () => {
-    const { ctx, calls, defaults, lines } = createContext(["use", "bk001"], {}, [
+  test("sets and reads the default base by public id", async () => {
+    const { ctx, calls, defaults, lines } = createContext(["use", "bk001A"], {}, [
       jsonResponse({ items: [base], total: 1, limit: 500, offset: 0 }),
     ]);
 
     await gridsCli.run(ctx);
 
-    expect(calls.map((call) => call.path)).toEqual(["/api/grids/bases?q=bk001&limit=500&offset=0"]);
-    expect(defaults["grids.base"]).toBe("bk001");
-    expect(lines).toEqual(["Using Grids base Bookshop (bk001)."]);
+    expect(calls.map((call) => call.path)).toEqual(["/api/grids/bases?q=bk001A&limit=500&offset=0"]);
+    expect(defaults["grids.base"]).toBe("bk001A");
+    expect(lines).toEqual(["Using Grids base Bookshop (bk001A)."]);
   });
 
   test("lists built-in base templates", async () => {
@@ -468,8 +434,8 @@ describe("grids CLI", () => {
     expect(calls.map((call) => call.path)).toEqual(["/api/grids/templates", "/api/grids/templates/inventory"]);
     expect(calls[1]?.init?.method).toBe("POST");
     expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ name: "Equipment", withSampleData: false });
-    expect(defaults["grids.base"]).toBe(base.shortId);
-    expect(lines).toEqual(["Created Equipment (bk001) from Inventory. Using it as default."]);
+    expect(defaults["grids.base"]).toBe(base.id);
+    expect(lines).toEqual(["Created Equipment (bk001A) from Inventory. Using it as default."]);
   });
 
   test("lists restorable resources in a base trash", async () => {
@@ -479,11 +445,11 @@ describe("grids CLI", () => {
       fields: [{ ...field, deletedAt }],
       forms: [{ id: formId, tableId, name: "Author intake", deletedAt }],
     };
-    const { ctx, calls, tables } = createContext(["bases", "trash", baseId], {}, [jsonResponse(base), jsonResponse(trash)]);
+    const { ctx, calls, tables } = createContext(["bases", "trash", baseId], {}, [jsonResponse(basePage), jsonResponse(trash)]);
 
     await gridsCli.run(ctx);
 
-    expect(calls.map((call) => call.path)).toEqual([`/api/grids/bases/${baseId}`, `/api/grids/bases/${baseId}/trash`]);
+    expect(calls.map((call) => call.path)).toEqual([`/api/grids/bases?q=${baseId}&limit=500&offset=0`, `/api/grids/bases/${baseId}/trash`]);
     expect(tables[0]).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: "table", id: tableId }),
@@ -509,14 +475,14 @@ describe("grids CLI", () => {
           truncated: false,
         }),
       ],
-      { defaultBase: "bk001" },
+      { defaultBase: "bk001A" },
     );
 
     const exitCode = await gridsCli.run(ctx);
 
     expect(exitCode).toBe(0);
     expect(calls.map((call) => call.path)).toEqual([
-      "/api/grids/bases?q=bk001&limit=500&offset=0",
+      "/api/grids/bases?q=bk001A&limit=500&offset=0",
       `/api/grids/gql/by-base/${baseId}/execute`,
     ]);
     expect(calls[1]?.init?.method).toBe("POST");
@@ -528,19 +494,19 @@ describe("grids CLI", () => {
     const { ctx, calls, lines } = createContext(
       ["fields", "create", baseId, "Authors"],
       { name: "Birth year", type: "number", config: "{}" },
-      [jsonResponse(base), jsonResponse([table]), jsonResponse({ ...field, name: "Birth year", type: "number", config: {} }, 201)],
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse({ ...field, name: "Birth year", type: "number", config: {} }, 201)],
     );
 
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/fields/by-table/${tableId}`,
     ]);
     expect(calls[2]?.init?.method).toBe("POST");
     expect(JSON.parse(String(calls[2]?.init?.body))).toMatchObject({ name: "Birth year", type: "number", config: {} });
-    expect(lines).toEqual(["Created field Birth year (name1)."]);
+    expect(lines).toEqual(["Created field Birth year (name1A)."]);
   });
 
   test("lists field type references for agents", async () => {
@@ -574,7 +540,6 @@ describe("grids CLI", () => {
     const selectField = {
       ...field,
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      shortId: "country",
       name: "Country",
       type: "select",
       config: { options: [{ id: "uk", label: "United Kingdom" }] },
@@ -583,7 +548,6 @@ describe("grids CLI", () => {
     const formulaField = {
       ...field,
       id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-      shortId: "len01",
       name: "Name length",
       type: "formula",
       config: { expression: "LEN(Name)" },
@@ -591,20 +555,20 @@ describe("grids CLI", () => {
     const { ctx, calls, jsonValues } = createContext(
       ["records", "shape", baseId, "Authors"],
       {},
-      [jsonResponse(base), jsonResponse([table]), jsonResponse([field, selectField, formulaField])],
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse([field, selectField, formulaField])],
       { output: "json" },
     );
 
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/fields/by-table/${tableId}`,
     ]);
     expect(jsonValues[0]).toMatchObject({
       table: { id: tableId, name: "Authors" },
-      payload: "Record create/update bodies are plain JSON objects keyed by field UUID.",
+      payload: "Record create/update bodies are plain JSON objects keyed by field public id.",
       example: { [fieldId]: "Text value", [selectField.id]: ["uk"] },
       writableFields: expect.arrayContaining([
         expect.objectContaining({ id: fieldId, name: "Name", type: "text" }),
@@ -618,7 +582,7 @@ describe("grids CLI", () => {
     const { ctx, jsonValues } = createContext(
       ["records", "shape", baseId, "All authors"],
       {},
-      [jsonResponse(base), jsonResponse([combinedTable]), jsonResponse([field])],
+      [jsonResponse(basePage), jsonResponse([combinedTable]), jsonResponse([field])],
       { output: "json" },
     );
 
@@ -634,14 +598,14 @@ describe("grids CLI", () => {
   });
 
   test("validates friendly Combined table mappings through resolved names", async () => {
-    const sourceTable = { ...table, id: sourceTableId, shortId: "src01", name: "Regional authors" };
+    const sourceTable = { ...table, id: sourceTableId, name: "Regional authors" };
     const targetField = { ...field, tableId: combinedTable.id };
     const sourceField = { ...field, id: "26262626-2626-4262-8262-262626262626", tableId: sourceTable.id, name: "Display name" };
     const body = {
       sources: [{ base: "Bookshop", table: "Regional authors", mappings: [{ target: "Name", source: "Display name" }] }],
     };
     const { ctx, calls, lines } = createContext(["tables", "combined", "validate", baseId, "All authors"], { body: JSON.stringify(body) }, [
-      jsonResponse(base),
+      jsonResponse(basePage),
       jsonResponse([combinedTable]),
       jsonResponse([targetField]),
       jsonResponse({ items: [base], total: 1, limit: 500, offset: 0 }),
@@ -678,7 +642,7 @@ describe("grids CLI", () => {
     const get = createContext(
       ["tables", "combined", "get", baseId, "All authors"],
       {},
-      [jsonResponse(base), jsonResponse([combinedTable]), jsonResponse({ current, draft: combinedDraftView })],
+      [jsonResponse(basePage), jsonResponse([combinedTable]), jsonResponse({ current, draft: combinedDraftView })],
       { output: "json" },
     );
 
@@ -687,19 +651,18 @@ describe("grids CLI", () => {
     expect(get.calls.at(-1)?.path).toBe(`/api/grids/tables/${combinedTableId}/federation`);
     expect(get.jsonValues[0]).toEqual({ current, draft: combinedDraftView });
     expect((get.jsonValues[0] as { draft: typeof combinedDraftView }).draft.sources[0]).toEqual({
-      id: federatedSourceId,
       sourceTableId: null,
       position: 0,
       authorizedAt: "2026-07-17T12:00:00.000Z",
       revokedAt: null,
     });
 
-    const body = { sourceTableIds: [], retainedSourceIds: [federatedSourceId], mappings: [] };
+    const body = { sourceTableIds: [], mappings: [] };
     const draft = createContext(
       ["tables", "combined", "draft", baseId, "All authors"],
       { body: JSON.stringify(body) },
       [
-        jsonResponse(base),
+        jsonResponse(basePage),
         jsonResponse([combinedTable]),
         jsonResponse({ current: null, draft: combinedDraftView }),
         jsonResponse(combinedDraftView),
@@ -721,7 +684,7 @@ describe("grids CLI", () => {
     const publish = createContext(
       ["tables", "combined", "publish", baseId, "All authors"],
       {},
-      [jsonResponse(base), jsonResponse([combinedTable]), jsonResponse(published)],
+      [jsonResponse(basePage), jsonResponse([combinedTable]), jsonResponse(published)],
       { output: "json" },
     );
 
@@ -732,10 +695,26 @@ describe("grids CLI", () => {
     expect(publish.jsonValues[0]).toEqual(published);
   });
 
+  test("rejects internal Combined source-retention ids", async () => {
+    const body = { sourceTableIds: [], retainedSourceIds: ["28282828-2828-4282-8282-282828282828"], mappings: [] };
+    const { ctx, calls } = createContext(
+      ["tables", "combined", "draft", baseId, "All authors"],
+      { body: JSON.stringify(body) },
+      [jsonResponse(basePage), jsonResponse([combinedTable])],
+      { output: "json" },
+    );
+
+    await expect(gridsCli.run(ctx)).rejects.toThrow("Invalid Combined table draft");
+    expect(calls.map((call) => call.path)).toEqual([
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
+      `/api/grids/tables/by-base/${baseId}`,
+    ]);
+  });
+
   test("lists Combined source candidates and source-admin publications", async () => {
-    const sourceTable = { ...table, id: sourceTableId, shortId: "src01", name: "Regional authors" };
+    const sourceTable = { ...table, id: sourceTableId, name: "Regional authors" };
     const candidates = {
-      items: [{ base: { id: base.id, shortId: base.shortId, name: base.name }, table: sourceTable, fieldCount: 3 }],
+      items: [{ base: { id: base.id, name: base.name }, table: sourceTable, fieldCount: 3 }],
       total: 1,
       limit: 25,
       offset: 25,
@@ -743,7 +722,7 @@ describe("grids CLI", () => {
     const candidateContext = createContext(
       ["tables", "combined", "candidates", baseId, "All authors"],
       { q: "regional", "per-page": "25", page: "2" },
-      [jsonResponse(base), jsonResponse([combinedTable]), jsonResponse(candidates)],
+      [jsonResponse(basePage), jsonResponse([combinedTable]), jsonResponse(candidates)],
       { output: "json" },
     );
 
@@ -752,15 +731,22 @@ describe("grids CLI", () => {
     expect(candidateContext.calls.at(-1)?.path).toBe(
       `/api/grids/tables/${combinedTableId}/federation/source-candidates?limit=25&offset=25&q=regional`,
     );
-    expect(candidateContext.jsonValues[0]).toEqual(candidates);
+    expect(candidateContext.jsonValues[0]).toEqual({
+      ...candidates,
+      items: [
+        {
+          base: { id: base.id, name: base.name },
+          table: { ...sourceTable, id: sourceTable.id },
+          fieldCount: 3,
+        },
+      ],
+    });
 
     const publications = [
       {
         targetBaseId: baseId,
-        targetBaseShortId: base.shortId,
         targetBaseName: base.name,
         targetTableId: combinedTableId,
-        targetTableShortId: combinedTable.shortId,
         targetTableName: combinedTable.name,
         revision: 1,
         status: "active",
@@ -780,7 +766,7 @@ describe("grids CLI", () => {
     const publicationContext = createContext(
       ["tables", "combined", "publications", baseId, "Regional authors"],
       {},
-      [jsonResponse(base), jsonResponse([sourceTable]), jsonResponse(publications)],
+      [jsonResponse(basePage), jsonResponse([sourceTable]), jsonResponse(publications)],
       { output: "json" },
     );
 
@@ -790,12 +776,12 @@ describe("grids CLI", () => {
     expect(publicationContext.jsonValues[0]).toEqual(publications);
   });
 
-  test("revokes a Combined publication from the source table with the target UUID flag", async () => {
-    const sourceTable = { ...table, id: sourceTableId, shortId: "src01", name: "Regional authors" };
+  test("revokes a Combined publication from the source table with the target public-id flag", async () => {
+    const sourceTable = { ...table, id: sourceTableId, name: "Regional authors" };
     const { ctx, calls, lines } = createContext(
       ["tables", "combined", "revoke", baseId, "Regional authors"],
       { "target-table": combinedTableId, yes: true },
-      [jsonResponse(base), jsonResponse([sourceTable]), new Response(null, { status: 204 })],
+      [jsonResponse(basePage), jsonResponse([sourceTable]), new Response(null, { status: 204 })],
     );
 
     await gridsCli.run(ctx);
@@ -809,13 +795,13 @@ describe("grids CLI", () => {
     const { ctx, calls, lines } = createContext(
       ["records", "create", baseId, "Authors"],
       { body: JSON.stringify({ [fieldId]: "Octavia Butler" }) },
-      [jsonResponse(base), jsonResponse([table]), jsonResponse({ ...record, data: { [fieldId]: "Octavia Butler" } }, 201)],
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse({ ...record, data: { [fieldId]: "Octavia Butler" } }, 201)],
     );
 
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/records/by-table/${tableId}`,
     ]);
@@ -826,7 +812,7 @@ describe("grids CLI", () => {
 
   test("loads a deleted record explicitly", async () => {
     const { ctx, calls } = createContext(["records", "get", baseId, "Authors", recordId], { "deleted-only": true }, [
-      jsonResponse(base),
+      jsonResponse(basePage),
       jsonResponse([table]),
       jsonResponse({ ...record, deletedAt: "2026-07-20T10:00:00.000Z" }),
     ]);
@@ -841,7 +827,7 @@ describe("grids CLI", () => {
     const update = createContext(
       ["records", "update", baseId, "Authors", recordId],
       { body: JSON.stringify({ [fieldId]: "Octavia Butler" }), audit: JSON.stringify(audit) },
-      [jsonResponse(base), jsonResponse([table]), jsonResponse({ ...record, data: { [fieldId]: "Octavia Butler" } })],
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse({ ...record, data: { [fieldId]: "Octavia Butler" } })],
     );
 
     await gridsCli.run(update.ctx);
@@ -854,7 +840,7 @@ describe("grids CLI", () => {
     });
 
     const remove = createContext(["records", "delete", baseId, "Authors", recordId], { audit: JSON.stringify(audit), yes: true }, [
-      jsonResponse(base),
+      jsonResponse(basePage),
       jsonResponse([table]),
       new Response(null, { status: 204 }),
     ]);
@@ -866,7 +852,7 @@ describe("grids CLI", () => {
     expect(JSON.parse(String(remove.calls[2]?.init?.body))).toEqual({ audit: { answers: audit } });
 
     const restore = createContext(["records", "restore", baseId, "Authors", recordId], { audit: JSON.stringify(audit) }, [
-      jsonResponse(base),
+      jsonResponse(basePage),
       jsonResponse([table]),
       new Response(null, { status: 204 }),
     ]);
@@ -907,14 +893,14 @@ describe("grids CLI", () => {
     const { ctx, calls, jsonValues } = createContext(
       ["records", "audit", "list", baseId, "All authors"],
       { action: "deleted", source: "0", cursor: "current-page", limit: "25" },
-      [jsonResponse(base), jsonResponse([combinedTable]), jsonResponse(payload)],
+      [jsonResponse(basePage), jsonResponse([combinedTable]), jsonResponse(payload)],
       { output: "json" },
     );
 
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/records/by-table/${combinedTableId}/audit?sourceRef=0&action=deleted&cursor=current-page&limit=25`,
     ]);
@@ -948,7 +934,7 @@ describe("grids CLI", () => {
       nextCursor: null,
     };
     const { ctx, tables } = createContext(["records", "audit", "list", baseId, "All authors"], {}, [
-      jsonResponse(base),
+      jsonResponse(basePage),
       jsonResponse([combinedTable]),
       jsonResponse(payload),
     ]);
@@ -964,7 +950,7 @@ describe("grids CLI", () => {
   test("imports records atomically through the backend import endpoint", async () => {
     const body = [{ [fieldId]: "Octavia Butler" }];
     const { ctx, calls, tables } = createContext(["records", "import", baseId, "Authors"], { body: JSON.stringify(body) }, [
-      jsonResponse(base),
+      jsonResponse(basePage),
       jsonResponse([table]),
       jsonResponse({ items: [{ ...record, data: body[0] }] }, 201),
     ]);
@@ -972,13 +958,13 @@ describe("grids CLI", () => {
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/records/by-table/${tableId}/import`,
     ]);
     expect(calls[2]?.init?.method).toBe("POST");
     expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ items: body });
-    expect(tables[0]?.[0]).toMatchObject({ recordId, [fieldId]: "Octavia Butler" });
+    expect(tables[0]?.[0]).toMatchObject({ id: recordId, [fieldId]: "Octavia Butler" });
   });
 
   test("exports records to a requested output file", async () => {
@@ -986,7 +972,7 @@ describe("grids CLI", () => {
     const out = join(dir, "authors.json");
     try {
       const { ctx, calls, lines } = createContext(["records", "export", baseId, "Authors"], { format: "json", limit: "50", out }, [
-        jsonResponse(base),
+        jsonResponse(basePage),
         jsonResponse([table]),
         new Response("[]", { headers: { "Content-Type": "application/json" } }),
       ]);
@@ -994,7 +980,7 @@ describe("grids CLI", () => {
       await gridsCli.run(ctx);
 
       expect(calls.map((call) => call.path)).toEqual([
-        `/api/grids/bases/${baseId}`,
+        `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
         `/api/grids/tables/by-base/${baseId}`,
         `/api/grids/records/by-table/${tableId}/export`,
       ]);
@@ -1012,7 +998,7 @@ describe("grids CLI", () => {
       calls: listCalls,
       tables,
     } = createContext(["records", "files", "list", baseId, "Authors", recordId, "Name"], {}, [
-      jsonResponse(base),
+      jsonResponse(basePage),
       jsonResponse([table]),
       jsonResponse([field]),
       jsonResponse({ items: [gridFile] }),
@@ -1021,7 +1007,7 @@ describe("grids CLI", () => {
     await gridsCli.run(listCtx);
 
     expect(listCalls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/fields/by-table/${tableId}`,
       `/api/grids/records/${tableId}/${recordId}/files/${fieldId}`,
@@ -1038,7 +1024,7 @@ describe("grids CLI", () => {
         calls: uploadCalls,
         lines: uploadLines,
       } = createContext(["records", "files", "upload", baseId, "Authors", recordId, "Name", source], {}, [
-        jsonResponse(base),
+        jsonResponse(basePage),
         jsonResponse([table]),
         jsonResponse([field]),
         jsonResponse(gridFile, 201),
@@ -1047,7 +1033,7 @@ describe("grids CLI", () => {
       await gridsCli.run(uploadCtx);
 
       expect(uploadCalls.map((call) => call.path)).toEqual([
-        `/api/grids/bases/${baseId}`,
+        `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
         `/api/grids/tables/by-base/${baseId}`,
         `/api/grids/fields/by-table/${tableId}`,
         `/api/grids/records/${tableId}/${recordId}/files/${fieldId}`,
@@ -1064,7 +1050,7 @@ describe("grids CLI", () => {
         calls: downloadCalls,
         lines: downloadLines,
       } = createContext(["records", "files", "download", baseId, "Authors", recordId, "Name", fileId], { out }, [
-        jsonResponse(base),
+        jsonResponse(basePage),
         jsonResponse([table]),
         jsonResponse([field]),
         new Response("hello"),
@@ -1073,7 +1059,7 @@ describe("grids CLI", () => {
       await gridsCli.run(downloadCtx);
 
       expect(downloadCalls.map((call) => call.path)).toEqual([
-        `/api/grids/bases/${baseId}`,
+        `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
         `/api/grids/tables/by-base/${baseId}`,
         `/api/grids/fields/by-table/${tableId}`,
         `/api/grids/records/${tableId}/${recordId}/files/${fieldId}/${fileId}/content`,
@@ -1086,7 +1072,7 @@ describe("grids CLI", () => {
         calls: deleteCalls,
         lines: deleteLines,
       } = createContext(["records", "files", "delete", baseId, "Authors", recordId, "Name", fileId], { yes: true }, [
-        jsonResponse(base),
+        jsonResponse(basePage),
         jsonResponse([table]),
         jsonResponse([field]),
         new Response(null, { status: 204 }),
@@ -1095,7 +1081,7 @@ describe("grids CLI", () => {
       await gridsCli.run(deleteCtx);
 
       expect(deleteCalls.map((call) => call.path)).toEqual([
-        `/api/grids/bases/${baseId}`,
+        `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
         `/api/grids/tables/by-base/${baseId}`,
         `/api/grids/fields/by-table/${tableId}`,
         `/api/grids/records/${tableId}/${recordId}/files/${fieldId}/${fileId}`,
@@ -1113,7 +1099,7 @@ describe("grids CLI", () => {
     await gridsCli.run(ctx);
 
     expect(lines[0]).toContain("cld grids records shape Bookshop Authors --json");
-    expect(lines[0]).toContain("Pass a JSON object keyed by field UUID.");
+    expect(lines[0]).toContain("Pass a JSON object keyed by field public id.");
   });
 
   test("prints agent-ready references for GQL, formulas, templates, and workflows", async () => {
@@ -1160,7 +1146,7 @@ describe("grids CLI", () => {
 
   test("checks formulas through the backend compiler", async () => {
     const { ctx, calls, tables } = createContext(["formulas", "check", baseId, "Authors"], { expression: "LEN(Name)" }, [
-      jsonResponse(base),
+      jsonResponse(basePage),
       jsonResponse([table]),
       jsonResponse({
         ok: true,
@@ -1174,7 +1160,7 @@ describe("grids CLI", () => {
 
     expect(exitCode).toBe(0);
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/formulas/by-table/${tableId}/check`,
     ]);
@@ -1187,13 +1173,13 @@ describe("grids CLI", () => {
     const { ctx, calls, lines } = createContext(
       ["views", "create", baseId, "Authors"],
       { name: "Recent authors", source: "from table Authors" },
-      [jsonResponse(base), jsonResponse([table]), jsonResponse(view, 201)],
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse(view, 201)],
     );
 
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/views/by-table/${tableId}`,
     ]);
@@ -1202,7 +1188,7 @@ describe("grids CLI", () => {
       name: "Recent authors",
       source: "from table Authors",
     });
-    expect(lines).toEqual(["Created view Recent authors (view1)."]);
+    expect(lines).toEqual(["Created view Recent authors (view1A)."]);
   });
 
   test("exposes forms and Apps in top-level help", async () => {
@@ -1223,13 +1209,13 @@ describe("grids CLI", () => {
     const { ctx, calls, lines } = createContext(
       ["access", "set", "base", baseId],
       { user: accessEntry.principal.userId, permission: "write" },
-      [jsonResponse(base), jsonResponse([accessEntry]), new Response(null, { status: 204 })],
+      [jsonResponse(basePage), jsonResponse([accessEntry]), new Response(null, { status: 204 })],
     );
 
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/access/by-base/${baseId}`,
       `/api/grids/access/${accessId}`,
     ]);
@@ -1242,13 +1228,13 @@ describe("grids CLI", () => {
     const { ctx, calls, lines } = createContext(
       ["access", "grant", "app", baseId, "Public catalog"],
       { public: true, permission: "read" },
-      [jsonResponse(base), jsonResponse([customApp]), jsonResponse({ accessId }, 201)],
+      [jsonResponse(basePage), jsonResponse([customApp]), jsonResponse({ accessId }, 201)],
     );
 
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/apps/by-base/${baseId}`,
       `/api/grids/access/by-custom-app/${customAppId}`,
     ]);
@@ -1257,7 +1243,7 @@ describe("grids CLI", () => {
       principal: { type: "public" },
       permission: "read",
     });
-    expect(lines).toEqual(["Granted read on Public catalog (app01)."]);
+    expect(lines).toEqual(["Granted read on Public catalog (app01A)."]);
   });
 
   test("documents resource-specific access principals", async () => {
@@ -1277,13 +1263,13 @@ describe("grids CLI", () => {
     const { ctx, calls, lines } = createContext(
       ["forms", "create", baseId, "Authors"],
       { name: "Author intake", config: JSON.stringify(form.config), public: true },
-      [jsonResponse(base), jsonResponse([table]), jsonResponse({ ...form, publicToken: "pub_test" }, 201)],
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse({ ...form, publicToken: "pub_test" }, 201)],
     );
 
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/forms/by-table/${tableId}`,
     ]);
@@ -1293,20 +1279,20 @@ describe("grids CLI", () => {
       config: form.config,
       isPublic: true,
     });
-    expect(lines).toEqual(["Created form Author intake (frm01)."]);
+    expect(lines).toEqual(["Created form Author intake (frm01A)."]);
   });
 
   test("submits forms through resolved table-scoped names", async () => {
     const { ctx, calls, lines } = createContext(
       ["forms", "submit", baseId, "Authors", "Author intake"],
       { body: JSON.stringify({ [fieldId]: "N. K. Jemisin" }) },
-      [jsonResponse(base), jsonResponse([table]), jsonResponse([form]), jsonResponse({ recordId }, 201)],
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse([form]), jsonResponse({ recordId }, 201)],
     );
 
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/forms/by-table/${tableId}`,
       `/api/grids/forms/${formId}/submit`,
@@ -1316,28 +1302,28 @@ describe("grids CLI", () => {
     expect(lines).toEqual([`Created record ${recordId}.`]);
   });
 
-  test("rejects form UUIDs outside the selected base", async () => {
-    const foreignForm = { ...form, tableId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" };
-    const { ctx } = createContext(["forms", "get", baseId], { form: formId }, [
-      jsonResponse(base),
-      jsonResponse(foreignForm),
+  test("rejects form UUID references", async () => {
+    const uuid = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const { ctx } = createContext(["forms", "get", baseId], { table: "Authors", form: uuid }, [
+      jsonResponse(basePage),
       jsonResponse([table]),
+      jsonResponse([form]),
     ]);
 
-    await expect(gridsCli.run(ctx)).rejects.toThrow("Form does not belong to the selected base.");
+    await expect(gridsCli.run(ctx)).rejects.toThrow("form references do not accept UUIDs");
   });
 
   test("creates document templates for resolved tables", async () => {
     const { ctx, calls, lines } = createContext(
       ["document-templates", "create", baseId, "Authors"],
       { name: "Invoice", source: documentTemplate.source, html: documentTemplate.html },
-      [jsonResponse(base), jsonResponse([table]), jsonResponse(documentTemplate, 201)],
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse(documentTemplate, 201)],
     );
 
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/documents/templates/by-table/${tableId}`,
     ]);
@@ -1347,25 +1333,25 @@ describe("grids CLI", () => {
       source: documentTemplate.source,
       html: documentTemplate.html,
     });
-    expect(lines).toEqual(["Created document template Invoice (doc01)."]);
+    expect(lines).toEqual(["Created document template Invoice (doc01A)."]);
   });
 
   test("resolves document template names through table-scoped admin lists", async () => {
     const { ctx, calls, jsonValues } = createContext(
       ["document-templates", "get", baseId, "Authors", "Invoice"],
       {},
-      [jsonResponse(base), jsonResponse([table]), jsonResponse([documentTemplate])],
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse([documentTemplate])],
       { output: "json" },
     );
 
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/documents/templates/by-table/${tableId}/full`,
     ]);
-    expect(jsonValues).toEqual([documentTemplate]);
+    expect(jsonValues).toEqual([{ ...documentTemplate, id: documentTemplate.id }]);
   });
 
   test("generates stored documents from document templates", async () => {
@@ -1375,13 +1361,13 @@ describe("grids CLI", () => {
       const { ctx, calls, lines } = createContext(
         ["documents", "generate", baseId, "Authors", "Invoice"],
         { record: recordId, tag: ["invoice"], out },
-        [jsonResponse(base), jsonResponse([table]), jsonResponse([documentTemplate]), new Response("PDF")],
+        [jsonResponse(basePage), jsonResponse([table]), jsonResponse([documentTemplate]), new Response("PDF")],
       );
 
       await gridsCli.run(ctx);
 
       expect(calls.map((call) => call.path)).toEqual([
-        `/api/grids/bases/${baseId}`,
+        `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
         `/api/grids/tables/by-base/${baseId}`,
         `/api/grids/documents/templates/by-table/${tableId}/full`,
         `/api/grids/documents/templates/${documentTemplateId}/generate`,
@@ -1399,7 +1385,7 @@ describe("grids CLI", () => {
       ["document-templates", "preview-draft-data", baseId, "Authors"],
       { record: recordId, source: documentTemplate.source, html: documentTemplate.html },
       [
-        jsonResponse(base),
+        jsonResponse(basePage),
         jsonResponse([table]),
         jsonResponse({ html: "<p>Rendered</p>", data: { record: { id: recordId } }, columns: [], rows: [] }),
       ],
@@ -1409,7 +1395,7 @@ describe("grids CLI", () => {
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/documents/templates/by-table/${tableId}/preview-data-draft`,
     ]);
@@ -1429,13 +1415,13 @@ describe("grids CLI", () => {
       const { ctx, calls, lines } = createContext(
         ["document-templates", "preview-draft-pdf", baseId, "Authors", "Invoice"],
         { record: recordId, out, html: "<p>{{ record.id }}</p>" },
-        [jsonResponse(base), jsonResponse([table]), jsonResponse([documentTemplate]), new Response("PDF")],
+        [jsonResponse(basePage), jsonResponse([table]), jsonResponse([documentTemplate]), new Response("PDF")],
       );
 
       await gridsCli.run(ctx);
 
       expect(calls.map((call) => call.path)).toEqual([
-        `/api/grids/bases/${baseId}`,
+        `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
         `/api/grids/tables/by-base/${baseId}`,
         `/api/grids/documents/templates/by-table/${tableId}/full`,
         `/api/grids/documents/templates/${documentTemplateId}/preview-draft`,
@@ -1461,7 +1447,7 @@ describe("grids CLI", () => {
       calls: listCalls,
       tables,
     } = createContext(["documents", "list", baseId, "Authors", "Invoice"], { tag: ["invoice"], limit: "25" }, [
-      jsonResponse(base),
+      jsonResponse(basePage),
       jsonResponse([table]),
       jsonResponse([documentTemplate]),
       jsonResponse({ items: [documentRun], limit: 25 }),
@@ -1470,12 +1456,12 @@ describe("grids CLI", () => {
     await gridsCli.run(listCtx);
 
     expect(listCalls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/documents/templates/by-table/${tableId}/full`,
       `/api/grids/documents/runs/by-template/${documentTemplateId}?tags=invoice&limit=25`,
     ]);
-    expect(tables[0]?.[0]).toMatchObject({ shortId: "run01", filename: "invoice.pdf" });
+    expect(tables[0]?.[0]).toMatchObject({ id: "run01A", filename: "invoice.pdf" });
 
     const {
       ctx: updateCtx,
@@ -1514,7 +1500,7 @@ describe("grids CLI", () => {
       calls: createCalls,
       lines: createLines,
     } = createContext(["snapshots", "create", baseId, "Authors", recordId], {}, [
-      jsonResponse(base),
+      jsonResponse(basePage),
       jsonResponse([table]),
       jsonResponse({ snapshot: recordSnapshot }, 201),
     ]);
@@ -1522,7 +1508,7 @@ describe("grids CLI", () => {
     await gridsCli.run(createCtx);
 
     expect(createCalls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/documents/snapshots/by-record/${tableId}/${recordId}`,
     ]);
@@ -1534,7 +1520,7 @@ describe("grids CLI", () => {
       calls: listCalls,
       tables,
     } = createContext(["snapshots", "list", baseId, "Authors", recordId], {}, [
-      jsonResponse(base),
+      jsonResponse(basePage),
       jsonResponse([table]),
       jsonResponse({ items: [recordSnapshot] }),
     ]);
@@ -1542,7 +1528,7 @@ describe("grids CLI", () => {
     await gridsCli.run(listCtx);
 
     expect(listCalls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/tables/by-base/${baseId}`,
       `/api/grids/documents/snapshots/by-record/${tableId}/${recordId}`,
     ]);
@@ -1562,52 +1548,55 @@ describe("grids CLI", () => {
     expect(jsonValues).toEqual([recordSnapshot]);
   });
 
-  test("rejects document template UUIDs outside the selected table", async () => {
-    const wrongTableTemplate = { ...documentTemplate, tableId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
-    const { ctx } = createContext(["document-templates", "get", baseId, "Authors", documentTemplateId], {}, [
-      jsonResponse(base),
+  test("rejects document template UUID references", async () => {
+    const uuid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const { ctx } = createContext(["document-templates", "get", baseId, "Authors", uuid], {}, [
+      jsonResponse(basePage),
       jsonResponse([table]),
-      jsonResponse(wrongTableTemplate),
+      jsonResponse([documentTemplate]),
     ]);
 
-    await expect(gridsCli.run(ctx)).rejects.toThrow("Document template does not belong to the selected table.");
+    await expect(gridsCli.run(ctx)).rejects.toThrow("document template references do not accept UUIDs");
   });
 
   test("creates workflow email templates", async () => {
     const { ctx, calls, lines } = createContext(
       ["email-templates", "create", baseId],
       { name: "Reminder", subject: "Reminder", html: "<p>Hello</p>" },
-      [jsonResponse(base), jsonResponse(emailTemplate, 201)],
+      [jsonResponse(basePage), jsonResponse(emailTemplate, 201)],
     );
 
     await gridsCli.run(ctx);
 
-    expect(calls.map((call) => call.path)).toEqual([`/api/grids/bases/${baseId}`, `/api/grids/email-templates/by-base/${baseId}`]);
+    expect(calls.map((call) => call.path)).toEqual([
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
+      `/api/grids/email-templates/by-base/${baseId}`,
+    ]);
     expect(calls[1]?.init?.method).toBe("POST");
     expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({ name: "Reminder", subject: "Reminder", html: "<p>Hello</p>" });
-    expect(lines).toEqual(["Created email template Reminder (mail1)."]);
+    expect(lines).toEqual(["Created email template Reminder (mail1A)."]);
   });
 
-  test("rejects email template UUIDs outside the selected base", async () => {
-    const foreignTemplate = { ...emailTemplate, baseId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
-    const { ctx } = createContext(["email-templates", "get", baseId, emailTemplateId], {}, [
-      jsonResponse(base),
-      jsonResponse(foreignTemplate),
-    ]);
+  test("rejects email template UUID references", async () => {
+    const uuid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const { ctx } = createContext(["email-templates", "get", baseId, uuid], {}, [jsonResponse(basePage), jsonResponse([emailTemplate])]);
 
-    await expect(gridsCli.run(ctx)).rejects.toThrow("Email template does not belong to the selected base.");
+    await expect(gridsCli.run(ctx)).rejects.toThrow("email template references do not accept UUIDs");
   });
 
   test("validates workflow YAML through the backend", async () => {
     const { ctx, calls, lines } = createContext(["workflows", "validate", baseId], { source: workflow.source }, [
-      jsonResponse(base),
+      jsonResponse(basePage),
       jsonResponse({ ok: true, plan: workflow.plan }),
     ]);
 
     const exitCode = await gridsCli.run(ctx);
 
     expect(exitCode).toBe(0);
-    expect(calls.map((call) => call.path)).toEqual([`/api/grids/bases/${baseId}`, `/api/grids/workflows/by-base/${baseId}/validate`]);
+    expect(calls.map((call) => call.path)).toEqual([
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
+      `/api/grids/workflows/by-base/${baseId}/validate`,
+    ]);
     expect(calls[1]?.init?.method).toBe("POST");
     expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ source: workflow.source });
     expect(lines).toEqual(["Workflow YAML is valid."]);
@@ -1619,15 +1608,18 @@ describe("grids CLI", () => {
     await writeFile(sourceFile, workflow.source);
     try {
       const { ctx, calls, lines } = createContext(["workflows", "create", baseId], { name: "Send reminder", f: sourceFile }, [
-        jsonResponse(base),
+        jsonResponse(basePage),
         jsonResponse(workflow, 201),
       ]);
 
       await gridsCli.run(ctx);
 
-      expect(calls.map((call) => call.path)).toEqual([`/api/grids/bases/${baseId}`, `/api/grids/workflows/by-base/${baseId}`]);
+      expect(calls.map((call) => call.path)).toEqual([
+        `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
+        `/api/grids/workflows/by-base/${baseId}`,
+      ]);
       expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({ name: "Send reminder", source: workflow.source });
-      expect(lines).toEqual(["Created workflow Send reminder (wf001)."]);
+      expect(lines).toEqual(["Created workflow Send reminder (wf001A)."]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1635,8 +1627,8 @@ describe("grids CLI", () => {
 
   test("sends the resolved workflow revision when updating", async () => {
     const updated = { ...workflow, name: "Updated reminder", revision: workflow.revision + 1 };
-    const { ctx, calls, lines } = createContext(["workflows", "update", baseId, workflow.shortId], { name: updated.name }, [
-      jsonResponse(base),
+    const { ctx, calls, lines } = createContext(["workflows", "update", baseId, workflow.id], { name: updated.name }, [
+      jsonResponse(basePage),
       jsonResponse([workflow]),
       jsonResponse(updated),
     ]);
@@ -1644,20 +1636,20 @@ describe("grids CLI", () => {
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/workflows/by-base/${baseId}`,
       `/api/grids/workflows/${workflowId}`,
     ]);
     expect(new Headers(calls[2]?.init?.headers).get(WORKFLOW_REVISION_HEADER)).toBe(String(workflow.revision));
     expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ name: updated.name });
-    expect(lines).toEqual(["Updated workflow Updated reminder (wf001)."]);
+    expect(lines).toEqual(["Updated workflow Updated reminder (wf001A)."]);
   });
 
-  test("rejects workflow UUIDs outside the selected base", async () => {
-    const foreignWorkflow = { ...workflow, baseId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" };
-    const { ctx } = createContext(["workflows", "get", baseId, workflowId], {}, [jsonResponse(base), jsonResponse(foreignWorkflow)]);
+  test("rejects workflow UUID references", async () => {
+    const uuid = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const { ctx } = createContext(["workflows", "get", baseId, uuid], {}, [jsonResponse(basePage), jsonResponse([workflow])]);
 
-    await expect(gridsCli.run(ctx)).rejects.toThrow("Workflow does not belong to the selected base.");
+    await expect(gridsCli.run(ctx)).rejects.toThrow("workflow references do not accept UUIDs");
   });
 
   test("invokes workflows with JSON inputs", async () => {
@@ -1665,7 +1657,7 @@ describe("grids CLI", () => {
       ["workflows", "invoke", baseId, "Send reminder"],
       { inputs: JSON.stringify({ recordId }), "idempotency-key": "reminder-1" },
       [
-        jsonResponse(base),
+        jsonResponse(basePage),
         jsonResponse([workflow]),
         jsonResponse({ runId, workflowId, revision: 1, mode: "execute", channel: "api", created: true, status: "queued" }),
       ],
@@ -1674,7 +1666,7 @@ describe("grids CLI", () => {
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/workflows/by-base/${baseId}`,
       `/api/grids/workflows/${workflowId}/invoke/cli`,
     ]);
@@ -1692,7 +1684,7 @@ describe("grids CLI", () => {
       ["workflows", "invoke", baseId, "Send reminder"],
       { "idempotency-key": "scheduled-manual-1" },
       [
-        jsonResponse(base),
+        jsonResponse(basePage),
         jsonResponse([scheduledWorkflow]),
         jsonResponse({ runId, workflowId, revision: 1, mode: "execute", channel: "api", created: true, status: "queued" }),
       ],
@@ -1701,7 +1693,7 @@ describe("grids CLI", () => {
     await gridsCli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
       `/api/grids/workflows/by-base/${baseId}`,
       `/api/grids/workflows/${workflowId}/invoke/cli`,
     ]);

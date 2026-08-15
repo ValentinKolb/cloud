@@ -10,13 +10,14 @@ import { WorkflowRunDetailPanel } from "../workflows/WorkflowRunDetailPanel";
 import WorkflowsPage from "../workflows/WorkflowsPage";
 import { workspaceMainClass } from "./workspace-layout";
 import type {
-  OkWorkspaceState,
-  WorkspaceDocumentTemplateRoute,
-  WorkspaceQueryResultViewRoute,
-  WorkspaceQueryRoute,
-  WorkspaceRecordsRoute,
-  WorkspaceWorkflowsRoute,
-} from "./workspace-state-model";
+  PublicOkWorkspaceState,
+  PublicWorkspaceQueryResultViewRoute,
+  PublicWorkspaceRecordsRoute,
+} from "./workspace-public-state-model";
+
+type PublicWorkspaceDocumentTemplateRoute = Extract<PublicOkWorkspaceState["route"], { kind: "documentTemplate" }>;
+type PublicWorkspaceQueryRoute = Extract<PublicOkWorkspaceState["route"], { kind: "query" }>;
+type PublicWorkspaceWorkflowsRoute = Extract<PublicOkWorkspaceState["route"], { kind: "workflows" }>;
 
 const formOnlyEmptyText = (count: number) =>
   count === 1
@@ -31,7 +32,7 @@ const limitedAccessEmptyText = (formCount: number, documentCount: number) => {
   return `You have access to ${parts.join(" and ")}. Choose one in the sidebar.`;
 };
 
-export default function GridsRoute(props: { state: OkWorkspaceState }) {
+export default function GridsRoute(props: { state: PublicOkWorkspaceState }) {
   const state = props.state;
   const route = state.route;
   const [selectedWorkflowRunId, setSelectedWorkflowRunId] = createSignal(route.kind === "workflows" ? route.selectedRunId : null);
@@ -41,7 +42,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
     return (
       <CustomAppBuilder
         app={route.app}
-        baseShortId={state.base.shortId}
+        baseId={state.base.id}
         catalog={state.catalog}
         dateConfig={state.dateConfig}
         initialPreviewResults={route.initialPreviewResults}
@@ -73,7 +74,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
   });
 
   if (route.kind === "records") {
-    const records = route as WorkspaceRecordsRoute;
+    const records = route as PublicWorkspaceRecordsRoute;
     return (
       <RecordsView
         baseId={state.base.id}
@@ -85,10 +86,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
         tableColumns={records.activeTable.columns}
         tableAuditPolicy={records.activeTable.auditPolicy}
         disableDirectInsert={records.activeTable.disableDirectInsert}
-        baseShortId={state.base.shortId}
-        tableShortId={records.activeTable.shortId}
-        tableShortIds={state.catalog.tableShortIds}
-        viewShortId={records.activeView?.shortId ?? null}
+        viewId={records.activeView?.id ?? null}
         fields={records.fields}
         tables={state.catalog.tables}
         viewsByTable={state.catalog.viewsByTable}
@@ -129,11 +127,10 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
         <Switch>
           <Match when={route.kind === "workflows"}>
             {(() => {
-              const workflows = route as WorkspaceWorkflowsRoute;
+              const workflows = route as PublicWorkspaceWorkflowsRoute;
               return (
                 <WorkflowsPage
                   baseId={state.base.id}
-                  baseShortId={state.base.shortId}
                   tables={state.catalog.tables}
                   activeWorkflow={workflows.activeWorkflow}
                   selectedRunId={selectedWorkflowRunId()}
@@ -151,11 +148,10 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
           </Match>
           <Match when={route.kind === "query"}>
             {(() => {
-              const query = route as WorkspaceQueryRoute;
+              const query = route as PublicWorkspaceQueryRoute;
               return (
                 <QueryWorkspace
                   baseId={state.base.id}
-                  baseShortId={state.base.shortId}
                   initialQuery={query.initialQuery}
                   initialCursor={query.initialCursor}
                   initialPreview={query.initialPreview}
@@ -170,11 +166,10 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
           </Match>
           <Match when={route.kind === "queryResultView"}>
             {(() => {
-              const queryResult = route as WorkspaceQueryResultViewRoute;
+              const queryResult = route as PublicWorkspaceQueryResultViewRoute;
               return (
                 <QueryResultView
                   baseId={state.base.id}
-                  baseShortId={state.base.shortId}
                   route={queryResult}
                   tables={
                     state.catalog.tables.some((table) => table.id === queryResult.activeTable.id)
@@ -192,7 +187,7 @@ export default function GridsRoute(props: { state: OkWorkspaceState }) {
           </Match>
           <Match when={route.kind === "documentTemplate"}>
             {(() => {
-              const document = route as WorkspaceDocumentTemplateRoute;
+              const document = route as PublicWorkspaceDocumentTemplateRoute;
               return (
                 <DocumentTemplateWorkspace
                   baseId={state.base.id}

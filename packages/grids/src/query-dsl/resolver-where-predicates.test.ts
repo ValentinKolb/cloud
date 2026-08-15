@@ -6,6 +6,7 @@ import {
   ctx,
   customerFieldId,
   customerLinkFieldId,
+  customers,
   field,
   fields,
   normalizedSql,
@@ -43,6 +44,13 @@ describe("GQL where predicates — first-class per field type", () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected error");
     return result.diagnostics.map((d) => d.message);
+  };
+
+  const predicateOf = (source: string, context = optCtx()) => {
+    const result = resolveDslQueryToQueryPlan(parseOk(source), context);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.diagnostics.map((d) => d.message).join("; "));
+    return result.plan.wherePredicate;
   };
 
   const planSql = (source: string, context = optCtx()) => {
@@ -116,19 +124,39 @@ describe("GQL where predicates — first-class per field type", () => {
   });
 
   test("relation = and != map to record-link containment", () => {
-    const id = "99999999-9999-4999-8999-999999999999";
-    expect(filterOf(`where customer_link = '${id}'`)).toEqual({ fieldId: customerLinkFieldId, op: "containsAny", value: [id] });
-    expect(filterOf(`where customer_link != '${id}'`)).toEqual({ fieldId: customerLinkFieldId, op: "notContainsAny", value: [id] });
+    const id = "REC001";
+    expect(predicateOf(`where customer_link = '${id}'`)).toEqual({
+      kind: "publicRelationIds",
+      fieldId: customerLinkFieldId,
+      targetTableId: customers.id,
+      ids: [id],
+      mode: "any",
+    });
+    expect(predicateOf(`where customer_link != '${id}'`)).toEqual({
+      kind: "publicRelationIds",
+      fieldId: customerLinkFieldId,
+      targetTableId: customers.id,
+      ids: [id],
+      mode: "none",
+    });
+    expect(planSql(`where customer_link = '${id}'`)).toContain("JOIN grids.records target_record");
   });
 
   test("relation oneof gathers ids into containsAny", () => {
-    const a = "99999999-9999-4999-8999-999999999991";
-    const b = "99999999-9999-4999-8999-999999999992";
-    expect(filterOf(`where oneof(customer_link, '${a}', '${b}')`)).toEqual({
+    const a = "REC001";
+    const b = "REC002";
+    expect(predicateOf(`where oneof(customer_link, '${a}', '${b}')`)).toEqual({
+      kind: "publicRelationIds",
       fieldId: customerLinkFieldId,
-      op: "containsAny",
-      value: [a, b],
+      targetTableId: customers.id,
+      ids: [a, b],
+      mode: "any",
     });
+  });
+
+  test("record.id accepts public ids and rejects internal UUIDs", () => {
+    expect(predicateOf(`where record.id = 'REC001'`)).toEqual({ kind: "publicRecordIds", ids: ["REC001"] });
+    expect(errorOf(`where record.id = '99999999-9999-4999-8999-999999999991'`)).toEqual(["record.id expects public record ids"]);
   });
 
   test("principal membership compiles to indexed identity containment", () => {
@@ -216,7 +244,9 @@ describe("GQL where predicates — first-class per field type", () => {
   test("type-mismatched literals produce clear errors", () => {
     expect(errorOf(`where amount = 'lots'`)).toEqual(['"Amount" expects a number, got text']);
     expect(errorOf(`where paid = 'yes'`)).toEqual(['"Paid" expects true or false, got text']);
-    expect(errorOf(`where customer_link = 'not-a-uuid'`)).toEqual(['"Customer link" is a relation; compare it to a record id (uuid)']);
+    expect(errorOf(`where customer_link = '99999999-9999-4999-8999-999999999991'`)).toEqual([
+      '"Customer link" is a relation; compare it to a public record id',
+    ]);
     expect(errorOf(`where amount < 'x'`)).toEqual(['"Amount" expects a number, got text']);
   });
 

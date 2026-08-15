@@ -58,8 +58,7 @@ const isWhitespace = (c: string): boolean => c === " " || c === "\t" || c === "\
 const isDigit = (c: string): boolean => c >= "0" && c <= "9";
 const isIdentStart = (c: string): boolean => (c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || c === "_";
 const isIdentPart = (c: string): boolean => isIdentStart(c) || isDigit(c);
-const FIELD_REF_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
-const isSlugPart = (c: string): boolean => isDigit(c) || (c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || c === "_";
+const FIELD_REF_RE = /^[A-Za-z0-9]{1,80}$/;
 
 const readDigits = (src: string, i: number): number => {
   let j = i;
@@ -179,14 +178,6 @@ const scanScopedField: Scanner = (src, i) => {
   return { token: { kind: "field", value: src.slice(i, refEnd) }, next: refEnd };
 };
 
-const scanSlugField: Scanner = (src, i) => {
-  if (src[i] !== "#") return null;
-  let j = i + 1;
-  while (j < src.length && isSlugPart(src[j]!)) j++;
-  if (j === i + 1) throw syntaxError("empty slug reference after #", i);
-  return { token: { kind: "field", value: src.slice(i + 1, j) }, next: j };
-};
-
 const scanContextRef: Scanner = (src, i) => {
   if (src[i] !== "@") return null;
   let j = i + 1;
@@ -230,23 +221,13 @@ const scanOperator: Scanner = (src, i) => {
   return null;
 };
 
-const SCANNERS: Scanner[] = [
-  scanNumber,
-  scanString,
-  scanQuotedField,
-  scanBracedField,
-  scanSlugField,
-  scanIdentifier,
-  scanPunctuation,
-  scanOperator,
-];
+const SCANNERS: Scanner[] = [scanNumber, scanString, scanQuotedField, scanBracedField, scanIdentifier, scanPunctuation, scanOperator];
 
 const SCOPED_SCANNERS: Scanner[] = [
   scanNumber,
   scanString,
   scanQuotedField,
   scanBracedField,
-  scanSlugField,
   scanScopedField,
   scanIdentifier,
   scanPunctuation,

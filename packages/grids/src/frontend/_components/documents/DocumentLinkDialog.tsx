@@ -1,13 +1,14 @@
-import { NoticeCard, CopyButton, dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput, Button, ButtonLink } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, ButtonLink, CopyButton, dialogCore, NoticeCard, PanelDialog, panelDialogOptions, prompts, TextInput } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { CreateDocumentLinkResponse, DocumentLink, DocumentLinkTtl, DocumentRunSummary } from "../../../contracts";
+import type { DocumentLinkTtl } from "../../../contracts";
 import { errorMessage } from "../utils/api-helpers";
+import type { PublicCreateDocumentLinkResponse, PublicDocumentLink, PublicDocumentRunSummary } from "./public-document-types";
 
 type DocumentLinkDialogArgs = {
-  run: DocumentRunSummary;
-  onCreated: (link: DocumentLink) => void | Promise<void>;
+  run: PublicDocumentRunSummary;
+  onCreated: (link: PublicDocumentLink) => void | Promise<void>;
 };
 
 const ttlOptions: Array<{ value: DocumentLinkTtl; label: string; description: string }> = [
@@ -31,7 +32,7 @@ function DocumentLinkDialog(props: { args: DocumentLinkDialogArgs; close: () => 
   const [comment, setComment] = createSignal("");
   const [createdUrl, setCreatedUrl] = createSignal<string | null>(null);
   const [copiedOnCreate, setCopiedOnCreate] = createSignal(false);
-  const createMut = mutations.create<CreateDocumentLinkResponse, void>({
+  const createMut = mutations.create<PublicCreateDocumentLinkResponse, void>({
     mutation: async () => {
       const res = await apiClient.documents.runs[":runId"].links.$post({
         param: { runId: props.args.run.id },

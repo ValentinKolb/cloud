@@ -1,15 +1,16 @@
 import { writeFile } from "node:fs/promises";
 import type { CliInputFlagValue, CloudCliContext } from "@valentinkolb/cloud/cli";
 import { flag, printStructured } from "@valentinkolb/cloud/cli";
-import type { DslQueryExecuteResponse, Table, View } from "../contracts";
+import type { PublicTable as Table, PublicView as View } from "../api/public-dto";
+import type { DslQueryExecuteResponse } from "../contracts";
 import { GRID_FORMULA_FUNCTIONS } from "../formula/function-catalog";
-import { UUID_RE } from "./resources";
-import { exactMatch, printDiagnostics, readApi, readTextInput } from "./runtime";
+import { resolveNamedResource } from "./resources";
+import { printDiagnostics, readApi, readTextInput } from "./runtime";
 
 export type FormulaPreviewResponse = {
   ok: boolean;
   diagnostics: Array<{ severity: "error" | "info"; message: string }>;
-  fields: Array<{ id: string; shortId: string; name: string; type: string }>;
+  fields: Array<{ id: string; name: string; type: string }>;
   rows: Array<{ recordId: string; values: Record<string, unknown>; result: unknown }>;
 };
 
@@ -30,7 +31,7 @@ export const FORMULA_INPUT = flag.input({
 });
 
 export const viewFlag = {
-  view: flag.string({ description: "View id, short id, or exact name" }),
+  view: flag.string({ description: "View public id or exact name" }),
 };
 
 export const GQL_REFERENCE = {
@@ -54,7 +55,7 @@ export const GQL_REFERENCE = {
   refs: [
     "Use exact field/source names when unambiguous: Name",
     'Quote names with spaces: "Birth year"',
-    "Use stable ids in braces when workflows must not break on rename: {field-uuid}",
+    "Use stable public ids in braces when workflows must not break on rename: {field-id}",
     "Qualified refs use aliases: items.Name, author.Country",
   ],
   examples: [
@@ -71,7 +72,7 @@ export const GQL_REFERENCE = {
 
 export const FORMULA_REFERENCE = {
   syntax: [
-    'Field refs: Name, "Birth year", or {field-uuid}.',
+    'Field refs: Name, "Birth year", or {field-id}.',
     "Text literals use quotes: 'camera'.",
     "Operators: +, -, *, /, %, =, !=, <, <=, >, >=, and, or, not.",
     "Functions are case-insensitive. Prefer uppercase in shared docs.",
@@ -91,31 +92,21 @@ export const displayValue = (value: unknown): string => {
 export const listViews = (ctx: CloudCliContext, tableId: string): Promise<View[]> =>
   readApi<View[]>(ctx, `/views/by-table/${encodeURIComponent(tableId)}`);
 
-const getViewById = (ctx: CloudCliContext, viewId: string): Promise<View> => readApi<View>(ctx, `/views/${encodeURIComponent(viewId)}`);
-
 export const resolveView = async (ctx: CloudCliContext, tableId: string, ref: string): Promise<View> =>
-  exactMatch(
-    await listViews(ctx, tableId),
-    ref,
-    [(view) => view.id, (view) => view.shortId, (view) => view.name],
-    "view",
-    (view) => `${view.name} (${view.shortId})`,
-  );
+  resolveNamedResource(await listViews(ctx, tableId), ref, "view");
 
 export const resolveOptionalView = async (ctx: CloudCliContext, table: Table | null, ref: string | undefined): Promise<View | null> => {
   if (!ref) return null;
-  if (UUID_RE.test(ref)) return getViewById(ctx, ref);
-  if (!table) throw new Error("Resolving a view by name or short id requires --table.");
+  if (!table) throw new Error("Resolving a view requires --table because view names and ids are table-scoped.");
   return resolveView(ctx, table.id, ref);
 };
 
 export const viewRows = (items: View[]) =>
   items.map((view) => ({
-    shortId: view.shortId,
+    id: view.id,
     name: view.name,
     scope: view.ownerUserId ? "personal" : "shared",
     updatedAt: view.updatedAt,
-    id: view.id,
   }));
 
 export const printGqlDiagnostics = (

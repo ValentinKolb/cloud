@@ -1,4 +1,4 @@
-import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { err, fail, ok, type Result, crypto as stdCrypto } from "@k2b/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { type Field, ViewUiSettingsSchema } from "../contracts";
@@ -35,9 +35,8 @@ import { customAppRecordRelationSnapshot } from "./custom-app-record-relations";
 import { listByTable as listFields, listByTables as listFieldsByTables } from "./fields";
 import { normalizeFormConfig } from "./forms";
 import { parseJsonbRow } from "./jsonb";
-import { insertWithShortId } from "./short-id";
-import { getWorkflow } from "./workflow-definitions";
 import { getLauncher } from "./workflow-launchers";
+import { getWorkflow } from "./workflow-read";
 import { workflowInputShapeError } from "./workflow-values";
 
 type DbRow = Record<string, unknown>;
@@ -69,7 +68,11 @@ export type CustomAppSummary = Pick<
   "id" | "shortId" | "baseId" | "name" | "icon" | "publishedAt" | "updatedAt" | "draftValid" | "publishedValid" | "hasUnpublishedChanges"
 >;
 
-export type CompiledCustomApp = { definition: CustomAppDefinition; capabilities: CustomAppCapabilities };
+export type CompiledCustomApp = {
+  definition: CustomAppDefinition;
+  capabilities: CustomAppCapabilities;
+  bindings: { appId: string | null; baseId: string };
+};
 export type CustomAppCompilation = { ok: true; compiled: CompiledCustomApp } | { ok: false; diagnostics: CustomAppDiagnostic[] };
 export type CustomAppPlan = {
   valid: boolean;
@@ -157,6 +160,7 @@ const representativeQueryContext = (
   definition: CustomAppDefinition,
   page: CustomAppDefinition["pages"][number],
   baseName: string,
+  publicIds: { appId: string; baseId: string },
 ): DslQueryContextValues => ({
   "auth.id": "00000000-0000-4000-8000-000000000001",
   "auth.name": "Reader",
@@ -166,20 +170,21 @@ const representativeQueryContext = (
   "page.id": page.id,
   "page.title": page.title,
   "page.url": `/app/grids/custom/draft/${page.id}`,
-  "app.id": definition.id,
-  "app.shortId": "draft",
+  "app.id": publicIds.appId,
   "app.name": definition.name,
-  "base.id": definition.baseId,
+  "base.id": publicIds.baseId,
   "base.name": baseName,
   "time.now": "2000-01-01T00:00:00.000Z",
   "time.today": "2000-01-01",
   "time.timeZone": "UTC",
-  ...Object.fromEntries(
-    Object.keys(page.parameters).map((parameterId) => [`params.${parameterId}`, "00000000-0000-4000-8000-000000000000"]),
-  ),
+  ...Object.fromEntries(Object.keys(page.parameters).map((parameterId) => [`params.${parameterId}`, "REC001"])),
 });
 
-const representativeGlobalQueryContext = (definition: CustomAppDefinition, baseName: string): DslQueryContextValues => ({
+const representativeGlobalQueryContext = (
+  definition: CustomAppDefinition,
+  baseName: string,
+  publicIds: { appId: string; baseId: string },
+): DslQueryContextValues => ({
   "auth.id": "00000000-0000-4000-8000-000000000001",
   "auth.name": "Reader",
   "auth.username": "reader",
@@ -188,10 +193,9 @@ const representativeGlobalQueryContext = (definition: CustomAppDefinition, baseN
   "page.id": "global",
   "page.title": definition.name,
   "page.url": "/apps/draft",
-  "app.id": definition.id,
-  "app.shortId": "draft",
+  "app.id": publicIds.appId,
   "app.name": definition.name,
-  "base.id": definition.baseId,
+  "base.id": publicIds.baseId,
   "base.name": baseName,
   "time.now": "2000-01-01T00:00:00.000Z",
   "time.today": "2000-01-01",
@@ -201,7 +205,110 @@ const representativeGlobalQueryContext = (definition: CustomAppDefinition, baseN
 export const compile = async (input: unknown, client: SqlClient = sql): Promise<CustomAppCompilation> => {
   const parsed = CustomAppDefinitionSchema.safeParse(input);
   if (!parsed.success) return { ok: false, diagnostics: zodDiagnostics(parsed.error) };
-  const definition = parsed.data;
+  const publicDefinition = parsed.data;
+  const [base] = await client<Array<{ id: string; short_id: string; name: string }>>`
+    SELECT id, short_id, name FROM grids.bases WHERE short_id = ${publicDefinition.baseId} AND deleted_at IS NULL
+  `;
+  if (!base) return { ok: false, diagnostics: [{ path: ["baseId"], message: "Base not found" }] };
+  const [existingApp] = await client<Array<{ id: string }>>`
+    SELECT id FROM grids.custom_apps WHERE base_id = ${base.id}::uuid AND short_id = ${publicDefinition.id} AND deleted_at IS NULL
+  `;
+  const resourceRows = await client<
+    Array<{ kind: "table" | "field" | "view" | "form" | "template" | "launcher"; short_id: string; id: string }>
+  >`
+    SELECT 'table' AS kind, t.short_id, t.id FROM grids.tables t
+      WHERE t.base_id = ${base.id}::uuid AND t.deleted_at IS NULL
+    UNION ALL
+    SELECT 'field' AS kind, f.short_id, f.id FROM grids.fields f
+      JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+      WHERE t.base_id = ${base.id}::uuid AND f.deleted_at IS NULL
+    UNION ALL
+    SELECT 'view' AS kind, v.short_id, v.id FROM grids.views v
+      WHERE v.base_id = ${base.id}::uuid AND v.deleted_at IS NULL
+    UNION ALL
+    SELECT 'form' AS kind, f.short_id, f.id FROM grids.forms f
+      JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+      WHERE t.base_id = ${base.id}::uuid AND f.deleted_at IS NULL
+    UNION ALL
+    SELECT 'template' AS kind, d.short_id, d.id FROM grids.document_templates d
+      JOIN grids.tables t ON t.id = d.table_id AND t.deleted_at IS NULL
+      WHERE t.base_id = ${base.id}::uuid AND d.deleted_at IS NULL
+    UNION ALL
+    SELECT 'launcher' AS kind, l.short_id, l.id FROM grids.workflow_launchers l
+      WHERE l.base_id = ${base.id}::uuid AND l.deleted_at IS NULL
+  `;
+  const resources = new Map(resourceRows.map((row) => [`${row.kind}:${row.short_id}`, row.id]));
+  const diagnostics: CustomAppDiagnostic[] = [];
+  const resolve = (kind: (typeof resourceRows)[number]["kind"], id: string, path: Array<string | number>): string => {
+    const resolved = resources.get(`${kind}:${id}`);
+    if (!resolved) diagnostics.push({ path, message: `${kind[0]!.toUpperCase()}${kind.slice(1)} not found` });
+    return resolved ?? id;
+  };
+  const definition = structuredClone(publicDefinition);
+  const publicIds = { appId: publicDefinition.id, baseId: publicDefinition.baseId };
+  definition.id = existingApp?.id ?? globalThis.crypto.randomUUID();
+  definition.baseId = base.id;
+  for (const [pageIndex, page] of definition.pages.entries()) {
+    for (const [parameterId, parameter] of Object.entries(page.parameters)) {
+      parameter.tableId = resolve("table", parameter.tableId, ["pages", pageIndex, "parameters", parameterId, "tableId"]);
+    }
+    if (page.record) page.record.tableId = resolve("table", page.record.tableId, ["pages", pageIndex, "record", "tableId"]);
+    for (const [rowIndex, row] of page.rows.entries()) {
+      for (const [columnIndex, column] of row.columns.entries()) {
+        for (const [blockIndex, block] of column.blocks.entries()) {
+          const path = ["pages", pageIndex, "rows", rowIndex, "columns", columnIndex, "blocks", blockIndex] as Array<string | number>;
+          if (block.type === "records") {
+            if (block.source.kind === "view") block.source.viewId = resolve("view", block.source.viewId, [...path, "source", "viewId"]);
+            if (block.display.kind === "table")
+              block.display.columnIds = block.display.columnIds.map((id, index) =>
+                resolve("field", id, [...path, "display", "columnIds", index]),
+              );
+            for (const [actionIndex, action] of (block.rowActions ?? []).entries()) {
+              action.launcherId = resolve("launcher", action.launcherId, [...path, "rowActions", actionIndex, "launcherId"]);
+            }
+            if (block.rowNavigate) {
+              for (const [parameterId, binding] of Object.entries(block.rowNavigate.params)) {
+                if (binding.path === "relation")
+                  binding.fieldId = resolve("field", binding.fieldId, [...path, "rowNavigate", "params", parameterId, "fieldId"]);
+              }
+            }
+          } else if (block.type === "metrics" || block.type === "chart") {
+            if (block.source.kind === "view") block.source.viewId = resolve("view", block.source.viewId, [...path, "source", "viewId"]);
+          } else if (block.type === "record") {
+            block.fieldIds = block.fieldIds.map((id, index) => resolve("field", id, [...path, "fieldIds", index]));
+            block.editableFieldIds = block.editableFieldIds.map((id, index) => resolve("field", id, [...path, "editableFieldIds", index]));
+            if (block.documents)
+              block.documents.templateIds = block.documents.templateIds.map((id, index) =>
+                resolve("template", id, [...path, "documents", "templateIds", index]),
+              );
+          } else if (block.type === "form") {
+            block.formId = resolve("form", block.formId, [...path, "formId"]);
+            block.fixedValues = Object.fromEntries(
+              Object.entries(block.fixedValues).map(([id, value]) => [resolve("field", id, [...path, "fixedValues", id]), value]),
+            );
+          } else if (block.type === "actions") {
+            for (const [actionIndex, action] of block.actions.entries()) {
+              if (action.kind === "workflow")
+                action.launcherId = resolve("launcher", action.launcherId, [...path, "actions", actionIndex, "launcherId"]);
+            }
+          } else if (block.type === "scanner") {
+            block.launcherId = resolve("launcher", block.launcherId, [...path, "launcherId"]);
+          }
+        }
+      }
+    }
+  }
+  for (const [actionIndex, action] of (definition.sidebar?.actions ?? []).entries()) {
+    if (action.kind !== "form") continue;
+    action.formId = resolve("form", action.formId, ["sidebar", "actions", actionIndex, "formId"]);
+    action.fixedValues = Object.fromEntries(
+      Object.entries(action.fixedValues).map(([id, value]) => [
+        resolve("field", id, ["sidebar", "actions", actionIndex, "fixedValues", id]),
+        value,
+      ]),
+    );
+  }
+  if (diagnostics.length > 0) return { ok: false, diagnostics };
   const recordsBlocks = blocksByType(definition, "records");
   const insightBlocks = [...blocksByType(definition, "metrics"), ...blocksByType(definition, "chart")];
   const formBlocks = blocksByType(definition, "form");
@@ -229,12 +336,6 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     return { ok: false, diagnostics: [{ path: ["pages"], message: "A Grids App may contain at most 24 Scanner blocks" }] };
   }
 
-  const [base] = await client<Array<{ id: string; name: string }>>`
-    SELECT id, name FROM grids.bases WHERE id = ${definition.baseId}::uuid AND deleted_at IS NULL
-  `;
-  if (!base) return { ok: false, diagnostics: [{ path: ["baseId"], message: "Base not found" }] };
-
-  const diagnostics: CustomAppDiagnostic[] = [];
   const availability: CustomAppCapabilities["availability"] = [];
   const views: CustomAppCapabilities["views"] = [];
   const insights: CustomAppCapabilities["insights"] = [];
@@ -338,11 +439,12 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     }
     for (const source of availabilitySources) {
       const compiled = await compileCustomAppQuery({
+        client,
         baseId: definition.baseId,
         source: source.query,
         context: source.page
-          ? representativeQueryContext(definition, source.page, base.name)
-          : representativeGlobalQueryContext(definition, base.name),
+          ? representativeQueryContext(definition, source.page, base.name, publicIds)
+          : representativeGlobalQueryContext(definition, base.name, publicIds),
         ...(source.page ? {} : { allowedContextKeys: customAppGlobalContextKeys() }),
       });
       const targetPath =
@@ -501,9 +603,10 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
         continue;
       }
       const compiled = await compileCustomAppQuery({
+        client,
         baseId: definition.baseId,
         source: source.query,
-        context: representativeQueryContext(definition, page, base.name),
+        context: representativeQueryContext(definition, page, base.name, publicIds),
         ...(source.kind === "view" ? { currentTableId: source.currentTableId } : {}),
       });
       if (!compiled.ok) {
@@ -670,9 +773,10 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
         continue;
       }
       const compiled = await compileCustomAppQuery({
+        client,
         baseId: definition.baseId,
         source: source.query,
-        context: representativeQueryContext(definition, page, base.name),
+        context: representativeQueryContext(definition, page, base.name, publicIds),
         ...(source.kind === "view" ? { currentTableId: source.currentTableId } : {}),
       });
       if (!compiled.ok) {
@@ -1171,7 +1275,10 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       (left, right) => left.pageId.localeCompare(right.pageId) || left.blockId.localeCompare(right.blockId),
     ),
   });
-  return { ok: true, compiled: { definition, capabilities } };
+  return {
+    ok: true,
+    compiled: { definition: publicDefinition, capabilities, bindings: { appId: existingApp?.id ?? null, baseId: base.id } },
+  };
 };
 
 export const get = async (id: string, client: SqlClient = sql): Promise<CustomApp | null> => {
@@ -1179,11 +1286,11 @@ export const get = async (id: string, client: SqlClient = sql): Promise<CustomAp
   return row ? mapRow(row) : null;
 };
 
-export const getByIdOrShortId = async (baseId: string, idOrShortId: string, client: SqlClient = sql): Promise<CustomApp | null> => {
+export const getByShortIdForBase = async (baseId: string, shortId: string, client: SqlClient = sql): Promise<CustomApp | null> => {
   const [row] = await client<DbRow[]>`
     SELECT *
     FROM grids.custom_apps
-    WHERE base_id = ${baseId}::uuid AND (id::text = ${idOrShortId} OR short_id = ${idOrShortId}) AND deleted_at IS NULL
+    WHERE base_id = ${baseId}::uuid AND short_id = ${shortId} AND deleted_at IS NULL
   `;
   return row ? mapRow(row) : null;
 };
@@ -1218,11 +1325,12 @@ export const listSummariesByBase = async (baseId: string): Promise<CustomAppSumm
 
 const planCompilation = async (compilation: CustomAppCompilation, client: SqlClient = sql): Promise<CustomAppPlan> => {
   if (!compilation.ok) return { valid: false, diagnostics: compilation.diagnostics, action: "invalid", changes: [] };
-  const { definition, capabilities } = compilation.compiled;
-  const existing = await get(definition.id, client);
+  const { definition, capabilities, bindings } = compilation.compiled;
+  const existing = bindings.appId ? await get(bindings.appId, client) : null;
   if (!existing) return { valid: true, diagnostics: [], action: "create", changes: ["app"] };
   const diagnostics: CustomAppDiagnostic[] = [];
-  if (existing.baseId !== definition.baseId) diagnostics.push({ path: ["baseId"], message: "baseId is immutable" });
+  if (existing.shortId !== definition.id || existing.baseId !== bindings.baseId)
+    diagnostics.push({ path: ["id"], message: "Grids App identity is immutable" });
   if (diagnostics.length > 0) return { valid: false, diagnostics, action: "invalid", changes: [] };
   const changes: string[] = [];
   if (stableCustomAppStringify(existing.draftDefinition) !== stableCustomAppStringify(definition)) changes.push("definition");
@@ -1249,15 +1357,32 @@ export const saveDraft = async (id: string, input: unknown): Promise<Result<Cust
       ),
     );
   return sql.begin(async (tx): Promise<Result<CustomAppDraftSave>> => {
-    const [locked] = await tx<DbRow[]>`SELECT * FROM grids.custom_apps WHERE id = ${id}::uuid AND deleted_at IS NULL FOR UPDATE`;
+    const [locked] = await tx<DbRow[]>`
+      SELECT app.*, base.short_id AS base_short_id
+      FROM grids.custom_apps app
+      JOIN grids.bases base ON base.id = app.base_id
+      WHERE app.id = ${id}::uuid AND app.deleted_at IS NULL
+      FOR UPDATE OF app
+    `;
     if (!locked) return fail(err.notFound("Grids App"));
     const existing = mapRow(locked);
-    if (parsed.data.id !== existing.id || parsed.data.baseId !== existing.baseId)
+    if (parsed.data.id !== existing.shortId || parsed.data.baseId !== locked.base_short_id)
       return fail(err.badInput("Grids App identity is immutable"));
+    const compilation = await compile(parsed.data, tx);
+    if (!compilation.ok) {
+      const [updated] = await tx<DbRow[]>`
+        UPDATE grids.custom_apps
+        SET name = ${parsed.data.name}, icon = ${parsed.data.icon ?? null}, draft_definition = ${parsed.data}::jsonb,
+            draft_capabilities = NULL, updated_at = now()
+        WHERE id = ${id}::uuid AND deleted_at IS NULL
+        RETURNING *
+      `;
+      if (!updated) return fail(err.notFound("Grids App"));
+      return ok({ app: mapRow(updated), valid: false, diagnostics: compilation.diagnostics });
+    }
     const definition = parsed.data;
-    const compilation = await compile(definition, tx);
-    const capabilities = compilation.ok ? compilation.compiled.capabilities : null;
-    const diagnostics = compilation.ok ? [] : compilation.diagnostics;
+    const capabilities = compilation.compiled.capabilities;
+    const diagnostics: CustomAppDiagnostic[] = [];
     const [updated] = await tx<DbRow[]>`
       UPDATE grids.custom_apps
       SET name = ${definition.name}, icon = ${definition.icon ?? null}, draft_definition = ${definition}::jsonb,
@@ -1302,11 +1427,15 @@ export const restoreDraft = async (id: string, actorId: string | null = null): P
   });
 
 export const createBlank = async (baseId: string, name: string, actorId: string | null = null): Promise<Result<CustomApp>> => {
+  const [base] = await sql<Array<{ short_id: string }>>`
+    SELECT short_id FROM grids.bases WHERE id = ${baseId}::uuid AND deleted_at IS NULL
+  `;
+  if (!base) return fail(err.notFound("Base"));
   const definition: CustomAppDefinition = {
-    schemaVersion: 4,
+    schemaVersion: 5,
     kind: "grids.custom-app",
-    id: crypto.randomUUID(),
-    baseId,
+    id: stdCrypto.common.readableId(6),
+    baseId: base.short_id,
     name,
     startPageId: "home",
     pages: [
@@ -1335,18 +1464,15 @@ export const apply = async (input: unknown, actorId: string | null = null): Prom
       return fail(err.badInput(planned.diagnostics.map((diagnostic) => `${diagnostic.path.join(".")}: ${diagnostic.message}`).join("; ")));
     }
     if (!compilation.ok) return fail(err.badInput(compilation.diagnostics.map((item) => item.message).join("; ")));
-    const { definition: parsed, capabilities } = compilation.compiled;
-    if (planned.action === "noop") return ok((await get(parsed.id, tx))!);
+    const { definition: parsed, capabilities, bindings } = compilation.compiled;
+    if (planned.action === "noop") return ok((await get(bindings.appId!, tx))!);
     if (planned.action === "create") {
-      const row = await insertWithShortId(async (shortId) => {
-        const [created] = await tx<DbRow[]>`
-          INSERT INTO grids.custom_apps (id, short_id, base_id, name, icon, draft_definition, draft_capabilities)
-          VALUES (${parsed.id}::uuid, ${shortId}, ${parsed.baseId}::uuid, ${parsed.name}, ${parsed.icon ?? null}, ${parsed}::jsonb, ${capabilities}::jsonb)
-          RETURNING *
-        `;
-        if (!created) throw err.internal("Failed to create Grids App");
-        return created;
-      }, "idx_grids_custom_apps_short_id");
+      const [row] = await tx<DbRow[]>`
+        INSERT INTO grids.custom_apps (id, short_id, base_id, name, icon, draft_definition, draft_capabilities)
+        VALUES (${globalThis.crypto.randomUUID()}::uuid, ${parsed.id}, ${bindings.baseId}::uuid, ${parsed.name}, ${parsed.icon ?? null}, ${parsed}::jsonb, ${capabilities}::jsonb)
+        RETURNING *
+      `;
+      if (!row) throw err.internal("Failed to create Grids App");
       const app = mapRow(row);
       await logAudit(
         {
@@ -1359,14 +1485,14 @@ export const apply = async (input: unknown, actorId: string | null = null): Prom
       );
       return ok(app);
     }
-    const existing = await get(parsed.id, tx);
+    const existing = bindings.appId ? await get(bindings.appId, tx) : null;
     if (!existing) return fail(err.notFound("Grids App"));
     const definition = parsed;
     const [updated] = await tx<DbRow[]>`
       UPDATE grids.custom_apps
       SET name = ${definition.name}, icon = ${definition.icon ?? null}, draft_definition = ${definition}::jsonb,
           draft_capabilities = ${capabilities}::jsonb, updated_at = now()
-      WHERE id = ${definition.id}::uuid AND deleted_at IS NULL
+      WHERE id = ${bindings.appId}::uuid AND deleted_at IS NULL
       RETURNING *
     `;
     if (!updated) return fail(err.notFound("Grids App"));

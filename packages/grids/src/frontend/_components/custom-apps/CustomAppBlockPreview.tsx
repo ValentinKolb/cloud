@@ -2,16 +2,17 @@ import type { DateContext } from "@k2b/stdlib";
 import { Button, MarkdownView, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import { createEffect, createMemo, createResource, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { DslQueryPreviewResponse, RecordDisplayConfig } from "../../../contracts";
+import type { PublicDslQueryPreviewResponse as DslQueryPreviewResponse } from "../../../api/gql-public";
+import type { PublicForm as Form } from "../../../api/public-dto";
+import type { RecordDisplayConfig } from "../../../contracts";
 import type { CustomAppBlock } from "../../../custom-apps/contracts";
-import type { Form } from "../../../service";
 import { chartDataFromPreview, metricCellsFromPreview } from "../../../service/custom-app-insights";
 import CustomAppChart from "../../custom-app/Chart";
 import RecordsTable from "../../custom-app/RecordsTable.island";
 import { formatCustomAppValue } from "../../custom-app/value-format";
 import FormSubmit from "../forms/PublicFormSubmit.island";
 import { errorMessage } from "../utils/api-helpers";
-import type { WorkspaceCatalog } from "../workspace/workspace-state-model";
+import type { CustomAppCatalog } from "./custom-app-catalog";
 
 type SourceBlock = Extract<CustomAppBlock, { type: "records" | "metrics" | "chart" }>;
 
@@ -35,7 +36,7 @@ const loadSource = async (baseId: string, block: SourceBlock): Promise<DslQueryP
   return response.json();
 };
 
-const renderableForm = (form: Form, fixedFieldIds: string[]) => ({
+const renderableForm = (form: Form & { id: string }, fixedFieldIds: string[]) => ({
   id: form.id,
   name: form.name,
   config: {
@@ -47,9 +48,9 @@ const renderableForm = (form: Form, fixedFieldIds: string[]) => ({
 
 function SourcePreview(props: {
   baseId: string;
-  shortId: string;
+  appId: string;
   block: SourceBlock;
-  catalog: WorkspaceCatalog;
+  catalog: CustomAppCatalog;
   dateConfig?: DateContext;
   initialResult?: DslQueryPreviewResponse;
   onPreviewResult?: (blockId: string, result: DslQueryPreviewResponse) => void;
@@ -103,7 +104,7 @@ function SourcePreview(props: {
               emptyText={props.block.emptyText ?? "No records found."}
               baseId={props.baseId}
               dateConfig={props.dateConfig}
-              shortId={props.shortId}
+              appId={props.appId}
               selectedColumnIds={
                 props.block.display.kind === "table" && props.block.display.columnIds.length > 0 ? props.block.display.columnIds : undefined
               }
@@ -158,8 +159,8 @@ function SourcePreview(props: {
 export default function CustomAppBlockPreview(props: {
   block: CustomAppBlock;
   baseId: string;
-  shortId: string;
-  catalog: WorkspaceCatalog;
+  appId: string;
+  catalog: CustomAppCatalog;
   dateConfig?: DateContext;
   initialResult?: DslQueryPreviewResponse;
   onPreviewResult?: (blockId: string, result: DslQueryPreviewResponse) => void;
@@ -170,7 +171,10 @@ export default function CustomAppBlockPreview(props: {
     return (
       Object.values(props.catalog.formsByTable)
         .flat()
-        .find((candidate) => candidate.id === block.formId && candidate.deletedAt === null && candidate.isActive) ?? null
+        .find(
+          (candidate): candidate is Form & { id: string } =>
+            candidate.id === block.formId && candidate.deletedAt === null && candidate.isActive,
+        ) ?? null
     );
   });
   const formFields = createMemo(() => {
@@ -198,7 +202,7 @@ export default function CustomAppBlockPreview(props: {
   ) : props.block.type === "records" || props.block.type === "metrics" || props.block.type === "chart" ? (
     <SourcePreview
       baseId={props.baseId}
-      shortId={props.shortId}
+      appId={props.appId}
       block={props.block}
       catalog={props.catalog}
       dateConfig={props.dateConfig}

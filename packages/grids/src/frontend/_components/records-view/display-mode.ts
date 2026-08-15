@@ -1,6 +1,6 @@
 import { dates as calendar, type DateContext } from "@k2b/stdlib";
+import type { PublicField as Field } from "../../../api/public-dto";
 import type { FilterTree, RecordDisplayConfig } from "../../../contracts";
-import type { Field } from "../../../service";
 import type { RecordsState } from "./query-url";
 
 export type GridsCalendarView = RecordsState["calendar"]["view"];

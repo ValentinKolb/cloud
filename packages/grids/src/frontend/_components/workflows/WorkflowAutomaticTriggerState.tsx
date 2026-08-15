@@ -1,8 +1,8 @@
 import { For, Show } from "solid-js";
-import type { Table } from "../../../service";
-import type { WorkflowTriggerRuntimeState } from "../../../workflows/contracts";
+import type { PublicTable } from "../../../api/public-dto";
+import type { PublicWorkflowTriggerRuntimeState } from "../workspace/workspace-public-state-model";
 
-const scheduleStateLabel: Record<NonNullable<WorkflowTriggerRuntimeState["schedule"]>["state"], string> = {
+const scheduleStateLabel: Record<NonNullable<PublicWorkflowTriggerRuntimeState["schedule"]>["state"], string> = {
   paused: "Paused",
   pending: "Reconciling",
   reconciled: "Scheduled",
@@ -22,7 +22,7 @@ const formatScheduledRun = (value: string, timezone: string): string => {
   }
 };
 
-export function WorkflowAutomaticTriggerState(props: { state: WorkflowTriggerRuntimeState; tables: Table[] }) {
+export function WorkflowAutomaticTriggerState(props: { state: PublicWorkflowTriggerRuntimeState; tables: PublicTable[] }) {
   const tableLabel = (tableId: string | null): string =>
     tableId ? (props.tables.find((table) => table.id === tableId)?.name ?? "Unavailable table") : "Any accessible table";
   return (

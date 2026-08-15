@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { RecordQuery, TableQueryResult } from "../../../contracts";
-import type { GridRecord } from "../../../service";
+import type { PublicGridRecord as GridRecord, PublicTableQueryResult as TableQueryResult } from "../../../api/public-dto";
+import type { RecordQuery } from "../../../contracts";
 import {
   fetchVisibleFlatRecords,
   fetchVisibleGroupedRecords,

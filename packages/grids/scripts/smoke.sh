@@ -188,24 +188,20 @@ expect_status 201 "POST fields/orders.item_price_sum (cross-table rollup) → 20
 ROLLUP_FIELD_ID=$(json '.id')
 
 # ────────────────────────────────────────────────────────────────────
-# short_id invariant: every entity got a 5-char alphanumeric short_id.
-# (Renamed from slug to match the notebooks naming convention; the wire
-# field is `shortId`.)
+# Public-ID invariant: every resource exposes one 6-character id.
 # ────────────────────────────────────────────────────────────────────
 
 echo ""
-echo "━━━ short_id invariant ━━━"
+echo "━━━ public id invariant ━━━"
 
 http GET /api/grids/bases/$BASE_ID
 expect_status 200 "GET base"
-BASE_SHORT_ID=$(json '.shortId')
-[[ "$BASE_SHORT_ID" =~ ^[A-Za-z0-9]{5}$ ]] && pass "base shortId matches /^[A-Za-z0-9]{5}\$/" \
-  || fail "base shortId shape" "got '$BASE_SHORT_ID'"
+[[ "$BASE_ID" =~ ^[A-Za-z0-9]{6}$ ]] && pass "base id matches /^[A-Za-z0-9]{6}\$/" \
+  || fail "base public id shape" "got '$BASE_ID'"
 
 http GET /api/grids/tables/$ITEMS_TABLE_ID
-TABLE_SHORT_ID=$(json '.shortId')
-[[ "$TABLE_SHORT_ID" =~ ^[A-Za-z0-9]{5}$ ]] && pass "table shortId matches /^[A-Za-z0-9]{5}\$/" \
-  || fail "table shortId shape" "got '$TABLE_SHORT_ID'"
+[[ "$ITEMS_TABLE_ID" =~ ^[A-Za-z0-9]{6}$ ]] && pass "table id matches /^[A-Za-z0-9]{6}\$/" \
+  || fail "table public id shape" "got '$ITEMS_TABLE_ID'"
 
 # ────────────────────────────────────────────────────────────────────
 # Cross-base relation rejection (Wave 5.2 critical)
@@ -298,10 +294,10 @@ else
   fail "relation lookup multiple excludeIds" "expected items[] to omit $ITEM_REC_ID, got hasItem=$LOOKUP_MULTI_HAS_ITEM"
 fi
 
-http GET "/api/grids/tables/$ITEMS_TABLE_ID/lookup?q=widget&excludeIds=not-a-uuid"
+http GET "/api/grids/tables/$ITEMS_TABLE_ID/lookup?q=widget&excludeIds=not-an-id"
 expect_status 400 "GET relation lookup invalid excludeIds → 400"
 
-http GET "/api/grids/tables/$ITEMS_TABLE_ID/lookup?q=widget&excludeIds=$ITEM_REC_ID,not-a-uuid"
+http GET "/api/grids/tables/$ITEMS_TABLE_ID/lookup?q=widget&excludeIds=$ITEM_REC_ID,not-an-id"
 expect_status 400 "GET relation lookup mixed invalid excludeIds → 400"
 
 http POST /api/grids/records/by-table/$ORDERS_TABLE_ID "{\"$RELATION_FIELD_ID\":[\"$ITEM_REC_ID\"]}"
@@ -525,7 +521,6 @@ VIEW_QUERY=$(jq -n \
 http POST /api/grids/views/by-table/$ITEMS_TABLE_ID "$VIEW_QUERY"
 expect_status 201 "POST canonical GQL view with price refs → 201"
 VIEW_ID=$(json '.id')
-VIEW_SHORT_ID=$(json '.shortId')
 
 # Drop the rollup first — it references price as a BLOCKING dependent
 # (the dependents scanner rightly refuses to auto-cleanup
@@ -568,9 +563,9 @@ echo ""
 echo "━━━ negative paths ━━━"
 
 http GET /api/grids/views/00000000-0000-0000-0000-000000000000
-expect_status 404 "GET non-existent view → 404"
+expect_status 404 "GET view does not resolve UUID → 404"
 
-http POST /api/grids/tables/$ITEMS_TABLE_ID/query '{"query":{"sort":[{"fieldId":"00000000-0000-0000-0000-000000000000","direction":"asc"}]}}'
+http POST /api/grids/tables/$ITEMS_TABLE_ID/query '{"query":{"sort":[{"fieldId":"000000","direction":"asc"}]}}'
 expect_status 400 "POST query with unknown sort field → 400"
 
 BAD_GQL_SOURCE=$(printf "from table {%s}\nwhere (" "$ITEMS_TABLE_ID")
@@ -600,19 +595,19 @@ fi
 echo ""
 echo "━━━ path-based SSR routes ━━━"
 
-http GET /app/grids/$BASE_SHORT_ID
+http GET /app/grids/$BASE_ID
 expect_status 200 "GET /app/grids/<base>"
 
-http GET /app/grids/$BASE_SHORT_ID/table/$TABLE_SHORT_ID
+http GET /app/grids/$BASE_ID/table/$ITEMS_TABLE_ID
 expect_status 200 "GET /app/grids/<base>/table/<table>"
 
-http GET /app/grids/$BASE_SHORT_ID/table/$TABLE_SHORT_ID/edit
+http GET /app/grids/$BASE_ID/table/$ITEMS_TABLE_ID/edit
 expect_status 302 "GET /app/grids/<base>/table/<table>/edit redirects to edit mode"
 
-http GET /app/grids/$BASE_SHORT_ID/table/$TABLE_SHORT_ID/view/$VIEW_SHORT_ID?edit=true
+http GET /app/grids/$BASE_ID/table/$ITEMS_TABLE_ID/view/$VIEW_ID?edit=true
 expect_status 200 "GET /app/grids/<base>/table/<table>/view/<view>?edit=true"
 
-http GET /app/grids/$BASE_SHORT_ID/settings
+http GET /app/grids/$BASE_ID/settings
 expect_status 404 "GET /app/grids/<base>/settings stays removed"
 
 # ────────────────────────────────────────────────────────────────────

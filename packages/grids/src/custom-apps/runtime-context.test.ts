@@ -3,8 +3,8 @@ import type { CustomAppDefinition } from "./contracts";
 import { buildCustomAppRuntimeContext, customAppDefinitionWithAvailableNavigation } from "./runtime-context";
 
 const common = {
-  app: { id: "019fa000-0000-7000-8000-000000000001", shortId: "APP1", name: "Loans" },
-  base: { id: "019fa000-0000-7000-8000-000000000002", name: "Inventory" },
+  app: { id: "APP001", name: "Loans" },
+  base: { id: "BASE01", name: "Inventory" },
   page: { id: "mine", title: "My loans" },
   pageUrl: "/apps/APP1/mine?state=open",
   pageParams: { state: "open" },
@@ -55,10 +55,9 @@ describe("Grids App runtime context", () => {
       "page.id": "mine",
       "page.title": "My loans",
       "page.url": "/apps/APP1/mine?state=open",
-      "app.id": "019fa000-0000-7000-8000-000000000001",
-      "app.shortId": "APP1",
+      "app.id": "APP001",
       "app.name": "Loans",
-      "base.id": "019fa000-0000-7000-8000-000000000002",
+      "base.id": "BASE01",
       "base.name": "Inventory",
       "time.now": "2026-08-10T22:30:00.000Z",
       "time.today": "2026-08-11",
@@ -89,7 +88,7 @@ describe("Grids App runtime context", () => {
       rows: [{ id: `${id}-row`, columns: [{ id: `${id}-column`, span: 12, blocks: [block(`${id}-block`)] }] }],
     });
     const definition: CustomAppDefinition = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       kind: "grids.custom-app",
       id: common.app.id,
       baseId: common.base.id,

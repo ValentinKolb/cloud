@@ -15,6 +15,7 @@ import * as files from "./files";
 import type { FormConfig } from "./forms";
 import * as forms from "./forms";
 import * as records from "./records";
+import { newShortId } from "./short-id";
 import * as tables from "./tables";
 import type { Base, Field } from "./types";
 import * as views from "./views";
@@ -48,6 +49,8 @@ type TemplateContext = {
   forms: Map<string, string>;
   workflows: Map<string, GridsWorkflow>;
   launchers: Map<string, string>;
+  publicRefs: Map<string, string>;
+  publicViewColumns: Map<string, string[]>;
 };
 
 type ResultError = Extract<Result<unknown>, { ok: false }>["error"];
@@ -115,6 +118,12 @@ const resolveRef = (ref: TemplateRef, ctx: TemplateContext): string => {
   return value;
 };
 
+const resolvePublicRef = (ref: TemplateRef, ctx: TemplateContext): string => {
+  const value = ctx.publicRefs.get(`${ref.$ref}:${ref.key}`);
+  if (!value) throw new TemplateError(err.badInput(`template public reference not found: ${ref.$ref}:${ref.key}`));
+  return value;
+};
+
 const isViewColumnsRef = (value: unknown): value is { $ref: "viewColumns"; key: string } =>
   !!value &&
   typeof value === "object" &&
@@ -125,7 +134,7 @@ const resolveValue = (value: unknown, ctx: TemplateContext): unknown => {
   if (value === undefined) return undefined;
   if (isRef(value)) return resolveRef(value, ctx);
   if (isFormulaExpression(value)) {
-    return value.$formula.map((part) => (typeof part === "string" ? part : `{${resolveRef(part, ctx)}}`)).join("");
+    return value.$formula.map((part) => (typeof part === "string" ? part : `{${resolvePublicRef(part, ctx)}}`)).join("");
   }
   if (isDateExpression(value)) return formatTemplateDate(value);
   if (Array.isArray(value)) return value.map((item) => resolveValue(item, ctx));
@@ -203,11 +212,15 @@ const resolveGqlValue = (value: unknown, ctx: TemplateContext): unknown => {
 const resolveCustomAppValue = (value: unknown, ctx: TemplateContext): unknown => {
   if (value === undefined) return undefined;
   if (isViewColumnsRef(value)) {
-    const columns = ctx.viewColumns.get(value.key);
+    const columns = ctx.publicViewColumns.get(value.key);
     if (!columns) throw new TemplateError(err.badInput(`template view columns not found: ${value.key}`));
     return columns;
   }
-  if (isRef(value) || isFormulaExpression(value) || isDateExpression(value)) return resolveValue(value, ctx);
+  if (isRef(value)) return resolvePublicRef(value, ctx);
+  if (isFormulaExpression(value)) {
+    return value.$formula.map((part) => (typeof part === "string" ? part : `{${resolvePublicRef(part, ctx)}}`)).join("");
+  }
+  if (isDateExpression(value)) return formatTemplateDate(value);
   if (Array.isArray(value)) return value.map((item) => resolveCustomAppValue(item, ctx));
   if (!value || typeof value !== "object") return value;
 
@@ -233,6 +246,7 @@ const createTables = async (template: GridTemplate, baseId: string, actorId: str
       ),
     );
     ctx.tables.set(table.key, created.id);
+    ctx.publicRefs.set(`table:${table.key}`, created.shortId);
     ctx.tableNames.set(table.key, created.name);
   }
 };
@@ -263,6 +277,7 @@ const createFields = async (template: GridTemplate, actorId: string | null, ctx:
         ),
       );
       ctx.fields.set(`${table.key}.${field.key}`, created);
+      ctx.publicRefs.set(`field:${table.key}.${field.key}`, created.shortId);
     }
   }
 };
@@ -300,6 +315,7 @@ const createRecords = async (template: GridTemplate, actorId: string | null, ctx
 
     const created = requireResult(await records.create(tableId, data, actorId));
     ctx.records.set(record.key, created.id);
+    ctx.publicRefs.set(`record:${record.key}`, created.shortId);
 
     for (const attachment of record.files ?? []) {
       const field = ctx.fields.get(`${record.table}.${attachment.field}`);
@@ -350,11 +366,20 @@ const createViews = async (template: GridTemplate, actorId: string | null, ctx: 
       ),
     );
     ctx.views.set(view.key, created.id);
+    ctx.publicRefs.set(`view:${view.key}`, created.shortId);
     ctx.viewNames.set(view.key, created.name);
     ctx.viewColumns.set(
       view.key,
       created.ui.columns?.flatMap((column) => ("fieldId" in column ? [column.fieldId] : [])) ??
         [...ctx.fields.entries()].filter(([key]) => key.startsWith(`${view.table}.`)).map(([, field]) => field.id),
+    );
+    ctx.publicViewColumns.set(
+      view.key,
+      created.ui.columns?.flatMap((column) => {
+        if (!("fieldId" in column)) return [];
+        const field = [...ctx.fields.values()].find((candidate) => candidate.id === column.fieldId);
+        return field ? [field.shortId] : [];
+      }) ?? [...ctx.fields.entries()].filter(([key]) => key.startsWith(`${view.table}.`)).map(([, field]) => field.shortId),
     );
   }
 };
@@ -376,19 +401,20 @@ const createForms = async (template: GridTemplate, actorId: string | null, ctx: 
       ),
     );
     ctx.forms.set(form.key, created.id);
+    ctx.publicRefs.set(`form:${form.key}`, created.shortId);
   }
 };
 
-const createCustomApps = async (template: GridTemplate, baseId: string, actorId: string | null, ctx: TemplateContext) => {
+const createCustomApps = async (template: GridTemplate, base: Base, actorId: string | null, ctx: TemplateContext) => {
   for (const templateApp of template.customApps ?? []) {
-    const appId = crypto.randomUUID();
+    const appId = newShortId();
     const resolved = resolveCustomAppValue(templateApp.definition, ctx);
     const created = requireResult(
       await customApps.apply(
         {
           ...(resolved as Record<string, unknown>),
           id: appId,
-          baseId,
+          baseId: base.shortId,
         },
         actorId,
       ),
@@ -482,6 +508,7 @@ const createWorkflowLaunchers = async (template: GridTemplate, actorId: string |
       ),
     );
     ctx.launchers.set(definition.key, created.id);
+    ctx.publicRefs.set(`launcher:${definition.key}`, created.shortId);
   }
 };
 
@@ -511,6 +538,8 @@ export const instantiate = async (templateId: string, input: InstantiateTemplate
     forms: new Map(),
     workflows: new Map(),
     launchers: new Map(),
+    publicRefs: new Map(),
+    publicViewColumns: new Map(),
   };
 
   try {
@@ -524,7 +553,7 @@ export const instantiate = async (templateId: string, input: InstantiateTemplate
     await createEmailTemplates(template, base.id, actorId);
     await createWorkflows(template, base.id, actorId, ctx);
     await createWorkflowLaunchers(template, actorId, ctx);
-    await createCustomApps(template, base.id, actorId, ctx);
+    await createCustomApps(template, base, actorId, ctx);
     return ok(base);
   } catch (error) {
     // Nothing in the kernel references a Grids table, so dropping the base does

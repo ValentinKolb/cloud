@@ -1,8 +1,8 @@
 import { Button, IconButton, Select, TextInput } from "@k2b/ui";
 import { For, Show } from "solid-js";
+import type { PublicField as Field } from "../../../api/public-dto";
 import type { FormValidationRule } from "../../../contracts";
 import { formValidationComparableKind, formValidationFieldsCompatible } from "../../../form-validations";
-import type { Field } from "../../../service";
 import type { FormFieldEntry } from "../../../service/forms";
 
 const OPERATORS: Array<{ id: FormValidationRule["operator"]; label: string }> = [

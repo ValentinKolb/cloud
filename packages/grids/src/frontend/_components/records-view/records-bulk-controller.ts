@@ -1,11 +1,11 @@
-import { prompts, toast } from "@k2b/ui";
 import { mutation } from "@k2b/stdlib/solid";
+import { prompts, toast } from "@k2b/ui";
 import { type Accessor, createEffect, createSignal } from "solid-js";
 import { apiClient } from "../../../api/client";
+import type { PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import type { RecordQuery } from "../../../contracts";
-import type { GridRecord } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
-import type { WorkspaceBulkLauncher } from "../workspace/workspace-state-model";
+import type { PublicWorkspaceBulkLauncher as WorkspaceBulkLauncher } from "../workspace/workspace-public-state-model";
 import { bulkSelectionRunPayload, bulkWorkflowTargetLabel, pruneBulkSelection, sameBulkSelection } from "./bulk-selection";
 
 type BulkWorkflowRunInput = {
@@ -15,7 +15,7 @@ type BulkWorkflowRunInput = {
 };
 
 type RecordsBulkControllerOptions = {
-  baseShortId: string;
+  baseId: string;
   enabled: Accessor<boolean>;
   items: Accessor<GridRecord[]>;
   query: Accessor<RecordQuery>;
@@ -49,7 +49,7 @@ export const createRecordsBulkController = (options: RecordsBulkControllerOption
   };
 
   const runWorkflow = mutation.create<
-    { runId: string; status: string; launcherName: string; workflowShortId: string; targetLabel: string },
+    { runId: string; status: string; launcherName: string; workflowId: string; targetLabel: string },
     BulkWorkflowRunInput
   >({
     mutation: async ({ launcher, selectedRecordIds, query }, { abortSignal }) => {
@@ -71,7 +71,7 @@ export const createRecordsBulkController = (options: RecordsBulkControllerOption
       return {
         ...run,
         launcherName: launcher.name,
-        workflowShortId: launcher.workflowShortId,
+        workflowId: launcher.workflowId,
         targetLabel: bulkWorkflowTargetLabel(selectedRecordIds.length),
       };
     },
@@ -82,8 +82,8 @@ export const createRecordsBulkController = (options: RecordsBulkControllerOption
         duration: 10_000,
         action: {
           label: "Open run",
-          href: `/app/grids/${encodeURIComponent(options.baseShortId)}/workflows/${encodeURIComponent(
-            run.workflowShortId,
+          href: `/app/grids/${encodeURIComponent(options.baseId)}/workflows/${encodeURIComponent(
+            run.workflowId,
           )}?run=${encodeURIComponent(run.runId)}`,
         },
       });

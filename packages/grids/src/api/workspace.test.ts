@@ -9,6 +9,9 @@ const recordId = "33333333-3333-4333-8333-333333333333";
 const runId = "55555555-5555-4555-8555-555555555555";
 const workflowId = "66666666-6666-4666-8666-666666666666";
 const baseId = "44444444-4444-4444-8444-444444444444";
+const tablePublicId = "T4BL01";
+const recordPublicId = "R3CRD1";
+const runPublicId = "RUN001";
 const user: User = {
   id: "11111111-1111-4111-8111-111111111111",
   uid: "workspace-user",
@@ -50,15 +53,15 @@ describe("Grids workspace record detail", () => {
     let recordCalls = 0;
     const app = createWorkspaceApi({
       requireAuthenticated: authenticated,
-      getTable: async () => ({ id: tableId, baseId }) as never,
+      getTableByShortId: async () => ({ id: tableId, baseId }) as never,
       gate: async () => ({ ok: false }) as never,
-      getRecord: async () => {
+      getRecordByShortId: async () => {
         recordCalls += 1;
         return {} as never;
       },
     });
 
-    const response = await app.request(`/record-detail?tableId=${tableId}&recordId=${recordId}`);
+    const response = await app.request(`/record-detail?tableId=${tablePublicId}&recordId=${recordPublicId}`);
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ message: "Record not found" });
@@ -66,19 +69,28 @@ describe("Grids workspace record detail", () => {
   });
 
   test("returns one composed detail payload for a readable record", async () => {
+    const publicDetail = {
+      recordId: recordPublicId,
+      filesByField: {},
+      documentRuns: [],
+      snapshots: [],
+      auditEntries: [],
+      combinedOrigin: null,
+    };
     const app = createWorkspaceApi({
       requireAuthenticated: authenticated,
-      getTable: async () => ({ id: tableId, baseId }) as never,
+      getTableByShortId: async () => ({ id: tableId, baseId }) as never,
       gate: async () => ({ ok: true, value: "read" }) as never,
-      getRecord: async () => ({ id: recordId }) as never,
+      getRecordByShortId: async () => ({ id: recordId, tableId, deletedAt: null }) as never,
       listFields: async () => [],
       loadRecordDetail: async () => detail,
+      projectRecordDetail: async () => publicDetail,
     });
 
-    const response = await app.request(`/record-detail?tableId=${tableId}&recordId=${recordId}`);
+    const response = await app.request(`/record-detail?tableId=${tablePublicId}&recordId=${recordPublicId}`);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(detail);
+    expect(await response.json()).toEqual(publicDetail);
   });
 });
 
@@ -89,7 +101,7 @@ describe("Grids workspace workflow run detail", () => {
     let detailCalls = 0;
     const app = createWorkspaceApi({
       requireAuthenticated: authenticated,
-      getWorkflowRun: async () => run,
+      getWorkflowRunByShortId: async () => run,
       gate: async () => ({ ok: false }) as never,
       loadWorkflowDetail: async () => {
         detailCalls += 1;
@@ -97,7 +109,7 @@ describe("Grids workspace workflow run detail", () => {
       },
     });
 
-    const response = await app.request(`/workflow-run-detail?runId=${runId}`);
+    const response = await app.request(`/workflow-run-detail?runId=${runPublicId}`);
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ message: "Workflow run not found" });
@@ -113,6 +125,7 @@ describe("Grids workspace workflow run detail", () => {
       stepsTruncated: false,
       documents: { items: [], total: 0, hasMore: false, nextOffset: null },
     };
+    const publicDetail = { ...detail, run: { id: runPublicId, baseId: "BASE01", workflowId: "WORK01" } };
     let loadedOptions:
       | {
           canReadDocument: (document: { baseId: string; tableId: string; templateId: string | null }) => Promise<boolean>;
@@ -122,19 +135,20 @@ describe("Grids workspace workflow run detail", () => {
       | undefined;
     const app = createWorkspaceApi({
       requireAuthenticated: authenticated,
-      getWorkflowRun: async () => run,
+      getWorkflowRunByShortId: async () => run,
       getWorkflow: async () => ({ id: workflowId }) as never,
       gate: async () => ({ ok: true, value: "read" }) as never,
       loadWorkflowDetail: async (_run, options) => {
         loadedOptions = options;
         return detail as never;
       },
+      projectWorkflowDetail: async () => publicDetail as never,
     });
 
-    const response = await app.request(`/workflow-run-detail?runId=${runId}`);
+    const response = await app.request(`/workflow-run-detail?runId=${runPublicId}`);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(detail);
+    expect(await response.json()).toEqual(publicDetail);
     expect(loadedOptions?.workflow?.id).toBe(workflowId);
     expect(loadedOptions?.viewer?.userId).toBe(user.id);
     expect(

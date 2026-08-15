@@ -16,17 +16,11 @@ import {
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import type { PublicBase } from "../../../api/public-dto";
 import type { DocumentProfile } from "../../../contracts";
-import type { Base, Field, Form, Table } from "../../../service";
 import { createDraft } from "../editor-draft";
 import { ScopedPermissionEditor } from "../permissions/ScopedPermissionEditor";
 import { errorMessage } from "../utils/api-helpers";
-
-type TrashResponse = {
-  tables: Table[];
-  fields: Field[];
-  forms: Form[];
-};
 
 type DocumentProfileDraft = Required<Record<keyof DocumentProfile, string>>;
 
@@ -74,7 +68,7 @@ export function DocumentProfileForm(props: {
   createEffect(() => props.onDirtyChange(changeCount() > 0));
   onCleanup(() => props.onDirtyChange(false));
 
-  const mutation = mutations.create<Base, DocumentProfile>({
+  const mutation = mutations.create<PublicBase, DocumentProfile>({
     mutation: async (documentProfile, { abortSignal }) => {
       const res = await apiClient.bases[":baseId"].$patch(
         {
@@ -248,7 +242,7 @@ export function DocumentProfileForm(props: {
 export function TrashSection(props: { baseId: string }) {
   // Lazy-load on mount via createResource — trash is base-admin-only
   // and rarely viewed, so we don't bloat the SSR payload with it.
-  const [trash, { refetch }] = createResource<TrashResponse>(async () => {
+  const [trash, { refetch }] = createResource(async () => {
     const res = await apiClient.bases[":baseId"].trash.$get({ param: { baseId: props.baseId } });
     if (!res.ok) throw new Error(await errorMessage(res, "Failed to load trash"));
     return res.json();
@@ -267,14 +261,16 @@ export function TrashSection(props: { baseId: string }) {
 
   const restore = async (item: TrashItem) => {
     if (restoringId()) return;
-    setRestoringId(item.id);
+    const itemId = item.id;
+    if (!itemId) return;
+    setRestoringId(itemId);
     try {
       const response =
         item.kind === "Table"
-          ? await apiClient.tables[":tableId"].restore.$post({ param: { tableId: item.id } })
+          ? await apiClient.tables[":tableId"].restore.$post({ param: { tableId: itemId } })
           : item.kind === "Field"
-            ? await apiClient.fields[":fieldId"].restore.$post({ param: { fieldId: item.id } })
-            : await apiClient.forms[":formId"].restore.$post({ param: { formId: item.id } });
+            ? await apiClient.fields[":fieldId"].restore.$post({ param: { fieldId: itemId } })
+            : await apiClient.forms[":formId"].restore.$post({ param: { formId: itemId } });
       if (!response.ok) throw new Error(await errorMessage(response, `Failed to restore ${item.kind.toLowerCase()}`));
       toast.success(`${item.kind} restored`);
       await refetch();
@@ -364,7 +360,7 @@ export function GeneralForm(props: {
   createEffect(() => props.onDirtyChange(draft.dirty()));
   onCleanup(() => props.onDirtyChange(false));
 
-  const mutation = mutations.create<Base, { name: string; description: string }>({
+  const mutation = mutations.create<PublicBase, { name: string; description: string }>({
     mutation: async (intent, { abortSignal }) => {
       const res = await apiClient.bases[":baseId"].$patch(
         {

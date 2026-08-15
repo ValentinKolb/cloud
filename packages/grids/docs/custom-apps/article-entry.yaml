@@ -1,7 +1,7 @@
-schemaVersion: 4
+schemaVersion: 5
 kind: grids.custom-app
-id: 20000000-0000-4000-8000-000000000101
-baseId: 20000000-0000-4000-8000-000000000001
+id: a00101
+baseId: a00001
 name: Article descriptions
 icon: list-details
 startPageId: lists
@@ -23,11 +23,11 @@ pages:
                 pageSize: 25
                 source:
                   kind: view
-                  viewId: 20000000-0000-4000-8000-000000000401
+                  viewId: a00401
                 display:
                   kind: table
                   columnIds:
-                    - 20000000-0000-4000-8000-000000000301
+                    - a00301
                 rowNavigate:
                   kind: navigate
                   pageId: list
@@ -42,10 +42,10 @@ pages:
     parameters:
       list_id:
         type: record
-        tableId: 20000000-0000-4000-8000-000000000201
+        tableId: a00201
         required: true
     record:
-      tableId: 20000000-0000-4000-8000-000000000201
+      tableId: a00201
       id: { source: PARAMS, path: list_id }
     rows:
       - id: list
@@ -56,7 +56,7 @@ pages:
               - id: list
                 type: record
                 fieldIds:
-                  - 20000000-0000-4000-8000-000000000301
+                  - a00301
                 editableFieldIds: []
               - id: articles
                 type: records
@@ -75,9 +75,9 @@ pages:
                 display:
                   kind: table
                   columnIds:
-                    - 20000000-0000-4000-8000-000000000303
-                    - 20000000-0000-4000-8000-000000000304
-                    - 20000000-0000-4000-8000-000000000305
+                    - a00303
+                    - a00304
+                    - a00305
           - id: actions
             span: 4
             blocks:
@@ -100,7 +100,7 @@ pages:
     parameters:
       list_id:
         type: record
-        tableId: 20000000-0000-4000-8000-000000000201
+        tableId: a00201
         required: true
     rows:
       - id: entry
@@ -110,9 +110,9 @@ pages:
             blocks:
               - id: article-form
                 type: form
-                formId: 20000000-0000-4000-8000-000000000501
+                formId: a00501
                 fixedValues:
-                  20000000-0000-4000-8000-000000000302: { source: PARAMS, path: list_id }
+                  a00302: { source: PARAMS, path: list_id }
                 onSuccessNavigate:
                   kind: navigate
                   pageId: add-article

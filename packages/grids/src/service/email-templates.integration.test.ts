@@ -7,7 +7,7 @@ import { createWorkflow, removeWorkflow } from "./workflow-definitions";
 import { deleteTestWorkflowScope } from "./workflow-test-fixture";
 
 const uuid = () => Bun.randomUUIDv7();
-const shortId = () => `B${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);
+const shortId = () => `B${Math.random().toString(36).slice(2, 7)}`.slice(0, 6);
 
 postgresTest("email templates persist and update nested preview sample data", async () => {
   await migrate();

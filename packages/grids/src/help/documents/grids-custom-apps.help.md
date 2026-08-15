@@ -5,13 +5,13 @@ icon: ti ti-app-window
 description: Publish focused apps from Forms, bounded records, and record details.
 order: 137
 ---
-Grids Apps give authenticated or public audiences a focused app at `/apps/<shortId>` without exposing the full Grids workspace. Each app belongs to one Base and uses selected records, Views, Forms, documents, and actions from that Base. Definitions are portable YAML that you can validate, review, and publish with the Cloud CLI.
+Grids Apps give authenticated or public audiences a focused app at `/apps/<id>` without exposing the full Grids workspace. Each app belongs to one Base and uses selected records, Views, Forms, documents, and actions from that Base. Definitions are portable YAML that you can validate, review, and publish with the Cloud CLI.
 
 Grids Apps do not copy data. A publication stores an immutable definition and a compiled capability snapshot containing the exact resources it may use. Every request checks the app grant, published capability, and server-enforced availability rules. App readers do not need Base access, and app access never grants raw Grids or arbitrary GQL access.
 
 ## Pages and blocks {icon="layout"}
 
-An app may contain up to 12 responsive pages. Set `startPageId` to the page shown at `/apps/<shortId>`. Pages with `navigation.visible: true` appear in array order in the AppWorkspace sidebar, with an optional Tabler `icon`. If the current page has no other available page and the app has no available global action, the sidebar is omitted.
+An app may contain up to 12 responsive pages. Set `startPageId` to the page shown at `/apps/<id>`. Pages with `navigation.visible: true` appear in array order in the AppWorkspace sidebar, with an optional Tabler `icon`. If the current page has no other available page and the app has no available global action, the sidebar is omitted.
 
 The optional root `sidebar.actions` list adds app-global launchers that are independent from every page:
 
@@ -39,13 +39,13 @@ Scripts, custom HTML and CSS, and arbitrary URLs are not supported. Record block
 
 ## Build a list and detail app {icon="terminal-2"}
 
-You need **Admin** access to the app's base. Start with UUIDs for the base, saved view, table, and fields you want to display.
+You need **Admin** access to the app's base. Start with the 6-character public IDs for the base, saved view, table, and fields you want to display.
 
 ```yaml
-schemaVersion: 4
+schemaVersion: 5
 kind: grids.custom-app
-id: 00000000-0000-4000-8000-000000000001
-baseId: 00000000-0000-4000-8000-000000000002
+id: app001
+baseId: bas001
 name: Request overview
 icon: app-window
 startPageId: home
@@ -56,7 +56,7 @@ sidebar:
       label: New request
       icon: plus
       tone: success
-      formId: 00000000-0000-4000-8000-000000000006
+      formId: frm001
       fixedValues: {}
 pages:
   - id: home
@@ -75,7 +75,7 @@ pages:
               - id: apply
                 type: form
                 title: New request
-                formId: 00000000-0000-4000-8000-000000000006
+                formId: frm001
                 fixedValues: {}
                 onSuccessNavigate:
                   kind: navigate
@@ -91,11 +91,11 @@ pages:
                 title: Recent requests
                 source:
                   kind: view
-                  viewId: 00000000-0000-4000-8000-000000000003
+                  viewId: viw001
                 display:
                   kind: table
                   columnIds:
-                    - 00000000-0000-4000-8000-000000000004
+                    - fld001
                 rowNavigate:
                   kind: navigate
                   pageId: request
@@ -111,10 +111,10 @@ pages:
     parameters:
       request_id:
         type: record
-        tableId: 00000000-0000-4000-8000-000000000005
+        tableId: tbl001
         required: true
     record:
-      tableId: 00000000-0000-4000-8000-000000000005
+      tableId: tbl001
       id:
         source: PARAMS
         path: request_id
@@ -128,12 +128,12 @@ pages:
                 type: record
                 title: Request
                 fieldIds:
-                  - 00000000-0000-4000-8000-000000000004
+                  - fld001
                 editableFieldIds:
-                  - 00000000-0000-4000-8000-000000000004
+                  - fld001
                 documents:
                   templateIds:
-                    - 00000000-0000-4000-8000-000000000007
+                    - tpl001
 ```
 
 The Form, saved view, and `request_id` parameter must use the same records table. After a successful submit, Grids replaces the current URL with the new record's detail page. Clicking an existing row opens the same detail page.
@@ -146,7 +146,7 @@ A Form block may hide user inputs and supply them with typed bindings. `LITERAL`
 
 ```yaml
 fixedValues:
-  00000000-0000-4000-8000-000000000007:
+  tpl001:
     source: PARAMS
     path: parent_id
 ```
@@ -175,7 +175,7 @@ Apply the definition. This updates only the draft:
 cld grids apps apply MyBase --source-file requests.yaml
 ```
 
-On first apply, Grids assigns the app's stable five-character `shortId`. It remains route metadata outside the authoring definition, so later applies preserve it and `apps export` does not contain `shortId`.
+The definition's 6-character `id` is the app's stable public ID and route segment. Later applies preserve it, and `apps export` contains that same `id`.
 
 ## Build visually {icon="apps"}
 

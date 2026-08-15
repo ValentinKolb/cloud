@@ -38,6 +38,18 @@ import type { Field, RecordList } from "./types";
 type DbRow = Record<string, unknown>;
 const RECORD_QUERY_TIMEOUT_MS = 5_000;
 
+/** Resolves the only public record identifier to a live internal record. */
+export const getByShortId = async (shortId: string) => {
+  const [row] = await sql<Array<{ id: string; table_id: string }>>`
+    SELECT r.id::text, r.table_id::text
+    FROM grids.records r
+    JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE r.short_id = ${shortId} AND r.deleted_at IS NULL
+  `;
+  return row ? get(row.table_id, row.id) : null;
+};
+
 export const countAccessibleByTable = async (
   entries: readonly { tableId: string; recordAccess: AuthorizedRecordAccess }[],
 ): Promise<Record<string, number>> => {

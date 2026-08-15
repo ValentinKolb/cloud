@@ -33,7 +33,7 @@ by the page ownership query.
 | Responsible group | Open | Read and update `all` | Read and update `all` | Read and submit |
 
 The fixed List relation is authorized again on submission. Supplying another
-list UUID in the URL cannot create or reveal an article for an inaccessible
+list public ID in the URL cannot create or reveal an article for an inaccessible
 parent.
 
 ## Built-in Inventory template

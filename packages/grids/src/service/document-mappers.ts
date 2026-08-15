@@ -36,6 +36,7 @@ export const mapDocumentTemplate = (row: DocumentDbRow): DocumentTemplate => ({
 
 export const mapRecordSnapshot = (row: DocumentDbRow): RecordSnapshot => ({
   id: row.id as string,
+  shortId: row.short_id as string,
   baseId: row.base_id as string,
   tableId: row.table_id as string,
   recordId: row.record_id as string,
@@ -47,6 +48,7 @@ export const mapRecordSnapshot = (row: DocumentDbRow): RecordSnapshot => ({
 
 export const mapRecordSnapshotSummary = (row: DocumentDbRow): RecordSnapshotSummary => ({
   id: row.id as string,
+  shortId: row.short_id as string,
   baseId: row.base_id as string,
   tableId: row.table_id as string,
   recordId: row.record_id as string,
@@ -74,6 +76,7 @@ export const mapDocumentRun = (row: DocumentDbRow): DocumentRun => ({
 
 export const mapDocumentLink = (row: DocumentDbRow): DocumentLink => ({
   id: row.id as string,
+  shortId: row.short_id as string,
   documentRunId: row.document_run_id as string,
   baseId: row.base_id as string,
   tableId: row.table_id as string,

@@ -29,24 +29,24 @@ export const loadWorkspaceRequest = async (
     return { kind: "accessDenied", title: "Access denied", message: "Base admin access is required to edit Apps" };
   }
   const requestedCustomApp = params.activeCustomAppSlug
-    ? await gridsService.customApp.getByIdOrShortId(base.id, params.activeCustomAppSlug)
+    ? await gridsService.customApp.getByShortIdForBase(base.id, params.activeCustomAppSlug)
     : null;
   const requestedDocumentTable =
     params.activeDocumentTableSlug && params.activeDocumentTemplateSlug
-      ? await gridsService.table.getByIdOrShortId(base.id, params.activeDocumentTableSlug)
+      ? await gridsService.table.getByShortIdForBase(base.id, params.activeDocumentTableSlug)
       : null;
   const requestedDocumentTemplate =
     requestedDocumentTable && params.activeDocumentTemplateSlug
-      ? await gridsService.document.getTemplateByIdOrShortId(requestedDocumentTable.id, params.activeDocumentTemplateSlug)
+      ? await gridsService.document.getTemplateByShortIdForTable(requestedDocumentTable.id, params.activeDocumentTemplateSlug)
       : null;
   const requestedWorkflow = params.activeWorkflowSlug
-    ? await gridsService.workflow.getByIdOrShortId(base.id, params.activeWorkflowSlug)
+    ? await gridsService.workflow.getByShortIdForBase(base.id, params.activeWorkflowSlug)
     : null;
   const requestedViewTable =
-    params.activeTableSlug && params.activeViewSlug ? await gridsService.table.getByIdOrShortId(base.id, params.activeTableSlug) : null;
+    params.activeTableSlug && params.activeViewSlug ? await gridsService.table.getByShortIdForBase(base.id, params.activeTableSlug) : null;
   const requestedView =
     requestedViewTable && params.activeViewSlug
-      ? await gridsService.view.getByIdOrShortId(requestedViewTable.id, params.activeViewSlug)
+      ? await gridsService.view.getByShortIdForTable(requestedViewTable.id, params.activeViewSlug)
       : null;
 
   const canCreateTables = gridsService.permission.hasAtLeast(level, "write");

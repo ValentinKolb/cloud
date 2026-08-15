@@ -1,17 +1,10 @@
-import { prompts, Button } from "@k2b/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations, timed as timing } from "@k2b/stdlib/solid";
+import { Button, prompts } from "@k2b/ui";
 import { createEffect, createSignal, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type {
-  DocumentRunBrowseResponse,
-  DocumentRunFolder,
-  DocumentRunSummary,
-  DocumentTemplate,
-  DocumentTemplateSummary,
-} from "../../../contracts";
-import type { Table } from "../../../service";
+import type { PublicTable as Table } from "../../../api/public-dto";
 import { openDocumentTemplateEditorDialog } from "../dialogs/TableAdminDialogs";
 import { type GridsDocumentViewMode, setDocumentViewMode } from "../sidebar/GridsSettingsStore";
 import { errorMessage } from "../utils/api-helpers";
@@ -33,18 +26,25 @@ import {
 import { downloadPdfResponse } from "./document-download";
 import { requestDocumentRunDownload } from "./document-transfer-client";
 import { formatDocumentMonth } from "./document-workspace-utils";
+import type {
+  PublicDocumentRunBrowseResponse,
+  PublicDocumentRunFolder,
+  PublicDocumentRunSummary,
+  PublicDocumentTemplate,
+  PublicDocumentTemplateSummary,
+} from "./public-document-types";
 
 type Props = {
   baseId: string;
   table: Table;
-  template: DocumentTemplateSummary;
-  editableTemplate: DocumentTemplate | null;
+  template: PublicDocumentTemplateSummary;
+  editableTemplate: PublicDocumentTemplate | null;
   canWriteTemplate: boolean;
   canManageTemplate: boolean;
   editMode: boolean;
   initialRecordId: string | null;
   initialDocumentViewMode: GridsDocumentViewMode;
-  initialBrowserPage: DocumentRunBrowseResponse;
+  initialBrowserPage: PublicDocumentRunBrowseResponse;
   dateConfig?: DateContext;
 };
 
@@ -52,7 +52,7 @@ const PAGE_SIZE = 200;
 
 const fetchBrowserPage = async (
   args: ReturnType<typeof documentBrowserKey> & { cursor?: string | null; signal?: AbortSignal },
-): Promise<DocumentRunBrowseResponse> => {
+): Promise<PublicDocumentRunBrowseResponse> => {
   const res = await apiClient.documents.runs["by-template"][":templateId"].browse.$get(
     {
       param: { templateId: args.templateId },
@@ -67,7 +67,7 @@ const fetchBrowserPage = async (
     args.signal ? { init: { signal: args.signal } } : undefined,
   );
   if (!res.ok) throw new Error(await errorMessage(res, "Could not load generated documents"));
-  return (await res.json()) as DocumentRunBrowseResponse;
+  return (await res.json()) as PublicDocumentRunBrowseResponse;
 };
 
 export default function DocumentTemplateWorkspace(props: Props) {
@@ -77,8 +77,8 @@ export default function DocumentTemplateWorkspace(props: Props) {
   const [viewMode, setViewMode] = createSignal<DocumentViewMode>(props.initialDocumentViewMode);
   const [folderPath, setFolderPath] = createSignal<string[]>([]);
   const [busy, setBusy] = createSignal<string | null>(null);
-  const [runItems, setRunItems] = createSignal<DocumentRunSummary[]>(initialPage.runs);
-  const [folderItems, setFolderItems] = createSignal<DocumentRunFolder[]>(initialPage.folders);
+  const [runItems, setRunItems] = createSignal<PublicDocumentRunSummary[]>(initialPage.runs);
+  const [folderItems, setFolderItems] = createSignal<PublicDocumentRunFolder[]>(initialPage.folders);
   const [runPage, setRunPage] = createSignal<{ total: number; hasMore: boolean; nextCursor: string | null }>({
     total: initialPage.total,
     hasMore: initialPage.hasMore,
@@ -92,7 +92,7 @@ export default function DocumentTemplateWorkspace(props: Props) {
   const currentBrowserKey = () => documentBrowserKey(props.template.id, viewMode(), search(), folderPath());
   const browserKeyString = (key = currentBrowserKey()) => serializeDocumentBrowserKey(key);
   let loadedBrowserKey = browserKeyString();
-  const browserMut = mutations.create<DocumentRunBrowseResponse, ReturnType<typeof currentBrowserKey>>({
+  const browserMut = mutations.create<PublicDocumentRunBrowseResponse, ReturnType<typeof currentBrowserKey>>({
     mutation: (key, { abortSignal }) => fetchBrowserPage({ ...key, search: key.search.trim(), signal: abortSignal }),
     onSuccess: (page) => {
       const next = replaceDocumentBrowserPage(page);
@@ -113,7 +113,7 @@ export default function DocumentTemplateWorkspace(props: Props) {
     browserMut.mutate(key);
   });
 
-  const loadMoreMut = mutations.create<DocumentRunBrowseResponse, void, { key: string; cursor: string }>({
+  const loadMoreMut = mutations.create<PublicDocumentRunBrowseResponse, void, { key: string; cursor: string }>({
     onBefore: () => {
       const cursor = runPage().nextCursor;
       if (!cursor) throw new Error("No more documents to load.");
@@ -140,7 +140,7 @@ export default function DocumentTemplateWorkspace(props: Props) {
   const generatedRuns = () => runItems();
   const folders = () => folderItems();
   const countLabel = () => documentCountLabel(activeViewMode(), folders(), generatedRuns(), runPage().total);
-  const folderTitle = (folder: DocumentRunFolder) => {
+  const folderTitle = (folder: PublicDocumentRunFolder) => {
     if (folder.kind === "year") return folder.label;
     const [year, month] = folder.path;
     return year && month ? formatDocumentMonth(year, month, props.dateConfig) : folder.label;
@@ -158,23 +158,23 @@ export default function DocumentTemplateWorkspace(props: Props) {
     setDocumentViewMode(mode);
     if (mode !== "folders") setFolderPath([]);
   };
-  const openFolder = (folder: DocumentRunFolder) => {
+  const openFolder = (folder: PublicDocumentRunFolder) => {
     setViewMode("folders");
     setDocumentViewMode("folders");
     setFolderPath(folder.path);
   };
-  const replaceRun = (next: DocumentRunSummary) => {
+  const replaceRun = (next: PublicDocumentRunSummary) => {
     setRunItems((items) => items.map((item) => (item.id === next.id ? next : item)));
   };
-  const downloadRun = async (run: DocumentRunSummary, signal?: AbortSignal) => {
+  const downloadRun = async (run: PublicDocumentRunSummary, signal?: AbortSignal) => {
     const res = await requestDocumentRunDownload(run.id, signal);
     await downloadPdfResponse(res, run.filename);
   };
-  const openCreateLink = (run: DocumentRunSummary) => {
+  const openCreateLink = (run: PublicDocumentRunSummary) => {
     if (!props.canWriteTemplate) return;
     void openDocumentLinkDialog({ run, onCreated: async () => {} });
   };
-  const openRunDetails = (run: DocumentRunSummary) =>
+  const openRunDetails = (run: PublicDocumentRunSummary) =>
     void openDocumentRunDetailsDialog({
       run,
       canWrite: props.canWriteTemplate,
@@ -194,7 +194,7 @@ export default function DocumentTemplateWorkspace(props: Props) {
     });
   };
 
-  const downloadMut = mutations.create<void, DocumentRunSummary, { runId: string }>({
+  const downloadMut = mutations.create<void, PublicDocumentRunSummary, { runId: string }>({
     onBefore: (run) => {
       setBusy(run.id);
       return { runId: run.id };

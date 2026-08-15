@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { insertWithShortId, SHORT_ID_REGEX } from "./short-id";
+import type { SQL } from "bun";
+import { insertWithShortId, insertWithShortIdForDb, SHORT_ID_LENGTH, SHORT_ID_REGEX } from "./short-id";
 
 // =============================================================================
 // insertWithShortId — pure with an injected insert function, so we can
@@ -24,8 +25,9 @@ describe("insertWithShortId", () => {
     const row = await insertWithShortId(async (shortId) => {
       seenSlugs.push(shortId);
       return { shortId };
-    }, "idx_grids_bases_shortId");
+    }, "idx_grids_bases_short_id");
     expect(row.shortId).toMatch(SHORT_ID_REGEX);
+    expect(row.shortId).toHaveLength(SHORT_ID_LENGTH);
     expect(seenSlugs).toHaveLength(1);
   });
 
@@ -35,9 +37,9 @@ describe("insertWithShortId", () => {
     const row = await insertWithShortId(async (shortId) => {
       seenSlugs.push(shortId);
       attempt++;
-      if (attempt <= 2) throw shortIdUniqueViolation("idx_grids_bases_shortId");
+      if (attempt <= 2) throw shortIdUniqueViolation("idx_grids_bases_short_id");
       return { shortId, attempt };
-    }, "idx_grids_bases_shortId");
+    }, "idx_grids_bases_short_id");
     expect(attempt).toBe(3);
     expect(row.attempt).toBe(3);
     expect(seenSlugs).toHaveLength(3);
@@ -49,8 +51,8 @@ describe("insertWithShortId", () => {
     let attempt = 0;
     const promise = insertWithShortId(async () => {
       attempt++;
-      throw shortIdUniqueViolation("idx_grids_bases_shortId");
-    }, "idx_grids_bases_shortId");
+      throw shortIdUniqueViolation("idx_grids_bases_short_id");
+    }, "idx_grids_bases_short_id");
     await expect(promise).rejects.toThrow(/10 collisions/);
     expect(attempt).toBe(10);
   });
@@ -60,7 +62,7 @@ describe("insertWithShortId", () => {
     const promise = insertWithShortId(async () => {
       attempt++;
       throw shortIdUniqueViolation("bases_pkey");
-    }, "idx_grids_bases_shortId");
+    }, "idx_grids_bases_short_id");
     await expect(promise).rejects.toMatchObject({ code: "23505", constraint_name: "bases_pkey" });
     // No retry — it's not the shortId index.
     expect(attempt).toBe(1);
@@ -73,8 +75,29 @@ describe("insertWithShortId", () => {
       const e = new Error("FK violation") as Error & { code: string };
       e.code = "23503";
       throw e;
-    }, "idx_grids_bases_shortId");
+    }, "idx_grids_bases_short_id");
     await expect(promise).rejects.toMatchObject({ code: "23503" });
     expect(attempt).toBe(1);
+  });
+
+  test("isolates each retry in a savepoint when called inside a transaction", async () => {
+    let attempts = 0;
+    let savepoints = 0;
+    const transaction = {
+      savepoint: async <T>(write: (attempt: SQL) => Promise<T>): Promise<T> => {
+        savepoints++;
+        return write({} as SQL);
+      },
+    } as SQL & { savepoint: <T>(write: (attempt: SQL) => Promise<T>) => Promise<T> };
+
+    const row = await insertWithShortIdForDb(transaction, "idx_grids_records_short_id", async (_db, shortId) => {
+      attempts++;
+      if (attempts === 1) throw shortIdUniqueViolation("idx_grids_records_short_id");
+      return { shortId };
+    });
+
+    expect(row.shortId).toMatch(SHORT_ID_REGEX);
+    expect(attempts).toBe(2);
+    expect(savepoints).toBe(2);
   });
 });

@@ -1,11 +1,10 @@
 import type { Completion, SuggestContext, Suggestion } from "@k2b/ui";
+import type { PublicField as Field } from "../../../api/public-dto";
 import { type FormulaFunction, type FormulaValueType, GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
 import { formatIdentifierRef } from "../../../ref-syntax";
-import type { Field } from "../../../service";
 
 type FormulaFieldRef = {
   id: string;
-  shortId: string;
   name: string;
   type: string;
 };
@@ -13,9 +12,7 @@ type FormulaFieldRef = {
 /**
  * Canonical reference syntax for newly authored formulas.
  *
- * Stored formulas still evaluate legacy `#shortId` and `{fieldId}` references
- * for compatibility, but UI completions and reference tables must emit this
- * field-name form so users see one obvious way to write new formulas.
+ * UI completions and reference tables emit the canonical field-name form.
  */
 export const formulaFieldToken = (field: Pick<FormulaFieldRef, "name">): string => formatIdentifierRef(field.name);
 
@@ -32,7 +29,6 @@ export const formulaFieldRefs = (fields: Field[], currentFieldId?: string): Form
     .filter((field) => !field.deletedAt && field.id !== currentFieldId && !UNSUITABLE_FIELD_TYPES.has(field.type))
     .map((field) => ({
       id: field.id,
-      shortId: field.shortId,
       name: field.name,
       type: field.type,
     }));
@@ -49,11 +45,10 @@ const isFieldCompatible = (field: FormulaFieldRef, expected: FormulaValueType): 
 const escapeHtml = (text: string): string => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const isAlpha = (ch: string | undefined): boolean => !!ch && /[A-Za-z_]/.test(ch);
 const isAlphaNum = (ch: string | undefined): boolean => !!ch && /[A-Za-z0-9_]/.test(ch);
-const isRefChar = (ch: string | undefined): boolean => !!ch && /[A-Za-z0-9]/.test(ch);
 const isDigit = (ch: string | undefined): boolean => !!ch && /[0-9]/.test(ch);
 const isFormulaOperator = (ch: string): boolean => /[()+\-*/%,=<>!]/.test(ch);
 
-const suggestionNeedle = (field: FormulaFieldRef): string => `${field.name} ${field.shortId} ${field.type}`.toLowerCase();
+const suggestionNeedle = (field: FormulaFieldRef): string => `${field.name} ${field.type}`.toLowerCase();
 
 const fieldSuggestion = (field: FormulaFieldRef, textPrefix = ""): Suggestion => ({
   text: `${textPrefix}${field.name}`,
@@ -183,20 +178,6 @@ export const buildFormulaCompletions = (fields: FormulaFieldRef[]): Completion[]
         : GRID_FORMULA_FUNCTIONS.filter((fn) => fn.name.startsWith(query.toUpperCase())).map((fn) => functionSuggestion(fn, "=")),
   },
   {
-    trigger: "#",
-    dropdown: true,
-    // Compatibility affordance: users may start searching with the old hash
-    // prefix, but accepting a suggestion writes the canonical field-name ref.
-    suggest: (query) =>
-      fields
-        .filter((field) => matchesQuery(field, query))
-        .map((field) => ({
-          ...fieldSuggestion(field, "#"),
-          text: `#${field.name}`,
-          expansion: formulaFieldToken(field),
-        })),
-  },
-  {
     dropdown: true,
     suggest: (query, ctx) => formulaValueSuggestions(fields, query, ctx),
   },
@@ -258,12 +239,6 @@ export const formulaHighlight = (text: string): string => {
     }
     if (ch === '"') {
       const end = quotedTokenEnd(i);
-      out += span("field", text.slice(i, end));
-      i = end;
-      continue;
-    }
-    if (ch === "#") {
-      const end = readWhile(i + 1, isRefChar);
       out += span("field", text.slice(i, end));
       i = end;
       continue;

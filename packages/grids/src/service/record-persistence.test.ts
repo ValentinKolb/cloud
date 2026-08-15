@@ -4,7 +4,7 @@ import type { Field } from "./types";
 
 const field = (id: string, type: string, patch: Partial<Field> = {}): Field => ({
   id,
-  shortId: id.slice(0, 5),
+  shortId: id.slice(0, 6),
   tableId: "00000000-0000-0000-0000-000000000000",
   name: id,
   description: null,
@@ -28,6 +28,7 @@ describe("record persistence", () => {
     expect(
       mapRecordRow({
         id: "record-id",
+        short_id: "REC001",
         table_id: "table-id",
         data: JSON.stringify({ name: "Ada" }),
         version: 3,
@@ -39,6 +40,7 @@ describe("record persistence", () => {
       }),
     ).toEqual({
       id: "record-id",
+      shortId: "REC001",
       tableId: "table-id",
       data: { name: "Ada" },
       version: 3,

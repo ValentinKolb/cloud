@@ -2,7 +2,6 @@ import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, getDateConfig, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { DocumentPreviewResponseSchema, DocumentRecordBodySchema, DocumentTemplateDraftPreviewSchema } from "../contracts";
 import { gridsService } from "../service";
 import {
   addDraftDocumentMetadata,
@@ -12,13 +11,18 @@ import {
   gateTemplate,
   liveRenderData,
   loadTemplateAndTable,
+  PublicDocumentPreviewResponseSchema,
+  PublicDocumentRecordBodySchema,
+  PublicDocumentTemplateDraftPreviewSchema,
+  projectDocumentPreviewData,
   renderDraftDataResponse,
   renderDraftPdfResponse,
+  resolveDocumentRecordId,
   snapshotRecordAccessResolver,
-  uuidParam,
 } from "./documents-api-shared";
 import { encodeHeaderValue, pdfResponse } from "./download-response";
 import { currentActorUserId, currentActorViewer, gateAt } from "./permissions";
+import { resolvePublicIdParam } from "./route-params";
 
 export const createDocumentRenderRoutes = () =>
   new Hono<AuthContext>()
@@ -32,9 +36,9 @@ export const createDocumentRenderRoutes = () =>
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
-      v("json", DocumentTemplateDraftPreviewSchema),
+      v("json", PublicDocumentTemplateDraftPreviewSchema),
       async (c) => {
-        const tableId = uuidParam(c, "tableId");
+        const tableId = await resolvePublicIdParam(c, "tableId", "table");
         if (!tableId) return c.json({ message: "Table not found", phase: "data" }, 404);
         const table = await gridsService.table.get(tableId);
         if (!table) return c.json({ message: "Table not found", phase: "data" }, 404);
@@ -42,7 +46,9 @@ export const createDocumentRenderRoutes = () =>
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
         const body = c.req.valid("json");
-        return renderDraftPdfResponse(c, { template: draftTemplateFromBody(body), tableId, recordId: body.recordId });
+        const recordId = await resolveDocumentRecordId(body.recordId);
+        if (!recordId) return c.json({ message: "Record not found", phase: "data" }, 404);
+        return renderDraftPdfResponse(c, { template: draftTemplateFromBody(body), tableId, recordId });
       },
     )
 
@@ -52,13 +58,13 @@ export const createDocumentRenderRoutes = () =>
         tags: ["Grids:Document"],
         summary: "Render draft document template data for one preview record",
         responses: {
-          200: jsonResponse(DocumentPreviewResponseSchema, "Draft document preview data"),
+          200: jsonResponse(PublicDocumentPreviewResponseSchema, "Draft document preview data"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
-      v("json", DocumentTemplateDraftPreviewSchema),
+      v("json", PublicDocumentTemplateDraftPreviewSchema),
       async (c) => {
-        const tableId = uuidParam(c, "tableId");
+        const tableId = await resolvePublicIdParam(c, "tableId", "table");
         if (!tableId) return c.json({ message: "Table not found", phase: "data" }, 404);
         const table = await gridsService.table.get(tableId);
         if (!table) return c.json({ message: "Table not found", phase: "data" }, 404);
@@ -66,7 +72,9 @@ export const createDocumentRenderRoutes = () =>
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
         const body = c.req.valid("json");
-        return renderDraftDataResponse(c, { template: draftTemplateFromBody(body), tableId, recordId: body.recordId });
+        const recordId = await resolveDocumentRecordId(body.recordId);
+        if (!recordId) return c.json({ message: "Record not found", phase: "data" }, 404);
+        return renderDraftDataResponse(c, { template: draftTemplateFromBody(body), tableId, recordId });
       },
     )
 
@@ -80,7 +88,7 @@ export const createDocumentRenderRoutes = () =>
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
-      v("json", DocumentTemplateDraftPreviewSchema),
+      v("json", PublicDocumentTemplateDraftPreviewSchema),
       async (c) => {
         const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
         if (!loaded) return c.json({ message: "Document template not found", phase: "data" }, 404);
@@ -88,10 +96,12 @@ export const createDocumentRenderRoutes = () =>
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
         const body = c.req.valid("json");
+        const recordId = await resolveDocumentRecordId(body.recordId);
+        if (!recordId) return c.json({ message: "Record not found", phase: "data" }, 404);
         return renderDraftPdfResponse(c, {
           template: draftTemplateFromBody(body, loaded.template),
           tableId: loaded.table.id,
-          recordId: body.recordId,
+          recordId,
         });
       },
     )
@@ -102,11 +112,11 @@ export const createDocumentRenderRoutes = () =>
         tags: ["Grids:Document"],
         summary: "Render draft document template data using template admin access",
         responses: {
-          200: jsonResponse(DocumentPreviewResponseSchema, "Draft document preview data"),
+          200: jsonResponse(PublicDocumentPreviewResponseSchema, "Draft document preview data"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
-      v("json", DocumentTemplateDraftPreviewSchema),
+      v("json", PublicDocumentTemplateDraftPreviewSchema),
       async (c) => {
         const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
         if (!loaded) return c.json({ message: "Document template not found", phase: "data" }, 404);
@@ -114,10 +124,12 @@ export const createDocumentRenderRoutes = () =>
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
         const body = c.req.valid("json");
+        const recordId = await resolveDocumentRecordId(body.recordId);
+        if (!recordId) return c.json({ message: "Record not found", phase: "data" }, 404);
         return renderDraftDataResponse(c, {
           template: draftTemplateFromBody(body, loaded.template),
           tableId: loaded.table.id,
-          recordId: body.recordId,
+          recordId,
         });
       },
     )
@@ -128,23 +140,25 @@ export const createDocumentRenderRoutes = () =>
         tags: ["Grids:Document"],
         summary: "Preview a document template for one record",
         responses: {
-          200: jsonResponse(DocumentPreviewResponseSchema, "Rendered HTML preview"),
+          200: jsonResponse(PublicDocumentPreviewResponseSchema, "Rendered HTML preview"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
-      v("json", DocumentRecordBodySchema),
+      v("json", PublicDocumentRecordBodySchema),
       async (c) => {
         const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
         if (!loaded) return c.json({ message: "Document template not found" }, 404);
         const gate = await gateTemplate(c, loaded, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
+        const recordId = await resolveDocumentRecordId(c.req.valid("json").recordId);
+        if (!recordId) return c.json({ message: "Record not found" }, 404);
         const generatedAt = new Date();
         const dateConfig = await getDateConfig(c);
         const rendered = await liveRenderData(c, {
           template: loaded.template,
           tableId: loaded.table.id,
-          recordId: c.req.valid("json").recordId,
+          recordId,
           generatedAt,
           dateConfig,
         });
@@ -153,7 +167,7 @@ export const createDocumentRenderRoutes = () =>
         if (!data.ok) return data.response;
         const html = await gridsService.document.renderHtml(loaded.template, data.data);
         if (!html.ok) return c.json({ message: html.error.message }, html.error.status);
-        return c.json({ html: html.data, source: rendered.source, data: data.data });
+        return c.json({ html: html.data, source: rendered.source, data: await projectDocumentPreviewData(data.data) });
       },
     )
 
@@ -167,18 +181,20 @@ export const createDocumentRenderRoutes = () =>
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
-      v("json", DocumentRecordBodySchema),
+      v("json", PublicDocumentRecordBodySchema),
       async (c) => {
         const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
         if (!loaded) return c.json({ message: "Document template not found" }, 404);
         const gate = await gateEnabledTemplateWrite(c, loaded);
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const recordId = await resolveDocumentRecordId(c.req.valid("json").recordId);
+        if (!recordId) return c.json({ message: "Record not found" }, 404);
         const generatedAt = new Date();
         const dateConfig = await getDateConfig(c);
         const rendered = await liveRenderData(c, {
           template: loaded.template,
           tableId: loaded.table.id,
-          recordId: c.req.valid("json").recordId,
+          recordId,
           generatedAt,
           dateConfig,
         });
@@ -206,7 +222,7 @@ export const createDocumentRenderRoutes = () =>
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
-      v("json", DocumentRecordBodySchema),
+      v("json", PublicDocumentRecordBodySchema),
       async (c) => {
         const loaded = await loadTemplateAndTable(c.req.param("templateId")!);
         if (!loaded) return c.json({ message: "Document template not found" }, 404);
@@ -215,12 +231,14 @@ export const createDocumentRenderRoutes = () =>
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
         const body = c.req.valid("json");
+        const recordId = await resolveDocumentRecordId(body.recordId);
+        if (!recordId) return c.json({ message: "Record not found" }, 404);
         const generatedAt = new Date();
         const dateConfig = await getDateConfig(c);
         const rendered = await liveRenderData(c, {
           template: loaded.template,
           tableId: loaded.table.id,
-          recordId: body.recordId,
+          recordId,
           generatedAt,
           dateConfig,
         });
@@ -228,7 +246,7 @@ export const createDocumentRenderRoutes = () =>
         const snapshot = await gridsService.document.createRecordSnapshotDraft({
           baseId: loaded.table.baseId,
           tableId: loaded.table.id,
-          recordId: body.recordId,
+          recordId,
           actorId: currentActorUserId(c),
           resolveRecordAccess: snapshotRecordAccessResolver(c),
           viewer: currentActorViewer(c),
@@ -248,7 +266,7 @@ export const createDocumentRenderRoutes = () =>
         });
         if (!created.ok) return c.json({ message: created.error.message }, created.error.status);
         return pdfResponse(created.data.pdf.pdf, created.data.run.filename, {
-          "X-Grids-Document-Run-Id": created.data.run.id,
+          "X-Grids-Document-Run-Id": created.data.run.shortId,
           "X-Grids-Document-Number": created.data.run.documentNumber,
           "X-Grids-Document-Filename": encodeHeaderValue(created.data.run.filename),
         });

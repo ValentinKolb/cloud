@@ -1,5 +1,5 @@
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
-import type { EmailTemplate } from "../../../contracts";
+import type { PublicEmailTemplate } from "../../../api/public-email-templates";
 
 type WorkflowEmailTemplateDraft = {
   name: string;
@@ -11,7 +11,7 @@ type WorkflowEmailTemplateDraft = {
 };
 
 export const workflowEmailTemplateDraft = (
-  template: EmailTemplate | undefined,
+  template: PublicEmailTemplate | undefined,
   defaultSubject: string,
   defaultHtml: string,
   defaultSampleData: Record<string, WorkflowJsonValue>,

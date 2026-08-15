@@ -2,11 +2,11 @@ import { mutation as mutations } from "@k2b/stdlib/solid";
 import { Button, Placeholder, prompts } from "@k2b/ui";
 import { createMemo, createSignal, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { DslQueryPreviewResponse } from "../../../contracts";
-import type { Field, Table } from "../../../service";
+import type { PublicDslQueryPreviewResponse } from "../../../api/gql-public";
+import type { PublicField as Field, PublicTable as Table } from "../../../api/public-dto";
 import { openViewSettingsDialog } from "../dialogs/ViewSettingsDialogs";
 import { errorMessage } from "../utils/api-helpers";
-import type { WorkspaceQueryResultViewRoute } from "../workspace/workspace-state-model";
+import type { PublicWorkspaceQueryResultViewRoute } from "../workspace/workspace-public-state-model";
 import QueryResultTable from "./QueryResultTable";
 
 const leaveEditMode = () => {
@@ -24,8 +24,7 @@ const syncCursorToUrl = (cursor: string | null) => {
 
 export default function QueryResultView(props: {
   baseId: string;
-  baseShortId: string;
-  route: WorkspaceQueryResultViewRoute;
+  route: PublicWorkspaceQueryResultViewRoute;
   tables: Table[];
   fieldsByTable: Record<string, Field[]>;
   editMode: boolean;
@@ -35,22 +34,20 @@ export default function QueryResultView(props: {
     if (!props.route.canEditActiveView) return;
     openViewSettingsDialog({
       baseId: props.baseId,
-      baseShortId: props.baseShortId,
-      tableShortId: props.route.activeTable.shortId,
-      viewShortId: props.route.activeView.shortId,
+      tableId: props.route.activeTable.id,
+      viewId: props.route.activeView.id,
       tableName: props.route.activeTable.name,
       initialView: props.route.activeView,
       fields: props.route.fields,
       onSaved: () => window.location.reload(),
     });
   };
-  const [result, setResult] = createSignal<DslQueryPreviewResponse | null>(props.route.initialResult);
+  const [result, setResult] = createSignal<PublicDslQueryPreviewResponse | null>(props.route.initialResult);
   const [pageCursor, setPageCursor] = createSignal<string | null>(props.route.initialCursor);
   const [pageHistory, setPageHistory] = createSignal<Array<string | null>>([]);
   const [hydrated, setHydrated] = createSignal(false);
-  const tableShortIds = createMemo(() => Object.fromEntries(props.tables.map((table) => [table.id, table.shortId])));
   onMount(() => setHydrated(true));
-  const pageMut = mutations.create<DslQueryPreviewResponse, PageRequest, PageRequest>({
+  const pageMut = mutations.create<PublicDslQueryPreviewResponse, PageRequest, PageRequest>({
     onBefore: (request) => request,
     mutation: async (request, { abortSignal }) => {
       const response = await apiClient.gql["by-base"][":baseId"].views[":viewId"].execute.$post(
@@ -135,8 +132,7 @@ export default function QueryResultView(props: {
           {(resolved) => (
             <QueryResultTable
               result={resolved()}
-              baseShortId={props.baseShortId}
-              tableShortIds={tableShortIds()}
+              baseId={props.baseId}
               fieldsByTable={props.fieldsByTable}
               scrollPreserveKey={`grids-query-result-view-${props.route.activeView.id}`}
               loading={!hydrated() || pageMut.loading()}

@@ -1,9 +1,10 @@
 import type { AggregationSpec } from "./contracts";
-import type { Field } from "./service/types";
+
+type AggregationField = { id: string; type: string; deletedAt: string | null };
 
 const SUM_TYPES = new Set(["number", "duration"]);
 
-export const defaultTableAggregations = (fields: Field[]): AggregationSpec[] => [
+export const defaultTableAggregations = (fields: AggregationField[]): AggregationSpec[] => [
   { fieldId: "*", agg: "count", label: "records" },
   ...fields
     .filter((f) => !f.deletedAt)

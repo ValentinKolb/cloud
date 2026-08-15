@@ -35,14 +35,14 @@ describe("formulaHandler config", () => {
     expect(r.success).toBe(true);
   });
 
-  test("accepts a valid expression with a #slug reference", () => {
-    const r = parse({ expression: "#aB3kQ * 1.19" });
+  test("accepts a valid expression with a public id reference", () => {
+    const r = parse({ expression: "{aB3kQ1} * 1.19" });
     expect(r.success).toBe(true);
   });
 
   test("preserves a display format", () => {
     const format = { kind: "barcode", bcid: "code128", showText: true };
-    const r = parse({ expression: "#aB3kQ", format });
+    const r = parse({ expression: "{aB3kQ1}", format });
     expect(r.success).toBe(true);
     if (r.success) expect((r.data as { format?: unknown }).format).toEqual(format);
   });

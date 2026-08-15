@@ -26,19 +26,19 @@ const field = (overrides: Partial<Field> & Pick<Field, "id" | "shortId" | "name"
 });
 
 const fields = [
-  field({ id: "price_id", shortId: "price", name: "Price", type: "number" }),
-  field({ id: "qty_id", shortId: "qty", name: "Quantity", type: "number" }),
-  field({ id: "name_id", shortId: "name", name: "Name", type: "text" }),
-  field({ id: "paid_id", shortId: "paid", name: "Paid", type: "boolean" }),
-  field({ id: "due_id", shortId: "due", name: "Due", type: "date" }),
-  field({ id: "at_id", shortId: "at", name: "Timestamp", type: "date", config: { includeTime: true } }),
-  field({ id: "created_at_id", shortId: "created_at", name: "Created at", type: "created_at" }),
-  field({ id: "created_by_id", shortId: "created_by", name: "Created by", type: "created_by" }),
-  field({ id: "customer_id", shortId: "cust", name: "Customer", type: "relation" }),
-  field({ id: "subtotal_id", shortId: "subtl", name: "Subtotal", type: "formula", config: { expression: "#price * #qty" } }),
-  field({ id: "blank_formula_id", shortId: "blankf", name: "Blank", type: "formula" }),
-  field({ id: "cycle_a_id", shortId: "cyca", name: "Cycle A", type: "formula", config: { expression: "#cycb + 1" } }),
-  field({ id: "cycle_b_id", shortId: "cycb", name: "Cycle B", type: "formula", config: { expression: "#cyca + 1" } }),
+  field({ id: "price_id", shortId: "PRICE1", name: "Price", type: "number" }),
+  field({ id: "qty_id", shortId: "QTY001", name: "Quantity", type: "number" }),
+  field({ id: "name_id", shortId: "NAME01", name: "Name", type: "text" }),
+  field({ id: "paid_id", shortId: "PAID01", name: "Paid", type: "boolean" }),
+  field({ id: "due_id", shortId: "DUE001", name: "Due", type: "date" }),
+  field({ id: "at_id", shortId: "AT0001", name: "Timestamp", type: "date", config: { includeTime: true } }),
+  field({ id: "created_at_id", shortId: "CREAT1", name: "Created at", type: "created_at" }),
+  field({ id: "created_by_id", shortId: "CREBY1", name: "Created by", type: "created_by" }),
+  field({ id: "customer_id", shortId: "CUST01", name: "Customer", type: "relation" }),
+  field({ id: "subtotal_id", shortId: "SUBTL1", name: "Subtotal", type: "formula", config: { expression: "{PRICE1} * {QTY001}" } }),
+  field({ id: "blank_formula_id", shortId: "BLANK1", name: "Blank", type: "formula" }),
+  field({ id: "cycle_a_id", shortId: "CYCLA1", name: "Cycle A", type: "formula", config: { expression: "{CYCLB1} + 1" } }),
+  field({ id: "cycle_b_id", shortId: "CYCLB1", name: "Cycle B", type: "formula", config: { expression: "{CYCLA1} + 1" } }),
 ];
 
 describe("compileFormulaSourceToSql", () => {
@@ -48,8 +48,8 @@ describe("compileFormulaSourceToSql", () => {
     if (result.ok) expect(result.expression.type).toBe("numeric");
   });
 
-  test("keeps legacy short field refs readable", () => {
-    const result = compileFormulaSourceToSql("#price * #qty", { fields });
+  test("compiles canonical public field id refs", () => {
+    const result = compileFormulaSourceToSql("{PRICE1} * {QTY001}", { fields });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.expression.type).toBe("numeric");
   });
@@ -131,53 +131,53 @@ describe("compileFormulaSourceToSql", () => {
   });
 
   test("rejects unknown field refs", () => {
-    const result = compileFormulaSourceToSql("#missing + 1", { fields });
+    const result = compileFormulaSourceToSql("{MISS01} + 1", { fields });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain("Unknown formula field reference");
   });
 
   test("rejects non-projectable relation refs instead of falling back to JS", () => {
-    const result = compileFormulaSourceToSql("#cust", { fields });
+    const result = compileFormulaSourceToSql("{CUST01}", { fields });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain("cannot be compiled into SQL formulas");
   });
 
   test("inlines a referenced formula field's own expression", () => {
-    const result = compileFormulaSourceToSql("#subtl + 1", { fields });
+    const result = compileFormulaSourceToSql("{SUBTL1} + 1", { fields });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.expression.type).toBe("numeric");
   });
 
   test("rejects a formula field that has no expression", () => {
-    const result = compileFormulaSourceToSql("#blankf + 1", { fields });
+    const result = compileFormulaSourceToSql("{BLANK1} + 1", { fields });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain("has no expression");
   });
 
   test("rejects a cycle between formula fields", () => {
-    const result = compileFormulaSourceToSql("#cyca + 1", { fields });
+    const result = compileFormulaSourceToSql("{CYCLA1} + 1", { fields });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain("cycle");
   });
 
   test("rejects unsafe record aliases", () => {
-    const result = compileFormulaSourceToSql("#price", { fields, recordAlias: "r; drop table records" });
+    const result = compileFormulaSourceToSql("{PRICE1}", { fields, recordAlias: "r; drop table records" });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain("Unsafe SQL record alias");
   });
 
   test("compiles only boolean formula predicates", () => {
-    const bool = parseFormula("#price <= #qty");
+    const bool = parseFormula("{PRICE1} <= {QTY001}");
     expect(bool.ok).toBe(true);
     if (bool.ok) expect(compileFormulaPredicateAstToSql(bool.ast, { fields })).toMatchObject({ ok: true });
 
-    const numeric = parseFormula("#price + #qty");
+    const numeric = parseFormula("{PRICE1} + {QTY001}");
     expect(numeric.ok).toBe(true);
     if (numeric.ok) expect(compileFormulaPredicateAstToSql(numeric.ast, { fields })).toMatchObject({ ok: false });
   });
 
   test("compiles predicates over caller-provided SQL refs", () => {
-    const bool = parseFormula("#revenue > 100 && #rows >= 2");
+    const bool = parseFormula("revenue > 100 && rows >= 2");
     expect(bool.ok).toBe(true);
     if (!bool.ok) return;
 
@@ -214,8 +214,8 @@ describe("compileFormulaSourceToSql", () => {
       ["AND()", "AND needs at least 1 argument; got 0"],
       ["CONCAT()", "CONCAT needs at least 1 argument; got 0"],
       ["IF(Paid, 'ok')", "IF needs 3 arguments; got 2"],
-      ["SUBSTRING(#name, 1)", "SUBSTRING needs 3 arguments; got 2"],
-      ["TODAY(#due)", "TODAY needs 0 arguments; got 1"],
+      ["SUBSTRING({NAME01}, 1)", "SUBSTRING needs 3 arguments; got 2"],
+      ["TODAY({DUE001})", "TODAY needs 0 arguments; got 1"],
     ] as const;
 
     for (const [source, message] of cases) {
@@ -227,45 +227,45 @@ describe("compileFormulaSourceToSql", () => {
 
   test("covers the current formula function surface", () => {
     const examples = [
-      "ABS(#price)",
-      "ROUND(#price, 2)",
-      "FLOOR(#price)",
-      "CEIL(#price)",
-      "SQRT(#price)",
-      "POW(#price, 2)",
-      "MOD(#qty, 2)",
-      "SUM(#price, #qty)",
-      "AVG(#price, #qty)",
-      "MEAN(#price, #qty)",
-      "COUNT(#price, #name)",
-      "MEDIAN(#price, #qty, 10)",
-      "MIN(#price, #qty)",
-      "MAX(#price, #qty)",
-      "PERCENT(#price, #qty)",
-      "CONCAT(#name, ' ', #qty)",
-      "LEN(#name)",
-      "LOWER(#name)",
-      "UPPER(#name)",
-      "TRIM(#name)",
-      "LEFT(#name, 2)",
-      "RIGHT(#name, 2)",
-      "SUBSTRING(#name, 1, 2)",
-      "REPLACE(#name, 'a', 'b')",
-      "IF(#paid, 'yes', 'no')",
-      "IFEMPTY(#name, 'missing')",
-      "IFERROR(#price / 0, 0)",
-      "AND(#paid, #price > 0)",
-      "OR(#paid, #price > 0)",
-      "NOT(#paid)",
-      "ISBLANK(#name)",
-      "CONTAINS(#name, 'a')",
+      "ABS({PRICE1})",
+      "ROUND({PRICE1}, 2)",
+      "FLOOR({PRICE1})",
+      "CEIL({PRICE1})",
+      "SQRT({PRICE1})",
+      "POW({PRICE1}, 2)",
+      "MOD({QTY001}, 2)",
+      "SUM({PRICE1}, {QTY001})",
+      "AVG({PRICE1}, {QTY001})",
+      "MEAN({PRICE1}, {QTY001})",
+      "COUNT({PRICE1}, {NAME01})",
+      "MEDIAN({PRICE1}, {QTY001}, 10)",
+      "MIN({PRICE1}, {QTY001})",
+      "MAX({PRICE1}, {QTY001})",
+      "PERCENT({PRICE1}, {QTY001})",
+      "CONCAT({NAME01}, ' ', {QTY001})",
+      "LEN({NAME01})",
+      "LOWER({NAME01})",
+      "UPPER({NAME01})",
+      "TRIM({NAME01})",
+      "LEFT({NAME01}, 2)",
+      "RIGHT({NAME01}, 2)",
+      "SUBSTRING({NAME01}, 1, 2)",
+      "REPLACE({NAME01}, 'a', 'b')",
+      "IF({PAID01}, 'yes', 'no')",
+      "IFEMPTY({NAME01}, 'missing')",
+      "IFERROR({PRICE1} / 0, 0)",
+      "AND({PAID01}, {PRICE1} > 0)",
+      "OR({PAID01}, {PRICE1} > 0)",
+      "NOT({PAID01})",
+      "ISBLANK({NAME01})",
+      "CONTAINS({NAME01}, 'a')",
       "TODAY()",
       "NOW()",
-      "YEAR(#due)",
-      "MONTH(#due)",
-      "DAY(#due)",
-      "DATEADD(#due, 1, 'days')",
-      "DATEDIFF(#due, TODAY(), 'days')",
+      "YEAR({DUE001})",
+      "MONTH({DUE001})",
+      "DAY({DUE001})",
+      "DATEADD({DUE001}, 1, 'days')",
+      "DATEDIFF({DUE001}, TODAY(), 'days')",
     ];
 
     for (const source of examples) {
@@ -279,7 +279,7 @@ const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 describe("compileFormulaSourceToSql postgres smoke", () => {
   postgresTest("runs decimal-safe arithmetic in Postgres numeric", async () => {
-    const result = compileFormulaSourceToSql("#price + #qty * 0.20", { fields });
+    const result = compileFormulaSourceToSql("{PRICE1} + {QTY001} * 0.20", { fields });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
@@ -294,7 +294,7 @@ describe("compileFormulaSourceToSql postgres smoke", () => {
   });
 
   postgresTest("runs date helpers in Postgres", async () => {
-    const result = compileFormulaSourceToSql("DATEDIFF(TODAY(), #due, 'days')", {
+    const result = compileFormulaSourceToSql("DATEDIFF(TODAY(), {DUE001}, 'days')", {
       fields,
       now: new Date("2026-06-08T12:00:00.000Z"),
       dateConfig: { timeZone: "Europe/Berlin" },
@@ -313,7 +313,7 @@ describe("compileFormulaSourceToSql postgres smoke", () => {
   });
 
   postgresTest("runs text and IF helpers in Postgres", async () => {
-    const result = compileFormulaSourceToSql("IF(#paid, CONCAT(UPPER(#name), ' paid'), 'open')", { fields });
+    const result = compileFormulaSourceToSql("IF({PAID01}, CONCAT(UPPER({NAME01}), ' paid'), 'open')", { fields });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 

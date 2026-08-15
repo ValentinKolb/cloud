@@ -27,7 +27,7 @@ describe("TableQueryBodySchema", () => {
   test("accepts canonical GQL source without a RecordQuery body", () => {
     expect(
       TableQueryBodySchema.safeParse({
-        source: "from table {11111111-1111-4111-8111-111111111111}",
+        source: "from table {TABL01}",
       }).success,
     ).toBe(true);
   });
@@ -40,25 +40,25 @@ describe("TableQueryBodySchema", () => {
 describe("buildTableQueryBody", () => {
   test("sends canonical GQL source for records reads", () => {
     const body = buildTableQueryBody({
-      tableId: "11111111-1111-4111-8111-111111111111",
-      viewId: "44444444-4444-4444-8444-444444444444",
-      query: { sort: [{ fieldId: "22222222-2222-4222-8222-222222222222", direction: "asc" }] },
+      tableId: "TABL01",
+      viewId: "VIEW01",
+      query: { sort: [{ fieldId: "FIELD1", direction: "asc" }] },
       cursor: "next",
-      filePreviewFieldIds: ["33333333-3333-4333-8333-333333333333"],
+      filePreviewFieldIds: ["FILE01"],
     });
 
     expect(body).toMatchObject({
-      source: "from table {11111111-1111-4111-8111-111111111111}\nsort {22222222-2222-4222-8222-222222222222} asc",
-      viewId: "44444444-4444-4444-8444-444444444444",
-      query: { sort: [{ fieldId: "22222222-2222-4222-8222-222222222222", direction: "asc" }] },
+      source: "from table {TABL01}\nsort {FIELD1} asc",
+      viewId: "VIEW01",
+      query: { sort: [{ fieldId: "FIELD1", direction: "asc" }] },
       cursor: "next",
-      filePreviewFieldIds: ["33333333-3333-4333-8333-333333333333"],
+      filePreviewFieldIds: ["FILE01"],
     });
   });
 
   test("falls back to RecordQuery when a toolbar query has no row-shaped GQL source", () => {
     const body = buildTableQueryBody({
-      tableId: "11111111-1111-4111-8111-111111111111",
+      tableId: "TABL01",
       query: { aggregations: [{ fieldId: "*", agg: "count" }] },
       cursor: null,
     });
@@ -73,10 +73,10 @@ describe("buildTableQueryBody", () => {
 
   test("does not throw for computed column labels that are not valid GQL aliases", () => {
     const body = buildTableQueryBody({
-      tableId: "11111111-1111-4111-8111-111111111111",
+      tableId: "TABL01",
       query: {
         columns: [
-          { fieldId: "22222222-2222-4222-8222-222222222222" },
+          { fieldId: "FIELD1" },
           {
             kind: "computed",
             id: "computed_j3rz0Y3fwW",
@@ -88,12 +88,7 @@ describe("buildTableQueryBody", () => {
       cursor: null,
     });
 
-    expect(body.source).toBe(
-      [
-        "from table {11111111-1111-4111-8111-111111111111}",
-        "select {22222222-2222-4222-8222-222222222222}, formula(LEN(Name)) as __computed_j3rz0Y3fwW",
-      ].join("\n"),
-    );
+    expect(body.source).toBe(["from table {TABL01}", "select {FIELD1}, formula(LEN(Name)) as __computed_j3rz0Y3fwW"].join("\n"));
     expect(body.query?.columns?.[1]).toMatchObject({ label: "name+l#nge" });
   });
 });

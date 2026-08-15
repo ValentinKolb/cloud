@@ -11,18 +11,17 @@ A Grids App is a small composition of existing Grids resources. Its page tree co
 
 Apps, pages, rows, columns, blocks, and actions have stable IDs. Labels may change without breaking links or state.
 
-- The app ID is a UUID supplied when the app is first created.
-- Grids assigns one immutable `shortId` for the standalone route.
+- The app ID is one immutable 6-character public ID.
 - Page, row, column, block, and action IDs are lowercase local identifiers unique inside their parent.
-- Resource references use canonical Grids UUIDs, never display names.
+- Resource references use canonical Grids public IDs, never display names.
 
-A page route is `/apps/<shortId>/<pageId>`. Declared page parameters are query parameters, for example `/apps/a1b2c3/request?request_id=<record-id>`.
+A page route is `/apps/<id>/<pageId>`. Declared page parameters are query parameters, for example `/apps/a1b2c3/request?request_id=<record-id>`.
 
 App identity is intentionally restrained to a name and supported icon. Pages and blocks use standard Cloud typography, spacing, colors, and interaction patterns. Custom CSS and arbitrary branding are not part of the definition.
 
 ## Declare page context {icon="brackets"}
 
-A page declares every URL parameter before a block can use it. This release supports required Record parameters only. Each parameter declares one table in the same Base; its URL and `@params.<name>` value are UUID strings, and the server verifies that the referenced record belongs to that table before loading page data.
+A page declares every URL parameter before a block can use it. This release supports required Record parameters only. Each parameter declares one table in the same Base; its URL and `@params.<name>` value are record public IDs, and the server verifies that the referenced record belongs to that table before loading page data.
 
 A page may load one **page record** from a Record parameter. In the visual builder, add the parameter ID and Record table under **Route parameters**, then add a Record block; Grids binds that same parameter automatically instead of exposing a second Page Record control. The load is permission-checked and fail-closed. An invalid, missing, deleted, or inaccessible record shows the page's standard unavailable state without disclosing which case occurred.
 
@@ -139,7 +138,7 @@ Use `push` for normal movement and `replace` after a successful create operation
 For repeated entry, preserve the parent as a page parameter:
 
 ```text
-/apps/<shortId>/add-article?list_id=<record-id>
+/apps/<id>/add-article?list_id=<record-id>
 ```
 
 The Form fixes its List relation from `PARAMS.list_id`. After success, one button navigates back to the same page with the same parameter; another navigates to the list detail. This needs no app-specific batch or wizard primitive.

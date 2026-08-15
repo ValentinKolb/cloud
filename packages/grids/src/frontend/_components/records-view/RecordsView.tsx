@@ -2,19 +2,25 @@ import type { DateContext } from "@k2b/stdlib";
 import { AppWorkspace, Button, ButtonLink, dialogCore, PanelDialog, Placeholder, panelDialogWideOptions, prompts } from "@k2b/ui";
 import { createMemo, createSignal, Show } from "solid-js";
 import type {
+  PublicField as Field,
+  PublicForm as Form,
+  PublicGridRecord as GridRecord,
+  PublicTable as Table,
+  PublicTableQueryResult as TableQueryResult,
+  PublicView as View,
+} from "../../../api/public-dto";
+import type {
   AggregationSpec,
   ColumnSpec,
-  DocumentTemplateSummary,
   FieldColumnSpec,
   GroupBySpec,
   RecordDisplayConfig,
   RecordQuery,
   TableAuditPolicy,
-  TableQueryResult,
 } from "../../../contracts";
 import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
-import type { Field, Form, GridRecord, Table, View } from "../../../service";
 import { defaultTableAggregations } from "../../../table-defaults";
+import type { PublicDocumentTemplateSummary } from "../documents/public-document-types";
 import QueryWorkspace from "../query/QueryWorkspace";
 import type { QueryWorkspaceCurrentSource } from "../query/query-workspace-model";
 import { openCombinedAuditDialog } from "../records/CombinedAuditDialog";
@@ -24,7 +30,10 @@ import GridToolbar from "../toolbar/GridToolbar";
 // Plain children share RecordsView's hydrated state; nested islands cannot
 // serialize the callback props used by these controls.
 import { workspaceMainClass } from "../workspace/workspace-layout";
-import type { WorkspaceBulkLauncher, WorkspaceRecordDetail } from "../workspace/workspace-state-model";
+import type {
+  PublicWorkspaceBulkLauncher as WorkspaceBulkLauncher,
+  PublicWorkspaceRecordDetail as WorkspaceRecordDetail,
+} from "../workspace/workspace-public-state-model";
 import { activeDisplayConfig, calendarQueryFilter, cardImageFieldIds, removeCalendarQueryFilter } from "./display-mode";
 import type { CardSize, RecordsState } from "./query-url";
 import { cleanRecordMetaQuery, openRecordMetadataDialog, recordMetaActiveCount } from "./RecordMetadataDialog";
@@ -67,17 +76,9 @@ type Props = {
   tableAuditPolicy: TableAuditPolicy;
   /** Table-level setting: when true, records should be created through forms. */
   disableDirectInsert: boolean;
-  /** Short-id of the base — for the path-based URL builder. Threaded
-   *  through buildRecordsUrl so pagination / detail-open writes the
-   *  right path. */
-  baseShortId: string;
-  /** Short-id of the active table — same rationale as baseShortId. */
-  tableShortId: string;
-  /** Table UUID -> short-id map for relation links inside cells. */
-  tableShortIds: Record<string, string>;
   /** Short-id of the active saved view, or null when no view. Drives
    *  the `/view/<short>` URL segment. */
-  viewShortId: string | null;
+  viewId: string | null;
   fields: Field[];
   tables: Table[];
   viewsByTable: Record<string, View[]>;
@@ -104,7 +105,7 @@ type Props = {
    *  on deep-link without a client-side fetch. */
   initialSelectedRecord: GridRecord | null;
   initialSelectedRecordDetail: WorkspaceRecordDetail | null;
-  documentTemplates: DocumentTemplateSummary[];
+  documentTemplates: PublicDocumentTemplateSummary[];
   relationLabels: Record<string, string>;
   viewColumns: ColumnSpec[] | undefined;
   searchableFields: Field[];
@@ -132,12 +133,12 @@ export default function RecordsView(props: Props) {
   const [disableDirectInsert, setDisableDirectInsert] = createSignal(props.disableDirectInsert);
   const [fields, setFields] = createSignal<Field[]>([...props.fields].sort((a, b) => a.position - b.position));
   const [forms, setForms] = createSignal<Form[]>(props.forms);
-  const isSavedView = () => props.viewMode || !!props.activeView || !!props.viewShortId;
+  const isSavedView = () => props.viewMode || !!props.activeView || !!props.viewId;
   const canUseEditMode = () => (isSavedView() ? !!props.canEditActiveView : props.canManageTable);
   const queryWorkspaceHref = () =>
-    props.viewShortId
-      ? `/app/grids/${props.baseShortId}/table/${props.tableShortId}/view/${props.viewShortId}/query`
-      : `/app/grids/${props.baseShortId}/table/${props.tableShortId}/query`;
+    props.viewId
+      ? `/app/grids/${props.baseId}/table/${props.tableId}/view/${props.viewId}/query`
+      : `/app/grids/${props.baseId}/table/${props.tableId}/query`;
   const [adminMode, setAdminMode] = createSignal(props.initialAdminMode && canUseEditMode());
   const [viewColumns, setViewColumns] = createSignal<ColumnSpec[] | undefined>(props.viewColumns ?? props.initialState.query.columns);
   const [query, setQuery] = createSignal<RecordQuery>({
@@ -205,13 +206,13 @@ export default function RecordsView(props: Props) {
           kind: "view",
           viewId: props.activeView.id,
           label: props.activeView.name,
-          ref: props.activeView.shortId,
+          ref: props.activeView.id,
         }
       : {
           kind: "table",
           tableId: props.tableId,
           label: tableName(),
-          ref: props.tableShortId,
+          ref: props.tableId,
         };
 
   const queryPanelInitialSource = () => {
@@ -228,7 +229,6 @@ export default function RecordsView(props: Props) {
             <div class="flex h-[min(72vh,46rem)] min-h-[30rem] min-w-0 overflow-hidden">
               <QueryWorkspace
                 baseId={props.baseId}
-                baseShortId={props.baseShortId}
                 initialQuery={queryPanelInitialSource()}
                 queryPath={queryWorkspaceHref()}
                 currentSource={queryCurrentSource()}
@@ -316,9 +316,9 @@ export default function RecordsView(props: Props) {
 
   const { sync: syncUrl } = createRecordsUrlController({
     path: {
-      baseShortId: props.baseShortId,
-      tableShortId: props.tableShortId,
-      viewShortId: props.viewShortId,
+      baseId: props.baseId,
+      tableId: props.tableId,
+      viewId: props.viewId,
     },
     activeRecordQuery: props.activeRecordQuery,
     state: () => ({
@@ -372,7 +372,7 @@ export default function RecordsView(props: Props) {
   const bulkSelectionEnabled = () =>
     props.bulkSelectionLaunchers.length > 0 && !props.trashMode && !isGrouped() && renderMode() === "table";
   const bulkSelection = createRecordsBulkController({
-    baseShortId: props.baseShortId,
+    baseId: props.baseId,
     enabled: bulkSelectionEnabled,
     items: () => items() as GridRecord[],
     query: queryWithSearch,
@@ -476,7 +476,7 @@ export default function RecordsView(props: Props) {
   const openRecordById = (recordId: string, deleted: boolean) => {
     if (deleted && !props.trashMode) {
       window.location.assign(
-        `/app/grids/${encodeURIComponent(props.baseShortId)}/table/${encodeURIComponent(props.tableShortId)}?trash=1&record=${encodeURIComponent(recordId)}`,
+        `/app/grids/${encodeURIComponent(props.baseId)}/table/${encodeURIComponent(props.tableId)}?trash=1&record=${encodeURIComponent(recordId)}`,
       );
       return;
     }
@@ -580,10 +580,8 @@ export default function RecordsView(props: Props) {
 
   const { openFieldSettings, openTableSettings, openAddField, openForms, openTemplates, openViewSettings } = createRecordsAdminController({
     baseId: props.baseId,
-    baseShortId: props.baseShortId,
     tableId: props.tableId,
     tableKind: props.tableKind,
-    tableShortId: props.tableShortId,
     tableName,
     setTableName,
     tableDescription,
@@ -628,8 +626,7 @@ export default function RecordsView(props: Props) {
     props: {
       activeView: props.activeView,
       tableId: props.tableId,
-      baseShortId: props.baseShortId,
-      tableShortId: props.tableShortId,
+      baseId: props.baseId,
     },
     fields,
     tableColumns,
@@ -672,8 +669,8 @@ export default function RecordsView(props: Props) {
               trashMode={props.trashMode}
               canReadTable={props.canReadTable}
               tableKind={props.tableKind}
-              baseShortId={props.baseShortId}
-              tableShortId={props.tableShortId}
+              baseId={props.baseId}
+              tableId={props.tableId}
               recordCountText={recordCountText()}
               livePending={livePending()}
               liveRefreshing={liveRefreshing()}
@@ -772,9 +769,8 @@ export default function RecordsView(props: Props) {
               cursor={cursor()}
               nextCursor={nextCursor()}
               tableId={props.tableId}
-              viewShortId={props.viewShortId}
-              baseShortId={props.baseShortId}
-              tableShortIds={props.tableShortIds}
+              viewId={props.viewId}
+              baseId={props.baseId}
               fieldsByTable={props.fieldsByTable}
               fields={fields()}
               items={items() as GridRecord[]}
@@ -829,7 +825,6 @@ export default function RecordsView(props: Props) {
         <Show when={selectedRecordId() || selectedGroup()}>
           <RecordsDetailSurface
             baseId={props.baseId}
-            baseShortId={props.baseShortId}
             tableId={props.tableId}
             tableName={tableName()}
             fields={fields()}
@@ -845,7 +840,6 @@ export default function RecordsView(props: Props) {
             mode={detailMode}
             canWrite={props.canWrite}
             relationLabels={mergedRelationLabels()}
-            tableShortIds={props.tableShortIds}
             fieldsByTable={props.fieldsByTable}
             viewColumns={effectiveViewColumns()}
             dateConfig={props.dateConfig}

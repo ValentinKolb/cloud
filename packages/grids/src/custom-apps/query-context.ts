@@ -8,7 +8,7 @@ type RuntimeUser = { id: string; displayName: string; uid: string; mail: string 
 export const buildCustomAppQueryContext = (params: {
   user: RuntimeUser | null;
   authSubjectIds: readonly string[];
-  app: { id: string; shortId: string; name: string };
+  app: { id: string; name: string };
   base: { id: string; name: string };
   page: { id: string; title: string };
   pageUrl: string;
@@ -27,7 +27,6 @@ export const buildCustomAppQueryContext = (params: {
     "page.title": params.page.title,
     "page.url": params.pageUrl,
     "app.id": params.app.id,
-    "app.shortId": params.app.shortId,
     "app.name": params.app.name,
     "base.id": params.base.id,
     "base.name": params.base.name,

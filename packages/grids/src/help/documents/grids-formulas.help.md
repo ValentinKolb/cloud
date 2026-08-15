@@ -21,7 +21,7 @@ Formulas use the complete query result, not only the records currently visible o
 ## Expression rules {icon="book-2"}
 
 :::reference
-- **Fields:** Reference a simple field as `Price`. Quote names containing spaces or punctuation as `"Unit price"`. Use `{field-uuid}` when generated configuration must survive a rename.
+- **Fields:** Reference a simple field as `Price`. Quote names containing spaces or punctuation as `"Unit price"`. Use `{field-id}` when generated configuration must survive a rename.
 - **Literals:** Write text in single quotes, numbers without quotes, and the values `true`, `false`, and `null` directly. Double quotes always mean a field name. In text, use `\\'`, `\\\\`, `\\n`, `\\r`, or `\\t` for a quote, backslash, or control character.
 - **Grouping:** Use parentheses to make a calculation or condition explicit. An optional leading `=` is accepted, but formulas are normally written without it.
 - **Functions:** Function names are case-insensitive. Arguments are comma-separated and must match the function's documented count.

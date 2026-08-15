@@ -14,6 +14,34 @@ type PredicateCompileOptions = {
 
 type PredicateCompileResult = { ok: true; sql: unknown } | { ok: false; error: string };
 
+const publicRelationMatch = (
+  node: Extract<DslWherePredicate, { kind: "publicRelationIds" }>,
+  shortIds: readonly string[],
+  relationSource: PredicateCompileOptions["relationSource"],
+): unknown => {
+  const target = sql`target_record.table_id = ${node.targetTableId}::uuid
+    AND target_record.deleted_at IS NULL
+    AND target_record.short_id = ANY(${sql.array([...shortIds], "TEXT")})`;
+  if (relationSource === "recordData") {
+    return sql`EXISTS (
+      SELECT 1 FROM grids.records target_record
+      WHERE ${target}
+        AND CASE
+          WHEN jsonb_typeof(r.data->${node.fieldId}) = 'array' THEN r.data->${node.fieldId}
+          ELSE '[]'::jsonb
+        END @> jsonb_build_array(target_record.id::text)
+    )`;
+  }
+  return sql`EXISTS (
+    SELECT 1
+    FROM grids.record_links relation_link
+    JOIN grids.records target_record ON target_record.id = relation_link.to_record_id
+    WHERE relation_link.from_record_id = r.id
+      AND relation_link.from_field_id = ${node.fieldId}::uuid
+      AND ${target}
+  )`;
+};
+
 const joinPredicateParts = (parts: unknown[], separator: unknown): unknown => {
   if (parts.length === 0) return sql``;
   return parts.slice(1).reduce((acc, part) => sql`${acc}${separator}${part}`, parts[0]!);
@@ -49,6 +77,22 @@ export const compileWherePredicate = (
     }
     case "recordMeta":
       return { ok: true, sql: compileRecordMetaFilter(node.meta) };
+    case "publicRecordIds":
+      return { ok: true, sql: sql`r.short_id = ANY(${sql.array(node.ids, "TEXT")})` };
+    case "publicRelationIds": {
+      if (node.ids.length === 0) return { ok: true, sql: node.mode === "none" ? sql`TRUE` : sql`FALSE` };
+      if (node.mode === "all") {
+        return {
+          ok: true,
+          sql: joinPredicateParts(
+            node.ids.map((id) => sql`(${publicRelationMatch(node, [id], options.relationSource)})`),
+            sql` AND `,
+          ),
+        };
+      }
+      const match = publicRelationMatch(node, node.ids, options.relationSource);
+      return { ok: true, sql: node.mode === "none" ? sql`NOT (${match})` : match };
+    }
     case "formula": {
       const compiled = compileFormulaPredicateAstToSql(node.expression, {
         fields,

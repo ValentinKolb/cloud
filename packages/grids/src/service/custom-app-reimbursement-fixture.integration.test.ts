@@ -9,7 +9,9 @@ import { deleteTestWorkflowScope, insertTestWorkflow } from "./workflow-test-fix
 
 const REIMBURSEMENT = {
   requesterAppId: "11000000-0000-4000-8000-000000000101",
+  requesterAppPublicId: "r00101",
   reviewAppId: "11000000-0000-4000-8000-000000000102",
+  reviewAppPublicId: "r00102",
   baseId: "11000000-0000-4000-8000-000000000001",
   requestTableId: "11000000-0000-4000-8000-000000000201",
   expenseTableId: "11000000-0000-4000-8000-000000000202",
@@ -176,8 +178,8 @@ beforeAll(async () => {
 
 describe("Reimbursement Grids App Golden fixtures", () => {
   test("keeps both definitions structurally valid", async () => {
-    expect((await loadDefinition(requesterPath)).id).toBe(REIMBURSEMENT.requesterAppId);
-    expect((await loadDefinition(reviewPath)).id).toBe(REIMBURSEMENT.reviewAppId);
+    expect((await loadDefinition(requesterPath)).id).toBe(REIMBURSEMENT.requesterAppPublicId);
+    expect((await loadDefinition(reviewPath)).id).toBe(REIMBURSEMENT.reviewAppPublicId);
   });
 
   postgresTest("applies, publishes, and grants the requester and finance compositions", async () => {

@@ -406,9 +406,8 @@ describe("document rendering", () => {
           id: "33333333-3333-4333-8333-333333333333",
           shortId: "tplA1",
           name: "Invoice",
-          numberTemplate: "{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}",
+          numberTemplate: "{{ template.id }}-{{ date.yyyyMMdd }}-{{ run.id }}",
         },
-        runId: "11111111-2222-7333-8444-aaaaaaaaaaaa",
         runShortId: "runB2",
         generatedAt: new Date("2026-06-26T12:00:00.000Z"),
       }),
@@ -423,7 +422,6 @@ describe("document rendering", () => {
           name: "Invoice",
           numberTemplate: "{{ date.yyyyMMdd }}",
         },
-        runId: "11111111-2222-7333-8444-aaaaaaaaaaaa",
         runShortId: "runB2",
         generatedAt: new Date("2026-06-26T22:30:00.000Z"),
         dateConfig: { timeZone: "Europe/Berlin" },
@@ -435,7 +433,7 @@ describe("document rendering", () => {
     const result = validateTemplateWrite({
       source: "from table Items\nwhere record.id = '{{ record.id }}'",
       html: "{% for row in rows reversed %}<p>{{ forloop.index }} {{ row.Name }}</p>{% endfor %}",
-      numberTemplate: "{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}",
+      numberTemplate: "{{ template.id }}-{{ date.yyyyMMdd }}-{{ run.id }}",
       filenameTemplate: "{{ document.number }}.pdf",
     });
 
@@ -446,7 +444,7 @@ describe("document rendering", () => {
     const result = validateTemplateWrite({
       source: "from table Items\nwhere record.id = '{{ record.id }}'",
       html: "{% for row in rows %}<p>{{ row.Name }}</p>{% endfor %}<p>{{ row.Name }}</p>",
-      numberTemplate: "{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}",
+      numberTemplate: "{{ template.id }}-{{ date.yyyyMMdd }}-{{ run.id }}",
       filenameTemplate: "{{ document.number }}.pdf",
     });
 
@@ -458,7 +456,7 @@ describe("document rendering", () => {
     const result = validateTemplateWrite({
       source: "from table Items\nwhere record.id = '{{ record.id }}'",
       html: "<p>{{ record.id }}</p>",
-      numberTemplate: "{{ records.name }}-{{ run.shortId }}",
+      numberTemplate: "{{ records.name }}-{{ run.id }}",
       filenameTemplate: "{{ document.number }}.pdf",
     });
 
@@ -470,7 +468,7 @@ describe("document rendering", () => {
     const result = validateTemplateWrite({
       source: "from table Items\nwhere record.id = '{{ record.id }}'",
       html: "<p>{{ record.id }}</p>",
-      numberTemplate: "{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}",
+      numberTemplate: "{{ template.id }}-{{ date.yyyyMMdd }}-{{ run.id }}",
       filenameTemplate: "{{ documents.number }}.pdf",
     });
 

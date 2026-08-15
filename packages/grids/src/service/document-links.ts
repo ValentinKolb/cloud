@@ -1,10 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
-import { coreSettings } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { coreSettings } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { CreateDocumentLinkInput, DocumentLink, DocumentLinkTtl, DocumentRun } from "../contracts";
 import { logAudit, type SqlClient } from "./audit";
 import { type DocumentDbRow, mapDocumentLink, mapDocumentRun } from "./document-mappers";
+import { insertWithShortIdForDb } from "./short-id";
 
 const DOCUMENT_LINK_TOKEN_PREFIX = "gdl_";
 const DOCUMENT_LINK_TOKEN_BYTES = 32;
@@ -76,6 +77,11 @@ export const getDocumentLink = async (linkId: string): Promise<DocumentLink | nu
   return row ? mapDocumentLink(row) : null;
 };
 
+export const getDocumentLinkByShortId = async (shortId: string): Promise<DocumentLink | null> => {
+  const [row] = await sql<DocumentDbRow[]>`SELECT * FROM grids.document_links WHERE short_id = ${shortId}`;
+  return row ? mapDocumentLink(row) : null;
+};
+
 export const createDocumentLink = async (params: {
   run: DocumentRun;
   input: CreateDocumentLinkInput;
@@ -88,22 +94,27 @@ export const createDocumentLink = async (params: {
   const expiresAt = documentLinkExpiresAt(params.input.expiresIn);
   const comment = normalizeDocumentLinkComment(params.input.comment);
   const create = async (tx: SqlClient): Promise<Result<{ link: DocumentLink; token: string }>> => {
-    const [row] = await tx<DocumentDbRow[]>`
-      INSERT INTO grids.document_links (
-        document_run_id, base_id, table_id, record_id, token_hash, comment, created_by, expires_at
-      )
-      VALUES (
-        ${params.run.id}::uuid,
-        ${params.run.baseId}::uuid,
-        ${params.run.tableId}::uuid,
-        ${params.run.recordId}::uuid,
-        ${hashDocumentLinkToken(token)},
-        ${comment},
-        ${params.actorId}::uuid,
-        ${expiresAt}
-      )
-      RETURNING *
-    `;
+    const row = await insertWithShortIdForDb(tx, "idx_grids_document_links_short_id", async (attempt, shortId) => {
+      const [created] = await attempt<DocumentDbRow[]>`
+        INSERT INTO grids.document_links (
+          short_id, document_run_id, base_id, table_id, record_id, token_hash, comment, created_by, expires_at
+        )
+        VALUES (
+          ${shortId},
+          ${params.run.id}::uuid,
+          ${params.run.baseId}::uuid,
+          ${params.run.tableId}::uuid,
+          ${params.run.recordId}::uuid,
+          ${hashDocumentLinkToken(token)},
+          ${comment},
+          ${params.actorId}::uuid,
+          ${expiresAt}
+        )
+        RETURNING *
+      `;
+      if (!created) throw new Error("insert returned no row");
+      return created;
+    });
     if (!row) return fail(err.internal("Could not create document link"));
     const link = mapDocumentLink(row);
     await logAudit(

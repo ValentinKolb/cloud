@@ -15,10 +15,10 @@ import {
 } from "@k2b/ui";
 import type { HelpDocumentManifest } from "@valentinkolb/cloud/shared";
 import { createMemo, For, type JSX, Show } from "solid-js";
+import type { PublicField as Field, PublicTable as Table, PublicView as View } from "../../../api/public-dto";
 import { GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
 import { GQL_EXAMPLES } from "../../../help/gql-examples";
 import { formatIdentifierRef } from "../../../ref-syntax";
-import type { Field, Table, View } from "../../../service";
 import { fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";
 import GridsEmbeddedHelp from "./GridsEmbeddedHelp.island";
 
@@ -52,7 +52,6 @@ export const normalizeQueryReferenceTab = (value: string | null | undefined): Gq
 
 type Props = {
   baseId: string;
-  baseShortId: string;
   baseName: string;
   defaultTab?: GqlReferenceTab;
   inspectedSourceId?: string;
@@ -65,7 +64,7 @@ type Props = {
 
 type SourceRow = {
   id: string;
-  shortId: string;
+  publicId: string;
   kind: "table" | "view";
   tableId?: string;
   parentTableId?: string;
@@ -287,19 +286,19 @@ const dataTypeRows: DataTypeRow[] = [
 
 const renderCopyCell = (value: unknown) => <CopyButton text={String(value ?? "")} size="xs" class="h-7 w-7" />;
 
-const referenceTabHref = (baseShortId: string, tab: GqlReferenceTab) =>
-  `/app/grids/${encodeURIComponent(baseShortId)}/reference/${encodeURIComponent(tab)}`;
+const referenceTabHref = (baseId: string, tab: GqlReferenceTab) =>
+  `/app/grids/${encodeURIComponent(baseId)}/reference/${encodeURIComponent(tab)}`;
 
-const referenceSourceHref = (baseShortId: string, source: SourceRow) =>
-  `/app/grids/${encodeURIComponent(baseShortId)}/reference/tables/${encodeURIComponent(source.shortId)}`;
+const referenceSourceHref = (baseId: string, source: SourceRow) =>
+  `/app/grids/${encodeURIComponent(baseId)}/reference/tables/${encodeURIComponent(source.publicId)}`;
 
-function ReferenceSidebar(props: { activeTab: GqlReferenceTab; baseShortId: string; baseName: string }) {
+function ReferenceSidebar(props: { activeTab: GqlReferenceTab; baseId: string; baseName: string }) {
   const items = (
     <AppWorkspace.SidebarSection title="Reference">
       <For each={REFERENCE_TABS}>
         {(tab) => (
           <AppWorkspace.SidebarItem
-            href={referenceTabHref(props.baseShortId, tab.value)}
+            href={referenceTabHref(props.baseId, tab.value)}
             navigation="document"
             active={props.activeTab === tab.value}
             title={tab.description}
@@ -329,8 +328,8 @@ function DataTypesTab() {
   return (
     <Doc>
       <DocLead>
-        Datatypes are the foundation of a Grids base. They decide validation, display, search, filtering, formulas, relation labels,
-        App blocks, and what a form can collect.
+        Datatypes are the foundation of a Grids base. They decide validation, display, search, filtering, formulas, relation labels, App
+        blocks, and what a form can collect.
       </DocLead>
 
       <DocSection title="Data model layers">
@@ -415,10 +414,10 @@ function DataTypesTab() {
   );
 }
 
-function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[]; fieldRows: FieldRow[]; inspectedSourceId?: string }) {
+function AvailableDataTab(props: { baseId: string; sourceRows: SourceRow[]; fieldRows: FieldRow[]; inspectedSourceId?: string }) {
   const inspectedSource = createMemo(() =>
     props.inspectedSourceId
-      ? props.sourceRows.find((source) => source.shortId === props.inspectedSourceId || source.id.endsWith(`:${props.inspectedSourceId}`))
+      ? props.sourceRows.find((source) => source.publicId === props.inspectedSourceId || source.id.endsWith(`:${props.inspectedSourceId}`))
       : null,
   );
   const inspectedFields = createMemo(() => {
@@ -503,7 +502,7 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
                         <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
                           {SourceRef(table)}
                           <CopyButton text={refSourceLabel(table)} variant="secondary" size="sm" />
-                          <ButtonLink variant="secondary" size="sm" href={referenceSourceHref(props.baseShortId, table)}>
+                          <ButtonLink variant="secondary" size="sm" href={referenceSourceHref(props.baseId, table)}>
                             <i class="ti ti-eye" /> Inspect
                           </ButtonLink>
                         </div>
@@ -534,7 +533,7 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
                                 <div class="flex min-w-0 flex-wrap items-center justify-end gap-2">
                                   {SourceRef(view)}
                                   <CopyButton text={refSourceLabel(view)} class="h-8 w-8" />
-                                  <ButtonLink variant="ghost" size="sm" href={referenceSourceHref(props.baseShortId, view)}>
+                                  <ButtonLink variant="ghost" size="sm" href={referenceSourceHref(props.baseId, view)}>
                                     Inspect
                                   </ButtonLink>
                                 </div>
@@ -612,7 +611,7 @@ function AvailableDataTab(props: { baseShortId: string; sourceRows: SourceRow[];
             </DocSection>
 
             <DocNote title="Back to all sources">
-              <a class="link" href={referenceTabHref(props.baseShortId, "tables")}>
+              <a class="link" href={referenceTabHref(props.baseId, "tables")}>
                 Show all tables and views
               </a>
             </DocNote>
@@ -735,7 +734,7 @@ export default function QueryReferenceWindow(props: Props) {
   const sourceRows = createMemo<SourceRow[]>(() => {
     const tableRows = props.tables.map((table) => ({
       id: `table:${table.id}`,
-      shortId: table.shortId,
+      publicId: table.id,
       kind: "table" as const,
       tableId: table.id,
       name: table.name,
@@ -748,7 +747,7 @@ export default function QueryReferenceWindow(props: Props) {
     const viewRows = props.tables.flatMap((table) =>
       (props.viewsByTable[table.id] ?? []).map((view) => ({
         id: `view:${view.id}`,
-        shortId: view.shortId,
+        publicId: view.id,
         kind: "view" as const,
         parentTableId: table.id,
         name: view.name,
@@ -817,7 +816,7 @@ export default function QueryReferenceWindow(props: Props) {
       case "tables":
         return (
           <AvailableDataTab
-            baseShortId={props.baseShortId}
+            baseId={props.baseId}
             sourceRows={sourceRows()}
             fieldRows={fieldRows()}
             inspectedSourceId={props.inspectedSourceId}
@@ -859,7 +858,7 @@ export default function QueryReferenceWindow(props: Props) {
 
   return (
     <AppWorkspace class="h-screen">
-      <ReferenceSidebar activeTab={activeTab()} baseShortId={props.baseShortId} baseName={props.baseName} />
+      <ReferenceSidebar activeTab={activeTab()} baseId={props.baseId} baseName={props.baseName} />
       <AppWorkspace.Content>
         <AppWorkspace.Main class="p-[var(--ui-space-shell)]">
           <div class="flex min-h-0 flex-1 flex-col overflow-auto">{content()}</div>

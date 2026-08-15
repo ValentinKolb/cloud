@@ -1,7 +1,7 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import type { DateContext } from "@k2b/stdlib";
 import { AppWorkspace, Button, prompts } from "@k2b/ui";
-import type { Field, Form } from "../../../service";
+import type { PublicField as Field, PublicForm as Form } from "../../../api/public-dto";
 import { openFormEditorDialog } from "../forms/FormsManager";
 import { openFormModal } from "../records/FormSubmitModal";
 import SidebarTableMeta from "./SidebarTableMeta";

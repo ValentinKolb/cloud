@@ -1,31 +1,27 @@
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
-  NoticeCard,
+  Button,
   CheckboxCard,
   dialogCore,
+  IconButton,
+  NoticeCard,
   PanelDialog,
   Placeholder,
   panelDialogOptions,
   prompts,
   Select,
+  StatusBadge,
   TextInput,
   Tooltip,
-  Button,
-  IconButton,
-  StatusBadge,
 } from "@k2b/ui";
-import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { Table } from "../../../service";
-import type {
-  CreateGridsWorkflowLauncherInput,
-  GridsScannerInputSource,
-  GridsWorkflow,
-  GridsWorkflowLauncher,
-  GridsWorkflowLauncherKind,
-} from "../../../workflows/contracts";
+import type { PublicTable } from "../../../api/public-dto";
+import { PublicGridsWorkflowLauncherListSchema, PublicGridsWorkflowLauncherSchema } from "../../../api/workflow-public-contracts";
+import type { CreateGridsWorkflowLauncherInput, GridsScannerInputSource, GridsWorkflowLauncherKind } from "../../../workflows/contracts";
 import { scannerLauncherInputSources } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
+import type { PublicWorkflow, PublicWorkflowLauncher } from "../workspace/workspace-public-state-model";
 import { WorkflowInputFields } from "./WorkflowInputFields";
 import { customAppLauncherConfigForSave, missingLauncherRequiredInputs } from "./workflow-launcher-draft";
 import {
@@ -64,7 +60,7 @@ const launcherKindOptions = [
 
 const launcherKindLabel = (kind: GridsWorkflowLauncherKind) => launcherKindOptions.find((option) => option.id === kind)?.label ?? kind;
 
-const launcherConfigurationSummary = (launcher: GridsWorkflowLauncher): string => {
+const launcherConfigurationSummary = (launcher: PublicWorkflowLauncher): string => {
   if (launcher.config.kind === "scanner") {
     const sources = Object.values(scannerLauncherInputSources(launcher.config));
     return `${sources.filter((source) => source.kind === "session").length} before · ${
@@ -75,7 +71,7 @@ const launcherConfigurationSummary = (launcher: GridsWorkflowLauncher): string =
   return launcher.config.inputMode === "prompt" ? "Asks for input when run" : "Uses fixed input values";
 };
 
-const defaultDraft = (workflow: GridsWorkflow): LauncherDraft => {
+const defaultDraft = (workflow: PublicWorkflow): LauncherDraft => {
   const recordInput = workflow.plan.inputs.find((input) => input.type === "record")?.name ?? "";
   const textInput = workflow.plan.inputs.find((input) => input.type === "text")?.name ?? "";
   const scanInput = recordInput || textInput;
@@ -103,9 +99,9 @@ const scannerSourceDraft = (source: GridsScannerInputSource | undefined): Scanne
 };
 
 function LauncherEditor(props: {
-  workflow: GridsWorkflow;
-  tables: Table[];
-  launcher?: GridsWorkflowLauncher;
+  workflow: PublicWorkflow;
+  tables: PublicTable[];
+  launcher?: PublicWorkflowLauncher;
   close: (draft?: LauncherDraft) => void;
 }) {
   const initial = props.launcher ?? defaultDraft(props.workflow);
@@ -409,14 +405,19 @@ function LauncherEditor(props: {
   );
 }
 
-const requestLauncherDraft = (workflow: GridsWorkflow, tables: Table[], launcher?: GridsWorkflowLauncher) =>
+const requestLauncherDraft = (workflow: PublicWorkflow, tables: PublicTable[], launcher?: PublicWorkflowLauncher) =>
   dialogCore.open<LauncherDraft>(
     (close) => <LauncherEditor workflow={workflow} tables={tables} launcher={launcher} close={close} />,
     panelDialogOptions,
   );
 
-export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables: Table[]; onChanged: () => void; onClose: () => void }) {
-  const [launchers, setLaunchers] = createSignal<GridsWorkflowLauncher[]>([]);
+export function WorkflowLauncherManager(props: {
+  workflow: PublicWorkflow;
+  tables: PublicTable[];
+  onChanged: () => void;
+  onClose: () => void;
+}) {
+  const [launchers, setLaunchers] = createSignal<PublicWorkflowLauncher[]>([]);
   const [loaded, setLoaded] = createSignal(false);
 
   const loadMut = mutations.create<void, void>({
@@ -427,12 +428,12 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
         { init: { signal: abortSignal } },
       );
       if (!res.ok) throw new Error(await errorMessage(res, "Could not load run options."));
-      setLaunchers(((await res.json()) as { items: GridsWorkflowLauncher[] }).items);
+      setLaunchers(PublicGridsWorkflowLauncherListSchema.parse(await res.json()).items);
     },
     onSuccess: () => setLoaded(true),
   });
 
-  const saveMut = mutations.create<GridsWorkflowLauncher, { launcher?: GridsWorkflowLauncher; draft: LauncherDraft }>({
+  const saveMut = mutations.create<PublicWorkflowLauncher, { launcher?: PublicWorkflowLauncher; draft: LauncherDraft }>({
     mutation: async ({ launcher, draft }, { abortSignal }) => {
       const res = launcher
         ? await workflowLauncherApi.launchers[":launcherId"].$patch(
@@ -444,7 +445,7 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
             { init: { signal: abortSignal } },
           );
       if (!res.ok) throw new Error(await errorMessage(res, "Could not save run option."));
-      return (await res.json()) as GridsWorkflowLauncher;
+      return PublicGridsWorkflowLauncherSchema.parse(await res.json());
     },
     onSuccess: () => {
       loadMut.mutate();
@@ -453,7 +454,7 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
     onError: (error) => prompts.error(error.message),
   });
 
-  const removeMut = mutations.create<boolean, GridsWorkflowLauncher>({
+  const removeMut = mutations.create<boolean, PublicWorkflowLauncher>({
     mutation: async (launcher, { abortSignal }) => {
       const confirmed = await prompts.confirm(`Delete run option "${launcher.name}"?`, {
         title: "Delete run option?",
@@ -476,7 +477,7 @@ export function WorkflowLauncherManager(props: { workflow: GridsWorkflow; tables
     onError: (error) => prompts.error(error.message),
   });
 
-  const edit = async (launcher?: GridsWorkflowLauncher) => {
+  const edit = async (launcher?: PublicWorkflowLauncher) => {
     if (!loaded() || loadMut.loading() || saveMut.loading() || removeMut.loading()) return;
     const draft = await requestLauncherDraft(props.workflow, props.tables, launcher);
     if (draft) saveMut.mutate({ launcher, draft });

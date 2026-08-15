@@ -38,7 +38,7 @@ export const withInitialGqlResults = async <T extends GridsWorkspaceState>(c: Co
         try {
           const runtime = buildCustomAppRuntimeContext({
             access,
-            app: { id: route.app.id, shortId: route.app.shortId, name: route.app.name },
+            app: { id: route.app.shortId, name: route.app.name },
             base: state.base,
             page,
             pageUrl: customAppPageHref(route.app.shortId, page.id),

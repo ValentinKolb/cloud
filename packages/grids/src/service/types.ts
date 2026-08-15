@@ -105,6 +105,7 @@ export type AuditEntry = {
 
 export type GridFile = {
   id: string;
+  shortId: string;
   recordId: string;
   fieldId: string;
   position: number;

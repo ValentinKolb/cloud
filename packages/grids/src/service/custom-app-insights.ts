@@ -1,7 +1,7 @@
+import type { PublicField as Field } from "../api/public-dto";
 import type { AggregationSpec, DslQueryPreviewColumn, DslQueryPreviewResponse, GroupBySpec } from "../contracts";
 import { customAppAggregateOutputKey } from "../custom-apps/aggregate-output";
 import type { CustomAppValueFormat } from "../custom-apps/contracts";
-import type { Field } from "./types";
 
 type PreviewSuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
 

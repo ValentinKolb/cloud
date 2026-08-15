@@ -59,7 +59,6 @@ const addFieldRef = (map: Map<string, Field[]>, ref: string | null | undefined, 
 const buildFieldMap = (fields: Field[]): Map<string, Field[]> => {
   const map = new Map<string, Field[]>();
   for (const field of fields) {
-    addFieldRef(map, field.id, field);
     addFieldRef(map, field.shortId, field);
     addFieldRef(map, field.name, field);
   }

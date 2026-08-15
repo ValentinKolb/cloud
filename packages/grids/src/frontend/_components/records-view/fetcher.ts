@@ -8,7 +8,8 @@
  */
 
 import { apiClient } from "../../../api/client";
-import type { RecordQuery, TableQueryBody, TableQueryResult } from "../../../contracts";
+import type { PublicTableQueryResult as TableQueryResult } from "../../../api/public-dto";
+import type { RecordQuery, TableQueryBody } from "../../../contracts";
 import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
 import { errorMessage } from "../utils/api-helpers";
 

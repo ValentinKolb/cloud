@@ -14,17 +14,17 @@ import {
 } from "@k2b/ui";
 import { createSignal, type JSX, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import type { PublicField as Field, PublicForm } from "../../../api/public-dto";
 import type { FormValidationRule } from "../../../contracts";
-import type { Field, Form } from "../../../service";
 import type { FormFieldEntry } from "../../../service/forms";
 import { errorMessage } from "../utils/api-helpers";
 import { FormFieldsEditor } from "./FormFieldsEditor";
 import { FormValidationsEditor } from "./FormValidationsEditor";
 
 type OpenFormEditorDialogArgs = {
-  form: Form;
+  form: PublicForm;
   tableFields: Field[];
-  onSaved?: (next: Form) => void;
+  onSaved?: (next: PublicForm) => void;
   onDelete?: () => Promise<void> | void;
 };
 
@@ -72,9 +72,9 @@ type SaveFormRequest = {
 };
 
 function FormEditor(props: {
-  form: Form;
+  form: PublicForm;
   tableFields: Field[];
-  onSaved: (next: Form) => void;
+  onSaved: (next: PublicForm) => void;
   onDelete: () => void;
   onDirtyChange?: (dirty: boolean) => void;
   onCancel?: () => void;
@@ -105,9 +105,10 @@ function FormEditor(props: {
       markDirty();
     };
 
-  const updateMut = mutations.create<Form, SaveFormRequest, SaveFormRequest>({
+  const updateMut = mutations.create<PublicForm, SaveFormRequest, SaveFormRequest>({
     onBefore: (request) => request,
     mutation: async (request) => {
+      if (!props.form.id) throw new Error("The default form cannot be edited directly.");
       const res = await apiClient.forms[":formId"].$patch({
         param: { formId: props.form.id },
         json: {

@@ -1,7 +1,8 @@
+import { Buffer } from "node:buffer";
 import { type AuthContext, auth, getDateConfig, respond, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
-import { type GridRecord, RecordUpdateBodySchema } from "../contracts";
+import { type Field, type GridRecord, ShortIdSchema } from "../contracts";
 import { customAppPageRecordFieldIds } from "../custom-apps/conditions";
 import { CUSTOM_APP_REFERENCE, CustomAppDefinitionInputSchema } from "../custom-apps/contracts";
 import { customAppFileTokenMatchesContext, verifyCustomAppFileToken } from "../custom-apps/file-token";
@@ -20,25 +21,44 @@ import { gridsService } from "../service";
 import { resolvePublishedCustomAppForm } from "../service/custom-app-published-form";
 import { buildCustomAppRecordLabelCache } from "../service/custom-app-record-relations";
 import { executePublishedCustomAppRecords } from "../service/custom-app-records-query";
+import type { CustomApp, CustomAppDraftSave, CustomAppSummary } from "../service/custom-apps";
 import { getMaxFileSizeBytes } from "../service/file-limits";
+import { type PublicResourceType, projectPublicId, projectPublicIds, resolvePublicId, resolvePublicIds } from "../service/public-resources";
 import { ALL_RECORD_ACCESS } from "../service/record-access";
+import type { RecordComment } from "../service/record-comments";
+import type { GridFile } from "../service/types";
 import { getWorkflowRunScope } from "../service/workflow-runs";
 import { resolvePublishedCustomAppGlobalRuntime, resolvePublishedCustomAppRuntime } from "./custom-app-published-runtime";
 import { encodeHeaderValue, pdfResponse } from "./download-response";
 import { FormSubmitSchema, parseFormSubmission } from "./form-api-shared";
 import { accessActorUser, currentActorUserId, currentWorkflowPrincipal, gateAt, gridsAccessContext } from "./permissions";
-import { requireUuidParam } from "./route-params";
+import { internalIdParam, requirePublicIdParam } from "./route-params";
 import { ScannerLauncherRequestSchema } from "./workflow-api-shared";
 
-const DefinitionBaseSchema = z.object({ baseId: z.string().uuid() });
+const DefinitionBaseSchema = z.object({ baseId: ShortIdSchema });
 const CustomAppCreateSchema = z.object({ name: z.string().trim().min(1).max(200) }).strict();
 const RecordCommentBodySchema = z.object({ body: z.string().max(10_000) }).strict();
+const CustomAppRecordUpdateSchema = z
+  .object({
+    values: z.record(ShortIdSchema, z.unknown()),
+    audit: z
+      .object({
+        // Audit question IDs are definition-local identifiers, not public Grids resources.
+        answers: z.record(z.string().uuid(), z.string().max(10_000)).default({}),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
 const CustomAppActionInvocationSchema = z.object({ operationId: z.string().uuid() }).strict();
-const CustomAppRowActionInvocationSchema = CustomAppActionInvocationSchema.extend({
-  rowId: z.string().uuid(),
-  search: z.string().max(200).optional(),
-  cursor: z.string().max(16_384).optional(),
-}).strict();
+const CustomAppRowActionInvocationSchema = z
+  .object({
+    operationId: z.string().uuid(),
+    rowId: ShortIdSchema,
+    search: z.string().max(200).optional(),
+    cursor: z.string().max(16_384).optional(),
+  })
+  .strict();
 const CustomAppRecordsQuerySchema = z
   .object({ q: z.string().max(200).optional(), cursor: z.string().max(16_384).optional() })
   .passthrough();
@@ -48,6 +68,501 @@ const RecordCommentListQuerySchema = z
     limit: z.coerce.number().int().min(1).max(100).optional(),
   })
   .passthrough();
+
+const requiredPublicId = async (type: PublicResourceType, internalId: string): Promise<string> => {
+  const publicId = await projectPublicId(type, internalId);
+  if (!publicId) throw new Error(`Missing public id for Grids ${type} ${internalId}`);
+  return publicId;
+};
+
+const requiredProjected = (ids: ReadonlyMap<string, string>, internalId: string, type: PublicResourceType): string => {
+  const publicId = ids.get(internalId);
+  if (!publicId) throw new Error(`Missing public id for Grids ${type} ${internalId}`);
+  return publicId;
+};
+
+const resolveFieldValues = async (values: Readonly<Record<string, unknown>>): Promise<Record<string, unknown> | null> => {
+  const resolved = await resolvePublicIds("field", Object.keys(values));
+  if (resolved.size !== Object.keys(values).length) return null;
+  return Object.fromEntries(Object.entries(values).map(([fieldId, value]) => [resolved.get(fieldId)!, value]));
+};
+
+const resolveFormSubmission = async (submitted: Record<string, unknown>) => {
+  const parsed = parseFormSubmission(submitted);
+  if (!parsed) return null;
+  const fieldIds = [
+    ...Object.keys(parsed.data),
+    ...Object.keys(parsed.inlineCreates),
+    ...Object.values(parsed.inlineCreates).flatMap((drafts) => drafts.flatMap((draft) => Object.keys(draft.data))),
+  ];
+  const resolved = await resolvePublicIds("field", fieldIds);
+  if (resolved.size !== new Set(fieldIds).size) return null;
+  return {
+    data: Object.fromEntries(Object.entries(parsed.data).map(([id, value]) => [resolved.get(id)!, value])),
+    inlineCreates: Object.fromEntries(
+      Object.entries(parsed.inlineCreates).map(([id, drafts]) => [
+        resolved.get(id)!,
+        drafts.map((draft) => ({
+          ...draft,
+          data: Object.fromEntries(Object.entries(draft.data).map(([draftId, value]) => [resolved.get(draftId)!, value])),
+        })),
+      ]),
+    ),
+  };
+};
+
+const collectUuidValues = (value: unknown, output: Set<string>): void => {
+  if (typeof value === "string") {
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) output.add(value);
+    return;
+  }
+  if (Array.isArray(value)) for (const item of value) collectUuidValues(item, output);
+};
+
+const projectRecordValues = (
+  values: Readonly<Record<string, unknown>>,
+  fieldIds: ReadonlyMap<string, string>,
+  recordIds: ReadonlyMap<string, string>,
+  relationFieldIds: ReadonlySet<string>,
+): Record<string, unknown> => {
+  const projectValue = (value: unknown): unknown => {
+    if (typeof value === "string") return recordIds.get(value) ?? value;
+    if (Array.isArray(value)) return value.map(projectValue);
+    return value;
+  };
+  return Object.fromEntries(
+    Object.entries(values).map(([fieldId, value]) => [
+      fieldIds.get(fieldId) ?? fieldId,
+      relationFieldIds.has(fieldId) ? projectValue(value) : value,
+    ]),
+  );
+};
+
+const projectField = (field: Field, tableIds: ReadonlyMap<string, string>, fieldIds: ReadonlyMap<string, string>) => {
+  const config = { ...field.config };
+  if (typeof config.targetTableId === "string") config.targetTableId = requiredProjected(tableIds, config.targetTableId, "table");
+  if (typeof config.displayFieldId === "string") config.displayFieldId = requiredProjected(fieldIds, config.displayFieldId, "field");
+  if (typeof config.relationFieldId === "string") config.relationFieldId = requiredProjected(fieldIds, config.relationFieldId, "field");
+  if (typeof config.targetFieldId === "string") config.targetFieldId = requiredProjected(fieldIds, config.targetFieldId, "field");
+  if (Array.isArray(config.labelFieldIds))
+    config.labelFieldIds = config.labelFieldIds.map((id) => (typeof id === "string" ? requiredProjected(fieldIds, id, "field") : id));
+  return {
+    id: field.shortId,
+    tableId: requiredProjected(tableIds, field.tableId, "table"),
+    name: field.name,
+    description: field.description,
+    icon: field.icon,
+    type: field.type,
+    config,
+    position: field.position,
+    required: field.required,
+    presentable: field.presentable,
+    hideInTable: field.hideInTable,
+    defaultValue: field.defaultValue,
+    indexed: field.indexed,
+    uniqueConstraint: field.uniqueConstraint,
+    deletedAt: field.deletedAt,
+    createdAt: field.createdAt,
+    updatedAt: field.updatedAt,
+  };
+};
+
+const projectGridRecord = async (record: GridRecord, fields: readonly Field[]) => {
+  const relationFieldIds = new Set(fields.filter((field) => field.type === "relation").map((field) => field.id));
+  const recordValueIds = new Set<string>();
+  for (const [fieldId, value] of Object.entries(record.data)) if (relationFieldIds.has(fieldId)) collectUuidValues(value, recordValueIds);
+  const [recordIds, tableIds, fieldIds] = await Promise.all([
+    projectPublicIds("record", [record.id, ...recordValueIds]),
+    projectPublicIds("table", [record.tableId]),
+    projectPublicIds("field", Object.keys(record.data)),
+  ]);
+  return {
+    id: requiredProjected(recordIds, record.id, "record"),
+    tableId: requiredProjected(tableIds, record.tableId, "table"),
+    data: projectRecordValues(record.data, fieldIds, recordIds, relationFieldIds),
+    version: record.version,
+    deletedAt: record.deletedAt,
+    createdBy: record.createdBy,
+    updatedBy: record.updatedBy,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+};
+
+const projectGridFile = async (file: GridFile) => {
+  const [recordId, fieldId] = await Promise.all([requiredPublicId("record", file.recordId), requiredPublicId("field", file.fieldId)]);
+  return {
+    id: file.shortId,
+    recordId,
+    fieldId,
+    position: file.position,
+    filename: file.filename,
+    mimeType: file.mimeType,
+    sizeBytes: file.sizeBytes,
+    sha256: file.sha256,
+    createdBy: file.createdBy,
+    createdAt: file.createdAt,
+  };
+};
+
+const projectComment = (comment: RecordComment) => ({
+  id: comment.shortId,
+  authorUserId: comment.authorUserId,
+  authorDisplayName: comment.authorDisplayName,
+  authorAvatarHash: comment.authorAvatarHash,
+  body: comment.body,
+  deletedAt: comment.deletedAt,
+  createdAt: comment.createdAt,
+  updatedAt: comment.updatedAt,
+});
+
+const rewriteCommentCursor = async (cursor: string | null | undefined, direction: "resolve" | "project"): Promise<string | null> => {
+  if (!cursor) return null;
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    if (!Array.isArray(parsed) || parsed.length !== 2 || typeof parsed[0] !== "string" || typeof parsed[1] !== "string") return null;
+    const commentId = direction === "resolve" ? await resolvePublicId("comment", parsed[1]) : await projectPublicId("comment", parsed[1]);
+    return commentId ? Buffer.from(JSON.stringify([parsed[0], commentId]), "utf8").toString("base64url") : null;
+  } catch {
+    return null;
+  }
+};
+
+const capabilityResourceType = (key: string): PublicResourceType | null => {
+  switch (key) {
+    case "tableId":
+    case "tableIds":
+    case "primaryTableId":
+    case "targetTableId":
+      return "table";
+    case "fieldId":
+    case "fieldIds":
+    case "imageFieldId":
+    case "dateFieldId":
+    case "editableFieldIds":
+    case "labelFieldIds":
+    case "userInputFieldIds":
+    case "fixedFieldIds":
+      return "field";
+    case "viewId":
+      return "view";
+    case "formId":
+      return "form";
+    case "templateIds":
+      return "documentTemplate";
+    case "launcherId":
+      return "workflowLauncher";
+    case "workflowId":
+      return "workflow";
+    default:
+      return null;
+  }
+};
+
+const collectCapabilityIds = (value: unknown, ids: Map<PublicResourceType, Set<string>>): void => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  for (const [key, entry] of Object.entries(value)) {
+    const type = capabilityResourceType(key);
+    if (type) {
+      const values = Array.isArray(entry) ? entry : [entry];
+      for (const id of values) if (typeof id === "string") ids.get(type)!.add(id);
+    }
+    if (Array.isArray(entry)) for (const item of entry) collectCapabilityIds(item, ids);
+    else collectCapabilityIds(entry, ids);
+  }
+};
+
+const projectCapabilityIds = (value: unknown, maps: Map<PublicResourceType, Map<string, string>>): void => {
+  if (Array.isArray(value)) {
+    for (const item of value) projectCapabilityIds(item, maps);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const [key, entry] of Object.entries(value)) {
+    const type = capabilityResourceType(key);
+    if (type && typeof entry === "string") {
+      Object.assign(value, { [key]: requiredProjected(maps.get(type)!, entry, type) });
+      continue;
+    }
+    if (type && Array.isArray(entry)) {
+      Object.assign(value, {
+        [key]: entry.map((id) => (typeof id === "string" ? requiredProjected(maps.get(type)!, id, type) : id)),
+      });
+      continue;
+    }
+    projectCapabilityIds(entry, maps);
+  }
+};
+
+const projectCapabilities = async (capabilities: CustomApp["draftCapabilities"]) => {
+  if (!capabilities) return null;
+  const projected = structuredClone(capabilities);
+  const ids = new Map<PublicResourceType, Set<string>>(
+    (["table", "field", "view", "form", "documentTemplate", "workflowLauncher", "workflow"] as const).map((type) => [type, new Set()]),
+  );
+  collectCapabilityIds(capabilities, ids);
+  const maps = new Map<PublicResourceType, Map<string, string>>(
+    await Promise.all([...ids].map(async ([type, values]) => [type, await projectPublicIds(type, [...values])] as const)),
+  );
+  projectCapabilityIds(projected, maps);
+  return projected;
+};
+
+export const projectCustomApp = async (app: CustomApp) => {
+  const [baseId, draftCapabilities, publishedCapabilities] = await Promise.all([
+    requiredPublicId("base", app.baseId),
+    projectCapabilities(app.draftCapabilities),
+    projectCapabilities(app.publishedCapabilities),
+  ]);
+  return {
+    id: app.shortId,
+    baseId,
+    name: app.name,
+    icon: app.icon,
+    draftDefinition: app.draftDefinition,
+    draftDiagnostics: app.draftDiagnostics,
+    draftCapabilities,
+    publishedDefinition: app.publishedDefinition,
+    publishedDiagnostics: app.publishedDiagnostics,
+    publishedCapabilities,
+    publishedAt: app.publishedAt,
+    createdAt: app.createdAt,
+    updatedAt: app.updatedAt,
+    draftValid: app.draftValid,
+    publishedValid: app.publishedValid,
+    hasUnpublishedChanges: app.hasUnpublishedChanges,
+  };
+};
+
+export const projectCustomAppSummaries = async (apps: readonly CustomAppSummary[]) => {
+  const bases = await projectPublicIds(
+    "base",
+    apps.map((app) => app.baseId),
+  );
+  return apps.map(({ id: _id, shortId, baseId, ...app }) => ({
+    ...app,
+    id: shortId,
+    baseId: requiredProjected(bases, baseId, "base"),
+  }));
+};
+
+const projectDraftSave = async (saved: CustomAppDraftSave) => ({ ...saved, app: await projectCustomApp(saved.app) });
+
+const projectRecordParams = async (params: Readonly<Record<string, string>>): Promise<Record<string, string>> => {
+  const recordIds = await projectPublicIds("record", Object.values(params));
+  return Object.fromEntries(Object.entries(params).map(([key, id]) => [key, requiredProjected(recordIds, id, "record")]));
+};
+
+const projectWorkflowInvocation = async <T extends { runId: string; workflowId: string; status: string }>(data: T) => ({
+  runId: await requiredPublicId("workflowRun", data.runId),
+  workflowId: await requiredPublicId("workflow", data.workflowId),
+  revision: "revision" in data ? data.revision : undefined,
+  mode: "mode" in data ? data.mode : undefined,
+  channel: "channel" in data ? data.channel : undefined,
+  created: "created" in data ? data.created : undefined,
+  status: data.status,
+});
+
+const projectWorkflowRunSummary = async (run: Parameters<typeof toWorkflowRunEventSummary>[0]) => {
+  const summary = toWorkflowRunEventSummary(run);
+  const [id, workflowId, launcherId, baseId] = await Promise.all([
+    requiredPublicId("workflowRun", summary.id),
+    summary.workflowId ? requiredPublicId("workflow", summary.workflowId) : null,
+    summary.launcherId ? requiredPublicId("workflowLauncher", summary.launcherId) : null,
+    requiredPublicId("base", summary.baseId),
+  ]);
+  return {
+    id,
+    workflowId,
+    launcherId,
+    baseId,
+    workflowRevision: summary.workflowRevision,
+    mode: summary.mode,
+    channel: summary.channel,
+    status: summary.status,
+    error: summary.error,
+    resultMessage: summary.resultMessage,
+    createdAt: summary.createdAt,
+    startedAt: summary.startedAt,
+    finishedAt: summary.finishedAt,
+    operatorMessage: summary.operatorMessage,
+  };
+};
+
+const projectPublishedRecords = async (published: NonNullable<Awaited<ReturnType<typeof executePublishedCustomAppRecords>>>) => {
+  const tableInternalIds = new Set([published.primaryTableId]);
+  const fieldInternalIds = new Set<string>();
+  const recordInternalIds = new Set<string>();
+  const fileInternalIds = new Set<string>();
+  const addField = (field: Field) => {
+    fieldInternalIds.add(field.id);
+    tableInternalIds.add(field.tableId);
+    const targetTableId = field.config.targetTableId;
+    if (typeof targetTableId === "string") tableInternalIds.add(targetTableId);
+    const displayFieldId = field.config.displayFieldId;
+    if (typeof displayFieldId === "string") fieldInternalIds.add(displayFieldId);
+    const relationFieldId = field.config.relationFieldId;
+    if (typeof relationFieldId === "string") fieldInternalIds.add(relationFieldId);
+    const targetFieldId = field.config.targetFieldId;
+    if (typeof targetFieldId === "string") fieldInternalIds.add(targetFieldId);
+    const labelFieldIds = field.config.labelFieldIds;
+    if (Array.isArray(labelFieldIds)) for (const id of labelFieldIds) if (typeof id === "string") fieldInternalIds.add(id);
+  };
+  if (published.response.ok) {
+    for (const column of published.response.columns) {
+      if (column.tableId) tableInternalIds.add(column.tableId);
+      if (column.fieldId) fieldInternalIds.add(column.fieldId);
+    }
+    for (const row of published.response.rows) {
+      if (row.recordId) recordInternalIds.add(row.recordId);
+      if (row.tableId) tableInternalIds.add(row.tableId);
+    }
+  }
+  for (const field of published.presentation?.fields ?? []) addField(field);
+  for (const field of published.cards?.fields ?? []) addField(field);
+  const relationFieldIds = new Set(
+    [...(published.presentation?.fields ?? []), ...(published.cards?.fields ?? [])]
+      .filter((field) => field.type === "relation")
+      .map((field) => field.id),
+  );
+  const relationValueKeys = new Set(relationFieldIds);
+  if (published.response.ok)
+    for (const column of published.response.columns)
+      if (column.fieldId && relationFieldIds.has(column.fieldId)) relationValueKeys.add(column.key);
+  if (published.response.ok)
+    for (const row of published.response.rows)
+      for (const [fieldId, value] of Object.entries(row.values))
+        if (relationValueKeys.has(fieldId)) collectUuidValues(value, recordInternalIds);
+  for (const record of published.cards?.records ?? []) {
+    recordInternalIds.add(record.id);
+    tableInternalIds.add(record.tableId);
+    Object.keys(record.data).forEach((id) => fieldInternalIds.add(id));
+    for (const [fieldId, value] of Object.entries(record.data))
+      if (relationFieldIds.has(fieldId)) collectUuidValues(value, recordInternalIds);
+  }
+  for (const [recordId, params] of Object.entries(published.rowNavigationParams ?? {})) {
+    recordInternalIds.add(recordId);
+    for (const value of Object.values(params)) recordInternalIds.add(value);
+  }
+  for (const recordId of Object.keys(published.cards?.relationLabels ?? {})) recordInternalIds.add(recordId);
+  for (const [recordId, byField] of Object.entries(published.cards?.filePreviews ?? {})) {
+    recordInternalIds.add(recordId);
+    for (const [fieldId, preview] of Object.entries(byField)) {
+      fieldInternalIds.add(fieldId);
+      fieldInternalIds.add(preview.fieldId);
+      recordInternalIds.add(preview.recordId);
+      fileInternalIds.add(preview.fileId);
+    }
+  }
+  const cardConfig = published.cards?.displayConfig.cards;
+  for (const fieldId of cardConfig?.fieldIds ?? []) fieldInternalIds.add(fieldId);
+  if (cardConfig?.imageFieldId) fieldInternalIds.add(cardConfig.imageFieldId);
+  const calendarConfig = published.cards?.displayConfig.calendar;
+  if (calendarConfig?.dateFieldId) fieldInternalIds.add(calendarConfig.dateFieldId);
+  const [tableIds, fieldIds, recordIds, fileIds] = await Promise.all([
+    projectPublicIds("table", [...tableInternalIds]),
+    projectPublicIds("field", [...fieldInternalIds]),
+    projectPublicIds("record", [...recordInternalIds]),
+    projectPublicIds("file", [...fileInternalIds]),
+  ]);
+  const response = published.response.ok
+    ? {
+        ...published.response,
+        columns: published.response.columns.map((column) => ({
+          ...column,
+          ...(column.tableId ? { tableId: requiredProjected(tableIds, column.tableId, "table") } : {}),
+          ...(column.fieldId ? { fieldId: requiredProjected(fieldIds, column.fieldId, "field") } : {}),
+          key: column.fieldId && column.key === column.fieldId ? requiredProjected(fieldIds, column.fieldId, "field") : column.key,
+        })),
+        rows: published.response.rows.map((row) => ({
+          ...row,
+          ...(row.recordId ? { recordId: requiredProjected(recordIds, row.recordId, "record") } : {}),
+          ...(row.tableId ? { tableId: requiredProjected(tableIds, row.tableId, "table") } : {}),
+          values: Object.fromEntries(
+            Object.entries(row.values).map(([key, value]) => [
+              fieldIds.get(key) ?? key,
+              projectRecordValues({ [key]: value }, new Map(), recordIds, relationValueKeys)[key],
+            ]),
+          ),
+        })),
+      }
+    : published.response;
+  const presentation = published.presentation
+    ? { fields: published.presentation.fields.map((field) => projectField(field, tableIds, fieldIds)) }
+    : undefined;
+  const rowNavigationParams = published.rowNavigationParams
+    ? Object.fromEntries(
+        Object.entries(published.rowNavigationParams).map(([recordId, params]) => [
+          requiredProjected(recordIds, recordId, "record"),
+          Object.fromEntries(Object.entries(params).map(([key, value]) => [key, requiredProjected(recordIds, value, "record")])),
+        ]),
+      )
+    : undefined;
+  const cards = published.cards
+    ? {
+        ...published.cards,
+        displayConfig: {
+          ...published.cards.displayConfig,
+          ...(published.cards.displayConfig.cards
+            ? {
+                cards: {
+                  ...published.cards.displayConfig.cards,
+                  fieldIds: published.cards.displayConfig.cards.fieldIds?.map((id) => requiredProjected(fieldIds, id, "field")),
+                  ...(published.cards.displayConfig.cards.imageFieldId
+                    ? { imageFieldId: requiredProjected(fieldIds, published.cards.displayConfig.cards.imageFieldId, "field") }
+                    : {}),
+                },
+              }
+            : {}),
+          ...(published.cards.displayConfig.calendar?.dateFieldId
+            ? {
+                calendar: {
+                  ...published.cards.displayConfig.calendar,
+                  dateFieldId: requiredProjected(fieldIds, published.cards.displayConfig.calendar.dateFieldId, "field"),
+                },
+              }
+            : {}),
+        },
+        fields: published.cards.fields.map((field) => projectField(field, tableIds, fieldIds)),
+        records: published.cards.records.map((record) => ({
+          id: requiredProjected(recordIds, record.id, "record"),
+          tableId: requiredProjected(tableIds, record.tableId, "table"),
+          data: projectRecordValues(record.data, fieldIds, recordIds, relationFieldIds),
+          version: record.version,
+          deletedAt: record.deletedAt,
+          createdBy: record.createdBy,
+          updatedBy: record.updatedBy,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+        })),
+        relationLabels: Object.fromEntries(
+          Object.entries(published.cards.relationLabels).map(([id, label]) => [requiredProjected(recordIds, id, "record"), label]),
+        ),
+        filePreviews: Object.fromEntries(
+          Object.entries(published.cards.filePreviews).map(([recordId, byField]) => [
+            requiredProjected(recordIds, recordId, "record"),
+            Object.fromEntries(
+              Object.entries(byField).map(([fieldId, preview]) => [
+                requiredProjected(fieldIds, fieldId, "field"),
+                {
+                  ...preview,
+                  fileId: requiredProjected(fileIds, preview.fileId, "file"),
+                  recordId: requiredProjected(recordIds, preview.recordId, "record"),
+                  fieldId: requiredProjected(fieldIds, preview.fieldId, "field"),
+                },
+              ]),
+            ),
+          ]),
+        ),
+      }
+    : undefined;
+  return {
+    ...response,
+    ...(presentation ? { presentation } : {}),
+    ...(cards ? { cards } : {}),
+    ...(rowNavigationParams ? { rowNavigationParams } : {}),
+  };
+};
 
 const sameStringRecord = (left: Readonly<Record<string, string>>, right: Readonly<Record<string, string>>): boolean => {
   const leftEntries = Object.entries(left).sort(([a], [b]) => a.localeCompare(b));
@@ -61,15 +576,19 @@ const sameStringRecord = (left: Readonly<Record<string, string>>, right: Readonl
 const gateDefinitionAdmin = async (c: Parameters<typeof gateAt>[0], input: unknown) => {
   const parsed = DefinitionBaseSchema.safeParse(input);
   if (!parsed.success) return c.json({ diagnostics: parsed.error.issues }, 400);
-  const gate = await gateAt(c, { baseId: parsed.data.baseId }, "admin");
+  const baseId = await resolvePublicId("base", parsed.data.baseId);
+  if (!baseId) return c.json({ diagnostics: [{ path: ["baseId"], message: "Base not found" }] }, 400);
+  const gate = await gateAt(c, { baseId }, "admin");
   return gate.ok ? null : respond(c, () => Promise.resolve(gate));
 };
 
 const resolvePublishedRuntime = async (c: Context<AuthContext>) => {
+  const shortId = ShortIdSchema.safeParse(c.req.param("shortId"));
+  if (!shortId.success) return null;
   const access = gridsAccessContext(c);
   return resolvePublishedCustomAppRuntime({
     access,
-    shortId: c.req.param("shortId") ?? "",
+    shortId: shortId.data,
     pageId: c.req.param("pageId"),
     query: c.req.query(),
     dateConfig: getDateConfig(c),
@@ -92,10 +611,12 @@ const resolvePublishedPageRun = async (c: Context<AuthContext>) => {
 };
 
 const resolvePublishedSidebarRuntime = async (c: Context<AuthContext>) => {
+  const shortId = ShortIdSchema.safeParse(c.req.param("shortId"));
+  if (!shortId.success) return null;
   const access = gridsAccessContext(c);
   const runtime = await resolvePublishedCustomAppGlobalRuntime({
     access,
-    shortId: c.req.param("shortId") ?? "",
+    shortId: shortId.data,
     query: c.req.query(),
     dateConfig: getDateConfig(c),
     signal: c.req.raw.signal,
@@ -190,7 +711,7 @@ const resolveRuntimeRecordEdit = async (c: Context<AuthContext>) => {
 const resolveRuntimeRecordFile = async (c: Context<AuthContext>, requireWrite: boolean) => {
   const resolved = await resolveRuntimeRecordBlock(c);
   if (!resolved) return null;
-  const fieldId = c.req.param("fieldId") ?? "";
+  const fieldId = internalIdParam(c, "fieldId") ?? "";
   if (!resolved.block.fieldIds.includes(fieldId) || (requireWrite && !resolved.block.editableFieldIds.includes(fieldId))) return null;
   const field = (await gridsService.field.listByTable(resolved.page.record!.tableId)).find((candidate) => candidate.id === fieldId);
   return field?.type === "file" && !field.deletedAt ? { ...resolved, fieldId } : null;
@@ -212,7 +733,7 @@ const submitPublishedCustomAppForm = async (c: Context<AuthContext>, submitted: 
   const bindingContext = await loadRuntimeBindingContext(runtime);
   if (!bindingContext) return c.json({ message: "Form not found" }, 404);
 
-  const submission = parseFormSubmission(submitted);
+  const submission = await resolveFormSubmission(submitted);
   if (!submission) return c.json({ message: "Invalid form submission" }, 400);
   const fixedValues: Record<string, unknown> = {};
   for (const [fieldId, binding] of Object.entries(block.fixedValues)) {
@@ -230,10 +751,19 @@ const submitPublishedCustomAppForm = async (c: Context<AuthContext>, submitted: 
     viewer,
   });
   if (!result.ok) return respond(c, () => Promise.resolve(result));
+  const [recordId, publicPageParams] = await Promise.all([
+    requiredPublicId("record", result.data.recordId),
+    projectPublicIds("record", Object.values(pageParams)),
+  ]);
   const navigateTo = block.onSuccessNavigate
-    ? customAppFormSuccessHref(app.shortId, block.onSuccessNavigate, pageParams, result.data.recordId)
+    ? customAppFormSuccessHref(
+        app.shortId,
+        block.onSuccessNavigate,
+        Object.fromEntries(Object.entries(pageParams).map(([key, id]) => [key, requiredProjected(publicPageParams, id, "record")])),
+        recordId,
+      )
     : undefined;
-  return c.json({ recordId: result.data.recordId, navigateTo }, 201);
+  return c.json({ recordId, navigateTo }, 201);
 };
 
 const submitPublishedSidebarForm = async (c: Context<AuthContext>, submitted: Record<string, unknown>) => {
@@ -243,7 +773,7 @@ const submitPublishedSidebarForm = async (c: Context<AuthContext>, submitted: Re
   const resolvedForm = await resolvePublishedCustomAppForm({ surface: action, capabilities: runtime.capabilities });
   if (!resolvedForm) return c.json({ message: "Form not found" }, 404);
   const { form } = resolvedForm;
-  const submission = parseFormSubmission(submitted);
+  const submission = await resolveFormSubmission(submitted);
   if (!submission) return c.json({ message: "Invalid form submission" }, 400);
   const fixedValues: Record<string, unknown> = {};
   for (const [fieldId, binding] of Object.entries(action.fixedValues)) {
@@ -264,10 +794,11 @@ const submitPublishedSidebarForm = async (c: Context<AuthContext>, submitted: Re
     viewer,
   });
   if (!result.ok) return respond(c, () => Promise.resolve(result));
+  const recordId = await requiredPublicId("record", result.data.recordId);
   const navigateTo = action.onSuccessNavigate
-    ? customAppSidebarFormSuccessHref(app.shortId, action.onSuccessNavigate, result.data.recordId)
+    ? customAppSidebarFormSuccessHref(app.shortId, action.onSuccessNavigate, recordId)
     : undefined;
-  return c.json({ recordId: result.data.recordId, navigateTo }, 201);
+  return c.json({ recordId, navigateTo }, 201);
 };
 
 const resolveRuntimeScanner = async (c: Context<AuthContext>) => {
@@ -325,14 +856,7 @@ export const createCustomAppsApi = (
         cursor: query.cursor,
       }).catch(() => null);
       if (!published) return c.json({ message: "Records not found" }, 404);
-      const payload = published.response.ok
-        ? {
-            ...published.response,
-            ...(published.presentation ? { presentation: published.presentation } : {}),
-            ...(published.cards ? { cards: published.cards } : {}),
-            ...(published.rowNavigationParams ? { rowNavigationParams: published.rowNavigationParams } : {}),
-          }
-        : published.response;
+      const payload = await projectPublishedRecords(published);
       return c.json(payload, published.response.ok ? 200 : 400);
     })
     .post("/runtime/:shortId/:pageId/:blockId/submit", loadOptionalActor, v("json", FormSubmitSchema), (c) =>
@@ -344,7 +868,7 @@ export const createCustomAppsApi = (
     .get(
       "/runtime/:shortId/:pageId/:blockId/documents/:runId/download",
       loadOptionalActor,
-      requireUuidParam("runId", "Document run"),
+      requirePublicIdParam("runId", "documentRun", "Document run"),
       async (c) => {
         const runtime = await resolvePublishedRuntime(c);
         if (!runtime) return c.json({ message: "Document not found" }, 404);
@@ -365,7 +889,7 @@ export const createCustomAppsApi = (
         );
         const bindingContext = capability ? await loadRuntimeBindingContext(runtime) : null;
         const record = bindingContext?.pageRecord;
-        const run = record ? await gridsService.document.getRun(c.req.param("runId")!) : null;
+        const run = record ? await gridsService.document.getRun(internalIdParam(c, "runId")!) : null;
         if (
           !capability ||
           !record ||
@@ -381,7 +905,7 @@ export const createCustomAppsApi = (
         const pdf = await renderDocumentRunPdf(run);
         if (!pdf.ok) return c.json({ message: pdf.error.message }, pdf.error.status);
         return pdfResponse(pdf.data.pdf, run.filename, {
-          "X-Grids-Document-Run-Id": run.id,
+          "X-Grids-Document-Run-Id": c.req.param("runId")!,
           "X-Grids-Document-Number": run.documentNumber,
           "X-Grids-Document-Filename": encodeHeaderValue(run.filename),
         });
@@ -486,68 +1010,85 @@ export const createCustomAppsApi = (
         },
       });
       if (!result.ok) return respond(c, () => Promise.resolve(result));
+      const [projected, publicPageParams] = await Promise.all([
+        projectWorkflowInvocation(result.data),
+        projectRecordParams(runtime.pageParams),
+      ]);
       return c.json(
         {
-          ...result.data,
-          statusUrl: customAppScannerRunUrl(runtime.app.shortId, runtime.page.id, block.id, result.data.runId, runtime.pageParams),
+          ...projected,
+          statusUrl: customAppScannerRunUrl(runtime.app.shortId, runtime.page.id, block.id, projected.runId, publicPageParams),
         },
         202,
       );
     })
-    .get("/runtime/:shortId/:pageId/:blockId/scanner/runs/:runId", requireUuidParam("runId", "Workflow run"), async (c) => {
-      const runtime = await resolvePublishedPageRun(c);
-      if (!runtime) return c.json({ message: "Workflow run not found" }, 404);
-      const block = runtime.blocks.get(c.req.param("blockId") ?? "");
-      const capability =
-        block?.type === "scanner"
-          ? runtime.capabilities.scannerLaunchers.find(
-              (candidate) =>
-                candidate.pageId === runtime.page.id && candidate.blockId === block.id && candidate.launcherId === block.launcherId,
-            )
-          : null;
-      if (!block || block.type !== "scanner" || !capability) return c.json({ message: "Workflow run not found" }, 404);
-      const principal = currentWorkflowPrincipal(c);
-      const [scope, run] = await Promise.all([loadWorkflowRunScope(c.req.param("runId")!), getWorkflowRun(c.req.param("runId")!)]);
-      if (
-        !scope ||
-        !run ||
-        scope.baseId !== runtime.app.baseId ||
-        run.baseId !== runtime.app.baseId ||
-        run.workflowId !== capability.workflowId ||
-        run.launcherId !== capability.launcherId ||
-        scope.principal.userId !== principal.userId ||
-        scope.principal.serviceAccountId !== principal.serviceAccountId ||
-        (scope.principal.actorServiceAccountId ?? null) !== (principal.actorServiceAccountId ?? null) ||
-        scope.launcherId !== capability.launcherId ||
-        scope.workflow.id !== capability.workflowId ||
-        run.workflowRevision !== capability.revision ||
-        scope.authorization.kind !== "custom-app-scanner" ||
-        scope.authorization.customAppId !== runtime.app.id ||
-        scope.authorization.publishedAt !== runtime.app.publishedAt ||
-        scope.authorization.pageId !== runtime.page.id ||
-        !sameStringRecord(scope.authorization.pageParams, runtime.pageParams) ||
-        scope.authorization.blockId !== block.id ||
-        scope.authorization.revision !== capability.revision ||
-        scope.authorization.configHash !== capability.configHash
-      ) {
-        return c.json({ message: "Workflow run not found" }, 404);
-      }
-      return c.json(toWorkflowRunEventSummary(run));
-    })
+    .get(
+      "/runtime/:shortId/:pageId/:blockId/scanner/runs/:runId",
+      requirePublicIdParam("runId", "workflowRun", "Workflow run"),
+      async (c) => {
+        const runtime = await resolvePublishedPageRun(c);
+        if (!runtime) return c.json({ message: "Workflow run not found" }, 404);
+        const block = runtime.blocks.get(c.req.param("blockId") ?? "");
+        const capability =
+          block?.type === "scanner"
+            ? runtime.capabilities.scannerLaunchers.find(
+                (candidate) =>
+                  candidate.pageId === runtime.page.id && candidate.blockId === block.id && candidate.launcherId === block.launcherId,
+              )
+            : null;
+        if (!block || block.type !== "scanner" || !capability) return c.json({ message: "Workflow run not found" }, 404);
+        const principal = currentWorkflowPrincipal(c);
+        const [scope, run] = await Promise.all([
+          loadWorkflowRunScope(internalIdParam(c, "runId")!),
+          getWorkflowRun(internalIdParam(c, "runId")!),
+        ]);
+        if (
+          !scope ||
+          !run ||
+          scope.baseId !== runtime.app.baseId ||
+          run.baseId !== runtime.app.baseId ||
+          run.workflowId !== capability.workflowId ||
+          run.launcherId !== capability.launcherId ||
+          scope.principal.userId !== principal.userId ||
+          scope.principal.serviceAccountId !== principal.serviceAccountId ||
+          (scope.principal.actorServiceAccountId ?? null) !== (principal.actorServiceAccountId ?? null) ||
+          scope.launcherId !== capability.launcherId ||
+          scope.workflow.id !== capability.workflowId ||
+          run.workflowRevision !== capability.revision ||
+          scope.authorization.kind !== "custom-app-scanner" ||
+          scope.authorization.customAppId !== runtime.app.id ||
+          scope.authorization.publishedAt !== runtime.app.publishedAt ||
+          scope.authorization.pageId !== runtime.page.id ||
+          !sameStringRecord(scope.authorization.pageParams, runtime.pageParams) ||
+          scope.authorization.blockId !== block.id ||
+          scope.authorization.revision !== capability.revision ||
+          scope.authorization.configHash !== capability.configHash
+        ) {
+          return c.json({ message: "Workflow run not found" }, 404);
+        }
+        return c.json(await projectWorkflowRunSummary(run));
+      },
+    )
     .get("/reference", (c) => c.json(CUSTOM_APP_REFERENCE))
     .get("/runtime/:shortId/:pageId/:blockId/comments", v("query", RecordCommentListQuerySchema), async (c) => {
       const resolved = await resolveRuntimeComments(c);
       if (!resolved) return c.json({ message: "Comments not found" }, 404);
+      const query = c.req.valid("query");
+      const cursor = await rewriteCommentCursor(query.cursor, "resolve");
+      if (query.cursor && !cursor) return c.json({ message: "Invalid comment cursor." }, 400);
       const result = await gridsService.record.comments.list({
         baseId: resolved.app.baseId,
         tableId: resolved.page.record!.tableId,
         recordId: resolved.recordId,
         recordAccess: ALL_RECORD_ACCESS,
-        ...c.req.valid("query"),
+        ...query,
+        cursor,
       });
       if (!result.ok) return respond(c, () => Promise.resolve(result));
       return c.json({
         ...result.data,
+        items: result.data.items.map(projectComment),
+        nextCursor: await rewriteCommentCursor(result.data.nextCursor, "project"),
         permissions: {
           actorUserId: currentActorUserId(c),
           canWrite: true,
@@ -567,53 +1108,59 @@ export const createCustomAppsApi = (
         recordAccess: ALL_RECORD_ACCESS,
       });
       if (!result.ok) return respond(c, () => Promise.resolve(result));
-      return c.json(result.data, 201);
+      return c.json(projectComment(result.data), 201);
     })
     .patch(
       "/runtime/:shortId/:pageId/:blockId/comments/:commentId",
-      requireUuidParam("commentId", "Comment"),
+      requirePublicIdParam("commentId", "comment", "Comment"),
       v("json", RecordCommentBodySchema),
       async (c) => {
         const resolved = await resolveRuntimeComments(c);
         if (!resolved) return c.json({ message: "Comments not found" }, 404);
-        return respond(c, () =>
-          gridsService.record.comments.update({
-            baseId: resolved.app.baseId,
-            tableId: resolved.page.record!.tableId,
-            recordId: resolved.recordId,
-            commentId: c.req.param("commentId")!,
-            actorUserId: currentActorUserId(c),
-            canModerate: resolved.canModerate,
-            body: c.req.valid("json").body,
-            recordAccess: ALL_RECORD_ACCESS,
-          }),
-        );
+        const result = await gridsService.record.comments.update({
+          baseId: resolved.app.baseId,
+          tableId: resolved.page.record!.tableId,
+          recordId: resolved.recordId,
+          commentId: internalIdParam(c, "commentId")!,
+          actorUserId: currentActorUserId(c),
+          canModerate: resolved.canModerate,
+          body: c.req.valid("json").body,
+          recordAccess: ALL_RECORD_ACCESS,
+        });
+        if (!result.ok) return respond(c, () => Promise.resolve(result));
+        return c.json(projectComment(result.data));
       },
     )
-    .delete("/runtime/:shortId/:pageId/:blockId/comments/:commentId", requireUuidParam("commentId", "Comment"), async (c) => {
-      const resolved = await resolveRuntimeComments(c);
-      if (!resolved) return c.json({ message: "Comments not found" }, 404);
-      const result = await gridsService.record.comments.remove({
-        baseId: resolved.app.baseId,
-        tableId: resolved.page.record!.tableId,
-        recordId: resolved.recordId,
-        commentId: c.req.param("commentId")!,
-        actorUserId: currentActorUserId(c),
-        canModerate: resolved.canModerate,
-        recordAccess: ALL_RECORD_ACCESS,
-      });
-      if (!result.ok) return respond(c, () => Promise.resolve(result));
-      return c.body(null, 204);
-    })
-    .patch("/runtime/:shortId/:pageId/:blockId/record", v("json", RecordUpdateBodySchema), async (c) => {
+    .delete(
+      "/runtime/:shortId/:pageId/:blockId/comments/:commentId",
+      requirePublicIdParam("commentId", "comment", "Comment"),
+      async (c) => {
+        const resolved = await resolveRuntimeComments(c);
+        if (!resolved) return c.json({ message: "Comments not found" }, 404);
+        const result = await gridsService.record.comments.remove({
+          baseId: resolved.app.baseId,
+          tableId: resolved.page.record!.tableId,
+          recordId: resolved.recordId,
+          commentId: internalIdParam(c, "commentId")!,
+          actorUserId: currentActorUserId(c),
+          canModerate: resolved.canModerate,
+          recordAccess: ALL_RECORD_ACCESS,
+        });
+        if (!result.ok) return respond(c, () => Promise.resolve(result));
+        return c.body(null, 204);
+      },
+    )
+    .patch("/runtime/:shortId/:pageId/:blockId/record", v("json", CustomAppRecordUpdateSchema), async (c) => {
       const resolved = await resolveRuntimeRecordEdit(c);
       if (!resolved) return c.json({ message: "Record editor not found" }, 404);
 
       const ifMatch = Number(c.req.header("If-Match"));
       if (!Number.isInteger(ifMatch) || ifMatch < 1) return c.json({ message: "If-Match must contain the current record version" }, 400);
       const body = c.req.valid("json");
+      const values = await resolveFieldValues(body.values);
+      if (!values) return c.json({ message: "Record update contains an unknown field" }, 400);
       const allowed = new Set(resolved.block.editableFieldIds);
-      const submittedFieldIds = Object.keys(body.values);
+      const submittedFieldIds = Object.keys(values);
       if (submittedFieldIds.some((fieldId) => !allowed.has(fieldId))) {
         return c.json({ message: "Record update contains a field outside this published editor" }, 400);
       }
@@ -640,7 +1187,7 @@ export const createCustomAppsApi = (
       const result = await gridsService.record.update(
         resolved.page.record!.tableId,
         resolved.record.id,
-        body.values,
+        values,
         currentActorUserId(c),
         ifMatch,
         {
@@ -671,9 +1218,18 @@ export const createCustomAppsApi = (
         viewer: relationViewer,
         actorUserId: currentActorUserId(c),
       }).catch(() => ({}));
-      return c.json({ ...projectCustomAppRecord(result.data, resolved.block.fieldIds), relationLabels });
+      const [record, relationRecordIds] = await Promise.all([
+        projectGridRecord(projectCustomAppRecord(result.data, resolved.block.fieldIds), visibleFields),
+        projectPublicIds("record", Object.keys(relationLabels)),
+      ]);
+      return c.json({
+        ...record,
+        relationLabels: Object.fromEntries(
+          Object.entries(relationLabels).map(([id, label]) => [requiredProjected(relationRecordIds, id, "record"), label]),
+        ),
+      });
     })
-    .get("/runtime/:shortId/:pageId/:blockId/record/files/:fieldId", requireUuidParam("fieldId", "Field"), async (c) => {
+    .get("/runtime/:shortId/:pageId/:blockId/record/files/:fieldId", requirePublicIdParam("fieldId", "field", "Field"), async (c) => {
       const resolved = await resolveRuntimeRecordFile(c, false);
       if (!resolved) return c.json({ message: "Files not found" }, 404);
       const result = await gridsService.file.listForRecordField({
@@ -682,9 +1238,9 @@ export const createCustomAppsApi = (
         fieldId: resolved.fieldId,
       });
       if (!result.ok) return respond(c, () => Promise.resolve(result));
-      return c.json({ items: result.data });
+      return c.json({ items: await Promise.all(result.data.map(projectGridFile)) });
     })
-    .post("/runtime/:shortId/:pageId/:blockId/record/files/:fieldId", requireUuidParam("fieldId", "Field"), async (c) => {
+    .post("/runtime/:shortId/:pageId/:blockId/record/files/:fieldId", requirePublicIdParam("fieldId", "field", "Field"), async (c) => {
       const resolved = await resolveRuntimeRecordFile(c, true);
       if (!resolved) return c.json({ message: "File editor not found" }, 404);
       const form = await c.req.formData().catch(() => null);
@@ -701,12 +1257,13 @@ export const createCustomAppsApi = (
         bytes: new Uint8Array(await file.arrayBuffer()),
         userId: currentActorUserId(c),
       });
-      return respond(c, () => Promise.resolve(result));
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json(await projectGridFile(result.data));
     })
     .get(
       "/runtime/:shortId/:pageId/:blockId/record/files/:fieldId/:fileId/content",
-      requireUuidParam("fieldId", "Field"),
-      requireUuidParam("fileId", "File"),
+      requirePublicIdParam("fieldId", "field", "Field"),
+      requirePublicIdParam("fileId", "file", "File"),
       async (c) => {
         const resolved = await resolveRuntimeRecordFile(c, false);
         if (!resolved) return c.json({ message: "File not found" }, 404);
@@ -714,7 +1271,7 @@ export const createCustomAppsApi = (
           tableId: resolved.page.record!.tableId,
           recordId: resolved.record.id,
           fieldId: resolved.fieldId,
-          fileId: c.req.param("fileId")!,
+          fileId: internalIdParam(c, "fileId")!,
         });
         if (!result.ok) return c.json({ message: "File not found" }, 404);
         const file = result.data;
@@ -732,8 +1289,8 @@ export const createCustomAppsApi = (
     )
     .delete(
       "/runtime/:shortId/:pageId/:blockId/record/files/:fieldId/:fileId",
-      requireUuidParam("fieldId", "Field"),
-      requireUuidParam("fileId", "File"),
+      requirePublicIdParam("fieldId", "field", "Field"),
+      requirePublicIdParam("fileId", "file", "File"),
       async (c) => {
         const resolved = await resolveRuntimeRecordFile(c, true);
         if (!resolved) return c.json({ message: "File editor not found" }, 404);
@@ -741,7 +1298,7 @@ export const createCustomAppsApi = (
           tableId: resolved.page.record!.tableId,
           recordId: resolved.record.id,
           fieldId: resolved.fieldId,
-          fileId: c.req.param("fileId")!,
+          fileId: internalIdParam(c, "fileId")!,
         });
         if (!result.ok) return respond(c, () => Promise.resolve(result));
         return c.body(null, 204);
@@ -803,12 +1360,13 @@ export const createCustomAppsApi = (
         },
       });
       if (!result.ok) return respond(c, () => Promise.resolve(result));
+      const [projected, publicPageParams] = await Promise.all([projectWorkflowInvocation(result.data), projectRecordParams(pageParams)]);
       return c.json(
         {
-          runId: result.data.runId,
-          workflowId: result.data.workflowId,
-          status: result.data.status,
-          statusUrl: customAppActionStatusUrl(app.shortId, page.id, block.id, action.id, result.data.runId, pageParams),
+          runId: projected.runId,
+          workflowId: projected.workflowId,
+          status: projected.status,
+          statusUrl: customAppActionStatusUrl(app.shortId, page.id, block.id, action.id, projected.runId, publicPageParams),
         },
         202,
       );
@@ -853,7 +1411,8 @@ export const createCustomAppsApi = (
         search: c.req.valid("json").search,
         cursor: c.req.valid("json").cursor,
       }).catch(() => null);
-      const rowId = c.req.valid("json").rowId;
+      const rowId = await resolvePublicId("record", c.req.valid("json").rowId);
+      if (!rowId) return c.json({ message: "Action not found" }, 404);
       if (!published?.response.ok || !published.response.rows.some((row) => row.recordId === rowId)) {
         return c.json({ message: "Action not found" }, 404);
       }
@@ -889,87 +1448,94 @@ export const createCustomAppsApi = (
         },
       });
       if (!result.ok) return respond(c, () => Promise.resolve(result));
+      const [projected, publicPageParams] = await Promise.all([projectWorkflowInvocation(result.data), projectRecordParams(pageParams)]);
       return c.json(
         {
-          runId: result.data.runId,
-          workflowId: result.data.workflowId,
-          status: result.data.status,
-          statusUrl: customAppActionStatusUrl(app.shortId, page.id, block.id, action.id, result.data.runId, pageParams),
+          runId: projected.runId,
+          workflowId: projected.workflowId,
+          status: projected.status,
+          statusUrl: customAppActionStatusUrl(app.shortId, page.id, block.id, action.id, projected.runId, publicPageParams),
         },
         202,
       );
     })
-    .get("/runtime/:shortId/:pageId/:blockId/actions/:actionId/runs/:runId", requireUuidParam("runId", "Workflow run"), async (c) => {
-      const runtime = await resolvePublishedPageRun(c);
-      if (!runtime) return c.json({ message: "Workflow run not found" }, 404);
-      const block = runtime.blocks.get(c.req.param("blockId") ?? "");
-      const action =
-        block?.type === "actions"
-          ? block.actions.find((candidate) => candidate.id === c.req.param("actionId") && candidate.kind === "workflow")
-          : block?.type === "records"
-            ? block.rowActions?.find((candidate) => candidate.id === c.req.param("actionId"))
-            : null;
-      const workflowAction = action && "launcherId" in action ? action : null;
-      if (!block || !workflowAction) {
-        return c.json({ message: "Workflow run not found" }, 404);
-      }
-      const capability = workflowAction
-        ? runtime.capabilities.workflowLaunchers.find(
-            (candidate) =>
-              "pageId" in candidate &&
-              candidate.pageId === runtime.page.id &&
-              candidate.blockId === block!.id &&
-              candidate.actionId === workflowAction.id &&
-              candidate.launcherId === workflowAction.launcherId,
-          )
-        : null;
-      const principal = currentWorkflowPrincipal(c);
-      const [scope, run] = capability
-        ? await Promise.all([loadWorkflowRunScope(c.req.param("runId")!), getWorkflowRun(c.req.param("runId")!)])
-        : [null, null];
-      const authorization = scope?.authorization;
-      if (
-        !block ||
-        !workflowAction ||
-        !capability ||
-        !scope ||
-        !run ||
-        scope.baseId !== runtime.app.baseId ||
-        run.baseId !== runtime.app.baseId ||
-        run.workflowId !== capability.workflowId ||
-        run.launcherId !== capability.launcherId ||
-        scope.principal.userId !== principal.userId ||
-        scope.principal.serviceAccountId !== principal.serviceAccountId ||
-        (scope.principal.actorServiceAccountId ?? null) !== (principal.actorServiceAccountId ?? null) ||
-        scope.launcherId !== capability.launcherId ||
-        scope.workflow.id !== capability.workflowId ||
-        run.workflowRevision !== capability.revision ||
-        authorization?.kind !== "custom-app-action" ||
-        authorization.customAppId !== runtime.app.id ||
-        authorization.publishedAt !== runtime.app.publishedAt ||
-        authorization.pageId !== runtime.page.id ||
-        !sameStringRecord(authorization.pageParams, runtime.pageParams) ||
-        authorization.blockId !== block.id ||
-        authorization.actionId !== workflowAction.id ||
-        authorization.revision !== capability.revision
-      ) {
-        return c.json({ message: "Workflow run not found" }, 404);
-      }
-      const status =
-        run.status === "succeeded" ? "succeeded" : ["failed", "canceled", "needs_attention"].includes(run.status) ? "failed" : "running";
-      return c.json({ status, message: run.resultMessage });
-    })
-    .get("/by-base/:baseId", requireUuidParam("baseId", "Base"), async (c) => {
-      const baseId = c.req.param("baseId")!;
+    .get(
+      "/runtime/:shortId/:pageId/:blockId/actions/:actionId/runs/:runId",
+      requirePublicIdParam("runId", "workflowRun", "Workflow run"),
+      async (c) => {
+        const runtime = await resolvePublishedPageRun(c);
+        if (!runtime) return c.json({ message: "Workflow run not found" }, 404);
+        const block = runtime.blocks.get(c.req.param("blockId") ?? "");
+        const action =
+          block?.type === "actions"
+            ? block.actions.find((candidate) => candidate.id === c.req.param("actionId") && candidate.kind === "workflow")
+            : block?.type === "records"
+              ? block.rowActions?.find((candidate) => candidate.id === c.req.param("actionId"))
+              : null;
+        const workflowAction = action && "launcherId" in action ? action : null;
+        if (!block || !workflowAction) {
+          return c.json({ message: "Workflow run not found" }, 404);
+        }
+        const capability = workflowAction
+          ? runtime.capabilities.workflowLaunchers.find(
+              (candidate) =>
+                "pageId" in candidate &&
+                candidate.pageId === runtime.page.id &&
+                candidate.blockId === block!.id &&
+                candidate.actionId === workflowAction.id &&
+                candidate.launcherId === workflowAction.launcherId,
+            )
+          : null;
+        const principal = currentWorkflowPrincipal(c);
+        const [scope, run] = capability
+          ? await Promise.all([loadWorkflowRunScope(internalIdParam(c, "runId")!), getWorkflowRun(internalIdParam(c, "runId")!)])
+          : [null, null];
+        const authorization = scope?.authorization;
+        if (
+          !block ||
+          !workflowAction ||
+          !capability ||
+          !scope ||
+          !run ||
+          scope.baseId !== runtime.app.baseId ||
+          run.baseId !== runtime.app.baseId ||
+          run.workflowId !== capability.workflowId ||
+          run.launcherId !== capability.launcherId ||
+          scope.principal.userId !== principal.userId ||
+          scope.principal.serviceAccountId !== principal.serviceAccountId ||
+          (scope.principal.actorServiceAccountId ?? null) !== (principal.actorServiceAccountId ?? null) ||
+          scope.launcherId !== capability.launcherId ||
+          scope.workflow.id !== capability.workflowId ||
+          run.workflowRevision !== capability.revision ||
+          authorization?.kind !== "custom-app-action" ||
+          authorization.customAppId !== runtime.app.id ||
+          authorization.publishedAt !== runtime.app.publishedAt ||
+          authorization.pageId !== runtime.page.id ||
+          !sameStringRecord(authorization.pageParams, runtime.pageParams) ||
+          authorization.blockId !== block.id ||
+          authorization.actionId !== workflowAction.id ||
+          authorization.revision !== capability.revision
+        ) {
+          return c.json({ message: "Workflow run not found" }, 404);
+        }
+        const status =
+          run.status === "succeeded" ? "succeeded" : ["failed", "canceled", "needs_attention"].includes(run.status) ? "failed" : "running";
+        return c.json({ status, message: run.resultMessage });
+      },
+    )
+    .get("/by-base/:baseId", requirePublicIdParam("baseId", "base", "Base"), async (c) => {
+      const baseId = internalIdParam(c, "baseId")!;
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json(await gridsService.customApp.listByBase(baseId));
+      return c.json(await Promise.all((await gridsService.customApp.listByBase(baseId)).map(projectCustomApp)));
     })
-    .post("/by-base/:baseId", requireUuidParam("baseId", "Base"), v("json", CustomAppCreateSchema), async (c) => {
-      const baseId = c.req.param("baseId")!;
+    .post("/by-base/:baseId", requirePublicIdParam("baseId", "base", "Base"), v("json", CustomAppCreateSchema), async (c) => {
+      const baseId = internalIdParam(c, "baseId")!;
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.customApp.createBlank(baseId, c.req.valid("json").name, currentActorUserId(c)));
+      const result = await gridsService.customApp.createBlank(baseId, c.req.valid("json").name, currentActorUserId(c));
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json(await projectCustomApp(result.data));
     })
     .post("/validate", v("json", CustomAppDefinitionInputSchema), async (c) => {
       const input = c.req.valid("json").definition;
@@ -978,7 +1544,7 @@ export const createCustomAppsApi = (
       const compilation = await gridsService.customApp.compile(input);
       return c.json(
         compilation.ok
-          ? { valid: true, diagnostics: [], capabilities: compilation.compiled.capabilities }
+          ? { valid: true, diagnostics: [], capabilities: await projectCapabilities(compilation.compiled.capabilities) }
           : { valid: false, diagnostics: compilation.diagnostics },
       );
     })
@@ -992,58 +1558,68 @@ export const createCustomAppsApi = (
       const input = c.req.valid("json").definition;
       const denied = await gateDefinitionAdmin(c, input);
       if (denied) return denied;
-      return respond(c, () => gridsService.customApp.apply(input, currentActorUserId(c)));
+      const result = await gridsService.customApp.apply(input, currentActorUserId(c));
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json(await projectCustomApp(result.data));
     })
-    .get("/:appId", requireUuidParam("appId", "Grids App"), async (c) => {
-      const app = await gridsService.customApp.get(c.req.param("appId")!);
+    .get("/:appId", requirePublicIdParam("appId", "customApp", "Grids App"), async (c) => {
+      const app = await gridsService.customApp.get(internalIdParam(c, "appId")!);
       if (!app) return c.json({ message: "Grids App not found" }, 404);
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json(app);
+      return c.json(await projectCustomApp(app));
     })
-    .put("/:appId/draft", requireUuidParam("appId", "Grids App"), v("json", CustomAppDefinitionInputSchema), async (c) => {
-      const app = await gridsService.customApp.get(c.req.param("appId")!);
+    .put("/:appId/draft", requirePublicIdParam("appId", "customApp", "Grids App"), v("json", CustomAppDefinitionInputSchema), async (c) => {
+      const app = await gridsService.customApp.get(internalIdParam(c, "appId")!);
       if (!app) return c.json({ message: "Grids App not found" }, 404);
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.customApp.saveDraft(app.id, c.req.valid("json").definition));
+      const result = await gridsService.customApp.saveDraft(app.id, c.req.valid("json").definition);
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json(await projectDraftSave(result.data));
     })
-    .post("/:appId/restore", requireUuidParam("appId", "Grids App"), async (c) => {
-      const app = await gridsService.customApp.get(c.req.param("appId")!);
+    .post("/:appId/restore", requirePublicIdParam("appId", "customApp", "Grids App"), async (c) => {
+      const app = await gridsService.customApp.get(internalIdParam(c, "appId")!);
       if (!app) return c.json({ message: "Grids App not found" }, 404);
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.customApp.restoreDraft(app.id, currentActorUserId(c)));
+      const result = await gridsService.customApp.restoreDraft(app.id, currentActorUserId(c));
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json(await projectCustomApp(result.data));
     })
-    .get("/:appId/export", requireUuidParam("appId", "Grids App"), async (c) => {
-      const app = await gridsService.customApp.get(c.req.param("appId")!);
+    .get("/:appId/export", requirePublicIdParam("appId", "customApp", "Grids App"), async (c) => {
+      const app = await gridsService.customApp.get(internalIdParam(c, "appId")!);
       if (!app) return c.json({ message: "Grids App not found" }, 404);
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       return c.json(app.draftDefinition);
     })
-    .post("/:appId/publish", requireUuidParam("appId", "Grids App"), async (c) => {
-      const app = await gridsService.customApp.get(c.req.param("appId")!);
+    .post("/:appId/publish", requirePublicIdParam("appId", "customApp", "Grids App"), async (c) => {
+      const app = await gridsService.customApp.get(internalIdParam(c, "appId")!);
       if (!app) return c.json({ message: "Grids App not found" }, 404);
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.customApp.publish(app.id, currentActorUserId(c)));
+      const result = await gridsService.customApp.publish(app.id, currentActorUserId(c));
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json(await projectCustomApp(result.data));
     })
-    .post("/:appId/unpublish", requireUuidParam("appId", "Grids App"), async (c) => {
-      const app = await gridsService.customApp.get(c.req.param("appId")!);
+    .post("/:appId/unpublish", requirePublicIdParam("appId", "customApp", "Grids App"), async (c) => {
+      const app = await gridsService.customApp.get(internalIdParam(c, "appId")!);
       if (!app) return c.json({ message: "Grids App not found" }, 404);
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.customApp.unpublish(app.id, currentActorUserId(c)));
+      const result = await gridsService.customApp.unpublish(app.id, currentActorUserId(c));
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json(await projectCustomApp(result.data));
     })
-    .delete("/:appId", requireUuidParam("appId", "Grids App"), async (c) => {
-      const app = await gridsService.customApp.get(c.req.param("appId")!);
+    .delete("/:appId", requirePublicIdParam("appId", "customApp", "Grids App"), async (c) => {
+      const app = await gridsService.customApp.get(internalIdParam(c, "appId")!);
       if (!app) return c.json({ message: "Grids App not found" }, 404);
       const gate = await gateAt(c, { baseId: app.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const result = await gridsService.customApp.remove(app.id, currentActorUserId(c));
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
-      return c.json({ id: app.id });
+      return c.json({ id: app.shortId });
     });
 };
 

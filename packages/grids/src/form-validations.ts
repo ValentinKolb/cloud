@@ -80,7 +80,7 @@ const compare = (left: ComparableValue, operator: FormValidationRule["operator"]
 export const evaluateFormValidations = (
   rules: readonly FormValidationRule[] | undefined,
   values: Readonly<Record<string, unknown>>,
-  fieldsById: ReadonlyMap<string, Field>,
+  fieldsById: ReadonlyMap<string, Pick<Field, "id" | "type" | "config">>,
 ): FormValidationFailure[] =>
   (rules ?? []).flatMap((rule) => {
     const leftField = fieldsById.get(rule.leftFieldId);

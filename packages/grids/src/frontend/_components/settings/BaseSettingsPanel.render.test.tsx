@@ -18,11 +18,14 @@ const [{ default: BaseSettingsPanel }, { DocumentProfileForm }] = await Promise.
 ]);
 
 const base = {
-  id: "00000000-0000-4000-8000-000000000001",
-  shortId: "BASE01",
+  id: "BASE01",
   name: "Operations",
   description: "Operational records",
   documentProfile: {},
+  createdBy: null,
+  deletedAt: null,
+  createdAt: "2026-08-15T00:00:00.000Z",
+  updatedAt: "2026-08-15T00:00:00.000Z",
 };
 
 describe("Grids Base settings composition", () => {

@@ -1,8 +1,8 @@
 import { fuzzy } from "@k2b/stdlib";
 import { CopyButton, DataTable, type DataTableColumn, TextInput } from "@k2b/ui";
 import { createMemo, createSignal } from "solid-js";
+import type { PublicField as Field } from "../../../api/public-dto";
 import { GRID_FORMULA_FUNCTIONS } from "../../../formula/function-catalog";
-import type { Field } from "../../../service";
 import { FIELD_TYPE_LABELS, fieldTypeIcon, fieldTypeLabel } from "./field-type-meta";
 import { formulaFieldRefs, formulaFieldToken } from "./formula-authoring";
 

@@ -6,6 +6,9 @@ import { okState } from "./workspace-state-helpers";
 import type { GridsWorkspaceState } from "./workspace-state-model";
 import { loadWorkflowState } from "./workspace-workflow-state";
 
+export const tableForPublicRouteId = <T extends { shortId: string }>(tables: readonly T[], id: string | null | undefined): T | null =>
+  (id ? tables.find((table) => table.shortId === id) : null) ?? null;
+
 export const loadWorkspaceRoute = async (request: WorkspaceRequestContext): Promise<GridsWorkspaceState> => {
   const { common } = request;
   if (common.params.activeCustomAppSlug) {
@@ -22,10 +25,7 @@ export const loadWorkspaceRoute = async (request: WorkspaceRequestContext): Prom
   }
   const queryWorkspaceRequested = common.chrome.url.pathname.endsWith("/query");
   const workflowWorkspaceRequested = common.chrome.url.pathname.includes("/workflows");
-  const activeTableFromSlug =
-    request.requestedViewTable ??
-    common.catalog.tables.find((table) => table.id === common.params.activeTableSlug || table.shortId === common.params.activeTableSlug) ??
-    null;
+  const activeTableFromSlug = request.requestedViewTable ?? tableForPublicRouteId(common.catalog.tables, common.params.activeTableSlug);
 
   if (queryWorkspaceRequested) return loadQueryState(common, activeTableFromSlug, common.params.activeViewSlug);
   if (workflowWorkspaceRequested) {

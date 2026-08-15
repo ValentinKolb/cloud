@@ -3,6 +3,7 @@ import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
+import { ShortIdSchema } from "../contracts";
 import {
   type AccessResourceType,
   type BaseAdminAuthorization,
@@ -12,6 +13,7 @@ import {
   resolveResourceBinding,
   validateAccessPermission,
 } from "../service/access";
+import { type PublicResourceType, resolvePublicId } from "../service/public-resources";
 import { currentAccessSubject, currentActorUserId, currentCredentialPermission, currentResourceBoundBaseId, gateAt } from "./permissions";
 
 const AccessListSchema = z.array(AccessEntrySchema);
@@ -19,6 +21,7 @@ const CreatedAccessSchema = z.object({ accessId: z.string().uuid() });
 
 type AccessRouteConfig = {
   resourceType: AccessResourceType;
+  publicResourceType: Extract<PublicResourceType, "base" | "customApp">;
   path: string;
   param: string;
   label: string;
@@ -30,6 +33,7 @@ type AccessRouteDeps = {
   gate: typeof gateAt;
   actorId: typeof currentActorUserId;
   authorization: (c: Context<AuthContext>) => BaseAdminAuthorization;
+  resolvePublicId: (type: Extract<PublicResourceType, "base" | "customApp">, publicId: string) => Promise<string | null>;
 };
 
 const defaultDeps: AccessRouteDeps = {
@@ -40,11 +44,13 @@ const defaultDeps: AccessRouteDeps = {
     permissionCap: currentCredentialPermission(c),
     resourceBoundBaseId: currentResourceBoundBaseId(c),
   }),
+  resolvePublicId,
 };
 
 const CONFIGS = {
   base: {
     resourceType: "base",
+    publicResourceType: "base",
     path: "/by-base/:baseId",
     param: "baseId",
     label: "Base",
@@ -53,6 +59,7 @@ const CONFIGS = {
   },
   customApp: {
     resourceType: "customApp",
+    publicResourceType: "customApp",
     path: "/by-custom-app/:customAppId",
     param: "customAppId",
     label: "Grids App",
@@ -64,8 +71,14 @@ const CONFIGS = {
 
 const resourceId = (c: Context<AuthContext>, config: AccessRouteConfig): string => c.req.param()[config.param]!;
 
+const resolveResourceId = async (c: Context<AuthContext>, config: AccessRouteConfig, deps: AccessRouteDeps): Promise<string | null> => {
+  const parsed = ShortIdSchema.safeParse(resourceId(c, config));
+  return parsed.success ? deps.resolvePublicId(config.publicResourceType, parsed.data) : null;
+};
+
 const listResource = async (c: Context<AuthContext>, config: AccessRouteConfig, deps: AccessRouteDeps) => {
-  const id = resourceId(c, config);
+  const id = await resolveResourceId(c, config, deps);
+  if (!id) return c.json({ message: `${config.label} not found` }, 404);
   const baseId = await config.resolveBaseId(id);
   if (!baseId) return c.json({ message: `${config.label} not found` }, 404);
   const gate = await deps.gate(c, { baseId }, "admin");
@@ -79,7 +92,8 @@ const grantResource = async (
   body: z.infer<typeof GrantAccessSchema>,
   deps: AccessRouteDeps,
 ) => {
-  const id = resourceId(c, config);
+  const id = await resolveResourceId(c, config, deps);
+  if (!id) return c.json({ message: `${config.label} not found` }, 404);
   const baseId = await config.resolveBaseId(id);
   if (!baseId) return c.json({ message: `${config.label} not found` }, 404);
   const validationError = validateAccessPermission(config.resourceType, body.permission);

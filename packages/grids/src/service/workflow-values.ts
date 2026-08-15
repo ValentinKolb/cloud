@@ -9,6 +9,7 @@ import type { GridsWorkflowChannel, GridsWorkflowPrincipal } from "../workflows/
 import type { AuthorizedRecordAccess } from "./record-access";
 import { recordAccessPredicate } from "./record-access";
 import { createReader } from "./record-read";
+import { SHORT_ID_REGEX } from "./short-id";
 import { resolveWorkflowBaseRecordAccess } from "./workflow-authorization";
 
 export type WorkflowRecordReference = {
@@ -21,7 +22,7 @@ export type { GridsWorkflowPrincipal } from "../workflows/contracts";
 
 type WorkflowInputPreparationDeps = {
   canReadTable: (tableId: string) => Promise<boolean>;
-  existingRecordIds: (tableId: string, recordIds: string[]) => Promise<Set<string>>;
+  resolveRecordIds: (tableId: string, publicIds: string[]) => Promise<Map<string, string>>;
 };
 
 type WorkflowInputPreparationOptions = {
@@ -32,6 +33,7 @@ type WorkflowInputPreparationOptions = {
 type WorkflowValueResolverDeps = {
   canReadTable: (tableId: string) => Promise<boolean>;
   readRecord: (tableId: string, recordId: string) => Promise<GridRecord | null>;
+  recordShortId: (tableId: string, recordId: string) => Promise<string | null>;
 };
 
 export class WorkflowInputPreparationError extends Error {
@@ -85,9 +87,9 @@ const validateScalar = (type: string, value: WorkflowJsonValue, config: Record<s
 
 export const workflowInputShapeError = (input: WorkflowIrInput, value: WorkflowJsonValue | undefined): string | null => {
   if (value === undefined || value === null) return requiredInput(input.config) ? "is required" : null;
-  if (input.type === "record") return typeof value === "string" && uuid.safeParse(value).success ? null : "must be a record ID";
+  if (input.type === "record") return typeof value === "string" && SHORT_ID_REGEX.test(value) ? null : "must be a record ID";
   if (input.type === "recordList") {
-    if (!Array.isArray(value) || value.some((recordId) => typeof recordId !== "string" || !uuid.safeParse(recordId).success)) {
+    if (!Array.isArray(value) || value.some((recordId) => typeof recordId !== "string" || !SHORT_ID_REGEX.test(recordId))) {
       return "must contain record IDs";
     }
     return value.length <= 10_000 ? null : "exceeds the 10000 record limit";
@@ -103,14 +105,14 @@ const prepareRecordIds = async (
   deps: WorkflowInputPreparationDeps,
 ): Promise<WorkflowRecordReference[]> => {
   if (!(await deps.canReadTable(tableId))) throw new WorkflowInputPreparationError("workflow actor cannot read the input table", 403);
-  if (recordIds.some((recordId) => !uuid.safeParse(recordId).success)) {
+  if (recordIds.some((recordId) => !SHORT_ID_REGEX.test(recordId) && !uuid.safeParse(recordId).success)) {
     throw new WorkflowInputPreparationError("contains an invalid record ID");
   }
   const uniqueIds = [...new Set(recordIds)];
-  const existingIds = await deps.existingRecordIds(tableId, uniqueIds);
-  const missing = uniqueIds.find((recordId) => !existingIds.has(recordId));
+  const resolvedIds = await deps.resolveRecordIds(tableId, uniqueIds);
+  const missing = uniqueIds.find((recordId) => !resolvedIds.has(recordId));
   if (missing) throw new WorkflowInputPreparationError(`references missing record "${missing}"`);
-  return recordIds.map((recordId) => recordReference(tableId, recordId));
+  return recordIds.map((recordId) => recordReference(tableId, resolvedIds.get(recordId)!));
 };
 
 export const prepareWorkflowInputs = async (
@@ -125,12 +127,24 @@ export const prepareWorkflowInputs = async (
   const prepared: Record<string, WorkflowJsonValue> = {};
   for (const input of plan.inputs) {
     const value = rawInputs[input.name];
-    const shapeError = workflowInputShapeError(input, value);
+    const shapeError =
+      value === undefined || value === null || (input.type !== "record" && input.type !== "recordList")
+        ? workflowInputShapeError(input, value)
+        : null;
     if (shapeError) throw new WorkflowInputPreparationError(`workflow input "${input.name}" ${shapeError}`);
     if (value === undefined || value === null) {
       continue;
     }
     if (input.type === "record" || input.type === "recordList") {
+      if (input.type === "record" && typeof value !== "string") {
+        throw new WorkflowInputPreparationError(`workflow input "${input.name}" must be a record ID`);
+      }
+      if (
+        input.type === "recordList" &&
+        (!Array.isArray(value) || value.some((recordId) => typeof recordId !== "string") || value.length > 10_000)
+      ) {
+        throw new WorkflowInputPreparationError(`workflow input "${input.name}" must contain record IDs`);
+      }
       const tableId = inputTableId(plan, input.name);
       if (!tableId) throw new WorkflowInputPreparationError(`workflow input "${input.name}" has no bound table`);
       const rawRecordIds = input.type === "record" ? [value] : value;
@@ -174,6 +188,7 @@ const relationRecordIds = (value: WorkflowJsonValue, cardinality: "single" | "mu
 export class GridsWorkflowValueResolver implements WorkflowValueResolverPort {
   private readonly readableTables = new Map<string, Promise<boolean>>();
   private readonly records = new Map<string, Promise<GridRecord | null>>();
+  private readonly recordShortIds = new Map<string, Promise<string | null>>();
 
   constructor(private readonly deps: WorkflowValueResolverDeps) {}
 
@@ -196,6 +211,16 @@ export class GridsWorkflowValueResolver implements WorkflowValueResolverPort {
     return record;
   }
 
+  private recordShortId(tableId: string, recordId: string): Promise<string | null> {
+    const key = `${tableId}:${recordId}`;
+    let shortId = this.recordShortIds.get(key);
+    if (!shortId) {
+      shortId = this.deps.recordShortId(tableId, recordId);
+      this.recordShortIds.set(key, shortId);
+    }
+    return shortId;
+  }
+
   async resolve(input: {
     reference: string;
     path: Array<string | number>;
@@ -206,7 +231,9 @@ export class GridsWorkflowValueResolver implements WorkflowValueResolverPort {
   }): Promise<WorkflowValueResolution> {
     const { value, remaining } = rootValue(input.invocation, input.variables, input.reference);
     if (isRecordReference(value) && remaining.length === 1 && remaining[0] === "recordId") {
-      return { state: "resolved", value: value.recordId };
+      const shortId = await this.recordShortId(value.tableId, value.recordId);
+      if (!shortId) throw new Error("referenced workflow record no longer exists");
+      return { state: "resolved", value: shortId };
     }
     if (!isRecordReference(value) || remaining.length === 0) return valueResolution(input.fallback());
     const fieldId = input.plan.bindings[workflowPathKey(input.path)];
@@ -242,7 +269,11 @@ export class GridsWorkflowValueResolver implements WorkflowValueResolverPort {
     const resolvedRelation = cardinality === "single" ? (references[0] ?? null) : references;
     if (remaining.length === 1) return { state: "resolved", value: resolvedRelation };
     if (remaining.length === 2 && remaining[1] === "recordId" && cardinality === "single") {
-      return { state: "resolved", value: references[0]?.recordId ?? null };
+      const reference = references[0];
+      if (!reference) return { state: "resolved", value: null };
+      const shortId = await this.recordShortId(reference.tableId, reference.recordId);
+      if (!shortId) throw new Error("related workflow record no longer exists");
+      return { state: "resolved", value: shortId };
     }
     throw new Error(`workflow relation does not support path "${remaining.slice(1).join(".")}"`);
   }
@@ -272,23 +303,24 @@ export const createWorkflowInputPreparationDeps = (
   const recordAccessFor = recordAccessChecker(baseId, principal, options.resolveRecordAccess);
   return {
     canReadTable: async (tableId) => (await recordAccessFor(tableId)) !== null,
-    existingRecordIds: async (tableId, recordIds) => {
-      if (recordIds.length === 0) return new Set();
+    resolveRecordIds: async (tableId, publicIds) => {
+      if (publicIds.length === 0) return new Map();
       const recordAccess = await recordAccessFor(tableId);
-      if (!recordAccess) return new Set();
-      const rows = await sql<Array<{ id: string }>>`
-        SELECT r.id::text AS id
+      if (!recordAccess) return new Map();
+      const shortIds = publicIds.filter((id) => SHORT_ID_REGEX.test(id));
+      const rows = await sql<Array<{ id: string; short_id: string }>>`
+        SELECT r.id::text AS id, r.short_id
         FROM grids.records r
         JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
         JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
         WHERE r.table_id = ${tableId}::uuid
-          AND r.id = ANY(${sql.array(recordIds, "UUID")}::uuid[])
+          AND r.short_id = ANY(${sql.array(shortIds, "TEXT")}::text[])
           AND r.deleted_at IS NULL
           AND ${recordAccessPredicate(recordAccess, "r")}
       `;
-      const ids = new Set(rows.map((record) => record.id));
+      const ids = new Map(rows.map((record) => [record.short_id, record.id]));
       const trusted = options.trustedRecordIds?.get(tableId);
-      if (trusted) for (const recordId of recordIds) if (trusted.has(recordId)) ids.add(recordId);
+      if (trusted) for (const recordId of publicIds) if (trusted.has(recordId)) ids.set(recordId, recordId);
       return ids;
     },
   };
@@ -304,6 +336,14 @@ export const createGridsWorkflowValueResolver = (
   const canReadTable = async (tableId: string) => (await recordAccessFor(tableId)) !== null;
   return new GridsWorkflowValueResolver({
     canReadTable,
+    recordShortId: async (tableId, recordId) => {
+      const [row] = await sql<Array<{ short_id: string }>>`
+        SELECT short_id
+        FROM grids.records
+        WHERE table_id = ${tableId}::uuid AND id = ${recordId}::uuid AND deleted_at IS NULL
+      `;
+      return row?.short_id ?? null;
+    },
     readRecord: async (tableId, recordId) => {
       let reader = readers.get(tableId);
       if (!reader) {

@@ -28,7 +28,7 @@ const user: User = {
 
 const base = {
   id: "11111111-1111-4111-8111-111111111111",
-  shortId: "BASE1",
+  shortId: "BASE01",
   name: "Assistant Base",
   description: "Visible schema.",
   createdBy: user.id,
@@ -37,11 +37,11 @@ const base = {
   updatedAt: "2026-06-01T00:00:00.000Z",
 };
 
-const table = { kind: "table" as const, id: "22222222-2222-4222-8222-222222222222", shortId: "ITEMS", name: "Items" };
+const table = { kind: "table" as const, id: "22222222-2222-4222-8222-222222222222", shortId: "ITEM01", name: "Items" };
 
 const visibleField = {
   id: "33333333-3333-4333-8333-333333333333",
-  shortId: "NAME1",
+  shortId: "NAME01",
   tableId: table.id,
   name: "Name",
   description: "Display name.",
@@ -91,9 +91,9 @@ describe("GQL assistant download routes", () => {
   afterEach(() => mock.restore());
 
   test("downloads SKILL.md as markdown attachment", async () => {
-    const app = createGqlApi({ requireAuthenticated: authenticated });
+    const app = createGqlApi({ requireAuthenticated: authenticated, resolveId: async () => base.id });
 
-    const response = await app.request(`/by-base/${base.id}/assistant/SKILL.md`);
+    const response = await app.request(`/by-base/${base.shortId}/assistant/SKILL.md`);
     const body = await response.text();
 
     expect(response.status).toBe(200);
@@ -103,9 +103,9 @@ describe("GQL assistant download routes", () => {
   });
 
   test("downloads permission-shaped context.md as markdown attachment", async () => {
-    const app = createGqlApi({ requireAuthenticated: authenticated });
+    const app = createGqlApi({ requireAuthenticated: authenticated, resolveId: async () => base.id });
 
-    const response = await app.request(`/by-base/${base.id}/assistant/context.md`);
+    const response = await app.request(`/by-base/${base.shortId}/assistant/context.md`);
     const body = await response.text();
 
     expect(response.status).toBe(200);
@@ -120,9 +120,9 @@ describe("GQL assistant download routes", () => {
 
   test("denies downloads without base read access", async () => {
     baseAccess = "none";
-    const app = createGqlApi({ requireAuthenticated: authenticated });
+    const app = createGqlApi({ requireAuthenticated: authenticated, resolveId: async () => base.id });
 
-    const response = await app.request(`/by-base/${base.id}/assistant/context.md`);
+    const response = await app.request(`/by-base/${base.shortId}/assistant/context.md`);
 
     expect(response.status).toBe(403);
     expect(contextRequested).toBe(false);

@@ -3,6 +3,7 @@ import type { RecordDisplayConfig, RecordQuery } from "../../../contracts";
 import type { DslResolverDiagnostic } from "../../../query-dsl/resolver";
 import type { Field, GridRecord, Table, View } from "../../../service";
 import { gridsService } from "../../../service";
+import * as publicResources from "../../../service/public-resources";
 import type { AuthorizedRecordAccess } from "../../../service/record-access";
 import { filterSearchableFields } from "../../../service/search";
 import { activeDisplayConfig } from "../records-view/display-mode";
@@ -127,7 +128,7 @@ const resolveRecordsView = async (
 ): Promise<ResolvedRecordsView | Extract<GridsWorkspaceState, { kind: "invalidQuery" }>> => {
   const activeTableLevel = common.catalog.tableLevels[activeTable.id] ?? "none";
   const viewsForTable = common.catalog.viewsByTable[activeTable.id] ?? [];
-  const candidateView = activeViewSlug ? await gridsService.view.getByIdOrShortId(activeTable.id, activeViewSlug) : null;
+  const candidateView = activeViewSlug ? await gridsService.view.getByShortIdForTable(activeTable.id, activeViewSlug) : null;
   const catalogView = candidateView ? (viewsForTable.find((view) => view.id === candidateView.id) ?? null) : null;
   const candidateViewLevel = candidateView ? await resolveBaseLevel(common.params.user, common.base.id) : "none";
   const activeView =
@@ -329,7 +330,13 @@ export const loadRecordsState = async (
       { title: view.queryResultView.name },
     ]);
   }
-  const recordsState = parseRecordsState(common.chrome.url.searchParams);
+  const parsedRecordsState = parseRecordsState(common.chrome.url.searchParams);
+  const recordsState: RecordsState = {
+    ...parsedRecordsState,
+    selectedRecordId: parsedRecordsState.selectedRecordId
+      ? await publicResources.resolveStoredPublicId("record", parsedRecordsState.selectedRecordId)
+      : null,
+  };
   const displayConfig = activeDisplayConfig(activeTable.displayConfig, view.activeViewForQuery?.displayConfig);
   const strictViewScope = !!view.activeViewForQuery && !gridsService.permission.hasAtLeast(view.activeTableLevel, "read");
   const initial = await loadInitialRecords({

@@ -5,7 +5,7 @@ import { buildRecordsUrl, parseRecordsState, type RecordsState, type UrlPathCont
 // =============================================================================
 // query-url tests — URL ↔ RecordsState round-trip + path-based emit.
 // =============================================================================
-// The path segments (`/table/<short>` / `/view/<short>`) come from Hono
+// The path segments (`/table/<id>` / `/view/<id>`) come from Hono
 // route params, not URL search params, so parseRecordsState only deals
 // with the query-param subset. buildRecordsUrl emits the full path-based
 // shape; we check both pieces here.
@@ -13,9 +13,9 @@ import { buildRecordsUrl, parseRecordsState, type RecordsState, type UrlPathCont
 const params = (s: string) => new URLSearchParams(s);
 
 const path: UrlPathContext = {
-  baseShortId: "BASE0",
-  tableShortId: "TBL00",
-  viewShortId: null,
+  baseId: "BASE00",
+  tableId: "TBL000",
+  viewId: null,
 };
 
 const empty: RecordsState = {
@@ -123,11 +123,11 @@ describe("parseRecordsState", () => {
 
 describe("buildRecordsUrl", () => {
   test("table-only path", () => {
-    expect(buildRecordsUrl(path, empty)).toBe("/app/grids/BASE0/table/TBL00");
+    expect(buildRecordsUrl(path, empty)).toBe("/app/grids/BASE00/table/TBL000");
   });
 
-  test("view path when viewShortId is set", () => {
-    expect(buildRecordsUrl({ ...path, viewShortId: "VW000" }, empty)).toBe("/app/grids/BASE0/table/TBL00/view/VW000");
+  test("view path when viewId is set", () => {
+    expect(buildRecordsUrl({ ...path, viewId: "VW0000" }, empty)).toBe("/app/grids/BASE00/table/TBL000/view/VW0000");
   });
 
   test("filter serialized as query param on top of the path", () => {
@@ -136,7 +136,7 @@ describe("buildRecordsUrl", () => {
       query: { filter: { op: "AND", filters: [] } },
     };
     const url = buildRecordsUrl(path, state);
-    expect(url).toContain("/app/grids/BASE0/table/TBL00?");
+    expect(url).toContain("/app/grids/BASE00/table/TBL000?");
     expect(url).toContain("filter=" + encodeURIComponent('{"op":"AND","filters":[]}'));
   });
 
@@ -178,16 +178,16 @@ describe("buildRecordsUrl", () => {
     // view's stored value can flow through next render.
     const filter = { op: "AND" as const, filters: [] };
     const state: RecordsState = { ...empty, query: { filter } };
-    const url = buildRecordsUrl({ ...path, viewShortId: "VW000" }, state, { filter });
-    expect(url).toBe("/app/grids/BASE0/table/TBL00/view/VW000");
+    const url = buildRecordsUrl({ ...path, viewId: "VW0000" }, state, { filter });
+    expect(url).toBe("/app/grids/BASE00/table/TBL000/view/VW0000");
     expect(url).not.toContain("filter=");
   });
 
   test("view-matching record metadata is suppressed from the URL", () => {
     const recordMeta = { users: { deletedBy: ["11111111-1111-4111-8111-111111111111"] } };
     const state: RecordsState = { ...empty, query: { recordMeta } };
-    const url = buildRecordsUrl({ ...path, viewShortId: "VW000" }, state, { recordMeta });
-    expect(url).toBe("/app/grids/BASE0/table/TBL00/view/VW000");
+    const url = buildRecordsUrl({ ...path, viewId: "VW0000" }, state, { recordMeta });
+    expect(url).toBe("/app/grids/BASE00/table/TBL000/view/VW0000");
   });
 
   test("view-matching search is suppressed from the URL", () => {
@@ -199,23 +199,23 @@ describe("buildRecordsUrl", () => {
       ...empty,
       search: { ...search, override: false },
     };
-    const url = buildRecordsUrl({ ...path, viewShortId: "VW000" }, state, { search });
-    expect(url).toBe("/app/grids/BASE0/table/TBL00/view/VW000");
+    const url = buildRecordsUrl({ ...path, viewId: "VW0000" }, state, { search });
+    expect(url).toBe("/app/grids/BASE00/table/TBL000/view/VW0000");
   });
 
   test("view-matching columns are suppressed from the URL", () => {
     const state: RecordsState = { ...empty, query: { columns: computedColumns } };
-    const url = buildRecordsUrl({ ...path, viewShortId: "VW000" }, state, { columns: computedColumns });
-    expect(url).toBe("/app/grids/BASE0/table/TBL00/view/VW000");
+    const url = buildRecordsUrl({ ...path, viewId: "VW0000" }, state, { columns: computedColumns });
+    expect(url).toBe("/app/grids/BASE00/table/TBL000/view/VW0000");
   });
 
   test("empty search override is emitted to clear a saved view search", () => {
     const url = buildRecordsUrl(
-      { ...path, viewShortId: "VW000" },
+      { ...path, viewId: "VW0000" },
       { ...empty, search: { q: "", fieldIds: [], override: true } },
       { search: { q: "needle" } },
     );
-    expect(url).toBe("/app/grids/BASE0/table/TBL00/view/VW000?q=");
+    expect(url).toBe("/app/grids/BASE00/table/TBL000/view/VW0000?q=");
   });
 
   test("trash=1 emitted when deletedOnly is true", () => {

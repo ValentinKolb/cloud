@@ -2,7 +2,7 @@ import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { FieldColumnSpecSchema, RecordDisplayConfigSchema, TableAuditPolicySchema } from "../contracts";
 import { normalizeRefKey } from "../ref-syntax";
-import { logAudit } from "./audit";
+import { logAudit, type SqlClient } from "./audit";
 import { degradeForTableSchemaChange, refreshForTableSchemaChange } from "./federated-tables";
 import { emitMetadataEvent } from "./metadata-events";
 import { writeNamedResource } from "./named-resource-conflict";
@@ -47,21 +47,22 @@ const mapRow = (row: DbRow): Table => ({
  * Lists active tables of a base. Pass `includeDeleted` to include
  * trashed tables (used by the trash UI).
  */
-export const listByBase = async (baseId: string, opts: { includeDeleted?: boolean } = {}): Promise<Table[]> => {
+export const listByBase = async (baseId: string, opts: { includeDeleted?: boolean; client?: SqlClient } = {}): Promise<Table[]> => {
+  const client = opts.client ?? sql;
   // Live-parent invariant: tables of a trashed base never list (the trash
   // flow operates top-down — restore the base first to access its tables).
   // SELECT t.* (not the bare COLS list) — both `tables.id` and `bases.id`
   // exist after the JOIN, so unqualified column names raise 42702. mapRow
   // picks the columns it cares about by name; extras are ignored.
   const rows = opts.includeDeleted
-    ? await sql<DbRow[]>`
+    ? await client<DbRow[]>`
         SELECT t.*
         FROM grids.tables t
         JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
         WHERE t.base_id = ${baseId}::uuid
         ORDER BY t.position, t.created_at
       `
-    : await sql<DbRow[]>`
+    : await client<DbRow[]>`
         SELECT t.*
         FROM grids.tables t
         JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
@@ -122,7 +123,7 @@ export const get = async (id: string, opts: { includeDeleted?: boolean } = {}): 
  * to resolve URL slugs to UUIDs. Returns null for soft-deleted tables
  * AND for any table whose parent base is trashed (live-parent invariant).
  */
-export const getByShortId = async (baseId: string, shortId: string): Promise<Table | null> => {
+export const getByShortIdForBase = async (baseId: string, shortId: string): Promise<Table | null> => {
   // SELECT t.* — see listByBase for rationale.
   const [row] = await sql<DbRow[]>`
     SELECT t.*
@@ -133,17 +134,15 @@ export const getByShortId = async (baseId: string, shortId: string): Promise<Tab
   return row ? mapRow(row) : null;
 };
 
-/**
- * Tolerant lookup. Accepts either a UUID (36 chars) or a slug (5 chars).
- * Mirrors `bases.getByIdOrShortId` — see the rationale there.
- */
-export const getByIdOrShortId = async (baseId: string, idOrSlug: string): Promise<Table | null> => {
-  if (idOrSlug.length === 36 && idOrSlug.includes("-")) {
-    const t = await get(idOrSlug);
-    // Verify base scope so a leaked UUID can't address a table from another base.
-    return t && t.baseId === baseId ? t : null;
-  }
-  return getByShortId(baseId, idOrSlug);
+/** Resolves the only public table identifier to the internal resource. */
+export const getByShortId = async (shortId: string): Promise<Table | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT t.*
+    FROM grids.tables t
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE t.short_id = ${shortId} AND t.deleted_at IS NULL
+  `;
+  return row ? mapRow(row) : null;
 };
 
 const ensureUniqueTableName = async (baseId: string, name: string, exceptTableId: string | null = null): Promise<Result<void>> => {

@@ -2,12 +2,15 @@ import type { DateContext } from "@k2b/stdlib";
 import { Button, Checkbox, CheckboxCard, DatePicker, DateTimePicker, IconButton, NumberInput, Select, TextInput, Tooltip } from "@k2b/ui";
 import { createMemo, createSignal, For, Index, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import type { PublicField } from "../../../api/public-dto";
 import type { Field, FormFieldEntry } from "../../../service";
 import RelationPicker from "../records/RelationPicker";
 import type { InlineCreateDraft, InlineCreateState } from "./form-submit-payload";
 import PrincipalInput from "./PrincipalInput";
 
 export { buildFormSubmitPayload, type InlineCreateState } from "./form-submit-payload";
+
+export type FrontendField = Field | PublicField;
 
 /** A user_input form-field entry — `form_value` entries don't render. */
 export type UserInputEntry = Extract<FormFieldEntry, { kind: "user_input" }>;
@@ -69,7 +72,7 @@ export const buildInitialValues = (entries: UserInputEntry[]): Record<string, un
  * the rest of the platform's input convention.
  */
 export function FieldInput(props: {
-  field: Field;
+  field: FrontendField;
   entry: UserInputEntry;
   value: unknown;
   onChange: (v: unknown) => void;
@@ -86,7 +89,7 @@ export function FieldInput(props: {
   dateConfig?: DateContext;
   inlineCreates?: () => InlineCreateState;
   onInlineCreatesChange?: (fieldId: string, drafts: InlineCreateDraft[]) => void;
-  inlineTargetFields?: Record<string, Field[]>;
+  inlineTargetFields?: Record<string, FrontendField[]>;
 }) {
   const label = props.entry.label || props.field.name;
   const required = props.entry.required ?? props.field.required;
@@ -438,7 +441,7 @@ export function FieldInput(props: {
 }
 
 function InlineRelationCreate(props: {
-  field: Field;
+  field: FrontendField;
   entry: UserInputEntry;
   targetTableId: string;
   multi: boolean;
@@ -446,11 +449,11 @@ function InlineRelationCreate(props: {
   onDraftsChange?: (drafts: InlineCreateDraft[]) => void;
   onCreateDraft: () => void;
   onUseExisting: () => void;
-  targetFields?: Field[];
+  targetFields?: FrontendField[];
   dateConfig?: DateContext;
 }) {
   const allowedIds = createMemo(() => new Set((props.entry.inlineCreate?.fields ?? []).map((entry) => entry.fieldId)));
-  const [loadedFields, setLoadedFields] = createSignal<Field[]>(props.targetFields ?? []);
+  const [loadedFields, setLoadedFields] = createSignal<FrontendField[]>(props.targetFields ?? []);
 
   onMount(async () => {
     if (props.targetFields) return;
@@ -475,7 +478,7 @@ function InlineRelationCreate(props: {
     props.onDraftsChange?.(next);
   };
 
-  const inlineEntryFor = (field: Field): UserInputEntry => {
+  const inlineEntryFor = (field: FrontendField): UserInputEntry => {
     const config = props.entry.inlineCreate?.fields?.find((entry) => entry.fieldId === field.id);
     return {
       kind: "user_input",

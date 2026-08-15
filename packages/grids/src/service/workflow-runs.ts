@@ -38,6 +38,7 @@ import { toWorkflowRevision } from "../workflows/contracts";
 import type { SqlClient } from "./audit";
 import { logAudit } from "./audit";
 import { parseJsonbRow } from "./jsonb";
+import { insertWithShortIdForDb } from "./short-id";
 import { workflowConflict } from "./workflow-errors";
 
 /** The kernel partitions by app and scope; for Grids a scope is a base. */
@@ -203,6 +204,12 @@ const mapRun = (row: DbRow): GridsWorkflowRun => ({
 export const getWorkflowRun = async (runId: string, client?: SqlClient): Promise<GridsWorkflowRun | null> => {
   const db = client ?? sql;
   const [row] = await db<DbRow[]>`SELECT ${RUN_SELECT} ${RUN_FROM} WHERE r.id = ${runId}::uuid`;
+  return row ? mapRun(row) : null;
+};
+
+export const getWorkflowRunByShortId = async (shortId: string, client?: SqlClient): Promise<GridsWorkflowRun | null> => {
+  const db = client ?? sql;
+  const [row] = await db<DbRow[]>`SELECT ${RUN_SELECT} ${RUN_FROM} WHERE p.short_id = ${shortId}`;
   return row ? mapRun(row) : null;
 };
 
@@ -632,17 +639,20 @@ const writeRunProfile = async (input: {
   principal: GridsWorkflowPrincipal;
   requestFingerprint: string;
 }): Promise<{ requestFingerprint: string }> => {
-  const [row] = await input.tx<Array<{ request_fingerprint: string }>>`
+  const row = await insertWithShortIdForDb(input.tx, "idx_grids_workflow_run_profile_short_id", async (db, shortId) => {
+    const [inserted] = await db<Array<{ request_fingerprint: string }>>`
     INSERT INTO grids.workflow_run_profile (
-      run_id, base_id, workflow_id, launcher_id, launcher_kind, channel, actor_user_id, service_account_id, request_fingerprint
+      run_id, short_id, base_id, workflow_id, launcher_id, launcher_kind, channel, actor_user_id, service_account_id, request_fingerprint
     ) VALUES (
-      ${input.runId}::uuid, ${input.baseId}::uuid, ${input.workflowId}::uuid,
+      ${input.runId}::uuid, ${shortId}, ${input.baseId}::uuid, ${input.workflowId}::uuid,
       ${input.launcherId}::uuid, ${input.launcherKind}, ${input.channel},
       ${input.principal.userId}::uuid, ${input.principal.serviceAccountId}::uuid, ${input.requestFingerprint}
     )
     ON CONFLICT (run_id) DO UPDATE SET run_id = grids.workflow_run_profile.run_id
     RETURNING request_fingerprint
   `;
+    return inserted;
+  });
   return { requestFingerprint: row?.request_fingerprint ?? input.requestFingerprint };
 };
 

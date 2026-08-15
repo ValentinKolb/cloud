@@ -1,7 +1,7 @@
 import type { DateContext } from "@k2b/stdlib";
+import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import { type FormatSpec, FormatSpecSchema } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
-import type { Field, GridRecord } from "../../../service";
 import { barcodeValueText, canRenderBarcode } from "./BarcodeRendering";
 import { formatCell, progressRatio } from "./format-cell";
 import { type SelectBadgeItem, selectBadgeItems } from "./select-badge-utils";

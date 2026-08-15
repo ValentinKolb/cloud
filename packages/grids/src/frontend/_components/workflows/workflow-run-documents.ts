@@ -1,7 +1,7 @@
-import type { DocumentRunSummary } from "../../../contracts";
+import type { PublicDocumentRunSummary } from "../documents/public-document-types";
 
 export type WorkflowRunDocumentsState = {
-  items: DocumentRunSummary[];
+  items: PublicDocumentRunSummary[];
   total: number;
   hasMore: boolean;
   nextOffset: number | null;

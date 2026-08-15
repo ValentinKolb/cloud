@@ -12,7 +12,7 @@ import apiRoutes from "./index";
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 const uuid = () => Bun.randomUUIDv7();
-const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);
+const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 7)}`.slice(0, 6);
 
 type GqlApiFixture = {
   baseId: string;
@@ -117,6 +117,7 @@ const grantBaseRead = async (baseId: string, userId: string): Promise<string> =>
 const insertFixture = async (userId: string): Promise<GqlApiFixture> => {
   const baseId = uuid();
   const tableId = uuid();
+  const tablePublicId = shortId("T");
   const viewId = uuid();
   const amountId = uuid();
   const stageId = uuid();
@@ -127,15 +128,15 @@ const insertFixture = async (userId: string): Promise<GqlApiFixture> => {
   `;
   await sql`
     INSERT INTO grids.tables (id, short_id, base_id, name, position)
-    VALUES (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Orders', 0)
+    VALUES (${tableId}::uuid, ${tablePublicId}, ${baseId}::uuid, 'Orders', 0)
   `;
   await sql`
     INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
     VALUES
-      (${amountId}::uuid, 'AMT01', ${tableId}::uuid, 'Amount', 'number', '{}'::jsonb, 0),
+      (${amountId}::uuid, 'AMT001', ${tableId}::uuid, 'Amount', 'number', '{}'::jsonb, 0),
       (
         ${stageId}::uuid,
-        'STAGE',
+        'STAGE1',
         ${tableId}::uuid,
         'Stage',
         'select',
@@ -151,7 +152,7 @@ const insertFixture = async (userId: string): Promise<GqlApiFixture> => {
   `;
   await sql`
     INSERT INTO grids.views (id, short_id, table_id, name, source, ui, position)
-    VALUES (${viewId}::uuid, ${shortId("V")}, ${tableId}::uuid, 'Visible orders', ${`from table {${tableId}}`}, '{}'::jsonb, 0)
+    VALUES (${viewId}::uuid, ${shortId("V")}, ${tableId}::uuid, 'Visible orders', ${`from table {${tablePublicId}}`}, '{}'::jsonb, 0)
   `;
   const accessId = await grantBaseRead(baseId, userId);
 
@@ -229,7 +230,7 @@ const insertRelationFixture = async (userId: string): Promise<GqlRelationApiFixt
   await sql`
     INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
     VALUES
-      (${amountId}::uuid, 'AMT01', ${ordersTableId}::uuid, 'Amount', 'number', '{}'::jsonb, 0),
+      (${amountId}::uuid, 'AMT001', ${ordersTableId}::uuid, 'Amount', 'number', '{}'::jsonb, 0),
       (${customerLinkId}::uuid, 'CUSTL', ${ordersTableId}::uuid, 'Customer', 'relation', ${{ targetTableId: customersTableId }}::jsonb, 1),
       (${customerNameId}::uuid, 'NAME1', ${customersTableId}::uuid, 'Name', 'text', '{}'::jsonb, 0)
   `;

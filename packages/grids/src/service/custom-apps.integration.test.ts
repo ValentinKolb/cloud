@@ -149,7 +149,7 @@ describe("Grids App lifecycle", () => {
     const otherDocumentTemplateId = testUuid();
     const otherTableId = testUuid();
     const otherFieldId = testUuid();
-    const appId = testUuid();
+    let appId = testUuid();
     const requestRecordId = testUuid();
     const workflowId = testUuid();
     const bulkWorkflowId = testUuid();
@@ -280,11 +280,38 @@ describe("Grids App lifecycle", () => {
       if (!scannerLauncherResult.ok) throw new Error(scannerLauncherResult.error.message);
       const scannerLauncherId = scannerLauncherResult.data.id;
 
+      const publicIds = new Map(
+        (
+          await sql<Array<{ id: string; shortId: string }>>`
+            SELECT id::text AS id, short_id AS "shortId" FROM grids.bases WHERE id = ${baseId}::uuid
+            UNION ALL SELECT id::text, short_id FROM grids.tables WHERE id IN (${tableId}::uuid, ${otherTableId}::uuid)
+            UNION ALL SELECT id::text, short_id FROM grids.fields WHERE id IN (${fieldId}::uuid, ${computedFieldId}::uuid, ${relationFieldId}::uuid, ${otherFieldId}::uuid)
+            UNION ALL SELECT id::text, short_id FROM grids.views WHERE id IN (${viewId}::uuid, ${metricViewId}::uuid)
+            UNION ALL SELECT id::text, short_id FROM grids.forms WHERE id = ${formId}::uuid
+            UNION ALL SELECT id::text, short_id FROM grids.document_templates WHERE id IN (${documentTemplateId}::uuid, ${otherDocumentTemplateId}::uuid)
+          `
+        ).map((row) => [row.id, row.shortId]),
+      );
+      const publicId = (id: string): string => {
+        const value = publicIds.get(id);
+        if (!value) throw new Error(`missing public fixture id for ${id}`);
+        return value;
+      };
+      await sql`
+        UPDATE grids.views
+        SET source = CASE id
+          WHEN ${viewId}::uuid THEN ${`from table {${publicId(tableId)}}`}
+          WHEN ${metricViewId}::uuid THEN ${`from table {${publicId(tableId)}}\naggregate count(*) as requests`}
+          ELSE source
+        END
+        WHERE id IN (${viewId}::uuid, ${metricViewId}::uuid)
+      `;
+
       const definition: CustomAppDefinition = {
-        schemaVersion: 4,
+        schemaVersion: 5,
         kind: "grids.custom-app",
-        id: appId,
-        baseId,
+        id: testShortId("A"),
+        baseId: publicId(baseId),
         name: "Request portal",
         startPageId: "home",
         sidebar: {
@@ -294,14 +321,14 @@ describe("Grids App lifecycle", () => {
               kind: "form",
               label: "New request",
               tone: "success",
-              formId,
-              fixedValues: { [fieldId]: { source: "LITERAL", value: "New request" } },
+              formId: publicId(formId),
+              fixedValues: { [publicId(fieldId)]: { source: "LITERAL", value: "New request" } },
               onSuccessNavigate: {
                 kind: "navigate",
                 pageId: "request",
                 params: { request_id: { source: "RESULT", path: "recordId" } },
               },
-              availableWhen: { query: `from table {${tableId}}\nwhere {${fieldId}} = @auth.id\nlimit 1` },
+              availableWhen: { query: `from table {${publicId(tableId)}}\nwhere {${publicId(fieldId)}} = @auth.id\nlimit 1` },
             },
           ],
         },
@@ -311,7 +338,7 @@ describe("Grids App lifecycle", () => {
             title: "My requests",
             navigation: { visible: true },
             parameters: {},
-            availableWhen: { query: `from table {${tableId}}\nwhere record.id = '${requestRecordId}'\nlimit 1` },
+            availableWhen: { query: `from table {${publicId(tableId)}}\nwhere record.id = 'REC001'\nlimit 1` },
             rows: [
               {
                 id: "content",
@@ -324,12 +351,12 @@ describe("Grids App lifecycle", () => {
                         id: "intro",
                         type: "markdown",
                         markdown: "Welcome",
-                        availableWhen: { query: `from table {${tableId}}\nwhere record.id = @base.id\nlimit 1` },
+                        availableWhen: { query: `from table {${publicId(tableId)}}\nwhere record.id = @base.id\nlimit 1` },
                       },
                       {
                         id: "request-count",
                         type: "metrics",
-                        source: { kind: "view", viewId: metricViewId },
+                        source: { kind: "view", viewId: publicId(metricViewId) },
                       },
                       {
                         id: "requests-by-title",
@@ -337,7 +364,7 @@ describe("Grids App lifecycle", () => {
                         chartType: "bar",
                         source: {
                           kind: "gql",
-                          query: `from table {${tableId}}\ngroup by {${fieldId}}\naggregate count(*) as requests`,
+                          query: `from table {${publicId(tableId)}}\ngroup by {${publicId(fieldId)}}\naggregate count(*) as requests`,
                         },
                         limit: 10,
                       },
@@ -346,8 +373,8 @@ describe("Grids App lifecycle", () => {
                         type: "records",
                         searchable: true,
                         pageSize: 25,
-                        source: { kind: "view", viewId },
-                        display: { kind: "table", columnIds: [fieldId] },
+                        source: { kind: "view", viewId: publicId(viewId) },
+                        display: { kind: "table", columnIds: [publicId(fieldId)] },
                         rowNavigate: {
                           kind: "navigate",
                           pageId: "request",
@@ -361,7 +388,7 @@ describe("Grids App lifecycle", () => {
                             icon: "check",
                             showLabel: false,
                             kind: "workflow",
-                            launcherId,
+                            launcherId: launcherResult.data.shortId,
                             inputs: { request: { source: "ROW", path: "id" } },
                           },
                         ],
@@ -369,7 +396,7 @@ describe("Grids App lifecycle", () => {
                       {
                         id: "apply",
                         type: "form",
-                        formId,
+                        formId: publicId(formId),
                         fixedValues: {},
                         onSuccessNavigate: {
                           kind: "navigate",
@@ -377,7 +404,7 @@ describe("Grids App lifecycle", () => {
                           params: { request_id: { source: "RESULT", path: "recordId" } },
                         },
                       },
-                      { id: "scan-request", type: "scanner", launcherId: scannerLauncherId },
+                      { id: "scan-request", type: "scanner", launcherId: scannerLauncherResult.data.shortId },
                     ],
                   },
                 ],
@@ -388,8 +415,8 @@ describe("Grids App lifecycle", () => {
             id: "request",
             title: "Request detail",
             navigation: { visible: false },
-            parameters: { request_id: { type: "record", tableId, required: true } },
-            record: { tableId, id: { source: "PARAMS", path: "request_id" } },
+            parameters: { request_id: { type: "record", tableId: publicId(tableId), required: true } },
+            record: { tableId: publicId(tableId), id: { source: "PARAMS", path: "request_id" } },
             rows: [
               {
                 id: "detail",
@@ -401,9 +428,9 @@ describe("Grids App lifecycle", () => {
                       {
                         id: "request-details",
                         type: "record",
-                        fieldIds: [fieldId, relationFieldId],
-                        editableFieldIds: [fieldId],
-                        documents: { templateIds: [documentTemplateId] },
+                        fieldIds: [publicId(fieldId), publicId(relationFieldId)],
+                        editableFieldIds: [publicId(fieldId)],
+                        documents: { templateIds: [publicId(documentTemplateId)] },
                       },
                       { id: "discussion", type: "comments", title: "Updates" },
                       {
@@ -414,17 +441,17 @@ describe("Grids App lifecycle", () => {
                             id: "approve",
                             label: "Approve",
                             kind: "workflow",
-                            launcherId,
+                            launcherId: launcherResult.data.shortId,
                             inputs: { request: { source: "RECORD", path: "id" } },
-                            availableWhen: { query: `from table {${tableId}}\nwhere record.id = @params.request_id\nlimit 1` },
+                            availableWhen: { query: `from table {${publicId(tableId)}}\nwhere record.id = @params.request_id\nlimit 1` },
                           },
                         ],
                       },
                       {
                         id: "follow-up",
                         type: "form",
-                        formId,
-                        fixedValues: { [relationFieldId]: { source: "PARAMS", path: "request_id" } },
+                        formId: publicId(formId),
+                        fixedValues: { [publicId(relationFieldId)]: { source: "PARAMS", path: "request_id" } },
                       },
                     ],
                   },
@@ -438,8 +465,9 @@ describe("Grids App lifecycle", () => {
       const created = await apply(definition);
       expect(created.ok, created.ok ? undefined : created.error.message).toBe(true);
       if (!created.ok) throw new Error(created.error.message);
+      appId = created.data.id;
       if (!created.data.draftDefinition) throw new Error("Applied Grids App draft must be valid");
-      expect(created.data.shortId).toHaveLength(5);
+      expect(created.data.shortId).toHaveLength(6);
       expect(created.data.publishedDefinition).toBeNull();
       const capabilities = created.data.draftCapabilities;
       if (!capabilities) throw new Error("Applied Grids App capabilities must be valid");
@@ -467,20 +495,23 @@ describe("Grids App lifecycle", () => {
           {
             target: "sidebarAction",
             actionId: "create-request",
-            sourceHash: customAppViewSourceHash(baseId, `from table {${tableId}}\nwhere {${fieldId}} = @auth.id\nlimit 1`),
+            sourceHash: customAppViewSourceHash(
+              baseId,
+              `from table {${publicId(tableId)}}\nwhere {${publicId(fieldId)}} = @auth.id\nlimit 1`,
+            ),
             tableIds: [tableId],
           },
           {
             target: "page",
             pageId: "home",
-            sourceHash: customAppViewSourceHash(baseId, `from table {${tableId}}\nwhere record.id = '${requestRecordId}'\nlimit 1`),
+            sourceHash: customAppViewSourceHash(baseId, `from table {${publicId(tableId)}}\nwhere record.id = 'REC001'\nlimit 1`),
             tableIds: [tableId],
           },
           {
             target: "block",
             pageId: "home",
             blockId: "intro",
-            sourceHash: customAppViewSourceHash(baseId, `from table {${tableId}}\nwhere record.id = @base.id\nlimit 1`),
+            sourceHash: customAppViewSourceHash(baseId, `from table {${publicId(tableId)}}\nwhere record.id = @base.id\nlimit 1`),
             tableIds: [tableId],
           },
           {
@@ -488,7 +519,7 @@ describe("Grids App lifecycle", () => {
             pageId: "request",
             blockId: "actions",
             actionId: "approve",
-            sourceHash: customAppViewSourceHash(baseId, `from table {${tableId}}\nwhere record.id = @params.request_id\nlimit 1`),
+            sourceHash: customAppViewSourceHash(baseId, `from table {${publicId(tableId)}}\nwhere record.id = @params.request_id\nlimit 1`),
             tableIds: [tableId],
           },
         ],
@@ -496,7 +527,7 @@ describe("Grids App lifecycle", () => {
           {
             viewId,
             tableId,
-            sourceHash: customAppViewSourceHash(tableId, `from table {${tableId}}`),
+            sourceHash: customAppViewSourceHash(tableId, `from table {${publicId(tableId)}}`),
             tableIds: [tableId],
           },
         ],
@@ -508,7 +539,7 @@ describe("Grids App lifecycle", () => {
             source: {
               kind: "view",
               viewId: metricViewId,
-              sourceHash: customAppViewSourceHash(tableId, `from table {${tableId}}\naggregate count(*) as requests`),
+              sourceHash: customAppViewSourceHash(tableId, `from table {${publicId(tableId)}}\naggregate count(*) as requests`),
               tableIds: [tableId],
             },
           },

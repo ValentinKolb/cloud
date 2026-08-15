@@ -1159,7 +1159,7 @@ steps:
     {
       key: "sales",
       definition: {
-        schemaVersion: 4,
+        schemaVersion: 5,
         kind: "grids.custom-app",
         name: "Bookshop overview",
         startPageId: "overview",

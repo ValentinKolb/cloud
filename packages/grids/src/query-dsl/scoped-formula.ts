@@ -25,9 +25,7 @@ type DslScopedFormulaOptions = {
 const fieldByRef = (fields: Field[], ref: string, label: string): Field | string => {
   const key = normalizeRefKey(ref);
   const matches = fields.filter(
-    (field) =>
-      !field.deletedAt &&
-      (normalizeRefKey(field.id) === key || normalizeRefKey(field.shortId) === key || normalizeRefKey(field.name) === key),
+    (field) => !field.deletedAt && (normalizeRefKey(field.shortId) === key || normalizeRefKey(field.name) === key),
   );
   if (matches.length === 0) return `Unknown formula field reference "${label}"`;
   if (matches.length > 1) return `Ambiguous formula field reference "${label}"`;

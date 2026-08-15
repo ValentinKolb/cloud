@@ -109,16 +109,9 @@ describe("formula authoring helpers", () => {
     expect(suggestions[0]).toMatchObject({ label: "Product name", expansion: '"Product name"' });
   });
 
-  test("completions use canonical field refs even from the legacy hash trigger", () => {
-    const hashCompletion = buildFormulaCompletions(fields).find((c) => c.trigger === "#")!;
-    const suggestions = hashCompletion.suggest("prod", { fullText: "#prod", caret: 5, tokenStart: 0 }, new AbortController().signal);
-    expect(Array.isArray(suggestions)).toBe(true);
-    if (Array.isArray(suggestions)) {
-      expect(suggestions[0]).toMatchObject({ label: "Product name", expansion: '"Product name"' });
-      expect(suggestions[0]?.expansion?.startsWith("#")).toBe(false);
-      expect(suggestions[0]?.expansion?.startsWith("{")).toBe(false);
-      expect(parseFormula(suggestions[0]!.expansion ?? "")).toMatchObject({ ok: true });
-    }
+  test("does not offer the removed hash field trigger", () => {
+    expect(buildFormulaCompletions(fields).some((completion) => completion.trigger === "#")).toBe(false);
+    expect(parseFormula("#Product")).toMatchObject({ ok: false });
   });
 
   test("all field suggestion paths emit canonical formulaFieldToken output", () => {
@@ -127,8 +120,6 @@ describe("formula authoring helpers", () => {
       fullText: "SUM(unit",
       tokenStart: "SUM(".length,
     })[0]!;
-    const hashCompletion = buildFormulaCompletions(fields).find((c) => c.trigger === "#")!;
-    const hashSuggestions = hashCompletion.suggest("unit", { fullText: "#unit", caret: 5, tokenStart: 0 }, new AbortController().signal);
     const operatorCompletion = buildFormulaCompletions(fields).find((c) => c.trigger === "+")!;
     const operatorSuggestions = operatorCompletion.suggest(
       "unit",
@@ -137,7 +128,6 @@ describe("formula authoring helpers", () => {
     );
 
     expect(valueSuggestion.expansion).toBe(expected);
-    expect(Array.isArray(hashSuggestions) && hashSuggestions[0]?.expansion).toBe(expected);
     expect(Array.isArray(operatorSuggestions) && operatorSuggestions[0]?.expansion).toBe(`+${expected}`);
   });
 
@@ -202,5 +192,6 @@ describe("formula authoring helpers", () => {
     expect(formulaHighlight("SUM(Price, 2) < 'x'")).toContain('<span class="num">2</span>');
     expect(formulaHighlight("SUM(Price, 2) < 'x'")).toContain("<span class=\"str\">'x'</span>");
     expect(formulaHighlight("SUM(Price, 2) < 'x'")).toContain("&lt;");
+    expect(formulaHighlight("#Price")).not.toContain('<span class="field">#Price</span>');
   });
 });

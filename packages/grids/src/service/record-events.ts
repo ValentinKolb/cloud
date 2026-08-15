@@ -1,6 +1,7 @@
 import { queue, topic } from "@k2b/sync";
 import { sql } from "bun";
 import { z } from "zod";
+import { projectPublicIds } from "./public-resources";
 
 const TOPIC_PREFIX = "cloud:grids:events";
 const TOPIC_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -28,6 +29,27 @@ export const GridsRecordEventSchema = z
   .strict();
 
 export type GridsRecordEvent = z.infer<typeof GridsRecordEventSchema>;
+
+export const toPublicRecordEvent = async (event: GridsRecordEvent) => {
+  const [bases, tables, records, fields] = await Promise.all([
+    projectPublicIds("base", [event.baseId]),
+    projectPublicIds("table", [event.tableId]),
+    projectPublicIds("record", [event.recordId]),
+    projectPublicIds("field", event.changedFieldIds),
+  ]);
+  const required = (ids: ReadonlyMap<string, string>, id: string, resource: string) => {
+    const publicId = ids.get(id);
+    if (!publicId) throw new Error(`Missing public ID for ${resource}`);
+    return publicId;
+  };
+  return {
+    ...event,
+    baseId: required(bases, event.baseId, "base"),
+    tableId: required(tables, event.tableId, "table"),
+    recordId: required(records, event.recordId, "record"),
+    changedFieldIds: event.changedFieldIds.map((id) => required(fields, id, "field")),
+  };
+};
 
 const recordTopic = topic<GridsRecordEvent>({
   id: TOPIC_ID,

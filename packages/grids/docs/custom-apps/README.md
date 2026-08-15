@@ -4,7 +4,7 @@ These files are the implementation-driving examples for the first Grids Apps
 vertical slice. The product does not load them at runtime.
 
 Each YAML file defines one Grids App and references existing resources in one
-base by canonical UUID. Tables, fields, views, forms, document templates,
+base by canonical 6-character public IDs. Tables, fields, views, forms, document templates,
 workflow launchers, and access bindings remain owned by their existing Grids
 APIs and CLI commands. Grids App YAML intentionally does not duplicate them.
 The corresponding audience and row-scope setup is recorded in
@@ -28,7 +28,7 @@ The fixtures cover four acceptance journeys:
   attachments, and a separately granted finance review desk.
 - The built-in Inventory template in `src/templates/inventory.ts` is the
   executable owner for `Equipment Loans` and `Loan Desk`; it deliberately is
-  not duplicated as unresolved UUID fixture YAML here.
+  not duplicated as unresolved public-ID fixture YAML here.
 
 The certificate and reimbursement pairs plus `article-entry.yaml` run through
 this loop in the Grids DB integration suite. The Inventory Apps run through the
@@ -39,9 +39,9 @@ built-in template integration suite:
 2. `apps plan` and `apps apply --dry-run` return the same deterministic plan.
 3. `apps apply` creates or updates only the draft.
 4. A second apply is a no-op and leaves the stored draft unchanged.
-5. `apps export` is semantically equal to the input; the assigned immutable
-   route `shortId` remains server-owned app metadata.
+5. `apps export` is semantically equal to the input and preserves the
+   immutable public `id`.
 6. Publish preflight derives the expected least-privilege capabilities.
 
 The end-user Help registry, CLI reference, fixtures, and compiler must describe
-the same schema-v4 contract.
+the same schema-v5 contract.

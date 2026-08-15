@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { type FederatedRevisionScope, getActive, verifyRevisionScope } from "./federated-tables";
+import { insertWithShortIdForDb } from "./short-id";
 import { get as getTable } from "./tables";
 import type { GridFile, GridFileContent, GridFilePreview } from "./types";
 
@@ -12,6 +13,7 @@ type FileFieldConfig = {
 
 type DbRow = {
   id: string;
+  short_id: string;
   record_id: string;
   field_id: string;
   position: number;
@@ -25,6 +27,7 @@ type DbRow = {
 
 const mapRow = (row: DbRow, targetFieldId = row.field_id, exposeCreatedBy = true): GridFile => ({
   id: row.id,
+  shortId: row.short_id,
   recordId: row.record_id,
   fieldId: targetFieldId,
   position: row.position,
@@ -209,7 +212,7 @@ export const listForRecordField = async (params: { tableId: string; recordId: st
   if (!target.ok) return target;
   if (!target.data.sourceFieldId) return ok([]);
   const rows = await sql<DbRow[]>`
-    SELECT id::text AS id, record_id::text AS record_id, field_id::text AS field_id,
+    SELECT id::text AS id, short_id, record_id::text AS record_id, field_id::text AS field_id,
            position, filename, mime_type, size_bytes, sha256,
            created_by::text AS created_by, created_at
     FROM grids.files
@@ -236,7 +239,7 @@ export const listForRecord = async (params: {
   if (mapped.length === 0) return filesByField;
   const guard = publicationGuard(mapped[0]!);
   const rows = await sql<Array<DbRow & { target_field_id: string }>>`
-    SELECT file.id::text AS id, file.record_id::text AS record_id, file.field_id::text AS field_id,
+    SELECT file.id::text AS id, file.short_id, file.record_id::text AS record_id, file.field_id::text AS field_id,
            mapping.target_field_id::text, file.position, file.filename, file.mime_type,
            file.size_bytes, file.sha256, file.created_by::text AS created_by, file.created_at
     FROM jsonb_to_recordset(${mapped.map((item) => ({
@@ -388,26 +391,31 @@ export const upload = async (params: {
       FROM grids.files
       WHERE record_id = ${params.recordId}::uuid AND field_id = ${params.fieldId}::uuid
     `;
-    const [row] = await tx<DbRow[]>`
-      INSERT INTO grids.files (
-        record_id, field_id, position, filename, mime_type,
-        size_bytes, sha256, bytes, created_by
-      )
-      VALUES (
-        ${params.recordId}::uuid,
-        ${params.fieldId}::uuid,
-        ${pos?.position ?? 0},
-        ${filename},
-        ${params.mimeType || "application/octet-stream"},
-        ${params.bytes.byteLength},
-        ${sha256Hex(params.bytes)},
-        ${params.bytes},
-        ${params.userId}::uuid
-      )
-      RETURNING id::text AS id, record_id::text AS record_id, field_id::text AS field_id,
-                position, filename, mime_type, size_bytes, sha256,
-                created_by::text AS created_by, created_at
-    `;
+    const row = await insertWithShortIdForDb(tx, "idx_grids_files_short_id", async (attempt, shortId) => {
+      const [created] = await attempt<DbRow[]>`
+        INSERT INTO grids.files (
+          short_id, record_id, field_id, position, filename, mime_type,
+          size_bytes, sha256, bytes, created_by
+        )
+        VALUES (
+          ${shortId},
+          ${params.recordId}::uuid,
+          ${params.fieldId}::uuid,
+          ${pos?.position ?? 0},
+          ${filename},
+          ${params.mimeType || "application/octet-stream"},
+          ${params.bytes.byteLength},
+          ${sha256Hex(params.bytes)},
+          ${params.bytes},
+          ${params.userId}::uuid
+        )
+        RETURNING id::text AS id, short_id, record_id::text AS record_id, field_id::text AS field_id,
+                  position, filename, mime_type, size_bytes, sha256,
+                  created_by::text AS created_by, created_at
+      `;
+      if (!created) throw new Error("insert returned no row");
+      return created;
+    });
     if (!row) throw new Error("insert returned no row");
     return ok(mapRow(row));
   });
@@ -423,7 +431,7 @@ export const getContent = async (params: {
   if (!target.ok) return target;
   if (!target.data.sourceFieldId) return fail(err.notFound("File"));
   const [row] = await sql<(DbRow & { bytes: Uint8Array })[]>`
-    SELECT id::text AS id, record_id::text AS record_id, field_id::text AS field_id,
+    SELECT id::text AS id, short_id, record_id::text AS record_id, field_id::text AS field_id,
            position, filename, mime_type, size_bytes, sha256,
            created_by::text AS created_by, created_at, bytes
     FROM grids.files
@@ -434,6 +442,21 @@ export const getContent = async (params: {
   `;
   if (!row) return fail(err.notFound("File"));
   return ok({ ...mapRow(row, target.data.targetFieldId, target.data.publication === null), bytes: row.bytes });
+};
+
+/** Resolves the only public file identifier to a live internal file. */
+export const getByShortId = async (shortId: string): Promise<GridFile | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT file.id::text AS id, file.short_id, file.record_id::text AS record_id,
+           file.field_id::text AS field_id, file.position, file.filename, file.mime_type,
+           file.size_bytes, file.sha256, file.created_by::text AS created_by, file.created_at
+    FROM grids.files file
+    JOIN grids.records record ON record.id = file.record_id AND record.deleted_at IS NULL
+    JOIN grids.tables table_ref ON table_ref.id = record.table_id AND table_ref.deleted_at IS NULL
+    JOIN grids.bases base ON base.id = table_ref.base_id AND base.deleted_at IS NULL
+    WHERE file.short_id = ${shortId}
+  `;
+  return row ? mapRow(row) : null;
 };
 
 export const remove = async (params: { tableId: string; recordId: string; fieldId: string; fileId: string }): Promise<Result<void>> => {

@@ -1,7 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import type { MiddlewareHandler } from "hono";
+import { gridsService } from "../service";
 import { createTemplatesApi } from "./templates";
 
 const user: User = {
@@ -62,6 +63,13 @@ const requireResourceBound: MiddlewareHandler<AuthContext> = async (c, next) => 
   await next();
 };
 
+const requireAuthenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
+  c.set("actor", { kind: "user", user });
+  c.set("accessSubject", { type: "user", userId: user.id });
+  c.set("user", user);
+  await next();
+};
+
 const instantiate = (requireAuthenticated: MiddlewareHandler<AuthContext>) =>
   createTemplatesApi({ requireAuthenticated }).request("/bookshop", {
     method: "POST",
@@ -70,11 +78,43 @@ const instantiate = (requireAuthenticated: MiddlewareHandler<AuthContext>) =>
   });
 
 describe("Grids template API", () => {
+  afterEach(() => mock.restore());
+
   test("rejects built-in template instantiation without write scope", async () => {
     expect((await instantiate(requireDelegatedRead)).status).toBe(403);
   });
 
   test("rejects built-in template instantiation from resource-bound credentials", async () => {
     expect((await instantiate(requireResourceBound)).status).toBe(403);
+  });
+
+  test("returns the created base with its public id only", async () => {
+    spyOn(gridsService.template, "instantiate").mockImplementation(async () => ({
+      ok: true,
+      data: {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        shortId: "BASE01",
+        name: "Bookshop",
+        description: null,
+        documentProfile: {},
+        createdBy: user.id,
+        deletedAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    }));
+
+    const response = await instantiate(requireAuthenticated);
+    expect(response.status).toBe(201);
+    expect(await response.json()).toEqual({
+      id: "BASE01",
+      name: "Bookshop",
+      description: null,
+      documentProfile: {},
+      createdBy: user.id,
+      deletedAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
   });
 });

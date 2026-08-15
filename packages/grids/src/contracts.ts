@@ -2,13 +2,13 @@ import { z } from "zod";
 import { AGGREGATE_KINDS } from "./aggregate-catalog";
 
 /**
- * Persisted slug for grids resources: 5-character base62 alphanumeric.
- * Mirrors the DB CHECK constraint (`slug ~ '^[A-Za-z0-9]{5}$'`) so the
+ * Public ID for Grids resources: 6-character base62 alphanumeric.
+ * Mirrors the DB CHECK constraint (`short_id ~ '^[A-Za-z0-9]{6}$'`) so the
  * contract layer and the storage layer cannot disagree. Service mappers
- * read `row.slug` directly; if a row lacks the column the throw bubbles
+ * read `row.short_id` directly; if a row lacks the column the throw bubbles
  * up rather than getting silently coerced to "" (we hit that bug once).
  */
-export const ShortIdSchema = z.string().regex(/^[A-Za-z0-9]{5}$/);
+export const ShortIdSchema = z.string().regex(/^[A-Za-z0-9]{6}$/);
 const IconNameSchema = z.string().max(200).nullable().optional();
 
 export const DocumentProfileSchema = z
@@ -466,6 +466,7 @@ export const ReorderFieldsSchema = z.object({
 // ── Record ────────────────────────────────────────────────────────────────
 export const GridRecordSchema = z.object({
   id: z.string().uuid(),
+  shortId: ShortIdSchema,
   tableId: z.string().uuid(),
   data: z.record(z.string(), z.unknown()),
   expanded: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
@@ -727,10 +728,9 @@ export const RecordActorListResponseSchema = z.object({
  * Persisted Views store canonical GQL in `view.source`; when the records UI
  * needs this shape, it derives it from the GQL source at the service boundary.
  *
- * Used by:
- *  - `POST /tables/:id/query`
- *  - URL serialization on the records page (`?filter=...&groupBy=...`)
- *  - export endpoint
+ * This is the bound internal shape. Public HTTP query/export bodies use
+ * `PublicRecordQuerySchema` in `api/public-query.ts` and resolve app-owned
+ * IDs before reaching this contract.
  *
  * Do not persist this object as the View definition.
  */
@@ -765,11 +765,12 @@ export const RecordQuerySchema = z.object({
 });
 export type RecordQuery = z.infer<typeof RecordQuerySchema>;
 
-/** Body for POST /tables/:id/query.
+/** Bound internal body for POST /tables/:id/query.
  *
  * `source` is the canonical GQL read shape for the records surface. `query`
  * remains accepted while the existing toolbar builder still emits structured
- * patches for UI-only cases that do not have GQL syntax yet.
+ * patches for UI-only cases that do not have GQL syntax yet. The HTTP route
+ * validates the separate public body before producing this UUID-backed shape.
  */
 export const TableQueryBodySchema = z
   .object({
@@ -854,7 +855,8 @@ export type TableQueryResult = z.infer<typeof TableQueryResponseSchema>;
 
 // ── GQL preview / execution ──────────────────────────────────────────────
 //
-// Generic tabular response for the query workspace. This is intentionally
+// Bound internal request/result shapes for the query workspace. Public HTTP
+// routes validate and project through api/gql-public.ts. The result is intentionally
 // not GridRecord-shaped: GQL can select aliases, formula columns,
 // joined fields, or grouped buckets that do not map to one editable record.
 
@@ -921,7 +923,6 @@ const DslQueryAutocompleteBaseBodySchema = z.object({
               "page.title",
               "page.url",
               "app.id",
-              "app.shortId",
               "app.name",
               "base.id",
               "base.name",
@@ -1186,6 +1187,7 @@ export const DocumentTemplateDraftPreviewSchema = z.object({
 
 export const RecordSnapshotSchema = z.object({
   id: z.string().uuid(),
+  shortId: ShortIdSchema,
   baseId: z.string().uuid(),
   tableId: z.string().uuid(),
   recordId: z.string().uuid(),
@@ -1198,6 +1200,7 @@ export type RecordSnapshot = z.infer<typeof RecordSnapshotSchema>;
 
 const RecordSnapshotSummarySchema = RecordSnapshotSchema.pick({
   id: true,
+  shortId: true,
   baseId: true,
   tableId: true,
   recordId: true,
@@ -1263,6 +1266,7 @@ export type DocumentLinkTtl = z.infer<typeof DocumentLinkTtlSchema>;
 
 export const DocumentLinkSchema = z.object({
   id: z.string().uuid(),
+  shortId: ShortIdSchema,
   documentRunId: z.string().uuid(),
   baseId: z.string().uuid(),
   tableId: z.string().uuid(),
@@ -1326,7 +1330,7 @@ export const EmailTemplateListSchema = z.array(EmailTemplateSchema);
 
 export const EmailTemplateDependencySchema = z.object({
   workflowId: z.string().uuid(),
-  workflowShortId: z.string().length(5),
+  workflowShortId: ShortIdSchema,
   workflowName: z.string().min(1),
 });
 

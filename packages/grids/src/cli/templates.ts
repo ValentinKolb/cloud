@@ -1,5 +1,5 @@
 import { arg, type CloudCliContext, command, flag } from "@valentinkolb/cloud/cli";
-import type { Base } from "../contracts";
+import type { PublicBase as Base } from "../api/public-dto";
 import { GRIDS_BASE_DEFAULT_KEY } from "./resources";
 import { exactMatch, jsonRequest, printJsonOrMessage, printJsonOrTable, readApi } from "./runtime";
 
@@ -65,12 +65,8 @@ export const baseTemplateCommands = [
         `/templates/${encodeURIComponent(template.id)}`,
         jsonRequest("POST", { name: flags.name, withSampleData: flags.empty ? false : undefined }),
       );
-      if (flags.use) await ctx.setDefault(GRIDS_BASE_DEFAULT_KEY, base.shortId);
-      printJsonOrMessage(
-        ctx,
-        base,
-        `Created ${base.name} (${base.shortId}) from ${template.name}.${flags.use ? " Using it as default." : ""}`,
-      );
+      if (flags.use) await ctx.setDefault(GRIDS_BASE_DEFAULT_KEY, base.id);
+      printJsonOrMessage(ctx, base, `Created ${base.name} (${base.id}) from ${template.name}.${flags.use ? " Using it as default." : ""}`);
     },
   }),
 ];

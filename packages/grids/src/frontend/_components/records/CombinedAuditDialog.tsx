@@ -3,7 +3,8 @@ import { mutation as mutations } from "@k2b/stdlib/solid";
 import { Button, DatePicker, dialogCore, PanelDialog, Placeholder, panelDialogWideOptions, Select } from "@k2b/ui";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { CombinedAuditEntry, CombinedAuditPage, Field } from "../../../service";
+import type { PublicCombinedAuditPage as CombinedAuditPage } from "../../../api/public-audit";
+import type { PublicField as Field } from "../../../api/public-dto";
 import { errorMessage } from "../utils/api-helpers";
 import { RecordHistoryList } from "./RecordHistorySection";
 import RecordPicker from "./RecordPicker";
@@ -47,7 +48,7 @@ type Props = {
 };
 
 function CombinedAuditDialog(props: Props) {
-  const [items, setItems] = createSignal<CombinedAuditEntry[]>([]);
+  const [items, setItems] = createSignal<CombinedAuditPage["items"]>([]);
   const [sources, setSources] = createSignal<CombinedAuditPage["sources"]>([]);
   const [cursor, setCursor] = createSignal<string | null>(null);
   const [loaded, setLoaded] = createSignal(false);

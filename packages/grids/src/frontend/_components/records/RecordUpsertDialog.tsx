@@ -1,7 +1,7 @@
-import { dialogCore, PanelDialog, panelDialogOptions, Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { Button, dialogCore, PanelDialog, panelDialogOptions } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
-import type { Field, GridRecord } from "../../../service";
+import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import { initialFieldInputValue, isRecordInputField, sanitizeFieldValues } from "../fields/field-render";
 import { FieldInput, type UserInputEntry } from "../forms/form-fields";
 

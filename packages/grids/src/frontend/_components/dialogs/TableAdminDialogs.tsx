@@ -16,8 +16,7 @@ import {
 } from "@k2b/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { FederatedSourcePublication } from "../../../contracts";
-import type { Field, Form, Table } from "../../../service";
+import type { PublicFederatedSourcePublication, PublicField, PublicForm, PublicTable } from "../../../api/public-dto";
 import { createDraft } from "../editor-draft";
 import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "../fields/field-config-editor";
 import { FIELD_TYPE_ICONS } from "../fields/field-type-meta";
@@ -32,18 +31,18 @@ export { openDocumentTemplateEditorDialog, openDocumentTemplatesDialog } from ".
 
 export const openTableSettingsDialog = (args: {
   table: TableHeader;
-  fields: Field[];
+  fields: PublicField[];
   canManageBase: boolean;
-  onSaved: (table: Table) => void;
+  onSaved: (table: PublicTable) => void;
   onDeleted?: () => void;
 }) => dialogCore.open<void>((close) => <TableSettingsDialog args={args} close={close} />, panelDialogOptions);
 
 function TableSettingsDialog(props: {
   args: {
     table: TableHeader;
-    fields: Field[];
+    fields: PublicField[];
     canManageBase: boolean;
-    onSaved: (table: Table) => void;
+    onSaved: (table: PublicTable) => void;
     onDeleted?: () => void;
   };
   close: () => void;
@@ -71,7 +70,7 @@ function TableSettingsDialog(props: {
   );
 }
 
-export const createFieldFromPrompt = async (args: { table: TableHeader }): Promise<Field | null> => {
+export const createFieldFromPrompt = async (args: { table: TableHeader }): Promise<PublicField | null> => {
   const type = await chooseFieldType(args.table.kind);
   if (!type) return null;
 
@@ -173,9 +172,9 @@ const chooseFieldType = (tableKind: TableHeader["kind"]) =>
 export const openFormsDialog = (args: {
   tableId: string;
   tableName: string;
-  fields: Field[];
-  initialForms: Form[];
-  onFormsChanged?: (forms: Form[]) => void;
+  fields: PublicField[];
+  initialForms: PublicForm[];
+  onFormsChanged?: (forms: PublicForm[]) => void;
 }) =>
   dialogCore.open<void>(
     (close) => (
@@ -195,7 +194,7 @@ export const openFormsDialog = (args: {
     panelDialogOptions,
   );
 
-export const deleteFieldWithChecks = async (field: Field): Promise<boolean> => {
+export const deleteFieldWithChecks = async (field: PublicField): Promise<boolean> => {
   const depsRes = await apiClient.fields[":fieldId"].dependents.$get({ param: { fieldId: field.id } });
   if (depsRes.ok) {
     const deps = await depsRes.json();
@@ -224,9 +223,9 @@ export const deleteFieldWithChecks = async (field: Field): Promise<boolean> => {
 
 function TableSettingsBody(props: {
   table: TableHeader;
-  fields: Field[];
+  fields: PublicField[];
   canManageBase: boolean;
-  onSaved: (table: Table) => void;
+  onSaved: (table: PublicTable) => void;
   onDeleted?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
   onCancel: () => void;
@@ -249,7 +248,7 @@ function TableSettingsBody(props: {
   const displayConfig = () => draft.draft().displayConfig;
   const auditPolicy = () => draft.draft().auditPolicy;
   const disableDirectInsert = () => draft.draft().disableDirectInsert;
-  const [publications, setPublications] = createSignal<FederatedSourcePublication[]>([]);
+  const [publications, setPublications] = createSignal<PublicFederatedSourcePublication[]>([]);
   const [publicationsLoading, setPublicationsLoading] = createSignal(false);
 
   const loadPublications = async () => {
@@ -267,7 +266,7 @@ function TableSettingsBody(props: {
   };
   onMount(() => void loadPublications());
 
-  const revokePublication = async (publication: FederatedSourcePublication) => {
+  const revokePublication = async (publication: PublicFederatedSourcePublication) => {
     const confirmed = await prompts.confirm(
       `Revoke ${props.table.name} from "${publication.targetTableName}"? Readers will lose the entire combined result until its admin publishes a repair.`,
       { title: "Revoke publication?", variant: "danger", confirmText: "Revoke" },
@@ -280,7 +279,7 @@ function TableSettingsBody(props: {
     await loadPublications();
   };
 
-  const saveMut = mutations.create<Table, void>({
+  const saveMut = mutations.create<PublicTable, void>({
     mutation: async () => {
       const trimmed = name().trim();
       if (!trimmed) throw new Error("Name is required");
@@ -320,7 +319,7 @@ function TableSettingsBody(props: {
     },
     onSuccess: () => {
       props.onDeleted?.();
-      navigateTo(`/app/grids/${props.table.baseShortId}`);
+      navigateTo(`/app/grids/${props.table.baseId}`);
     },
     onError: (e) => prompts.error(e.message),
   });

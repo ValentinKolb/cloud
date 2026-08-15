@@ -19,8 +19,13 @@ const parseArgs = (): Args => {
 };
 
 const usage = () => `Usage:
-  bun run scripts/render-document-template-previews.ts --base=hNTsc --table=d5wcP [--record=<uuid>] [--starter=all|invoice] [--template=all] [--out=/tmp/grids-pdf-previews] [--gotenberg-url=http://localhost:3000] [--repeat-rows=80] [--png]
+  bun run scripts/render-document-template-previews.ts --base=hNTsc1 --table=d5wcP2 [--record=<public-id>] [--starter=all|invoice] [--template=all] [--out=/tmp/grids-pdf-previews] [--gotenberg-url=http://localhost:3000] [--repeat-rows=80] [--png]
 `;
+
+const requirePublicId = (value: string, kind: string): string => {
+  if (!/^[A-Za-z0-9]{6}$/.test(value)) throw new Error(`${kind} must be a 6-character public id`);
+  return value;
+};
 
 const stringArg = (args: Args, key: string): string | undefined => {
   const value = args[key];
@@ -72,22 +77,22 @@ const renderedPngs = async (outDir: string, name: string): Promise<string[]> => 
 };
 
 const firstRecordId = async (tableId: string): Promise<string> => {
-  const [row] = await sql<{ id: string }[]>`
-    SELECT id::text AS id
+  const [row] = await sql<{ short_id: string }[]>`
+    SELECT short_id
     FROM grids.records
     WHERE table_id = ${tableId}::uuid AND deleted_at IS NULL
     ORDER BY created_at
     LIMIT 1
   `;
-  if (!row) throw new Error("No live record found. Pass --record=<uuid> or create a record first.");
-  return row.id;
+  if (!row) throw new Error("No live record found. Pass --record=<public-id> or create a record first.");
+  return row.short_id;
 };
 
 const loadRenderData = async (params: { template: Pick<DocumentTemplate, "source">; tableId: string; recordId: string }) => {
   const table = await gridsService.table.get(params.tableId);
   if (!table) throw new Error("Table not found");
-  const record = await gridsService.record.get(params.tableId, params.recordId);
-  if (!record) throw new Error("Record not found");
+  const record = await gridsService.record.getByShortId(params.recordId);
+  if (!record || record.tableId !== params.tableId) throw new Error("Record not found");
   const live = await gridsService.document.buildLiveRenderData({ template: params.template as DocumentTemplate, table, record });
   if (!live.ok) throw new Error(live.error.message);
   return live.data.data;
@@ -107,7 +112,7 @@ const withRepeatedRows = (data: Record<string, unknown>, repeatRows: number): Re
 const starterTemplate = (starter: DocumentTemplateStarter, tableId: string): DocumentTemplate =>
   ({
     id: starter.id,
-    shortId: "START",
+    shortId: "START01",
     tableId,
     name: starter.name,
     description: starter.description,
@@ -137,9 +142,7 @@ const loadTargets = async (params: { tableId: string; starter?: string; template
     targets.push(
       ...(params.template === "all"
         ? saved
-        : saved.filter(
-            (template) => template.id === params.template || template.shortId === params.template || template.name === params.template,
-          )),
+        : saved.filter((template) => template.shortId === params.template || template.name === params.template)),
     );
   }
   if (targets.length === 0) targets.push(...DOCUMENT_TEMPLATE_STARTERS.map((starter) => starterTemplate(starter, params.tableId)));
@@ -198,11 +201,11 @@ const main = async (): Promise<void> => {
     process.exit(1);
   }
 
-  const base = await gridsService.base.getByIdOrShortId(baseRef);
+  const base = await gridsService.base.getByShortId(requirePublicId(baseRef, "Base"));
   if (!base) throw new Error(`Base not found: ${baseRef}`);
-  const table = await gridsService.table.getByIdOrShortId(base.id, tableRef);
+  const table = await gridsService.table.getByShortIdForBase(base.id, requirePublicId(tableRef, "Table"));
   if (!table) throw new Error(`Table not found: ${tableRef}`);
-  const recordId = stringArg(args, "record") ?? (await firstRecordId(table.id));
+  const recordId = requirePublicId(stringArg(args, "record") ?? (await firstRecordId(table.id)), "Record");
   const outDir = stringArg(args, "out") ?? "/tmp/grids-pdf-previews";
   await mkdir(outDir, { recursive: true });
 

@@ -1,3 +1,4 @@
+import { ok } from "@k2b/stdlib";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
@@ -5,12 +6,15 @@ import { describeRoute } from "hono-openapi";
 import type { z } from "zod";
 import { invokeBulkLauncher, invokeCustomAppLauncher, invokeScannerLauncher } from "../service/workflow-launcher-invocations";
 import { invokeGridsWorkflow } from "../service/workflow-runtime";
-import { GridsWorkflowInvocationRequestSchema, WorkflowInvocationReceiptSchema } from "../workflows/contracts";
-import { uuidParam } from "./route-params";
+import { GridsWorkflowInvocationRequestSchema } from "../workflows/contracts";
+import { resolvePublicIdParam } from "./route-params";
 import {
   BulkLauncherRequestSchema,
   CustomAppLauncherRequestSchema,
+  PublicWorkflowInvocationReceiptSchema,
+  resolveBulkRecordIds,
   ScannerLauncherRequestSchema,
+  toPublicWorkflowReceipt,
   workflowPrincipal,
 } from "./workflow-api-shared";
 
@@ -29,6 +33,9 @@ const invokeDirect = (workflowId: string, body: DirectInvocation, principal: Ret
     principal,
   });
 
+const publicReceipt = async <T extends Awaited<ReturnType<typeof invokeDirect>>>(result: T) =>
+  result.ok ? ok(await toPublicWorkflowReceipt(result.data)) : result;
+
 export const createWorkflowTriggerRoutes = () =>
   new Hono<AuthContext>()
     .post(
@@ -37,7 +44,7 @@ export const createWorkflowTriggerRoutes = () =>
         tags: ["Grids:Workflow"],
         summary: "Invoke a workflow from the external API",
         responses: {
-          200: jsonResponse(WorkflowInvocationReceiptSchema, "Invocation accepted"),
+          200: jsonResponse(PublicWorkflowInvocationReceiptSchema, "Invocation accepted"),
           400: jsonResponse(ErrorResponseSchema, "Invalid invocation"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -47,10 +54,10 @@ export const createWorkflowTriggerRoutes = () =>
       }),
       v("json", GridsWorkflowInvocationRequestSchema),
       async (c) => {
-        const workflowId = uuidParam(c, "workflowId");
+        const workflowId = await resolvePublicIdParam(c, "workflowId", "workflow");
         if (!workflowId) return c.json({ message: "Invalid workflow id" }, 400);
         const body = c.req.valid("json");
-        return respond(c, () => invokeDirect(workflowId, body, workflowPrincipal(c)));
+        return respond(c, async () => publicReceipt(await invokeDirect(workflowId, body, workflowPrincipal(c))));
       },
     )
     .post(
@@ -59,7 +66,7 @@ export const createWorkflowTriggerRoutes = () =>
         tags: ["Grids:Workflow"],
         summary: "Invoke a workflow from the trusted UI",
         responses: {
-          200: jsonResponse(WorkflowInvocationReceiptSchema, "Invocation accepted"),
+          200: jsonResponse(PublicWorkflowInvocationReceiptSchema, "Invocation accepted"),
           400: jsonResponse(ErrorResponseSchema, "Invalid invocation"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -69,10 +76,10 @@ export const createWorkflowTriggerRoutes = () =>
       }),
       v("json", GridsWorkflowInvocationRequestSchema),
       async (c) => {
-        const workflowId = uuidParam(c, "workflowId");
+        const workflowId = await resolvePublicIdParam(c, "workflowId", "workflow");
         if (!workflowId) return c.json({ message: "Invalid workflow id" }, 400);
         const body = c.req.valid("json");
-        return respond(c, () => invokeDirect(workflowId, body, workflowPrincipal(c)));
+        return respond(c, async () => publicReceipt(await invokeDirect(workflowId, body, workflowPrincipal(c))));
       },
     )
     .post(
@@ -81,7 +88,7 @@ export const createWorkflowTriggerRoutes = () =>
         tags: ["Grids:Workflow"],
         summary: "Invoke a workflow from the trusted CLI",
         responses: {
-          200: jsonResponse(WorkflowInvocationReceiptSchema, "Invocation accepted"),
+          200: jsonResponse(PublicWorkflowInvocationReceiptSchema, "Invocation accepted"),
           400: jsonResponse(ErrorResponseSchema, "Invalid invocation"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -91,10 +98,10 @@ export const createWorkflowTriggerRoutes = () =>
       }),
       v("json", GridsWorkflowInvocationRequestSchema),
       async (c) => {
-        const workflowId = uuidParam(c, "workflowId");
+        const workflowId = await resolvePublicIdParam(c, "workflowId", "workflow");
         if (!workflowId) return c.json({ message: "Invalid workflow id" }, 400);
         const body = c.req.valid("json");
-        return respond(c, () => invokeDirect(workflowId, body, workflowPrincipal(c)));
+        return respond(c, async () => publicReceipt(await invokeDirect(workflowId, body, workflowPrincipal(c))));
       },
     )
     .post(
@@ -103,7 +110,7 @@ export const createWorkflowTriggerRoutes = () =>
         tags: ["Grids:Workflow"],
         summary: "Invoke a scanner workflow launcher",
         responses: {
-          200: jsonResponse(WorkflowInvocationReceiptSchema, "Invocation accepted"),
+          200: jsonResponse(PublicWorkflowInvocationReceiptSchema, "Invocation accepted"),
           400: jsonResponse(ErrorResponseSchema, "Invalid invocation"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -113,14 +120,16 @@ export const createWorkflowTriggerRoutes = () =>
       }),
       v("json", ScannerLauncherRequestSchema),
       async (c) => {
-        const launcherId = uuidParam(c, "launcherId");
+        const launcherId = await resolvePublicIdParam(c, "launcherId", "workflowLauncher");
         if (!launcherId) return c.json({ message: "Invalid workflow launcher id" }, 400);
-        return respond(c, () =>
-          invokeScannerLauncher({
-            ...c.req.valid("json"),
-            launcherId,
-            principal: workflowPrincipal(c),
-          }),
+        return respond(c, async () =>
+          publicReceipt(
+            await invokeScannerLauncher({
+              ...c.req.valid("json"),
+              launcherId,
+              principal: workflowPrincipal(c),
+            }),
+          ),
         );
       },
     )
@@ -130,7 +139,7 @@ export const createWorkflowTriggerRoutes = () =>
         tags: ["Grids:Workflow"],
         summary: "Invoke a bulk workflow launcher",
         responses: {
-          200: jsonResponse(WorkflowInvocationReceiptSchema, "Invocation accepted"),
+          200: jsonResponse(PublicWorkflowInvocationReceiptSchema, "Invocation accepted"),
           400: jsonResponse(ErrorResponseSchema, "Invalid invocation"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -140,14 +149,20 @@ export const createWorkflowTriggerRoutes = () =>
       }),
       v("json", BulkLauncherRequestSchema),
       async (c) => {
-        const launcherId = uuidParam(c, "launcherId");
+        const launcherId = await resolvePublicIdParam(c, "launcherId", "workflowLauncher");
         if (!launcherId) return c.json({ message: "Invalid workflow launcher id" }, 400);
-        return respond(c, () =>
-          invokeBulkLauncher({
-            ...c.req.valid("json"),
-            launcherId,
-            principal: workflowPrincipal(c),
-          }),
+        const body = c.req.valid("json");
+        const resolved = "recordIds" in body ? await resolveBulkRecordIds(body.recordIds) : undefined;
+        if (resolved === null) return c.json({ message: "Record not found" }, 404);
+        return respond(c, async () =>
+          publicReceipt(
+            await invokeBulkLauncher({
+              ...body,
+              ...(resolved ? { recordIds: resolved } : {}),
+              launcherId,
+              principal: workflowPrincipal(c),
+            }),
+          ),
         );
       },
     )
@@ -157,7 +172,7 @@ export const createWorkflowTriggerRoutes = () =>
         tags: ["Grids:Workflow"],
         summary: "Invoke a Grids App workflow launcher",
         responses: {
-          200: jsonResponse(WorkflowInvocationReceiptSchema, "Invocation accepted"),
+          200: jsonResponse(PublicWorkflowInvocationReceiptSchema, "Invocation accepted"),
           400: jsonResponse(ErrorResponseSchema, "Invalid invocation"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -167,14 +182,16 @@ export const createWorkflowTriggerRoutes = () =>
       }),
       v("json", CustomAppLauncherRequestSchema),
       async (c) => {
-        const launcherId = uuidParam(c, "launcherId");
+        const launcherId = await resolvePublicIdParam(c, "launcherId", "workflowLauncher");
         if (!launcherId) return c.json({ message: "Invalid workflow launcher id" }, 400);
-        return respond(c, () =>
-          invokeCustomAppLauncher({
-            ...c.req.valid("json"),
-            launcherId,
-            principal: workflowPrincipal(c),
-          }),
+        return respond(c, async () =>
+          publicReceipt(
+            await invokeCustomAppLauncher({
+              ...c.req.valid("json"),
+              launcherId,
+              principal: workflowPrincipal(c),
+            }),
+          ),
         );
       },
     );

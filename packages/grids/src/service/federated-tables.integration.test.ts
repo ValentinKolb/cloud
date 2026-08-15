@@ -693,6 +693,7 @@ describe("combined table integration", () => {
         [
           {
             id: fixture.recordId,
+            shortId: "REC001",
             tableId: fixture.targetTableId,
             data: { [targetRelationFieldId]: [relationRecordId] },
             version: 1,

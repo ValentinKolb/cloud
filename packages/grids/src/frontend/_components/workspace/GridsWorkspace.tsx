@@ -4,9 +4,9 @@ import GridsRoute from "./GridsRoute.island";
 import GridsSidebar from "./GridsSidebar";
 import WorkspaceMetadataRefresh from "./WorkspaceMetadataRefresh.island";
 import { workspaceRootClass } from "./workspace-layout";
-import type { OkWorkspaceState, WorkspaceCatalog } from "./workspace-state-model";
+import type { PublicOkWorkspaceState, PublicWorkspaceCatalog } from "./workspace-public-state-model";
 
-const emptyClientCatalog = (): WorkspaceCatalog => ({
+const emptyClientCatalog = (): PublicWorkspaceCatalog => ({
   customApps: [],
   workflows: [],
   workflowLaunchers: [],
@@ -18,12 +18,11 @@ const emptyClientCatalog = (): WorkspaceCatalog => ({
   formsByTable: {},
   documentTemplatesByTable: {},
   documentTemplateLevels: {},
-  tableShortIds: {},
   sidebarForms: [],
   sidebarDocumentTemplates: [],
 });
 
-const routeClientState = (state: OkWorkspaceState): OkWorkspaceState => {
+const routeClientState = (state: PublicOkWorkspaceState): PublicOkWorkspaceState => {
   const catalog = emptyClientCatalog();
   switch (state.route.kind) {
     case "customApp":
@@ -42,7 +41,6 @@ const routeClientState = (state: OkWorkspaceState): OkWorkspaceState => {
       catalog.tables = state.catalog.tables;
       catalog.fieldsByTable = state.catalog.fieldsByTable;
       catalog.viewsByTable = state.catalog.viewsByTable;
-      catalog.tableShortIds = state.catalog.tableShortIds;
       break;
     case "workflows":
       catalog.tables = state.catalog.tables;
@@ -66,7 +64,7 @@ const routeClientState = (state: OkWorkspaceState): OkWorkspaceState => {
   return { ...state, catalog };
 };
 
-export default function GridsWorkspace(props: { state: OkWorkspaceState }) {
+export default function GridsWorkspace(props: { state: PublicOkWorkspaceState }) {
   return (
     <>
       <RememberGridsPath path={props.state.rememberPath} />

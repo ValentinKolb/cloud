@@ -95,12 +95,8 @@ const migrateKernelProfile = async (sql: SQL): Promise<void> => {
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT workflow_profile_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
+      CONSTRAINT workflow_profile_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$')
     )
-  `.simple();
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_workflow_profile_short_id
-    ON grids.workflow_profile(base_id, short_id) WHERE deleted_at IS NULL
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_workflow_profile_base_live
@@ -122,6 +118,7 @@ const migrateKernelProfile = async (sql: SQL): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.workflow_run_profile (
       run_id UUID PRIMARY KEY,
+      short_id TEXT NOT NULL,
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       workflow_id UUID NOT NULL,
       launcher_id UUID,
@@ -133,7 +130,8 @@ const migrateKernelProfile = async (sql: SQL): Promise<void> => {
       -- repeat with the first run's id, so without this a changed payload would
       -- be silently ignored rather than refused.
       request_fingerprint TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT workflow_run_profile_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$')
     )
   `.simple();
   await sql`
@@ -182,7 +180,7 @@ const migrateDefinitionLinks = async (sql: SQL): Promise<void> => {
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT workflow_launchers_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
+      CONSTRAINT workflow_launchers_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$'),
       CONSTRAINT workflow_launchers_diagnostics_array_chk CHECK (jsonb_typeof(diagnostics) = 'array')
     )
   `.simple();
@@ -193,10 +191,6 @@ const migrateDefinitionLinks = async (sql: SQL): Promise<void> => {
     WHERE kind = 'dashboard';
     ALTER TABLE grids.workflow_launchers
       ADD CONSTRAINT workflow_launchers_kind_check CHECK (kind IN ('scanner', 'bulk', 'customApp'));
-  `.simple();
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_workflow_launchers_short_id
-    ON grids.workflow_launchers(base_id, short_id) WHERE deleted_at IS NULL
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_workflow_launchers_workflow

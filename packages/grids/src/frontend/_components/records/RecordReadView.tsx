@@ -1,9 +1,9 @@
-import { Placeholder } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { Placeholder } from "@k2b/ui";
 import { For, type JSX, Show } from "solid-js";
+import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import type { ColumnSpec, FormatSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
-import type { Field, GridRecord } from "../../../service";
 import { fieldTypeIcon } from "../fields/field-type-meta";
 import { barcodeValueText, canRenderBarcode } from "../table/BarcodeRendering";
 import { FieldValue } from "../table/FieldValue";
@@ -22,7 +22,6 @@ type RecordReadViewProps = {
   headerActions?: JSX.Element;
   quickActions?: JSX.Element;
   relationLabels?: Record<string, string>;
-  tableShortIds?: Record<string, string>;
   fieldsByTable?: Record<string, Field[]>;
   viewColumns?: ColumnSpec[];
   dateConfig?: DateContext;
@@ -79,7 +78,6 @@ export default function RecordReadView(props: RecordReadViewProps) {
         record={record}
         allFields={props.fields}
         baseId={props.baseId}
-        tableShortIds={props.tableShortIds}
         fieldsByTable={props.fieldsByTable}
         relationLabels={props.relationLabels}
         dateConfig={props.dateConfig}
@@ -158,7 +156,6 @@ export default function RecordReadView(props: RecordReadViewProps) {
           record={props.record}
           allFields={props.fields}
           baseId={props.baseId}
-          tableShortIds={props.tableShortIds}
           fieldsByTable={props.fieldsByTable}
           relationLabels={props.relationLabels}
           dateConfig={props.dateConfig}

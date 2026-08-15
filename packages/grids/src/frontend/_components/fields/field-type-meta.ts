@@ -1,4 +1,4 @@
-import type { Field } from "../../../service";
+import type { PublicField as Field } from "../../../api/public-dto";
 
 export const FIELD_TYPE_ICONS: Record<string, string> = {
   text: "ti ti-typography",

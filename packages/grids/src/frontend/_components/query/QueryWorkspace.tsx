@@ -1,10 +1,11 @@
 import { mutation as mutations, timed } from "@k2b/stdlib/solid";
-import { NoticeCard, Button, Panes, type PanesValue, prompts, TextInput, Tooltip } from "@k2b/ui";
+import { Button, NoticeCard, Panes, type PanesValue, prompts, TextInput, Tooltip } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { DslQueryPreviewDiagnostic, DslQueryPreviewResponse } from "../../../contracts";
+import type { PublicDslQueryPreviewResponse } from "../../../api/gql-public";
+import type { PublicField as Field, PublicTable as Table, PublicView as View } from "../../../api/public-dto";
+import type { DslQueryPreviewDiagnostic } from "../../../contracts";
 import { formatIdentifierRef } from "../../../ref-syntax";
-import type { Field, Table, View } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
 import { GqlSourceEditor } from "./GqlSourceEditor";
 import QueryResultTable from "./QueryResultTable";
@@ -18,10 +19,9 @@ import {
 
 type Props = {
   baseId: string;
-  baseShortId: string;
   initialQuery: string;
   initialCursor?: string | null;
-  initialPreview?: DslQueryPreviewResponse | null;
+  initialPreview?: PublicDslQueryPreviewResponse | null;
   queryPath: string;
   currentSource?: QueryWorkspaceCurrentSource;
   tables: Table[];
@@ -112,11 +112,11 @@ const queryHref = (queryPath: string, query: string, cursor?: string | null) => 
   return `${queryPath}${search ? `?${search}` : ""}`;
 };
 
-const queryReferenceHref = (_baseShortId: string) => "/app/grids/help/grids-gql";
+const queryReferenceHref = () => "/app/grids/help/grids-gql";
 
-const openQueryReferenceWindow = (baseShortId: string) => {
+const openQueryReferenceWindow = () => {
   if (typeof window === "undefined") return;
-  window.open(queryReferenceHref(baseShortId), "grids-gql-reference", "popup,width=1120,height=820,resizable=yes,scrollbars=yes");
+  window.open(queryReferenceHref(), "grids-gql-reference", "popup,width=1120,height=820,resizable=yes,scrollbars=yes");
 };
 
 const safeQueryHref = (queryPath: string, query: string, cursor?: string | null) => {
@@ -140,9 +140,9 @@ const replaceOrPrependSourceClause = (source: string, fromLine: string) => {
 };
 
 function QueryPreview(props: {
-  preview: DslQueryPreviewResponse | null;
+  preview: PublicDslQueryPreviewResponse | null;
   loading: boolean;
-  baseShortId: string;
+  baseId: string;
   tables: Table[];
   fieldsByTable: Record<string, Field[]>;
   canGoBack: boolean;
@@ -152,8 +152,6 @@ function QueryPreview(props: {
 }) {
   const success = createMemo(() => (props.preview?.ok ? props.preview : null));
   const diagnostics = createMemo(() => (props.preview && !props.preview.ok ? props.preview.diagnostics : []));
-  const tableShortIds = createMemo(() => Object.fromEntries(props.tables.map((table) => [table.id, table.shortId])));
-
   return (
     <div class="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-surface">
       <Show
@@ -211,8 +209,7 @@ function QueryPreview(props: {
           {(preview) => (
             <QueryResultTable
               result={preview()}
-              baseShortId={props.baseShortId}
-              tableShortIds={tableShortIds()}
+              baseId={props.baseId}
               fieldsByTable={props.fieldsByTable}
               scrollPreserveKey="grids-query-preview"
               loading={props.loading}
@@ -230,7 +227,7 @@ function QueryPreview(props: {
 
 export default function QueryWorkspace(props: Props) {
   const [query, setQuery] = createSignal(props.initialQuery);
-  const [preview, setPreview] = createSignal<DslQueryPreviewResponse | null>(props.initialPreview ?? null);
+  const [preview, setPreview] = createSignal<PublicDslQueryPreviewResponse | null>(props.initialPreview ?? null);
   const [loading, setLoading] = createSignal(false);
   const [pageCursor, setPageCursor] = createSignal<string | null>(props.initialCursor ?? null);
   const [pageHistory, setPageHistory] = createSignal<Array<string | null>>([]);
@@ -433,7 +430,7 @@ export default function QueryWorkspace(props: Props) {
       const view = await createResponse.json();
       const table = props.tables.find((item) => item.id === view.tableId);
       if (typeof window !== "undefined" && table) {
-        window.location.assign(`/app/grids/${props.baseShortId}/table/${table.shortId}/view/${view.shortId}`);
+        window.location.assign(`/app/grids/${props.baseId}/table/${table.id}/view/${view.id}`);
       }
     },
     onError: (error) => prompts.error(error.message),
@@ -499,7 +496,7 @@ export default function QueryWorkspace(props: Props) {
           <QueryPreview
             preview={preview()}
             loading={loading()}
-            baseShortId={props.baseShortId}
+            baseId={props.baseId}
             tables={props.tables}
             fieldsByTable={props.fieldsByTable}
             canGoBack={pageHistory().length > 0 || pageCursor() !== null}
@@ -540,7 +537,7 @@ export default function QueryWorkspace(props: Props) {
                   )}
                 </For>
               </div>
-              <Button variant="secondary" size="sm" type="button" onClick={() => openQueryReferenceWindow(props.baseShortId)}>
+              <Button variant="secondary" size="sm" type="button" onClick={openQueryReferenceWindow}>
                 <i class="ti ti-external-link" /> Reference
               </Button>
               <Button variant="primary" size="sm" type="button" onClick={handleSave} disabled={!query().trim() || saveViewMut.loading()}>

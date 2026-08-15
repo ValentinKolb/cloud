@@ -1,13 +1,13 @@
+import { type DateContext, dates, err, fail, ok, type Result } from "@k2b/stdlib";
 import {
   type LiquidTemplateFilter,
   renderLiquidTemplate,
   validateLiquidTemplate as validateSharedLiquidTemplate,
 } from "@valentinkolb/cloud/shared";
-import { type DateContext, dates, err, fail, ok, type Result } from "@k2b/stdlib";
 import { type BarcodeFormat, BarcodeRenderError, barcodeDataUrl } from "../barcode-rendering";
 import type { DocumentTemplate } from "../contracts";
 
-export const DEFAULT_DOCUMENT_NUMBER_TEMPLATE = "{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}";
+export const DEFAULT_DOCUMENT_NUMBER_TEMPLATE = "{{ template.id }}-{{ date.yyyyMMdd }}-{{ run.id }}";
 const TEMPLATE_MAX_BYTES = 200_000;
 
 const DOCUMENT_TEMPLATE_ROOTS = new Set([
@@ -155,15 +155,11 @@ export const datePatternContext = (date: Date, dateConfig?: DateContext) => {
 };
 
 export const templatePatternContext = (template: Partial<Pick<DocumentTemplate, "id" | "shortId" | "name">> | null | undefined) => ({
-  id: template?.id ?? null,
-  shortId: template?.shortId ?? "draft",
+  id: template?.shortId ?? "draft",
   name: template?.name ?? "Draft template",
 });
 
-export const runPatternContext = (runId: string | null | undefined, shortId: string | null | undefined) => ({
-  id: runId ?? null,
-  shortId: shortId ?? "draft",
-});
+export const runPatternContext = (publicId: string | null | undefined) => ({ id: publicId ?? "draft" });
 
 const safeDocumentNumber = (value: string): string =>
   value
@@ -238,7 +234,6 @@ export const renderLiquidPlainText = async (
 
 export const documentNumberFor = (params: {
   template: Partial<Pick<DocumentTemplate, "id" | "shortId" | "name" | "numberTemplate">>;
-  runId: string;
   runShortId: string;
   generatedAt?: Date;
   dateConfig?: DateContext;
@@ -253,7 +248,7 @@ export const documentNumberFor = (params: {
       {
         ...(params.data ?? {}),
         template: templatePatternContext(params.template),
-        run: runPatternContext(params.runId, params.runShortId),
+        run: runPatternContext(params.runShortId),
         date: datePatternContext(params.generatedAt ?? new Date(), params.dateConfig),
       },
       { filters: documentLiquidFilters },

@@ -2,11 +2,12 @@ import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, type PermissionLevel, respond, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { CreateViewSchema, UpdateViewSchema, ViewListSchema, ViewSchema } from "../contracts";
+import { CreateViewSchema, UpdateViewSchema } from "../contracts";
 import { gridsService } from "../service";
 import { compileGqlViewWrite } from "./gql-runtime";
 import { currentActorUser, currentActorUserId, currentActorViewer, gateAt } from "./permissions";
-import { requireUuidParam } from "./route-params";
+import { PublicViewListSchema, PublicViewSchema, toPublicView, toPublicViews } from "./public-dto";
+import { internalIdParam, requirePublicIdParam, requireStoredPublicIdParam } from "./route-params";
 
 const gqlDiagnosticMessage = (diagnostics: Array<{ message: string }>): string =>
   diagnostics.map((diagnostic) => diagnostic.message).join("; ") || "invalid GQL source";
@@ -31,18 +32,18 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/by-table/:tableId",
-    requireUuidParam("tableId", "Table"),
+    requirePublicIdParam("tableId", "table", "Table"),
     describeRoute({
       tags: ["Grids:View"],
       summary: "List views visible on a table",
       responses: {
-        200: jsonResponse(ViewListSchema, "Views"),
+        200: jsonResponse(PublicViewListSchema, "Views"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "read");
@@ -51,18 +52,18 @@ const app = new Hono<AuthContext>()
         tableId,
         ...currentActorViewer(c),
       });
-      return c.json(list);
+      return c.json(await toPublicViews(list));
     },
   )
 
   .post(
     "/by-table/:tableId",
-    requireUuidParam("tableId", "Table"),
+    requirePublicIdParam("tableId", "table", "Table"),
     describeRoute({
       tags: ["Grids:View"],
       summary: "Create a view (shared or personal)",
       responses: {
-        201: jsonResponse(ViewSchema, "Created"),
+        201: jsonResponse(PublicViewSchema, "Created"),
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -71,7 +72,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", CreateViewSchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const body = c.req.valid("json");
@@ -85,39 +86,35 @@ const app = new Hono<AuthContext>()
       if (!compiled.ok) return c.json({ message: gqlDiagnosticMessage(compiled.diagnostics) }, 400);
       const user = currentActorUser(c);
       if (!body.shared && !user) return c.json({ message: "Sign in to create a personal view." }, 403);
-      return respond(
-        c,
-        () =>
-          gridsService.view.create(
-            {
-              tableId,
-              name: body.name,
-              description: body.description ?? null,
-              icon: body.icon ?? null,
-              source: compiled.source,
-              ui: body.ui,
-              ownerUserId: body.shared ? null : (user?.id ?? null),
-            },
-            currentActorUserId(c),
-          ),
-        201,
+      const result = await gridsService.view.create(
+        {
+          tableId,
+          name: body.name,
+          description: body.description ?? null,
+          icon: body.icon ?? null,
+          source: compiled.source,
+          ui: body.ui,
+          ownerUserId: body.shared ? null : (user?.id ?? null),
+        },
+        currentActorUserId(c),
       );
+      return result.ok ? c.json(await toPublicView(result.data), 201) : c.json({ message: result.error.message }, result.error.status);
     },
   )
 
   .get(
     "/:viewId",
-    requireUuidParam("viewId", "View"),
+    requirePublicIdParam("viewId", "view", "View"),
     describeRoute({
       tags: ["Grids:View"],
       summary: "Get a single view",
       responses: {
-        200: jsonResponse(ViewSchema, "View"),
+        200: jsonResponse(PublicViewSchema, "View"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
     async (c) => {
-      const viewId = c.req.param("viewId")!;
+      const viewId = internalIdParam(c, "viewId")!;
       const view = await gridsService.view.get(viewId);
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);
@@ -127,18 +124,18 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) {
         return c.json({ message: "View not found" }, 404);
       }
-      return c.json(view);
+      return c.json(await toPublicView(view));
     },
   )
 
   .patch(
     "/:viewId",
-    requireUuidParam("viewId", "View"),
+    requirePublicIdParam("viewId", "view", "View"),
     describeRoute({
       tags: ["Grids:View"],
       summary: "Update a view",
       responses: {
-        200: jsonResponse(ViewSchema, "Updated"),
+        200: jsonResponse(PublicViewSchema, "Updated"),
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -147,7 +144,7 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateViewSchema),
     async (c) => {
-      const viewId = c.req.param("viewId")!;
+      const viewId = internalIdParam(c, "viewId")!;
       const view = await gridsService.view.get(viewId);
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);
@@ -172,22 +169,21 @@ const app = new Hono<AuthContext>()
           : null;
       if (compiled && !compiled.ok) return c.json({ message: gqlDiagnosticMessage(compiled.diagnostics) }, 400);
 
-      return respond(c, () =>
-        gridsService.view.update(
-          viewId,
-          {
-            ...body,
-            ...(compiled?.ok ? { source: compiled.source } : {}),
-          },
-          currentActorUserId(c),
-        ),
+      const result = await gridsService.view.update(
+        viewId,
+        {
+          ...body,
+          ...(compiled?.ok ? { source: compiled.source } : {}),
+        },
+        currentActorUserId(c),
       );
+      return result.ok ? c.json(await toPublicView(result.data)) : c.json({ message: result.error.message }, result.error.status);
     },
   )
 
   .delete(
     "/:viewId",
-    requireUuidParam("viewId", "View"),
+    requirePublicIdParam("viewId", "view", "View"),
     describeRoute({
       tags: ["Grids:View"],
       summary: "Delete a view",
@@ -198,7 +194,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const viewId = c.req.param("viewId")!;
+      const viewId = internalIdParam(c, "viewId")!;
       const view = await gridsService.view.get(viewId);
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);
@@ -214,19 +210,19 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/:viewId/restore",
-    requireUuidParam("viewId", "View"),
+    requireStoredPublicIdParam("viewId", "view", "View"),
     describeRoute({
       tags: ["Grids:View"],
       summary: "Restore a soft-deleted view",
       responses: {
-        200: jsonResponse(ViewSchema, "Restored"),
+        200: jsonResponse(PublicViewSchema, "Restored"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
         409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
     async (c) => {
-      const viewId = c.req.param("viewId")!;
+      const viewId = internalIdParam(c, "viewId")!;
       const view = await gridsService.view.get(viewId, { includeDeleted: true });
       if (!view) return c.json({ message: "View not found" }, 404);
       const table = await gridsService.table.get(view.tableId);
@@ -234,7 +230,8 @@ const app = new Hono<AuthContext>()
       if (!(await canAdministerViewForRequest(c, view, table.baseId))) {
         return c.json({ message: "Only view admins can restore this view" }, 403);
       }
-      return respond(c, () => gridsService.view.restore(viewId, currentActorUserId(c)));
+      const result = await gridsService.view.restore(viewId, currentActorUserId(c));
+      return result.ok ? c.json(await toPublicView(result.data)) : c.json({ message: result.error.message }, result.error.status);
     },
   );
 

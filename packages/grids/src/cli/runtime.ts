@@ -69,13 +69,23 @@ export const printJsonOrMessage = (ctx: CloudCliContext, value: unknown, message
   else ctx.print(message);
 };
 
+export const printCliStructured = (ctx: CloudCliContext, value: unknown): boolean => {
+  if (ctx.options.output === "json") {
+    ctx.json(value);
+    return true;
+  }
+  if (ctx.options.output === "jsonl") {
+    ctx.jsonLine(value);
+    return true;
+  }
+  return false;
+};
+
 export const printReference = (ctx: CloudCliContext, value: unknown, text: string) => {
   if (ctx.options.output === "json") ctx.json(value);
   else if (ctx.options.output === "jsonl") ctx.jsonLine(value);
   else ctx.print(text);
 };
-
-export const compactId = (value: string | null | undefined): string => (value ? value.slice(0, 8) : "-");
 
 export const requireRestArg = (args: string[], index: number, label: string): string => {
   const value = args[index];
@@ -117,10 +127,6 @@ export const exactMatch = <T>(
   const exact = items.filter((item) => fields.some((field) => field(item) === ref));
   if (exact.length === 1) return exact[0]!;
   if (exact.length > 1) throw new Error(`Ambiguous ${label} "${ref}". Use one of: ${exact.map(format).join(", ")}`);
-
-  const folded = items.filter((item) => fields.some((field) => (field(item) ?? "").toLowerCase() === ref.toLowerCase()));
-  if (folded.length === 1) return folded[0]!;
-  if (folded.length > 1) throw new Error(`Ambiguous ${label} "${ref}". Use one of: ${folded.map(format).join(", ")}`);
 
   const candidates = items
     .filter((item) => fields.some((field) => (field(item) ?? "").toLowerCase().includes(ref.toLowerCase())))

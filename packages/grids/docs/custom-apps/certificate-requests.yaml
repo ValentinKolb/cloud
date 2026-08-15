@@ -1,7 +1,7 @@
-schemaVersion: 4
+schemaVersion: 5
 kind: grids.custom-app
-id: 10000000-0000-4000-8000-000000000101
-baseId: 10000000-0000-4000-8000-000000000001
+id: c00101
+baseId: c00001
 name: Certificate requests
 icon: certificate
 startPageId: apply
@@ -24,7 +24,7 @@ pages:
                   Describe the voluntary work the certificate should cover.
               - id: request-form
                 type: form
-                formId: 10000000-0000-4000-8000-000000000501
+                formId: c00501
                 fixedValues: {}
                 onSuccessNavigate:
                   kind: navigate
@@ -51,13 +51,13 @@ pages:
                 emptyText: You have not submitted a certificate request yet.
                 source:
                   kind: view
-                  viewId: 10000000-0000-4000-8000-000000000401
+                  viewId: c00401
                 display:
                   kind: table
                   columnIds:
-                    - 10000000-0000-4000-8000-000000000301
-                    - 10000000-0000-4000-8000-000000000302
-                    - 10000000-0000-4000-8000-000000000304
+                    - c00301
+                    - c00302
+                    - c00304
                 rowNavigate:
                   kind: navigate
                   pageId: request
@@ -72,10 +72,10 @@ pages:
     parameters:
       request_id:
         type: record
-        tableId: 10000000-0000-4000-8000-000000000201
+        tableId: c00201
         required: true
     record:
-      tableId: 10000000-0000-4000-8000-000000000201
+      tableId: c00201
       id: { source: PARAMS, path: request_id }
     rows:
       - id: detail
@@ -86,14 +86,14 @@ pages:
               - id: request
                 type: record
                 fieldIds:
-                  - 10000000-0000-4000-8000-000000000301
-                  - 10000000-0000-4000-8000-000000000302
-                  - 10000000-0000-4000-8000-000000000303
-                  - 10000000-0000-4000-8000-000000000304
+                  - c00301
+                  - c00302
+                  - c00303
+                  - c00304
                 editableFieldIds: []
                 documents:
                   templateIds:
-                    - 10000000-0000-4000-8000-000000000601
+                    - c00601
           - id: discussion
             span: 4
             blocks:

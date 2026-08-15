@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { DocumentRunFolder, DocumentRunSummary } from "../../../contracts";
 import {
   activeDocumentViewMode,
   appendDocumentBrowserPage,
@@ -10,10 +9,10 @@ import {
   replaceDocumentBrowserPage,
   serializeDocumentBrowserKey,
 } from "./document-browser-model";
+import type { PublicDocumentRunFolder, PublicDocumentRunSummary } from "./public-document-types";
 
-const run = (id: string): DocumentRunSummary => ({
+const run = (id: string): PublicDocumentRunSummary => ({
   id,
-  shortId: id,
   baseId: "base",
   tableId: "table",
   recordId: "record",
@@ -26,7 +25,7 @@ const run = (id: string): DocumentRunSummary => ({
   generatedBy: null,
   generatedAt: "2026-01-01T00:00:00.000Z",
 });
-const folder = (label: string, count: number): DocumentRunFolder => ({ kind: "year", key: label, label, count, path: [label] });
+const folder = (label: string, count: number): PublicDocumentRunFolder => ({ kind: "year", key: label, label, count, path: [label] });
 
 describe("document browser model", () => {
   test("search always uses list mode and removes folder scope", () => {

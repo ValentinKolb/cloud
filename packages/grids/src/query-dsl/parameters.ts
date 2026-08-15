@@ -12,7 +12,6 @@ export type DslQueryContextKey =
   | "page.title"
   | "page.url"
   | "app.id"
-  | "app.shortId"
   | "app.name"
   | "base.id"
   | "base.name"
@@ -30,7 +29,6 @@ export type DslQueryContextValues = {
   "page.title": string;
   "page.url": string;
   "app.id": string;
-  "app.shortId": string;
   "app.name": string;
   "base.id": string;
   "base.name": string;
@@ -53,7 +51,6 @@ const FIXED_CONTEXT_KEYS = new Set<DslQueryContextKey>([
   "page.title",
   "page.url",
   "app.id",
-  "app.shortId",
   "app.name",
   "base.id",
   "base.name",

@@ -1,5 +1,5 @@
-import { isUniqueViolation, logger, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { isUniqueViolation, logger, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { isKnownFieldType } from "../field-types";
 import { normalizeRefKey } from "../ref-syntax";
@@ -734,6 +734,6 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
   return ok();
 };
 
-export { get, getByShortId, listByTable, listByTables, listTrashedByBase } from "./field-read";
+export { get, getByShortId, getByShortIdForTable, listByTable, listByTables, listTrashedByBase } from "./field-read";
 
 export { materializeFieldDefault, validateDefaultValue };

@@ -920,7 +920,7 @@ export const inventoryTemplate: GridTemplate = {
     {
       key: "equipment_loans",
       definition: {
-        schemaVersion: 4,
+        schemaVersion: 5,
         kind: "grids.custom-app",
         name: "Equipment Loans",
         icon: "package",
@@ -1175,7 +1175,7 @@ export const inventoryTemplate: GridTemplate = {
     {
       key: "loan_desk",
       definition: {
-        schemaVersion: 4,
+        schemaVersion: 5,
         kind: "grids.custom-app",
         name: "Loan Desk",
         icon: "clipboard-check",

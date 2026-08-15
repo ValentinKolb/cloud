@@ -1,6 +1,6 @@
 import { Button, CheckboxCard, ColorInput, IconButton, NumberInput, Select, TextInput } from "@k2b/ui";
 import { For, Index, Show } from "solid-js";
-import type { Field } from "../../../service";
+import type { PublicField as Field } from "../../../api/public-dto";
 import { FormulaExpressionEditor } from "./FormulaExpressionEditor";
 
 // =============================================================================
@@ -128,8 +128,8 @@ type EditorProps = {
   /** ID of the table this field lives on. Needed by lookup/rollup so
    *  the relation-field picker can list THIS table's relation fields. */
   currentTableId: string;
-  baseShortId?: string;
-  tableShortId?: string;
+  baseId?: string;
+  tableId?: string;
   config: () => FieldConfigState;
   onChange: (next: FieldConfigState) => void;
   /** Tables in the same base — used by relation targetTableId, including the current table for self-relations. */
@@ -221,8 +221,8 @@ export function FieldConfigEditor(props: EditorProps) {
           fields={props.fieldsByTable[props.currentTableId] ?? []}
           currentFieldId={props.currentFieldId}
           currentTableId={props.currentTableId}
-          baseShortId={props.baseShortId}
-          tableShortId={props.tableShortId}
+          baseId={props.baseId}
+          tableId={props.tableId}
         />
       </Show>
       <Show when={props.type === "file"}>
@@ -977,8 +977,8 @@ function FormulaConstraints(props: {
   fields: Field[];
   currentTableId: string;
   currentFieldId?: string;
-  baseShortId?: string;
-  tableShortId?: string;
+  baseId?: string;
+  tableId?: string;
 }) {
   const cfg = () => props.config();
   const expr = () => (typeof cfg().expression === "string" ? (cfg().expression as string) : "");
@@ -989,8 +989,8 @@ function FormulaConstraints(props: {
       fields={props.fields}
       currentTableId={props.currentTableId}
       currentFieldId={props.currentFieldId}
-      baseShortId={props.baseShortId}
-      tableShortId={props.tableShortId}
+      baseId={props.baseId}
+      tableId={props.tableId}
     />
   );
 }

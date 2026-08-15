@@ -1,7 +1,7 @@
-import { NoticeCard, dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput, Button } from "@k2b/ui";
+import { Button, dialogCore, NoticeCard, PanelDialog, panelDialogOptions, prompts, TextInput } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
+import type { PublicField as Field } from "../../../api/public-dto";
 import type { ColumnSpec } from "../../../contracts";
-import type { Field } from "../../../service";
 import { FormulaExpressionEditor } from "../fields/FormulaExpressionEditor";
 
 type ComputedColumn = Extract<ColumnSpec, { kind: "computed" }>;
@@ -19,8 +19,8 @@ const randomComputedColumnId = (): string => {
 export const openComputedColumnDialog = (args: {
   fields: Field[];
   currentTableId: string;
-  baseShortId: string;
-  tableShortId: string;
+  baseId: string;
+  tableId: string;
   column?: ComputedColumn;
 }) =>
   dialogCore.open<ComputedColumnDialogResult | null>((close) => {
@@ -73,8 +73,8 @@ export const openComputedColumnDialog = (args: {
             onInput={setExpression}
             fields={args.fields}
             currentTableId={args.currentTableId}
-            baseShortId={args.baseShortId}
-            tableShortId={args.tableShortId}
+            baseId={args.baseId}
+            tableId={args.tableId}
             ariaLabel="Computed column expression"
           />
         </PanelDialog.Body>

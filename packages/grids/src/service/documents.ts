@@ -8,6 +8,7 @@ export {
 export {
   createDocumentLink,
   getDocumentLink,
+  getDocumentLinkByShortId,
   listDocumentLinksForRun,
   publicDocumentLinkBaseUrl,
   publicDocumentLinkBaseUrlForAppUrl,
@@ -48,6 +49,7 @@ export {
   createRenderedDocumentRun,
   createRunForRecord,
   getDocumentRun,
+  getDocumentRunByShortId,
   renderWorkflowRunPdf,
   updateRunMetadata,
 } from "./document-runs";
@@ -56,13 +58,14 @@ export {
   createRecordSnapshotDraft,
   filterSnapshotRelatedRecords,
   getSnapshot,
+  getSnapshotByShortId,
   listSnapshotsForRecord,
 } from "./document-snapshots";
 export {
   createTemplate,
   getTemplate,
-  getTemplateByIdOrShortId,
   getTemplateByShortId,
+  getTemplateByShortIdForTable,
   listTemplatesForTable,
   removeTemplate,
   reorderTemplates,

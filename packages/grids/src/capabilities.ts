@@ -53,6 +53,7 @@ import {
 import type { DslQueryPreviewResponse } from "./contracts";
 import { isRecordWritableFieldType } from "./field-types";
 import { gridsService } from "./service";
+import { projectPublicIds, resolvePublicIds } from "./service/public-resources";
 import { ALL_RECORD_ACCESS } from "./service/record-access";
 import type { Base, Field, GridRecord, Table } from "./service/types";
 
@@ -91,8 +92,7 @@ const decodeCursor = (cursor: string | undefined) => {
 };
 
 const mapBase = (base: Base) => ({
-  id: base.id,
-  shortId: base.shortId,
+  id: base.shortId,
   name: base.name,
   description: base.description,
   createdAt: base.createdAt,
@@ -103,8 +103,8 @@ const baseHref = (base: Pick<Base, "shortId">) => `/app/grids/${base.shortId}`;
 const tableHref = (base: Pick<Base, "shortId">, table: Pick<Table, "shortId">) => `${baseHref(base)}/table/${table.shortId}`;
 const viewHref = (base: Pick<Base, "shortId">, table: Pick<Table, "shortId">, viewShortId: string) =>
   `${tableHref(base, table)}/view/${viewShortId}`;
-const recordHref = (base: Pick<Base, "shortId">, table: Pick<Table, "shortId">, recordId: string) =>
-  `${tableHref(base, table)}?record=${encodeURIComponent(recordId)}`;
+const recordHref = (base: Pick<Base, "shortId">, table: Pick<Table, "shortId">, recordShortId: string) =>
+  `${tableHref(base, table)}?record=${encodeURIComponent(recordShortId)}`;
 
 const visibleBaseParams = (access: GridsAccessContext) => {
   const viewer = actorViewerFor(access);
@@ -125,7 +125,7 @@ const runBaseSearch = async (input: UniversalSearchInput, context: CapabilityExe
     offset: 0,
   });
   const data: CloudResourceView[] = result.items.map((base) => ({
-    ref: { type: "grids.base", id: base.id },
+    ref: { type: "grids.base", id: base.shortId },
     title: base.name,
     preview: base.description ?? undefined,
     icon: "ti ti-table",
@@ -164,22 +164,23 @@ const runBaseList = async (input: z.infer<typeof BaseListInputSchema>, context: 
   });
 };
 
-const requireBase = async (baseId: string, access: GridsAccessContext) => {
-  const gate = await gateBaseAtAccess(access, baseId, "read");
+const requireBase = async (baseShortId: string, access: GridsAccessContext) => {
+  const base = await gridsService.base.getByShortId(baseShortId);
+  if (!base) return fail(err.notFound("Base"));
+  const gate = await gateBaseAtAccess(access, base.id, "read");
   if (!gate.ok) return gate;
-  const base = await gridsService.base.get(baseId);
-  return base ? ok(base) : fail(err.notFound("Base"));
+  return ok(base);
 };
 
-const requireTable = async (tableId: string, access: GridsAccessContext, required: "read" | "write") => {
-  const table = await gridsService.table.get(tableId);
+const requireTable = async (tableShortId: string, access: GridsAccessContext, required: "read" | "write") => {
+  const table = await gridsService.table.getByShortId(tableShortId);
   if (!table) return fail(err.notFound("Table"));
   const gate = await gateBaseAtAccess(access, table.baseId, required);
   return gate.ok ? ok(table) : gate;
 };
 
-const requireTableRecordAccess = async (tableId: string, access: GridsAccessContext, required: "read" | "write") => {
-  const table = await gridsService.table.get(tableId);
+const requireTableRecordAccess = async (tableShortId: string, access: GridsAccessContext, required: "read" | "write") => {
+  const table = await gridsService.table.getByShortId(tableShortId);
   if (!table) return fail(err.notFound("Table"));
   const authorization = await gateBaseAtAccess(access, table.baseId, required);
   return authorization.ok ? ok({ table, recordAccess: ALL_RECORD_ACCESS }) : authorization;
@@ -190,27 +191,28 @@ const runBaseRead = async (input: z.infer<typeof BaseReadInputSchema>, context: 
   if (!result.ok) return result;
   return ok({
     data: mapBase(result.data),
-    refs: [{ type: "grids.base", id: result.data.id }],
+    refs: [{ type: "grids.base", id: result.data.shortId }],
     links: [{ rel: "open" as const, href: baseHref(result.data) }],
   });
 };
 
 const runTableRead = async (input: z.infer<typeof TableReadInputSchema>, context: CapabilityExecutionContext) => {
-  const table = await gridsService.table.get(input.id);
+  const table = await gridsService.table.getByShortId(input.id);
   if (!table) return fail(err.notFound("Table"));
   const permission = await gateBaseAtAccess(accessContext(context), table.baseId, "read");
   if (!permission.ok) return permission;
   if (permission.data === "none") return fail(err.forbidden("You do not have permission to access this resource."));
   const base = await gridsService.base.get(table.baseId);
+  if (!base) return fail(err.notFound("Table"));
   return ok({
-    data: tableContextItem(table, permission.data),
-    refs: [{ type: "grids.table", id: table.id }],
-    ...(base ? { links: [{ rel: "open" as const, href: tableHref(base, table) }] } : {}),
+    data: tableContextItem(table, base, permission.data),
+    refs: [{ type: "grids.table", id: table.shortId }],
+    links: [{ rel: "open" as const, href: tableHref(base, table) }],
   });
 };
 
 const runViewRead = async (input: z.infer<typeof ViewReadInputSchema>, context: CapabilityExecutionContext) => {
-  const view = await gridsService.view.get(input.id);
+  const view = await gridsService.view.getByShortId(input.id);
   if (!view) return fail(err.notFound("View"));
   const table = await gridsService.table.get(view.tableId);
   if (!table) return fail(err.notFound("View"));
@@ -220,14 +222,13 @@ const runViewRead = async (input: z.infer<typeof ViewReadInputSchema>, context: 
   return ok({
     data: {
       kind: "view" as const,
-      id: view.id,
-      shortId: view.shortId,
-      tableId: view.tableId,
+      id: view.shortId,
+      tableId: table.shortId,
       name: view.name,
       description: view.description,
       icon: view.icon ?? null,
     },
-    refs: [{ type: "grids.view", id: view.id }],
+    refs: [{ type: "grids.view", id: view.shortId }],
     ...(base ? { links: [{ rel: "open" as const, href: viewHref(base, table, view.shortId) }] } : {}),
   });
 };
@@ -267,7 +268,7 @@ const fieldValueHint = (field: Field): string | null => {
     case "json":
       return "Any JSON value; use null to clear an optional field.";
     case "relation":
-      return config.cardinality === "single" ? "One target record UUID or null." : "Array of target record UUIDs or null.";
+      return config.cardinality === "single" ? "One target Record public ID or null." : "Array of target Record public IDs or null.";
     default:
       return null;
   }
@@ -276,11 +277,10 @@ const fieldValueHint = (field: Field): string | null => {
 type GqlContextItem = z.infer<typeof GqlContextItemSchema>;
 type TableContextItem = Extract<GqlContextItem, { kind: "table" }>;
 
-const tableContextItem = (table: Table, permission: "read" | "write" | "admin"): TableContextItem => ({
+const tableContextItem = (table: Table, base: Base, permission: "read" | "write" | "admin"): TableContextItem => ({
   kind: "table",
-  id: table.id,
-  shortId: table.shortId,
-  baseId: table.baseId,
+  id: table.shortId,
+  baseId: base.shortId,
   tableKind: table.kind,
   name: table.name,
   description: table.description,
@@ -290,15 +290,19 @@ const tableContextItem = (table: Table, permission: "read" | "write" | "admin"):
   canUpdateRecords: table.kind === "stored" && permission !== "read",
 });
 
-const fieldContextItem = (field: Field, readableTableIds: ReadonlySet<string>, canUpdateRecords: boolean): GqlContextItem => {
+const fieldContextItem = (
+  field: Field,
+  table: Table,
+  readableTablesById: ReadonlyMap<string, Table>,
+  canUpdateRecords: boolean,
+): GqlContextItem => {
   const configuredTarget = (field.config as { targetTableId?: unknown }).targetTableId;
-  const targetTableId = typeof configuredTarget === "string" && readableTableIds.has(configuredTarget) ? configuredTarget : null;
+  const targetTableId = typeof configuredTarget === "string" ? (readableTablesById.get(configuredTarget)?.shortId ?? null) : null;
   const configuredCardinality = (field.config as { cardinality?: unknown }).cardinality;
   return {
     kind: "field",
-    id: field.id,
-    shortId: field.shortId,
-    tableId: field.tableId,
+    id: field.shortId,
+    tableId: table.shortId,
     name: field.name,
     description: field.description,
     type: field.type,
@@ -316,17 +320,20 @@ const fieldContextItem = (field: Field, readableTableIds: ReadonlySet<string>, c
   };
 };
 
-const recordWriteContext = (table: Table, permission: "read" | "write" | "admin") => {
+const recordWriteContext = (table: Table, fieldsById: ReadonlyMap<string, Field>, permission: "read" | "write" | "admin") => {
   const canUpdateRecords = table.kind === "stored" && permission !== "read";
   const updateAudit = canUpdateRecords && table.auditPolicy.update?.enabled ? table.auditPolicy.update : null;
   return {
-    tableId: table.id,
+    tableId: table.shortId,
     canCreateRecords: canUpdateRecords && !table.disableDirectInsert,
     canUpdateRecords,
     updateAudit: updateAudit
       ? {
           scope: updateAudit.scope,
-          fieldIds: updateAudit.fieldIds,
+          fieldIds: updateAudit.fieldIds.flatMap((fieldId) => {
+            const field = fieldsById.get(fieldId);
+            return field ? [field.shortId] : [];
+          }),
           questions: auditQuestions(table),
         }
       : null,
@@ -357,8 +364,8 @@ const runGqlContext = async (input: z.infer<typeof GqlContextInputSchema>, conte
   let recordWrite: ReturnType<typeof recordWriteContext> | null = null;
   if (input.kind === "tables") {
     const [resolver, tables] = await Promise.all([
-      buildPermissionedGqlResolverContextForAccess(access, input.baseId, undefined, undefined, emptyDslAst()),
-      gridsService.table.listByBase(input.baseId),
+      buildPermissionedGqlResolverContextForAccess(access, baseResult.data.id, undefined, undefined, emptyDslAst()),
+      gridsService.table.listByBase(baseResult.data.id),
     ]);
     const tablesById = new Map(tables.map((table) => [table.id, table]));
     const tableItems: TableContextItem[] = resolver.tables.flatMap((source) => {
@@ -367,7 +374,7 @@ const runGqlContext = async (input: z.infer<typeof GqlContextInputSchema>, conte
       return table && permission && permission !== "none"
         ? [
             {
-              ...tableContextItem(table, permission),
+              ...tableContextItem(table, baseResult.data, permission),
               links: [{ rel: "open" as const, href: tableHref(baseResult.data, table) }],
             },
           ]
@@ -379,53 +386,62 @@ const runGqlContext = async (input: z.infer<typeof GqlContextInputSchema>, conte
     if (!input.tableId) return fail(err.badInput(`tableId is required when kind is ${input.kind}`));
     if (input.kind === "options" && !input.fieldId) return fail(err.badInput("fieldId is required when kind is options"));
     const tableResult = await requireTable(input.tableId, access, "read");
-    if (!tableResult.ok || tableResult.data.baseId !== input.baseId) return fail(err.notFound("Table"));
+    if (!tableResult.ok || tableResult.data.baseId !== baseResult.data.id) return fail(err.notFound("Table"));
+    const fieldResult = input.fieldId ? await gridsService.field.getByShortId(input.fieldId) : null;
+    if (input.fieldId && (!fieldResult || fieldResult.tableId !== tableResult.data.id)) return fail(err.notFound("Select field"));
     const resolver = await buildPermissionedGqlResolverContextForAccess(
       access,
-      input.baseId,
-      input.tableId,
-      { kind: "table", tableId: input.tableId },
+      baseResult.data.id,
+      tableResult.data.id,
+      { kind: "table", tableId: tableResult.data.id },
       emptyDslAst(),
     );
-    const table = resolver.tables.find((candidate) => candidate.id === input.tableId);
+    const table = resolver.tables.find((candidate) => candidate.id === tableResult.data.id);
     if (!table) return fail(err.notFound("Table"));
-    const permission = resolver.tablePermissionsById[input.tableId];
+    const permission = resolver.tablePermissionsById[tableResult.data.id];
     if (!permission || permission === "none") return fail(err.notFound("Table"));
     const readableTableIds = new Set(resolver.tables.map((candidate) => candidate.id));
-    const fields = (resolver.fieldsByTableId[input.tableId] ?? []).filter((field) => !field.deletedAt);
+    const readableTablesById = new Map(
+      (await gridsService.table.listByBase(baseResult.data.id))
+        .filter((candidate) => readableTableIds.has(candidate.id))
+        .map((candidate) => [candidate.id, candidate]),
+    );
+    const fields = (resolver.fieldsByTableId[tableResult.data.id] ?? []).filter((field) => !field.deletedAt);
+    const fieldsById = new Map(fields.map((field) => [field.id, field]));
     if (input.kind === "fields") {
-      const writeContext = recordWriteContext(tableResult.data, permission);
+      const writeContext = recordWriteContext(tableResult.data, fieldsById, permission);
       recordWrite = writeContext;
       items = fields
         .sort((left, right) => left.position - right.position || left.id.localeCompare(right.id))
-        .map((field) => fieldContextItem(field, readableTableIds, writeContext.canUpdateRecords));
+        .map((field) => fieldContextItem(field, tableResult.data, readableTablesById, writeContext.canUpdateRecords));
     } else {
-      const field = fields.find((candidate) => candidate.id === input.fieldId);
+      const field = fields.find((candidate) => candidate.id === fieldResult?.id);
       if (!field || field.type !== "select") return fail(err.notFound("Select field"));
-      items = selectOptions(field).map((option) => ({ kind: "option" as const, fieldId: field.id, ...option }));
+      items = selectOptions(field).map((option) => ({ kind: "option" as const, fieldId: field.shortId, ...option }));
     }
   } else {
+    let selectedTableId: string | undefined;
     if (input.tableId) {
       const table = await requireTable(input.tableId, access, "read");
-      if (!table.ok || table.data.baseId !== input.baseId) return fail(err.notFound("Table"));
+      if (!table.ok || table.data.baseId !== baseResult.data.id) return fail(err.notFound("Table"));
+      selectedTableId = table.data.id;
     }
-    const resolver = await buildPermissionedGqlResolverContextForAccess(access, input.baseId, undefined, undefined, emptyDslAst());
+    const resolver = await buildPermissionedGqlResolverContextForAccess(access, baseResult.data.id, undefined, undefined, emptyDslAst());
     const views = await gridsService.view.listForTables({
       tableIds: resolver.tables.map((table) => table.id),
       ...actorViewerFor(access),
     });
     const tablesById = new Map(resolver.tables.map((table) => [table.id, table]));
     items = views
-      .filter((view) => !input.tableId || view.tableId === input.tableId)
+      .filter((view) => !selectedTableId || view.tableId === selectedTableId)
       .flatMap((view) => {
         const table = tablesById.get(view.tableId);
         return table
           ? [
               {
                 kind: "view" as const,
-                id: view.id,
-                shortId: view.shortId,
-                tableId: view.tableId,
+                id: view.shortId,
+                tableId: table.shortId,
                 name: view.name,
                 description: view.description,
                 icon: view.icon ?? null,
@@ -443,7 +459,7 @@ const runGqlContext = async (input: z.infer<typeof GqlContextInputSchema>, conte
   );
   return ok({
     data: { base: mapBase(baseResult.data), kind: input.kind, items: page.data, recordWrite },
-    refs: [{ type: "grids.base", id: baseResult.data.id }, ...refs],
+    refs: [{ type: "grids.base", id: baseResult.data.shortId }, ...refs],
     links: [{ rel: "open" as const, href: baseHref(baseResult.data) }],
     page: page.page,
   });
@@ -456,28 +472,98 @@ const gqlCapabilityResult = async (response: DslQueryPreviewResponse, base: Base
       ? fail(err.badInput(tooLarge.message))
       : ok({
           data: response,
-          refs: [{ type: "grids.base" as const, id: base.id }],
+          refs: [{ type: "grids.base" as const, id: base.shortId }],
           links: [{ rel: "open" as const, href: baseHref(base) }],
         });
   }
-  const tableIds = [...new Set(response.rows.flatMap((row) => (row.recordId && row.tableId ? [row.tableId] : [])))];
+  const tableIds = [...new Set(response.rows.flatMap((row) => (row.tableId ? [row.tableId] : [])))];
   const tables = tableIds.length > 0 ? await gridsService.table.listByBase(base.id) : [];
   const wantedTableIds = new Set(tableIds);
   const tablesById = new Map(tables.filter((table) => wantedTableIds.has(table.id)).map((table) => [table.id, table]));
+  const columnTableIds = response.columns.flatMap((column) => (column.tableId ? [column.tableId] : []));
+  const columnFieldIds = response.columns.flatMap((column) => (column.fieldId ? [column.fieldId] : []));
+  const rowRecordIds = response.rows.flatMap((row) => (row.recordId ? [row.recordId] : []));
+  const relationRecordIds = response.rows.flatMap((row) =>
+    response.columns.flatMap((column) => {
+      if (column.type !== "relation") return [];
+      const value = row.values[column.key];
+      return Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === "string")
+        : typeof value === "string"
+          ? [value]
+          : [];
+    }),
+  );
+  const [publicTableIds, publicFieldIds, publicRecordIds] = await Promise.all([
+    projectPublicIds("table", [...tableIds, ...columnTableIds]),
+    projectPublicIds("field", columnFieldIds),
+    projectPublicIds("record", [...rowRecordIds, ...relationRecordIds]),
+  ]);
+  const publicColumns = response.columns.map((column) => {
+    const internalFieldId = column.fieldId;
+    const fieldId = internalFieldId ? publicFieldIds.get(internalFieldId) : undefined;
+    const tableId = column.tableId ? publicTableIds.get(column.tableId) : undefined;
+    let key = column.key;
+    if (internalFieldId && fieldId) {
+      if (column.key === internalFieldId) key = fieldId;
+      else if (column.key.startsWith(`${internalFieldId}__`)) key = `${fieldId}${column.key.slice(internalFieldId.length)}`;
+    }
+    return {
+      ...column,
+      key,
+      ...(column.tableId ? { tableId } : {}),
+      ...(column.fieldId ? { fieldId } : {}),
+    };
+  });
+  if (
+    publicColumns.some(
+      (column, index) => (response.columns[index]?.tableId && !column.tableId) || (response.columns[index]?.fieldId && !column.fieldId),
+    ) ||
+    response.rows.some((row) => Boolean(row.tableId) && !publicTableIds.has(row.tableId!)) ||
+    rowRecordIds.some((recordId) => !publicRecordIds.has(recordId)) ||
+    relationRecordIds.some((recordId) => !publicRecordIds.has(recordId))
+  ) {
+    return fail(err.internal("Grids could not project a public resource ID."));
+  }
   const { page, ...resultData } = response;
   const data = {
     ...resultData,
+    columns: publicColumns,
     rows: response.rows.map((row) => {
       const table = row.tableId ? tablesById.get(row.tableId) : undefined;
-      return row.recordId && table ? { ...row, links: [{ rel: "open" as const, href: recordHref(base, table, row.recordId) }] } : row;
+      const publicRecordId = row.recordId ? publicRecordIds.get(row.recordId) : undefined;
+      const publicTableId = row.tableId ? publicTableIds.get(row.tableId) : undefined;
+      const values = Object.fromEntries(
+        response.columns.map((column, index) => {
+          const publicColumn = publicColumns[index]!;
+          const value = row.values[column.key];
+          const publicValue =
+            column.type === "relation"
+              ? Array.isArray(value)
+                ? value.map((item) => (typeof item === "string" ? (publicRecordIds.get(item) ?? item) : item))
+                : typeof value === "string"
+                  ? (publicRecordIds.get(value) ?? value)
+                  : value
+              : value;
+          return [publicColumn.key, publicValue];
+        }),
+      );
+      return {
+        ...row,
+        ...(row.recordId ? { recordId: publicRecordId } : {}),
+        ...(row.tableId ? { tableId: publicTableId } : {}),
+        values,
+        ...(publicRecordId && table ? { links: [{ rel: "open" as const, href: recordHref(base, table, publicRecordId) }] } : {}),
+      };
     }),
   };
-  const refs: CloudResourceRef[] = [{ type: "grids.base", id: base.id }];
+  const refs: CloudResourceRef[] = [{ type: "grids.base", id: base.shortId }];
   const seen = new Set<string>();
   for (const row of response.rows) {
     if (!row.recordId || seen.has(row.recordId)) continue;
     seen.add(row.recordId);
-    refs.push({ type: "grids.record", id: row.recordId });
+    const publicRecordId = publicRecordIds.get(row.recordId);
+    if (publicRecordId) refs.push({ type: "grids.record", id: publicRecordId });
   }
   const nextCursor = page?.nextCursor ?? undefined;
   return ok({
@@ -493,18 +579,40 @@ const gqlUnavailable = (error: unknown) =>
     ? { ok: false as const, error: { code: "QUERY_BUSY", message: "Grids is busy. Retry shortly.", status: 503 as const } }
     : Promise.reject(error);
 
+const resolveGqlCurrentSource = async (
+  baseId: string,
+  input: { currentTableId?: string; currentSource?: { kind: "table"; tableId: string } | { kind: "view"; viewId: string } },
+) => {
+  const currentTable = input.currentTableId ? await gridsService.table.getByShortId(input.currentTableId) : null;
+  if (input.currentTableId && (!currentTable || currentTable.baseId !== baseId)) return fail(err.notFound("Table"));
+
+  if (!input.currentSource) return ok({ currentTableId: currentTable?.id, currentSource: undefined });
+  if (input.currentSource.kind === "table") {
+    const table = await gridsService.table.getByShortId(input.currentSource.tableId);
+    if (!table || table.baseId !== baseId) return fail(err.notFound("Table"));
+    return ok({ currentTableId: currentTable?.id, currentSource: { kind: "table" as const, tableId: table.id } });
+  }
+  const view = await gridsService.view.getByShortId(input.currentSource.viewId);
+  if (!view) return fail(err.notFound("View"));
+  const table = await gridsService.table.get(view.tableId);
+  if (!table || table.baseId !== baseId) return fail(err.notFound("View"));
+  return ok({ currentTableId: currentTable?.id, currentSource: { kind: "view" as const, viewId: view.id } });
+};
+
 const runGqlPreview = async (input: z.infer<typeof GqlPreviewInputSchema>, context: CapabilityExecutionContext) => {
   const access = accessContext(context);
   const base = await requireBase(input.baseId, access);
   if (!base.ok) return base;
+  const current = await resolveGqlCurrentSource(base.data.id, input);
+  if (!current.ok) return current;
   try {
     const result = await executeGqlSourceForContext(
       await gqlRuntimeContext(context),
-      input.baseId,
+      base.data.id,
       {
         query: input.query,
-        currentTableId: input.currentTableId,
-        currentSource: input.currentSource,
+        currentTableId: current.data.currentTableId,
+        currentSource: current.data.currentSource,
         cursor: input.cursor,
         pageSize: input.pageSize,
       },
@@ -520,14 +628,16 @@ const runGqlExecute = async (input: z.infer<typeof GqlExecuteInputSchema>, conte
   const access = accessContext(context);
   const base = await requireBase(input.baseId, access);
   if (!base.ok) return base;
+  const current = await resolveGqlCurrentSource(base.data.id, input);
+  if (!current.ok) return current;
   try {
     const result = await executeGqlSourceForContext(
       await gqlRuntimeContext(context),
-      input.baseId,
+      base.data.id,
       {
         query: input.query,
-        currentTableId: input.currentTableId,
-        currentSource: input.currentSource,
+        currentTableId: current.data.currentTableId,
+        currentSource: current.data.currentSource,
         cursor: input.cursor,
         pageSize: input.pageSize,
         limit: input.limit,
@@ -543,8 +653,12 @@ const runGqlExecute = async (input: z.infer<typeof GqlExecuteInputSchema>, conte
 const runGqlViewExecute = async (input: z.infer<typeof GqlViewExecuteInputSchema>, context: CapabilityExecutionContext) => {
   const base = await requireBase(input.baseId, accessContext(context));
   if (!base.ok) return base;
+  const view = await gridsService.view.getByShortId(input.viewId);
+  if (!view) return fail(err.notFound("View"));
+  const table = await gridsService.table.get(view.tableId);
+  if (!table || table.baseId !== base.data.id) return fail(err.notFound("View"));
   try {
-    const response = await executeSavedViewSourceForContext(await gqlRuntimeContext(context), input.baseId, input.viewId, {
+    const response = await executeSavedViewSourceForContext(await gqlRuntimeContext(context), base.data.id, view.id, {
       maxRows: 1_000,
       maxResultBytes: GQL_CAPABILITY_RESULT_BUDGET_BYTES,
       pageSize: input.pageSize,
@@ -558,9 +672,9 @@ const runGqlViewExecute = async (input: z.infer<typeof GqlViewExecuteInputSchema
   }
 };
 
-const mapRecord = (record: GridRecord) => ({
-  id: record.id,
-  tableId: record.tableId,
+const mapRecord = (record: GridRecord, table: Table) => ({
+  id: record.shortId,
+  tableId: table.shortId,
   version: record.version,
   deletedAt: record.deletedAt,
   createdBy: record.createdBy,
@@ -585,33 +699,66 @@ const changedFieldsReview = (fieldIds: string[], fieldNames: ReadonlyMap<string,
 const recordResult = async (record: GridRecord, table: Table) => {
   const base = await gridsService.base.get(table.baseId);
   return ok({
-    data: mapRecord(record),
-    refs: [{ type: "grids.record", id: record.id }],
-    ...(base ? { links: [{ rel: "open" as const, href: recordHref(base, table, record.id) }] } : {}),
+    data: mapRecord(record, table),
+    refs: [{ type: "grids.record", id: record.shortId }],
+    ...(base ? { links: [{ rel: "open" as const, href: recordHref(base, table, record.shortId) }] } : {}),
   });
 };
 
 const runRecordRead = async (input: z.infer<typeof RecordReadInputSchema>, context: CapabilityExecutionContext) => {
   const access = accessContext(context);
-  const tableId = await gridsService.record.findTableId(input.id);
-  if (!tableId) return fail(err.notFound("Record"));
-  const table = await requireTableRecordAccess(tableId, access, "read");
-  if (!table.ok) return table;
+  const resolved = await gridsService.record.getByShortId(input.id);
+  if (!resolved) return fail(err.notFound("Record"));
+  const table = await gridsService.table.get(resolved.tableId);
+  if (!table) return fail(err.notFound("Record"));
+  const tableAccess = await requireTableRecordAccess(table.shortId, access, "read");
+  if (!tableAccess.ok) return tableAccess;
   const dateConfig = await capabilityDateConfig();
-  const record = await gridsService.record.get(tableId, input.id, {
+  const record = await gridsService.record.get(table.id, resolved.id, {
     dateConfig,
     viewer: actorViewerFor(access),
-    recordAccess: table.data.recordAccess,
+    recordAccess: tableAccess.data.recordAccess,
   });
-  return record ? recordResult(record, table.data.table) : fail(err.notFound("Record"));
+  return record ? recordResult(record, tableAccess.data.table) : fail(err.notFound("Record"));
+};
+
+const resolveRecordValues = async (tableId: string, values: Record<string, unknown>) => {
+  const fields = await gridsService.field.listByTable(tableId);
+  const fieldsByShortId = new Map(fields.filter((field) => !field.deletedAt).map((field) => [field.shortId, field]));
+  const entries: Array<{ field: Field; value: unknown }> = [];
+  const relationPublicIds: string[] = [];
+  for (const [fieldShortId, value] of Object.entries(values)) {
+    const field = fieldsByShortId.get(fieldShortId);
+    if (!field) return fail(err.badInput(`Unknown Field ID: ${fieldShortId}`));
+    entries.push({ field, value });
+    if (field.type !== "relation") continue;
+    if (Array.isArray(value)) relationPublicIds.push(...value.filter((item): item is string => typeof item === "string"));
+    else if (typeof value === "string") relationPublicIds.push(value);
+  }
+  const relationIds = await resolvePublicIds("record", relationPublicIds);
+  if (relationPublicIds.some((publicId) => !relationIds.has(publicId))) return fail(err.badInput("Unknown related Record ID."));
+  const resolved: Record<string, unknown> = {};
+  for (const { field, value } of entries) {
+    resolved[field.id] =
+      field.type === "relation"
+        ? Array.isArray(value)
+          ? value.map((item) => (typeof item === "string" ? (relationIds.get(item) ?? item) : item))
+          : typeof value === "string"
+            ? (relationIds.get(value) ?? value)
+            : value
+        : value;
+  }
+  return ok({ values: resolved, fields });
 };
 
 const runRecordCreate = async (input: z.infer<typeof RecordCreateInputSchema>, context: CapabilityExecutionContext) => {
   const access = accessContext(context);
   const table = await requireTableRecordAccess(input.tableId, access, "write");
   if (!table.ok) return table;
+  const values = await resolveRecordValues(table.data.table.id, input.values);
+  if (!values.ok) return values;
   const dateConfig = await capabilityDateConfig();
-  const result = await gridsService.record.create(input.tableId, input.values, accessActorUser(access)?.id ?? null, {
+  const result = await gridsService.record.create(table.data.table.id, values.data.values, accessActorUser(access)?.id ?? null, {
     dateConfig,
     viewer: actorViewerFor(access),
     recordAccess: table.data.recordAccess,
@@ -624,11 +771,15 @@ const runRecordUpdate = async (input: z.infer<typeof RecordUpdateInputSchema>, c
   const access = accessContext(context);
   const table = await requireTableRecordAccess(input.tableId, access, "write");
   if (!table.ok) return table;
+  const record = await gridsService.record.getByShortId(input.recordId);
+  if (!record || record.tableId !== table.data.table.id) return fail(err.notFound("Record"));
+  const values = await resolveRecordValues(table.data.table.id, input.values);
+  if (!values.ok) return values;
   const dateConfig = await capabilityDateConfig();
   const result = await gridsService.record.update(
-    input.tableId,
-    input.recordId,
-    input.values,
+    table.data.table.id,
+    record.id,
+    values.data.values,
     accessActorUser(access)?.id ?? null,
     input.ifVersion,
     { dateConfig, viewer: actorViewerFor(access), audit: input.audit, recordAccess: table.data.recordAccess },
@@ -746,7 +897,7 @@ export const gridsCapabilities = defineCapabilities({
     "record.create": {
       title: "Create Grids Record",
       description:
-        "Call gql.context kind fields first, then create once with values keyed by writable Field UUID. Select values use option IDs. Returns bounded metadata; read values with targeted GQL. This action is not idempotent.",
+        "Call gql.context kind fields first, then create once with values keyed by writable Field public ID. Select values use option IDs. Returns bounded metadata; read values with targeted GQL. This action is not idempotent.",
       input: RecordCreateInputSchema,
       data: RecordCapabilityDataSchema,
       destructive: false,
@@ -757,7 +908,7 @@ export const gridsCapabilities = defineCapabilities({
     "record.update": {
       title: "Update Grids Record",
       description:
-        "Load fields for value and audit requirements, then record.read for ifVersion. Only supplied Field UUIDs change; stale versions are rejected. Returns bounded metadata; read values with targeted GQL.",
+        "Load fields for value and audit requirements, then record.read for ifVersion. Only supplied Field public IDs change; stale versions are rejected. Returns bounded metadata; read values with targeted GQL.",
       input: RecordUpdateInputSchema,
       data: RecordCapabilityDataSchema,
       destructive: true,
@@ -769,30 +920,31 @@ export const gridsCapabilities = defineCapabilities({
         const access = accessContext(context);
         const table = await requireTableRecordAccess(input.tableId, access, "write");
         if (!table.ok) return table;
+        const resolvedRecord = await gridsService.record.getByShortId(input.recordId);
+        if (!resolvedRecord || resolvedRecord.tableId !== table.data.table.id) return fail(err.notFound("Record"));
+        const values = await resolveRecordValues(table.data.table.id, input.values);
+        if (!values.ok) return values;
         const dateConfig = await capabilityDateConfig();
-        const record = await gridsService.record.get(input.tableId, input.recordId, {
+        const record = await gridsService.record.get(table.data.table.id, resolvedRecord.id, {
           dateConfig,
           viewer: actorViewerFor(access),
           recordAccess: table.data.recordAccess,
         });
         if (!record) return fail(err.notFound("Record"));
-        const [base, fields] = await Promise.all([
-          gridsService.base.get(table.data.table.baseId),
-          gridsService.field.listByTable(input.tableId),
-        ]);
-        const fieldNames = new Map(fields.map((field) => [field.id, field.name]));
+        const base = await gridsService.base.get(table.data.table.baseId);
+        const fieldNames = new Map(values.data.fields.map((field) => [field.shortId, field.name]));
         return ok({
           message: `Update one record in ${table.data.table.name}.`,
           details: [
             { label: "Table", value: table.data.table.name },
-            { label: "Record", value: input.recordId },
+            { label: "Record", value: record.shortId },
             { label: "Current version", value: String(record.version) },
             {
               label: "Changed fields",
               value: changedFieldsReview(Object.keys(input.values), fieldNames),
             },
           ],
-          ...(base ? { links: [{ rel: "open" as const, href: recordHref(base, table.data.table, input.recordId) }] } : {}),
+          ...(base ? { links: [{ rel: "open" as const, href: recordHref(base, table.data.table, record.shortId) }] } : {}),
         });
       },
       run: runRecordUpdate,

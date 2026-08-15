@@ -1,7 +1,7 @@
-import { NoticeCard, MultiSelectInput, Select } from "@k2b/ui";
+import { MultiSelectInput, NoticeCard, Select } from "@k2b/ui";
 import { Show } from "solid-js";
+import type { PublicField as Field } from "../../../api/public-dto";
 import type { RecordDisplayConfig, RecordDisplayMode } from "../../../contracts";
-import type { Field } from "../../../service";
 import { fieldOption, fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";
 
 const MODE_OPTIONS = [

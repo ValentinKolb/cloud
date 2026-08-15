@@ -16,7 +16,8 @@ export const loadQueryState = async (
     return { kind: "accessDenied", title: "Access denied", message: "No access to this table" };
   }
   const queryViews = queryTable ? (common.catalog.viewsByTable[queryTable.id] ?? []) : [];
-  const candidateQueryView = queryTable && activeViewSlug ? await gridsService.view.getByIdOrShortId(queryTable.id, activeViewSlug) : null;
+  const candidateQueryView =
+    queryTable && activeViewSlug ? await gridsService.view.getByShortIdForTable(queryTable.id, activeViewSlug) : null;
   const queryView = candidateQueryView ? (queryViews.find((view) => view.id === candidateQueryView.id) ?? null) : null;
   if (activeViewSlug && !queryView) {
     return { kind: "accessDenied", title: "Access denied", message: "No access to this view" };

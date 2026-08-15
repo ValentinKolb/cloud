@@ -6,7 +6,7 @@ import type { DslQueryContextValues } from "../query-dsl/parameters";
 import type { CustomAppDefinition } from "./contracts";
 import { buildCustomAppQueryContext } from "./query-context";
 
-type RuntimeApp = { id: string; shortId: string; name: string };
+type RuntimeApp = { id: string; name: string };
 type RuntimeBase = { id: string; name: string };
 type RuntimePage = { id: string; title: string };
 
@@ -35,7 +35,7 @@ export const buildCustomAppGlobalRuntimeContext = (params: GlobalRuntimeContextP
   buildCustomAppRuntimeContext({
     ...params,
     page: { id: "global", title: params.app.name },
-    pageUrl: `/apps/${encodeURIComponent(params.app.shortId)}`,
+    pageUrl: `/apps/${encodeURIComponent(params.app.id)}`,
     pageParams: {},
   });
 

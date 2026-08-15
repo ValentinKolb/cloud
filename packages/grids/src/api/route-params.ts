@@ -1,19 +1,60 @@
-import type { AuthContext } from "@valentinkolb/cloud/server";
 import type { Context, MiddlewareHandler } from "hono";
-import { z } from "zod";
+import { ShortIdSchema } from "../contracts";
+import { type PublicResourceType, resolvePublicId, resolveStoredPublicId } from "../service/public-resources";
 
-const UuidStringSchema = z.string().uuid();
+const resolvedParams = new WeakMap<Request, Map<string, string>>();
 
-export const isUuid = (value: string): boolean => UuidStringSchema.safeParse(value).success;
-
-export const uuidParam = (context: Context<AuthContext>, name: string): string | null => {
-  const value = context.req.param(name);
-  return value && isUuid(value) ? value : null;
+export const publicIdParam = (context: Context, name: string): string | null => {
+  const parsed = ShortIdSchema.safeParse(context.req.param(name));
+  return parsed.success ? parsed.data : null;
 };
 
-export const requireUuidParam =
-  (name: string, resource: string): MiddlewareHandler<AuthContext> =>
+export const resolvePublicIdParam = async (context: Context, name: string, type: PublicResourceType): Promise<string | null> => {
+  const publicId = publicIdParam(context, name);
+  if (!publicId) return null;
+  const internalId = await resolvePublicId(type, publicId);
+  if (internalId) {
+    const params = resolvedParams.get(context.req.raw) ?? new Map<string, string>();
+    params.set(name, internalId);
+    resolvedParams.set(context.req.raw, params);
+  }
+  return internalId;
+};
+
+export const resolveStoredPublicIdParam = async (context: Context, name: string, type: PublicResourceType): Promise<string | null> => {
+  const publicId = publicIdParam(context, name);
+  if (!publicId) return null;
+  const internalId = await resolveStoredPublicId(type, publicId);
+  if (internalId) {
+    const params = resolvedParams.get(context.req.raw) ?? new Map<string, string>();
+    params.set(name, internalId);
+    resolvedParams.set(context.req.raw, params);
+  }
+  return internalId;
+};
+
+export const internalIdParam = (context: Context, name: string): string | null => resolvedParams.get(context.req.raw)?.get(name) ?? null;
+
+export const requirePublicIdParam =
+  (
+    name: string,
+    type: PublicResourceType,
+    resource: string,
+    resolve: (type: PublicResourceType, publicId: string) => Promise<string | null> = resolvePublicId,
+  ): MiddlewareHandler =>
   async (context, next) => {
-    if (!uuidParam(context, name)) return context.json({ message: `${resource} not found` }, 404);
+    const publicId = publicIdParam(context, name);
+    const internalId = publicId ? await resolve(type, publicId) : null;
+    if (!internalId) return context.json({ message: `${resource} not found` }, 404);
+    const params = resolvedParams.get(context.req.raw) ?? new Map<string, string>();
+    params.set(name, internalId);
+    resolvedParams.set(context.req.raw, params);
+    await next();
+  };
+
+export const requireStoredPublicIdParam =
+  (name: string, type: PublicResourceType, resource: string): MiddlewareHandler =>
+  async (context, next) => {
+    if (!(await resolveStoredPublicIdParam(context, name, type))) return context.json({ message: `${resource} not found` }, 404);
     await next();
   };

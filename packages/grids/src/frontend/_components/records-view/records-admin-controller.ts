@@ -2,8 +2,8 @@ import type { DateContext } from "@k2b/stdlib";
 import { prompts } from "@k2b/ui";
 import type { Accessor, Setter } from "solid-js";
 import { apiClient } from "../../../api/client";
+import type { PublicField as Field, PublicForm as Form, PublicView as View } from "../../../api/public-dto";
 import type { FieldColumnSpec, RecordDisplayConfig, TableAuditPolicy } from "../../../contracts";
-import type { Field, Form, View } from "../../../service";
 import {
   createFieldFromPrompt,
   deleteFieldWithChecks,
@@ -19,10 +19,8 @@ export const normalizeFieldOrder = (ordered: Field[]) => ordered.map((field, pos
 
 type RecordsAdminControllerOptions = {
   baseId: string;
-  baseShortId: string;
   tableId: string;
   tableKind: "stored" | "federated";
-  tableShortId: string;
   tableName: Accessor<string>;
   setTableName: Setter<string>;
   tableDescription: Accessor<string | null>;
@@ -59,11 +57,9 @@ export const createRecordsAdminController = (options: RecordsAdminControllerOpti
   };
 
   const tableHeader = () => ({
-    id: options.tableId,
     kind: options.tableKind,
     baseId: options.baseId,
-    baseShortId: options.baseShortId,
-    shortId: options.tableShortId,
+    id: options.tableId,
     name: options.tableName(),
     description: options.tableDescription(),
     icon: options.tableIcon(),
@@ -77,8 +73,8 @@ export const createRecordsAdminController = (options: RecordsAdminControllerOpti
     openFieldEditDialog({
       field,
       tableKind: options.tableKind,
-      baseShortId: options.baseShortId,
-      tableShortId: options.tableShortId,
+      baseId: options.baseId,
+      tableId: options.tableId,
       otherTables: options.otherTables,
       fieldsByTable: { ...options.fieldsByTable, [options.tableId]: options.fields() },
       tableColumns: options.tableColumns(),
@@ -156,9 +152,8 @@ export const createRecordsAdminController = (options: RecordsAdminControllerOpti
     if (!view || !options.canEditActiveView) return;
     openViewSettingsDialog({
       baseId: options.baseId,
-      baseShortId: options.baseShortId,
-      tableShortId: options.tableShortId,
-      viewShortId: view.shortId,
+      tableId: options.tableId,
+      viewId: view.id,
       tableName: options.tableName(),
       initialView: view,
       fields: options.fields(),

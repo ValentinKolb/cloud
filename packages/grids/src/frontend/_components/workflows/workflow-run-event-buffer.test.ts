@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { GridsWorkflowRunEvent } from "../../../lib/workflow-run-events";
 import { createWorkflowRunEventBuffer } from "./workflow-run-event-buffer";
+import type { PublicWorkflowRunEvent } from "./workflow-run-public-event";
 
-const event = (runId: string, status: "running" | "succeeded"): GridsWorkflowRunEvent => ({
+const event = (runId: string, status: "running" | "succeeded"): PublicWorkflowRunEvent => ({
   v: 1,
   baseId: "11111111-1111-4111-8111-111111111111",
   workflowId: "22222222-2222-4222-8222-222222222222",

@@ -40,6 +40,8 @@ const stageId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa7";
 const customerNameId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1";
 const customerScoreId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2";
 
+const publicFieldId = (id: string): string => [...orderFields, ...customerFields].find((candidate) => candidate.id === id)!.shortId;
+
 const orderFields: Field[] = [
   field({ id: amountId, tableId: orders.id, shortId: "amount", name: "Amount", type: "number", position: 0 }),
   field({ id: costId, tableId: orders.id, shortId: "cost", name: "Cost", type: "number", position: 1 }),
@@ -47,13 +49,13 @@ const orderFields: Field[] = [
   field({
     id: customerLinkId,
     tableId: orders.id,
-    shortId: "customer_link",
+    shortId: "CUST01",
     name: "Customer link",
     type: "relation",
     config: { targetTableId: customers.id },
     position: 3,
   }),
-  field({ id: orderedAtId, tableId: orders.id, shortId: "ordered_at", name: "Ordered at", type: "date", position: 4 }),
+  field({ id: orderedAtId, tableId: orders.id, shortId: "DATE01", name: "Ordered at", type: "date", position: 4 }),
   field({ id: notesId, tableId: orders.id, shortId: "notes", name: "Notes", type: "text", position: 5 }),
   field({
     id: stageId,
@@ -144,7 +146,9 @@ const canonical = (source: string, context = ctx()): string => {
 const canonicalUiQuery = (query: RecordQuery, tableId = orders.id): string => {
   const converted = simpleQueryToGqlSource({ tableId, query });
   if (!converted.ok) throw new Error(converted.reason);
-  return canonical(converted.source);
+  let publicSource = converted.source.replaceAll(tableId, ctx().tables.find((table) => table.id === tableId)!.shortId);
+  for (const field of [...orderFields, ...customerFields]) publicSource = publicSource.replaceAll(field.id, field.shortId);
+  return canonical(publicSource);
 };
 
 describe("canonicalizeDslQuery", () => {
@@ -156,9 +160,9 @@ describe("canonicalizeDslQuery", () => {
         sort line_margin desc nulls last
         limit 20
       `),
-    ).toBe(`from table {${orders.id}}
-select {${amountId}} as order_amount, formula({${amountId}} - {${costId}}) as line_margin
-where {${amountId}} > {${costId}} and {${paidId}}
+    ).toBe(`from table {${orders.shortId}}
+select {${publicFieldId(amountId)}} as order_amount, formula({${publicFieldId(amountId)}} - {${publicFieldId(costId)}}) as line_margin
+where {${publicFieldId(amountId)}} > {${publicFieldId(costId)}} and {${publicFieldId(paidId)}}
 sort line_margin desc nulls last
 limit 20`);
   });
@@ -167,16 +171,16 @@ limit 20`);
     expect(
       canonical(`
         from table Orders as o
-        join table Customers as customer on o.customer_link = customer.id
+        join table Customers as customer on o.CUST01 = customer.id
         select O.Amount as order_amount, Customer.Name as customer_name, formula(O.Amount + Customer.Score) as weighted_score
         where Customer.Score > 5 and O.Paid = true
         sort weighted_score desc nulls first
         offset 3
       `),
-    ).toBe(`from table {${orders.id}} as o
-join table {${customers.id}} as customer on {${customerLinkId}} = customer.id
-select o.{${amountId}} as order_amount, customer.{${customerNameId}} as customer_name, formula(o.{${amountId}} + customer.{${customerScoreId}}) as weighted_score
-where customer.{${customerScoreId}} > 5 and o.{${paidId}} = true
+    ).toBe(`from table {${orders.shortId}} as o
+join table {${customers.shortId}} as customer on {${publicFieldId(customerLinkId)}} = customer.id
+select o.{${publicFieldId(amountId)}} as order_amount, customer.{${publicFieldId(customerNameId)}} as customer_name, formula(o.{${publicFieldId(amountId)}} + customer.{${publicFieldId(customerScoreId)}}) as weighted_score
+where customer.{${publicFieldId(customerScoreId)}} > 5 and o.{${publicFieldId(paidId)}} = true
 sort weighted_score desc nulls first
 offset 3`);
   });
@@ -188,8 +192,8 @@ offset 3`);
         select Amount
         sort record.createdAt desc
       `),
-    ).toBe(`from table {${orders.id}}
-select {${amountId}}
+    ).toBe(`from table {${orders.shortId}}
+select {${publicFieldId(amountId)}}
 sort record.createdAt desc`);
   });
 
@@ -197,7 +201,7 @@ sort record.createdAt desc`);
     expect(
       canonical(`
         from table Customers as c
-        join table Orders as order on order.customer_link = c.id
+        join table Orders as order on order.CUST01 = c.id
         group by c.Name
         aggregate sum(order.Amount) as revenue, count(*) as rows, avg(formula(order.Amount + c.Score)) as weighted
         having revenue > 10 and rows >= 1
@@ -205,13 +209,13 @@ sort record.createdAt desc`);
         search 'Alice' in c.Name
         deleted only
       `),
-    ).toBe(`from table {${customers.id}} as c
-join table {${orders.id}} as order on order.{${customerLinkId}} = c.id
-group by c.{${customerNameId}}
-aggregate sum(order.{${amountId}}) as revenue, count(*) as rows, avg(formula(order.{${amountId}} + c.{${customerScoreId}})) as weighted
+    ).toBe(`from table {${customers.shortId}} as c
+join table {${orders.shortId}} as order on order.{${publicFieldId(customerLinkId)}} = c.id
+group by c.{${publicFieldId(customerNameId)}}
+aggregate sum(order.{${publicFieldId(amountId)}}) as revenue, count(*) as rows, avg(formula(order.{${publicFieldId(amountId)}} + c.{${publicFieldId(customerScoreId)}})) as weighted
 having revenue > 10 and rows >= 1
 sort revenue desc
-search 'Alice' in c.{${customerNameId}}
+search 'Alice' in c.{${publicFieldId(customerNameId)}}
 deleted only`);
   });
 
@@ -222,9 +226,9 @@ deleted only`);
         where Amount > 0
         aggregate count(*) as rows, sum(Amount) as revenue
       `),
-    ).toBe(`from view {${topOrdersView.id}}
-where {${amountId}} > 0
-aggregate count(*) as rows, sum({${amountId}}) as revenue`);
+    ).toBe(`from view {${topOrdersView.shortId}}
+where {${publicFieldId(amountId)}} > 0
+aggregate count(*) as rows, sum({${publicFieldId(amountId)}}) as revenue`);
   });
 
   test("emits stable output refs for grouped derived view sources", () => {
@@ -236,10 +240,10 @@ aggregate count(*) as rows, sum({${amountId}}) as revenue`);
         sort revenue desc
         limit 10
       `),
-    ).toBe(`from view {${statusSummaryView.id}}
-select "gk_0", "${amountId}__sum"
-where "${amountId}__sum" > 5
-sort "${amountId}__sum" desc
+    ).toBe(`from view {${statusSummaryView.shortId}}
+select "gk_0", "${publicFieldId(amountId)}__sum"
+where "${publicFieldId(amountId)}__sum" > 5
+sort "${publicFieldId(amountId)}__sum" desc
 limit 10`);
   });
 
@@ -250,9 +254,9 @@ limit 10`);
         select rows, revenue
         where revenue > 5
       `),
-    ).toBe(`from view {${totalRevenueView.id}}
-select "*__count", "${amountId}__sum"
-where "${amountId}__sum" > 5`);
+    ).toBe(`from view {${totalRevenueView.shortId}}
+select "*__count", "${publicFieldId(amountId)}__sum"
+where "${publicFieldId(amountId)}__sum" > 5`);
   });
 
   test("emits stable refs for grouped derived view output", () => {
@@ -266,9 +270,9 @@ where "${amountId}__sum" > 5`);
         sort total_revenue desc nulls last
         limit 5
       `),
-    ).toBe(`from view {${statusSummaryView.id}}
+    ).toBe(`from view {${statusSummaryView.shortId}}
 group by "gk_0"
-aggregate sum("${amountId}__sum") as total_revenue, count(*) as rows
+aggregate sum("${publicFieldId(amountId)}__sum") as total_revenue, count(*) as rows
 having total_revenue > 10
 sort total_revenue desc nulls last
 search 'paid' in "gk_0"
@@ -281,9 +285,9 @@ limit 5`);
         where ICONTAINS(Notes, 'urgent') and ONEOF(Paid, true, false)
         select formula(IF(Paid, Amount, 0)) as payable_amount
       `),
-    ).toBe(`from table {${orders.id}}
-select formula(IF({${paidId}}, {${amountId}}, 0)) as payable_amount
-where icontains({${notesId}}, 'urgent') and oneof({${paidId}}, true, false)`);
+    ).toBe(`from table {${orders.shortId}}
+select formula(IF({${publicFieldId(paidId)}}, {${publicFieldId(amountId)}}, 0)) as payable_amount
+where icontains({${publicFieldId(notesId)}}, 'urgent') and oneof({${publicFieldId(paidId)}}, true, false)`);
   });
 
   test("emits stable select option ids instead of editable option labels", () => {
@@ -291,12 +295,12 @@ where icontains({${notesId}}, 'urgent') and oneof({${paidId}}, true, false)`);
       canonical(`
         where Stage = 'Open' and oneof(Stage, 'Closed', 'On hold')
       `),
-    ).toBe(`from table {${orders.id}}
-where {${stageId}} = 'open' and oneof({${stageId}}, 'closed', 'hold')`);
+    ).toBe(`from table {${orders.shortId}}
+where {${publicFieldId(stageId)}} = 'open' and oneof({${publicFieldId(stageId)}}, 'closed', 'hold')`);
   });
 
   test("round-trips row RecordQuery UI state through canonical GQL", () => {
-    const recordId = "66666666-6666-4666-8666-666666666666";
+    const recordId = "REC001";
     const userId = "77777777-7777-4777-8777-777777777777";
 
     expect(
@@ -318,11 +322,11 @@ where {${stageId}} = 'open' and oneof({${stageId}}, 'closed', 'hold')`);
         includeDeleted: true,
         limit: 50,
       }),
-    ).toBe(`from table {${orders.id}}
-select {${amountId}}, formula({${amountId}} - {${costId}}) as __computed_margin
-where oneof({${stageId}}, 'open', 'closed') and icontains({${notesId}}, 'rush') and (record.id = '${recordId}' and record.updatedBy = '${userId}')
-sort {${orderedAtId}} desc nulls last
-search 'camera' in {${notesId}}
+    ).toBe(`from table {${orders.shortId}}
+select {${publicFieldId(amountId)}}, formula({${publicFieldId(amountId)}} - {${publicFieldId(costId)}}) as __computed_margin
+where oneof({${publicFieldId(stageId)}}, 'open', 'closed') and icontains({${publicFieldId(notesId)}}, 'rush') and (record.id = '${recordId}' and record.updatedBy = '${userId}')
+sort {${publicFieldId(orderedAtId)}} desc nulls last
+search 'camera' in {${publicFieldId(notesId)}}
 limit 50
 include deleted`);
   });
@@ -339,10 +343,10 @@ include deleted`);
         deletedOnly: true,
         limit: 12,
       }),
-    ).toBe(`from table {${orders.id}}
-group by {${orderedAtId}} by month
-aggregate count(*) as rows, sum({${amountId}}) as revenue
-sort revenue desc nulls first, {${orderedAtId}} desc nulls last
+    ).toBe(`from table {${orders.shortId}}
+group by {${publicFieldId(orderedAtId)}} by month
+aggregate count(*) as rows, sum({${publicFieldId(amountId)}}) as revenue
+sort revenue desc nulls first, {${publicFieldId(orderedAtId)}} desc nulls last
 limit 12
 deleted only`);
   });

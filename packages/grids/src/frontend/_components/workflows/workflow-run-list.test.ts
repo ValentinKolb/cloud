@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import type { GridsWorkflowRun } from "../../../workflows/contracts";
+import type { PublicWorkflowRun } from "../workspace/workspace-public-state-model";
 import { reconcileWorkflowRunList, type WorkflowRunListFilter } from "./workflow-run-list";
 
-const baseRun: GridsWorkflowRun = {
-  id: "11111111-1111-4111-8111-111111111111",
-  workflowId: "22222222-2222-4222-8222-222222222222",
+const baseRun: PublicWorkflowRun = {
+  id: "run001",
+  workflowId: "wf001",
   launcherId: null,
-  baseId: "33333333-3333-4333-8333-333333333333",
+  baseId: "base01",
   workflowRevision: 1,
   mode: "execute",
   channel: "api",
@@ -30,7 +30,7 @@ const allRuns: WorkflowRunListFilter = {
 
 describe("reconcileWorkflowRunList", () => {
   test("keeps a terminal detail update ahead of a stale list response", () => {
-    const failed: GridsWorkflowRun = {
+    const failed: PublicWorkflowRun = {
       ...baseRun,
       status: "failed",
       error: { code: "WORKFLOW_FAILED", message: "Loan must be approved.", retryable: false },

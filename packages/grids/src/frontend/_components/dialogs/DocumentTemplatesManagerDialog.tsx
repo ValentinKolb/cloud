@@ -1,8 +1,8 @@
-import { Button, dialogCore, IconButton, PanelDialog, panelDialogOptions, Placeholder, prompts, StatusBadge, Tag, Tooltip } from "@k2b/ui";
+import { Button, dialogCore, IconButton, PanelDialog, Placeholder, panelDialogOptions, prompts, StatusBadge, Tag, Tooltip } from "@k2b/ui";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { DocumentTemplate } from "../../../contracts";
 import { DOCUMENT_TEMPLATE_STARTERS, type DocumentTemplateStarter } from "../../../document-template-starters";
+import type { PublicDocumentTemplate } from "../documents/public-document-types";
 import { errorMessage } from "../utils/api-helpers";
 import { openDocumentTemplateEditorDialog } from "./DocumentTemplateEditorDialog";
 import { defaultDocumentStarter } from "./document-template-dialog-defaults";
@@ -28,13 +28,13 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
       const res = await apiClient.documents.templates["by-table"][":tableId"].full.$get({ param: { tableId } });
       if (!res.ok) {
         prompts.error(await errorMessage(res, "Failed to load document templates"));
-        return [] as DocumentTemplate[];
+        return [] as PublicDocumentTemplate[];
       }
       return res.json();
     },
   );
 
-  const deleteTemplate = async (template: DocumentTemplate) => {
+  const deleteTemplate = async (template: PublicDocumentTemplate) => {
     const confirmed = await prompts.confirm(`Delete "${template.name}"? Existing generated documents can still be redownloaded.`, {
       title: "Delete document template?",
       variant: "danger",
@@ -49,7 +49,7 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
     await refetch();
   };
 
-  const patchTemplate = async (template: DocumentTemplate, patch: Partial<Pick<DocumentTemplate, "enabled" | "position">>) => {
+  const patchTemplate = async (template: PublicDocumentTemplate, patch: Partial<Pick<PublicDocumentTemplate, "enabled" | "position">>) => {
     const res = await apiClient.documents.templates[":templateId"].$patch({ param: { templateId: template.id }, json: patch });
     if (!res.ok) {
       prompts.error(await errorMessage(res, "Failed to update document template"));
@@ -59,7 +59,7 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
     return true;
   };
 
-  const duplicateTemplate = async (template: DocumentTemplate) => {
+  const duplicateTemplate = async (template: PublicDocumentTemplate) => {
     const res = await apiClient.documents.templates["by-table"][":tableId"].$post({
       param: { tableId: props.tableId },
       json: {
@@ -82,7 +82,7 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
     await refetch();
   };
 
-  const moveTemplate = async (template: DocumentTemplate, direction: -1 | 1) => {
+  const moveTemplate = async (template: PublicDocumentTemplate, direction: -1 | 1) => {
     const ordered = [...(templates() ?? [])].sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
     const index = ordered.findIndex((item) => item.id === template.id);
     const swap = ordered[index + direction];
@@ -107,7 +107,7 @@ function DocumentTemplatesManager(props: { baseId: string; tableId: string; tabl
     }
   };
 
-  const openEditor = (template?: DocumentTemplate, starter?: DocumentTemplateStarter) => {
+  const openEditor = (template?: PublicDocumentTemplate, starter?: DocumentTemplateStarter) => {
     openDocumentTemplateEditorDialog({
       baseId: props.baseId,
       tableId: props.tableId,

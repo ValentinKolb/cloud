@@ -1,5 +1,6 @@
 const SIMPLE_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const IDENTIFIER_REF_MAX_LENGTH = 200;
+const PUBLIC_ID_RE = /^[A-Za-z0-9]+$/;
 
 export const QUERY_RESERVED_WORDS = new Set([
   "aggregate",
@@ -78,7 +79,7 @@ const readBracedIdentifier = (input: string, start: number): { value: string; en
   const end = input.indexOf("}", start + 1);
   if (end === -1) return null;
   const value = input.slice(start + 1, end).trim();
-  if (!value || value.length > IDENTIFIER_REF_MAX_LENGTH) return null;
+  if (!PUBLIC_ID_RE.test(value)) return null;
   return { value, end: end + 1 };
 };
 

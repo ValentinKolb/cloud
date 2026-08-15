@@ -70,7 +70,7 @@ const insertFixture = async (fixture: Fixture): Promise<void> => {
       'Invoice',
       ${`from table {${fixture.tableId}} limit 1`},
       '<p>Invoice</p>',
-      '{{ template.shortId }}-{{ run.shortId }}',
+      '{{ template.id }}-{{ run.id }}',
       '{{ document.number }}.pdf',
       ${fixture.actorId}::uuid,
       ${fixture.actorId}::uuid

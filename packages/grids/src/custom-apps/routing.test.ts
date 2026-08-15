@@ -24,10 +24,10 @@ import {
 const uuid = (suffix: number) => `00000000-0000-4000-8000-${String(suffix).padStart(12, "0")}`;
 
 const definition: CustomAppDefinition = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   kind: "grids.custom-app",
-  id: uuid(1),
-  baseId: uuid(2),
+  id: "APP001",
+  baseId: "BASE01",
   name: "Requests",
   startPageId: "home",
   pages: [
@@ -42,12 +42,12 @@ const definition: CustomAppDefinition = {
       id: "detail",
       title: "Request",
       navigation: { visible: false },
-      parameters: { request_id: { type: "record", tableId: uuid(3), required: true } },
-      record: { tableId: uuid(3), id: { source: "PARAMS", path: "request_id" } },
+      parameters: { request_id: { type: "record", tableId: "TAB001", required: true } },
+      record: { tableId: "TAB001", id: { source: "PARAMS", path: "request_id" } },
       rows: [
         {
           id: "main",
-          columns: [{ id: "content", span: 12, blocks: [{ id: "record", type: "record", fieldIds: [uuid(4)], editableFieldIds: [] }] }],
+          columns: [{ id: "content", span: 12, blocks: [{ id: "record", type: "record", fieldIds: ["FLD001"], editableFieldIds: [] }] }],
         },
       ],
     },

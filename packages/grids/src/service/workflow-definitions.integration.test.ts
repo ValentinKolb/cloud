@@ -12,7 +12,7 @@ import { migrate } from "../migrate";
 import {
   createWorkflow,
   getWorkflow,
-  getWorkflowByIdOrShortId,
+  getWorkflowByShortIdForBase,
   getWorkflowRevision,
   listRecordEventWorkflows,
   listScheduledWorkflows,
@@ -47,7 +47,7 @@ const base = async () => {
   const baseId = Bun.randomUUIDv7();
   await sql`
     INSERT INTO grids.bases (id, short_id, name)
-    VALUES (${baseId}::uuid, ${`W${Math.random().toString(36).slice(2, 6).toUpperCase()}`}, 'Definitions test')
+    VALUES (${baseId}::uuid, ${`W${Math.random().toString(36).slice(2, 7).toUpperCase()}`}, 'Definitions test')
   `;
   return baseId;
 };
@@ -66,7 +66,7 @@ describe("workflow definitions on the kernel", () => {
 
     expect(created.data.revision).toBe(1);
     expect(created.data.enabled).toBe(true);
-    expect(created.data.shortId).toMatch(/^[A-Za-z0-9]{5}$/);
+    expect(created.data.shortId).toMatch(/^[A-Za-z0-9]{6}$/);
 
     // The plan's triggers become activations, so the kernel's dispatcher can
     // match an arriving event without Grids telling it who is listening. The two
@@ -80,7 +80,7 @@ describe("workflow definitions on the kernel", () => {
 
     // Readable by both routes the UI uses.
     expect((await getWorkflow(created.data.id))?.name).toBe("Nightly");
-    expect((await getWorkflowByIdOrShortId(baseId, created.data.shortId))?.id).toBe(created.data.id);
+    expect((await getWorkflowByShortIdForBase(baseId, created.data.shortId))?.id).toBe(created.data.id);
   });
 
   postgresTest("renaming does not publish a revision", async () => {

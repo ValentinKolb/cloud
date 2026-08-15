@@ -4,7 +4,7 @@ import { evaluateFormValidations, formValidationFieldsCompatible } from "./form-
 import type { Field } from "./service";
 
 const field = (id: string, name: string, type: string, config: Record<string, unknown> = {}): Field =>
-  ({ id, shortId: id.slice(0, 5), tableId: "table", name, type, config, required: false, deletedAt: null }) as Field;
+  ({ id, shortId: id.slice(0, 6), tableId: "table", name, type, config, required: false, deletedAt: null }) as Field;
 
 const start = field("11111111-1111-4111-8111-111111111111", "Start", "date");
 const due = field("22222222-2222-4222-8222-222222222222", "Due", "date");

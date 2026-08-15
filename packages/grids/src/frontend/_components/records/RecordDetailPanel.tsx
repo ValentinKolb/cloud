@@ -3,24 +3,24 @@ import { mutation as mutations } from "@k2b/stdlib/solid";
 import { Button, Dropdown, IconButton, prompts, Tooltip } from "@k2b/ui";
 import { Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { ColumnSpec, DocumentTemplateSummary, RecordMutationAudit, TableAuditPolicy } from "../../../contracts";
+import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
+import type { ColumnSpec, RecordMutationAudit, TableAuditPolicy } from "../../../contracts";
 import { recordAuditRequirementFor } from "../../../record-audit-policy";
-import type { Field, GridRecord } from "../../../service";
+import type { PublicDocumentTemplateSummary } from "../documents/public-document-types";
 import { isUserEditable } from "../fields/field-prompt-schema";
 import { errorMessage } from "../utils/api-helpers";
-import type { WorkspaceRecordDetail } from "../workspace/workspace-state-model";
+import type { PublicWorkspaceRecordDetail as WorkspaceRecordDetail } from "../workspace/workspace-public-state-model";
 import { openRecordAuditDialog } from "./RecordAuditDialog";
+import RecordComments from "./RecordComments.island";
 import RecordDocumentsSection from "./RecordDocumentsSection";
 import RecordFileField from "./RecordFileField";
 import RecordHistorySection from "./RecordHistorySection";
-import RecordComments from "./RecordComments.island";
 import RecordReadView from "./RecordReadView";
 import { openRecordUpsertDialog } from "./RecordUpsertDialog";
 import { recordDisplayTitle } from "./record-display";
 
 type Props = {
   baseId: string;
-  baseShortId?: string;
   tableId: string;
   tableName: string;
   fields: Field[];
@@ -30,7 +30,7 @@ type Props = {
    *  record here. null = panel renders nothing. */
   record: () => GridRecord | null;
   detail: () => WorkspaceRecordDetail | null;
-  documentTemplates: DocumentTemplateSummary[];
+  documentTemplates: PublicDocumentTemplateSummary[];
   /** "live" = edit/delete; "trash" = restore. Driven by the URL state's
    *  trash flag, lifted up to the parent. */
   mode: () => "live" | "trash";
@@ -40,7 +40,6 @@ type Props = {
    *  Built SSR-side; used by relation cells to render presentable
    *  values instead of raw UUIDs. */
   relationLabels?: Record<string, string>;
-  tableShortIds?: Record<string, string>;
   fieldsByTable?: Record<string, Field[]>;
   viewColumns?: ColumnSpec[];
   dateConfig?: DateContext;
@@ -206,14 +205,13 @@ export default function RecordDetailPanel(props: Props) {
     <Show when={record()} fallback={null} keyed>
       {(rec) => (
         <RecordReadView
-          baseId={props.baseShortId ?? props.baseId}
+          baseId={props.baseId}
           tableId={props.tableId}
           tableName={props.tableName}
           fields={props.fields}
           record={rec}
           mode={mode()}
           relationLabels={props.relationLabels}
-          tableShortIds={props.tableShortIds}
           fieldsByTable={props.fieldsByTable}
           viewColumns={props.viewColumns}
           dateConfig={props.dateConfig}
@@ -322,7 +320,10 @@ export default function RecordDetailPanel(props: Props) {
             initialSnapshots={props.detail()?.snapshots ?? []}
           />
           <Show when={mode() === "live"}>
-            <RecordComments endpoint={`/api/grids/records/${encodeURIComponent(props.tableId)}/${encodeURIComponent(rec.id)}/comments`} dateConfig={props.dateConfig} />
+            <RecordComments
+              endpoint={`/api/grids/records/${encodeURIComponent(props.tableId)}/${encodeURIComponent(rec.id)}/comments`}
+              dateConfig={props.dateConfig}
+            />
           </Show>
           <RecordHistorySection entries={props.detail()?.auditEntries ?? []} fields={props.fields} dateConfig={props.dateConfig} />
         </RecordReadView>

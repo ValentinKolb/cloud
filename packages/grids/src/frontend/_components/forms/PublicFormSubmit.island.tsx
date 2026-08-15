@@ -3,10 +3,16 @@ import { Button, NoticeCard, PanelHeader } from "@k2b/ui";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { evaluateFormValidations } from "../../../form-validations";
-import type { Field } from "../../../service";
 import type { PublicRenderableForm } from "../../../service/forms";
 import { errorMessage } from "../utils/api-helpers";
-import { buildFormSubmitPayload, buildInitialValues, FieldInput, type InlineCreateState, userInputEntriesOf } from "./form-fields";
+import {
+  buildFormSubmitPayload,
+  buildInitialValues,
+  type FrontendField as Field,
+  FieldInput,
+  type InlineCreateState,
+  userInputEntriesOf,
+} from "./form-fields";
 
 type Props = {
   /** Form config (fields, labels, defaults) — server-trusted. */

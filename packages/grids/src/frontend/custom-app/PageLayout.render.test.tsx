@@ -7,10 +7,10 @@ import "../_components/ssr-test-plugin";
 const { CustomAppPageLayout } = await import("./PageLayout");
 
 const definition: CustomAppDefinition = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   kind: "grids.custom-app",
-  id: "33333333-3333-4333-8333-333333333333",
-  baseId: "11111111-1111-4111-8111-111111111111",
+  id: "APP001",
+  baseId: "BASE01",
   name: "Loan desk",
   icon: "package",
   startPageId: "overview",
@@ -42,7 +42,7 @@ describe("CustomAppPageLayout", () => {
       createComponent(CustomAppPageLayout, {
         definition,
         page: definition.pages[0]!,
-        shortId: "APP1",
+        appId: "APP001",
         renderBlock: () => "Rendered content",
       }),
     );
@@ -81,7 +81,7 @@ describe("CustomAppPageLayout", () => {
       createComponent(CustomAppPageLayout, {
         definition: withNavigation,
         page: withNavigation.pages[0]!,
-        shortId: "APP1",
+        appId: "APP001",
         renderBlock: () => "Rendered content",
       }),
     );
@@ -95,7 +95,7 @@ describe("CustomAppPageLayout", () => {
       createComponent(CustomAppPageLayout, {
         definition,
         page: definition.pages[0]!,
-        shortId: "APP1",
+        appId: "APP001",
         hasSidebarActions: true,
         sidebarActions: "New loan",
         renderBlock: () => "Rendered content",

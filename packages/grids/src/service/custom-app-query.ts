@@ -7,6 +7,7 @@ import { bindDslQueryContext, type DslQueryContextKey, type DslQueryContextValue
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { type DslResolvedSqlQueryPlan, resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
 import { collectDslPlanExtraFieldTableIds } from "../query-dsl/source-plan";
+import type { SqlClient } from "./audit";
 import * as fields from "./fields";
 import { buildTrustedGqlResolverContext } from "./gql-resolver-context";
 import type { Field } from "./types";
@@ -29,6 +30,7 @@ export const compileCustomAppQuery = async (params: {
   currentTableId?: string;
   context: DslQueryContextValues;
   allowedContextKeys?: readonly DslQueryContextKey[];
+  client?: SqlClient;
 }): Promise<CompileCustomAppQueryResult> => {
   const parsed = parseGridsQueryDsl(params.source);
   if (!parsed.ok) return { ok: false, error: diagnosticMessage(parsed.diagnostics, "invalid GQL source") };
@@ -47,6 +49,7 @@ export const compileCustomAppQuery = async (params: {
     ...(params.currentTableId ? { currentTableId: params.currentTableId } : {}),
     ast: bound.ast,
     purpose: "custom-app-render",
+    ...(params.client ? { client: params.client } : {}),
   });
   const resolved = resolveDslQueryToQueryPlan(bound.ast, context);
   if (!resolved.ok) return { ok: false, error: diagnosticMessage(resolved.diagnostics, "invalid GQL source") };
@@ -57,7 +60,10 @@ export const compileCustomAppQuery = async (params: {
     ...new Set([...collectDslPlanExtraFieldTableIds(resolved.plan), ...collectDslPlanExtraFieldTableIds(canonicalResolved.plan)]),
   ].filter((tableId) => context.fieldsByTableId[tableId] === undefined);
   const missingFields = await Promise.all(
-    missingFieldTableIds.map(async (tableId) => ({ tableId, fields: await fields.listByTable(tableId) })),
+    missingFieldTableIds.map(async (tableId) => ({
+      tableId,
+      fields: await fields.listByTable(tableId, false, params.client),
+    })),
   );
 
   const fieldsWithPlanExtras = {
@@ -68,7 +74,10 @@ export const compileCustomAppQuery = async (params: {
     (tableId) => fieldsWithPlanExtras[tableId] === undefined,
   );
   const relationTargetFields = await Promise.all(
-    relationTargetTableIds.map(async (tableId) => ({ tableId, fields: await fields.listByTable(tableId) })),
+    relationTargetTableIds.map(async (tableId) => ({
+      tableId,
+      fields: await fields.listByTable(tableId, false, params.client),
+    })),
   );
   const fieldsByTableId = {
     ...fieldsWithPlanExtras,

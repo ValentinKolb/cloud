@@ -10,6 +10,7 @@ import { type FederatedRevisionScope, verifyRevisionScope } from "./federated-ta
 import { listByTable as listFields } from "./fields";
 import { buildTrustedGqlResolverContext } from "./gql-resolver-context";
 import { hasAtLeast, loadBaseGrantsForSubject, resolveEffectivePermission } from "./permission-resolver";
+import { projectPublicIds } from "./public-resources";
 import type { AuthorizedRecordAccess } from "./record-access";
 import { list as listRecords } from "./records";
 import { loadRelationTargets } from "./relation-targets";
@@ -115,11 +116,17 @@ const createFederatedPageReader = async (params: {
     if (!preview.ok) return fail(preview.error);
     expectedRevisionScope ??= pageRevisionScope;
     if (preview.data.mode !== "rows") return fail(err.badInput("grouped exports are not supported"));
+    const recordIds = preview.data.rows.flatMap((row) => (row.recordId ? [row.recordId] : []));
+    const recordPublicIds = await projectPublicIds("record", recordIds);
+    if (recordIds.some((recordId) => !recordPublicIds.has(recordId))) {
+      return fail(err.internal("Combined table export contains a record without a public ID"));
+    }
     const items = preview.data.rows.flatMap((row): GridRecord[] => {
       if (!row.recordId || !row.recordMeta) return [];
       return [
         {
           id: row.recordId,
+          shortId: recordPublicIds.get(row.recordId)!,
           tableId: params.tableId,
           data: Object.fromEntries(
             preview.data.columns.flatMap((column) => (column.fieldId ? [[column.fieldId, row.values[column.key]]] : [])),
@@ -205,6 +212,7 @@ type ExportColumn =
 type RelationContext = {
   labels: Record<string, string>;
   expanded: Record<string, Record<string, unknown>>;
+  publicIds: ReadonlyMap<string, string>;
 };
 
 const aliveFields = (fields: Field[]): Field[] => fields.filter((f) => !f.deletedAt).sort((a, b) => a.position - b.position);
@@ -310,7 +318,9 @@ const buildRelationContext = async (params: {
   viewer?: ExpansionViewer;
 }): Promise<RelationContext> => {
   const relationSpecs = params.selected.filter((s) => s.field.type === "relation");
-  if (relationSpecs.length === 0 || params.records.length === 0) return { labels: {}, expanded: {} };
+  if (relationSpecs.length === 0 || params.records.length === 0) return { labels: {}, expanded: {}, publicIds: new Map() };
+
+  const relationRecordIds = relationSpecs.flatMap(({ field }) => params.records.flatMap((record) => relationIds(record.data[field.id])));
 
   const labelsNeeded = relationSpecs.some((s) => (s.spec?.relation?.mode ?? "ids") === "labels");
   const labels = labelsNeeded ? await buildRelationLabelCache(params.records, params.fields, params.viewer) : {};
@@ -333,23 +343,35 @@ const buildRelationContext = async (params: {
   }
 
   const expanded: Record<string, Record<string, unknown>> = {};
+  const nestedRelationIds: string[] = [];
   for (const [targetTableId, idSet] of idsByTargetTable) {
     if (idSet.size === 0) continue;
     const fieldIds = [...(fieldsByTargetTable.get(targetTableId) ?? new Set<string>())];
+    const relationFieldIds = new Set(
+      (await listFields(targetTableId))
+        .filter((field) => fieldIds.includes(field.id) && field.type === "relation")
+        .map((field) => field.id),
+    );
     const targets = await loadRelationTargets(targetTableId, idSet);
     for (const row of targets.records) {
       const subset: Record<string, unknown> = {};
-      for (const fieldId of fieldIds) subset[fieldId] = row.data[fieldId] ?? null;
+      for (const fieldId of fieldIds) {
+        subset[fieldId] = row.data[fieldId] ?? null;
+        if (relationFieldIds.has(fieldId)) nestedRelationIds.push(...relationIds(row.data[fieldId]));
+      }
       expanded[row.id] = subset;
     }
   }
 
-  return { labels, expanded };
+  const allRecordIds = [...relationRecordIds, ...nestedRelationIds];
+  const publicIds = await projectPublicIds("record", allRecordIds);
+  if (publicIds.size !== new Set(allRecordIds).size) throw new Error("Export contains a related record without a public ID");
+  return { labels, expanded, publicIds };
 };
 
 const relationValue = (params: { record: GridRecord; field: Field; mode: "ids" | "labels"; ctx: RelationContext }): string => {
   const ids = relationIds(params.record.data[params.field.id]);
-  if (params.mode === "ids") return ids.join(", ");
+  if (params.mode === "ids") return ids.map((id) => params.ctx.publicIds.get(id)!).join(", ");
   return ids.map((id) => params.ctx.labels[id] ?? "Unknown record").join("; ");
 };
 
@@ -362,7 +384,14 @@ const relationTargetValue = (params: {
 }): string => {
   const ids = relationIds(params.record.data[params.relationField.id]);
   return ids
-    .map((id) => formatCellForExport(params.ctx.expanded[id]?.[params.targetField.id], params.targetField, params.options))
+    .map((id) => {
+      const value = params.ctx.expanded[id]?.[params.targetField.id];
+      return params.targetField.type === "relation"
+        ? relationIds(value)
+            .map((relatedId) => params.ctx.publicIds.get(relatedId)!)
+            .join(", ")
+        : formatCellForExport(value, params.targetField, params.options);
+    })
     .filter(Boolean)
     .join("; ");
 };
@@ -373,6 +402,8 @@ const jsonValue = (params: {
   relation?: RelationExportConfig;
   ctx: RelationContext;
   options: ExportFormatOptions;
+  publicFieldIds: ReadonlyMap<string, string>;
+  relationFieldIds: ReadonlySet<string>;
 }): unknown => {
   if (params.field.type !== "relation") {
     if (params.field.type === "longtext" && params.options.markdown === "html") {
@@ -383,12 +414,17 @@ const jsonValue = (params: {
   const ids = relationIds(params.record.data[params.field.id]);
   const mode = params.relation?.mode ?? "ids";
   if (mode === "labels") return ids.map((id) => params.ctx.labels[id] ?? "Unknown record");
-  if (mode !== "fields") return ids;
+  if (mode !== "fields") return ids.map((id) => params.ctx.publicIds.get(id)!);
   const wanted = params.relation?.fieldIds ?? [];
   return ids.map((id) => {
     const data = params.ctx.expanded[id] ?? {};
-    const out: Record<string, unknown> = { id };
-    for (const fieldId of wanted) out[fieldId] = data[fieldId] ?? null;
+    const out: Record<string, unknown> = { id: params.ctx.publicIds.get(id)! };
+    for (const fieldId of wanted) {
+      const value = data[fieldId] ?? null;
+      out[params.publicFieldIds.get(fieldId)!] = params.relationFieldIds.has(fieldId)
+        ? relationIds(value).map((relatedId) => params.ctx.publicIds.get(relatedId)!)
+        : value;
+    }
     return out;
   });
 };
@@ -406,6 +442,8 @@ export const exportRecords = async (params: {
   recordAccess?: AuthorizedRecordAccess;
 }): Promise<Result<ExportResult>> => {
   const fields = await listFields(params.tableId);
+  const tablePublicId = (await projectPublicIds("table", [params.tableId])).get(params.tableId);
+  if (!tablePublicId) return fail(err.internal("Export table has no public ID"));
   const query = params.query ?? {};
   const picked = await pickColumns({
     tableId: params.tableId,
@@ -415,6 +453,15 @@ export const exportRecords = async (params: {
     viewer: params.viewer,
   });
   if (!picked.ok) return fail(picked.error);
+  const publicFieldIds = new Map<string, string>();
+  const relationFieldIds = new Set<string>();
+  for (const field of fields) publicFieldIds.set(field.id, field.shortId);
+  for (const column of picked.data.columns) {
+    if (column.kind === "relationField") {
+      publicFieldIds.set(column.targetField.id, column.targetField.shortId);
+      if (column.targetField.type === "relation") relationFieldIds.add(column.targetField.id);
+    }
+  }
 
   const pageReader = await createExportPageReader({
     tableId: params.tableId,
@@ -436,12 +483,17 @@ export const exportRecords = async (params: {
     if (params.format === "json") {
       const prefix = {
         exportedAt: new Date().toISOString(),
-        tableId: params.tableId,
+        tableId: tablePublicId,
         fields: picked.data.selected.map(({ field, spec }) => ({
-          id: field.id,
+          id: field.shortId,
           name: spec?.label?.trim() || field.name,
           type: field.type,
-          relation: spec?.relation,
+          relation: spec?.relation
+            ? {
+                ...spec.relation,
+                fieldIds: spec.relation.fieldIds?.map((id) => publicFieldIds.get(id)!),
+              }
+            : undefined,
         })),
       };
       yield encoder.encode(`${JSON.stringify(prefix).slice(0, -1)},\"records\":[`);
@@ -467,7 +519,7 @@ export const exportRecords = async (params: {
       }
       for (const record of page.data.items) {
         if (params.format === "json") {
-          const out: Record<string, unknown> = { id: record.id };
+          const out: Record<string, unknown> = { id: record.shortId };
           for (const { field, spec } of picked.data.selected) {
             out[spec?.label?.trim() || field.name] = jsonValue({
               record,
@@ -475,13 +527,15 @@ export const exportRecords = async (params: {
               relation: spec?.relation,
               ctx,
               options,
+              publicFieldIds,
+              relationFieldIds,
             });
           }
           yield encoder.encode(`${firstJsonRecord ? "" : ","}${JSON.stringify(out)}`);
           firstJsonRecord = false;
         } else {
           const cells = [
-            record.id,
+            record.shortId,
             ...picked.data.columns.map((column) => {
               if (column.kind === "relationField") {
                 return relationTargetValue({

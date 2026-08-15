@@ -13,6 +13,31 @@ const disabledTemplateId = "44444444-4444-4444-8444-444444444444";
 const userId = "55555555-5555-4555-8555-555555555555";
 const excludedRecordId = "66666666-6666-4666-8666-666666666666";
 const lookupRecordId = "77777777-7777-4777-8777-777777777777";
+const basePublicId = "BASE01";
+const tablePublicId = "TABL01";
+const templatePublicId = "TMPL01";
+const disabledTemplatePublicId = "TMPL02";
+const excludedRecordPublicId = "RECD01";
+const lookupRecordPublicId = "RECD02";
+
+const publicToInternal = new Map([
+  [basePublicId, baseId],
+  [tablePublicId, tableId],
+  [templatePublicId, templateId],
+  [disabledTemplatePublicId, disabledTemplateId],
+  [excludedRecordPublicId, excludedRecordId],
+  [lookupRecordPublicId, lookupRecordId],
+]);
+const internalToPublic = new Map([...publicToInternal].map(([publicId, internalId]) => [internalId, publicId]));
+mock.module("../service/public-resources", () => ({
+  resolvePublicId: async (_type: string, publicId: string) => publicToInternal.get(publicId) ?? null,
+  resolvePublicIds: async (_type: string, publicIds: string[]) =>
+    new Map(publicIds.flatMap((publicId) => (publicToInternal.has(publicId) ? [[publicId, publicToInternal.get(publicId)!]] : []))),
+  projectPublicIds: async (_type: string, internalIds: string[]) =>
+    new Map(
+      internalIds.flatMap((internalId) => (internalToPublic.has(internalId) ? [[internalId, internalToPublic.get(internalId)!]] : [])),
+    ),
+}));
 
 const user: User = {
   id: userId,
@@ -36,7 +61,7 @@ const user: User = {
 
 const table = {
   id: tableId,
-  shortId: "TBL01",
+  shortId: tablePublicId,
   baseId,
   name: "Hidden table",
   description: null,
@@ -52,16 +77,16 @@ const table = {
 
 const template = {
   id: templateId,
-  shortId: "DOC01",
+  shortId: templatePublicId,
   tableId,
   name: "Invoice",
   description: "Customer invoice",
-  source: `from table {${tableId}}`,
+  source: `from table {${tablePublicId}}`,
   html: "<p>{{ record.id }}</p>",
   headerHtml: null,
   footerHtml: null,
   pageCss: null,
-  numberTemplate: "{{ template.shortId }}-{{ run.shortId }}",
+  numberTemplate: "{{ template.id }}-{{ run.id }}",
   filenameTemplate: "{{ document.number }}.pdf",
   enabled: true,
   position: 0,
@@ -71,12 +96,18 @@ const template = {
   createdAt: "2026-07-11T08:00:00.000Z",
   updatedAt: "2026-07-11T08:00:00.000Z",
 };
-const disabledTemplate = { ...template, id: disabledTemplateId, shortId: "DOC02", name: "Disabled", enabled: false, position: 1 };
+const disabledTemplate = {
+  ...template,
+  id: disabledTemplateId,
+  shortId: disabledTemplatePublicId,
+  name: "Disabled",
+  enabled: false,
+  position: 1,
+};
 
 const summary = (row: typeof template) => ({
-  id: row.id,
-  shortId: row.shortId,
-  tableId: row.tableId,
+  id: row.shortId,
+  tableId: tablePublicId,
   name: row.name,
   description: row.description,
   enabled: row.enabled,
@@ -84,6 +115,10 @@ const summary = (row: typeof template) => ({
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 });
+const publicTemplate = (row: typeof template) => {
+  const { shortId, ...value } = row;
+  return { ...value, id: shortId, tableId: tablePublicId };
+};
 
 const forbiddenResponse = {
   message: "You do not have permission to access this resource.",
@@ -121,7 +156,7 @@ const jsonRequest = (method: "POST" | "PATCH", body: unknown): RequestInit => ({
 const createBody = {
   name: " Invoice ",
   description: "Customer invoice",
-  source: ` from table {${tableId}} `,
+  source: ` from table {${tablePublicId}} `,
   html: " <p>{{ record.id }}</p> ",
   enabled: true,
 };
@@ -150,9 +185,9 @@ describe("document template routes", () => {
       tableGetInputs.push(id);
       return (id === tableId ? currentTable : null) as never;
     });
-    spyOn(gridsService.document, "getTemplate").mockImplementation(async (id) => {
+    spyOn(gridsService.document, "getTemplateByShortId").mockImplementation(async (id) => {
       templateGetInputs.push(id);
-      return (id === templateId ? currentTemplate : null) as never;
+      return (id === templatePublicId ? currentTemplate : null) as never;
     });
     spyOn(gridsService.document, "listTemplatesForTable").mockImplementation(async (id) => {
       listInputs.push(id);
@@ -206,14 +241,14 @@ describe("document template routes", () => {
   });
 
   for (const [method, suffix, body] of [
-    ["GET", `/templates/by-table/${tableId}`, undefined],
-    ["GET", `/templates/by-table/${tableId}/full`, undefined],
-    ["POST", `/templates/by-table/${tableId}`, createBody],
-    ["PATCH", `/templates/by-table/${tableId}/reorder`, { templateIds: [disabledTemplateId, templateId] }],
-    ["GET", `/templates/${templateId}`, undefined],
-    ["PATCH", `/templates/${templateId}`, updateBody],
-    ["DELETE", `/templates/${templateId}`, undefined],
-    ["GET", `/templates/${templateId}/records/lookup`, undefined],
+    ["GET", `/templates/by-table/${tablePublicId}`, undefined],
+    ["GET", `/templates/by-table/${tablePublicId}/full`, undefined],
+    ["POST", `/templates/by-table/${tablePublicId}`, createBody],
+    ["PATCH", `/templates/by-table/${tablePublicId}/reorder`, { templateIds: [disabledTemplatePublicId, templatePublicId] }],
+    ["GET", `/templates/${templatePublicId}`, undefined],
+    ["PATCH", `/templates/${templatePublicId}`, updateBody],
+    ["DELETE", `/templates/${templatePublicId}`, undefined],
+    ["GET", `/templates/${templatePublicId}/records/lookup`, undefined],
   ] as const) {
     test(`parent auth protects ${method} ${suffix}`, async () => {
       const response = await deniedApp().request(
@@ -227,10 +262,10 @@ describe("document template routes", () => {
   }
 
   for (const [method, suffix, body] of [
-    ["GET", `/templates/by-table/${tableId}`, undefined],
-    ["GET", `/templates/by-table/${tableId}/full`, undefined],
-    ["POST", `/templates/by-table/${tableId}`, createBody],
-    ["PATCH", `/templates/by-table/${tableId}/reorder`, { templateIds: [disabledTemplateId, templateId] }],
+    ["GET", `/templates/by-table/${tablePublicId}`, undefined],
+    ["GET", `/templates/by-table/${tablePublicId}/full`, undefined],
+    ["POST", `/templates/by-table/${tablePublicId}`, createBody],
+    ["PATCH", `/templates/by-table/${tablePublicId}/reorder`, { templateIds: [disabledTemplatePublicId, templatePublicId] }],
   ] as const) {
     test(`${method} ${suffix} returns the exact table 404 contract`, async () => {
       currentTable = null;
@@ -242,10 +277,10 @@ describe("document template routes", () => {
   }
 
   for (const [method, suffix, body] of [
-    ["GET", `/templates/${templateId}`, undefined],
-    ["PATCH", `/templates/${templateId}`, updateBody],
-    ["DELETE", `/templates/${templateId}`, undefined],
-    ["GET", `/templates/${templateId}/records/lookup`, undefined],
+    ["GET", `/templates/${templatePublicId}`, undefined],
+    ["PATCH", `/templates/${templatePublicId}`, updateBody],
+    ["DELETE", `/templates/${templatePublicId}`, undefined],
+    ["GET", `/templates/${templatePublicId}/records/lookup`, undefined],
   ] as const) {
     test(`${method} ${suffix} returns the exact template 404 contract`, async () => {
       currentTemplate = null;
@@ -253,14 +288,14 @@ describe("document template routes", () => {
 
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({ message: "Document template not found" });
-      expect(templateGetInputs).toEqual([templateId]);
+      expect(templateGetInputs).toEqual([templatePublicId]);
     });
   }
 
   test("lists enabled template summaries through base read access", async () => {
     baseLevel = "read";
 
-    const response = await app().request(path(`/templates/by-table/${tableId}`));
+    const response = await app().request(path(`/templates/by-table/${tablePublicId}`));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual([summary(template)]);
@@ -271,38 +306,38 @@ describe("document template routes", () => {
   test("forwards the requested minimum permission when listing summaries", async () => {
     baseLevel = "read";
 
-    await expectForbidden(await app().request(path(`/templates/by-table/${tableId}?min=write`)));
+    await expectForbidden(await app().request(path(`/templates/by-table/${tablePublicId}?min=write`)));
     expect(listInputs).toEqual([]);
   });
 
   test("requires base admin and returns every full template", async () => {
     baseLevel = "write";
-    await expectForbidden(await app().request(path(`/templates/by-table/${tableId}/full`)));
+    await expectForbidden(await app().request(path(`/templates/by-table/${tablePublicId}/full`)));
 
     baseLevel = "admin";
-    const response = await app().request(path(`/templates/by-table/${tableId}/full`));
+    const response = await app().request(path(`/templates/by-table/${tablePublicId}/full`));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual([template, disabledTemplate]);
+    expect(await response.json()).toEqual([publicTemplate(template), publicTemplate(disabledTemplate)]);
     expect(listInputs).toEqual([tableId]);
   });
 
   test("creates a template only with base admin and forwards input plus audit actor", async () => {
     baseLevel = "write";
-    await expectForbidden(await app().request(path(`/templates/by-table/${tableId}`), jsonRequest("POST", createBody)));
+    await expectForbidden(await app().request(path(`/templates/by-table/${tablePublicId}`), jsonRequest("POST", createBody)));
     expect(createInput).toBeUndefined();
 
     baseLevel = "admin";
-    const response = await app().request(path(`/templates/by-table/${tableId}`), jsonRequest("POST", createBody));
+    const response = await app().request(path(`/templates/by-table/${tablePublicId}`), jsonRequest("POST", createBody));
 
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual(template);
+    expect(await response.json()).toEqual(publicTemplate(template));
     expect(createInput).toEqual({
       tableId,
       input: {
         name: " Invoice ",
         description: "Customer invoice",
-        source: `from table {${tableId}}`,
+        source: `from table {${tablePublicId}}`,
         html: "<p>{{ record.id }}</p>",
         enabled: true,
       },
@@ -312,51 +347,51 @@ describe("document template routes", () => {
 
   test("gets a full template with base admin access", async () => {
     baseLevel = "none";
-    await expectForbidden(await app().request(path(`/templates/${templateId}`)));
+    await expectForbidden(await app().request(path(`/templates/${templatePublicId}`)));
 
     baseLevel = "admin";
-    const response = await app().request(path(`/templates/${templateId}`));
+    const response = await app().request(path(`/templates/${templatePublicId}`));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(template);
-    expect(templateGetInputs).toEqual([templateId, templateId]);
+    expect(await response.json()).toEqual(publicTemplate(template));
+    expect(templateGetInputs).toEqual([templatePublicId, templatePublicId]);
     expect(tableGetInputs).toEqual([tableId, tableId]);
   });
 
   test("updates a template with base admin access and forwards input plus audit actor", async () => {
     baseLevel = "write";
-    await expectForbidden(await app().request(path(`/templates/${templateId}`), jsonRequest("PATCH", updateBody)));
+    await expectForbidden(await app().request(path(`/templates/${templatePublicId}`), jsonRequest("PATCH", updateBody)));
     expect(updateInput).toBeUndefined();
 
     baseLevel = "admin";
-    const response = await app().request(path(`/templates/${templateId}`), jsonRequest("PATCH", updateBody));
+    const response = await app().request(path(`/templates/${templatePublicId}`), jsonRequest("PATCH", updateBody));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ...template, name: " Updated invoice ", position: 2 });
+    expect(await response.json()).toEqual(publicTemplate({ ...template, name: " Updated invoice ", position: 2 }));
     expect(updateInput).toEqual({ templateId, input: updateBody, actorId: userId });
   });
 
   test("reorders all templates atomically with base admin access", async () => {
-    const body = { templateIds: [disabledTemplateId, templateId] };
+    const body = { templateIds: [disabledTemplatePublicId, templatePublicId] };
     baseLevel = "write";
-    await expectForbidden(await app().request(path(`/templates/by-table/${tableId}/reorder`), jsonRequest("PATCH", body)));
+    await expectForbidden(await app().request(path(`/templates/by-table/${tablePublicId}/reorder`), jsonRequest("PATCH", body)));
     expect(reorderInput).toBeUndefined();
 
     baseLevel = "admin";
-    const response = await app().request(path(`/templates/by-table/${tableId}/reorder`), jsonRequest("PATCH", body));
+    const response = await app().request(path(`/templates/by-table/${tablePublicId}/reorder`), jsonRequest("PATCH", body));
 
     expect(response.status).toBe(204);
     expect(await response.text()).toBe("");
-    expect(reorderInput).toEqual({ tableId, templateIds: body.templateIds, actorId: userId });
+    expect(reorderInput).toEqual({ tableId, templateIds: [disabledTemplateId, templateId], actorId: userId });
   });
 
   test("deletes a template with base admin access and forwards the audit actor", async () => {
     baseLevel = "write";
-    await expectForbidden(await app().request(path(`/templates/${templateId}`), { method: "DELETE" }));
+    await expectForbidden(await app().request(path(`/templates/${templatePublicId}`), { method: "DELETE" }));
     expect(removeInput).toBeUndefined();
 
     baseLevel = "admin";
-    const response = await app().request(path(`/templates/${templateId}`), { method: "DELETE" });
+    const response = await app().request(path(`/templates/${templatePublicId}`), { method: "DELETE" });
 
     expect(response.status).toBe(204);
     expect(await response.text()).toBe("");
@@ -365,16 +400,16 @@ describe("document template routes", () => {
 
   test("looks up records with base write access and forwards the normalized query", async () => {
     baseLevel = "read";
-    await expectForbidden(await app().request(path(`/templates/${templateId}/records/lookup?q=recipient`)));
+    await expectForbidden(await app().request(path(`/templates/${templatePublicId}/records/lookup?q=recipient`)));
     expect(lookupInput).toBeUndefined();
 
     baseLevel = "write";
     const response = await app().request(
-      path(`/templates/${templateId}/records/lookup?q=recipient&limit=7&excludeIds=${excludedRecordId}`),
+      path(`/templates/${templatePublicId}/records/lookup?q=recipient&limit=7&excludeIds=${excludedRecordPublicId}`),
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ items: [{ id: lookupRecordId, label: "Invoice recipient" }] });
+    expect(await response.json()).toEqual({ items: [{ id: lookupRecordPublicId, label: "Invoice recipient" }] });
     expect(lookupInput).toEqual({
       targetTableId: tableId,
       q: "recipient",
@@ -388,11 +423,11 @@ describe("document template routes", () => {
     currentTemplate = disabledTemplate;
     baseLevel = "write";
 
-    await expectForbidden(await app().request(path(`/templates/${templateId}/records/lookup`)));
+    await expectForbidden(await app().request(path(`/templates/${templatePublicId}/records/lookup`)));
     expect(lookupInput).toBeUndefined();
 
     baseLevel = "admin";
-    const response = await app().request(path(`/templates/${templateId}/records/lookup`));
+    const response = await app().request(path(`/templates/${templatePublicId}/records/lookup`));
 
     expect(response.status).toBe(200);
     expect(lookupInput).toEqual({

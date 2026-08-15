@@ -19,7 +19,7 @@ export const resolveSource = (astSource: DslSourceRef | undefined, ctx: DslResol
 
   const sourceMatches = (source: { id: string; shortId: string; name: string }) => {
     const ref = normalizeRefKey(astSource.ref);
-    return normalizeRefKey(source.shortId) === ref || normalizeRefKey(source.id) === ref || normalizeRefKey(source.name) === ref;
+    return normalizeRefKey(source.shortId) === ref || normalizeRefKey(source.name) === ref;
   };
   const tables = ctx.tables.filter(sourceMatches);
   const views = (ctx.views ?? []).filter(sourceMatches);

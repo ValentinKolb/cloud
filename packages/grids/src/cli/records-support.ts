@@ -1,25 +1,27 @@
-import type { GridRecord, RecordSnapshotListResponse } from "../contracts";
+import type { PublicGridRecord as GridRecord, PublicGridFile } from "../api/public-dto";
 import type { CombinedAuditPage } from "../service";
-import { compactId } from "./runtime";
 import { displayValue } from "./views-gql-support";
 
 export type RecordAuditResponse = { items: unknown[] };
 export type CombinedAuditResponse = CombinedAuditPage;
+export type GridFile = PublicGridFile;
 
-export type GridFile = {
+export type PublicRecordSnapshotSummary = {
   id: string;
   recordId: string;
-  fieldId: string;
-  position: number;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  sha256: string;
+  tableId: string;
   createdBy: string | null;
   createdAt: string;
 };
 
 export type GridFileListResponse = { items: GridFile[] };
+export type RecordSnapshotListResponse = { items: PublicRecordSnapshotSummary[] };
+export type PublicRecordSnapshot = PublicRecordSnapshotSummary & {
+  baseId: string;
+  root: Record<string, unknown>;
+  graph: Record<string, unknown>;
+};
+export type CreateRecordSnapshotResponse = { snapshot: PublicRecordSnapshot; created: boolean };
 
 export const gridFileRows = (items: GridFile[]) =>
   items.map((file) => ({
@@ -42,8 +44,7 @@ export const snapshotRows = (items: RecordSnapshotListResponse["items"]) =>
 
 export const recordRows = (items: GridRecord[]) =>
   items.map((record) => ({
-    id: compactId(record.id),
-    recordId: record.id,
+    id: record.id,
     version: record.version,
     updatedAt: record.updatedAt,
     ...Object.fromEntries(Object.entries(record.data).map(([key, value]) => [key, displayValue(value)])),
@@ -71,7 +72,7 @@ export const normalizeRecordImportBody = (input: unknown): { items: Record<strin
   if (items.length === 0) throw new Error("Record import JSON must contain at least one item.");
   for (const item of items) {
     if (!item || typeof item !== "object" || Array.isArray(item)) {
-      throw new Error("Each imported record must be a JSON object keyed by field UUID.");
+      throw new Error("Each imported record must be a JSON object keyed by field public id.");
     }
   }
   return { items: items as Record<string, unknown>[] };

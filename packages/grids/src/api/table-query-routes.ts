@@ -1,32 +1,29 @@
 import { createHash } from "node:crypto";
+import { ok } from "@k2b/stdlib";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, getDateConfig, jsonResponse, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
 import type { ClientErrorStatusCode, ServerErrorStatusCode } from "hono/utils/http-status";
 import { describeRoute } from "hono-openapi";
 import type { infer as ZodInfer } from "zod";
-import {
-  type ComputedColumnSpec,
-  type DslQueryPreviewResponse,
-  type GridRecord,
-  type RecordQuery,
-  TableQueryBodySchema,
-  TableQueryResponseSchema,
-} from "../contracts";
+import type { ComputedColumnSpec, DslQueryPreviewResponse, GridRecord, RecordQuery, TableQueryResponseSchema } from "../contracts";
 import { aggregateQueryToGqlSource, simpleQueryToGqlSource } from "../query-dsl/record-query-source";
 import { gridsService } from "../service";
 import { isBoundedQueryTimeoutError } from "../service/bounded-query";
 import { verifyRevisionScope } from "../service/federated-tables";
 import type { GroupAggregationSpec } from "../service/group-compiler";
 import { buildPrincipalLabelCache, principalReferencesFromRecords } from "../service/principal-values";
+import { projectPublicIds } from "../service/public-resources";
 import { validateRecordQueryForFields } from "../service/query-validation";
 import { ALL_RECORD_ACCESS, type AuthorizedRecordAccess } from "../service/record-access";
 import { compileGqlToRecordQuery, executeGqlSource } from "./gql-runtime";
 import { currentActorViewer, gateAt } from "./permissions";
+import { PublicTableQueryResponseSchema, toPublicTableQueryResponse } from "./public-dto";
+import { fromPublicRecordQuery, type PublicTableQueryBody, PublicTableQueryBodySchema } from "./public-query";
 import { queryAdmissionMiddleware } from "./query-admission";
-import { requireUuidParam } from "./route-params";
+import { publicIdParam } from "./route-params";
 
-type TableQueryBody = ZodInfer<typeof TableQueryBodySchema>;
+type TableQueryBody = Omit<PublicTableQueryBody, "query" | "filePreviewFieldIds"> & { query?: RecordQuery; filePreviewFieldIds?: string[] };
 type TableQueryResponse = ZodInfer<typeof TableQueryResponseSchema>;
 type RouteFailure = { ok: false; status: ClientErrorStatusCode | ServerErrorStatusCode; message: string };
 type RouteSuccess<T> = { ok: true; data: T };
@@ -116,8 +113,11 @@ const gridRecordForPreviewRow = (
   columns: Extract<DslQueryPreviewResponse, { ok: true }>["columns"],
   query: RecordQuery,
   tableId: string,
+  recordPublicIds: ReadonlyMap<string, string>,
 ): GridRecord | null => {
   if (!row.recordId || !row.recordMeta) return null;
+  const shortId = recordPublicIds.get(row.recordId);
+  if (!shortId) return null;
   const data: Record<string, unknown> = {};
   for (const [index, column] of columns.entries()) {
     const queryColumn = query.columns?.[index];
@@ -126,6 +126,7 @@ const gridRecordForPreviewRow = (
   }
   return {
     id: row.recordId,
+    shortId,
     tableId,
     data,
     ...row.recordMeta,
@@ -192,8 +193,12 @@ const runFederatedQuery = async (
     };
   }
 
+  const recordPublicIds = await projectPublicIds(
+    "record",
+    response.rows.flatMap((row) => (row.recordId ? [row.recordId] : [])),
+  );
   const items = response.rows.flatMap((row) => {
-    const record = gridRecordForPreviewRow(row, response.columns, pageQuery, target.table.id);
+    const record = gridRecordForPreviewRow(row, response.columns, pageQuery, target.table.id, recordPublicIds);
     return record ? [record] : [];
   });
   const relationLabels = {
@@ -268,14 +273,14 @@ const viewUiPresentation = (view: QueryView): RecordQuery => ({
 const loadQueryTarget = async (
   c: Context<AuthContext>,
   deps: TableQueryRouteDeps,
-  tableId: string,
-  viewId: string | undefined,
+  tablePublicId: string,
+  viewPublicId: string | undefined,
 ): Promise<RouteSuccess<QueryTarget> | RouteFailure> => {
-  const table = await deps.service.table.get(tableId);
+  const table = await deps.service.table.getByShortId(tablePublicId);
   if (!table) return fail(404, "Table not found");
 
-  const view = viewId ? await deps.service.view.get(viewId) : null;
-  if (viewId && (!view || view.tableId !== tableId)) return fail(404, "View not found");
+  const view = viewPublicId ? await deps.service.view.getByShortIdForTable(table.id, viewPublicId) : null;
+  if (viewPublicId && !view) return fail(404, "View not found");
 
   const gate = await deps.gate(c, { baseId: table.baseId }, "read");
   if (!gate.ok) return fail(403, gate.error.message);
@@ -441,12 +446,11 @@ export const createTableQueryRoutes = (deps: TableQueryRouteDeps = defaultDeps) 
   new Hono<AuthContext>().post(
     "/:tableId/query",
     queryAdmissionMiddleware(),
-    requireUuidParam("tableId", "Table"),
     describeRoute({
       tags: ["Grids:Table"],
       summary: "Unified query — list / aggregate / group based on RecordQuery body",
       responses: {
-        200: jsonResponse(TableQueryResponseSchema, "Query envelope"),
+        200: jsonResponse(PublicTableQueryResponseSchema, "Query envelope"),
         400: jsonResponse(ErrorResponseSchema, "Invalid query"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -454,20 +458,36 @@ export const createTableQueryRoutes = (deps: TableQueryRouteDeps = defaultDeps) 
         503: jsonResponse(ErrorResponseSchema, "Query capacity exhausted"),
       },
     }),
-    v("json", TableQueryBodySchema),
+    v("json", PublicTableQueryBodySchema),
     async (c) => {
       const body = c.req.valid("json");
-      const target = await loadQueryTarget(c, deps, c.req.param("tableId")!, body.viewId);
+      const tablePublicId = publicIdParam(c, "tableId");
+      if (!tablePublicId) return c.json({ message: "Table not found" }, 404);
+      const target = await loadQueryTarget(c, deps, tablePublicId, body.viewId);
       if (!target.ok) return c.json({ message: target.message }, target.status);
 
-      const resolved = await resolveQuery(c, deps, target.data, body);
+      const tableFields = await deps.service.field.listByTable(target.data.table.id);
+      const query = body.query
+        ? await fromPublicRecordQuery(target.data.table.id, body.query, { listFields: async () => tableFields })
+        : ok(undefined);
+      if (!query.ok) return c.json({ message: query.error.message }, query.error.status);
+      const fieldIds = new Map(tableFields.map((field) => [field.shortId, field.id]));
+      const filePreviewFieldIds = body.filePreviewFieldIds?.map((id) => fieldIds.get(id));
+      if (filePreviewFieldIds?.some((id) => !id)) return c.json({ message: "Unknown field ID" }, 400);
+      const internalBody: TableQueryBody = {
+        ...body,
+        query: query.data,
+        filePreviewFieldIds: filePreviewFieldIds?.filter((id): id is string => Boolean(id)),
+      };
+
+      const resolved = await resolveQuery(c, deps, target.data, internalBody);
       if (!resolved.ok) return c.json({ message: resolved.message }, resolved.status);
 
-      const [tableFields, dateConfig] = await Promise.all([
-        resolved.data.fields ? Promise.resolve(resolved.data.fields) : deps.service.field.listByTable(target.data.table.id),
+      const [resolvedFields, dateConfig] = await Promise.all([
+        resolved.data.fields ? Promise.resolve(resolved.data.fields) : Promise.resolve(tableFields),
         deps.dateConfig(c),
       ]);
-      const queryValid = deps.validateQuery(target.data.table.id, resolved.data.query, tableFields);
+      const queryValid = deps.validateQuery(target.data.table.id, resolved.data.query, resolvedFields);
       if (!queryValid.ok) return c.json({ message: queryValid.error.message }, queryValid.error.status);
 
       const viewer = {
@@ -477,16 +497,16 @@ export const createTableQueryRoutes = (deps: TableQueryRouteDeps = defaultDeps) 
       const params = {
         target: target.data,
         query: resolved.data.query,
-        body,
-        tableFields,
+        body: internalBody,
+        tableFields: resolvedFields,
         dateConfig,
         viewer,
         signal: c.req.raw.signal,
         dedupeKey: tableQueryExecutionKey({
           target: target.data,
           query: resolved.data.query,
-          body,
-          tableFields,
+          body: internalBody,
+          tableFields: resolvedFields,
           viewer,
           dateConfig,
         }),
@@ -498,7 +518,9 @@ export const createTableQueryRoutes = (deps: TableQueryRouteDeps = defaultDeps) 
             : resolved.data.query.groupBy?.length
               ? await runGroupedQuery(deps, params)
               : await runListQuery(deps, params);
-        return result.ok ? c.json(result.data) : c.json({ message: result.message }, result.status);
+        return result.ok
+          ? c.json(await toPublicTableQueryResponse(result.data, resolvedFields))
+          : c.json({ message: result.message }, result.status);
       } catch (error) {
         if (isBoundedQueryTimeoutError(error)) {
           c.header("Retry-After", "1");

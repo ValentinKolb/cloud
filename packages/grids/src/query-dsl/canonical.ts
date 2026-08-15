@@ -15,18 +15,22 @@ type CanonicalResult = { ok: true; source: string; plan: DslResolvedSqlQueryPlan
 type DslAggregateFormulaArgument = Extract<DslAggregateItem["argument"], { kind: "formula" }>;
 
 const sourceLine = (plan: DslResolvedSqlQueryPlan): string => {
-  const source = gqlSourceRef(plan.source.kind, plan.source.id);
+  const source = gqlSourceRef(plan.source.kind, plan.source.shortId);
   return plan.sourceAlias ? `from ${source} as ${plan.sourceAlias}` : `from ${source}`;
 };
 
 const joinLine = (join: DslResolvedRelationJoin, scope: CanonicalScope): string => {
   const mode = join.mode === "left" ? "left join" : "join";
-  const source = gqlSourceRef("table", join.tableId);
+  const source = gqlSourceRef("table", join.source.shortId);
   const fromIdRef = join.fromScope ?? scope.sourceAlias ?? undefined;
   const fromId = fromIdRef ? `${fromIdRef}.id` : "id";
-  const fromRelation = join.fromScope ? `${join.fromScope}.${gqlFieldRef(join.relationFieldId)}` : gqlFieldRef(join.relationFieldId);
-  const on =
-    join.direction === "forward" ? `${fromRelation} = ${join.alias}.id` : `${join.alias}.${gqlFieldRef(join.relationFieldId)} = ${fromId}`;
+  const relationField = Object.values(scope.fieldsByTableId)
+    .flat()
+    .find((field) => field.id === join.relationFieldId);
+  if (!relationField) throw new Error(`resolved join relation field ${join.relationFieldId} is not available`);
+  const relationRef = gqlFieldRef(relationField.shortId);
+  const fromRelation = join.fromScope ? `${join.fromScope}.${relationRef}` : relationRef;
+  const on = join.direction === "forward" ? `${fromRelation} = ${join.alias}.id` : `${join.alias}.${relationRef} = ${fromId}`;
   return `${mode} ${source} as ${join.alias} on ${on}`;
 };
 

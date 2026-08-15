@@ -7,7 +7,7 @@ import "../ssr-test-plugin";
 const { default: RecordReadView, hasRecordDetailValue } = await import("./RecordReadView");
 
 const field = (overrides: Partial<Field> & Pick<Field, "id" | "name" | "type">): Field => ({
-  shortId: overrides.id.slice(0, 5),
+  shortId: overrides.id.slice(0, 6),
   tableId: "table",
   description: null,
   config: {},

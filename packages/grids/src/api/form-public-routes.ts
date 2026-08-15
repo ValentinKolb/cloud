@@ -3,11 +3,13 @@ import { type AuthContext, jsonResponse, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
+import { ShortIdSchema } from "../contracts";
 import { gridsService } from "../service";
 import { FormSubmitSchema, PublicFormSchema, type SubmitFormDeps, submitFormResponse, toPublicForm } from "./form-api-shared";
 
 type PublicFormRoutesDeps = SubmitFormDeps & {
   getByPublicToken?: typeof gridsService.form.getByPublicToken;
+  projectForm?: typeof toPublicForm;
 };
 
 export const createPublicFormRoutes = (deps: PublicFormRoutesDeps = {}) =>
@@ -25,7 +27,7 @@ export const createPublicFormRoutes = (deps: PublicFormRoutesDeps = {}) =>
       async (context) => {
         const form = await (deps.getByPublicToken ?? gridsService.form.getByPublicToken)(context.req.param("token")!);
         if (!form) return context.json({ message: "Form not found" }, 404);
-        return context.json(toPublicForm(form));
+        return context.json(await (deps.projectForm ?? toPublicForm)(form));
       },
     )
     .post(
@@ -34,7 +36,7 @@ export const createPublicFormRoutes = (deps: PublicFormRoutesDeps = {}) =>
         tags: ["Grids:Form"],
         summary: "Submit a public form (anonymous, no auth required)",
         responses: {
-          201: jsonResponse(z.object({ recordId: z.string().uuid() }), "Created"),
+          201: jsonResponse(z.object({ recordId: ShortIdSchema }), "Created"),
           400: jsonResponse(ErrorResponseSchema, "Invalid input"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
         },

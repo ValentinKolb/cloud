@@ -1,4 +1,12 @@
-import { arg, command, confirmFlag, flag, listAccessPrincipalEntities, paginationFlags, printStructured } from "@valentinkolb/cloud/cli";
+import {
+  arg,
+  type CloudCliContext,
+  command,
+  confirmFlag,
+  flag,
+  listAccessPrincipalEntities,
+  paginationFlags,
+} from "@valentinkolb/cloud/cli";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import {
   ACCESS_RESOURCE_TYPES,
@@ -12,7 +20,7 @@ import {
   resolveAccessResource,
   resolvePrincipalForAccess,
 } from "./access-support";
-import { jsonRequest, type MessageResponse, printJsonOrMessage, printReference, readApi } from "./runtime";
+import { jsonRequest, type MessageResponse, printCliStructured, printJsonOrMessage, printReference, readApi } from "./runtime";
 
 const principalLabel = (entry: AccessEntry): string => {
   if (entry.displayName) return entry.displayName;
@@ -23,12 +31,12 @@ const principalLabel = (entry: AccessEntry): string => {
 };
 
 const printGridsAccessEntries = (
-  ctx: Parameters<typeof printStructured>[0],
+  ctx: CloudCliContext,
   resource: Awaited<ReturnType<typeof resolveAccessResource>>,
   entries: AccessEntry[],
   includeServiceAccounts: boolean,
 ) => {
-  if (printStructured(ctx, { resource, entries })) return;
+  if (printCliStructured(ctx, { resource, entries })) return;
   const rows = entries
     .filter((entry) => includeServiceAccounts || entry.principal.type !== "service_account")
     .map((entry) => ({
@@ -265,7 +273,7 @@ export const accessCommands = [
         page: flags.page,
         perPage: flags.perPage,
       });
-      if (printStructured(ctx, payload)) return;
+      if (printCliStructured(ctx, payload)) return;
       ctx.table(
         payload.items.map((item) => {
           if (item.kind === "user") {

@@ -1,6 +1,6 @@
-import { NoticeCard, Button, IconButton, Placeholder, prompts, Select, Tag, Tooltip } from "@k2b/ui";
+import { Button, IconButton, NoticeCard, Placeholder, prompts, Select, Tag, Tooltip } from "@k2b/ui";
 import { createMemo, createSignal, Index, Show } from "solid-js";
-import type { Field } from "../../../service";
+import type { PublicField as Field } from "../../../api/public-dto";
 import type { FormFieldEntry } from "../../../service/forms";
 import { isRecordInputField } from "../fields/field-render";
 import { fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";

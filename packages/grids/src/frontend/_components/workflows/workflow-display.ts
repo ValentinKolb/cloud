@@ -1,7 +1,7 @@
 import type { StatusTone } from "@k2b/ui";
-import type { GridsWorkflowChannel, GridsWorkflowRun, GridsWorkflowStepRun } from "../../../workflows/contracts";
+import type { PublicWorkflowRun, PublicWorkflowStepRun } from "../workspace/workspace-public-state-model";
 
-export const channelLabels: Record<GridsWorkflowChannel, string> = {
+export const channelLabels: Record<PublicWorkflowRun["channel"], string> = {
   api: "API",
   customApp: "App",
   scanner: "Scanner",
@@ -10,7 +10,7 @@ export const channelLabels: Record<GridsWorkflowChannel, string> = {
   recordEvent: "Record event",
 };
 
-export const workflowRunStatusTone = (status: GridsWorkflowRun["status"] | string): StatusTone =>
+export const workflowRunStatusTone = (status: PublicWorkflowRun["status"] | string): StatusTone =>
   status === "succeeded"
     ? "ok"
     : status === "failed" || status === "canceled" || status === "needs_attention"
@@ -26,7 +26,7 @@ export const workflowRunStatusTone = (status: GridsWorkflowRun["status"] | strin
  * "planned"; neither is "succeeded", which is a run's word. Reusing the run's
  * mapping here rendered every finished step in the neutral "still going" badge.
  */
-export const workflowStepStatusTone = (status: GridsWorkflowStepRun["status"] | string): StatusTone =>
+export const workflowStepStatusTone = (status: PublicWorkflowStepRun["status"] | string): StatusTone =>
   status === "completed" || status === "planned" || status === "terminal"
     ? "ok"
     : status === "failed" || status === "canceled" || status === "needs_attention" || status === "unsupported"
@@ -40,19 +40,19 @@ export const workflowStepStatusTone = (status: GridsWorkflowStepRun["status"] | 
  * status as a word rather than a badge. Kept next to the badge mapping so the
  * two cannot drift on which states count as finished.
  */
-export const workflowStepStatusTextClass = (status: GridsWorkflowStepRun["status"] | string) =>
+export const workflowStepStatusTextClass = (status: PublicWorkflowStepRun["status"] | string) =>
   status === "completed" || status === "planned" || status === "terminal"
     ? "text-emerald-700 dark:text-emerald-300"
     : status === "failed" || status === "canceled" || status === "needs_attention" || status === "unsupported"
       ? "text-red-700 dark:text-red-300"
       : "text-blue-700 dark:text-blue-300";
 
-export const isTerminalWorkflowRunStatus = (status: GridsWorkflowRun["status"]): boolean =>
+export const isTerminalWorkflowRunStatus = (status: PublicWorkflowRun["status"]): boolean =>
   status === "succeeded" || status === "failed" || status === "canceled" || status === "needs_attention";
 
 export const formatWorkflowRunDate = (value: string | null) => (value ? new Date(value).toLocaleString() : "-");
 
-export const formatWorkflowRunDuration = (run: Pick<GridsWorkflowRun, "startedAt" | "finishedAt">): string => {
+export const formatWorkflowRunDuration = (run: Pick<PublicWorkflowRun, "startedAt" | "finishedAt">): string => {
   if (!run.startedAt || !run.finishedAt) return "-";
   const ms = new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime();
   if (!Number.isFinite(ms) || ms < 0) return "-";

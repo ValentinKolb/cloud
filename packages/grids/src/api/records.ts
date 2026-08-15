@@ -1,43 +1,52 @@
-import { err, fail, ok } from "@k2b/stdlib";
+import { err, fail } from "@k2b/stdlib";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, getDateConfig, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { ExportBodySchema, GridRecordSchema, RecordOperationBodySchema, RecordPayloadSchema, RecordUpdateBodySchema } from "../contracts";
+import { RecordOperationBodySchema, RecordPayloadSchema, RecordUpdateBodySchema, ShortIdSchema } from "../contracts";
 import { gridsService } from "../service";
 import { DEFAULT_MAX_FILE_SIZE_MB, getMaxFileSizeBytes } from "../service/file-limits";
+import { fromPublicRecordValues, resolvePublicId } from "../service/public-resources";
 import { validateRecordQueryForTable } from "../service/query-validation";
 import { ALL_RECORD_ACCESS } from "../service/record-access";
 import { currentActorUserId, currentActorViewer, gateAt } from "./permissions";
-import { requireUuidParam } from "./route-params";
+import {
+  PublicCombinedAuditPageSchema,
+  PublicRecordHistoryEntrySchema,
+  toPublicAuditEntries,
+  toPublicCombinedAuditPage,
+} from "./public-audit";
+import {
+  PublicGridFileSchema,
+  PublicGridRecordSchema,
+  PublicRecordCommentSchema,
+  toPublicComment,
+  toPublicComments,
+  toPublicFile,
+  toPublicFiles,
+  toPublicRecord,
+  toPublicRecords,
+} from "./public-dto";
+import { fromPublicExportBody, PublicExportBodySchema } from "./public-query";
+import { internalIdParam, requirePublicIdParam, requireStoredPublicIdParam } from "./route-params";
 
 const RecordImportBodySchema = z.object({
   items: z.array(RecordPayloadSchema).min(1).max(500),
 });
 
 const RecordImportResponseSchema = z.object({
-  items: z.array(GridRecordSchema),
+  items: z.array(PublicGridRecordSchema),
 });
 
 const RecordCommentBodySchema = z.object({ body: z.string().max(10_000) }).strict();
-const RecordCommentSchema = z.object({
-  id: z.string().uuid(),
-  authorUserId: z.string().uuid().nullable(),
-  authorDisplayName: z.string(),
-  authorAvatarHash: z.string().nullable(),
-  body: z.string().nullable(),
-  deletedAt: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
 const RecordCommentPermissionsSchema = z.object({
   actorUserId: z.string().uuid().nullable(),
   canWrite: z.boolean(),
   canModerate: z.boolean(),
 });
 const RecordCommentPageSchema = z.object({
-  items: z.array(RecordCommentSchema),
+  items: z.array(PublicRecordCommentSchema),
   nextCursor: z.string().nullable(),
   permissions: RecordCommentPermissionsSchema,
 });
@@ -49,26 +58,13 @@ const RecordCommentListQuerySchema = z
   .strict();
 
 const CombinedAuditQuerySchema = z.object({
-  recordId: z.string().uuid().optional(),
+  recordId: ShortIdSchema.optional(),
   sourceRef: z.string().max(20).optional(),
   action: z.enum(["created", "updated", "deleted", "restored", "imported"]).optional(),
   from: z.string().datetime({ offset: true }).optional(),
   to: z.string().datetime({ offset: true }).optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
   cursor: z.string().max(2_000).optional(),
-});
-
-const GridFileSchema = z.object({
-  id: z.string().uuid(),
-  recordId: z.string().uuid(),
-  fieldId: z.string().uuid(),
-  position: z.number().int(),
-  filename: z.string(),
-  mimeType: z.string(),
-  sizeBytes: z.number().int(),
-  sha256: z.string(),
-  createdBy: z.string().uuid().nullable(),
-  createdAt: z.string(),
 });
 
 const app = new Hono<AuthContext>()
@@ -80,14 +76,14 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/:tableId/:recordId/files/:fieldId",
-    requireUuidParam("tableId", "Table"),
-    requireUuidParam("recordId", "Record"),
-    requireUuidParam("fieldId", "Field"),
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
+    requirePublicIdParam("fieldId", "field", "Field"),
     describeRoute({
       tags: ["Grids:File"],
       summary: "List files for a file field on a record",
       responses: {
-        200: jsonResponse(z.object({ items: z.array(GridFileSchema) }), "Files"),
+        200: jsonResponse(z.object({ items: z.array(PublicGridFileSchema) }), "Files"),
         400: jsonResponse(ErrorResponseSchema, "Invalid file field"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -95,9 +91,9 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
-      const recordId = c.req.param("recordId")!;
-      const fieldId = c.req.param("fieldId")!;
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
+      const fieldId = internalIdParam(c, "fieldId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "read");
@@ -106,21 +102,21 @@ const app = new Hono<AuthContext>()
       if (!visibleRecord) return c.json({ message: "Record not found" }, 404);
       const result = await gridsService.file.listForRecordField({ tableId, recordId, fieldId });
       if (!result.ok) return respond(c, () => Promise.resolve(result));
-      return respond(c, ok({ items: result.data }));
+      return c.json({ items: await toPublicFiles(result.data) });
     },
   )
 
   .post(
     "/:tableId/:recordId/files/:fieldId",
-    requireUuidParam("tableId", "Table"),
-    requireUuidParam("recordId", "Record"),
-    requireUuidParam("fieldId", "Field"),
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
+    requirePublicIdParam("fieldId", "field", "Field"),
     describeRoute({
       tags: ["Grids:File"],
       summary: "Upload a file to a record file field",
       description: `Stores a small file directly in Postgres bytea. Max size is configurable via \`grids.max_file_size_mb\` (default ${DEFAULT_MAX_FILE_SIZE_MB} MB).`,
       responses: {
-        200: jsonResponse(GridFileSchema, "Uploaded file metadata"),
+        200: jsonResponse(PublicGridFileSchema, "Uploaded file metadata"),
         400: jsonResponse(ErrorResponseSchema, "Invalid upload"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -128,9 +124,9 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
-      const recordId = c.req.param("recordId")!;
-      const fieldId = c.req.param("fieldId")!;
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
+      const fieldId = internalIdParam(c, "fieldId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "write");
@@ -156,16 +152,16 @@ const app = new Hono<AuthContext>()
         bytes: new Uint8Array(await file.arrayBuffer()),
         userId: currentActorUserId(c),
       });
-      return respond(c, () => Promise.resolve(result));
+      return result.ok ? c.json(await toPublicFile(result.data)) : respond(c, () => Promise.resolve(result));
     },
   )
 
   .get(
     "/:tableId/:recordId/files/:fieldId/:fileId/content",
-    requireUuidParam("tableId", "Table"),
-    requireUuidParam("recordId", "Record"),
-    requireUuidParam("fieldId", "Field"),
-    requireUuidParam("fileId", "File"),
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
+    requirePublicIdParam("fieldId", "field", "Field"),
+    requirePublicIdParam("fileId", "file", "File"),
     describeRoute({
       tags: ["Grids:File"],
       summary: "Download a file field blob",
@@ -178,10 +174,10 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
-      const recordId = c.req.param("recordId")!;
-      const fieldId = c.req.param("fieldId")!;
-      const fileId = c.req.param("fileId")!;
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
+      const fieldId = internalIdParam(c, "fieldId")!;
+      const fileId = internalIdParam(c, "fileId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "read");
@@ -205,10 +201,10 @@ const app = new Hono<AuthContext>()
 
   .delete(
     "/:tableId/:recordId/files/:fieldId/:fileId",
-    requireUuidParam("tableId", "Table"),
-    requireUuidParam("recordId", "Record"),
-    requireUuidParam("fieldId", "Field"),
-    requireUuidParam("fileId", "File"),
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
+    requirePublicIdParam("fieldId", "field", "Field"),
+    requirePublicIdParam("fileId", "file", "File"),
     describeRoute({
       tags: ["Grids:File"],
       summary: "Delete a file field blob",
@@ -219,10 +215,10 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
-      const recordId = c.req.param("recordId")!;
-      const fieldId = c.req.param("fieldId")!;
-      const fileId = c.req.param("fileId")!;
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
+      const fieldId = internalIdParam(c, "fieldId")!;
+      const fileId = internalIdParam(c, "fileId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "write");
@@ -237,12 +233,12 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/by-table/:tableId",
-    requireUuidParam("tableId", "Table"),
+    requirePublicIdParam("tableId", "table", "Table"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Create a record",
       responses: {
-        201: jsonResponse(GridRecordSchema, "Created"),
+        201: jsonResponse(PublicGridRecordSchema, "Created"),
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -251,27 +247,28 @@ const app = new Hono<AuthContext>()
     }),
     v("json", RecordPayloadSchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "write");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(
-        c,
-        async () =>
-          gridsService.record.create(tableId, c.req.valid("json"), currentActorUserId(c), {
-            dateConfig: await getDateConfig(c),
-            viewer: currentActorViewer(c),
-            recordAccess: ALL_RECORD_ACCESS,
-          }),
-        201,
-      );
+      const fields = await gridsService.field.listByTable(tableId);
+      const values = await fromPublicRecordValues(tableId, c.req.valid("json"));
+      if (!values.ok) return c.json({ message: values.error.message }, values.error.status);
+      const result = await gridsService.record.create(tableId, values.data, currentActorUserId(c), {
+        dateConfig: await getDateConfig(c),
+        viewer: currentActorViewer(c),
+        recordAccess: ALL_RECORD_ACCESS,
+      });
+      return result.ok
+        ? c.json(await toPublicRecord(result.data, fields), 201)
+        : c.json({ message: result.error.message }, result.error.status);
     },
   )
 
   .post(
     "/by-table/:tableId/import",
-    requireUuidParam("tableId", "Table"),
+    requirePublicIdParam("tableId", "table", "Table"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Import records atomically from JSON payloads",
@@ -286,35 +283,40 @@ const app = new Hono<AuthContext>()
     }),
     v("json", RecordImportBodySchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "write");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(
-        c,
-        async () => {
-          const result = await gridsService.record.createMany(tableId, c.req.valid("json").items, currentActorUserId(c), {
-            dateConfig: await getDateConfig(c),
-            viewer: currentActorViewer(c),
-            recordAccess: ALL_RECORD_ACCESS,
-          });
-          return result.ok ? ok({ items: result.data }) : result;
+      const fields = await gridsService.field.listByTable(tableId);
+      const items = await Promise.all(c.req.valid("json").items.map((item) => fromPublicRecordValues(tableId, item)));
+      const invalid = items.find((item) => !item.ok);
+      if (invalid && !invalid.ok) return c.json({ message: invalid.error.message }, invalid.error.status);
+      const result = await gridsService.record.createMany(
+        tableId,
+        items.flatMap((item) => (item.ok ? [item.data] : [])),
+        currentActorUserId(c),
+        {
+          dateConfig: await getDateConfig(c),
+          viewer: currentActorViewer(c),
+          recordAccess: ALL_RECORD_ACCESS,
         },
-        201,
       );
+      return result.ok
+        ? c.json({ items: await toPublicRecords(result.data, fields) }, 201)
+        : c.json({ message: result.error.message }, result.error.status);
     },
   )
 
   .get(
     "/:tableId/:recordId",
-    requireUuidParam("tableId", "Table"),
-    requireUuidParam("recordId", "Record"),
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Get a record",
       responses: {
-        200: jsonResponse(GridRecordSchema, "Record"),
+        200: jsonResponse(PublicGridRecordSchema, "Record"),
         400: jsonResponse(ErrorResponseSchema, "Invalid query"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -330,8 +332,8 @@ const app = new Hono<AuthContext>()
         .refine((query) => !(query.includeDeleted && query.deletedOnly), "Choose includeDeleted or deletedOnly, not both"),
     ),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
-      const recordId = c.req.param("recordId")!;
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "read");
@@ -343,19 +345,20 @@ const app = new Hono<AuthContext>()
         deleted: c.req.valid("query").deletedOnly ? "only" : c.req.valid("query").includeDeleted ? "include" : "live",
       });
       if (!record) return c.json({ message: "Record not found" }, 404);
-      return c.json(record);
+      const fields = await gridsService.field.listByTable(tableId);
+      return c.json(await toPublicRecord(record, fields));
     },
   )
 
   .patch(
     "/:tableId/:recordId",
-    requireUuidParam("tableId", "Table"),
-    requireUuidParam("recordId", "Record"),
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Update a record (optimistic lock via If-Match: <version>)",
       responses: {
-        200: jsonResponse(GridRecordSchema, "Updated"),
+        200: jsonResponse(PublicGridRecordSchema, "Updated"),
         400: jsonResponse(ErrorResponseSchema, "Invalid input or missing audit answers"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -364,8 +367,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", RecordUpdateBodySchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
-      const recordId = c.req.param("recordId")!;
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "write");
@@ -373,21 +376,23 @@ const app = new Hono<AuthContext>()
       const ifMatchHeader = c.req.header("If-Match");
       const ifMatchVersion = ifMatchHeader ? Number(ifMatchHeader) : undefined;
       const body = c.req.valid("json");
-      return respond(c, async () =>
-        gridsService.record.update(tableId, recordId, body.values, currentActorUserId(c), ifMatchVersion, {
-          dateConfig: await getDateConfig(c),
-          viewer: currentActorViewer(c),
-          audit: body.audit,
-          recordAccess: ALL_RECORD_ACCESS,
-        }),
-      );
+      const fields = await gridsService.field.listByTable(tableId);
+      const values = await fromPublicRecordValues(tableId, body.values);
+      if (!values.ok) return c.json({ message: values.error.message }, values.error.status);
+      const result = await gridsService.record.update(tableId, recordId, values.data, currentActorUserId(c), ifMatchVersion, {
+        dateConfig: await getDateConfig(c),
+        viewer: currentActorViewer(c),
+        audit: body.audit,
+        recordAccess: ALL_RECORD_ACCESS,
+      });
+      return result.ok ? c.json(await toPublicRecord(result.data, fields)) : c.json({ message: result.error.message }, result.error.status);
     },
   )
 
   .post(
     "/:tableId/:recordId/trash",
-    requireUuidParam("tableId", "Table"),
-    requireUuidParam("recordId", "Record"),
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Move a record to trash",
@@ -400,8 +405,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", RecordOperationBodySchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
-      const recordId = c.req.param("recordId")!;
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "write");
@@ -420,7 +425,7 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/by-table/:tableId/export",
-    requireUuidParam("tableId", "Table"),
+    requirePublicIdParam("tableId", "table", "Table"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Export records with configurable fields and relation expansion",
@@ -432,27 +437,29 @@ const app = new Hono<AuthContext>()
         409: jsonResponse(ErrorResponseSchema, "Publication changed"),
       },
     }),
-    v("json", ExportBodySchema),
+    v("json", PublicExportBodySchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
 
-      const body = c.req.valid("json");
-      const queryValid = await validateRecordQueryForTable(tableId, body.query);
+      const publicBody = c.req.valid("json");
+      const body = await fromPublicExportBody(tableId, publicBody);
+      if (!body.ok) return c.json({ message: body.error.message }, body.error.status);
+      const queryValid = await validateRecordQueryForTable(tableId, body.data.query);
       if (!queryValid.ok) return c.json({ message: queryValid.error.message }, queryValid.error.status);
-      if ((body.query.groupBy?.length ?? 0) > 0) {
+      if ((body.data.query.groupBy?.length ?? 0) > 0) {
         return c.json({ message: "Grouped exports are not supported yet. Clear Group before exporting." }, 400);
       }
       const result = await gridsService.exporter.exportRecords({
         tableId,
-        format: body.format,
-        query: body.query,
-        fields: body.fields,
-        csv: body.csv,
-        markdown: body.markdown,
+        format: body.data.format,
+        query: body.data.query,
+        fields: body.data.fields,
+        csv: body.data.csv,
+        markdown: body.data.markdown,
         dateConfig: await getDateConfig(c),
         viewer: currentActorViewer(c),
         recordAccess: ALL_RECORD_ACCESS,
@@ -474,7 +481,7 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/by-table/:tableId/audit",
-    requireUuidParam("tableId", "Table"),
+    requirePublicIdParam("tableId", "table", "Table"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Browse a Combined table's published record audit",
@@ -482,7 +489,7 @@ const app = new Hono<AuthContext>()
         "Returns a cursor-paginated audit feed projected through the active Combined publication. " +
         "Only canonical fields, safe source labels, actors, lifecycle actions, and declared audit answers are returned.",
       responses: {
-        200: { description: "Published Combined audit page" },
+        200: jsonResponse(PublicCombinedAuditPageSchema, "Published Combined audit page"),
         400: jsonResponse(ErrorResponseSchema, "Invalid filter"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -491,24 +498,30 @@ const app = new Hono<AuthContext>()
     }),
     v("query", CombinedAuditQuerySchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table || table.kind !== "federated") return c.json({ message: "Combined table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const query = c.req.valid("query");
+      const resolvedRecordId = query.recordId ? await resolvePublicId("record", query.recordId) : undefined;
+      if (query.recordId && !resolvedRecordId) return c.json({ message: "Record not found" }, 404);
       const result = await gridsService.audit.combined.list({
         tableId,
-        ...c.req.valid("query"),
+        ...query,
+        recordId: resolvedRecordId ?? undefined,
         recordAccess: ALL_RECORD_ACCESS,
       });
-      return respond(c, () => Promise.resolve(result));
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      const fields = await gridsService.field.listByTable(tableId);
+      return c.json(await toPublicCombinedAuditPage(result.data, fields));
     },
   )
 
   .post(
     "/:tableId/:recordId/restore",
-    requireUuidParam("tableId", "Table"),
-    requireUuidParam("recordId", "Record"),
+    requirePublicIdParam("tableId", "table", "Table"),
+    requireStoredPublicIdParam("recordId", "record", "Record"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Restore a soft-deleted record",
@@ -522,8 +535,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", RecordOperationBodySchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
-      const recordId = c.req.param("recordId")!;
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "write");
@@ -542,8 +555,8 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/:tableId/:recordId/comments",
-    requireUuidParam("tableId", "Table"),
-    requireUuidParam("recordId", "Record"),
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "List comments for a record",
@@ -556,8 +569,8 @@ const app = new Hono<AuthContext>()
     }),
     v("query", RecordCommentListQuerySchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
-      const recordId = c.req.param("recordId")!;
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "read");
@@ -572,6 +585,7 @@ const app = new Hono<AuthContext>()
       if (!result.ok) return respond(c, () => Promise.resolve(result));
       return c.json({
         ...result.data,
+        items: toPublicComments(result.data.items),
         permissions: {
           actorUserId: currentActorUserId(c),
           canWrite: gridsService.permission.hasAtLeast(gate.data, "write"),
@@ -583,13 +597,13 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/:tableId/:recordId/comments",
-    requireUuidParam("tableId", "Table"),
-    requireUuidParam("recordId", "Record"),
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Add a comment to a record",
       responses: {
-        201: jsonResponse(RecordCommentSchema, "Created comment"),
+        201: jsonResponse(PublicRecordCommentSchema, "Created comment"),
         400: jsonResponse(ErrorResponseSchema, "Invalid comment"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -597,8 +611,8 @@ const app = new Hono<AuthContext>()
     }),
     v("json", RecordCommentBodySchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
-      const recordId = c.req.param("recordId")!;
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "write");
@@ -612,20 +626,20 @@ const app = new Hono<AuthContext>()
         recordAccess: ALL_RECORD_ACCESS,
       });
       if (!result.ok) return respond(c, () => Promise.resolve(result));
-      return c.json(result.data, 201);
+      return c.json(toPublicComment(result.data), 201);
     },
   )
 
   .patch(
     "/:tableId/:recordId/comments/:commentId",
-    requireUuidParam("tableId", "Table"),
-    requireUuidParam("recordId", "Record"),
-    requireUuidParam("commentId", "Comment"),
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
+    requirePublicIdParam("commentId", "comment", "Comment"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Edit a record comment",
       responses: {
-        200: jsonResponse(RecordCommentSchema, "Updated comment"),
+        200: jsonResponse(PublicRecordCommentSchema, "Updated comment"),
         400: jsonResponse(ErrorResponseSchema, "Invalid comment"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -633,34 +647,33 @@ const app = new Hono<AuthContext>()
     }),
     v("json", RecordCommentBodySchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
-      const recordId = c.req.param("recordId")!;
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "write");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const record = await gridsService.record.get(tableId, recordId, { recordAccess: ALL_RECORD_ACCESS });
       if (!record) return c.json({ message: "Record not found" }, 404);
-      return respond(c, () =>
-        gridsService.record.comments.update({
-          baseId: table.baseId,
-          tableId,
-          recordId,
-          commentId: c.req.param("commentId")!,
-          actorUserId: currentActorUserId(c),
-          canModerate: gate.data === "admin",
-          body: c.req.valid("json").body,
-          recordAccess: ALL_RECORD_ACCESS,
-        }),
-      );
+      const result = await gridsService.record.comments.update({
+        baseId: table.baseId,
+        tableId,
+        recordId,
+        commentId: internalIdParam(c, "commentId")!,
+        actorUserId: currentActorUserId(c),
+        canModerate: gate.data === "admin",
+        body: c.req.valid("json").body,
+        recordAccess: ALL_RECORD_ACCESS,
+      });
+      return result.ok ? c.json(toPublicComment(result.data)) : c.json({ message: result.error.message }, result.error.status);
     },
   )
 
   .delete(
     "/:tableId/:recordId/comments/:commentId",
-    requireUuidParam("tableId", "Table"),
-    requireUuidParam("recordId", "Record"),
-    requireUuidParam("commentId", "Comment"),
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
+    requirePublicIdParam("commentId", "comment", "Comment"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "Delete a record comment",
@@ -671,8 +684,8 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
-      const recordId = c.req.param("recordId")!;
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "write");
@@ -683,7 +696,7 @@ const app = new Hono<AuthContext>()
         baseId: table.baseId,
         tableId,
         recordId,
-        commentId: c.req.param("commentId")!,
+        commentId: internalIdParam(c, "commentId")!,
         actorUserId: currentActorUserId(c),
         canModerate: gate.data === "admin",
         recordAccess: ALL_RECORD_ACCESS,
@@ -695,8 +708,8 @@ const app = new Hono<AuthContext>()
 
   .get(
     "/:tableId/:recordId/audit",
-    requireUuidParam("tableId", "Table"),
-    requireUuidParam("recordId", "Record"),
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
     describeRoute({
       tags: ["Grids:Record"],
       summary: "List audit entries for a record",
@@ -704,14 +717,14 @@ const app = new Hono<AuthContext>()
         "Returns the most-recent 50 entries from grids.audit_log for the record, " +
         "with the actor's display name resolved. Newest first.",
       responses: {
-        200: { description: "Audit entries" },
+        200: jsonResponse(z.object({ items: z.array(PublicRecordHistoryEntrySchema) }), "Audit entries"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
-      const recordId = c.req.param("recordId")!;
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "read");
@@ -719,7 +732,8 @@ const app = new Hono<AuthContext>()
       const visibleRecord = await gridsService.record.get(tableId, recordId, { recordAccess: ALL_RECORD_ACCESS });
       if (!visibleRecord) return c.json({ message: "Record not found" }, 404);
       const items = await gridsService.audit.listByRecord(tableId, recordId, 50);
-      return c.json({ items });
+      const fields = await gridsService.field.listByTable(tableId);
+      return c.json({ items: await toPublicAuditEntries(items, fields) });
     },
   );
 

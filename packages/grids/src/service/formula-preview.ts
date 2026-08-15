@@ -40,6 +40,7 @@ type FormulaPreviewResult = {
 
 const mapRow = (row: DbRow): GridRecord => ({
   id: row.id as string,
+  shortId: row.short_id as string,
   tableId: row.table_id as string,
   data: parseJsonbRow<Record<string, unknown>>(row.data, {}),
   version: row.version as number,

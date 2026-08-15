@@ -1,7 +1,7 @@
-schemaVersion: 4
+schemaVersion: 5
 kind: grids.custom-app
-id: 10000000-0000-4000-8000-000000000102
-baseId: 10000000-0000-4000-8000-000000000001
+id: c00102
+baseId: c00001
 name: Certificate review
 icon: certificate
 startPageId: queue
@@ -32,9 +32,9 @@ pages:
                 source:
                   kind: gql
                   query: |
-                    from table {10000000-0000-4000-8000-000000000201}
-                    where {10000000-0000-4000-8000-000000000304} = 'pending'
-                    select {10000000-0000-4000-8000-000000000301}, {10000000-0000-4000-8000-000000000303}, {10000000-0000-4000-8000-000000000304}
+                    from table {c00201}
+                    where {c00304} = 'pending'
+                    select {c00301}, {c00303}, {c00304}
                     sort record.createdAt asc
                 display:
                   kind: table
@@ -53,10 +53,10 @@ pages:
     parameters:
       request_id:
         type: record
-        tableId: 10000000-0000-4000-8000-000000000201
+        tableId: c00201
         required: true
     record:
-      tableId: 10000000-0000-4000-8000-000000000201
+      tableId: c00201
       id: { source: PARAMS, path: request_id }
     rows:
       - id: detail
@@ -68,14 +68,14 @@ pages:
                 type: record
                 title: Certificate request
                 fieldIds:
-                  - 10000000-0000-4000-8000-000000000301
-                  - 10000000-0000-4000-8000-000000000302
-                  - 10000000-0000-4000-8000-000000000303
-                  - 10000000-0000-4000-8000-000000000304
+                  - c00301
+                  - c00302
+                  - c00303
+                  - c00304
                 editableFieldIds: []
                 documents:
                   templateIds:
-                    - 10000000-0000-4000-8000-000000000601
+                    - c00601
           - id: review
             span: 4
             blocks:
@@ -87,14 +87,14 @@ pages:
                     label: Approve and generate certificate
                     icon: certificate
                     kind: workflow
-                    launcherId: 10000000-0000-4000-8000-000000000802
+                    launcherId: c00802
                     inputs:
                       request: { source: RECORD, path: id }
                     confirm: Approve this request and generate its certificate?
                     availableWhen:
                       query: |
-                        from table {10000000-0000-4000-8000-000000000201}
-                        where record.id = @params.request_id and {10000000-0000-4000-8000-000000000304} = 'pending'
+                        from table {c00201}
+                        where record.id = @params.request_id and {c00304} = 'pending'
                         limit 1
               - id: comments
                 type: comments

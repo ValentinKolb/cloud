@@ -1,5 +1,6 @@
 import type { BarItem, Point, Series, SliceItem } from "@k2b/stdlib";
-import type { AggregationSpec, Field, GroupBySpec } from "../../contracts";
+import type { PublicField as Field } from "../../api/public-dto";
+import type { AggregationSpec, GroupBySpec } from "../../contracts";
 
 /**
  * Transforms `record.group()` buckets into the shapes the platform

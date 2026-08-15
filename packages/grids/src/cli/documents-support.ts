@@ -1,19 +1,12 @@
 import type { CliInputFlagValue, CloudCliContext } from "@valentinkolb/cloud/cli";
 import { flag } from "@valentinkolb/cloud/cli";
-import type {
-  Base,
-  DocumentLink,
-  DocumentRunBrowseResponse,
-  DocumentRunSummary,
-  DocumentTemplate,
-  DocumentTemplateSummary,
-  Table,
-} from "../contracts";
-import { listTables, resolveBaseFromCommand, resolveTable, UUID_RE } from "./resources";
-import { applyDefined, exactMatch, queryString, readApi, readJsonInput, readTextInput } from "./runtime";
+import type { PublicBase as Base, PublicTable as Table } from "../api/public-dto";
+import type { DocumentLink, DocumentRunBrowseResponse, DocumentRunSummary, DocumentTemplate, DocumentTemplateSummary } from "../contracts";
+import { resolveBaseFromCommand, resolveNamedResource, resolveTable } from "./resources";
+import { applyDefined, queryString, readApi, readJsonInput, readTextInput } from "./runtime";
 
 export const documentTemplateFlag = {
-  template: flag.string({ description: "Document template id, short id, or exact name" }),
+  template: flag.string({ description: "Document template public id or exact name" }),
 };
 
 export const DOCUMENT_TEMPLATE_REFERENCE = {
@@ -34,9 +27,10 @@ export const DOCUMENT_TEMPLATE_REFERENCE = {
     "rows",
     "columns",
     "table.name",
+    "template.id",
     "template.name",
     "document.number",
-    "run.shortId",
+    "run.id",
     "generatedAt",
     "app.name",
     "app.logo",
@@ -63,57 +57,27 @@ export const listDocumentTemplates = (
         `/documents/templates/by-table/${encodeURIComponent(tableId)}${queryString({ min: options.min ?? "read" })}`,
       );
 
-const getDocumentTemplateById = (ctx: CloudCliContext, templateId: string): Promise<DocumentTemplate> =>
-  readApi<DocumentTemplate>(ctx, `/documents/templates/${encodeURIComponent(templateId)}`);
-
-const assertDocumentTemplateScope = async (ctx: CloudCliContext, base: Base, table: Table | null, template: DocumentTemplate) => {
-  if (table) {
-    if (template.tableId !== table.id) throw new Error("Document template does not belong to the selected table.");
-    return;
-  }
-  const tables = await listTables(ctx, base.id);
-  if (!tables.some((item) => item.id === template.tableId)) throw new Error("Document template does not belong to the selected base.");
-};
-
-export const resolveDocumentTemplate = async (
-  ctx: CloudCliContext,
-  base: Base,
-  table: Table | null,
-  ref: string,
-): Promise<DocumentTemplate> => {
-  if (UUID_RE.test(ref)) {
-    const template = await getDocumentTemplateById(ctx, ref);
-    await assertDocumentTemplateScope(ctx, base, table, template);
-    return template;
-  }
-  if (!table) throw new Error("Resolving a document template by name or short id requires --table.");
-  const summary = exactMatch(
-    await listDocumentTemplates(ctx, table.id, { full: true }),
-    ref,
-    [(template) => template.id, (template) => template.shortId, (template) => template.name],
-    "document template",
-    (template) => `${template.name} (${template.shortId})`,
-  );
+export const resolveDocumentTemplate = async (ctx: CloudCliContext, table: Table | null, ref: string): Promise<DocumentTemplate> => {
+  if (!table) throw new Error("Resolving a document template requires --table because names and ids are table-scoped.");
+  const summary = resolveNamedResource(await listDocumentTemplates(ctx, table.id, { full: true }), ref, "document template");
   return summary as DocumentTemplate;
 };
 
 export const documentTemplateRows = (items: Array<DocumentTemplate | DocumentTemplateSummary>) =>
   items.map((template) => ({
-    shortId: template.shortId,
+    id: template.id,
     name: template.name,
     enabled: template.enabled ? "yes" : "no",
     updatedAt: template.updatedAt,
-    id: template.id,
   }));
 
 export const documentRunRows = (items: DocumentRunSummary[]) =>
   items.map((run) => ({
-    shortId: run.shortId,
+    id: run.id,
     number: run.documentNumber,
     filename: run.filename,
     tags: run.tags.join(", "),
     generatedAt: run.generatedAt,
-    id: run.id,
   }));
 
 export const documentFolderRows = (items: DocumentRunBrowseResponse["folders"]) =>
@@ -193,5 +157,5 @@ export const resolveDocumentTemplateFromCommand = async (
       : null;
   const templateRef = refs.template ?? (table ? rest[1] : rest[0]);
   if (!templateRef) throw new Error("Missing document template.");
-  return { base, table, template: await resolveDocumentTemplate(ctx, base, table, templateRef) };
+  return { base, table, template: await resolveDocumentTemplate(ctx, table, templateRef) };
 };

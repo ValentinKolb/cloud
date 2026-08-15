@@ -1,5 +1,6 @@
 import { type Accessor, createEffect, createResource, createSignal, onCleanup } from "solid-js";
-import type { RecordQuery, TableQueryResult } from "../../../contracts";
+import type { PublicTableQueryResult as TableQueryResult } from "../../../api/public-dto";
+import type { RecordQuery } from "../../../contracts";
 import { fetchTableQuery } from "./fetcher";
 
 export type RecordsQuerySource = {

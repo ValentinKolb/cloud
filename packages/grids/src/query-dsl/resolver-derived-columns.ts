@@ -13,6 +13,7 @@ import type { DslSourceSpan } from "./types";
 export type DslDerivedViewColumn = {
   kind: "group" | "aggregate";
   key: string;
+  publicKey?: string;
   label: string;
   refs: string[];
   sqlType: FormulaSqlType | "json";
@@ -54,8 +55,9 @@ export const derivedViewColumns = (query: RecordQuery, fields: Field[]): DslDeri
     columns.push({
       kind: "group",
       key,
+      publicKey: key,
       label,
-      refs: uniqueRefs([key, label, field.id, field.shortId, field.name]),
+      refs: uniqueRefs([key, label, field.shortId, field.name]),
       fieldId: field.id,
       ...(targetTableId ? { targetTableId } : {}),
       type: field.type,
@@ -67,14 +69,16 @@ export const derivedViewColumns = (query: RecordQuery, fields: Field[]): DslDeri
     const field = aggregation.fieldId === "*" ? null : fieldsById.get(aggregation.fieldId);
     if (aggregation.fieldId !== "*" && !field) return diagnostic(`view source aggregate field ${aggregation.fieldId} is not available`);
     const key = aggregateOutputKey(aggregation.fieldId, aggregation.agg);
+    const publicKey = aggregateOutputKey(aggregation.fieldId === "*" ? "*" : field!.shortId, aggregation.agg);
     const fallback = aggregation.fieldId === "*" ? "# records" : `${aggregation.agg} ${field?.name ?? "value"}`;
     const label = aggregation.label?.trim() || fallback;
     columns.push({
       kind: "aggregate",
       key,
+      publicKey,
       label,
       refs: uniqueRefs([
-        key,
+        publicKey,
         label,
         aggregation.label,
         aggregation.fieldId === "*" ? "count" : `${aggregation.agg} ${field?.name ?? ""}`,

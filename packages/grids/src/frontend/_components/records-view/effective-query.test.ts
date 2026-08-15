@@ -4,8 +4,8 @@ import type { View } from "../../../service";
 import { resolveEffectiveQuery, resolveEffectiveQueryFromStored } from "./effective-query";
 import type { RecordsState } from "./query-url";
 
-const fieldId = "11111111-1111-4111-8111-111111111111";
-const columns = [{ fieldId }, { kind: "computed" as const, id: "computed_total1", label: "Total", expression: "#price * #qty" }];
+const fieldId = "FIELD1";
+const columns = [{ fieldId }, { kind: "computed" as const, id: "computed_total1", label: "Total", expression: "{PRICE1} * {QTY001}" }];
 
 const state = (overrides: Partial<RecordsState> = {}): RecordsState => ({
   query: {},
@@ -26,7 +26,7 @@ const view = (query: RecordQuery): RuntimeView => ({
   name: "Saved",
   description: null,
   icon: null,
-  source: "from table {33333333-3333-4333-8333-333333333333}",
+  source: "from table {TABL01}",
   ui: {},
   query,
   ownerUserId: null,

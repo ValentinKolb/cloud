@@ -1,33 +1,33 @@
+import type { DateContext } from "@k2b/stdlib";
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
   Button,
   dialogCore,
   IconButton,
   PanelDialog,
-  panelDialogOptions,
   Placeholder,
+  panelDialogOptions,
   prompts,
   StatusBadge,
   TagsInput,
   TextInput,
 } from "@k2b/ui";
-import type { DateContext } from "@k2b/stdlib";
-import { mutation as mutations } from "@k2b/stdlib/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { DocumentLink, DocumentLinkListResponse, DocumentRunSummary } from "../../../contracts";
 import { errorMessage } from "../utils/api-helpers";
 import { openDocumentLinkDialog } from "./DocumentLinkDialog";
 import { formatDocumentDateTime, formatDocumentRelativeTime } from "./document-workspace-utils";
+import type { PublicDocumentLink, PublicDocumentLinkListResponse, PublicDocumentRunSummary } from "./public-document-types";
 
 type DocumentRunDetailsDialogArgs = {
-  run: DocumentRunSummary;
+  run: PublicDocumentRunSummary;
   canWrite: boolean;
   dateConfig?: DateContext;
-  onSaved: (run: DocumentRunSummary) => void | Promise<void>;
-  onDownload: (run: DocumentRunSummary) => void | Promise<void>;
+  onSaved: (run: PublicDocumentRunSummary) => void | Promise<void>;
+  onDownload: (run: PublicDocumentRunSummary) => void | Promise<void>;
 };
 
-const linkStatus = (link: DocumentLink): { label: string; tone: "ok" | "neutral"; active: boolean } => {
+const linkStatus = (link: PublicDocumentLink): { label: string; tone: "ok" | "neutral"; active: boolean } => {
   if (link.revokedAt) return { label: "Revoked", tone: "neutral", active: false };
   if (new Date(link.expiresAt).getTime() <= Date.now()) return { label: "Expired", tone: "neutral", active: false };
   return { label: "Active", tone: "ok", active: true };
@@ -41,15 +41,15 @@ function DocumentRunDetailsDialog(props: { args: DocumentRunDetailsDialogArgs; c
   const [tags, setTags] = createSignal<string[]>(props.args.run.tags);
   const [links, { refetch: refetchLinks }] = createResource(
     () => (props.args.canWrite ? props.args.run.id : null),
-    async (runId): Promise<DocumentLink[]> => {
+    async (runId): Promise<PublicDocumentLink[]> => {
       if (!runId) return [];
       const res = await apiClient.documents.runs[":runId"].links.$get({ param: { runId } });
       if (!res.ok) throw new Error(await errorMessage(res, "Could not load document links"));
-      return ((await res.json()) as DocumentLinkListResponse).items;
+      return ((await res.json()) as PublicDocumentLinkListResponse).items;
     },
   );
 
-  const saveMut = mutations.create<DocumentRunSummary, void>({
+  const saveMut = mutations.create<PublicDocumentRunSummary, void>({
     mutation: async () => {
       const res = await apiClient.documents.runs[":runId"].$patch({
         param: { runId: props.args.run.id },
@@ -65,7 +65,7 @@ function DocumentRunDetailsDialog(props: { args: DocumentRunDetailsDialogArgs; c
     onError: (error) => prompts.error(error.message),
   });
 
-  const revokeMut = mutations.create<DocumentLink, DocumentLink>({
+  const revokeMut = mutations.create<PublicDocumentLink, PublicDocumentLink>({
     mutation: async (link) => {
       const res = await apiClient.documents.links[":linkId"].revoke.$post({ param: { linkId: link.id } });
       if (!res.ok) throw new Error(await errorMessage(res, "Could not revoke document link"));

@@ -84,7 +84,7 @@ The record detail shows its published history. Target Base readers can also choo
 
 ## CLI lifecycle {icon="code"}
 
-The CLI accepts names, short IDs, or UUIDs. The mapping body is JSON rather than a separate configuration language. Use `cld grids tables combined candidates` to discover authorizable sources, then validate before saving or publishing.
+The CLI accepts exact names or 6-character public IDs. The mapping body is JSON rather than a separate configuration language. Use `cld grids tables combined candidates` to discover authorizable sources, then validate before saving or publishing.
 
 **Create, inspect, publish, and revoke**
 
@@ -99,7 +99,7 @@ cld grids tables combined publish Reporting "All inventory" --json
 
 cld grids tables combined publications "Warehouse East" Items --json
 cld grids tables combined revoke "Warehouse East" Items \
-  --target-table <combined-table-uuid> \
+  --target-table <combined-table-id> \
   --yes
 
 cld grids records audit list Reporting "All inventory" --action deleted
@@ -127,5 +127,5 @@ cld grids records audit list Reporting "All inventory" --action deleted
 ```
 
 :::note Source-admin control
-Source admins can inspect grants with `cld grids tables combined publications` and revoke one with `cld grids tables combined revoke`. The revoke command resolves the stored source from its base and table arguments and takes the Combined table UUID from `--target-table`. Revocation immediately makes the target revision unavailable.
+Source admins can inspect grants with `cld grids tables combined publications` and revoke one with `cld grids tables combined revoke`. The revoke command resolves the stored source from its base and table arguments and takes the Combined table public ID from `--target-table`. Revocation immediately makes the target revision unavailable.
 :::

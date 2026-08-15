@@ -1,7 +1,161 @@
+import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql as defaultSql, type SQL } from "bun";
+import { migratePersistedPublicIdReferences } from "./service/public-id-source-migration";
+import { newShortId, SHORT_ID_REGEX } from "./service/short-id";
 import { migrateGridsWorkflowTables } from "./workflows/migrate";
 
 const MIGRATION_LOCK_NAME = "grids:migrate";
+
+const PUBLIC_ID_RESOURCES = [
+  { table: "bases", key: "id", parent: null, index: "idx_grids_bases_short_id" },
+  { table: "tables", key: "id", parent: "base_id", index: "idx_grids_tables_short_id" },
+  { table: "fields", key: "id", parent: "table_id", index: "idx_grids_fields_short_id" },
+  { table: "records", key: "id", parent: "table_id", index: "idx_grids_records_short_id" },
+  { table: "record_comments", key: "id", parent: "record_id", index: "idx_grids_record_comments_short_id" },
+  { table: "files", key: "id", parent: "record_id", index: "idx_grids_files_short_id" },
+  { table: "views", key: "id", parent: "table_id", index: "idx_grids_views_short_id" },
+  { table: "forms", key: "id", parent: "table_id", index: "idx_grids_forms_short_id" },
+  { table: "document_templates", key: "id", parent: "table_id", index: "idx_grids_document_templates_short_id" },
+  { table: "email_templates", key: "id", parent: "base_id", index: "idx_grids_email_templates_short_id" },
+  { table: "record_snapshots", key: "id", parent: "table_id", index: "idx_grids_record_snapshots_short_id" },
+  { table: "document_runs", key: "id", parent: "table_id", index: "idx_grids_document_runs_short_id" },
+  { table: "document_links", key: "id", parent: "document_run_id", index: "idx_grids_document_links_short_id" },
+  { table: "custom_apps", key: "id", parent: "base_id", index: "idx_grids_custom_apps_short_id" },
+  { table: "workflow_profile", key: "id", parent: "base_id", index: "idx_grids_workflow_profile_short_id" },
+  { table: "workflow_launchers", key: "id", parent: "workflow_id", index: "idx_grids_workflow_launchers_short_id" },
+  { table: "workflow_run_profile", key: "run_id", parent: "workflow_id", index: "idx_grids_workflow_run_profile_short_id" },
+] as const;
+
+const DECLARATIVE_REFERENCE_RESOURCES = new Set([
+  "bases",
+  "tables",
+  "fields",
+  "views",
+  "forms",
+  "document_templates",
+  "document_runs",
+  "email_templates",
+  "custom_apps",
+  "workflow_profile",
+  "workflow_launchers",
+]);
+
+const publicIdConstraint = (table: string): string => `${table}_short_id_format_chk`;
+
+const allocateMigrationShortId = (allocated: ReadonlySet<string>, table: string): string => {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const shortId = newShortId();
+    if (!allocated.has(shortId)) return shortId;
+  }
+  throw new Error(`cannot allocate a unique Grids public ID for ${table} after 10 attempts`);
+};
+
+export const gridsPublicIdsReady = async (sql: SQL = defaultSql): Promise<boolean> => {
+  for (const resource of PUBLIC_ID_RESOURCES) {
+    const [schema] = await sql<Array<{ nullable: string; constraintReady: boolean; indexReady: boolean }>>`
+      SELECT column_info.is_nullable AS nullable,
+        EXISTS (
+          SELECT 1
+          FROM pg_constraint constraint_info
+          WHERE constraint_info.conrelid = to_regclass(${`grids.${resource.table}`})
+            AND constraint_info.conname = ${publicIdConstraint(resource.table)}
+            AND constraint_info.convalidated
+            AND pg_get_constraintdef(constraint_info.oid) LIKE '%[A-Za-z0-9]{6}%'
+        ) AS "constraintReady",
+        EXISTS (
+          SELECT 1
+          FROM pg_indexes index_info
+          WHERE index_info.schemaname = 'grids'
+            AND index_info.tablename = ${resource.table}
+            AND index_info.indexname = ${resource.index}
+            AND index_info.indexdef LIKE 'CREATE UNIQUE INDEX % USING btree (short_id)'
+        ) AS "indexReady"
+      FROM information_schema.columns column_info
+      WHERE column_info.table_schema = 'grids'
+        AND column_info.table_name = ${resource.table}
+        AND column_info.column_name = 'short_id'
+    `;
+    if (schema?.nullable !== "NO" || !schema.constraintReady || !schema.indexReady) return false;
+  }
+  return true;
+};
+
+const migratePublicIds = async (sql: SQL): Promise<void> => {
+  if (await gridsPublicIdsReady(sql)) return;
+
+  await sql`
+      CREATE TEMP TABLE public_id_migration (
+        resource TEXT NOT NULL,
+        id UUID NOT NULL,
+        parent_id UUID,
+        old_short_id TEXT,
+        new_short_id TEXT NOT NULL,
+        PRIMARY KEY (resource, id)
+      ) ON COMMIT DROP
+    `;
+  for (const resource of PUBLIC_ID_RESOURCES) {
+    await sql.unsafe(`ALTER TABLE grids.${resource.table} ADD COLUMN IF NOT EXISTS short_id TEXT`);
+  }
+
+  await sql.unsafe(`LOCK TABLE ${PUBLIC_ID_RESOURCES.map((resource) => `grids.${resource.table}`).join(", ")} IN ACCESS EXCLUSIVE MODE`);
+
+  for (const resource of PUBLIC_ID_RESOURCES) {
+    await sql.unsafe(`ALTER TABLE grids.${resource.table} DROP CONSTRAINT IF EXISTS ${publicIdConstraint(resource.table)}`);
+    await sql.unsafe(`DROP INDEX IF EXISTS grids.${resource.index}`);
+  }
+
+  for (const resource of PUBLIC_ID_RESOURCES) {
+    const rows = (await sql.unsafe(
+      `SELECT ${resource.key}::text AS id, ${resource.parent ?? "NULL::uuid"}::text AS "parentId", short_id AS "shortId"
+         FROM grids.${resource.table} ORDER BY ${resource.key} FOR UPDATE`,
+    )) as Array<{ id: string; parentId: string | null; shortId: string | null }>;
+    const validOwners = new Map<string, string>();
+    for (const row of rows) {
+      if (row.shortId !== null && SHORT_ID_REGEX.test(row.shortId) && !validOwners.has(row.shortId)) {
+        validOwners.set(row.shortId, row.id);
+      }
+    }
+    const allocated = new Set(validOwners.keys());
+    const updates: Array<{ id: string; shortId: string }> = [];
+    for (const row of rows) {
+      let shortId: string;
+      if (row.shortId !== null && validOwners.get(row.shortId) === row.id) {
+        shortId = row.shortId;
+      } else {
+        shortId = allocateMigrationShortId(allocated, resource.table);
+        updates.push({ id: row.id, shortId });
+        allocated.add(shortId);
+      }
+      if (DECLARATIVE_REFERENCE_RESOURCES.has(resource.table)) {
+        await sql`
+            INSERT INTO pg_temp.public_id_migration (resource, id, parent_id, old_short_id, new_short_id)
+            VALUES (${resource.table}, ${row.id}::uuid, ${row.parentId}::uuid, ${row.shortId}, ${shortId})
+          `;
+      }
+    }
+    if (updates.length > 0) {
+      await sql.unsafe(
+        `UPDATE grids.${resource.table} target SET short_id = source.short_id
+         FROM unnest($1::uuid[], $2::text[]) AS source(id, short_id)
+         WHERE target.${resource.key} = source.id`,
+        [toPgUuidArray(updates.map((update) => update.id)), toPgTextArray(updates.map((update) => update.shortId))],
+      );
+    }
+  }
+
+  await migratePersistedPublicIdReferences(sql);
+
+  for (const resource of PUBLIC_ID_RESOURCES) {
+    await sql.unsafe(`ALTER TABLE grids.${resource.table} ALTER COLUMN short_id SET NOT NULL`);
+    await sql.unsafe(
+      `ALTER TABLE grids.${resource.table} ADD CONSTRAINT ${publicIdConstraint(resource.table)} CHECK (short_id ~ '^[A-Za-z0-9]{6}$')`,
+    );
+    await sql.unsafe(`CREATE UNIQUE INDEX ${resource.index} ON grids.${resource.table}(short_id)`);
+  }
+
+  if (!(await gridsPublicIdsReady(sql))) throw new Error("grids public short IDs are not ready after migration");
+  console.log("  ✓ grids public short IDs (6 chars, globally unique per resource, tombstones included)");
+};
 
 /**
  * Schema for the Grids app: bases → tables → fields, records, views, forms,
@@ -74,6 +228,24 @@ const migrateSafeCastHelpers = async (sql: SQL): Promise<void> => {
   console.log("  ✓ grids.try_* safe-cast helpers");
 };
 
+const assertNoDuplicateLiveTableNames = async (sql: SQL): Promise<void> => {
+  const [schema] = await sql<Array<{ tables: string | null }>>`SELECT to_regclass('grids.tables')::text AS tables`;
+  if (!schema?.tables) return;
+  const [duplicateTableName] = await sql<Array<{ baseId: string; name: string }>>`
+    SELECT base_id::text AS "baseId", lower(btrim(name)) AS name
+    FROM grids.tables
+    WHERE deleted_at IS NULL
+    GROUP BY base_id, lower(btrim(name))
+    HAVING count(*) > 1
+    LIMIT 1
+  `;
+  if (duplicateTableName) {
+    throw new Error(
+      `cannot enforce unique table names: grid ${duplicateTableName.baseId} contains multiple live tables named "${duplicateTableName.name}"`,
+    );
+  }
+};
+
 const migrateCoreRecords = async (sql: SQL): Promise<void> => {
   // ──────────────────────────────────────────────────────────────────
   // bases
@@ -89,7 +261,7 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT bases_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
+      CONSTRAINT bases_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$')
     )
   `.simple();
   await sql`ALTER TABLE grids.bases ADD COLUMN IF NOT EXISTS document_profile JSONB NOT NULL DEFAULT '{}'::jsonb`.simple();
@@ -125,7 +297,7 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT tables_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
+      CONSTRAINT tables_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$'),
       CONSTRAINT tables_kind_chk CHECK (kind IN ('stored', 'federated'))
     )
   `.simple();
@@ -158,19 +330,7 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
   `.simple();
   // Hot-path index: list live tables of a base in order.
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_tables_base_live ON grids.tables(base_id, position) WHERE deleted_at IS NULL`.simple();
-  const [duplicateTableName] = await sql<Array<{ baseId: string; name: string }>>`
-    SELECT base_id::text AS "baseId", lower(btrim(name)) AS name
-    FROM grids.tables
-    WHERE deleted_at IS NULL
-    GROUP BY base_id, lower(btrim(name))
-    HAVING count(*) > 1
-    LIMIT 1
-  `;
-  if (duplicateTableName) {
-    throw new Error(
-      `cannot enforce unique table names: grid ${duplicateTableName.baseId} contains multiple live tables named "${duplicateTableName.name}"`,
-    );
-  }
+  await assertNoDuplicateLiveTableNames(sql);
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_tables_live_name
     ON grids.tables(base_id, lower(btrim(name)))
@@ -204,7 +364,7 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT fields_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
+      CONSTRAINT fields_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$')
     )
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_fields_table ON grids.fields(table_id, position) WHERE deleted_at IS NULL`.simple();
@@ -477,6 +637,7 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.records (
       id UUID PRIMARY KEY,
+      short_id TEXT NOT NULL,
       table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
       data JSONB NOT NULL DEFAULT '{}'::jsonb,
       version INT NOT NULL DEFAULT 1,
@@ -484,7 +645,8 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT records_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$')
     )
   `.simple();
   // Composite index for the hot path: list live rows of a table in id order.
@@ -499,6 +661,7 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.record_comments (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
       record_id UUID NOT NULL REFERENCES grids.records(id) ON DELETE CASCADE,
@@ -506,7 +669,8 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
       body TEXT NOT NULL CHECK (char_length(body) BETWEEN 1 AND 10000),
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT record_comments_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$')
     )
   `.simple();
   await sql`
@@ -525,6 +689,7 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.files (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       record_id UUID NOT NULL REFERENCES grids.records(id) ON DELETE CASCADE,
       field_id UUID NOT NULL REFERENCES grids.fields(id) ON DELETE CASCADE,
       position INT NOT NULL DEFAULT 0,
@@ -535,6 +700,7 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
       bytes BYTEA NOT NULL,
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT files_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$'),
       CHECK (octet_length(bytes) = size_bytes)
     )
   `.simple();
@@ -594,7 +760,7 @@ const migrateViews = async (sql: SQL): Promise<void> => {
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT views_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
+      CONSTRAINT views_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$'),
       CONSTRAINT views_source_length_chk CHECK (length(source) BETWEEN 1 AND 20000)
     )
   `.simple();
@@ -666,7 +832,7 @@ const migrateDocumentTemplates = async (sql: SQL): Promise<void> => {
       header_html TEXT,
       footer_html TEXT,
       page_css TEXT,
-      number_template TEXT NOT NULL DEFAULT '{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}',
+      number_template TEXT NOT NULL DEFAULT '{{ template.id }}-{{ date.yyyyMMdd }}-{{ run.id }}',
       filename_template TEXT NOT NULL DEFAULT '{{ document.number }}.pdf',
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
       position INT NOT NULL DEFAULT 0,
@@ -675,7 +841,7 @@ const migrateDocumentTemplates = async (sql: SQL): Promise<void> => {
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT document_templates_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
+      CONSTRAINT document_templates_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$'),
       CONSTRAINT document_templates_source_length_chk CHECK (length(source) BETWEEN 1 AND 20000),
       CONSTRAINT document_templates_html_length_chk CHECK (length(html) BETWEEN 1 AND 200000),
       CONSTRAINT document_templates_header_html_length_chk CHECK (header_html IS NULL OR length(header_html) <= 50000),
@@ -692,7 +858,7 @@ const migrateDocumentTemplates = async (sql: SQL): Promise<void> => {
   await sql`ALTER TABLE grids.document_templates ADD COLUMN IF NOT EXISTS filename_template TEXT`.simple();
   await sql`
     UPDATE grids.document_templates
-    SET number_template = '{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}'
+    SET number_template = '{{ template.id }}-{{ date.yyyyMMdd }}-{{ run.id }}'
     WHERE number_template IS NULL OR btrim(number_template) = ''
   `.simple();
   await sql`
@@ -700,7 +866,22 @@ const migrateDocumentTemplates = async (sql: SQL): Promise<void> => {
     SET filename_template = '{{ document.number }}.pdf'
     WHERE filename_template IS NULL OR btrim(filename_template) = ''
   `.simple();
-  await sql`ALTER TABLE grids.document_templates ALTER COLUMN number_template SET DEFAULT '{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}'`.simple();
+  await sql`
+    UPDATE grids.document_templates
+    SET source = replace(replace(source, 'template.shortId', 'template.id'), 'run.shortId', 'run.id'),
+        html = replace(replace(html, 'template.shortId', 'template.id'), 'run.shortId', 'run.id'),
+        header_html = replace(replace(header_html, 'template.shortId', 'template.id'), 'run.shortId', 'run.id'),
+        footer_html = replace(replace(footer_html, 'template.shortId', 'template.id'), 'run.shortId', 'run.id'),
+        number_template = replace(replace(number_template, 'template.shortId', 'template.id'), 'run.shortId', 'run.id'),
+        filename_template = replace(replace(filename_template, 'template.shortId', 'template.id'), 'run.shortId', 'run.id')
+    WHERE source LIKE '%template.shortId%' OR source LIKE '%run.shortId%'
+       OR html LIKE '%template.shortId%' OR html LIKE '%run.shortId%'
+       OR header_html LIKE '%template.shortId%' OR header_html LIKE '%run.shortId%'
+       OR footer_html LIKE '%template.shortId%' OR footer_html LIKE '%run.shortId%'
+       OR number_template LIKE '%template.shortId%' OR number_template LIKE '%run.shortId%'
+       OR filename_template LIKE '%template.shortId%' OR filename_template LIKE '%run.shortId%'
+  `.simple();
+  await sql`ALTER TABLE grids.document_templates ALTER COLUMN number_template SET DEFAULT '{{ template.id }}-{{ date.yyyyMMdd }}-{{ run.id }}'`.simple();
   await sql`ALTER TABLE grids.document_templates ALTER COLUMN number_template SET NOT NULL`.simple();
   await sql`ALTER TABLE grids.document_templates ALTER COLUMN filename_template SET DEFAULT '{{ document.number }}.pdf'`.simple();
   await sql`ALTER TABLE grids.document_templates ALTER COLUMN filename_template SET NOT NULL`.simple();
@@ -748,10 +929,6 @@ const migrateDocumentTemplates = async (sql: SQL): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_grids_document_templates_table_live
     ON grids.document_templates(table_id, position) WHERE deleted_at IS NULL
   `.simple();
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_document_templates_short_id
-    ON grids.document_templates(table_id, short_id) WHERE deleted_at IS NULL
-  `.simple();
   console.log("  ✓ grids.document_templates");
 
   // ──────────────────────────────────────────────────────────────────
@@ -777,7 +954,7 @@ const migrateDocumentTemplates = async (sql: SQL): Promise<void> => {
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT email_templates_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
+      CONSTRAINT email_templates_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$'),
       CONSTRAINT email_templates_subject_length_chk CHECK (length(subject) BETWEEN 1 AND 1000),
       CONSTRAINT email_templates_html_length_chk CHECK (length(html) BETWEEN 1 AND 200000),
       CONSTRAINT email_templates_sample_data_object_chk CHECK (jsonb_typeof(sample_data) = 'object')
@@ -821,10 +998,6 @@ const migrateDocumentTemplates = async (sql: SQL): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_grids_email_templates_base_live
     ON grids.email_templates(base_id, position) WHERE deleted_at IS NULL
   `.simple();
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_email_templates_short_id
-    ON grids.email_templates(base_id, short_id) WHERE deleted_at IS NULL
-  `.simple();
   console.log("  ✓ grids.email_templates");
 };
 
@@ -832,13 +1005,15 @@ const migrateDocumentArtifacts = async (sql: SQL): Promise<void> => {
   await sql`
     CREATE TABLE IF NOT EXISTS grids.record_snapshots (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       base_id UUID NOT NULL,
       table_id UUID NOT NULL,
       record_id UUID NOT NULL,
       root JSONB NOT NULL,
       graph JSONB NOT NULL,
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT record_snapshots_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$')
     )
   `.simple();
   await sql`
@@ -864,7 +1039,7 @@ const migrateDocumentArtifacts = async (sql: SQL): Promise<void> => {
       render_data JSONB NOT NULL,
       generated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT document_runs_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$'),
+      CONSTRAINT document_runs_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$'),
       CONSTRAINT document_runs_filename_length_chk CHECK (length(filename) BETWEEN 1 AND 255),
       CONSTRAINT document_runs_tags_count_chk CHECK (cardinality(tags) <= 20)
     )
@@ -925,15 +1100,12 @@ const migrateDocumentArtifacts = async (sql: SQL): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_grids_document_runs_tags
     ON grids.document_runs USING GIN(tags)
   `.simple();
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_document_runs_short_id
-    ON grids.document_runs(table_id, short_id)
-  `.simple();
   console.log("  ✓ grids.document_runs");
 
   await sql`
     CREATE TABLE IF NOT EXISTS grids.document_links (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
       document_run_id UUID NOT NULL REFERENCES grids.document_runs(id) ON DELETE CASCADE,
       base_id UUID NOT NULL,
       table_id UUID NOT NULL,
@@ -947,6 +1119,7 @@ const migrateDocumentArtifacts = async (sql: SQL): Promise<void> => {
       revoked_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       last_accessed_at TIMESTAMPTZ,
       access_count INTEGER NOT NULL DEFAULT 0,
+      CONSTRAINT document_links_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$'),
       CONSTRAINT document_links_comment_length_chk CHECK (comment IS NULL OR length(comment) <= 500),
       CONSTRAINT document_links_access_count_chk CHECK (access_count >= 0)
     )
@@ -1001,7 +1174,7 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT forms_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
+      CONSTRAINT forms_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$')
     )
   `.simple();
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_forms_table_live ON grids.forms(table_id, position) WHERE deleted_at IS NULL`.simple();
@@ -1190,28 +1363,6 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
     $$
   `.simple();
   console.log("  ✓ grids.record_event_outbox + delivery failures");
-
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_bases_short_id
-    ON grids.bases(short_id) WHERE deleted_at IS NULL
-  `.simple();
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_tables_short_id
-    ON grids.tables(base_id, short_id) WHERE deleted_at IS NULL
-  `.simple();
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_fields_short_id
-    ON grids.fields(table_id, short_id) WHERE deleted_at IS NULL
-  `.simple();
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_forms_short_id
-    ON grids.forms(table_id, short_id) WHERE deleted_at IS NULL
-  `.simple();
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_views_short_id
-    ON grids.views(table_id, short_id) WHERE deleted_at IS NULL
-  `.simple();
-  console.log("  ✓ grids.{bases,tables,fields,forms,views}.short_id + unique indexes");
 };
 
 const migrateCustomApps = async (sql: SQL): Promise<void> => {
@@ -1230,12 +1381,8 @@ const migrateCustomApps = async (sql: SQL): Promise<void> => {
       deleted_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT custom_apps_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{5}$')
+      CONSTRAINT custom_apps_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$')
     )
-  `.simple();
-  await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_custom_apps_short_id
-    ON grids.custom_apps(short_id) WHERE deleted_at IS NULL
   `.simple();
   await sql`ALTER TABLE grids.custom_apps ALTER COLUMN draft_capabilities DROP NOT NULL`.simple();
   await sql`
@@ -1481,10 +1628,10 @@ const migrateRecordScanCodes = async (sql: SQL): Promise<void> => {
   console.log("  ✓ grids.record_scan_codes");
 };
 
-const migrateOperationalHealth = async (sql: SQL): Promise<void> => {
+const assertWorkflowKernelReady = async (sql: SQL): Promise<void> => {
   /*
-   * The workflow half of this view reads the kernel's tables, which app-core
-   * creates. Nothing declares an ordering between the app containers — they all
+   * Public-reference migration and operational health read kernel tables that
+   * app-core creates. Nothing declares an ordering between the app containers — they all
    * start at once and each migrates itself — so on an empty database Grids can
    * get here first, and Postgres would refuse the view with a bare "relation
    * does not exist" naming a table nobody would think to look for.
@@ -1494,13 +1641,20 @@ const migrateOperationalHealth = async (sql: SQL): Promise<void> => {
    * leave a Grids that reports its own health as fine while knowing nothing
    * about the runs it depends on.
    */
-  const [kernel] = await sql<Array<{ run: string | null }>>`SELECT to_regclass('workflows.run')::text AS run`;
-  if (!kernel?.run) {
+  const [kernel] = await sql<Array<{ run: string | null; version: string | null }>>`
+    SELECT to_regclass('workflows.run')::text AS run,
+           to_regclass('workflows.version')::text AS version
+  `;
+  if (!kernel?.run || !kernel.version) {
     throw new Error(
-      "grids.operational_health needs the workflows schema, which app-core has not migrated yet. " +
+      "grids migration needs the workflows schema, which app-core has not migrated yet. " +
         "This is expected on a cold database: start app-core, or wait for this container's restart.",
     );
   }
+};
+
+const migrateOperationalHealth = async (sql: SQL): Promise<void> => {
+  await assertWorkflowKernelReady(sql);
 
   await sql`
     CREATE OR REPLACE VIEW grids.operational_health AS
@@ -1587,9 +1741,15 @@ const migrateOperationalHealth = async (sql: SQL): Promise<void> => {
 export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
   const connection = await sql.reserve();
   let locked = false;
+  let transactionStarted = false;
+  let migrationError: unknown;
   try {
     await connection`SELECT pg_advisory_lock(hashtextextended(${MIGRATION_LOCK_NAME}, 0))`;
     locked = true;
+    await assertWorkflowKernelReady(connection);
+    await assertNoDuplicateLiveTableNames(connection);
+    await connection`BEGIN`.simple();
+    transactionStarted = true;
     await migrateSchema(connection);
     await migrateSafeCastHelpers(connection);
     await migrateCoreRecords(connection);
@@ -1601,14 +1761,21 @@ export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
     await migrateCustomApps(connection);
     await removeLegacyDashboards(connection);
     await migrateGridsWorkflowTables(connection);
+    await migratePublicIds(connection);
     await removeObsoleteAccess(connection);
     await migrateRecordScanCodes(connection);
     await migrateOperationalHealth(connection);
+    await connection`COMMIT`.simple();
+    transactionStarted = false;
     console.log("  ✓ grids schema ready");
+  } catch (error) {
+    if (transactionStarted) await connection`ROLLBACK`.simple().catch(() => undefined);
+    migrationError = error;
   } finally {
     if (locked) {
       await connection`SELECT pg_advisory_unlock(hashtextextended(${MIGRATION_LOCK_NAME}, 0))`.catch(() => undefined);
     }
     connection.release();
   }
+  if (migrationError) throw migrationError;
 };

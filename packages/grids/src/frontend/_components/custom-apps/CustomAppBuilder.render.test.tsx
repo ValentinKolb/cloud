@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
-import type { CustomApp } from "../../../service";
-import type { WorkspaceCatalog } from "../workspace/workspace-state-model";
+import type { PublicCustomApp } from "../workspace/workspace-public-state-model";
+import type { CustomAppCatalog } from "./custom-app-catalog";
 import "../ssr-test-plugin";
 
 const {
@@ -18,12 +18,12 @@ const { default: CustomAppBlockPreview } = await import("./CustomAppBlockPreview
 const { CustomAppAvailabilitySection } = await import("./CustomAppGqlField");
 const { CustomAppMarkdownField } = await import("./CustomAppMarkdownField");
 
-const app = (): CustomApp => {
-  const draftDefinition: NonNullable<CustomApp["draftDefinition"]> = {
-    schemaVersion: 4 as const,
+const app = (): PublicCustomApp => {
+  const draftDefinition: NonNullable<PublicCustomApp["draftDefinition"]> = {
+    schemaVersion: 5 as const,
     kind: "grids.custom-app",
-    id: "33333333-3333-4333-8333-333333333333",
-    baseId: "11111111-1111-4111-8111-111111111111",
+    id: "APP001",
+    baseId: "BASE01",
     name: "Loan desk",
     icon: "clipboard",
     startPageId: "overview",
@@ -50,13 +50,11 @@ const app = (): CustomApp => {
     ],
   };
   return {
-    id: "33333333-3333-4333-8333-333333333333",
-    shortId: "APP1",
-    baseId: "11111111-1111-4111-8111-111111111111",
+    id: "APP001",
+    baseId: "BASE01",
     name: "Loan desk",
     icon: "clipboard",
     draftDefinition,
-    draftDefinitionRaw: draftDefinition,
     draftDiagnostics: [],
     draftCapabilities: {
       availability: [],
@@ -71,7 +69,6 @@ const app = (): CustomApp => {
       scannerLaunchers: [],
     },
     publishedDefinition: null,
-    publishedDefinitionRaw: null,
     publishedDiagnostics: [],
     publishedCapabilities: null,
     publishedAt: null,
@@ -83,7 +80,7 @@ const app = (): CustomApp => {
   };
 };
 
-const catalog = (): WorkspaceCatalog => ({
+const catalog = (): CustomAppCatalog => ({
   customApps: [],
   workflows: [],
   workflowLaunchers: [],
@@ -95,19 +92,17 @@ const catalog = (): WorkspaceCatalog => ({
   formsByTable: {},
   documentTemplatesByTable: {},
   documentTemplateLevels: {},
-  tableShortIds: {},
   sidebarForms: [],
   sidebarDocumentTemplates: [],
 });
 
-const catalogWithAuthoringResources = (): WorkspaceCatalog => {
+const catalogWithAuthoringResources = (): CustomAppCatalog => {
   const next = catalog();
-  const tableId = "11111111-1111-4111-8111-111111111112";
-  const fieldId = "22222222-2222-4222-8222-222222222222";
+  const tableId = "TABLE1";
+  const fieldId = "FIELD1";
   next.tables = [
     {
       id: tableId,
-      shortId: "ITEMS",
       baseId: app().baseId,
       kind: "stored",
       name: "Items",
@@ -127,7 +122,6 @@ const catalogWithAuthoringResources = (): WorkspaceCatalog => {
     [tableId]: [
       {
         id: fieldId,
-        shortId: "NAME1",
         tableId,
         name: "Name",
         description: null,
@@ -150,8 +144,7 @@ const catalogWithAuthoringResources = (): WorkspaceCatalog => {
   next.viewsByTable = {
     [tableId]: [
       {
-        id: "33333333-3333-4333-8333-333333333334",
-        shortId: "LIST1",
+        id: "VIEW01",
         tableId,
         name: "Available items",
         description: null,
@@ -169,8 +162,7 @@ const catalogWithAuthoringResources = (): WorkspaceCatalog => {
   next.formsByTable = {
     [tableId]: [
       {
-        id: "77777777-7777-7777-8777-777777777777",
-        shortId: "FORM1",
+        id: "FORM01",
         tableId,
         name: "Request item",
         config: { fields: [] },
@@ -189,10 +181,10 @@ const catalogWithAuthoringResources = (): WorkspaceCatalog => {
 };
 
 describe("CustomAppBuilder", () => {
-  test("creates a blank schema v4 draft without legacy condition inputs", () => {
+  test("creates a blank schema v5 draft without legacy condition inputs", () => {
     const blank = blankCustomAppDefinition(app());
 
-    expect(blank.schemaVersion).toBe(4);
+    expect(blank.schemaVersion).toBe(5);
     expect(blank.pages[0]?.rows[0]?.columns[0]?.blocks[0]).toEqual({
       id: "intro",
       type: "markdown",
@@ -207,7 +199,7 @@ describe("CustomAppBuilder", () => {
     page.parameters = {
       record_id: {
         type: "record",
-        tableId: "11111111-1111-4111-8111-111111111112",
+        tableId: "TABLE1",
         required: true,
       },
     };
@@ -222,7 +214,6 @@ describe("CustomAppBuilder", () => {
       "page.title",
       "page.url",
       "app.id",
-      "app.shortId",
       "app.name",
       "base.id",
       "base.name",
@@ -240,23 +231,22 @@ describe("CustomAppBuilder", () => {
     expect(customAppStarterGqlSources(authoringCatalog)).toEqual({
       records: {
         kind: "gql",
-        query: "from table {11111111-1111-4111-8111-111111111112}",
+        query: "from table {TABLE1}",
       },
       metrics: {
         kind: "gql",
-        query: "from table {11111111-1111-4111-8111-111111111112}\naggregate count(*) as total",
+        query: "from table {TABLE1}\naggregate count(*) as total",
       },
       chart: {
         kind: "gql",
-        query:
-          "from table {11111111-1111-4111-8111-111111111112}\ngroup by {22222222-2222-4222-8222-222222222222}\naggregate count(*) as total",
+        query: "from table {TABLE1}\ngroup by {FIELD1}\naggregate count(*) as total",
       },
     });
   });
 
   test("explains why the start page cannot require a record", () => {
     const html = renderToString(() =>
-      createComponent(CustomAppBuilder, { app: app(), baseShortId: "BASE1", catalog: catalogWithAuthoringResources() }),
+      createComponent(CustomAppBuilder, { app: app(), baseId: "BASE01", catalog: catalogWithAuthoringResources() }),
     );
 
     expect(html).toContain("Start pages open without a record");
@@ -269,7 +259,7 @@ describe("CustomAppBuilder", () => {
       createComponent(CustomAppBlockPreview, {
         block: { id: "intro", type: "markdown", markdown: "" },
         baseId: app().baseId,
-        shortId: app().shortId,
+        appId: app().id,
         catalog: catalog(),
       }),
     );
@@ -289,7 +279,7 @@ describe("CustomAppBuilder", () => {
           launcherId: "55555555-5555-4555-8555-555555555555",
         },
         baseId: app().baseId,
-        shortId: app().shortId,
+        appId: app().id,
         catalog: catalog(),
       }),
     );
@@ -300,8 +290,8 @@ describe("CustomAppBuilder", () => {
   });
 
   test("previews configured Records row actions without enabling them", () => {
-    const tableId = "11111111-1111-4111-8111-111111111112";
-    const fieldId = "22222222-2222-4222-8222-222222222222";
+    const tableId = "TABLE1";
+    const fieldId = "FIELD1";
     const rowId = "44444444-4444-4444-8444-444444444444";
     const launcherId = "55555555-5555-4555-8555-555555555555";
     const html = renderToString(() =>
@@ -335,7 +325,7 @@ describe("CustomAppBuilder", () => {
           ],
         },
         baseId: app().baseId,
-        shortId: app().shortId,
+        appId: app().id,
         catalog: catalogWithAuthoringResources(),
         initialResult: {
           ok: true,
@@ -355,7 +345,7 @@ describe("CustomAppBuilder", () => {
 
   test("renders independent App access in app settings", () => {
     const html = renderToString(() =>
-      createComponent(CustomAppBuilder, { app: app(), baseShortId: "BASE1", catalog: catalog(), initialInspectorMode: "app" }),
+      createComponent(CustomAppBuilder, { app: app(), baseId: "BASE01", catalog: catalog(), initialInspectorMode: "app" }),
     );
 
     expect(html).toContain("App grants are independent from Base access");
@@ -368,13 +358,12 @@ describe("CustomAppBuilder", () => {
     const published = app();
     published.publishedAt = "2026-08-11T10:00:00.000Z";
     published.publishedDefinition = published.draftDefinition;
-    published.publishedDefinitionRaw = published.draftDefinitionRaw;
     published.publishedCapabilities = published.draftCapabilities;
     published.publishedValid = true;
     const html = renderToString(() =>
       createComponent(CustomAppBuilder, {
         app: published,
-        baseShortId: "BASE1",
+        baseId: "BASE01",
         catalog: catalog(),
         initialInspectorMode: "app",
       }),
@@ -459,7 +448,6 @@ describe("CustomAppBuilder", () => {
   test("renders fail-closed recovery for an incompatible stored draft", () => {
     const legacy = app();
     legacy.draftDefinition = null;
-    legacy.draftDefinitionRaw = { ...(legacy.draftDefinitionRaw as Record<string, unknown>), schemaVersion: 1 };
     legacy.draftDiagnostics = [
       {
         path: ["draft", "schemaVersion"],
@@ -468,25 +456,24 @@ describe("CustomAppBuilder", () => {
     ];
     legacy.draftValid = false;
     legacy.publishedDefinition = app().draftDefinition;
-    legacy.publishedDefinitionRaw = legacy.publishedDefinition;
     legacy.publishedCapabilities = legacy.draftCapabilities;
     legacy.publishedAt = "2026-08-07T00:00:00.000Z";
     legacy.publishedValid = true;
 
-    const html = renderToString(() => createComponent(CustomAppBuilder, { app: legacy, baseShortId: "BASE1", catalog: catalog() }));
+    const html = renderToString(() => createComponent(CustomAppBuilder, { app: legacy, baseId: "BASE01", catalog: catalog() }));
 
     expect(html).toContain("This draft cannot be opened");
     expect(html).toContain("schemaVersion 1");
-    expect(html).toContain("Download stored JSON");
+    expect(html).not.toContain("Download stored JSON");
     expect(html).toContain("Restore live version");
-    expect(html).toContain("Replace with blank schema v4 draft");
+    expect(html).toContain("Replace with blank schema v5 draft");
     expect(html).toContain("Unpublish app");
     expect(html).toContain("Delete app");
     expect(html).not.toContain("App canvas");
   });
 
   test("renders pages, canvas, toolbar, and inspector from the canonical draft", () => {
-    const html = renderToString(() => createComponent(CustomAppBuilder, { app: app(), baseShortId: "BASE1", catalog: catalog() }));
+    const html = renderToString(() => createComponent(CustomAppBuilder, { app: app(), baseId: "BASE01", catalog: catalog() }));
 
     expect(html).toContain("k2b-app-workspace__main-pane");
     expect(html).toContain("App builder");
@@ -539,12 +526,11 @@ describe("CustomAppBuilder", () => {
     const published = app();
     published.publishedAt = "2026-08-11T10:00:00.000Z";
     published.publishedDefinition = published.draftDefinition;
-    published.publishedDefinitionRaw = published.draftDefinitionRaw;
     published.publishedCapabilities = published.draftCapabilities;
     published.publishedValid = true;
     published.hasUnpublishedChanges = true;
 
-    const html = renderToString(() => createComponent(CustomAppBuilder, { app: published, baseShortId: "BASE1", catalog: catalog() }));
+    const html = renderToString(() => createComponent(CustomAppBuilder, { app: published, baseId: "BASE01", catalog: catalog() }));
 
     expect(html).toContain("Unpublished changes");
     expect(html).toContain("Changes are in a draft");
@@ -560,14 +546,14 @@ describe("CustomAppBuilder", () => {
           kind: "form",
           label: "New request",
           tone: "default",
-          formId: "77777777-7777-7777-8777-777777777777",
+          formId: "FORM01",
           fixedValues: {},
         },
       ],
     };
 
     const html = renderToString(() =>
-      createComponent(CustomAppBuilder, { app: sidebarApp, baseShortId: "BASE1", catalog: catalogWithAuthoringResources() }),
+      createComponent(CustomAppBuilder, { app: sidebarApp, baseId: "BASE01", catalog: catalogWithAuthoringResources() }),
     );
     const source = await Bun.file(resolve(import.meta.dir, "CustomAppBuilder.tsx")).text();
 
@@ -700,7 +686,7 @@ describe("CustomAppBuilder", () => {
       actions: [],
     });
 
-    const html = renderToString(() => createComponent(CustomAppBuilder, { app: pairApp, baseShortId: "BASE1", catalog: catalog() }));
+    const html = renderToString(() => createComponent(CustomAppBuilder, { app: pairApp, baseId: "BASE01", catalog: catalog() }));
 
     expect(html).toContain('data-zone="pair-left"');
     expect(html).toContain('data-zone="pair-right"');
@@ -723,7 +709,7 @@ describe("CustomAppBuilder", () => {
       blocks: [{ id, type: "markdown" as const, markdown: id }],
     }));
 
-    const html = renderToString(() => createComponent(CustomAppBuilder, { app: columnApp, baseShortId: "BASE1", catalog: catalog() }));
+    const html = renderToString(() => createComponent(CustomAppBuilder, { app: columnApp, baseId: "BASE01", catalog: catalog() }));
 
     expect(html.match(/data-zone="column-left"/g)).toHaveLength(3);
     expect(html.match(/data-zone="column-right"/g)).toHaveLength(1);
@@ -738,7 +724,7 @@ describe("CustomAppBuilder", () => {
 
   test("enables typed Records and Form blocks when authorized resources exist", () => {
     const html = renderToString(() =>
-      createComponent(CustomAppBuilder, { app: app(), baseShortId: "BASE1", catalog: catalogWithAuthoringResources() }),
+      createComponent(CustomAppBuilder, { app: app(), baseId: "BASE01", catalog: catalogWithAuthoringResources() }),
     );
 
     expect(html).toContain("Show records from a saved view or GQL query.");
@@ -754,13 +740,13 @@ describe("CustomAppBuilder", () => {
         id: "request-form",
         type: "form",
         title: "Request a loan",
-        formId: "77777777-7777-7777-8777-777777777777",
+        formId: "FORM01",
         fixedValues: {},
       },
     ];
 
     const html = renderToString(() =>
-      createComponent(CustomAppBuilder, { app: formApp, baseShortId: "BASE1", catalog: catalogWithAuthoringResources() }),
+      createComponent(CustomAppBuilder, { app: formApp, baseId: "BASE01", catalog: catalogWithAuthoringResources() }),
     );
 
     expect(html).toContain('aria-label="Select and move Form"');

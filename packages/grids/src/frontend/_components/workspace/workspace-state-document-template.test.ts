@@ -10,7 +10,7 @@ const loadWorkspaceState = (params: Parameters<typeof loadGridsWorkspaceState>[0
 
 const base = {
   id: "11111111-1111-4111-8111-111111111111",
-  shortId: "BASE1",
+  shortId: "BASE01",
   name: "Documents Base",
   description: null,
   documentProfile: {},
@@ -21,7 +21,7 @@ const base = {
 
 const documentTable = {
   id: "22222222-2222-4222-8222-222222222222",
-  shortId: "TBL01",
+  shortId: "TABL01",
   baseId: base.id,
   kind: "stored" as const,
   name: "Invoices",
@@ -39,11 +39,11 @@ const documentTable = {
 
 const template = {
   id: "33333333-3333-4333-8333-333333333333",
-  shortId: "TPL01",
+  shortId: "TMPL01",
   tableId: documentTable.id,
   name: "Invoice",
   description: "Customer invoice.",
-  source: `from table {${documentTable.id}}\nwhere record.id = '{{ record.id }}'\nlimit 1`,
+  source: `from table {${documentTable.shortId}}\nwhere record.id = '{{ record.id }}'\nlimit 1`,
   html: "<p>{{ record.id }}</p>",
   headerHtml: null,
   footerHtml: null,
@@ -71,7 +71,7 @@ const templateSummary = {
 
 const documentRun = {
   id: "66666666-6666-4666-8666-666666666666",
-  shortId: "RUN01",
+  shortId: "RUN001",
   baseId: base.id,
   tableId: documentTable.id,
   recordId: "55555555-5555-4555-8555-555555555555",
@@ -90,7 +90,7 @@ let baseLevel: "none" | "read" | "write" = "none";
 describe("loadGridsWorkspaceState — document templates use Base access", () => {
   beforeEach(() => {
     baseLevel = "none";
-    spyOn(gridsService.base, "getByIdOrShortId").mockImplementation(async () => base as never);
+    spyOn(gridsService.base, "getByShortId").mockImplementation(async () => base as never);
     spyOn(gridsService.base, "catalog").mockImplementation(
       async () =>
         ({
@@ -110,11 +110,11 @@ describe("loadGridsWorkspaceState — document templates use Base access", () =>
     );
     spyOn(gridsService.permission, "loadBaseGrantsForSubject").mockImplementation(async () => []);
     spyOn(gridsService.permission, "resolve").mockImplementation(() => baseLevel);
-    spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(
-      async (_baseId, idOrSlug) => (documentTable.id === idOrSlug || documentTable.shortId === idOrSlug ? documentTable : null) as never,
+    spyOn(gridsService.table, "getByShortIdForBase").mockImplementation(
+      async (_baseId, publicId) => (documentTable.shortId === publicId ? documentTable : null) as never,
     );
-    spyOn(gridsService.document, "getTemplateByIdOrShortId").mockImplementation(
-      async (_tableId, idOrSlug) => (template.id === idOrSlug || template.shortId === idOrSlug ? template : null) as never,
+    spyOn(gridsService.document, "getTemplateByShortIdForTable").mockImplementation(
+      async (_tableId, publicId) => (template.shortId === publicId ? template : null) as never,
     );
     spyOn(gridsService.document, "browseRunsForTemplate").mockImplementation(
       async () =>
@@ -130,7 +130,7 @@ describe("loadGridsWorkspaceState — document templates use Base access", () =>
     );
     spyOn(gridsService.document, "summarizeRun").mockImplementation((run) => run as never);
     spyOn(gridsService.document, "summarizeTemplate").mockImplementation(() => templateSummary as never);
-    spyOn(gridsService.view, "getByIdOrShortId").mockImplementation(async () => null);
+    spyOn(gridsService.view, "getByShortIdForTable").mockImplementation(async () => null);
     spyOn(gridsService.workflow, "listForBase").mockImplementation(async () => []);
     spyOn(gridsService.workflow.launcher, "listForBase").mockImplementation(async () => []);
   });
@@ -144,7 +144,7 @@ describe("loadGridsWorkspaceState — document templates use Base access", () =>
         memberofGroupIds: [],
       },
       baseShortId: base.shortId,
-      href: `/app/grids/${base.shortId}/document/${documentTable.shortId}/${template.shortId}?record=55555555-5555-4555-8555-555555555555`,
+      href: `/app/grids/${base.shortId}/document/${documentTable.shortId}/${template.shortId}?record=REC001`,
       activeDocumentTableSlug: documentTable.shortId,
       activeDocumentTemplateSlug: template.shortId,
     });

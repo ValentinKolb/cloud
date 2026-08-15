@@ -1,4 +1,4 @@
-import type { Field } from "../../../service";
+import type { PublicField as Field } from "../../../api/public-dto";
 
 export type GroupByRow = {
   fieldId: string;

@@ -1,7 +1,8 @@
-import { Avatar, Placeholder, Tooltip, IconButton } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { Avatar, IconButton, Placeholder, Tooltip } from "@k2b/ui";
 import { For, Show } from "solid-js";
-import type { Field, RecordHistoryEntry } from "../../../service";
+import type { PublicRecordHistoryEntry as RecordHistoryEntry } from "../../../api/public-audit";
+import type { PublicField as Field } from "../../../api/public-dto";
 
 const ACTION_ICONS: Record<string, string> = {
   created: "ti-plus",

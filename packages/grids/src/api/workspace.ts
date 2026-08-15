@@ -1,24 +1,33 @@
 import { type AuthContext, auth, v } from "@valentinkolb/cloud/server";
 import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
+import { ShortIdSchema } from "../contracts";
+import {
+  projectPublicWorkspaceRecordDetail,
+  projectPublicWorkspaceWorkflowRunDetail,
+} from "../frontend/_components/workspace/workspace-public-state";
 import { loadRecordDetailData } from "../frontend/_components/workspace/workspace-record-detail-state";
 import { loadWorkflowRunDetail } from "../frontend/_components/workspace/workspace-workflow-state";
 import { gridsService } from "../service";
-import { ALL_RECORD_ACCESS } from "../service/record-access";
 import { currentActorViewer, gateAt } from "./permissions";
 
 export const createWorkspaceApi = (
   deps: {
     requireAuthenticated?: MiddlewareHandler<AuthContext>;
     getTable?: typeof gridsService.table.get;
+    getTableByShortId?: typeof gridsService.table.getByShortId;
     getRecord?: typeof gridsService.record.get;
+    getRecordByShortId?: typeof gridsService.record.getByShortId;
     listFields?: typeof gridsService.field.listByTable;
     gate?: typeof gateAt;
     loadRecordDetail?: typeof loadRecordDetailData;
+    projectRecordDetail?: typeof projectPublicWorkspaceRecordDetail;
     viewer?: typeof currentActorViewer;
     getWorkflowRun?: typeof gridsService.workflow.getRun;
+    getWorkflowRunByShortId?: typeof gridsService.workflow.getRunByShortId;
     getWorkflow?: typeof gridsService.workflow.get;
     loadWorkflowDetail?: typeof loadWorkflowRunDetail;
+    projectWorkflowDetail?: typeof projectPublicWorkspaceWorkflowRunDetail;
   } = {},
 ) => {
   const gate = deps.gate ?? gateAt;
@@ -30,53 +39,48 @@ export const createWorkspaceApi = (
       v(
         "query",
         z.object({
-          tableId: z.string().uuid(),
-          recordId: z.string().uuid(),
+          tableId: ShortIdSchema,
+          recordId: ShortIdSchema,
           deletedOnly: z.enum(["true"]).optional(),
         }),
       ),
       async (c) => {
-        const getTable = deps.getTable ?? gridsService.table.get;
-        const { tableId, recordId, deletedOnly } = c.req.valid("query");
-        const table = await getTable(tableId);
+        const { tableId: tablePublicId, recordId: recordPublicId, deletedOnly } = c.req.valid("query");
+        const table = await (deps.getTableByShortId ?? gridsService.table.getByShortId)(tablePublicId);
         if (!table) return c.json({ message: "Table not found" }, 404);
+        const tableId = table.id;
         const tableAccess = await gate(c, { baseId: table.baseId }, "read");
         if (!tableAccess.ok) return c.json({ message: "Record not found" }, 404);
+        const record = await (deps.getRecordByShortId ?? gridsService.record.getByShortId)(recordPublicId);
+        if (!record || record.tableId !== tableId || (deletedOnly ? !record.deletedAt : record.deletedAt)) {
+          return c.json({ message: "Record not found" }, 404);
+        }
         const loadFields = () => (deps.listFields ?? gridsService.field.listByTable)(tableId);
-        const getRecord = deps.getRecord ?? gridsService.record.get;
-        const record = await getRecord(tableId, recordId, {
-          deleted: deletedOnly ? "only" : "live",
-          viewer: (deps.viewer ?? currentActorViewer)(c),
-          recordAccess: ALL_RECORD_ACCESS,
-        });
-        if (!record) return c.json({ message: "Record not found" }, 404);
         const detailFields = await loadFields();
         const loadRecordDetail = deps.loadRecordDetail ?? loadRecordDetailData;
-        return c.json(
-          await loadRecordDetail({
-            tableId,
-            recordId,
-            fields: detailFields ?? [],
-            scope: "full",
-          }),
-        );
+        const detail = await loadRecordDetail({
+          tableId,
+          recordId: record.id,
+          fields: detailFields ?? [],
+          scope: "full",
+        });
+        return c.json(await (deps.projectRecordDetail ?? projectPublicWorkspaceRecordDetail)(detail, detailFields ?? []));
       },
     )
-    .get("/workflow-run-detail", v("query", z.object({ runId: z.string().uuid() })), async (c) => {
-      const getWorkflowRun = deps.getWorkflowRun ?? gridsService.workflow.getRun;
+    .get("/workflow-run-detail", v("query", z.object({ runId: ShortIdSchema })), async (c) => {
+      const getWorkflowRun = deps.getWorkflowRunByShortId ?? gridsService.workflow.getRunByShortId;
       const run = await getWorkflowRun(c.req.valid("query").runId);
       if (!run?.workflowId) return c.json({ message: "Workflow run not found" }, 404);
       const access = await gate(c, { baseId: run.baseId }, "read");
       if (!access.ok) return c.json({ message: "Workflow run not found" }, 404);
       const loadWorkflowDetail = deps.loadWorkflowDetail ?? loadWorkflowRunDetail;
       const workflow = await (deps.getWorkflow ?? gridsService.workflow.get)(run.workflowId, true);
-      return c.json(
-        await loadWorkflowDetail(run, {
-          canReadDocument: async (document) => (await gate(c, { baseId: document.baseId }, "read")).ok,
-          workflow,
-          viewer: (deps.viewer ?? currentActorViewer)(c),
-        }),
-      );
+      const detail = await loadWorkflowDetail(run, {
+        canReadDocument: async (document) => (await gate(c, { baseId: document.baseId }, "read")).ok,
+        workflow,
+        viewer: (deps.viewer ?? currentActorViewer)(c),
+      });
+      return c.json(await (deps.projectWorkflowDetail ?? projectPublicWorkspaceWorkflowRunDetail)(detail));
     });
 };
 

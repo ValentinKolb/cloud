@@ -1,9 +1,9 @@
 import type { DateContext } from "@k2b/stdlib";
 import { Button, IconButton, Placeholder, Tag } from "@k2b/ui";
 import { For, Show } from "solid-js";
-import type { DocumentRunFolder, DocumentRunSummary } from "../../../contracts";
 import { documentRunActionState } from "./document-browser-model";
 import { formatDocumentRelativeTime } from "./document-workspace-utils";
+import type { PublicDocumentRunFolder, PublicDocumentRunSummary } from "./public-document-types";
 
 export type DocumentBreadcrumb = { label: string; path: string[] };
 
@@ -12,8 +12,8 @@ type Props = {
   error: Error | undefined;
   mode: "list" | "folders";
   searching: boolean;
-  folders: DocumentRunFolder[];
-  runs: DocumentRunSummary[];
+  folders: PublicDocumentRunFolder[];
+  runs: PublicDocumentRunSummary[];
   breadcrumbs: DocumentBreadcrumb[];
   emptyText: string;
   hasMore: boolean;
@@ -21,13 +21,13 @@ type Props = {
   busyRunId: string | null;
   canWrite: boolean;
   dateConfig?: DateContext;
-  folderTitle: (folder: DocumentRunFolder) => string;
+  folderTitle: (folder: PublicDocumentRunFolder) => string;
   onBreadcrumb: (path: string[]) => void;
-  onFolder: (folder: DocumentRunFolder) => void;
-  onRun: (run: DocumentRunSummary) => void;
-  onEdit: (run: DocumentRunSummary) => void;
-  onLink: (run: DocumentRunSummary) => void;
-  onDownload: (run: DocumentRunSummary) => void;
+  onFolder: (folder: PublicDocumentRunFolder) => void;
+  onRun: (run: PublicDocumentRunSummary) => void;
+  onEdit: (run: PublicDocumentRunSummary) => void;
+  onLink: (run: PublicDocumentRunSummary) => void;
+  onDownload: (run: PublicDocumentRunSummary) => void;
   onLoadMore: () => void;
 };
 
@@ -48,7 +48,7 @@ function DocumentTags(props: { tags: string[] }) {
 }
 
 export default function DocumentBrowser(props: Props) {
-  const renderRunActions = (run: DocumentRunSummary) => {
+  const renderRunActions = (run: PublicDocumentRunSummary) => {
     const state = () => documentRunActionState(props.canWrite, props.busyRunId, run.id);
     return (
       <div class="flex shrink-0 items-center gap-1">

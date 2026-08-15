@@ -1,8 +1,7 @@
-import { NoticeCard, Button, IconButton, Placeholder, StatusBadge, Tooltip } from "@k2b/ui";
+import { Button, IconButton, NoticeCard, Placeholder, StatusBadge, Tooltip } from "@k2b/ui";
 import { For, Show } from "solid-js";
-import type { DocumentRunSummary } from "../../../contracts";
-import type { WorkflowRunProvenance } from "../../../service/workflow-runs";
-import type { GridsWorkflowRun, GridsWorkflowStepRun } from "../../../workflows/contracts";
+import type { PublicDocumentRunSummary } from "../documents/public-document-types";
+import type { PublicWorkflowRun, PublicWorkflowStepRun, PublicWorkspaceWorkflowRunDetail } from "../workspace/workspace-public-state-model";
 import {
   channelLabels,
   formatWorkflowRunDate as formatDate,
@@ -22,8 +21,8 @@ type WorkflowRunInputRow = {
 };
 
 export function WorkflowRunExecutionSection(props: {
-  run: GridsWorkflowRun;
-  provenance: WorkflowRunProvenance | null;
+  run: PublicWorkflowRun;
+  provenance: PublicWorkspaceWorkflowRunDetail["provenance"] | null;
   latestProgressAt: string | null;
   waitingFor: string | null;
   canInspectRevision: boolean;
@@ -108,7 +107,7 @@ export function WorkflowRunInputsSection(props: { inputs: WorkflowRunInputRow[] 
   );
 }
 
-export function WorkflowRunStepsSection(props: { steps: GridsWorkflowStepRun[]; truncated: boolean; loading: boolean }) {
+export function WorkflowRunStepsSection(props: { steps: PublicWorkflowStepRun[]; truncated: boolean; loading: boolean }) {
   return (
     <section class="detail-section">
       <h3 class="detail-section-label">Steps</h3>
@@ -167,7 +166,7 @@ export function WorkflowRunDocumentsSection(props: {
   downloadingAll: boolean;
   loadingMore: boolean;
   loadMoreError?: string;
-  onDownload: (document: DocumentRunSummary) => void;
+  onDownload: (document: PublicDocumentRunSummary) => void;
   onDownloadAll: () => void;
   onLoadMore: (offset: number) => void;
 }) {

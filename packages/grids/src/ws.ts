@@ -5,10 +5,13 @@ import type { ServerWebSocket } from "bun";
 import { Hono } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { z } from "zod";
+import { ShortIdSchema } from "./contracts";
+import type { GridsWorkflowRunEvent } from "./lib/workflow-run-events";
 import { gridsWorkspace } from "./lib/workspace-events";
 import { gridsService } from "./service";
-import { latestMetadataEventCursor, liveMetadataEvents } from "./service/metadata-events";
-import { latestRecordEventCursor, liveRecordEvents } from "./service/record-events";
+import { latestMetadataEventCursor, liveMetadataEvents, toPublicMetadataEvent } from "./service/metadata-events";
+import { projectPublicId, projectPublicIds, resolvePublicId } from "./service/public-resources";
+import { latestRecordEventCursor, liveRecordEvents, toPublicRecordEvent } from "./service/record-events";
 import { latestWorkflowRunEventCursor, liveWorkflowRunEvents } from "./service/workflow-run-events";
 
 const log = logger("grids:ws");
@@ -21,7 +24,7 @@ const CLOSE_SERVICE_RESTART = 1012;
 const SubscribeMessageSchema = z.object({
   type: z.literal(WS_TYPE.recordsSubscribe),
   payload: z.object({
-    tableId: z.string().uuid(),
+    tableId: ShortIdSchema,
     sessionToken: z.string().min(1).optional(),
     fromCursor: z.string().regex(gridsWorkspace.streamCursorPattern).nullable().optional(),
   }),
@@ -30,7 +33,7 @@ const SubscribeMessageSchema = z.object({
 const SubscribeMetadataMessageSchema = z.object({
   type: z.literal(WS_TYPE.metadataSubscribe),
   payload: z.object({
-    baseId: z.string().uuid(),
+    baseId: ShortIdSchema,
     sessionToken: z.string().min(1).optional(),
     fromCursor: z.string().regex(gridsWorkspace.streamCursorPattern).nullable().optional(),
   }),
@@ -39,7 +42,7 @@ const SubscribeMetadataMessageSchema = z.object({
 const SubscribeWorkflowRunsMessageSchema = z.object({
   type: z.literal(WS_TYPE.workflowRunsSubscribe),
   payload: z.object({
-    workflowId: z.string().uuid(),
+    workflowId: ShortIdSchema,
     sessionToken: z.string().min(1).optional(),
     fromCursor: z.string().regex(gridsWorkspace.streamCursorPattern).nullable().optional(),
   }),
@@ -48,9 +51,9 @@ const SubscribeWorkflowRunsMessageSchema = z.object({
 const ClientMessageSchema = z.union([SubscribeMessageSchema, SubscribeMetadataMessageSchema, SubscribeWorkflowRunsMessageSchema]);
 type WsPhase = "open" | "subscribed" | "closing";
 type Subscription =
-  | { kind: "records"; baseId: string; tableId: string }
-  | { kind: "metadata"; baseId: string }
-  | { kind: "workflow-runs"; baseId: string; workflowId: string };
+  | { kind: "records"; baseId: string; tableId: string; publicBaseId: string; publicTableId: string }
+  | { kind: "metadata"; baseId: string; publicBaseId: string }
+  | { kind: "workflow-runs"; baseId: string; workflowId: string; publicBaseId: string; publicWorkflowId: string };
 
 type WsContext = {
   socket: ServerWebSocket<unknown>;
@@ -71,6 +74,11 @@ type AccessResult =
   | { ok: false; code: string; message: string; tableId?: string };
 
 type WorkspaceRuntime = {
+  resolvePublicId: typeof resolvePublicId;
+  projectPublicId: typeof projectPublicId;
+  projectRecordEvent: typeof toPublicRecordEvent;
+  projectMetadataEvent: typeof toPublicMetadataEvent;
+  projectWorkflowRunEvent: typeof toPublicWorkflowRunEvent;
   evaluateRecordsAccess: (tableId: string, sessionToken: string | null) => Promise<AccessResult>;
   evaluateBaseAccess: (baseId: string, sessionToken: string | null) => Promise<AccessResult>;
   evaluateWorkflowAccess: (workflowId: string, sessionToken: string | null) => Promise<AccessResult>;
@@ -104,6 +112,36 @@ export const sendWorkspaceMessage = (socket: ServerWebSocket<unknown>, type: str
 };
 
 const send = sendWorkspaceMessage;
+
+const toPublicWorkflowRunEvent = async (event: GridsWorkflowRunEvent) => {
+  const workflowInternalIds = [event.workflowId, event.run.workflowId].filter((id): id is string => Boolean(id));
+  const launcherInternalIds = event.run.launcherId ? [event.run.launcherId] : [];
+  const [bases, workflows, runs, launchers] = await Promise.all([
+    projectPublicIds("base", [event.baseId, event.run.baseId]),
+    projectPublicIds("workflow", workflowInternalIds),
+    projectPublicIds("workflowRun", [event.run.id]),
+    projectPublicIds("workflowLauncher", launcherInternalIds),
+  ]);
+  const required = (ids: ReadonlyMap<string, string>, id: string, resource: string) => {
+    const publicId = ids.get(id);
+    if (!publicId) throw new Error(`Missing public ID for ${resource}`);
+    return publicId;
+  };
+  const runId = required(runs, event.run.id, "workflow run");
+  return {
+    ...event,
+    baseId: required(bases, event.baseId, "base"),
+    workflowId: event.workflowId ? required(workflows, event.workflowId, "workflow") : null,
+    run: {
+      ...event.run,
+      id: runId,
+      baseId: required(bases, event.run.baseId, "base"),
+      workflowId: event.run.workflowId ? required(workflows, event.run.workflowId, "workflow") : null,
+      launcherId: event.run.launcherId ? required(launchers, event.run.launcherId, "workflow launcher") : null,
+    },
+    steps: event.steps.map((step) => ({ ...step, runId })),
+  };
+};
 
 const isClosing = (ctx: Pick<WsContext, "phase">): boolean => ctx.phase === "closing";
 
@@ -151,9 +189,10 @@ const closeWithError = (
   errorType = errorTypeFor(ctx),
 ) => {
   if (ctx.phase === "closing") return;
+  const publicTableId = ctx.subscription?.kind === "records" ? ctx.subscription.publicTableId : tableId;
   ctx.phase = "closing";
   stopSubscription(ctx, runtime);
-  send(ctx.socket, errorType, { code, message, tableId });
+  send(ctx.socket, errorType, { code, message, tableId: publicTableId });
   ctx.socket.close(workspaceCloseCodeForError(code), code);
 };
 
@@ -176,8 +215,8 @@ const revokeAccess = (
     {
       code: access.code,
       message: access.code === "access_denied" ? "Access was revoked" : access.message,
-      baseId: subscription.baseId,
-      tableId: subscription.kind === "records" ? subscription.tableId : undefined,
+      baseId: subscription.publicBaseId,
+      tableId: subscription.kind === "records" ? subscription.publicTableId : undefined,
     },
   );
   ctx.socket.close(1008, access.code);
@@ -258,6 +297,11 @@ const evaluateSubscriptionAccess = (subscription: Subscription, sessionToken: st
       : evaluateWorkflowAccess(subscription.workflowId, sessionToken);
 
 const workspaceRuntime: WorkspaceRuntime = {
+  resolvePublicId,
+  projectPublicId,
+  projectRecordEvent: toPublicRecordEvent,
+  projectMetadataEvent: toPublicMetadataEvent,
+  projectWorkflowRunEvent: toPublicWorkflowRunEvent,
   evaluateRecordsAccess: evaluateTableAccess,
   evaluateBaseAccess,
   evaluateWorkflowAccess,
@@ -303,9 +347,9 @@ const startStream = (ctx: WsContext, runtime: WorkspaceRuntime, afterCursor: str
           const access = await ensureCurrentAccess(ctx, runtime, subscription);
           if (!access) break;
           const sent = send(ctx.socket, WS_TYPE.recordsEvent, {
-            tableId,
+            tableId: subscription.publicTableId,
             cursor: event.cursor,
-            event: event.data,
+            event: await runtime.projectRecordEvent(event.data),
           });
           if (!sent) {
             closeWithError(ctx, runtime, "backpressure", "Live updates exceeded the connection capacity", tableId);
@@ -317,9 +361,9 @@ const startStream = (ctx: WsContext, runtime: WorkspaceRuntime, afterCursor: str
           if (abort.signal.aborted || ctx.phase !== "subscribed" || ctx.subscription !== subscription) break;
           if (!(await ensureCurrentAccess(ctx, runtime, subscription))) break;
           const sent = send(ctx.socket, WS_TYPE.metadataEvent, {
-            baseId,
+            baseId: subscription.publicBaseId,
             cursor: event.cursor,
-            event: event.data,
+            event: await runtime.projectMetadataEvent(event.data),
           });
           if (!sent) {
             closeWithError(ctx, runtime, "backpressure", "Live updates exceeded the connection capacity");
@@ -332,9 +376,9 @@ const startStream = (ctx: WsContext, runtime: WorkspaceRuntime, afterCursor: str
           if (abort.signal.aborted || ctx.phase !== "subscribed" || ctx.subscription !== subscription) break;
           if (!(await ensureCurrentAccess(ctx, runtime, subscription))) break;
           const sent = send(ctx.socket, WS_TYPE.workflowRunsEvent, {
-            workflowId,
+            workflowId: subscription.publicWorkflowId,
             cursor: event.cursor,
-            event: event.data,
+            event: await runtime.projectWorkflowRunEvent(event.data),
           });
           if (!sent) {
             closeWithError(ctx, runtime, "backpressure", "Workflow updates exceeded the connection capacity");
@@ -442,14 +486,25 @@ const handleSubscribe = async (
 ) => {
   if (isClosing(ctx)) return;
   const sessionToken = payload.sessionToken ?? ctx.sessionToken;
-  const access = await runtime.evaluateRecordsAccess(payload.tableId, sessionToken);
+  const tableId = await runtime.resolvePublicId("table", payload.tableId);
+  if (!tableId) {
+    closeWithError(ctx, runtime, "not_found", "Table not found", payload.tableId);
+    return;
+  }
+  const access = await runtime.evaluateRecordsAccess(tableId, sessionToken);
   if (isClosing(ctx)) return;
   if (!access.ok || !access.tableId) {
     if (access.ok) {
       closeWithError(ctx, runtime, "not_found", "Table not found", payload.tableId);
       return;
     }
-    closeWithError(ctx, runtime, access.code, access.message, access.tableId ?? payload.tableId);
+    closeWithError(ctx, runtime, access.code, access.message, payload.tableId);
+    return;
+  }
+
+  const publicBaseId = await runtime.projectPublicId("base", access.baseId);
+  if (!publicBaseId) {
+    closeWithError(ctx, runtime, "not_found", "Base not found", payload.tableId);
     return;
   }
 
@@ -457,6 +512,8 @@ const handleSubscribe = async (
     kind: "records",
     baseId: access.baseId,
     tableId: access.tableId,
+    publicBaseId,
+    publicTableId: payload.tableId,
   };
   stopSubscription(ctx, runtime);
   ctx.phase = "subscribed";
@@ -465,7 +522,7 @@ const handleSubscribe = async (
   const baselineCursor = await resolveSubscriptionCursor(ctx, runtime, payload.fromCursor, () => runtime.latestRecordCursor(access.baseId));
   if (!baselineCursor) return;
   if (isClosing(ctx) || ctx.subscription !== subscription) return;
-  if (!send(ctx.socket, WS_TYPE.recordsReady, { tableId: access.tableId, cursor: baselineCursor })) {
+  if (!send(ctx.socket, WS_TYPE.recordsReady, { tableId: payload.tableId, cursor: baselineCursor })) {
     closeWithError(ctx, runtime, "backpressure", "Live updates exceeded the connection capacity", access.tableId);
     return;
   }
@@ -480,14 +537,19 @@ const handleMetadataSubscribe = async (
 ) => {
   if (isClosing(ctx)) return;
   const sessionToken = payload.sessionToken ?? ctx.sessionToken;
-  const access = await runtime.evaluateBaseAccess(payload.baseId, sessionToken);
+  const baseId = await runtime.resolvePublicId("base", payload.baseId);
+  if (!baseId) {
+    closeWithError(ctx, runtime, "not_found", "Base not found", undefined, WS_TYPE.metadataError);
+    return;
+  }
+  const access = await runtime.evaluateBaseAccess(baseId, sessionToken);
   if (isClosing(ctx)) return;
   if (!access.ok) {
     closeWithError(ctx, runtime, access.code, access.message, undefined, WS_TYPE.metadataError);
     return;
   }
 
-  const subscription: Subscription = { kind: "metadata", baseId: access.baseId };
+  const subscription: Subscription = { kind: "metadata", baseId: access.baseId, publicBaseId: payload.baseId };
   stopSubscription(ctx, runtime);
   ctx.phase = "subscribed";
   ctx.sessionToken = sessionToken;
@@ -497,7 +559,7 @@ const handleMetadataSubscribe = async (
   );
   if (!baselineCursor) return;
   if (isClosing(ctx) || ctx.subscription !== subscription) return;
-  if (!send(ctx.socket, WS_TYPE.metadataReady, { baseId: access.baseId, cursor: baselineCursor })) {
+  if (!send(ctx.socket, WS_TYPE.metadataReady, { baseId: payload.baseId, cursor: baselineCursor })) {
     closeWithError(ctx, runtime, "backpressure", "Live updates exceeded the connection capacity");
     return;
   }
@@ -512,7 +574,12 @@ const handleWorkflowRunsSubscribe = async (
 ) => {
   if (isClosing(ctx)) return;
   const sessionToken = payload.sessionToken ?? ctx.sessionToken;
-  const access = await runtime.evaluateWorkflowAccess(payload.workflowId, sessionToken);
+  const workflowId = await runtime.resolvePublicId("workflow", payload.workflowId);
+  if (!workflowId) {
+    closeWithError(ctx, runtime, "not_found", "Workflow not found", undefined, WS_TYPE.workflowRunsError);
+    return;
+  }
+  const access = await runtime.evaluateWorkflowAccess(workflowId, sessionToken);
   if (isClosing(ctx)) return;
   if (!access.ok || !access.workflowId) {
     closeWithError(
@@ -526,22 +593,30 @@ const handleWorkflowRunsSubscribe = async (
     return;
   }
 
+  const publicBaseId = await runtime.projectPublicId("base", access.baseId);
+  if (!publicBaseId) {
+    closeWithError(ctx, runtime, "not_found", "Base not found", undefined, WS_TYPE.workflowRunsError);
+    return;
+  }
+
   const subscription: Subscription = {
     kind: "workflow-runs",
     baseId: access.baseId,
     workflowId: access.workflowId,
+    publicBaseId,
+    publicWorkflowId: payload.workflowId,
   };
   stopSubscription(ctx, runtime);
   ctx.phase = "subscribed";
   ctx.sessionToken = sessionToken;
   ctx.subscription = subscription;
-  const workflowId = access.workflowId;
+  const internalWorkflowId = access.workflowId;
   const baselineCursor = await resolveSubscriptionCursor(ctx, runtime, payload.fromCursor, () =>
-    runtime.latestWorkflowRunCursor(access.baseId, workflowId),
+    runtime.latestWorkflowRunCursor(access.baseId, internalWorkflowId),
   );
   if (!baselineCursor) return;
   if (isClosing(ctx) || ctx.subscription !== subscription) return;
-  if (!send(ctx.socket, WS_TYPE.workflowRunsReady, { workflowId, cursor: baselineCursor })) {
+  if (!send(ctx.socket, WS_TYPE.workflowRunsReady, { workflowId: payload.workflowId, cursor: baselineCursor })) {
     closeWithError(ctx, runtime, "backpressure", "Workflow updates exceeded the connection capacity");
     return;
   }

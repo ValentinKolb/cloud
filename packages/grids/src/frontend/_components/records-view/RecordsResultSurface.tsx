@@ -1,8 +1,9 @@
-import { Placeholder, Button } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import { Button, Placeholder } from "@k2b/ui";
 import { type ComponentProps, Match, Switch } from "solid-js";
+import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import type { AggregationSpec, ColumnSpec, GroupBySpec, RecordDisplayConfig } from "../../../contracts";
-import type { Field, GridFilePreview, GridRecord } from "../../../service";
+import type { GridFilePreview } from "../../../service";
 import DatabaseTable from "../table/DatabaseTable";
 import GroupedTable, { type GroupBucket } from "../table/GroupedTable";
 import type { CardSize, RecordsState } from "./query-url";
@@ -19,9 +20,8 @@ type Props = {
   cursor: string | null;
   nextCursor: string | null;
   tableId: string;
-  viewShortId: string | null;
-  baseShortId: string;
-  tableShortIds: Record<string, string>;
+  viewId: string | null;
+  baseId: string;
   fieldsByTable: Record<string, Field[]>;
   fields: Field[];
   items: GridRecord[];
@@ -76,8 +76,7 @@ export default function RecordsResultSurface(props: Props) {
         fallback={
           <DatabaseTable
             result={{ items: props.items, fields: props.fields, nextCursor: null }}
-            baseId={props.baseShortId}
-            tableShortIds={props.tableShortIds}
+            baseId={props.baseId}
             fieldsByTable={fieldsByTable()}
             selectedId={props.selectedRecordId}
             highlightedIds={props.highlightedRecordIds}
@@ -88,7 +87,7 @@ export default function RecordsResultSurface(props: Props) {
             hasMore={hasMore()}
             loadingMore={loadingMore()}
             onLoadMore={props.onLoadMore}
-            scrollPreserveKey={`grids-records-${props.tableId}-${props.viewShortId ?? "default"}`}
+            scrollPreserveKey={`grids-records-${props.tableId}-${props.viewId ?? "default"}`}
             adminMode={props.adminMode}
             onFieldSettings={props.adminMode && !props.savedView && props.canManageTable ? props.onFieldSettings : undefined}
             onViewColumnSettings={props.adminMode && props.savedView && props.canEditView ? props.onViewColumnSettings : undefined}
@@ -117,8 +116,7 @@ export default function RecordsResultSurface(props: Props) {
         </Match>
         <Match when={props.grouped}>
           <GroupedTable
-            baseId={props.baseShortId}
-            tableShortIds={props.tableShortIds}
+            baseId={props.baseId}
             fields={props.fields}
             groupBy={props.groupBy}
             aggregations={props.aggregations}
@@ -130,7 +128,7 @@ export default function RecordsResultSurface(props: Props) {
             adminMode={props.adminMode && props.savedView && props.canEditView}
             columnOrder={props.groupedColumnOrder}
             hiddenColumnIds={props.hiddenGroupedColumnIds}
-            scrollPreserveKey={`grids-groups-${props.tableId}-${props.viewShortId ?? "default"}`}
+            scrollPreserveKey={`grids-groups-${props.tableId}-${props.viewId ?? "default"}`}
             onColumnSettings={props.onGroupedColumnSettings}
             onColumnMove={props.onGroupedColumnMove}
             dateConfig={props.dateConfig}
@@ -145,9 +143,8 @@ export default function RecordsResultSurface(props: Props) {
             fields={props.fields}
             displayConfig={props.displayConfig}
             filePreviews={props.filePreviews}
-            baseId={props.baseShortId}
+            baseId={props.baseId}
             tableId={props.tableId}
-            tableShortIds={props.tableShortIds}
             fieldsByTable={fieldsByTable()}
             selectedId={props.selectedRecordId}
             highlightedIds={props.highlightedRecordIds}

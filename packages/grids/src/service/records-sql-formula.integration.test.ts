@@ -6,7 +6,7 @@ import { aggregate, get, group, list } from "./records";
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 const uuid = () => Bun.randomUUIDv7();
-const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);
+const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 7)}`.slice(0, 6);
 
 type TestShape = {
   baseId: string;
@@ -52,13 +52,13 @@ const insertSqlFormulaFixture = async (): Promise<TestShape> => {
   await sql`
     INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
     VALUES
-      (${priceId}::uuid, 'PRICE', ${tableId}::uuid, 'Price', 'number', '{}'::jsonb, 0),
-      (${quantityId}::uuid, 'QTY01', ${tableId}::uuid, 'Quantity', 'number', '{}'::jsonb, 1),
-      (${subtotalId}::uuid, 'SUBTL', ${tableId}::uuid, 'Subtotal', 'formula', ${{ expression: "#PRICE + #QTY01 * 0.20" }}::jsonb, 2),
-      (${grossId}::uuid, 'GROSS', ${tableId}::uuid, 'Gross', 'formula', ${{ expression: "#SUBTL + 1" }}::jsonb, 3),
+      (${priceId}::uuid, 'PRICE1', ${tableId}::uuid, 'Price', 'number', '{}'::jsonb, 0),
+      (${quantityId}::uuid, 'QTY001', ${tableId}::uuid, 'Quantity', 'number', '{}'::jsonb, 1),
+      (${subtotalId}::uuid, 'SUBTL1', ${tableId}::uuid, 'Subtotal', 'formula', ${{ expression: "{PRICE1} + {QTY001} * 0.20" }}::jsonb, 2),
+      (${grossId}::uuid, 'GROSS1', ${tableId}::uuid, 'Gross', 'formula', ${{ expression: "{SUBTL1} + 1" }}::jsonb, 3),
       (
         ${statusId}::uuid,
-        'STAT1',
+        'STAT01',
         ${tableId}::uuid,
         'Status',
         'select',
@@ -71,8 +71,8 @@ const insertSqlFormulaFixture = async (): Promise<TestShape> => {
         }}::jsonb,
         4
       ),
-      (${relationId}::uuid, 'REL01', ${tableId}::uuid, 'Product', 'relation', ${{ targetTableId }}::jsonb, 5),
-      (${targetNameId}::uuid, 'NAME1', ${targetTableId}::uuid, 'Name', 'text', '{}'::jsonb, 0)
+      (${relationId}::uuid, 'REL001', ${tableId}::uuid, 'Product', 'relation', ${{ targetTableId }}::jsonb, 5),
+      (${targetNameId}::uuid, 'NAME01', ${targetTableId}::uuid, 'Name', 'text', '{}'::jsonb, 0)
   `;
   await sql`
     INSERT INTO grids.records (id, table_id, data, version)
@@ -215,7 +215,7 @@ describe("records SQL formula projection integration", () => {
   postgresTest("list applies SQL formula where predicates inside the record query", async () => {
     const fixture = await insertSqlFormulaFixture();
     try {
-      const parsed = parseFormula("#PRICE <= #QTY01 * 0.20");
+      const parsed = parseFormula("{PRICE1} <= {QTY001} * 0.20");
       expect(parsed.ok).toBe(true);
       if (!parsed.ok) return;
 
@@ -249,7 +249,7 @@ describe("records SQL formula projection integration", () => {
   postgresTest("list applies SQL formula where before limit and sort", async () => {
     const fixture = await insertSqlFormulaFixture();
     try {
-      const parsed = parseFormula("#PRICE <= #QTY01 * 0.20");
+      const parsed = parseFormula("{PRICE1} <= {QTY001} * 0.20");
       expect(parsed.ok).toBe(true);
       if (!parsed.ok) return;
 
@@ -320,7 +320,7 @@ describe("records SQL formula projection integration", () => {
   postgresTest("aggregate applies SQL formula where predicates", async () => {
     const fixture = await insertSqlFormulaFixture();
     try {
-      const parsed = parseFormula("#PRICE <= #QTY01 * 0.20");
+      const parsed = parseFormula("{PRICE1} <= {QTY001} * 0.20");
       expect(parsed.ok).toBe(true);
       if (!parsed.ok) return;
 
@@ -345,7 +345,7 @@ describe("records SQL formula projection integration", () => {
   postgresTest("group applies SQL formula having predicates over aggregate aliases", async () => {
     const fixture = await insertSqlFormulaFixture();
     try {
-      const parsed = parseFormula("#revenue < 0.50");
+      const parsed = parseFormula("revenue < 0.50");
       expect(parsed.ok).toBe(true);
       if (!parsed.ok) return;
 
@@ -438,8 +438,8 @@ describe("records SQL formula projection integration", () => {
   postgresTest("group aggregates SQL formula arguments and applies having to the formula alias", async () => {
     const fixture = await insertSqlFormulaFixture();
     try {
-      const subtotal = parseFormula("#PRICE * #QTY01");
-      const having = parseFormula("#subtotal > 1.00");
+      const subtotal = parseFormula("{PRICE1} * {QTY001}");
+      const having = parseFormula("subtotal > 1.00");
       expect(subtotal.ok).toBe(true);
       expect(having.ok).toBe(true);
       if (!subtotal.ok || !having.ok) return;

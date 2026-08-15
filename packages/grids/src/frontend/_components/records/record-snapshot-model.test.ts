@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { RecordSnapshot } from "../../../contracts";
+import type { PublicRecordSnapshot } from "../documents/public-document-types";
 import {
   type SnapshotRecordNode,
   snapshotFields,
@@ -8,11 +8,11 @@ import {
   snapshotTableName,
 } from "./record-snapshot-model";
 
-const snapshot = (root: Record<string, unknown>, graph: Record<string, unknown> = {}): RecordSnapshot => ({
-  id: "00000000-0000-4000-8000-000000000001",
-  baseId: "00000000-0000-4000-8000-000000000002",
-  tableId: "00000000-0000-4000-8000-000000000003",
-  recordId: "00000000-0000-4000-8000-000000000004",
+const snapshot = (root: Record<string, unknown>, graph: Record<string, unknown> = {}): PublicRecordSnapshot => ({
+  id: "SNAP01",
+  baseId: "BASE01",
+  tableId: "TABLE1",
+  recordId: "REC001",
   root,
   graph,
   createdBy: null,
@@ -29,7 +29,7 @@ describe("record snapshot model", () => {
     };
 
     expect(snapshotFields(node, "table")).toMatchObject([
-      { id: "name-field", shortId: "name-", tableId: "table", name: "Name", type: "text", presentable: true },
+      { id: "name-field", tableId: "table", name: "Name", type: "text", presentable: true },
     ]);
   });
 
@@ -37,7 +37,7 @@ describe("record snapshot model", () => {
     const result = snapshotGridRecord(snapshot({ data: { amount: 12 } }));
 
     expect(result).toMatchObject({
-      id: "00000000-0000-4000-8000-000000000004",
+      id: "REC001",
       version: 0,
       data: { amount: 12 },
       createdAt: "2026-07-11T00:00:00.000Z",

@@ -6,6 +6,7 @@ import { withInitialGqlResults } from "../../api/workspace-query-preview";
 import { ssr } from "../../config";
 import { parseDocumentViewMode } from "../_components/sidebar/GridsSettingsStore";
 import GridsWorkspace from "../_components/workspace/GridsWorkspace";
+import { projectPublicWorkspaceState } from "../_components/workspace/workspace-public-state";
 import { loadGridsWorkspaceState } from "../_components/workspace/workspace-state";
 
 export default ssr<AuthContext>(async (c) => {
@@ -67,7 +68,7 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
 
-  const state = await withInitialGqlResults(c, loadedState);
+  const state = await projectPublicWorkspaceState(await withInitialGqlResults(c, loadedState));
 
   return () => (
     <Layout c={c} fullWidth title={state.title}>

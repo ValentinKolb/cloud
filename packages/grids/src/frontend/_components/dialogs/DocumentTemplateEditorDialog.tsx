@@ -13,9 +13,10 @@ import {
 } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { DocumentPreviewResponse, DocumentTemplate } from "../../../contracts";
+import type { DocumentPreviewResponse } from "../../../contracts";
 import type { DocumentTemplateStarter } from "../../../document-template-starters";
 import { requestDocumentTemplateDraftPreview } from "../documents/document-transfer-client";
+import type { PublicDocumentTemplate } from "../documents/public-document-types";
 import { GqlSourceEditor } from "../query/GqlSourceEditor";
 import RecordPicker from "../records/RecordPicker";
 import { errorMessage } from "../utils/api-helpers";
@@ -66,9 +67,9 @@ export function openDocumentTemplateEditorDialog(args: {
   baseId: string;
   tableId: string;
   tableName: string;
-  template?: DocumentTemplate;
+  template?: PublicDocumentTemplate;
   starter?: DocumentTemplateStarter;
-  onSaved?: (template: DocumentTemplate) => void;
+  onSaved?: (template: PublicDocumentTemplate) => void;
 }) {
   return dialogCore.open<void>((close) => <DocumentTemplateEditorDialog args={args} close={close} />, panelDialogWorkspaceOptions);
 }
@@ -84,9 +85,9 @@ function DocumentTemplateEditorDialog(props: {
     baseId: string;
     tableId: string;
     tableName: string;
-    template?: DocumentTemplate;
+    template?: PublicDocumentTemplate;
     starter?: DocumentTemplateStarter;
-    onSaved?: (template: DocumentTemplate) => void;
+    onSaved?: (template: PublicDocumentTemplate) => void;
   };
   close: () => void;
 }) {
@@ -145,7 +146,7 @@ function DocumentTemplateEditorDialog(props: {
     if (await confirmDiscardIfDirty(dirty)) props.close();
   };
 
-  const saveMut = mutations.create<DocumentTemplate, void>({
+  const saveMut = mutations.create<PublicDocumentTemplate, void>({
     mutation: async () => {
       const payload = {
         name: name().trim(),

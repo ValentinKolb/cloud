@@ -10,7 +10,7 @@ const missingId = "00000000-0000-4000-8000-000000000099";
 
 const field = (id: string, name: string, type: string, deletedAt: string | null = null): Field => ({
   id,
-  shortId: id.slice(-5),
+  shortId: id.slice(-6),
   tableId,
   name,
   description: null,

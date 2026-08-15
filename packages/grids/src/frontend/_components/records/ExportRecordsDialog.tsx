@@ -1,7 +1,8 @@
-import { Checkbox, dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, Select, TextInput, Button } from "@k2b/ui";
+import { Button, Checkbox, dialogCore, MultiSelectInput, PanelDialog, panelDialogOptions, Select, TextInput } from "@k2b/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { ExportBody, Field, RecordQuery } from "../../../contracts";
+import type { PublicField as Field } from "../../../api/public-dto";
+import type { ExportBody, RecordQuery } from "../../../contracts";
 import { errorMessage } from "../utils/api-helpers";
 import { requestRecordExport } from "./record-transfer-client";
 

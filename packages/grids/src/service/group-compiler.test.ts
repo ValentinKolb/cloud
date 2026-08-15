@@ -72,8 +72,8 @@ describe("isAggregatable", () => {
 
 describe("compileGroupQuery — basic shape", () => {
   const tableId = "11111111-1111-1111-1111-111111111111";
-  const author = mkField("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "text", "author");
-  const amount = mkField("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "number", "amount");
+  const author = mkField("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "text", "author", { shortId: "AUTH01" });
+  const amount = mkField("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "number", "amount", { shortId: "AMNT01" });
   const fields = [author, amount];
 
   test("rejects empty groupBy", () => {
@@ -173,7 +173,7 @@ describe("compileGroupQuery — basic shape", () => {
   });
 
   test("compiles having predicates over aggregate aliases", () => {
-    const having = parseFormula("#revenue > 100 && #rows >= 2");
+    const having = parseFormula("revenue > 100 && rows >= 2");
     expect(having.ok).toBe(true);
     if (!having.ok) return;
 
@@ -195,8 +195,8 @@ describe("compileGroupQuery — basic shape", () => {
   });
 
   test("compiles formula aggregate arguments and having over the formula alias", () => {
-    const formula = parseFormula("{bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb} * 1.19");
-    const having = parseFormula("#gross > 100");
+    const formula = parseFormula("{AMNT01} * 1.19");
+    const having = parseFormula("gross > 100");
     expect(formula.ok).toBe(true);
     expect(having.ok).toBe(true);
     if (!formula.ok || !having.ok) return;
@@ -220,7 +220,7 @@ describe("compileGroupQuery — basic shape", () => {
   });
 
   test("rejects incompatible formula aggregate arguments", () => {
-    const formula = parseFormula("CONCAT({aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}, 'x')");
+    const formula = parseFormula("CONCAT({AUTH01}, 'x')");
     expect(formula.ok).toBe(true);
     if (!formula.ok) return;
 
@@ -242,7 +242,7 @@ describe("compileGroupQuery — basic shape", () => {
   });
 
   test("rejects unsafe formula aggregate ids before building SQL aliases", () => {
-    const formula = parseFormula("{bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb} * 1.19");
+    const formula = parseFormula("{AMNT01} * 1.19");
     expect(formula.ok).toBe(true);
     if (!formula.ok) return;
 
@@ -264,7 +264,7 @@ describe("compileGroupQuery — basic shape", () => {
   });
 
   test("rejects overlong formula aggregate ids before PostgreSQL can truncate aliases", () => {
-    const formula = parseFormula("{bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb} * 1.19");
+    const formula = parseFormula("{AMNT01} * 1.19");
     expect(formula.ok).toBe(true);
     if (!formula.ok) return;
 
@@ -286,7 +286,7 @@ describe("compileGroupQuery — basic shape", () => {
   });
 
   test("rejects having predicates that reference missing aggregate aliases", () => {
-    const having = parseFormula("#missing > 100");
+    const having = parseFormula("missing > 100");
     expect(having.ok).toBe(true);
     if (!having.ok) return;
 

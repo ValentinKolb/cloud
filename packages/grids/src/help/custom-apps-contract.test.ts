@@ -67,7 +67,7 @@ describe("Grids Apps documentation contract", () => {
     const markdown = await Bun.file(new URL("./documents/grids-custom-app-pages-blocks.help.md", import.meta.url)).text();
 
     expect(markdown).toContain("This release supports required Record parameters only.");
-    expect(markdown).toContain("its URL and `@params.<name>` value are UUID strings");
+    expect(markdown).toContain("its URL and `@params.<name>` value are record public IDs");
     expect(markdown).not.toContain("Supported parameter types are String, Number, Boolean, Date, Date time, and Record.");
   });
 
@@ -90,14 +90,14 @@ describe("Grids Apps documentation contract", () => {
     expect(pages).toContain("the raw GQL console deliberately does not offer Grids App `@…` context");
   });
 
-  test("keeps removed and server-owned v4 surfaces out of the written contract", async () => {
+  test("keeps removed dual-ID surfaces out of the written contract", async () => {
     const overview = await Bun.file(new URL("./documents/grids-custom-apps.help.md", import.meta.url)).text();
     const pages = await Bun.file(new URL("./documents/grids-custom-app-pages-blocks.help.md", import.meta.url)).text();
     const yaml = await Bun.file(new URL("./documents/grids-custom-app-yaml-cli.help.md", import.meta.url)).text();
     const cli = await Bun.file(new URL("../../../../skills/cloud-cli/references/grids.md", import.meta.url)).text();
 
     expect(overview).not.toContain("**Bulk actions**");
-    expect(overview).toContain("`apps export` does not contain `shortId`");
+    expect(overview).toContain("`apps export` contains that same `id`");
     expect(overview).toContain("Record blocks may edit only explicitly displayed and allowlisted fields or attachments");
     expect(pages).toContain("without Base or record Write access");
     expect(yaml).toContain("{ source: ROW, path: relation, fieldId:");
@@ -118,11 +118,11 @@ describe("Grids Apps documentation contract", () => {
       const source = await Bun.file(new URL(`../../docs/custom-apps/${filename}`, import.meta.url)).text();
       const definition = Bun.YAML.parse(source) as DefinitionNode & Record<string, unknown>;
 
-      expect(definition.schemaVersion, filename).toBe(4);
+      expect(definition.schemaVersion, filename).toBe(5);
       expect(definition.kind, filename).toBe("grids.custom-app");
       expect(typeof definition.id, filename).toBe("string");
       expect(typeof definition.baseId, filename).toBe("string");
-      expect(definition.shortId, `${filename} must let Grids assign shortId`).toBeUndefined();
+      expect(definition.shortId, `${filename} must expose only id`).toBeUndefined();
       expect(definition.pages?.length ?? 0, filename).toBeGreaterThan(0);
       expect(
         definition.pages?.some((page) => page.id === definition.startPageId),

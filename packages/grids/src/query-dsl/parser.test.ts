@@ -474,13 +474,6 @@ limit 2`);
     expect(result.ast.where?.source).toBe("CONTAINS(Notes, '-- not a comment')");
   });
 
-  test("does not treat comment markers inside braced field refs as comments", () => {
-    const result = parseGridsQueryDsl(`where {abc--def} = 1`);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.ast.where?.source).toBe("{abc--def} = 1");
-  });
-
   test("rejects comment markers attached to expression text", () => {
     const result = parseGridsQueryDsl(`
       -- whole-line comments stay valid

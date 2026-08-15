@@ -9,15 +9,14 @@ import { WORKFLOW_REFERENCE, workflowRunRows, workflowStepRows } from "./workflo
 
 type FetchCall = { path: string; init?: RequestInit };
 
-const baseId = "00000000-0000-4000-8000-000000000001";
-const workflowId = "00000000-0000-4000-8000-000000000002";
-const launcherId = "00000000-0000-4000-8000-000000000003";
-const runId = "00000000-0000-4000-8000-000000000004";
-const itemRecordId = "00000000-0000-4000-8000-000000000005";
+const baseId = "base1A";
+const workflowId = "wf001A";
+const launcherId = "ln001A";
+const runId = "wrun01";
+const itemRecordId = "item01";
 
 const workflow = {
   id: workflowId,
-  shortId: "wf001",
   baseId,
   name: "Check in",
   description: null,
@@ -30,7 +29,6 @@ const workflow = {
 
 const launcher = (kind: "scanner" | "bulk" | "customApp") => ({
   id: launcherId,
-  shortId: "ln001",
   baseId,
   workflowId,
   name: `${kind} launcher`,
@@ -112,7 +110,8 @@ const cli = defineCliCommands({
   commands: [...workflowCommands, ...workflowRunCommands],
 });
 
-const resolutionResponses = () => [jsonResponse({ id: baseId, shortId: "base1", name: "Bookshop" }), jsonResponse(workflow)];
+const basePage = { items: [{ id: baseId, name: "Bookshop" }], total: 1, limit: 500, offset: 0 };
+const resolutionResponses = () => [jsonResponse(basePage), jsonResponse([workflow])];
 
 describe("Grids workflow CLI", () => {
   test("keeps the reference invocation aligned with a compilable and bindable YAML example", async () => {
@@ -123,7 +122,7 @@ describe("Grids workflow CLI", () => {
     if (!compiled.ok) return;
 
     const catalog = buildWorkflowCatalog({
-      tables: [{ id: baseId, shortId: "items", name: "Items" }],
+      tables: [{ id: baseId, shortId: "items1", name: "Items" }],
       fieldsByTable: new Map([[baseId, [{ id: itemRecordId, shortId: "status", name: "Status" }]]]),
     });
     expect((await bindGridsWorkflow(compiled.ir, catalog)).ok).toBe(true);
@@ -152,7 +151,7 @@ describe("Grids workflow CLI", () => {
     await cli.run(invoke.ctx);
     const invokeHelp = invoke.lines.join("\n");
     expect(invokeHelp).toContain('"scannedText":"gsc_opaque"');
-    expect(invokeHelp).toContain('"recordIds":[uuid,...]');
+    expect(invokeHelp).toContain('"recordIds":[public-id,...]');
     expect(invokeHelp).toContain('"query":{...}');
   });
 
@@ -175,8 +174,8 @@ describe("Grids workflow CLI", () => {
     await cli.run(ctx);
 
     expect(calls.map((call) => call.path)).toEqual([
-      `/api/grids/bases/${baseId}`,
-      `/api/grids/workflows/${workflowId}`,
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
+      `/api/grids/workflows/by-base/${baseId}`,
       `/api/grids/workflows/${workflowId}/invoke/cli`,
     ]);
     expect(calls[2]?.init?.method).toBe("POST");
@@ -198,13 +197,12 @@ describe("Grids workflow CLI", () => {
     expect(list.calls.at(-1)?.path).toBe(`/api/grids/workflows/${workflowId}/launchers`);
     expect(list.tables[0]).toEqual([
       {
-        shortId: "ln001",
+        id: "ln001A",
         name: "bulk launcher",
         kind: "bulk",
         enabled: "yes",
         revision: 3,
         diagnostics: 0,
-        id: launcherId,
       },
     ]);
 
@@ -219,7 +217,7 @@ describe("Grids workflow CLI", () => {
 
     const update = createContext(["workflow-launchers", "update", baseId, workflowId, launcherId], { body: '{"enabled":false}' }, [
       ...resolutionResponses(),
-      jsonResponse(launcher("bulk")),
+      jsonResponse({ items: [launcher("bulk")] }),
       jsonResponse({ ...launcher("bulk"), enabled: false }),
     ]);
     await cli.run(update.ctx);
@@ -228,7 +226,7 @@ describe("Grids workflow CLI", () => {
 
     const remove = createContext(["workflow-launchers", "delete", baseId, workflowId, launcherId], { yes: true }, [
       ...resolutionResponses(),
-      jsonResponse(launcher("bulk")),
+      jsonResponse({ items: [launcher("bulk")] }),
       new Response(null, { status: 204 }),
     ]);
     await cli.run(remove.ctx);
@@ -247,14 +245,12 @@ describe("Grids workflow CLI", () => {
       const { ctx, calls } = createContext(
         ["workflow-launchers", "invoke", baseId, workflowId, launcherId],
         { body: JSON.stringify(bodies[kind]) },
-        [...resolutionResponses(), jsonResponse(launcher(kind)), jsonResponse({ ...receipt, channel: kind })],
+        [...resolutionResponses(), jsonResponse({ items: [launcher(kind)] }), jsonResponse({ ...receipt, channel: kind })],
       );
 
       await cli.run(ctx);
 
-      expect(calls.at(-1)?.path).toBe(
-        `/api/grids/workflows/launchers/${launcherId}/invoke/${kind === "customApp" ? "custom-app" : kind}`,
-      );
+      expect(calls.at(-1)?.path).toBe(`/api/grids/workflows/launchers/${launcherId}/invoke/${kind === "customApp" ? "custom-app" : kind}`);
       expect(JSON.parse(String(calls.at(-1)?.init?.body))).toEqual(bodies[kind]);
     }
   });

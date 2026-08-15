@@ -2,7 +2,6 @@ import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { DocumentRunSummaryListSchema } from "../contracts";
 import { listRunsForWorkflowRun, renderWorkflowRunPdf } from "../service/documents";
 import { getWorkflow } from "../service/workflow-definitions";
 import { listWorkflowEmailDeliveriesPage } from "../service/workflow-email-deliveries";
@@ -13,18 +12,24 @@ import {
   listWorkflowRunsPage,
   listWorkflowStepRunsPage,
 } from "../service/workflow-runs";
-import {
-  GridsWorkflowEmailDeliveryListSchema,
-  GridsWorkflowRunListSchema,
-  GridsWorkflowRunSchema,
-  GridsWorkflowRunStatsSchema,
-  GridsWorkflowStepRunListSchema,
-} from "../workflows/contracts";
 import { encodeHeaderValue, pdfResponse } from "./download-response";
 import { currentActorUserId, gateAt } from "./permissions";
-import { uuidParam } from "./route-params";
+import { resolvePublicIdParam } from "./route-params";
 import {
   baseExists,
+  PublicDocumentRunSummaryListSchema,
+  PublicGridsWorkflowEmailDeliveryListSchema,
+  PublicGridsWorkflowRunListSchema,
+  PublicGridsWorkflowRunSchema,
+  PublicGridsWorkflowRunStatsSchema,
+  PublicGridsWorkflowStepRunListSchema,
+  resolveWorkflowFilterId,
+  toPublicDocumentRunSummaries,
+  toPublicWorkflowDeliveries,
+  toPublicWorkflowRun,
+  toPublicWorkflowRunPage,
+  toPublicWorkflowStats,
+  toPublicWorkflowSteps,
   visibleWorkflowIdsForBase,
   WorkflowEmailDeliveriesQuerySchema,
   WorkflowRunDocumentsQuerySchema,
@@ -53,7 +58,7 @@ export const createWorkflowRunRoutes = () =>
         tags: ["Grids:Workflow"],
         summary: "List workflow runs visible on a base",
         responses: {
-          200: jsonResponse(GridsWorkflowRunListSchema, "Workflow runs"),
+          200: jsonResponse(PublicGridsWorkflowRunListSchema, "Workflow runs"),
           400: jsonResponse(ErrorResponseSchema, "Invalid base id or query"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -61,25 +66,30 @@ export const createWorkflowRunRoutes = () =>
       }),
       v("query", WorkflowRunsQuerySchema),
       async (c) => {
-        const baseId = uuidParam(c, "baseId");
+        const baseId = await resolvePublicIdParam(c, "baseId", "base");
         if (!baseId) return c.json({ message: "Invalid base id" }, 400);
         if (!(await baseExists(baseId))) return c.json({ message: "Base not found" }, 404);
         const gate = await gateAt(c, { baseId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const visibleIds = await visibleWorkflowIdsForBase(c, baseId, { includeDeleted: true });
         const query = c.req.valid("query");
-        if (query.workflowId && !visibleIds.includes(query.workflowId)) return c.json({ message: "Workflow not found" }, 404);
+        const workflowId = await resolveWorkflowFilterId(query.workflowId);
+        if (workflowId === null || (workflowId && !visibleIds.includes(workflowId))) {
+          return c.json({ message: "Workflow not found" }, 404);
+        }
         return c.json(
-          await listWorkflowRunsPage({
-            baseId,
-            workflowIds: visibleIds,
-            workflowId: query.workflowId,
-            status: query.status,
-            mode: query.mode,
-            channel: query.channel,
-            cursor: query.cursor,
-            limit: query.limit,
-          }),
+          await toPublicWorkflowRunPage(
+            await listWorkflowRunsPage({
+              baseId,
+              workflowIds: visibleIds,
+              workflowId,
+              status: query.status,
+              mode: query.mode,
+              channel: query.channel,
+              cursor: query.cursor,
+              limit: query.limit,
+            }),
+          ),
         );
       },
     )
@@ -89,7 +99,7 @@ export const createWorkflowRunRoutes = () =>
         tags: ["Grids:Workflow"],
         summary: "Return workflow run stats visible on a base",
         responses: {
-          200: jsonResponse(GridsWorkflowRunStatsSchema, "Workflow run stats"),
+          200: jsonResponse(PublicGridsWorkflowRunStatsSchema, "Workflow run stats"),
           400: jsonResponse(ErrorResponseSchema, "Invalid base id or query"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -97,13 +107,13 @@ export const createWorkflowRunRoutes = () =>
       }),
       v("query", WorkflowRunStatsQuerySchema),
       async (c) => {
-        const baseId = uuidParam(c, "baseId");
+        const baseId = await resolvePublicIdParam(c, "baseId", "base");
         if (!baseId) return c.json({ message: "Invalid base id" }, 400);
         if (!(await baseExists(baseId))) return c.json({ message: "Base not found" }, 404);
         const gate = await gateAt(c, { baseId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const visibleIds = await visibleWorkflowIdsForBase(c, baseId, { includeDeleted: true });
-        return c.json(await getWorkflowRunStats(baseId, visibleIds, { window: c.req.valid("query").window }));
+        return c.json(await toPublicWorkflowStats(await getWorkflowRunStats(baseId, visibleIds, { window: c.req.valid("query").window })));
       },
     )
     .get(
@@ -112,7 +122,7 @@ export const createWorkflowRunRoutes = () =>
         tags: ["Grids:Workflow"],
         summary: "List workflow email deliveries visible on a base",
         responses: {
-          200: jsonResponse(GridsWorkflowEmailDeliveryListSchema, "Workflow email deliveries"),
+          200: jsonResponse(PublicGridsWorkflowEmailDeliveryListSchema, "Workflow email deliveries"),
           400: jsonResponse(ErrorResponseSchema, "Invalid base id or query"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -120,22 +130,27 @@ export const createWorkflowRunRoutes = () =>
       }),
       v("query", WorkflowEmailDeliveriesQuerySchema),
       async (c) => {
-        const baseId = uuidParam(c, "baseId");
+        const baseId = await resolvePublicIdParam(c, "baseId", "base");
         if (!baseId) return c.json({ message: "Invalid base id" }, 400);
         if (!(await baseExists(baseId))) return c.json({ message: "Base not found" }, 404);
         const gate = await gateAt(c, { baseId }, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const visibleIds = await visibleWorkflowIdsForBase(c, baseId, { includeDeleted: true });
         const query = c.req.valid("query");
-        if (query.workflowId && !visibleIds.includes(query.workflowId)) return c.json({ message: "Workflow not found" }, 404);
+        const workflowId = await resolveWorkflowFilterId(query.workflowId);
+        if (workflowId === null || (workflowId && !visibleIds.includes(workflowId))) {
+          return c.json({ message: "Workflow not found" }, 404);
+        }
         return c.json(
-          await listWorkflowEmailDeliveriesPage({
-            baseId,
-            workflowIds: visibleIds,
-            workflowId: query.workflowId,
-            cursor: query.cursor,
-            limit: query.limit,
-          }),
+          await toPublicWorkflowDeliveries(
+            await listWorkflowEmailDeliveriesPage({
+              baseId,
+              workflowIds: visibleIds,
+              workflowId,
+              cursor: query.cursor,
+              limit: query.limit,
+            }),
+          ),
         );
       },
     )
@@ -145,7 +160,7 @@ export const createWorkflowRunRoutes = () =>
         tags: ["Grids:Workflow"],
         summary: "List workflow runs",
         responses: {
-          200: jsonResponse(GridsWorkflowRunListSchema, "Runs"),
+          200: jsonResponse(PublicGridsWorkflowRunListSchema, "Runs"),
           400: jsonResponse(ErrorResponseSchema, "Invalid workflow id or query"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -153,7 +168,7 @@ export const createWorkflowRunRoutes = () =>
       }),
       v("query", WorkflowRunsQuerySchema.pick({ cursor: true, limit: true, status: true, mode: true, channel: true })),
       async (c) => {
-        const workflowId = uuidParam(c, "workflowId");
+        const workflowId = await resolvePublicIdParam(c, "workflowId", "workflow");
         if (!workflowId) return c.json({ message: "Invalid workflow id" }, 400);
         const workflow = await getWorkflow(workflowId, true);
         if (!workflow) return c.json({ message: "Workflow not found" }, 404);
@@ -161,16 +176,18 @@ export const createWorkflowRunRoutes = () =>
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const query = c.req.valid("query");
         return c.json(
-          await listWorkflowRunsPage({
-            baseId: workflow.baseId,
-            workflowIds: [workflow.id],
-            workflowId,
-            status: query.status,
-            mode: query.mode,
-            channel: query.channel,
-            cursor: query.cursor,
-            limit: query.limit,
-          }),
+          await toPublicWorkflowRunPage(
+            await listWorkflowRunsPage({
+              baseId: workflow.baseId,
+              workflowIds: [workflow.id],
+              workflowId,
+              status: query.status,
+              mode: query.mode,
+              channel: query.channel,
+              cursor: query.cursor,
+              limit: query.limit,
+            }),
+          ),
         );
       },
     )
@@ -180,19 +197,19 @@ export const createWorkflowRunRoutes = () =>
         tags: ["Grids:Workflow"],
         summary: "Get a workflow run",
         responses: {
-          200: jsonResponse(GridsWorkflowRunSchema, "Workflow run"),
+          200: jsonResponse(PublicGridsWorkflowRunSchema, "Workflow run"),
           400: jsonResponse(ErrorResponseSchema, "Invalid workflow run id"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
         },
       }),
       async (c) => {
-        const runId = uuidParam(c, "runId");
+        const runId = await resolvePublicIdParam(c, "runId", "workflowRun");
         if (!runId) return c.json({ message: "Invalid workflow run id" }, 400);
         const loaded = await loadReadableRun(c, runId);
         if (!loaded) return c.json({ message: "Workflow run not found" }, 404);
         if (!("run" in loaded)) return respond(c, () => Promise.resolve(loaded));
-        return c.json(loaded.run);
+        return c.json(await toPublicWorkflowRun(loaded.run));
       },
     )
     .post(
@@ -201,14 +218,14 @@ export const createWorkflowRunRoutes = () =>
         tags: ["Grids:Workflow"],
         summary: "Cancel an active workflow run",
         responses: {
-          200: jsonResponse(GridsWorkflowRunSchema, "Canceled workflow run"),
+          200: jsonResponse(PublicGridsWorkflowRunSchema, "Canceled workflow run"),
           400: jsonResponse(ErrorResponseSchema, "Invalid workflow run id or run is already terminal"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
         },
       }),
       async (c) => {
-        const runId = uuidParam(c, "runId");
+        const runId = await resolvePublicIdParam(c, "runId", "workflowRun");
         if (!runId) return c.json({ message: "Invalid workflow run id" }, 400);
         const run = await getWorkflowRun(runId);
         if (!run?.workflowId) return c.json({ message: "Workflow run not found" }, 404);
@@ -221,7 +238,7 @@ export const createWorkflowRunRoutes = () =>
         if (outcome.state === "notCancelable") {
           return c.json({ message: "Only queued, running, or waiting runs can be canceled." }, 400);
         }
-        return c.json(outcome.run);
+        return c.json(await toPublicWorkflowRun(outcome.run));
       },
     )
     .get(
@@ -230,19 +247,19 @@ export const createWorkflowRunRoutes = () =>
         tags: ["Grids:Workflow"],
         summary: "List workflow run steps",
         responses: {
-          200: jsonResponse(GridsWorkflowStepRunListSchema, "Steps"),
+          200: jsonResponse(PublicGridsWorkflowStepRunListSchema, "Steps"),
           400: jsonResponse(ErrorResponseSchema, "Invalid workflow run id"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
         },
       }),
       async (c) => {
-        const runId = uuidParam(c, "runId");
+        const runId = await resolvePublicIdParam(c, "runId", "workflowRun");
         if (!runId) return c.json({ message: "Invalid workflow run id" }, 400);
         const loaded = await loadReadableRun(c, runId);
         if (!loaded) return c.json({ message: "Workflow run not found" }, 404);
         if (!("run" in loaded)) return respond(c, () => Promise.resolve(loaded));
-        return c.json(await listWorkflowStepRunsPage(runId));
+        return c.json(await toPublicWorkflowSteps(await listWorkflowStepRunsPage(runId), c.req.param("runId")));
       },
     )
     .get(
@@ -251,7 +268,7 @@ export const createWorkflowRunRoutes = () =>
         tags: ["Grids:Workflow"],
         summary: "List documents generated by a workflow run",
         responses: {
-          200: jsonResponse(DocumentRunSummaryListSchema, "Generated documents"),
+          200: jsonResponse(PublicDocumentRunSummaryListSchema, "Generated documents"),
           400: jsonResponse(ErrorResponseSchema, "Invalid workflow run id or query"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -259,12 +276,12 @@ export const createWorkflowRunRoutes = () =>
       }),
       v("query", WorkflowRunDocumentsQuerySchema),
       async (c) => {
-        const runId = uuidParam(c, "runId");
+        const runId = await resolvePublicIdParam(c, "runId", "workflowRun");
         if (!runId) return c.json({ message: "Invalid workflow run id" }, 400);
         const loaded = await loadReadableRun(c, runId);
         if (!loaded) return c.json({ message: "Workflow run not found" }, 404);
         if (!("run" in loaded)) return respond(c, () => Promise.resolve(loaded));
-        return c.json(await listRunsForWorkflowRun(runId, c.req.valid("query"), canReadDocumentRun(c)));
+        return c.json(await toPublicDocumentRunSummaries(await listRunsForWorkflowRun(runId, c.req.valid("query"), canReadDocumentRun(c))));
       },
     )
     .get(
@@ -280,7 +297,7 @@ export const createWorkflowRunRoutes = () =>
         },
       }),
       async (c) => {
-        const runId = uuidParam(c, "runId");
+        const runId = await resolvePublicIdParam(c, "runId", "workflowRun");
         if (!runId) return c.json({ message: "Invalid workflow run id" }, 400);
         const loaded = await loadReadableRun(c, runId);
         if (!loaded) return c.json({ message: "Workflow run not found" }, 404);

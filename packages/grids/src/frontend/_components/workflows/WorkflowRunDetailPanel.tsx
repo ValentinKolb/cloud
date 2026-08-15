@@ -1,15 +1,19 @@
-import { Button, dialogCore, IconButton, panelDialogWorkspaceOptions, Placeholder, prompts, StatusBadge, toast, Tooltip } from "@k2b/ui";
-import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, dialogCore, IconButton, Placeholder, panelDialogWorkspaceOptions, prompts, StatusBadge, Tooltip, toast } from "@k2b/ui";
+import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { DocumentRunSummary, DocumentRunSummaryList } from "../../../contracts";
-import type { Table, Workflow } from "../../../service";
-import type { GridsWorkflowRun, GridsWorkflowStepRun } from "../../../workflows/contracts";
+import type { PublicTable } from "../../../api/public-dto";
 import { downloadPdfResponse } from "../documents/document-download";
 import { requestDocumentRunDownload, requestWorkflowDocumentsDownload } from "../documents/document-transfer-client";
+import type { PublicDocumentRunSummary } from "../documents/public-document-types";
 import { errorMessage } from "../utils/api-helpers";
-import type { WorkspaceWorkflowRunDetail } from "../workspace/workspace-state-model";
+import type {
+  PublicWorkflow,
+  PublicWorkflowRun,
+  PublicWorkflowStepRun,
+  PublicWorkspaceWorkflowRunDetail,
+} from "../workspace/workspace-public-state-model";
 import { WorkflowRevisionHistory } from "./WorkflowRevisionHistory";
 import {
   WorkflowRunDocumentsSection,
@@ -72,17 +76,17 @@ const RUN_DOCUMENT_PAGE_SIZE = 100;
 
 export function WorkflowRunDetailPanel(props: {
   runId: string;
-  initialDetail: WorkspaceWorkflowRunDetail | null;
-  workflows: Workflow[];
+  initialDetail: PublicWorkspaceWorkflowRunDetail | null;
+  workflows: PublicWorkflow[];
   workflowLevels: Record<string, "none" | "read" | "write" | "admin">;
-  tables: Table[];
-  onRunUpdated: (run: GridsWorkflowRun) => void;
+  tables: PublicTable[];
+  onRunUpdated: (run: PublicWorkflowRun) => void;
   onSelectRun: (runId: string) => void;
   onClose: () => void;
 }) {
-  const [run, setRun] = createSignal<GridsWorkflowRun | null>(props.initialDetail?.run ?? null);
+  const [run, setRun] = createSignal<PublicWorkflowRun | null>(props.initialDetail?.run ?? null);
   const [inputLabels, setInputLabels] = createSignal(props.initialDetail?.inputLabels ?? {});
-  const [steps, setSteps] = createSignal<GridsWorkflowStepRun[]>(props.initialDetail?.steps ?? []);
+  const [steps, setSteps] = createSignal<PublicWorkflowStepRun[]>(props.initialDetail?.steps ?? []);
   const [stepsTruncated, setStepsTruncated] = createSignal(props.initialDetail?.stepsTruncated ?? false);
   const [documents, setDocuments] = createSignal<WorkflowRunDocumentsState>({
     items: props.initialDetail?.documents.items ?? [],
@@ -156,7 +160,7 @@ export function WorkflowRunDetailPanel(props: {
   });
 
   const loadMoreDocumentsMut = mutations.create<
-    DocumentRunSummaryList,
+    PublicWorkspaceWorkflowRunDetail["documents"],
     { runId: string; offset: number },
     { runId: string; offset: number }
   >({
@@ -187,12 +191,12 @@ export function WorkflowRunDetailPanel(props: {
     },
   });
 
-  const loadMut = mutations.create<WorkspaceWorkflowRunDetail, string, { runId: string }>({
+  const loadMut = mutations.create<PublicWorkspaceWorkflowRunDetail, string, { runId: string }>({
     onBefore: (runId) => ({ runId }),
     mutation: async (runId, { abortSignal }) => {
       const response = await workflowRunDetailApi.$get({ query: { runId } }, { init: { signal: abortSignal } });
       if (!response.ok) throw new Error(await errorMessage(response, "Could not load workflow run."));
-      return response.json() as Promise<WorkspaceWorkflowRunDetail>;
+      return response.json() as Promise<PublicWorkspaceWorkflowRunDetail>;
     },
     onSuccess: (detail, context) => {
       if (context?.runId !== props.runId || detail.run.id !== context.runId) return;
@@ -334,7 +338,7 @@ export function WorkflowRunDetailPanel(props: {
     });
   });
 
-  const downloadDocument = async (document: DocumentRunSummary) => {
+  const downloadDocument = async (document: PublicDocumentRunSummary) => {
     setDownloadingDocumentId(document.id);
     try {
       const res = await requestDocumentRunDownload(document.id);
@@ -346,7 +350,7 @@ export function WorkflowRunDetailPanel(props: {
     }
   };
 
-  const cancelMut = mutations.create<GridsWorkflowRun, void>({
+  const cancelMut = mutations.create<PublicWorkflowRun, void>({
     mutation: async (_, { abortSignal }) => {
       const response = await workflowRunLifecycleApi.runs[":runId"].cancel.$post(
         { param: { runId: props.runId } },

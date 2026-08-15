@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { Field, GridRecord } from "../../../service";
+import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import { resolveFieldDisplay } from "./field-display";
 import { fieldDisplayFormat, formatFieldValueText, relationIds } from "./field-value-format";
 
 const field = (overrides: Partial<Field> & Pick<Field, "id" | "name" | "type">): Field => ({
-  shortId: overrides.id.slice(0, 5),
   tableId: "tbl",
   description: null,
   config: {},
@@ -21,17 +20,18 @@ const field = (overrides: Partial<Field> & Pick<Field, "id" | "name" | "type">):
   ...overrides,
 });
 
-const record = (data: Record<string, unknown>, expanded?: GridRecord["expanded"]): GridRecord =>
-  ({
-    id: "rec",
-    tableId: "tbl",
-    data,
-    expanded,
-    version: 1,
-    deletedAt: null,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  }) as GridRecord;
+const record = (data: Record<string, unknown>, expanded?: GridRecord["expanded"]): GridRecord => ({
+  id: "rec",
+  tableId: "tbl",
+  data,
+  expanded,
+  version: 1,
+  createdBy: null,
+  updatedBy: null,
+  deletedAt: null,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+});
 
 describe("FieldValue helpers", () => {
   test("normalizes relation ids from scalar and multi-value storage", () => {

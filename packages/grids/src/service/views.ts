@@ -1,5 +1,5 @@
-import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { type View, type ViewUiSettings, ViewUiSettingsSchema } from "../contracts";
 import { normalizeRefKey } from "../ref-syntax";
@@ -38,7 +38,7 @@ const mapRow = (row: DbRow): View => {
  * Look up a view by `(tableId, slug)` at the path-based SSR boundary.
  * Soft-deleted views and views below a trashed table or base are not live.
  */
-export const getByShortId = async (tableId: string, shortId: string): Promise<View | null> => {
+export const getByShortIdForTable = async (tableId: string, shortId: string): Promise<View | null> => {
   const [row] = await sql<DbRow[]>`
     SELECT v.*
     FROM grids.views v
@@ -49,17 +49,16 @@ export const getByShortId = async (tableId: string, shortId: string): Promise<Vi
   return row ? mapRow(row) : null;
 };
 
-/**
- * Tolerant lookup — accepts either UUID or slug. Same length-based
- * heuristic as `bases.getByIdOrShortId` / `tables.getByIdOrShortId`.
- */
-export const getByIdOrShortId = async (tableId: string, idOrSlug: string): Promise<View | null> => {
-  if (idOrSlug.length === 36 && idOrSlug.includes("-")) {
-    const v = await get(idOrSlug);
-    // Scope-check: a leaked UUID from another table must not resolve here.
-    return v && v.tableId === tableId ? v : null;
-  }
-  return getByShortId(tableId, idOrSlug);
+/** Resolves the only public view identifier to the internal resource. */
+export const getByShortId = async (shortId: string): Promise<View | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT v.*
+    FROM grids.views v
+    JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE v.short_id = ${shortId} AND v.deleted_at IS NULL
+  `;
+  return row ? mapRow(row) : null;
 };
 
 /** Lists every live view in tables whose owning base was already authorized. */

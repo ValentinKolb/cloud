@@ -1,5 +1,5 @@
-import { arg, command, confirmFlag, flag, paginationFlags, printStructured } from "@valentinkolb/cloud/cli";
-import type { Base, Field, Table } from "../contracts";
+import { arg, command, confirmFlag, flag, paginationFlags } from "@valentinkolb/cloud/cli";
+import type { PublicBase as Base, PublicField as Field, PublicTable as Table } from "../api/public-dto";
 import {
   baseArgs,
   baseFlag,
@@ -15,6 +15,7 @@ import {
   JSON_BODY_INPUT,
   jsonRequest,
   type MessageResponse,
+  printCliStructured,
   printJsonOrMessage,
   printJsonOrTable,
   readApi,
@@ -36,8 +37,20 @@ type BaseTrash = {
 
 const trashRows = (trash: BaseTrash) => [
   ...trash.tables.map((item) => ({ kind: "table", name: item.name, parent: "-", deletedAt: item.deletedAt, id: item.id })),
-  ...trash.fields.map((item) => ({ kind: "field", name: item.name, parent: item.tableId, deletedAt: item.deletedAt, id: item.id })),
-  ...trash.forms.map((item) => ({ kind: "form", name: item.name, parent: item.tableId, deletedAt: item.deletedAt, id: item.id })),
+  ...trash.fields.map((item) => ({
+    kind: "field",
+    name: item.name,
+    parent: item.tableId,
+    deletedAt: item.deletedAt,
+    id: item.id,
+  })),
+  ...trash.forms.map((item) => ({
+    kind: "form",
+    name: item.name,
+    parent: item.tableId,
+    deletedAt: item.deletedAt,
+    id: item.id,
+  })),
 ];
 
 export const baseCrudCommands = [
@@ -52,28 +65,29 @@ export const baseCrudCommands = [
       const page = flags.page ?? 1;
       const payload = await listBases(ctx, { q: flags.q, limit: perPage, offset: (page - 1) * perPage });
       printJsonOrTable(ctx, payload, baseRows(payload.items), [
-        { key: "shortId", label: "SHORT" },
+        { key: "id", label: "ID" },
         { key: "name", label: "NAME" },
         { key: "description", label: "DESCRIPTION" },
         { key: "updatedAt", label: "UPDATED" },
-        { key: "id", label: "ID" },
       ]);
     },
   }),
   command("use", {
     summary: "Set the default Grids base",
-    args: { base: arg.required({ description: "Base id, short id, or exact name" }) },
+    args: { base: arg.required({ description: "Base public id or exact name" }) },
     async run({ ctx, args }) {
       const base = await resolveBase(ctx, args.base);
-      await ctx.setDefault(GRIDS_BASE_DEFAULT_KEY, base.shortId);
-      printJsonOrMessage(ctx, { base, defaultBase: base.shortId }, `Using Grids base ${base.name} (${base.shortId}).`);
+      const id = base.id;
+      await ctx.setDefault(GRIDS_BASE_DEFAULT_KEY, id);
+      printJsonOrMessage(ctx, { base, defaultBase: id }, `Using Grids base ${base.name} (${id}).`);
     },
   }),
   command("current", {
     summary: "Show the default Grids base",
     async run({ ctx }) {
       const base = await resolveBase(ctx, await requireDefaultBaseRef(ctx));
-      printJsonOrMessage(ctx, { base, defaultBase: base.shortId }, `${base.name} (${base.shortId})`);
+      const id = base.id;
+      printJsonOrMessage(ctx, { base, defaultBase: id }, `${base.name} (${id})`);
     },
   }),
   command("bases list", {
@@ -87,11 +101,10 @@ export const baseCrudCommands = [
       const page = flags.page ?? 1;
       const payload = await listBases(ctx, { q: flags.q, limit: perPage, offset: (page - 1) * perPage });
       printJsonOrTable(ctx, payload, baseRows(payload.items), [
-        { key: "shortId", label: "SHORT" },
+        { key: "id", label: "ID" },
         { key: "name", label: "NAME" },
         { key: "description", label: "DESCRIPTION" },
         { key: "updatedAt", label: "UPDATED" },
-        { key: "id", label: "ID" },
       ]);
     },
   }),
@@ -101,8 +114,8 @@ export const baseCrudCommands = [
     flags: baseFlag,
     async run({ ctx, args }) {
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
-      if (!printStructured(ctx, base)) {
-        ctx.print(`${base.name} (${base.shortId})`);
+      if (!printCliStructured(ctx, base)) {
+        ctx.print(`${base.name} (${base.id})`);
         if (base.description) ctx.print(base.description);
         ctx.print(`id: ${base.id}`);
         ctx.print(`updated: ${base.updatedAt}`);
@@ -136,8 +149,9 @@ export const baseCrudCommands = [
     },
     async run({ ctx, args, flags }) {
       const base = await readApi<Base>(ctx, "/bases", jsonRequest("POST", { name: args.name, description: flags.description ?? null }));
-      if (flags.use) await ctx.setDefault(GRIDS_BASE_DEFAULT_KEY, base.shortId);
-      printJsonOrMessage(ctx, base, `Created ${base.name} (${base.shortId}).${flags.use ? " Using it as default." : ""}`);
+      const id = base.id;
+      if (flags.use) await ctx.setDefault(GRIDS_BASE_DEFAULT_KEY, id);
+      printJsonOrMessage(ctx, base, `Created ${base.name} (${id}).${flags.use ? " Using it as default." : ""}`);
     },
   }),
   command("bases update", {
@@ -157,7 +171,7 @@ export const baseCrudCommands = [
         description: flags.description,
       });
       const updated = await readApi<Base>(ctx, `/bases/${encodeURIComponent(base.id)}`, jsonRequest("PATCH", body));
-      printJsonOrMessage(ctx, updated, `Updated ${updated.name} (${updated.shortId}).`);
+      printJsonOrMessage(ctx, updated, `Updated ${updated.name} (${updated.id}).`);
     },
   }),
   command("bases delete", {
@@ -168,15 +182,15 @@ export const baseCrudCommands = [
       if (!flags.yes) throw new Error("Pass --yes to delete.");
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
       await readApi<MessageResponse>(ctx, `/bases/${encodeURIComponent(base.id)}`, jsonRequest("DELETE"));
-      printJsonOrMessage(ctx, { deleted: base.id }, `Deleted ${base.name} (${base.shortId}).`);
+      printJsonOrMessage(ctx, { deleted: base.id }, `Deleted ${base.name} (${base.id}).`);
     },
   }),
   command("bases restore", {
     summary: "Restore a deleted Grids base",
-    args: { base: arg.required({ description: "Base UUID" }) },
+    args: { base: arg.required({ description: "Base public id" }) },
     async run({ ctx, args }) {
       const restored = await readApi<Base>(ctx, `/bases/${encodeURIComponent(args.base)}/restore`, jsonRequest("POST"));
-      printJsonOrMessage(ctx, restored, `Restored ${restored.name} (${restored.shortId}).`);
+      printJsonOrMessage(ctx, restored, `Restored ${restored.name} (${restored.id}).`);
     },
   }),
 ];

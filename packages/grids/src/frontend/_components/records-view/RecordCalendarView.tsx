@@ -1,8 +1,8 @@
-import { Calendar, type CalendarEvent, Placeholder, Button } from "@k2b/ui";
 import { dates as calendar, type DateContext } from "@k2b/stdlib";
+import { Button, Calendar, type CalendarEvent, Placeholder } from "@k2b/ui";
 import { createMemo, Show } from "solid-js";
+import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import type { RecordDisplayConfig } from "../../../contracts";
-import type { Field, GridRecord } from "../../../service";
 import { recordDisplayTitle } from "../records/record-display";
 import type { GridsCalendarView } from "./display-mode";
 

@@ -15,9 +15,9 @@ import {
 } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import type { PublicField } from "../../../api/public-dto";
 import type { FieldColumnSpec, TableKind } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
-import type { Field } from "../../../service";
 import { ColumnFormatControls, type ColumnFormatControlsHandle } from "../dialogs/ViewColumnSettingsDialog";
 import { FieldInput } from "../forms/form-fields";
 import { errorMessage } from "../utils/api-helpers";
@@ -44,15 +44,15 @@ const UNIQUE_TYPES = new Set(["text", "longtext", "id", "number", "percent", "da
 // fire, so the page list reflects the change immediately.
 
 type OpenFieldEditArgs = {
-  field: Field;
+  field: PublicField;
   tableKind: TableKind;
-  baseShortId?: string;
-  tableShortId?: string;
+  baseId?: string;
+  tableId?: string;
   otherTables: Array<{ id: string; name: string }>;
-  fieldsByTable: Record<string, Field[]>;
+  fieldsByTable: Record<string, PublicField[]>;
   tableColumns?: FieldColumnSpec[];
   dateConfig?: DateContext;
-  onSaved: (next: Field) => void;
+  onSaved: (next: PublicField) => void;
   onTableColumnsSaved?: (columns: FieldColumnSpec[]) => void;
   onDeleted: () => Promise<void> | void;
 };
@@ -71,8 +71,8 @@ function FieldEditDialog(props: { args: OpenFieldEditArgs; close: () => void }) 
       <FieldEditor
         field={props.args.field}
         tableKind={props.args.tableKind}
-        baseShortId={props.args.baseShortId}
-        tableShortId={props.args.tableShortId}
+        baseId={props.args.baseId}
+        tableId={props.args.tableId}
         otherTables={props.args.otherTables}
         fieldsByTable={props.args.fieldsByTable}
         tableColumns={props.args.tableColumns}
@@ -99,15 +99,15 @@ function FieldEditDialog(props: { args: OpenFieldEditArgs; close: () => void }) 
 // =============================================================================
 
 function FieldEditor(props: {
-  field: Field;
+  field: PublicField;
   tableKind: TableKind;
-  baseShortId?: string;
-  tableShortId?: string;
+  baseId?: string;
+  tableId?: string;
   otherTables: Array<{ id: string; name: string }>;
-  fieldsByTable: Record<string, Field[]>;
+  fieldsByTable: Record<string, PublicField[]>;
   tableColumns?: FieldColumnSpec[];
   dateConfig?: DateContext;
-  onSaved: (next: Field) => void;
+  onSaved: (next: PublicField) => void;
   onTableColumnsSaved?: (columns: FieldColumnSpec[]) => void;
   onDeleted: () => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -179,7 +179,7 @@ function FieldEditor(props: {
     return next.map(cleanColumn);
   };
 
-  const updateMut = mutations.create<{ field: Field; tableColumns?: FieldColumnSpec[] }, void>({
+  const updateMut = mutations.create<{ field: PublicField; tableColumns?: FieldColumnSpec[] }, void>({
     mutation: async () => {
       const res = await apiClient.fields[":fieldId"].$patch({
         param: { fieldId: props.field.id },
@@ -455,8 +455,8 @@ function FieldEditor(props: {
             currentFieldId={props.field.id}
             type={props.field.type}
             currentTableId={props.field.tableId}
-            baseShortId={props.baseShortId}
-            tableShortId={props.tableShortId}
+            baseId={props.baseId}
+            tableId={props.tableId}
             config={config}
             onChange={(next) => {
               setConfig(next);

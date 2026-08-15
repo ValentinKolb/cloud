@@ -267,7 +267,7 @@ export const WorkflowPlanSchema = z
 
 export const GridsWorkflowSchema = z.object({
   id: z.string().uuid(),
-  shortId: z.string().length(5),
+  shortId: z.string().length(6),
   baseId: z.string().uuid(),
   name: z.string(),
   description: z.string().nullable(),
@@ -451,7 +451,7 @@ export const GridsWorkflowListSchema = z.array(GridsWorkflowSchema);
 
 export const GridsWorkflowLauncherSchema = z.object({
   id: z.string().uuid(),
-  shortId: z.string().length(5),
+  shortId: z.string().length(6),
   baseId: z.string().uuid(),
   workflowId: z.string().uuid(),
   name: z.string(),

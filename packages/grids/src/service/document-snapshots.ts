@@ -7,6 +7,7 @@ import type { AuthorizedRecordAccess } from "./record-access";
 import { recordAccessPredicate } from "./record-access";
 import { createReader, type RecordReader } from "./record-read";
 import type { ExpansionViewer } from "./relation-access";
+import { insertWithShortIdForDb } from "./short-id";
 import { get as getTable } from "./tables";
 import type { Field, GridRecord, Table } from "./types";
 
@@ -218,7 +219,9 @@ type CreateRecordSnapshotParams = {
   dateConfig?: DateContext;
 };
 
-export const createRecordSnapshotDraft = async (params: CreateRecordSnapshotParams): Promise<Result<RecordSnapshot>> => {
+export type RecordSnapshotDraft = Omit<RecordSnapshot, "shortId">;
+
+export const createRecordSnapshotDraft = async (params: CreateRecordSnapshotParams): Promise<Result<RecordSnapshotDraft>> => {
   const graph = await buildRecordSnapshotGraph(params.tableId, params.recordId, {
     baseId: params.baseId,
     resolveRecordAccess: params.resolveRecordAccess,
@@ -238,12 +241,16 @@ export const createRecordSnapshotDraft = async (params: CreateRecordSnapshotPara
   });
 };
 
-export const persistRecordSnapshot = async (snapshot: RecordSnapshot, executor: SQL): Promise<Result<RecordSnapshot>> => {
-  const [row] = await executor<DocumentDbRow[]>`
-      INSERT INTO grids.record_snapshots (id, base_id, table_id, record_id, root, graph, created_by, created_at)
-      VALUES (${snapshot.id}::uuid, ${snapshot.baseId}::uuid, ${snapshot.tableId}::uuid, ${snapshot.recordId}::uuid, ${snapshot.root}::jsonb, ${snapshot.graph}::jsonb, ${snapshot.createdBy}::uuid, ${snapshot.createdAt})
-      RETURNING *
-    `;
+export const persistRecordSnapshot = async (snapshot: RecordSnapshotDraft, executor: SQL): Promise<Result<RecordSnapshot>> => {
+  const row = await insertWithShortIdForDb(executor, "idx_grids_record_snapshots_short_id", async (attempt, shortId) => {
+    const [created] = await attempt<DocumentDbRow[]>`
+        INSERT INTO grids.record_snapshots (id, short_id, base_id, table_id, record_id, root, graph, created_by, created_at)
+        VALUES (${snapshot.id}::uuid, ${shortId}, ${snapshot.baseId}::uuid, ${snapshot.tableId}::uuid, ${snapshot.recordId}::uuid, ${snapshot.root}::jsonb, ${snapshot.graph}::jsonb, ${snapshot.createdBy}::uuid, ${snapshot.createdAt})
+        RETURNING *
+      `;
+    if (!created) throw new Error("insert returned no row");
+    return created;
+  });
   if (!row) return fail(err.internal("Could not create record snapshot"));
   const persisted = mapRecordSnapshot(row);
   const rootVersion = typeof snapshot.root.version === "number" ? snapshot.root.version : null;
@@ -272,6 +279,11 @@ export const createRecordSnapshot = async (params: CreateRecordSnapshotParams): 
 
 export const getSnapshot = async (snapshotId: string): Promise<RecordSnapshot | null> => {
   const [row] = await sql<DocumentDbRow[]>`SELECT * FROM grids.record_snapshots WHERE id = ${snapshotId}::uuid`;
+  return row ? mapRecordSnapshot(row) : null;
+};
+
+export const getSnapshotByShortId = async (shortId: string): Promise<RecordSnapshot | null> => {
+  const [row] = await sql<DocumentDbRow[]>`SELECT * FROM grids.record_snapshots WHERE short_id = ${shortId}`;
   return row ? mapRecordSnapshot(row) : null;
 };
 

@@ -1,9 +1,8 @@
-import type { RecordSnapshot } from "../../../contracts";
-import type { Field, GridRecord } from "../../../service";
+import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
+import type { PublicRecordSnapshot as RecordSnapshot } from "../documents/public-document-types";
 
 type SnapshotField = Partial<Field> & {
   id?: unknown;
-  shortId?: unknown;
   name?: unknown;
   type?: unknown;
   config?: unknown;
@@ -32,7 +31,6 @@ const normalizeSnapshotField = (field: SnapshotField, tableId: string, index: nu
   if (typeof field.id !== "string" || typeof field.name !== "string" || typeof field.type !== "string") return null;
   return {
     id: field.id,
-    shortId: typeof field.shortId === "string" ? field.shortId : field.id.slice(0, 5),
     tableId,
     name: field.name,
     description: typeof field.description === "string" ? field.description : null,

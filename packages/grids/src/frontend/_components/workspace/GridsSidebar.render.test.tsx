@@ -2,42 +2,78 @@ import { describe, expect, test } from "bun:test";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
 import "../ssr-test-plugin";
-import type { OkWorkspaceState } from "./workspace-state-model";
+import type { PublicOkWorkspaceState, PublicWorkflow } from "./workspace-public-state-model";
 
 const { default: GridsSidebar } = await import("./GridsSidebar");
 
-const workflow = {
-  id: "22222222-2222-4222-8222-222222222222",
-  shortId: "FLOW1",
+const workflow: PublicWorkflow = {
+  id: "FLOW01",
+  baseId: "BASE01",
   name: "Send approved loan agreement",
+  description: null,
+  source: "name: Send approved loan agreement",
+  plan: {
+    schemaVersion: 2,
+    languageId: "grids",
+    languageVersion: 1,
+    sourceHash: "source",
+    manifestHash: "manifest",
+    catalogHash: "catalog",
+    actionPolicies: {},
+    inputs: [],
+    triggers: [],
+    steps: [],
+    bindings: {},
+  },
+  diagnostics: [],
+  enabled: true,
   position: 0,
+  revision: 1,
+  ownerUserId: null,
+  deletedAt: null,
+  createdAt: "2026-08-15T00:00:00.000Z",
+  updatedAt: "2026-08-15T00:00:00.000Z",
 };
 
-const workflowState = (): OkWorkspaceState =>
-  ({
-    kind: "ok",
-    base: {
-      id: "11111111-1111-4111-8111-111111111111",
-      shortId: "BASE1",
-      name: "Inventory",
-    },
-    adminModeRequested: false,
-    canManageBase: false,
-    canCreateTables: false,
-    catalog: {
-      customApps: [],
-      workflowLaunchers: [],
-      tables: [],
-      viewsByTable: {},
-      sidebarForms: [],
-      sidebarDocumentTemplates: [],
-      workflows: [workflow],
-    },
-    route: {
-      kind: "workflows",
-      activeWorkflow: workflow,
-    },
-  }) as unknown as OkWorkspaceState;
+const workflowState = (): PublicOkWorkspaceState => ({
+  kind: "ok",
+  base: {
+    id: "BASE01",
+    name: "Inventory",
+    description: null,
+    documentProfile: {},
+    createdBy: null,
+    deletedAt: null,
+    createdAt: "2026-08-15T00:00:00.000Z",
+    updatedAt: "2026-08-15T00:00:00.000Z",
+  },
+  title: [{ title: "Inventory" }],
+  rememberPath: "/app/grids/BASE01",
+  adminModeRequested: false,
+  editModeToggleHref: "/app/grids/BASE01?edit=true",
+  canManageBase: false,
+  canCreateTables: false,
+  canUseEditMode: true,
+  canUseQueryWorkspace: true,
+  metadataEventCursor: null,
+  recordEventCursor: null,
+  catalog: {
+    customApps: [],
+    workflows: [workflow],
+    workflowLaunchers: [],
+    workflowLevels: {},
+    tables: [],
+    tableLevels: {},
+    fieldsByTable: {},
+    viewsByTable: {},
+    formsByTable: {},
+    documentTemplatesByTable: {},
+    documentTemplateLevels: {},
+    sidebarForms: [],
+    sidebarDocumentTemplates: [],
+  },
+  route: { kind: "empty" },
+});
 
 describe("GridsSidebar workflows", () => {
   test("uses workflow rows as the selector without a duplicate overview item", () => {
@@ -45,7 +81,7 @@ describe("GridsSidebar workflows", () => {
 
     expect(html).toContain("Send approved loan agreement");
     expect(html).not.toContain(">Overview<");
-    expect(html).toContain("/app/grids/BASE1/workflows/FLOW1");
+    expect(html).toContain("/app/grids/BASE01/workflows/FLOW01");
   });
 
   test("shows workflow creation in the sidebar only for base admins in Edit mode", () => {
@@ -81,8 +117,7 @@ describe("GridsSidebar Apps", () => {
     state.canManageBase = true;
     state.catalog.customApps = [
       {
-        id: "33333333-3333-4333-8333-333333333333",
-        shortId: "APP1",
+        id: "APP001",
         baseId: state.base.id,
         name: "Loan desk",
         icon: "clipboard",
@@ -93,13 +128,27 @@ describe("GridsSidebar Apps", () => {
         hasUnpublishedChanges: true,
       },
     ];
-    state.route = { kind: "customApp", app: { id: state.catalog.customApps[0]!.id } } as OkWorkspaceState["route"];
+    const summary = state.catalog.customApps[0]!;
+    state.route = {
+      kind: "customApp",
+      app: {
+        ...summary,
+        draftDefinition: null,
+        draftDiagnostics: [],
+        draftCapabilities: null,
+        publishedDefinition: null,
+        publishedDiagnostics: [],
+        publishedCapabilities: null,
+        createdAt: "2026-08-07T00:00:00.000Z",
+      },
+      initialInspectorMode: "app",
+    };
 
     const html = renderToString(() => createComponent(GridsSidebar, { state }));
 
     expect(html).toContain("Apps");
     expect(html).toContain("Loan desk");
-    expect(html).toContain("/app/grids/BASE1/apps/APP1?edit=true");
+    expect(html).toContain("/app/grids/BASE01/apps/APP001?edit=true");
     expect(html).toContain("settings=app");
     expect(html).toContain("draft");
   });

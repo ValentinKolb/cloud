@@ -1,6 +1,6 @@
 import type { DateContext } from "@k2b/stdlib";
+import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import type { ColumnSpec, FormatSpec } from "../../../contracts";
-import type { Field, GridRecord } from "../../../service";
 import { fieldDisplayFormat, formatFieldValueText } from "../table/field-value-format";
 
 export const recordTitleField = (fields: Field[]): Field | undefined => {

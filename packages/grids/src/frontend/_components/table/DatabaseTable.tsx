@@ -1,9 +1,9 @@
 import type { DateContext } from "@k2b/stdlib";
 import { Checkbox, DataTable, type DataTableColumn, IconButton, Placeholder, Tooltip } from "@k2b/ui";
 import { For, type JSX, Show } from "solid-js";
+import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import type { AggregationSpec, ColumnSpec } from "../../../contracts";
 import { effectiveDisplayField } from "../../../lookup-display";
-import type { Field, GridRecord, RecordList } from "../../../service";
 import { fieldTypeIcon, fieldTypeLabel } from "../fields/field-type-meta";
 import { FieldValue } from "./FieldValue";
 import { fieldDisplayFormat, formatFieldValueText } from "./field-value-format";
@@ -44,11 +44,10 @@ const AGG_LABELS: Record<string, string> = {
  */
 type Props = {
   /** The list-call response. Items + schema + cursor in one prop. */
-  result: RecordList;
+  result: { items: GridRecord[]; fields: Field[]; nextCursor: string | null };
   /** Parent base id — required for `<RecordLink>` hrefs. */
   baseId: string;
   /** Optional table UUID -> short id map so relation links use path routes. */
-  tableShortIds?: Record<string, string>;
   /** Optional field catalog for resolving lookup target display types. */
   fieldsByTable?: Record<string, Field[]>;
   /**
@@ -120,7 +119,6 @@ export default function DatabaseTable(props: Props) {
    *  field in `position` order — same rule the records page uses. */
   const computedField = (column: Extract<ColumnSpec, { kind: "computed" }>): Field => ({
     id: column.id,
-    shortId: column.id.slice(-5),
     tableId: props.result.fields[0]?.tableId ?? "",
     name: column.label,
     description: null,
@@ -184,7 +182,6 @@ export default function DatabaseTable(props: Props) {
       record={record}
       allFields={props.result.fields}
       baseId={props.baseId}
-      tableShortIds={props.tableShortIds}
       fieldsByTable={props.fieldsByTable}
       dateConfig={props.dateConfig}
       format={displayFormat(field)}

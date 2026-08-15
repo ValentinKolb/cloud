@@ -13,8 +13,8 @@ import {
 } from "@k2b/ui";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import type { PublicField, PublicView } from "../../../api/public-dto";
 import type { DslQueryPreviewDiagnostic } from "../../../contracts";
-import type { Field, View } from "../../../service";
 import { createDraft } from "../editor-draft";
 import { GqlSourceEditor } from "../query/GqlSourceEditor";
 import { errorMessage } from "../utils/api-helpers";
@@ -22,17 +22,16 @@ import { RecordDisplayConfigEditor } from "./RecordDisplayConfigEditor";
 
 type Props = {
   baseId: string;
-  baseShortId: string;
-  tableShortId: string;
-  viewShortId: string;
+  tableId: string;
+  viewId: string;
   /** Display name of the table this view scopes to. Surfaces in the
    *  Shared-toggle's explanation so the user reads concretely *which*
    *  table grants read access ("anyone who can read Books") instead
    *  of an abstract "this table". */
   tableName: string;
-  initialView: View;
-  fields: Field[];
-  onSaved?: (view: View) => void;
+  initialView: PublicView;
+  fields: PublicField[];
+  onSaved?: (view: PublicView) => void;
 };
 
 export const openViewSettingsDialog = (props: Props) =>
@@ -79,12 +78,7 @@ function ViewSettingsBody(props: Props & { onDirtyChange?: (dirty: boolean) => v
         subtitle="Delete this view. Records remain; only this saved view is removed."
         icon="ti ti-trash"
       >
-        <DeleteButton
-          viewId={props.initialView.id}
-          baseShortId={props.baseShortId}
-          tableShortId={props.tableShortId}
-          name={props.initialView.name}
-        />
+        <DeleteButton viewId={props.initialView.id} baseId={props.baseId} tableId={props.tableId} name={props.initialView.name} />
       </PanelDialog.Section>
     </PanelDialog.Body>
   );
@@ -96,10 +90,10 @@ function ViewSettingsBody(props: Props & { onDirtyChange?: (dirty: boolean) => v
 
 function GeneralSection(props: {
   viewId: string;
-  initial: View;
+  initial: PublicView;
   tableName: string;
-  fields: Field[];
-  onSaved?: (view: View) => void;
+  fields: PublicField[];
+  onSaved?: (view: PublicView) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const draft = createDraft({
@@ -117,7 +111,7 @@ function GeneralSection(props: {
   const displayConfig = () => draft.draft().displayConfig;
   const shared = () => draft.draft().shared;
 
-  const mut = mutations.create<View, void>({
+  const mut = mutations.create<PublicView, void>({
     mutation: async () => {
       const res = await apiClient.views[":viewId"].$patch({
         param: { viewId: props.viewId },
@@ -183,8 +177,8 @@ function GeneralSection(props: {
 function QuerySourceSection(props: {
   baseId: string;
   viewId: string;
-  initial: View;
-  onSaved?: (view: View) => void;
+  initial: PublicView;
+  onSaved?: (view: PublicView) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   type ValidationState = "idle" | "checking" | "valid" | "invalid" | "error";
@@ -250,7 +244,7 @@ function QuerySourceSection(props: {
   });
   onCleanup(() => validationAbort?.abort());
 
-  const mut = mutations.create<View, void>({
+  const mut = mutations.create<PublicView, void>({
     mutation: async () => {
       const trimmed = source().trim();
       if (!trimmed) throw new Error("GQL source is required");
@@ -338,7 +332,7 @@ const formatDiagnostic = (diagnostic: DslQueryPreviewDiagnostic): string =>
 // Delete
 // =============================================================================
 
-function DeleteButton(props: { viewId: string; baseShortId: string; tableShortId: string; name: string }) {
+function DeleteButton(props: { viewId: string; baseId: string; tableId: string; name: string }) {
   const mut = mutations.create<void, void>({
     mutation: async () => {
       const res = await apiClient.views[":viewId"].$delete({
@@ -346,7 +340,7 @@ function DeleteButton(props: { viewId: string; baseShortId: string; tableShortId
       });
       if (res.status >= 400) throw new Error(await errorMessage(res, "Failed to delete view"));
     },
-    onSuccess: () => navigateTo(`/app/grids/${props.baseShortId}/table/${props.tableShortId}`),
+    onSuccess: () => navigateTo(`/app/grids/${props.baseId}/table/${props.tableId}`),
     onError: (e) => prompts.error(e.message),
   });
 

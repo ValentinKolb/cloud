@@ -24,7 +24,13 @@ import { renderLiquidTemplate } from "@valentinkolb/cloud/shared";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { EmailTemplate, EmailTemplateDependencyMap } from "../../../contracts";
+import {
+  type PublicEmailTemplate,
+  type PublicEmailTemplateDependencyMap,
+  PublicEmailTemplateDependencyMapSchema,
+  PublicEmailTemplateListSchema,
+  PublicEmailTemplateSchema,
+} from "../../../api/public-email-template-contracts";
 import { errorMessage } from "../utils/api-helpers";
 import {
   createEmailTemplateSystemSampleData,
@@ -101,7 +107,7 @@ const renderEmailTemplatePreview = (
   }
 };
 
-function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; onSaved: () => void; onClose: () => void }) {
+function EmailTemplateEditor(props: { baseId: string; template?: PublicEmailTemplate; onSaved: () => void; onClose: () => void }) {
   const cleanDraft = workflowEmailTemplateDraft(
     props.template,
     DEFAULT_EMAIL_SUBJECT,
@@ -144,7 +150,7 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
     if (await confirmDiscardIfDirty(dirty)) props.onClose();
   };
 
-  const saveMut = mutations.create<EmailTemplate, void>({
+  const saveMut = mutations.create<PublicEmailTemplate, void>({
     mutation: async (_, { abortSignal }) => {
       const payload = {
         name: name().trim(),
@@ -167,7 +173,7 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
             { init: { signal: abortSignal } },
           );
       if (!res.ok) throw new Error(await errorMessage(res, "Could not save email template."));
-      return res.json();
+      return PublicEmailTemplateSchema.parse(await res.json());
     },
     onSuccess: (saved) => {
       toast.success(`Saved "${saved.name}"`);
@@ -282,8 +288,8 @@ function EmailTemplateEditor(props: { baseId: string; template?: EmailTemplate; 
 }
 
 export function EmailTemplateManager(props: { baseId: string; onChanged: () => void; onClose: () => void }) {
-  const [templates, setTemplates] = createSignal<EmailTemplate[]>([]);
-  const [dependencies, setDependencies] = createSignal<EmailTemplateDependencyMap>({});
+  const [templates, setTemplates] = createSignal<PublicEmailTemplate[]>([]);
+  const [dependencies, setDependencies] = createSignal<PublicEmailTemplateDependencyMap>({});
   const loadMut = mutations.create<void, void>({
     mutation: async (_, { abortSignal }) => {
       const [templatesRes, dependenciesRes] = await Promise.all([
@@ -295,13 +301,13 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
       ]);
       if (!templatesRes.ok) throw new Error(await errorMessage(templatesRes, "Could not load email templates."));
       if (!dependenciesRes.ok) throw new Error(await errorMessage(dependenciesRes, "Could not load email template usage."));
-      setTemplates((await templatesRes.json()) as EmailTemplate[]);
-      setDependencies((await dependenciesRes.json()) as EmailTemplateDependencyMap);
+      setTemplates(PublicEmailTemplateListSchema.parse(await templatesRes.json()));
+      setDependencies(PublicEmailTemplateDependencyMapSchema.parse(await dependenciesRes.json()));
     },
     onError: (error) => prompts.error(error.message),
   });
 
-  const deleteMut = mutations.create<{ deleted: boolean }, EmailTemplate>({
+  const deleteMut = mutations.create<{ deleted: boolean }, PublicEmailTemplate>({
     mutation: async (template, { abortSignal }) => {
       const usedBy = dependencies()[template.id] ?? [];
       if (usedBy.length > 0) {
@@ -334,7 +340,7 @@ export function EmailTemplateManager(props: { baseId: string; onChanged: () => v
 
   onMount(() => loadMut.mutate());
 
-  const openEditor = async (template?: EmailTemplate) => {
+  const openEditor = async (template?: PublicEmailTemplate) => {
     await dialogCore.open<void>(
       (close) => (
         <EmailTemplateEditor

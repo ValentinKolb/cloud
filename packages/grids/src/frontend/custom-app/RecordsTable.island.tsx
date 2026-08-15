@@ -1,7 +1,8 @@
 import type { DateContext } from "@k2b/stdlib";
 import { Button, DataTable, type DataTableColumn, IconButton, Placeholder, prompts, TextInput, toast } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
-import type { DslQueryPreviewResponse, Field, GridRecord, RecordDisplayConfig } from "../../contracts";
+import type { PublicField, PublicGridRecord } from "../../api/public-dto";
+import type { DslQueryPreviewResponse, RecordDisplayConfig } from "../../contracts";
 import type { CustomAppRowNavigation } from "../../custom-apps/contracts";
 import { customAppRowHref } from "../../custom-apps/routing";
 import type { GridFilePreview } from "../../service";
@@ -13,12 +14,12 @@ import { invokeCustomAppWorkflow } from "./workflow-action-client";
 
 type QuerySuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
 export type CustomAppRecordsSuccess = QuerySuccess & {
-  presentation?: { fields: Field[] };
+  presentation?: { fields: PublicField[] };
   rowNavigationParams?: Record<string, Record<string, string>>;
   cards?: {
     displayConfig: RecordDisplayConfig;
-    fields: Field[];
-    records?: GridRecord[];
+    fields: PublicField[];
+    records?: PublicGridRecord[];
     relationLabels: Record<string, string>;
     filePreviews: Record<string, Record<string, GridFilePreview & { contentToken: string }>>;
   };
@@ -62,7 +63,7 @@ export default function RecordsTable(props: {
   emptyText: string;
   baseId: string;
   dateConfig?: DateContext;
-  shortId: string;
+  appId: string;
   endpoint?: string;
   searchable?: boolean;
   selectedColumnIds?: string[];
@@ -130,11 +131,11 @@ export default function RecordsTable(props: {
       rowKey: row.recordId ? `${row.recordId}:${index}` : `row-${index}`,
       href:
         row.recordId && props.rowNavigate
-          ? customAppRowHref(props.shortId, props.rowNavigate, row.recordId, result().rowNavigationParams?.[row.recordId])
+          ? customAppRowHref(props.appId, props.rowNavigate, row.recordId, result().rowNavigationParams?.[row.recordId])
           : null,
     })),
   );
-  const cardRecords = createMemo<GridRecord[]>(() => {
+  const cardRecords = createMemo<PublicGridRecord[]>(() => {
     const cards = result().cards;
     if (cards?.records) return cards.records;
     return result().rows.flatMap((row) => {
@@ -162,7 +163,7 @@ export default function RecordsTable(props: {
     return customAppCardFileUrl(props.endpoint, preview.contentToken);
   };
   const firstColumnId = createMemo(() => resultColumns()[0]?.key);
-  const rowRecord = (row: ReturnType<typeof rows>[number]): GridRecord | undefined => {
+  const rowRecord = (row: ReturnType<typeof rows>[number]): PublicGridRecord | undefined => {
     if (!row.recordId || !row.tableId) return undefined;
     return {
       id: row.recordId,
@@ -366,7 +367,7 @@ export default function RecordsTable(props: {
             onRecordClick={
               props.rowNavigate
                 ? (record) => {
-                    const href = customAppRowHref(props.shortId, props.rowNavigate!, record.id, result().rowNavigationParams?.[record.id]);
+                    const href = customAppRowHref(props.appId, props.rowNavigate!, record.id, result().rowNavigationParams?.[record.id]);
                     if (!href) return;
                     if (props.rowNavigate!.history === "replace") window.location.replace(href);
                     else window.location.assign(href);

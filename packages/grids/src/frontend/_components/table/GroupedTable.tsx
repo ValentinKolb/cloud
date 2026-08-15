@@ -1,8 +1,8 @@
 import type { DateContext } from "@k2b/stdlib";
 import { Button, DataTable, type DataTableColumn, IconButton, Placeholder, Tooltip } from "@k2b/ui";
 import { Show } from "solid-js";
+import type { PublicField as Field } from "../../../api/public-dto";
 import type { AggregationSpec, GroupBySpec } from "../../../contracts";
-import type { Field } from "../../../service";
 import { FieldValue } from "./FieldValue";
 import { formatAggregationValue, formatGroupValue } from "./group-value-format";
 
@@ -30,7 +30,6 @@ type Props = {
    *  relation-group-key links can navigate to `/app/grids/<base>?table=…&record=…`,
    *  matching the row-mode relation cell behavior. */
   baseId: string;
-  tableShortIds?: Record<string, string>;
   fields: Field[];
   groupBy: GroupByCol[];
   aggregations: AggCol[];
@@ -220,17 +219,7 @@ export default function GroupedTable(props: Props) {
           const f = fieldsById.get(meta.spec.fieldId);
           const val = row.keys[meta.index];
           if (f && f.type === "relation" && typeof val === "string") {
-            return (
-              <FieldValue
-                field={f}
-                value={val}
-                baseId={props.baseId}
-                tableShortIds={props.tableShortIds}
-                relationLabels={props.relationLabels}
-                mode="table"
-                empty="—"
-              />
-            );
+            return <FieldValue field={f} value={val} baseId={props.baseId} relationLabels={props.relationLabels} mode="table" empty="—" />;
           }
           return formatGroupValue({ value: val, spec: meta.spec, field: f, dateConfig: props.dateConfig });
         }}

@@ -1,6 +1,6 @@
 import type { DateContext } from "@k2b/stdlib";
+import type { PublicField as Field } from "../../../api/public-dto";
 import type { AggregationSpec, GroupBySpec } from "../../../contracts";
-import type { Field } from "../../../service";
 import { formatFieldValueText } from "./field-value-format";
 import { formatCell } from "./format-cell";
 

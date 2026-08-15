@@ -1,4 +1,4 @@
-import type { Field } from "../../../service";
+import type { PublicField as Field } from "../../../api/public-dto";
 
 const SYSTEM_OR_COMPUTED_FIELD_TYPES = new Set([
   "id",
@@ -11,7 +11,18 @@ const SYSTEM_OR_COMPUTED_FIELD_TYPES = new Set([
   "updated_by",
 ]);
 
-const USER_EDITABLE_FIELD_TYPES = new Set(["text", "longtext", "number", "boolean", "date", "select", "percent", "duration", "json", "principal"]);
+const USER_EDITABLE_FIELD_TYPES = new Set([
+  "text",
+  "longtext",
+  "number",
+  "boolean",
+  "date",
+  "select",
+  "percent",
+  "duration",
+  "json",
+  "principal",
+]);
 export const RECORD_INPUT_FIELD_TYPES = new Set([...USER_EDITABLE_FIELD_TYPES, "relation"]);
 
 const isSystemOrComputedField = (type: string): boolean => SYSTEM_OR_COMPUTED_FIELD_TYPES.has(type);

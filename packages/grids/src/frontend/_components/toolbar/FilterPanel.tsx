@@ -2,7 +2,7 @@ import type { DateContext } from "@k2b/stdlib";
 import { Button, DatePicker, DateRangePicker, DateTimePicker, IconButton, MultiSelectInput, NumberInput, Select, TextInput } from "@k2b/ui";
 import { EntitySearch, type EntitySearchPrincipal } from "@valentinkolb/cloud/account/ui";
 import { createEffect, createMemo, createSignal, For, Index, Match, onMount, Switch, untrack } from "solid-js";
-import type { Field } from "../../../service";
+import type { PublicField as Field } from "../../../api/public-dto";
 import { fieldOption } from "../fields/field-type-meta";
 import RelationPicker from "../records/RelationPicker";
 import { type FilterOp, filterableFields, opsForType } from "./filter-ops";

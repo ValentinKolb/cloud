@@ -11,10 +11,10 @@ import { customAppScannerConfigHash } from "./scanner-capability";
 const uuid = (suffix: number) => `00000000-0000-4000-8000-${String(suffix).padStart(12, "0")}`;
 
 const definition = () => ({
-  schemaVersion: 4,
+  schemaVersion: 5,
   kind: "grids.custom-app",
-  id: uuid(1),
-  baseId: uuid(2),
+  id: "APP001",
+  baseId: "BASE01",
   name: "Certificate requests",
   startPageId: "home",
   pages: [
@@ -35,8 +35,8 @@ const definition = () => ({
                   type: "records",
                   searchable: true,
                   pageSize: 25,
-                  source: { kind: "view", viewId: uuid(3) },
-                  display: { kind: "table", columnIds: [uuid(4)] },
+                  source: { kind: "view", viewId: "VIEW01" },
+                  display: { kind: "table", columnIds: ["FIELD1"] },
                 },
               ],
             },
@@ -48,6 +48,13 @@ const definition = () => ({
 });
 
 describe("Grids App definition contract", () => {
+  test("uses only six-character public resource ids in schemaVersion 5", () => {
+    const source = CUSTOM_APP_REFERENCE.example;
+    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
+    expect(CustomAppDefinitionSchema.safeParse({ ...source, id: uuid(1) }).success).toBe(false);
+    expect(CustomAppDefinitionSchema.safeParse({ ...source, schemaVersion: 4 }).success).toBe(false);
+  });
+
   test("accepts strict multi-page list and route-only record detail definitions", () => {
     expect(CustomAppDefinitionSchema.safeParse(definition()).success).toBe(true);
     expect(CustomAppDefinitionSchema.safeParse(CUSTOM_APP_REFERENCE.example).success).toBe(true);
@@ -72,12 +79,12 @@ describe("Grids App definition contract", () => {
       id: "request",
       title: "Request",
       navigation: { visible: false },
-      parameters: { request_id: { type: "record", tableId: uuid(9), required: true } },
-      record: { tableId: uuid(9), id: { source: "PARAMS", path: "request_id" } },
+      parameters: { request_id: { type: "record", tableId: "TAB009", required: true } },
+      record: { tableId: "TAB009", id: { source: "PARAMS", path: "request_id" } },
       rows: [
         {
           id: "detail",
-          columns: [{ id: "main", span: 12, blocks: [{ id: "record", type: "record", fieldIds: [uuid(4)], editableFieldIds: [] }] }],
+          columns: [{ id: "main", span: 12, blocks: [{ id: "record", type: "record", fieldIds: ["FLD004"], editableFieldIds: [] }] }],
         },
       ],
     });
@@ -92,11 +99,11 @@ describe("Grids App definition contract", () => {
     };
     expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
 
-    records.rowNavigate.params.request_id = { source: "ROW", path: "relation", fieldId: uuid(4) };
+    records.rowNavigate.params.request_id = { source: "ROW", path: "relation", fieldId: "FLD004" };
     expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
 
     delete records.rowNavigate;
-    records.rowActions = [{ id: "reserve", label: "Reserve", showLabel: true, kind: "workflow", launcherId: uuid(10), inputs: {} }];
+    records.rowActions = [{ id: "reserve", label: "Reserve", showLabel: true, kind: "workflow", launcherId: "LCH010", inputs: {} }];
     expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
 
     delete records.rowActions;
@@ -134,10 +141,10 @@ describe("Grids App definition contract", () => {
             label: "New request",
             icon: "plus",
             tone: "success",
-            formId: uuid(20),
+            formId: "FRM020",
             fixedValues: {
-              [uuid(21)]: { source: "LITERAL", value: "draft" },
-              [uuid(24)]: { source: "AUTH", path: "currentUser" },
+              FLD021: { source: "LITERAL", value: "draft" },
+              FLD024: { source: "AUTH", path: "currentUser" },
             },
           },
         ],
@@ -148,7 +155,7 @@ describe("Grids App definition contract", () => {
       ...app,
       sidebar: {
         actions: [
-          { ...app.sidebar.actions[0]!, fixedValues: { [uuid(21)]: { source: "PARAMS", path: "request_id" } } },
+          { ...app.sidebar.actions[0]!, fixedValues: { FLD021: { source: "PARAMS", path: "request_id" } } },
           ...app.sidebar.actions.slice(1),
         ],
       },
@@ -156,13 +163,12 @@ describe("Grids App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse(unsafe).success).toBe(false);
   });
 
-  test("keeps legacy stored definitions recoverable without parsing them as live v4", () => {
+  test("rejects legacy stored definitions without parsing them as live v5", () => {
     const legacy = { ...definition(), schemaVersion: 1, legacyMarker: { keep: true } };
     const inspected = parseStoredCustomAppDefinition(legacy, "draft");
     expect(inspected.definition).toBeNull();
     expect(inspected.diagnostics[0]?.path).toEqual(["draft", "schemaVersion"]);
-    expect(inspected.diagnostics[0]?.message).toContain("schemaVersion 1");
-    expect(inspected.diagnostics[0]?.message).toContain("replace");
+    expect(inspected.diagnostics[0]?.message).toBe("Stored draft is not a valid Grids App schemaVersion 5 definition.");
     expect(legacy.legacyMarker).toEqual({ keep: true });
   });
 
@@ -218,7 +224,7 @@ describe("Grids App definition contract", () => {
     source.pages[0]!.rows[0]!.columns[0]!.blocks.push({
       id: "returns",
       type: "scanner",
-      launcherId: uuid(30),
+      launcherId: "LCH030",
     });
     expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
     expect(
@@ -440,7 +446,7 @@ describe("Grids App definition contract", () => {
           id: "approve",
           label: "Approve",
           kind: "workflow",
-          launcherId: uuid(90),
+          launcherId: "LCH090",
           inputs: {
             request: { source: "RECORD", path: "id" },
             reason: { source: "LITERAL", value: "approved" },
@@ -473,7 +479,7 @@ describe("Grids App definition contract", () => {
         icon: "calendar-plus",
         showLabel: false,
         kind: "workflow",
-        launcherId: uuid(90),
+        launcherId: "LCH090",
         inputs: { item: { source: "ROW", path: "id" }, reason: { source: "LITERAL", value: "loan" } },
       },
       {
@@ -481,7 +487,7 @@ describe("Grids App definition contract", () => {
         label: "Inspect item",
         showLabel: true,
         kind: "workflow",
-        launcherId: uuid(91),
+        launcherId: "LCH091",
         inputs: {},
       },
     ];
@@ -513,7 +519,7 @@ describe("Grids App definition contract", () => {
         id: "requests-by-state",
         type: "chart",
         chartType: "bar",
-        source: { kind: "view", viewId: uuid(5) },
+        source: { kind: "view", viewId: "VIEW05" },
         limit: 20,
       } as never,
     );

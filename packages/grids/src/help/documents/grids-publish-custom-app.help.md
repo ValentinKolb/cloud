@@ -64,7 +64,7 @@ Preflight returns path-specific diagnostics for invalid definitions. The CLI pla
 
 ## Publish one snapshot {icon="copy-check"}
 
-The builder saves changes automatically into a draft. When that draft differs from the live version, the Pages notice offers **Publish changes** and **Restore live version**. Publishing first waits for the latest autosave, then stores the validated definition and its derived capability set as the new published snapshot. Restore copies the current published snapshot back into the draft. The stable `/apps/<shortId>` route serves only the published snapshot.
+The builder saves changes automatically into a draft. When that draft differs from the live version, the Pages notice offers **Publish changes** and **Restore live version**. Publishing first waits for the latest autosave, then stores the validated definition and its derived capability set as the new published snapshot. Restore copies the current published snapshot back into the draft. The stable `/apps/<id>` route serves only the published snapshot.
 
 Published apps continue to use the referenced Grids resources through their immutable capabilities. App grant changes take effect immediately. If a referenced resource is later disabled, deleted, or changed incompatibly, the affected page, block, or action fails closed. The rest of the page remains usable.
 

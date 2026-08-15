@@ -1,14 +1,15 @@
 import { createHash } from "node:crypto";
-import type { DslQueryContextValues } from "../query-dsl/parameters";
+import type { DslQueryContextInput, DslQueryContextValues } from "../query-dsl/parameters";
 import type { DslResolvedSqlQueryPlan } from "../query-dsl/resolver";
 import { isImplicitlySelectableField, relationTargetIsReadable } from "../query-dsl/sql-compiler-fields";
 import type { Field } from "../service/types";
 import { stableCustomAppValue } from "./stable-value";
 
 const CANONICAL_UUID = "00000000-0000-4000-8000-000000000000";
+const CANONICAL_RECORD_ID = "REC001";
 
 /** Resolve published and runtime sources against the same non-user input. */
-export const canonicalCustomAppQueryContext = (context: DslQueryContextValues): DslQueryContextValues => ({
+export const canonicalCustomAppQueryContext = (context: DslQueryContextInput): DslQueryContextValues => ({
   "auth.id": CANONICAL_UUID,
   "auth.name": "Reader",
   "auth.username": "reader",
@@ -17,10 +18,9 @@ export const canonicalCustomAppQueryContext = (context: DslQueryContextValues): 
   "page.id": "page",
   "page.title": "Page",
   "page.url": "/custom-app/page",
-  "app.id": CANONICAL_UUID,
-  "app.shortId": "app",
+  "app.id": "APP001",
   "app.name": "App",
-  "base.id": CANONICAL_UUID,
+  "base.id": "BASE01",
   "base.name": "Base",
   "time.now": "2000-01-01T00:00:00.000Z",
   "time.today": "2000-01-01",
@@ -28,7 +28,7 @@ export const canonicalCustomAppQueryContext = (context: DslQueryContextValues): 
   ...Object.fromEntries(
     Object.keys(context)
       .filter((key) => key.startsWith("params."))
-      .map((key) => [key, CANONICAL_UUID]),
+      .map((key) => [key, CANONICAL_RECORD_ID]),
   ),
 });
 

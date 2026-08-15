@@ -1,6 +1,7 @@
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { getRuntimeContext } from "@valentinkolb/cloud/ssr";
 import { currentActorUser, gateBaseAtAccess, gridsAccessContext } from "../../../api/permissions";
+import { toPublicFields, toPublicTables, toPublicViews } from "../../../api/public-dto";
 import { ssr } from "../../../config";
 import { gridsService } from "../../../service";
 import { ALL_RECORD_ACCESS } from "../../../service/record-access";
@@ -24,7 +25,7 @@ export default ssr<AuthContext>(async (c) => {
   const defaultTab =
     normalizeQueryReferenceTab(routeTabParam) ?? normalizeQueryReferenceTab(defaultTabParam) ?? (sourceId ? "tables" : "basics");
   c.get("page").title = defaultTab === "workflows" ? "Workflow reference" : defaultTab === "gql" ? "GQL reference" : "Grids reference";
-  const base = await gridsService.base.getByIdOrShortId(baseSlug);
+  const base = await gridsService.base.getByShortId(baseSlug);
   if (!base) return messagePage("Base not found");
 
   const user = currentActorUser(c);
@@ -41,17 +42,42 @@ export default ssr<AuthContext>(async (c) => {
   const recordCountsByTable = await gridsService.record.countAccessibleByTable(
     catalog.tables.map((table) => ({ tableId: table.id, recordAccess: ALL_RECORD_ACCESS })),
   );
+  const publicTables = await toPublicTables(catalog.tables);
+  const publicTableIds = new Map<string, string>();
+  for (const [index, table] of catalog.tables.entries()) {
+    const publicTable = publicTables[index];
+    if (publicTable) publicTableIds.set(table.id, publicTable.id);
+  }
+  const publicTableId = (internalId: string) => {
+    const id = publicTableIds.get(internalId);
+    if (!id) throw new Error("Missing public table ID");
+    return id;
+  };
+  const publicFieldsByTable = Object.fromEntries(
+    await Promise.all(
+      Object.entries(catalog.fieldsByTable).map(
+        async ([tableId, fields]) => [publicTableId(tableId), await toPublicFields(fields)] as const,
+      ),
+    ),
+  );
+  const publicViewsByTable = Object.fromEntries(
+    await Promise.all(
+      Object.entries(catalog.viewsByTable).map(async ([tableId, views]) => [publicTableId(tableId), await toPublicViews(views)] as const),
+    ),
+  );
+  const publicRecordCountsByTable = Object.fromEntries(
+    Object.entries(recordCountsByTable).map(([tableId, count]) => [publicTableId(tableId), count]),
+  );
   const helpDocuments = getRuntimeContext(c).apps.find((registeredApp) => registeredApp.id === "grids")?.help?.documents ?? [];
 
   return () => (
     <QueryReferenceWindow
-      baseId={base.id}
-      baseShortId={base.shortId}
+      baseId={base.shortId}
       baseName={base.name}
-      tables={catalog.tables}
-      fieldsByTable={catalog.fieldsByTable}
-      viewsByTable={catalog.viewsByTable}
-      recordCountsByTable={recordCountsByTable}
+      tables={publicTables}
+      fieldsByTable={publicFieldsByTable}
+      viewsByTable={publicViewsByTable}
+      recordCountsByTable={publicRecordCountsByTable}
       documents={helpDocuments}
       defaultTab={defaultTab}
       inspectedSourceId={sourceId}

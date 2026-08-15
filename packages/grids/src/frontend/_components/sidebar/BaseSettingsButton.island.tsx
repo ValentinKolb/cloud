@@ -1,7 +1,7 @@
 import { AppWorkspace, prompts } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { Base } from "../../../service";
+import type { PublicBase as Base } from "../../../api/public-dto";
 import BaseSettingsPanel from "../settings/BaseSettingsPanel";
 
 export default function BaseSettingsButton(props: { base: Base }) {

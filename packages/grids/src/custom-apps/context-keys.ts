@@ -11,7 +11,6 @@ const AUTH_CONTEXT_KEYS = [
 
 const APP_BASE_TIME_CONTEXT_KEYS = [
   "app.id",
-  "app.shortId",
   "app.name",
   "base.id",
   "base.name",

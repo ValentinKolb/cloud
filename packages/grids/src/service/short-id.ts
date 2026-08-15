@@ -1,27 +1,33 @@
-import { isUniqueViolation } from "@valentinkolb/cloud/services";
 import { crypto } from "@k2b/stdlib";
+import { isUniqueViolation } from "@valentinkolb/cloud/services";
+import type { SQL } from "bun";
 
 /**
- * 5-char readable short_id regex. Used to validate persisted short_ids
+ * Canonical Grids public resource ID. Used to validate persisted short_ids
  * at the Zod-contract layer; mirrors the DB CHECK constraint applied
  * by the migration so the two layers can never disagree.
  */
-export const SHORT_ID_REGEX = /^[A-Za-z0-9]{5}$/;
+export const SHORT_ID_LENGTH = 6;
+export const SHORT_ID_REGEX = /^[A-Za-z0-9]{6}$/;
+
+const MAX_ATTEMPTS = 10;
+
+export const newShortId = (): string => crypto.common.readableId(SHORT_ID_LENGTH);
 
 /**
  * Insert-with-random-short_id helper. Each grids resource (base / table /
- * field / form / view / Grids App) carries a 5-char readable `short_id`
- * alongside its UUID — used in URLs and formula references.
+ * field / form / view / Grids App) carries a readable `short_id` alongside
+ * its private UUID. The short ID is the resource's only public identity.
  *
- * Unlike a check-then-insert pattern, this helper trusts the DB partial
+ * Unlike a check-then-insert pattern, this helper trusts the DB global
  * unique index as the only authoritative collision check — two
  * concurrent creates can race the JS-side check otherwise. We retry the
  * insert when the SPECIFIC short_id index name comes back as a 23505
  * unique violation; any other unique constraint (a real PK collision,
  * an FK, etc.) bubbles up as a real error.
  *
- * Collision math: 62^5 = 916M; even 1000 alive resources per scope gives
- * ~0.054% birthday-paradox collision rate per try, so 10 attempts is
+ * Collision math: 62^6 = 56.8B; even 1000 resources of one kind gives
+ * a negligible birthday-paradox collision rate per try, so 10 attempts is
  * massive overkill — the loop exists strictly for paranoia.
  *
  * Why pass the index name explicitly: bun.sql / postgres surface the
@@ -34,13 +40,13 @@ export const SHORT_ID_REGEX = /^[A-Za-z0-9]{5}$/;
  *                short_id and returns the inserted row. MUST throw on
  *                any failure (do not return null/undefined for "row
  *                missing").
- * @param uniqueIndexName  The name of the partial unique index that
+ * @param uniqueIndexName  The name of the global unique index that
  *                guards short_id uniqueness for this resource (e.g.
  *                `idx_grids_bases_short_id`).
  */
 export const insertWithShortId = async <T>(insert: (shortId: string) => Promise<T>, uniqueIndexName: string): Promise<T> => {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const shortId = crypto.common.readableId(5);
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const shortId = newShortId();
     try {
       return await insert(shortId);
     } catch (e: unknown) {
@@ -48,5 +54,16 @@ export const insertWithShortId = async <T>(insert: (shortId: string) => Promise<
       throw e;
     }
   }
-  throw new Error(`short_id generation: 10 collisions in a row on ${uniqueIndexName} — scope is saturated or RNG is broken`);
+  throw new Error(`short_id generation: ${MAX_ATTEMPTS} collisions in a row on ${uniqueIndexName} — scope is saturated or RNG is broken`);
 };
+
+type SavepointedSql = SQL & { savepoint: <T>(write: (db: SQL) => Promise<T>) => Promise<T> };
+
+const isTransaction = (db: SQL): db is SavepointedSql => typeof (db as Partial<SavepointedSql>).savepoint === "function";
+
+/** Keep a short-ID collision from aborting the caller's surrounding transaction. */
+export const insertWithShortIdForDb = <T>(db: SQL, uniqueIndexName: string, insert: (db: SQL, shortId: string) => Promise<T>): Promise<T> =>
+  insertWithShortId(
+    (shortId) => (isTransaction(db) ? db.savepoint((attempt) => insert(attempt, shortId)) : insert(db, shortId)),
+    uniqueIndexName,
+  );

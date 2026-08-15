@@ -12,6 +12,33 @@ const templateId = "33333333-3333-4333-8333-333333333333";
 const fieldId = "44444444-4444-4444-8444-444444444444";
 const recordId = "66666666-6666-4666-8666-666666666666";
 const snapshotId = "77777777-7777-4777-8777-777777777777";
+const basePublicId = "BASE01";
+const tablePublicId = "TABL01";
+const templatePublicId = "TMPL01";
+const fieldPublicId = "FELD01";
+const recordPublicId = "RECD01";
+const snapshotPublicId = "SNAP01";
+const relationFieldPublicId = "RELA01";
+
+const publicToInternal = new Map([
+  [basePublicId, baseId],
+  [tablePublicId, tableId],
+  [templatePublicId, templateId],
+  [fieldPublicId, fieldId],
+  [recordPublicId, recordId],
+  [snapshotPublicId, snapshotId],
+  [relationFieldPublicId, "88888888-8888-4888-8888-888888888888"],
+]);
+const internalToPublic = new Map([...publicToInternal].map(([publicId, internalId]) => [internalId, publicId]));
+mock.module("../service/public-resources", () => ({
+  resolvePublicId: async (_type: string, publicId: string) => publicToInternal.get(publicId) ?? null,
+  resolvePublicIds: async (_type: string, publicIds: string[]) =>
+    new Map(publicIds.flatMap((publicId) => (publicToInternal.has(publicId) ? [[publicId, publicToInternal.get(publicId)!]] : []))),
+  projectPublicIds: async (_type: string, internalIds: string[]) =>
+    new Map(
+      internalIds.flatMap((internalId) => (internalToPublic.has(internalId) ? [[internalId, internalToPublic.get(internalId)!]] : [])),
+    ),
+}));
 
 const user: User = {
   id: "55555555-5555-4555-8555-555555555555",
@@ -35,7 +62,7 @@ const user: User = {
 
 const table = {
   id: tableId,
-  shortId: "TBL01",
+  shortId: tablePublicId,
   baseId,
   kind: "stored" as const,
   name: "Hidden table",
@@ -53,7 +80,7 @@ const table = {
 
 const template = {
   id: templateId,
-  shortId: "LBL01",
+  shortId: templatePublicId,
   tableId,
   name: "Shipping label",
   description: "Printable label",
@@ -62,7 +89,7 @@ const template = {
   headerHtml: null,
   footerHtml: null,
   pageCss: null,
-  numberTemplate: "{{ template.shortId }}-{{ run.shortId }}",
+  numberTemplate: "{{ template.id }}-{{ run.id }}",
   filenameTemplate: "{{ document.number }}.pdf",
   enabled: true,
   position: 0,
@@ -75,7 +102,7 @@ const template = {
 
 const field = {
   id: fieldId,
-  shortId: "FIELD",
+  shortId: fieldPublicId,
   tableId,
   name: "Secret field",
   description: null,
@@ -97,11 +124,13 @@ const field = {
 const relationField = {
   ...field,
   id: "88888888-8888-4888-8888-888888888888",
-  shortId: "REL01",
+  shortId: relationFieldPublicId,
   name: "Related record",
   type: "relation",
-  config: { targetTableId: tableId, cardinality: "single" },
+  config: { targetTableId: tableId, relationFieldId: fieldId, targetFieldId: fieldId, cardinality: "single" },
+  defaultValue: recordId,
 };
+const { tableId: _relationTableId, ...snapshotRelationField } = relationField;
 
 let baseLevel: "none" | "read" = "read";
 let fieldListCalls = 0;
@@ -116,10 +145,43 @@ const snapshot = {
   baseId,
   tableId,
   recordId,
-  root: { id: recordId },
+  root: {
+    id: recordId,
+    table: { id: tableId, shortId: tablePublicId, name: table.name },
+    fields: [snapshotRelationField],
+    data: { [relationField.id]: recordId },
+  },
   graph: {},
   createdBy: user.id,
   createdAt: "2026-01-01T00:00:00.000Z",
+};
+
+const publicSnapshot = {
+  id: snapshotPublicId,
+  baseId: basePublicId,
+  tableId: tablePublicId,
+  recordId: recordPublicId,
+  root: {
+    id: recordPublicId,
+    table: { id: tablePublicId, name: table.name },
+    fields: [
+      {
+        ...snapshotRelationField,
+        id: relationFieldPublicId,
+        config: {
+          targetTableId: tablePublicId,
+          relationFieldId: fieldPublicId,
+          targetFieldId: fieldPublicId,
+          cardinality: "single",
+        },
+        defaultValue: recordPublicId,
+      },
+    ].map(({ shortId: _shortId, ...publicField }) => publicField),
+    data: { [relationFieldPublicId]: recordPublicId },
+  },
+  graph: { rootId: `${tablePublicId}:${recordPublicId}`, records: {} },
+  createdBy: user.id,
+  createdAt: snapshot.createdAt,
 };
 
 const forbiddenResponse = {
@@ -200,15 +262,14 @@ describe("document template permission surfaces", () => {
   test("lists document templates with base read access", async () => {
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
-    const response = await app.request(`/templates/by-table/${tableId}`);
+    const response = await app.request(`/templates/by-table/${tablePublicId}`);
     const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(body).toEqual([
       {
-        id: template.id,
-        shortId: template.shortId,
-        tableId: template.tableId,
+        id: templatePublicId,
+        tableId: tablePublicId,
         name: template.name,
         description: template.description,
         enabled: template.enabled,
@@ -244,7 +305,7 @@ describe("document template permission surfaces", () => {
     baseLevel = "none";
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
-    const response = await app.request(`/templates/by-table/${tableId}`);
+    const response = await app.request(`/templates/by-table/${tablePublicId}`);
 
     expect(response.status).toBe(403);
   });
@@ -253,7 +314,7 @@ describe("document template permission surfaces", () => {
     baseLevel = "none";
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
-    const response = await app.request(`/snapshots/by-record/${tableId}/${recordId}`);
+    const response = await app.request(`/snapshots/by-record/${tablePublicId}/${recordPublicId}`);
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual(forbiddenResponse);
@@ -264,7 +325,7 @@ describe("document template permission surfaces", () => {
     test(`${method} snapshot by-record returns 404 for an invalid record id`, async () => {
       const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
-      const response = await app.request(`/snapshots/by-record/${tableId}/not-a-record-id`, { method });
+      const response = await app.request(`/snapshots/by-record/${tablePublicId}/not-a-record-id`, { method });
 
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({ message: "Record not found" });
@@ -274,9 +335,9 @@ describe("document template permission surfaces", () => {
 
     test(`${method} snapshot by-record returns 404 for an unknown table`, async () => {
       const app = createDocumentsApi({ requireAuthenticated: authenticated });
-      const unknownTableId = "99999999-9999-4999-8999-999999999999";
+      const unknownTableId = "UNKN01";
 
-      const response = await app.request(`/snapshots/by-record/${unknownTableId}/${recordId}`, { method });
+      const response = await app.request(`/snapshots/by-record/${unknownTableId}/${recordPublicId}`, { method });
 
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({ message: "Table not found" });
@@ -288,10 +349,11 @@ describe("document template permission surfaces", () => {
   test("lists standalone snapshots with base read access", async () => {
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
-    const response = await app.request(`/snapshots/by-record/${tableId}/${recordId}`);
+    const response = await app.request(`/snapshots/by-record/${tablePublicId}/${recordPublicId}`);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ items: [snapshot] });
+    const { root: _root, graph: _graph, ...publicSnapshotSummary } = publicSnapshot;
+    expect(await response.json()).toEqual({ items: [publicSnapshotSummary] });
     expect(snapshotListCalls).toBe(1);
   });
 
@@ -299,7 +361,7 @@ describe("document template permission surfaces", () => {
     baseLevel = "none";
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
-    const response = await app.request(`/snapshots/by-record/${tableId}/${recordId}`, { method: "POST" });
+    const response = await app.request(`/snapshots/by-record/${tablePublicId}/${recordPublicId}`, { method: "POST" });
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual(forbiddenResponse);
@@ -309,10 +371,10 @@ describe("document template permission surfaces", () => {
   test("creates standalone snapshots with base read access", async () => {
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
-    const response = await app.request(`/snapshots/by-record/${tableId}/${recordId}`, { method: "POST" });
+    const response = await app.request(`/snapshots/by-record/${tablePublicId}/${recordPublicId}`, { method: "POST" });
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ snapshot });
+    expect(await response.json()).toEqual({ snapshot: publicSnapshot });
     expect(snapshotCreateCalls).toBe(1);
     const { resolveRecordAccess, viewer, ...snapshotParams } = snapshotCreateInput as {
       baseId: string;
@@ -340,7 +402,7 @@ describe("document template permission surfaces", () => {
     baseLevel = "none";
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
-    const response = await app.request(`/snapshots/${snapshotId}`);
+    const response = await app.request(`/snapshots/${snapshotPublicId}`);
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual(forbiddenResponse);
@@ -349,10 +411,10 @@ describe("document template permission surfaces", () => {
   test("opens standalone snapshots with base read access", async () => {
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
 
-    const response = await app.request(`/snapshots/${snapshotId}`);
+    const response = await app.request(`/snapshots/${snapshotPublicId}`);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(snapshot);
+    expect(await response.json()).toEqual(publicSnapshot);
     expect(snapshotGetCalls).toBe(1);
     const filterInput = snapshotFilterInput as {
       input: typeof snapshot;
@@ -366,12 +428,12 @@ describe("document template permission surfaces", () => {
 
   test("returns 404 for an unknown standalone snapshot", async () => {
     const app = createDocumentsApi({ requireAuthenticated: authenticated });
-    const unknownSnapshotId = "88888888-8888-4888-8888-888888888888";
+    const unknownSnapshotId = "UNKS01";
 
     const response = await app.request(`/snapshots/${unknownSnapshotId}`);
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ message: "Record snapshot not found" });
-    expect(snapshotGetCalls).toBe(1);
+    expect(snapshotGetCalls).toBe(0);
   });
 });

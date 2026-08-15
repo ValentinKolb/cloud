@@ -1,12 +1,12 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
-  NoticeCard,
   Button,
   DataTable,
   type DataTableColumn,
   dialogCore,
   FilterChip,
   type FilterChipSection,
+  NoticeCard,
   PanelDialog,
   Placeholder,
   panelDialogWorkspaceOptions,
@@ -18,21 +18,27 @@ import {
 } from "@k2b/ui";
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createEffect, createMemo, createSignal, For, lazy, onCleanup, onMount, Show, Suspense } from "solid-js";
+import type { z } from "zod";
 import { apiClient } from "../../../api/client";
-import type { Table } from "../../../service";
-import type {
-  GridsWorkflowChannel,
-  GridsWorkflowLauncher,
-  GridsWorkflow as Workflow,
-  GridsWorkflowEmailDelivery as WorkflowEmailDelivery,
-  GridsWorkflowRun as WorkflowRun,
-  GridsWorkflowRunStats as WorkflowRunStats,
-  GridsWorkflowRunStatsWindow as WorkflowRunStatsWindow,
-  WorkflowTriggerRuntimeState,
-} from "../../../workflows/contracts";
+import type { PublicTable } from "../../../api/public-dto";
+import {
+  PublicGridsWorkflowEmailDeliveryListSchema,
+  PublicGridsWorkflowLauncherListSchema,
+  PublicGridsWorkflowRunListSchema,
+  PublicGridsWorkflowRunStatsSchema,
+  PublicWorkflowInvocationReceiptSchema,
+  PublicWorkflowTriggerRuntimeStateSchema,
+} from "../../../api/workflow-public-contracts";
 import { scannerLauncherPromptInputSources } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
-import type { WorkspaceWorkflowOverview } from "../workspace/workspace-state-model";
+import type {
+  PublicWorkflow,
+  PublicWorkflowLauncher,
+  PublicWorkflowRun,
+  PublicWorkflowRunStats,
+  PublicWorkflowTriggerRuntimeState,
+  PublicWorkspaceWorkflowOverview,
+} from "../workspace/workspace-public-state-model";
 import { WorkflowAutomaticTriggerState } from "./WorkflowAutomaticTriggerState";
 import { WorkflowEditor } from "./WorkflowEditor";
 import { WorkflowLauncherManager } from "./WorkflowLauncherManager";
@@ -57,31 +63,30 @@ import {
 
 const WorkflowScannerSurface = lazy(() => import("./WorkflowScannerSurface"));
 
+type WorkflowRunStatsWindow = PublicWorkflowRunStats["window"];
+
 type Props = {
   baseId: string;
-  baseShortId: string;
-  tables: Table[];
-  activeWorkflow: Workflow | null;
+  tables: PublicTable[];
+  activeWorkflow: PublicWorkflow | null;
   selectedRunId: string | null;
-  runUpdate: WorkflowRun | null;
+  runUpdate: PublicWorkflowRun | null;
   canCreateWorkflows: boolean;
   canRunActiveWorkflow: boolean;
   canManageActiveWorkflow: boolean;
   editMode: boolean;
-  initialOverview: WorkspaceWorkflowOverview;
+  initialOverview: PublicWorkspaceWorkflowOverview;
   onWorkflowChanged: () => void;
   onSelectRun: (runId: string | null) => void;
 };
 
 type WorkflowRunPage = {
-  items: WorkflowRun[];
+  items: PublicWorkflowRun[];
   nextCursor?: string | null;
 };
 
-type WorkflowEmailDeliveryPage = {
-  items: WorkflowEmailDelivery[];
-  nextCursor?: string | null;
-};
+type WorkflowEmailDeliveryPage = z.infer<typeof PublicGridsWorkflowEmailDeliveryListSchema>;
+type WorkflowEmailDelivery = WorkflowEmailDeliveryPage["items"][number];
 
 type WorkflowsPageApi = {
   "by-base": {
@@ -164,7 +169,7 @@ const formatMetricDuration = (ms: number | null): string => {
 
 const formatPercent = (value: number): string => `${value.toFixed(value >= 10 ? 0 : 1)}%`;
 
-const triggerSummary = (workflow: Workflow): string => {
+const triggerSummary = (workflow: PublicWorkflow): string => {
   const triggers = workflow.plan.triggers.map((trigger) => trigger.kind);
   if (triggers.length === 0) return "No automatic trigger";
   return triggers.map((trigger) => (trigger === "recordEvent" ? "Record event" : "Schedule")).join(", ");
@@ -190,7 +195,9 @@ function EmailDeliveryTable(props: {
         ariaLabel="Workflow email deliveries"
         rows={props.deliveries}
         columns={columns()}
-        getRowId={(delivery) => delivery.id}
+        getRowId={(delivery) =>
+          [delivery.createdAt, delivery.workflowRunId ?? "", delivery.templateId ?? "", delivery.subject ?? ""].join(":")
+        }
         density="compact"
         highlightColumns={false}
         class="paper min-h-[20rem] flex-1 overflow-auto"
@@ -222,10 +229,10 @@ export default function WorkflowsPage(props: Props) {
   const [statsWindow, setStatsWindow] = createSignal<WorkflowRunStatsWindow>(props.initialOverview.filters.window);
   const [runStatus, setRunStatus] = createSignal<WorkflowRunStatusFilter>(props.initialOverview.filters.status);
   const [runChannel, setRunChannel] = createSignal<WorkflowRunChannelFilter>(props.initialOverview.filters.channel);
-  const [launchers, setLaunchers] = createSignal<GridsWorkflowLauncher[]>(props.initialOverview.launchers);
-  const [triggerState, setTriggerState] = createSignal<WorkflowTriggerRuntimeState | null>(props.initialOverview.triggerState);
-  const [stats, setStats] = createSignal<WorkflowRunStats | null>(props.initialOverview.stats);
-  const [runs, setRuns] = createSignal<WorkflowRun[]>(props.initialOverview.runs.items);
+  const [launchers, setLaunchers] = createSignal<PublicWorkflowLauncher[]>(props.initialOverview.launchers);
+  const [triggerState, setTriggerState] = createSignal<PublicWorkflowTriggerRuntimeState | null>(props.initialOverview.triggerState);
+  const [stats, setStats] = createSignal<PublicWorkflowRunStats | null>(props.initialOverview.stats);
+  const [runs, setRuns] = createSignal<PublicWorkflowRun[]>(props.initialOverview.runs.items);
   const [nextCursor, setNextCursor] = createSignal<string | null>(props.initialOverview.runs.nextCursor);
   const [emailDeliveries, setEmailDeliveries] = createSignal<WorkflowEmailDelivery[]>([]);
   const [nextEmailCursor, setNextEmailCursor] = createSignal<string | null>(null);
@@ -263,7 +270,7 @@ export default function WorkflowsPage(props: Props) {
         { init: { signal: abortSignal } },
       );
       if (!res.ok) throw new Error(await errorMessage(res, "Could not load workflow stats."));
-      setStats((await res.json()) as WorkflowRunStats);
+      setStats(PublicGridsWorkflowRunStatsSchema.parse(await res.json()));
     },
     onSuccess: () => setLoadFailure("stats"),
     onError: (error) => setLoadFailure("stats", error.message),
@@ -276,15 +283,15 @@ export default function WorkflowsPage(props: Props) {
         query: {
           limit: "50",
           ...(props.activeWorkflow ? { workflowId: props.activeWorkflow.id } : {}),
-          ...(runStatus() !== "all" ? { status: runStatus() as WorkflowRun["status"] } : {}),
-          ...(runChannel() !== "all" ? { channel: runChannel() as GridsWorkflowChannel } : {}),
+          ...(runStatus() !== "all" ? { status: runStatus() } : {}),
+          ...(runChannel() !== "all" ? { channel: runChannel() } : {}),
           ...(cursor ? { cursor } : {}),
         },
       },
       { init: { signal } },
     );
     if (!res.ok) throw new Error(await errorMessage(res, "Could not load workflow runs."));
-    return (await res.json()) as WorkflowRunPage;
+    return PublicGridsWorkflowRunListSchema.parse(await res.json());
   };
 
   const runsMut = mutations.create<WorkflowRunPage, void>({
@@ -326,7 +333,7 @@ export default function WorkflowsPage(props: Props) {
       { init: { signal } },
     );
     if (!res.ok) throw new Error(await errorMessage(res, "Could not load workflow email deliveries."));
-    return (await res.json()) as WorkflowEmailDeliveryPage;
+    return PublicGridsWorkflowEmailDeliveryListSchema.parse(await res.json());
   };
 
   const emailDeliveriesMut = mutations.create<void, void>({
@@ -392,7 +399,7 @@ export default function WorkflowsPage(props: Props) {
         { init: { signal: abortSignal } },
       );
       if (!res.ok) throw new Error(await errorMessage(res, "Could not load workflow launchers."));
-      setLaunchers(((await res.json()) as { items: GridsWorkflowLauncher[] }).items);
+      setLaunchers(PublicGridsWorkflowLauncherListSchema.parse(await res.json()).items);
     },
     onSuccess: () => setLoadFailure("launchers"),
     onError: (error) => setLoadFailure("launchers", error.message),
@@ -410,7 +417,7 @@ export default function WorkflowsPage(props: Props) {
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await errorMessage(response, "Could not load automatic trigger state."));
-      setTriggerState((await response.json()) as WorkflowTriggerRuntimeState);
+      setTriggerState(PublicWorkflowTriggerRuntimeStateSchema.parse(await response.json()));
     },
     onSuccess: () => setLoadFailure("triggers"),
     onError: (error) => setLoadFailure("triggers", error.message),
@@ -476,12 +483,11 @@ export default function WorkflowsPage(props: Props) {
     onCleanup(() => window.removeEventListener("popstate", onPopState));
   });
 
-  const openEditor = async (workflow: Workflow) => {
+  const openEditor = async (workflow: PublicWorkflow) => {
     await dialogCore.open<void>(
       (close) => (
         <WorkflowEditor
           baseId={props.baseId}
-          baseShortId={props.baseShortId}
           tables={props.tables}
           workflow={workflow}
           onChanged={() => props.onWorkflowChanged()}
@@ -492,14 +498,14 @@ export default function WorkflowsPage(props: Props) {
     );
   };
 
-  const openLaunchers = async (workflow: Workflow) => {
+  const openLaunchers = async (workflow: PublicWorkflow) => {
     await dialogCore.open<void>(
       (close) => <WorkflowLauncherManager workflow={workflow} tables={props.tables} onChanged={props.onWorkflowChanged} onClose={close} />,
       panelDialogWorkspaceOptions,
     );
   };
 
-  const openHistory = async (workflow: Workflow) => {
+  const openHistory = async (workflow: PublicWorkflow) => {
     await dialogCore.open<void>(
       (close) => (
         <WorkflowRevisionHistory
@@ -513,10 +519,10 @@ export default function WorkflowsPage(props: Props) {
     );
   };
 
-  const scannerReturnHref = (workflow: Workflow) =>
-    `/app/grids/${encodeURIComponent(props.baseShortId)}/workflows/${encodeURIComponent(workflow.shortId)}`;
+  const scannerReturnHref = (workflow: PublicWorkflow) =>
+    `/app/grids/${encodeURIComponent(props.baseId)}/workflows/${encodeURIComponent(workflow.id)}`;
 
-  const openScanner = async (workflow: Workflow, launcher: GridsWorkflowLauncher) => {
+  const openScanner = async (workflow: PublicWorkflow, launcher: PublicWorkflowLauncher) => {
     if (launcher.config.kind !== "scanner" || !props.canRunActiveWorkflow) return;
     const scannerConfig = launcher.config;
     await dialogCore.open<void>(
@@ -534,11 +540,10 @@ export default function WorkflowsPage(props: Props) {
                 mode="dialog"
                 state={
                   {
-                    baseShortId: props.baseShortId,
+                    baseId: props.baseId,
                     launcherId: launcher.id,
                     expectedRevision: workflow.revision,
                     workflowId: workflow.id,
-                    workflowShortId: workflow.shortId,
                     workflowName: workflow.name,
                     workflowDescription: workflow.description,
                     initialCode: null,
@@ -560,7 +565,7 @@ export default function WorkflowsPage(props: Props) {
   };
 
   const runMut = mutations.create<
-    { runId: string; status: WorkflowRun["status"] },
+    { runId: string; status: PublicWorkflowRun["status"] },
     { input: Record<string, unknown>; mode: "execute" | "dryRun" }
   >({
     mutation: async ({ input, mode }, { abortSignal }) => {
@@ -579,7 +584,8 @@ export default function WorkflowsPage(props: Props) {
         { init: { signal: abortSignal } },
       );
       if (!res.ok) throw new Error(await errorMessage(res, "Could not run workflow."));
-      return (await res.json()) as { runId: string; status: WorkflowRun["status"] };
+      const receipt = PublicWorkflowInvocationReceiptSchema.parse(await res.json());
+      return { runId: receipt.runId, status: receipt.status };
     },
     onSuccess: (receipt) => {
       props.onSelectRun(receipt.runId);
@@ -599,7 +605,7 @@ export default function WorkflowsPage(props: Props) {
     runMut.mutate({ input, mode });
   };
 
-  const runColumns = createMemo<DataTableColumn<WorkflowRun>[]>(() => [
+  const runColumns = createMemo<DataTableColumn<PublicWorkflowRun>[]>(() => [
     { id: "status", header: "Status", value: (run) => run.status, cellClass: "whitespace-nowrap" },
     { id: "started", header: "Started", value: (run) => run.createdAt, cellClass: "whitespace-nowrap" },
     { id: "channel", header: "Channel", value: (run) => run.channel, cellClass: "whitespace-nowrap" },

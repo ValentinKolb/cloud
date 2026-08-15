@@ -2,13 +2,18 @@ import { Button, dialogCore, IconButtonLink, PanelDialog, panelDialogOptions, Te
 import type { WorkflowBoundPlan, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { WorkflowRunEventSummary, WorkflowRunStepSummary } from "../../../lib/workflow-run-events";
-import type { Table } from "../../../service";
+import type { PublicTable } from "../../../api/public-dto";
+import {
+  PublicGridsWorkflowRunSchema,
+  PublicGridsWorkflowStepRunListSchema,
+  PublicWorkflowInvocationReceiptSchema,
+} from "../../../api/workflow-public-contracts";
 import type { GridsScannerPromptInputSource } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
 import { createScannerEngine, type ScannerDetection, type ScannerEngine } from "./scanner-engine";
 import { workflowStepStatusTextClass as stepStatusTextClass } from "./workflow-display";
 import { createWorkflowRunEventBuffer } from "./workflow-run-event-buffer";
+import type { PublicWorkflowRunEventSummary, PublicWorkflowRunStepSummary } from "./workflow-run-public-event";
 
 type WorkflowRunsApi = {
   [":runId"]: {
@@ -31,16 +36,15 @@ type WorkflowScannerInputContract = {
     name: string;
     plan: Pick<WorkflowBoundPlan, "inputs" | "bindings">;
   };
-  tables: Array<Pick<Table, "id" | "shortId" | "name">>;
+  tables: Array<Pick<PublicTable, "id" | "name">>;
   inputSources: Record<string, GridsScannerPromptInputSource>;
 };
 
 export type WorkflowScannerState = {
-  baseShortId: string;
+  baseId: string;
   launcherId: string;
   expectedRevision: number;
   workflowId: string;
-  workflowShortId?: string;
   workflowName: string;
   workflowDescription: string | null;
   initialCode: string | null;
@@ -57,8 +61,8 @@ type ScanLogItem = {
   status: ScanStatus;
   message: string;
   runId: string | null;
-  run: WorkflowRunEventSummary | null;
-  steps: WorkflowRunStepSummary[];
+  run: PublicWorkflowRunEventSummary | null;
+  steps: PublicWorkflowRunStepSummary[];
   inputs: Record<string, WorkflowJsonValue>;
   createdAt: number;
 };
@@ -86,7 +90,7 @@ type ScanAnnouncement = {
 const MAX_ACTIVE_SCAN_RUNS = 8;
 const MAX_VISIBLE_SCAN_LOGS = 100;
 
-const isTerminal = (run: WorkflowRunEventSummary): boolean =>
+const isTerminal = (run: PublicWorkflowRunEventSummary): boolean =>
   run.status === "succeeded" || run.status === "failed" || run.status === "canceled" || run.status === "needs_attention";
 
 const statusClass = (status: ScanStatus) =>
@@ -311,17 +315,17 @@ export default function WorkflowScannerSurface(props: Props) {
     if (next.status !== current.status || next.message !== current.message) announceLog(next);
   };
 
-  const fetchSteps = async (runId: string): Promise<WorkflowRunStepSummary[]> => {
+  const fetchSteps = async (runId: string): Promise<PublicWorkflowRunStepSummary[]> => {
     if (props.transport && !props.transport.getSteps) return [];
     const res = props.transport?.getSteps
       ? await props.transport.getSteps(runId)
       : await workflowRunsApi[":runId"].steps.$get({ param: { runId } });
     if (!res.ok) throw new Error(await errorMessage(res, "Request failed"));
-    const payload = (await res.json()) as { items: WorkflowRunStepSummary[] };
+    const payload = PublicGridsWorkflowStepRunListSchema.parse(await res.json());
     return payload.items;
   };
 
-  const applyRun = (logId: string, run: WorkflowRunEventSummary, steps?: WorkflowRunStepSummary[]) => {
+  const applyRun = (logId: string, run: PublicWorkflowRunEventSummary, steps?: PublicWorkflowRunStepSummary[]) => {
     const status: ScanStatus =
       run.status === "succeeded"
         ? "succeeded"
@@ -344,8 +348,8 @@ export default function WorkflowScannerSurface(props: Props) {
   const refreshRun = async (logId: string, runId: string) => {
     const res = await getRun(runId);
     if (!res.ok) throw new Error(await errorMessage(res, "Request failed"));
-    const run = (await res.json()) as WorkflowRunEventSummary;
-    let steps: WorkflowRunStepSummary[] | undefined;
+    const run = PublicGridsWorkflowRunSchema.parse(await res.json());
+    let steps: PublicWorkflowRunStepSummary[] | undefined;
     if (isTerminal(run)) {
       try {
         steps = await fetchSteps(run.id);
@@ -465,9 +469,8 @@ export default function WorkflowScannerSurface(props: Props) {
         return;
       }
       if (responseKind === "failed") throw new Error(await errorMessage(res, "Scanner workflow could not be started"));
-      const receipt = (await res.json()) as { id?: string; runId?: string; status: string };
-      const runId = receipt.runId ?? receipt.id;
-      if (!runId) throw new Error("Scanner workflow did not return a run ID.");
+      const receipt = PublicWorkflowInvocationReceiptSchema.parse(await res.json());
+      const runId = receipt.runId;
       const pending = pendingRunEvents.take(runId);
       if (pending) applyRun(item.id, pending.run, pending.steps);
       else {
@@ -701,10 +704,7 @@ export default function WorkflowScannerSurface(props: Props) {
             <IconButtonLink
               variant="ghost"
               size="sm"
-              href={
-                props.state.returnHref ??
-                `/app/grids/${props.state.baseShortId}/workflows/${props.state.workflowShortId ?? props.state.workflowId}`
-              }
+              href={props.state.returnHref ?? `/app/grids/${props.state.baseId}/workflows/${props.state.workflowId}`}
               label="Back to workflow"
             >
               <i class="ti ti-arrow-left" />

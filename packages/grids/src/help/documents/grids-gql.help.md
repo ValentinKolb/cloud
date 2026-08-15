@@ -161,7 +161,7 @@ The two deleted-record clauses are mutually exclusive. Normal queries return liv
 - Quote names containing spaces or punctuation with double quotes.
 - Use single quotes for literal text.
 - Use source aliases after joins, for example `customer.Name`.
-- Use brace-wrapped UUIDs only when generated configuration or a migration needs an immutable reference.
+- Use brace-wrapped public IDs when generated configuration or a migration needs an immutable reference.
 - Do not use removed `#field` aliases.
 
 Aliases used after `as` must start with a letter or underscore, may then contain letters, numbers, and underscores, and may be at most 64 characters. An alias cannot be a GQL keyword, logical operator, or reserved literal. Aliases are case-insensitive when referenced later.
@@ -208,7 +208,7 @@ Grids App queries receive typed request context automatically. Values are bound 
 | `@auth.subjects` | Flat UUID list containing the current user and all effective direct or nested groups; empty for anonymous visitors |
 | `@params.<name>` | A declared and validated page parameter |
 | `@page.id`, `@page.title`, `@page.url` | Current page identity and canonical relative URL |
-| `@app.id`, `@app.shortId`, `@app.name` | Published Grids App identity |
+| `@app.id`, `@app.name` | Published Grids App identity |
 | `@base.id`, `@base.name` | Owning Base identity |
 | `@time.now`, `@time.today`, `@time.timeZone` | One request timestamp, local date, and IANA timezone |
 
@@ -246,7 +246,7 @@ The simple field predicates below are the clearest choice when they fit. A boole
 | Date | `=`, `!=`, `<`, `<=`, `>`, `>=`; write dates and date-times as single-quoted ISO values |
 | Boolean | `= true`, `= false`, `!= true`, `!= false`, or the field alone |
 | Select | `=`, `!=`, `oneof`, `noneof`, `containsall`; values may be option labels or option ids |
-| Relation | `=`, `!=`, `oneof`, `noneof`, `containsall`; values are related record UUIDs |
+| Relation | `=`, `!=`, `oneof`, `noneof`, `containsall`; values are related record public IDs |
 
 Comparing a filterable field with `null` uses `=` for empty and `!=` for not empty. Other comparisons with `null` are invalid. Scalar formula, lookup, and rollup outputs can participate in a supported true/false formula. JSON and file fields cannot be filtered directly.
 
@@ -256,7 +256,7 @@ Record metadata uses the reserved `record` scope:
 
 | Reference | Use |
 | --- | --- |
-| `record.id` | Match one record UUID with `=` or several with `oneof(...)` |
+| `record.id` | Match one record public ID with `=` or several with `oneof(...)` |
 | `record.createdBy` | Match one or several creator user UUIDs |
 | `record.updatedBy` | Match one or several last-editor user UUIDs |
 | `record.deletedBy` | Match one or several deleting-user UUIDs |
@@ -264,7 +264,7 @@ Record metadata uses the reserved `record` scope:
 | `record.updatedAt` | Sort by last update time |
 | `record.deletedAt` | Sort deleted records by deletion time |
 
-Metadata filters may be combined with `and`, but not placed inside an `or` branch. User and record values are UUIDs, not display names.
+Metadata filters may be combined with `and`, but not placed inside an `or` branch. User values are UUIDs; record values are public IDs, not display names.
 
 ## Grouping and aggregate reference {icon="chart-bar"}
 

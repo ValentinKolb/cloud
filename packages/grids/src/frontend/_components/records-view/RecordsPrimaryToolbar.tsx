@@ -1,9 +1,9 @@
-import { Dropdown, Tooltip, Button, ButtonLink } from "@k2b/ui";
+import { Button, ButtonLink, Dropdown, Tooltip } from "@k2b/ui";
 import { Show } from "solid-js";
-import type { Field } from "../../../service";
+import type { PublicField as Field } from "../../../api/public-dto";
 import { CardSizeDropdown } from "../toolbar/CardSizeDropdown";
 import SearchBar from "../toolbar/SearchBar";
-import type { WorkspaceBulkLauncher } from "../workspace/workspace-state-model";
+import type { PublicWorkspaceBulkLauncher as WorkspaceBulkLauncher } from "../workspace/workspace-public-state-model";
 import { bulkWorkflowActionLabel } from "./bulk-selection";
 import type { CardSize, RecordsState } from "./query-url";
 
@@ -13,8 +13,8 @@ type Props = {
   trashMode: boolean;
   canReadTable: boolean;
   tableKind: "stored" | "federated";
-  baseShortId: string;
-  tableShortId: string;
+  baseId: string;
+  tableId: string;
   recordCountText: string;
   livePending: boolean;
   liveRefreshing: boolean;
@@ -77,7 +77,7 @@ export default function RecordsPrimaryToolbar(props: Props) {
         when={!props.trashMode}
         fallback={
           <Show when={props.canReadTable}>
-            <ButtonLink variant="secondary" size="sm" href={`/app/grids/${props.baseShortId}/table/${props.tableShortId}`}>
+            <ButtonLink variant="secondary" size="sm" href={`/app/grids/${props.baseId}/table/${props.tableId}`}>
               <i class="ti ti-arrow-back" />
               Back to live records
             </ButtonLink>
@@ -131,7 +131,7 @@ export default function RecordsPrimaryToolbar(props: Props) {
                       {
                         icon: "ti ti-archive",
                         label: "Show deleted",
-                        href: `/app/grids/${props.baseShortId}/table/${props.tableShortId}?trash=1`,
+                        href: `/app/grids/${props.baseId}/table/${props.tableId}?trash=1`,
                       },
                     ]
                   : []),

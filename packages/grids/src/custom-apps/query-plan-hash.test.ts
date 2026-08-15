@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { DslResolvedSqlQueryPlan } from "../query-dsl/resolver";
 import type { Field } from "../service/types";
-import { customAppQueryPlanHash } from "./query-plan-hash";
+import { canonicalCustomAppQueryContext, customAppQueryPlanHash } from "./query-plan-hash";
 
 const uuid = (suffix: number) => `00000000-0000-4000-8000-${String(suffix).padStart(12, "0")}`;
 const sourceTableId = uuid(1);
@@ -10,7 +10,7 @@ const relationFieldId = uuid(3);
 const labelFieldId = uuid(4);
 
 const field = (input: Pick<Field, "id" | "tableId" | "name" | "type"> & Partial<Field>): Field => ({
-  shortId: input.id.slice(-5),
+  shortId: input.id.slice(-6),
   description: null,
   config: {},
   position: 0,
@@ -56,6 +56,10 @@ const fields = (overrides: { relationTargetId?: string; labelFieldId?: string } 
 });
 
 describe("Grids App query plan capabilities", () => {
+  test("uses public record ids for canonical page parameters", () => {
+    expect(canonicalCustomAppQueryContext({ "params.record_id": "actual" })["params.record_id"]).toBe("REC001");
+  });
+
   test("hashes a resolved plan deterministically", () => {
     expect(customAppQueryPlanHash(plan(), fields())).toBe(customAppQueryPlanHash(structuredClone(plan()), structuredClone(fields())));
   });

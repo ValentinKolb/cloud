@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { RecordQuery, TableQueryResult } from "../../../contracts";
+import type { PublicTableQueryResult as TableQueryResult } from "../../../api/public-dto";
+import type { RecordQuery } from "../../../contracts";
 import {
   highlightedIdsForLiveRefresh,
   isLiveRecordEventForTable,

@@ -108,6 +108,12 @@ const resolveTestRef = (ref: TemplateRef, ctx: TemplateTestContext): string => {
   return value;
 };
 
+const publicTestRef = (ref: TemplateRef): string => {
+  let hash = 0;
+  for (const character of `${ref.$ref}:${ref.key}`) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  return hash.toString(36).toUpperCase().padStart(6, "0").slice(-6);
+};
+
 const resolveTestValue = (value: unknown, ctx: TemplateTestContext): unknown => {
   if (value === undefined) return undefined;
   if (isViewColumnsRef(value)) {
@@ -117,12 +123,31 @@ const resolveTestValue = (value: unknown, ctx: TemplateTestContext): unknown => 
   }
   if (isRef(value)) return resolveTestRef(value, ctx);
   if (isFormulaExpression(value)) {
-    return value.$formula.map((part) => (typeof part === "string" ? part : `{${resolveTestRef(part, ctx)}}`)).join("");
+    return value.$formula.map((part) => (typeof part === "string" ? part : `{${publicTestRef(part)}}`)).join("");
   }
   if (isCurrentMonthDate(value)) return "2026-06-15";
   if (Array.isArray(value)) return value.map((item) => resolveTestValue(item, ctx));
   if (value && typeof value === "object") {
     return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, resolveTestValue(nested, ctx)]));
+  }
+  return value;
+};
+
+const resolveTestCustomAppValue = (value: unknown, ctx: TemplateTestContext): unknown => {
+  if (value === undefined) return undefined;
+  if (isViewColumnsRef(value)) {
+    const columns = ctx.viewColumns.get(value.key);
+    if (!columns) throw new Error(`missing template test view columns ${value.key}`);
+    return columns.map((_column, index) => publicTestRef({ $ref: "field", key: `${value.key}:${index}` }));
+  }
+  if (isRef(value)) return publicTestRef(value);
+  if (isFormulaExpression(value)) {
+    return value.$formula.map((part) => (typeof part === "string" ? part : `{${publicTestRef(part)}}`)).join("");
+  }
+  if (isCurrentMonthDate(value)) return "2026-06-15";
+  if (Array.isArray(value)) return value.map((item) => resolveTestCustomAppValue(item, ctx));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, resolveTestCustomAppValue(nested, ctx)]));
   }
   return value;
 };
@@ -929,9 +954,9 @@ describe("built-in grid templates", () => {
       }
 
       for (const app of template.customApps ?? []) {
-        const resolvedDefinition = resolveTestValue(app.definition, ctx) as Record<string, unknown>;
+        const resolvedDefinition = resolveTestCustomAppValue(app.definition, ctx) as Record<string, unknown>;
         expect(
-          CustomAppDefinitionSchema.safeParse({ ...resolvedDefinition, id: testUuid(10_000), baseId: testUuid(10_001) }).success,
+          CustomAppDefinitionSchema.safeParse({ ...resolvedDefinition, id: "APP001", baseId: "BASE01" }).success,
           `${template.id}.${app.key} canonical Grids App definition`,
         ).toBe(true);
         const page = app.definition.pages[0]!;
@@ -1061,7 +1086,7 @@ describe("built-in grid templates", () => {
         expect(String(source), `${template.id}.${documentTemplate.key} should use readable GQL refs`).not.toMatch(
           /\{[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\}/i,
         );
-        const renderedSource = await renderDocumentSource({ source }, { record: { id: testUuid(30_000 + index) } });
+        const renderedSource = await renderDocumentSource({ source }, { record: { id: `R${String(index).padStart(5, "0")}` } });
         expect(renderedSource.ok, `${template.id}.${documentTemplate.key} renders document GQL`).toBe(true);
         if (!renderedSource.ok) throw new Error(renderedSource.error.message);
         const parsed = parseGridsQueryDsl(renderedSource.data);

@@ -1,7 +1,7 @@
-import { NoticeCard, DatePicker, DateTimePicker, MultiSelectInput, NumberInput, Select, TextInput } from "@k2b/ui";
+import { DatePicker, DateTimePicker, MultiSelectInput, NoticeCard, NumberInput, Select, TextInput } from "@k2b/ui";
 import type { WorkflowBoundPlan, WorkflowIrInput } from "@valentinkolb/cloud/workflows";
 import { For, Match, Show, Switch } from "solid-js";
-import type { Table } from "../../../service";
+import type { PublicTable } from "../../../api/public-dto";
 import RecordPicker from "../records/RecordPicker";
 import { fetchRecordLookup } from "../records/record-lookup";
 import {
@@ -15,7 +15,7 @@ import {
 
 type Props = {
   workflow: { plan: Pick<WorkflowBoundPlan, "inputs" | "bindings"> };
-  tables: Array<Pick<Table, "id" | "shortId" | "name">>;
+  tables: Array<Pick<PublicTable, "id" | "name">>;
   draft: () => WorkflowRunInputDraft;
   onValueChange: (name: string, value: WorkflowRunInputDraftValue) => void;
   errors?: () => Record<string, string>;
@@ -25,12 +25,12 @@ type Props = {
 const resolveInputTable = (
   workflow: { plan: Pick<WorkflowBoundPlan, "bindings"> },
   input: WorkflowIrInput,
-  tables: Array<Pick<Table, "id" | "shortId" | "name">>,
-): Pick<Table, "id" | "shortId" | "name"> | null => {
+  tables: Array<Pick<PublicTable, "id" | "name">>,
+): Pick<PublicTable, "id" | "name"> | null => {
   const bound = workflow.plan.bindings[`inputs.${input.name}.table`];
   const reference = (typeof bound === "string" ? bound : input.config.table)?.toString().trim().toLowerCase();
   if (!reference) return null;
-  return tables.find((table) => [table.id, table.shortId, table.name].some((value) => value.toLowerCase() === reference)) ?? null;
+  return tables.find((table) => [table.id, table.name].some((value) => value.toLowerCase() === reference)) ?? null;
 };
 
 export function WorkflowInputFields(props: Props) {

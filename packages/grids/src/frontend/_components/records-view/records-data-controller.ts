@@ -1,6 +1,5 @@
 import { type Accessor, createEffect, createSignal, onCleanup, onMount, type Setter } from "solid-js";
-import type { TableQueryResult } from "../../../contracts";
-import type { GridRecord } from "../../../service";
+import type { PublicGridRecord as GridRecord, PublicTableQueryResult as TableQueryResult } from "../../../api/public-dto";
 import { fetchTableQuery } from "./fetcher";
 import { createGridsRecordEventsProvider } from "./grids-record-events-provider";
 import {

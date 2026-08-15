@@ -1,13 +1,14 @@
-import { AppWorkspace, CheckboxCard, dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput, Button } from "@k2b/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { AppWorkspace, Button, CheckboxCard, dialogCore, PanelDialog, panelDialogOptions, prompts, TextInput } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Table, TableKind } from "../../../contracts";
+import type { PublicTable } from "../../../api/public-dto";
+import type { TableKind } from "../../../contracts";
 import { errorMessage } from "../utils/api-helpers";
 
-export default function CreateTableButton(props: { baseId: string; baseShortId: string }) {
-  const createMutation = mutations.create<Table, { name: string; kind: TableKind }>({
+export default function CreateTableButton(props: { baseId: string }) {
+  const createMutation = mutations.create<PublicTable, { name: string; kind: TableKind }>({
     mutation: async (input) => {
       const res = await apiClient.tables["by-base"][":baseId"].$post({
         param: { baseId: props.baseId },
@@ -16,7 +17,7 @@ export default function CreateTableButton(props: { baseId: string; baseShortId: 
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to create table"));
       return res.json();
     },
-    onSuccess: (table) => navigateTo(`/app/grids/${props.baseShortId}/table/${table.shortId}?edit=true`),
+    onSuccess: (table) => navigateTo(`/app/grids/${props.baseId}/table/${table.id}?edit=true`),
     onError: (e) => prompts.error(e.message),
   });
 

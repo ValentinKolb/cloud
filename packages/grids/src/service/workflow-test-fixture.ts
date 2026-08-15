@@ -18,10 +18,10 @@ import { GRIDS_APP_ID } from "./workflow-runs";
 const hex = (seed: string) => new Bun.CryptoHasher("sha256").update(seed).digest("hex");
 
 let counter = 0;
-/** Five alphanumerics, unique per call — the format the profile's check enforces. */
+/** Six alphanumerics, unique per call — the public profile ID contract. */
 const nextShortId = (): string => {
   counter += 1;
-  return `T${counter.toString(36).toUpperCase().padStart(4, "0")}`.slice(0, 5);
+  return `T${counter.toString(36).toUpperCase().padStart(5, "0")}`.slice(0, 6);
 };
 
 export type TestWorkflowInput = {
@@ -166,6 +166,7 @@ export type TestWorkflowRunInput = {
   baseId: string;
   db?: SQL;
   id?: string;
+  shortId?: string;
   mode?: "execute" | "dryRun";
   /** Grids' own label for how the run was started. */
   channel?: "api" | "Grids App" | "scanner" | "bulk" | "schedule" | "recordEvent";
@@ -221,9 +222,9 @@ export const insertTestWorkflowRun = async (input: TestWorkflowRunInput): Promis
   `;
   await db`
     INSERT INTO grids.workflow_run_profile (
-      run_id, base_id, workflow_id, launcher_id, channel, actor_user_id, service_account_id, request_fingerprint
+      run_id, short_id, base_id, workflow_id, launcher_id, channel, actor_user_id, service_account_id, request_fingerprint
     ) VALUES (
-      ${id}::uuid, ${input.baseId}::uuid, ${input.workflowId}::uuid, ${input.launcherId ?? null}::uuid,
+      ${id}::uuid, ${input.shortId ?? nextShortId()}, ${input.baseId}::uuid, ${input.workflowId}::uuid, ${input.launcherId ?? null}::uuid,
       ${input.channel ?? "api"}, ${input.actorUserId ?? null}::uuid, ${input.serviceAccountId ?? null}::uuid, ${id}
     )
   `;

@@ -4,14 +4,15 @@ import type { DslResolverContext, DslTableSource, DslViewSource } from "../query
 import { resolveDslQueryToRecordQuery } from "../query-dsl/resolver";
 import { collectDslFieldTableIds, needsDslViewCatalog } from "../query-dsl/source-plan";
 import type { DslQueryAst } from "../query-dsl/types";
+import type { SqlClient } from "./audit";
 import * as fields from "./fields";
 import * as tables from "./tables";
 import type { Field } from "./types";
 
 type DbRow = Record<string, unknown>;
 
-const loadBaseGqlDslViews = async (baseId: string): Promise<DslViewSource[]> => {
-  const rows = await sql<DbRow[]>`
+const loadBaseGqlDslViews = async (baseId: string, client: SqlClient = sql): Promise<DslViewSource[]> => {
+  const rows = await client<DbRow[]>`
     SELECT v.id, v.short_id, v.name, v.table_id, v.source
     FROM grids.views v
     JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
@@ -43,6 +44,12 @@ const defaultLoaders: TrustedGqlResolverContextLoaders = {
   listViewsByBase: loadBaseGqlDslViews,
 };
 
+const transactionLoaders = (client: SqlClient): TrustedGqlResolverContextLoaders => ({
+  listTablesByBase: (baseId) => tables.listByBase(baseId, { client }),
+  listFieldsByTables: (tableIds) => fields.listByTables(tableIds, client),
+  listViewsByBase: (baseId) => loadBaseGqlDslViews(baseId, client),
+});
+
 export const hydrateDslViewQueries = (params: {
   tables: DslTableSource[];
   views: DslViewSource[];
@@ -68,8 +75,9 @@ export const buildTrustedGqlResolverContext = async (
     currentTableId?: string;
     ast: DslQueryAst;
     purpose: "custom-app-render" | "document-template-render" | "saved-view-render";
+    client?: SqlClient;
   },
-  loaders: TrustedGqlResolverContextLoaders = defaultLoaders,
+  loaders: TrustedGqlResolverContextLoaders = params.client ? transactionLoaders(params.client) : defaultLoaders,
 ): Promise<DslResolverContext> => {
   void params.purpose;
   const baseTables = await loaders.listTablesByBase(params.baseId);

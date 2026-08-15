@@ -45,9 +45,9 @@ test("parses quoted field name references", () => {
 });
 
 test("parses field reference", () => {
-  const r = parseFormula("{fld_x}");
+  const r = parseFormula("{FLDX01}");
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.ast).toEqual({ kind: "field", fieldId: "fld_x" });
+  if (r.ok) expect(r.ast).toEqual({ kind: "field", fieldId: "FLDX01" });
 });
 
 test("scoped field references are opt-in for GQL expressions", () => {
@@ -61,9 +61,9 @@ test("scoped field references are opt-in for GQL expressions", () => {
   expect(quoted.ok).toBe(true);
   if (quoted.ok) expect(quoted.ast).toEqual({ kind: "field", fieldId: 'customer."Full name"' });
 
-  const braced = parseFormula("customer.{fld_x}", { scopedRefs: true });
+  const braced = parseFormula("customer.{FLDX01}", { scopedRefs: true });
   expect(braced.ok).toBe(true);
-  if (braced.ok) expect(braced.ast).toEqual({ kind: "field", fieldId: "customer.{fld_x}" });
+  if (braced.ok) expect(braced.ast).toEqual({ kind: "field", fieldId: "customer.{FLDX01}" });
 });
 
 test("operator precedence: * binds tighter than +", () => {
@@ -86,7 +86,7 @@ test("parens override precedence", () => {
 });
 
 test("parses function call", () => {
-  const r = parseFormula("CONCAT('foo', ' ', {fld_y})");
+  const r = parseFormula("CONCAT('foo', ' ', {FLDY01})");
   expect(r.ok).toBe(true);
   if (r.ok && r.ast.kind === "call") {
     expect(r.ast.fn).toBe("CONCAT");
@@ -95,16 +95,16 @@ test("parses function call", () => {
 });
 
 test("accepts optional leading equals for spreadsheet-style authoring", () => {
-  const r = parseFormula("=SUM(#price, 2)");
+  const r = parseFormula("=SUM({PRICE1}, 2)");
   expect(r.ok).toBe(true);
   if (r.ok && r.ast.kind === "call") {
     expect(r.ast.fn).toBe("SUM");
-    expect(r.ast.args[0]).toEqual({ kind: "field", fieldId: "price" });
+    expect(r.ast.args[0]).toEqual({ kind: "field", fieldId: "PRICE1" });
   }
 });
 
 test("parses unary minus", () => {
-  const r = parseFormula("-{fld_x}");
+  const r = parseFormula("-{FLDX01}");
   expect(r.ok).toBe(true);
   if (r.ok) expect(r.ast.kind).toBe("unop");
 });
@@ -158,56 +158,18 @@ test("reports the complete unterminated reference span", () => {
 });
 
 test("collectFieldRefs walks nested expression", () => {
-  const r = parseFormula("IF({fld_a} > 0, {fld_b} * 2, {fld_c})");
+  const r = parseFormula("IF({FLDA01} > 0, {FLDB01} * 2, {FLDC01})");
   expect(r.ok).toBe(true);
   if (r.ok) {
-    expect([...collectFieldRefs(r.ast)].sort()).toEqual(["fld_a", "fld_b", "fld_c"]);
+    expect([...collectFieldRefs(r.ast)].sort()).toEqual(["FLDA01", "FLDB01", "FLDC01"]);
   }
 });
 
-// ── Legacy #slug field-reference syntax ──────────────────────────
-//
-// `#slug` remains supported for stored formula compatibility. The tokenizer scans
-// alphanumerics and underscores until the first non-slug char, so the slug binding
-// stops cleanly at operators, parens, commas, and whitespace — i.e.
-// every legal next token after a field reference.
-
-test("parses #slug field reference", () => {
-  const r = parseFormula("#abc12");
-  expect(r.ok).toBe(true);
-  if (r.ok) expect(r.ast).toEqual({ kind: "field", fieldId: "abc12" });
-});
-
-test("#slug accepts underscores and stops at operators", () => {
-  const r = parseFormula("#abc_12*2");
-  expect(r.ok).toBe(true);
-  if (r.ok && r.ast.kind === "binop") {
-    expect(r.ast.left).toEqual({ kind: "field", fieldId: "abc_12" });
-    expect(r.ast.right).toEqual({ kind: "literal", value: 2 });
-  }
-});
-
-test("#slug does not absorb hyphens because they are subtraction operators", () => {
-  const r = parseFormula("#a-#b");
-  expect(r.ok).toBe(true);
-  if (r.ok && r.ast.kind === "binop") {
-    expect(r.ast.op).toBe("-");
-    expect(r.ast.left).toEqual({ kind: "field", fieldId: "a" });
-    expect(r.ast.right).toEqual({ kind: "field", fieldId: "b" });
-  }
-});
-
-test("rejects bare # (no slug body)", () => {
+test("rejects removed hash references", () => {
+  expect(parseFormula("#abc12").ok).toBe(false);
+  expect(parseFormula("#abc_12*2").ok).toBe(false);
   expect(parseFormula("#").ok).toBe(false);
   expect(parseFormula("# + 1").ok).toBe(false);
-});
-
-test("collectFieldRefs picks up #slug refs alongside {uuid}", () => {
-  const r = parseFormula("IF(#price > 0, #price * 1.19, {fb1})");
-  expect(r.ok).toBe(true);
-  if (r.ok) {
-    expect([...collectFieldRefs(r.ast)].sort()).toEqual(["fb1", "price"]);
-  }
 });
 
 test("rejects invalid braced field references", () => {
@@ -218,12 +180,12 @@ test("rejects invalid braced field references", () => {
 
 // ── Whitespace insensitivity ─────────────────────────────────────
 //
-// Regression guard for the `#x *1.19` vs `#x * 1.19` report — both
+// Regression guard for spacing around public refs — all variants
 // must tokenise identically. We compare ASTs to lock down the
 // tokeniser's whitespace-skipping behaviour around every operator
 // position (after the slug, before & after the binary op).
 
-test.each(["#x*1.19", "#x *1.19", "#x* 1.19", "#x * 1.19", "#x  *  1.19", "\t#x\n*\r1.19"])(
+test.each(["{FIELD1}*1.19", "{FIELD1} *1.19", "{FIELD1}* 1.19", "{FIELD1} * 1.19", "\t{FIELD1}\n*\r1.19"])(
   "whitespace-variant '%s' produces the same AST",
   (src) => {
     const r = parseFormula(src);
@@ -232,7 +194,7 @@ test.each(["#x*1.19", "#x *1.19", "#x* 1.19", "#x * 1.19", "#x  *  1.19", "\t#x\
       expect(r.ast).toEqual({
         kind: "binop",
         op: "*",
-        left: { kind: "field", fieldId: "x" },
+        left: { kind: "field", fieldId: "FIELD1" },
         right: { kind: "literal", value: 1.19 },
       });
     }

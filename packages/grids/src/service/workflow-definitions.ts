@@ -22,7 +22,6 @@
 
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import type { WorkflowBoundPlan, WorkflowDiagnostic } from "@valentinkolb/cloud/workflows";
-import { compileWorkflow } from "@valentinkolb/cloud/workflows/language";
 import type { WorkflowActivationInput } from "@valentinkolb/cloud/workflows/store";
 import {
   createWorkflow as createKernelWorkflow,
@@ -31,7 +30,7 @@ import {
   setWorkflowEnabled,
 } from "@valentinkolb/cloud/workflows/store";
 import { sql } from "bun";
-import { bindGridsWorkflow } from "../workflows/binder";
+import { compileAndBindGridsWorkflowSource } from "../workflows/binder";
 import type {
   CreateGridsWorkflowInput,
   GridsWorkflow,
@@ -39,15 +38,25 @@ import type {
   GridsWorkflowRevisionSummary,
   UpdateGridsWorkflowInput,
 } from "../workflows/contracts";
-import { GridsWorkflowRevisionSchema, GridsWorkflowSchema } from "../workflows/contracts";
+import { GridsWorkflowRevisionSchema } from "../workflows/contracts";
 import { GRIDS_EVENT } from "../workflows/events";
-import { gridsWorkflows } from "../workflows/module";
-import { logAudit, type SqlClient } from "./audit";
+import { logAudit } from "./audit";
 import { emitMetadataEvent } from "./metadata-events";
 import { insertWithShortId } from "./short-id";
 import { loadWorkflowCatalog } from "./workflow-catalog";
 import { assertWorkflowEmailTemplatesAvailable, lockWorkflowCatalogMutation } from "./workflow-catalog-mutation";
+import { getWorkflow } from "./workflow-read";
 import { emitWorkflowRuntimeEvent } from "./workflow-runtime-events";
+
+export {
+  getWorkflowByShortIdForBase,
+  listRecordEventBaseIds,
+  listRecordEventWorkflows,
+  listScheduledWorkflows,
+  listWorkflowScopes,
+  listWorkflows,
+} from "./workflow-read";
+export { getWorkflow };
 
 /** How Grids identifies itself to the kernel. A base is one scope. */
 const APP_ID = "grids";
@@ -66,62 +75,18 @@ const revisionConflict = () => ({
  * Latest rather than active: this is what the editor last saved, which is what
  * every caller means by "the workflow". A disabled workflow still has its plan.
  */
-const WORKFLOW_SELECT = sql.unsafe(`
-  p.id, p.short_id, p.base_id, w.name, w.description,
-  v.source, v.plan, v.diagnostics, v.revision,
-  p.enabled, p.position, p.owner_user_id, p.deleted_at, p.created_at, p.updated_at
-`);
-
-const WORKFLOW_FROM = sql.unsafe(`
-  FROM grids.workflow_profile AS p
-  JOIN workflows.workflow AS w ON w.id = p.id
-  LEFT JOIN LATERAL (
-    SELECT source, plan, diagnostics, revision
-    FROM workflows.version
-    WHERE workflow_id = p.id
-    ORDER BY revision DESC
-    LIMIT 1
-  ) AS v ON TRUE
-`);
-
-const mapWorkflow = (row: DbRow): GridsWorkflow => {
-  const parsed = GridsWorkflowSchema.safeParse({
-    id: row.id,
-    shortId: row.short_id,
-    baseId: row.base_id,
-    name: row.name,
-    description: row.description ?? null,
-    source: row.source,
-    plan: row.plan,
-    diagnostics: row.diagnostics,
-    enabled: row.enabled,
-    position: row.position,
-    revision: row.revision,
-    ownerUserId: row.owner_user_id ?? null,
-    deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,
-    createdAt: (row.created_at as Date).toISOString(),
-    updatedAt: (row.updated_at as Date).toISOString(),
-  });
-  // A profile without a version means a publish was interrupted between the two
-  // writes. Loud, because the workflow is unrunnable until someone saves it.
-  if (!parsed.success) throw new Error(`stored workflow ${String(row.id)} is invalid: ${parsed.error.message}`);
-  return parsed.data;
-};
-
-const compileAndBind = async (baseId: string, source: string): Promise<Result<WorkflowBoundPlan>> => {
-  const compiled = await compileWorkflow(source, gridsWorkflows);
-  if (!compiled.ok) return fail(err.badInput(compiled.diagnostics.map((diagnostic) => diagnostic.message).join("; ")));
-  const bound = await bindGridsWorkflow(compiled.ir, await loadWorkflowCatalog(baseId));
-  return bound.ok ? ok(bound.plan) : fail(err.badInput(bound.diagnostics.map((diagnostic) => diagnostic.message).join("; ")));
+const compileAndBind = async (baseId: string, source: string): Promise<Result<{ plan: WorkflowBoundPlan; source: string }>> => {
+  const bound = await compileAndBindGridsWorkflowSource(source, await loadWorkflowCatalog(baseId));
+  return bound.ok
+    ? ok({ plan: bound.plan, source: bound.source ?? source })
+    : fail(err.badInput(bound.diagnostics.map((diagnostic) => diagnostic.message).join("; ")));
 };
 
 export const validateWorkflowSource = async (
   baseId: string,
   source: string,
 ): Promise<{ ok: true; plan: WorkflowBoundPlan } | { ok: false; diagnostics: WorkflowDiagnostic[] }> => {
-  const compiled = await compileWorkflow(source, gridsWorkflows);
-  if (!compiled.ok) return compiled;
-  const bound = await bindGridsWorkflow(compiled.ir, await loadWorkflowCatalog(baseId));
+  const bound = await compileAndBindGridsWorkflowSource(source, await loadWorkflowCatalog(baseId));
   return bound.ok ? { ok: true, plan: bound.plan } : bound;
 };
 
@@ -165,85 +130,6 @@ const metadataEvent = async (
   ]);
 };
 
-// ─── Reads ───────────────────────────────────────────────────────────────────
-
-export const getWorkflow = async (id: string, includeDeleted = false, client: SqlClient = sql): Promise<GridsWorkflow | null> => {
-  const [row] = await client<DbRow[]>`
-    SELECT ${WORKFLOW_SELECT} ${WORKFLOW_FROM}
-    WHERE p.id = ${id}::uuid AND (${includeDeleted} = TRUE OR p.deleted_at IS NULL)
-  `;
-  return row ? mapWorkflow(row) : null;
-};
-
-export const getWorkflowByIdOrShortId = async (baseId: string, idOrShortId: string): Promise<GridsWorkflow | null> => {
-  const [row] = await sql<DbRow[]>`
-    SELECT ${WORKFLOW_SELECT} ${WORKFLOW_FROM}
-    WHERE p.base_id = ${baseId}::uuid
-      AND p.deleted_at IS NULL
-      AND (${idOrShortId} = p.id::text OR p.short_id = ${idOrShortId})
-  `;
-  return row ? mapWorkflow(row) : null;
-};
-
-export const listWorkflows = async (baseId: string, enabledOnly = false, includeDeleted = false): Promise<GridsWorkflow[]> => {
-  const rows = await sql<DbRow[]>`
-    SELECT ${WORKFLOW_SELECT} ${WORKFLOW_FROM}
-    WHERE p.base_id = ${baseId}::uuid
-      AND (${includeDeleted} = TRUE OR p.deleted_at IS NULL)
-      AND (${enabledOnly} = FALSE OR p.enabled = TRUE)
-    ORDER BY p.position, p.created_at, p.id
-  `;
-  return rows.map(mapWorkflow);
-};
-
-export const listWorkflowScopes = async (baseId: string, includeDeleted = false): Promise<Array<Pick<GridsWorkflow, "id" | "baseId">>> => {
-  const rows = await sql<Array<{ id: string; base_id: string }>>`
-    SELECT id::text AS id, base_id::text AS base_id
-    FROM grids.workflow_profile
-    WHERE base_id = ${baseId}::uuid AND (${includeDeleted} = TRUE OR deleted_at IS NULL)
-    ORDER BY position, created_at, id
-  `;
-  return rows.map((row) => ({ id: row.id, baseId: row.base_id }));
-};
-
-export const listScheduledWorkflows = async (): Promise<GridsWorkflow[]> => {
-  const rows = await sql<DbRow[]>`
-    SELECT ${WORKFLOW_SELECT} ${WORKFLOW_FROM}
-    WHERE p.deleted_at IS NULL
-      AND p.enabled = TRUE
-      AND jsonb_path_exists(v.plan, '$.triggers[*] ? (@.kind == "schedule")')
-    ORDER BY p.created_at, p.id
-  `;
-  return rows.map(mapWorkflow);
-};
-
-export const listRecordEventBaseIds = async (): Promise<string[]> => {
-  const rows = await sql<Array<{ id: string }>>`
-    SELECT DISTINCT p.base_id::text AS id
-    ${WORKFLOW_FROM}
-    WHERE p.deleted_at IS NULL
-      AND p.enabled = TRUE
-      AND p.record_event_active_since IS NOT NULL
-      AND jsonb_path_exists(v.plan, '$.triggers[*] ? (@.kind == "recordEvent")')
-    ORDER BY id
-  `;
-  return rows.map((row) => row.id);
-};
-
-export const listRecordEventWorkflows = async (baseId: string, occurredAt: string): Promise<GridsWorkflow[]> => {
-  const rows = await sql<DbRow[]>`
-    SELECT ${WORKFLOW_SELECT} ${WORKFLOW_FROM}
-    WHERE p.base_id = ${baseId}::uuid
-      AND p.deleted_at IS NULL
-      AND p.enabled = TRUE
-      AND p.record_event_active_since IS NOT NULL
-      AND p.record_event_active_since <= ${occurredAt}::timestamptz
-      AND jsonb_path_exists(v.plan, '$.triggers[*] ? (@.kind == "recordEvent")')
-    ORDER BY p.position, p.created_at, p.id
-  `;
-  return rows.map(mapWorkflow);
-};
-
 // ─── Writes ──────────────────────────────────────────────────────────────────
 
 export const createWorkflow = async (
@@ -257,7 +143,7 @@ export const createWorkflow = async (
 
   const created = await sql.begin(async (tx): Promise<Result<string>> => {
     await lockWorkflowCatalogMutation(baseId, tx);
-    const available = await assertWorkflowEmailTemplatesAvailable(baseId, plan.data, tx);
+    const available = await assertWorkflowEmailTemplatesAvailable(baseId, plan.data.plan, tx);
     if (!available.ok) return fail(available.error);
 
     const workflow = await createKernelWorkflow(
@@ -282,7 +168,7 @@ export const createWorkflow = async (
               id, base_id, short_id, position, owner_user_id, enabled, record_event_active_since
             ) VALUES (
               ${workflow.id}::uuid, ${baseId}::uuid, ${shortId}, ${input.position ?? 0}, ${actorId}::uuid, ${enabled},
-              ${enabled && hasRecordEventTrigger(plan.data) ? sql`now()` : null}
+              ${enabled && hasRecordEventTrigger(plan.data.plan) ? sql`now()` : null}
             )
             RETURNING id
           `;
@@ -295,10 +181,10 @@ export const createWorkflow = async (
     await publishWorkflowVersion(
       {
         workflowId: workflow.id,
-        source: input.source,
-        plan: plan.data,
+        source: plan.data.source,
+        plan: plan.data.plan,
         author: actorId ? { kind: "user", id: actorId } : { kind: "system" },
-        activations: activationsFor(plan.data, enabled),
+        activations: activationsFor(plan.data.plan, enabled),
       },
       { db: tx },
     );
@@ -338,18 +224,19 @@ export const updateWorkflow = async (
   const activating = !existing.enabled && input.enabled === true;
   // Re-binding on activation too: the catalogue may have moved underneath a
   // workflow that was switched off when a table or template changed.
-  const plan = input.source === undefined && !activating ? ok(existing.plan) : await compileAndBind(existing.baseId, source);
-  if (!plan.ok) return plan;
+  const compiled =
+    input.source === undefined && !activating ? ok({ plan: existing.plan, source }) : await compileAndBind(existing.baseId, source);
+  if (!compiled.ok) return compiled;
 
   const publishes = input.source !== undefined;
-  const recordEventsEnabled = enabled && hasRecordEventTrigger(plan.data);
+  const recordEventsEnabled = enabled && hasRecordEventTrigger(compiled.data.plan);
   const recordEventActivationChanged =
-    !existing.enabled || JSON.stringify(recordEventTriggers(existing.plan)) !== JSON.stringify(recordEventTriggers(plan.data));
+    !existing.enabled || JSON.stringify(recordEventTriggers(existing.plan)) !== JSON.stringify(recordEventTriggers(compiled.data.plan));
 
   const updated = await sql.begin(async (tx): Promise<Result<null>> => {
     await lockWorkflowCatalogMutation(existing.baseId, tx);
     if (publishes || activating) {
-      const available = await assertWorkflowEmailTemplatesAvailable(existing.baseId, plan.data, tx);
+      const available = await assertWorkflowEmailTemplatesAvailable(existing.baseId, compiled.data.plan, tx);
       if (!available.ok) return fail(available.error);
     }
 
@@ -383,10 +270,10 @@ export const updateWorkflow = async (
       await publishWorkflowVersion(
         {
           workflowId: id,
-          source,
-          plan: plan.data,
+          source: compiled.data.source,
+          plan: compiled.data.plan,
           author: actorId ? { kind: "user", id: actorId } : { kind: "system" },
-          activations: activationsFor(plan.data, enabled),
+          activations: activationsFor(compiled.data.plan, enabled),
         },
         { db: tx },
       );

@@ -12,6 +12,10 @@ const baseId = "11111111-1111-4111-8111-111111111111";
 const workflowId = "22222222-2222-4222-8222-222222222222";
 const tableId = "33333333-3333-4333-8333-333333333333";
 const recordId = "44444444-4444-4444-8444-444444444444";
+const publicBaseId = "BASE01";
+const publicWorkflowId = "WORK01";
+const publicTableId = "TABL01";
+const publicRecordId = "RECD01";
 
 const testSocket = (sendStatus = 1) => {
   const messages: Array<{ type: string; payload?: Record<string, unknown> }> = [];
@@ -31,25 +35,43 @@ const testSocket = (sendStatus = 1) => {
 const metadataSubscribe = (overrides: Record<string, unknown> = {}) =>
   JSON.stringify({
     type: "grids.metadata.subscribe",
-    payload: { baseId, sessionToken: "session", fromCursor: "1-0", ...overrides },
+    payload: { baseId: publicBaseId, sessionToken: "session", fromCursor: "1-0", ...overrides },
   });
 
 const workflowSubscribe = () =>
   JSON.stringify({
     type: "grids.workflow-runs.subscribe",
-    payload: { workflowId, sessionToken: "session", fromCursor: "1-0" },
+    payload: { workflowId: publicWorkflowId, sessionToken: "session", fromCursor: "1-0" },
   });
 
 const recordsSubscribe = () =>
   JSON.stringify({
     type: "grids.records.subscribe",
-    payload: { tableId, sessionToken: "session", fromCursor: "1-0" },
+    payload: { tableId: publicTableId, sessionToken: "session", fromCursor: "1-0" },
   });
 
 const socket = (status: number) =>
   ({
     send: () => status,
   }) as unknown as ServerWebSocket<unknown>;
+
+const workspaceSession = (token: string | null, overrides: NonNullable<Parameters<typeof createWorkspaceWebSocketSession>[1]> = {}) =>
+  createWorkspaceWebSocketSession(token, {
+    resolvePublicId: async (type, id) => {
+      if (type === "base" && id === publicBaseId) return baseId;
+      if (type === "table" && id === publicTableId) return tableId;
+      if (type === "workflow" && id === publicWorkflowId) return workflowId;
+      return null;
+    },
+    projectPublicId: async (type, id) => (type === "base" && id === baseId ? publicBaseId : null),
+    projectRecordEvent: async (event) => ({ ...event, baseId: publicBaseId, tableId: publicTableId, recordId: publicRecordId }),
+    projectMetadataEvent: async (event) => ({
+      ...event,
+      baseId: publicBaseId,
+      resource: { ...event.resource, id: publicTableId, ...(event.resource.tableId ? { tableId: publicTableId } : {}) },
+    }),
+    ...overrides,
+  });
 
 describe("Grids websocket delivery", () => {
   test("accepts only messages written without backpressure or drops", () => {
@@ -77,7 +99,7 @@ describe("Grids websocket delivery", () => {
 
 describe("Grids websocket access refresh", () => {
   test("discards results after the subscription changes", () => {
-    const subscription = { kind: "metadata" as const, baseId: "11111111-1111-4111-8111-111111111111" };
+    const subscription = { kind: "metadata" as const, baseId, publicBaseId: "BASE01" };
     const ctx = { phase: "subscribed" as const, sessionToken: "first-session", subscription };
 
     expect(isWorkspaceAccessRefreshCurrent(ctx, subscription, "first-session")).toBe(true);
@@ -85,7 +107,7 @@ describe("Grids websocket access refresh", () => {
   });
 
   test("discards results after the session or phase changes", () => {
-    const subscription = { kind: "metadata" as const, baseId: "11111111-1111-4111-8111-111111111111" };
+    const subscription = { kind: "metadata" as const, baseId, publicBaseId: "BASE01" };
 
     expect(
       isWorkspaceAccessRefreshCurrent({ phase: "subscribed", sessionToken: "new-session", subscription }, subscription, "old-session"),
@@ -125,7 +147,7 @@ describe("Grids websocket server sessions", () => {
 
     for (const message of cases) {
       const socket = testSocket();
-      const session = createWorkspaceWebSocketSession(null);
+      const session = workspaceSession(null);
       session.open(socket.socket);
       session.message(message);
       await session.drain();
@@ -138,7 +160,7 @@ describe("Grids websocket server sessions", () => {
   test("preserves metadata access errors and does not start a denied stream", async () => {
     let streamCalls = 0;
     const socket = testSocket();
-    const session = createWorkspaceWebSocketSession("session", {
+    const session = workspaceSession("session", {
       evaluateBaseAccess: async () => ({ ok: false, code: "access_denied", message: "Access denied" }),
       metadataEvents: (() => {
         streamCalls++;
@@ -156,7 +178,7 @@ describe("Grids websocket server sessions", () => {
 
   test("reports initial workflow access failures on the workflow channel", async () => {
     const socket = testSocket();
-    const session = createWorkspaceWebSocketSession("session", {
+    const session = workspaceSession("session", {
       evaluateWorkflowAccess: async () => ({ ok: false, code: "access_denied", message: "Access denied" }),
     });
     session.open(socket.socket);
@@ -172,7 +194,7 @@ describe("Grids websocket server sessions", () => {
     let readable = true;
     let canceled = 0;
     const socket = testSocket();
-    const session = createWorkspaceWebSocketSession("session", {
+    const session = workspaceSession("session", {
       evaluateBaseAccess: async () => ({ ok: true, baseId }),
       evaluateSubscriptionAccess: async () =>
         readable ? { ok: true, baseId } : { ok: false, code: "access_denied", message: "Access denied" },
@@ -214,7 +236,7 @@ describe("Grids websocket server sessions", () => {
     await Bun.sleep(0);
     expect(socket.messages.at(-1)).toEqual({
       type: "grids.metadata.revoked",
-      payload: { code: "access_denied", message: "Access was revoked", baseId },
+      payload: { code: "access_denied", message: "Access was revoked", baseId: publicBaseId },
     });
     expect(socket.closes).toEqual([{ code: 1008, reason: "access_denied" }]);
     expect(canceled).toBe(1);
@@ -223,7 +245,7 @@ describe("Grids websocket server sessions", () => {
   test("delivers metadata events for every resource in a readable base", async () => {
     const tableIds = ["22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333"];
     const socket = testSocket();
-    const session = createWorkspaceWebSocketSession("session", {
+    const session = workspaceSession("session", {
       evaluateBaseAccess: async () => ({ ok: true, baseId }),
       evaluateSubscriptionAccess: async () => ({ ok: true, baseId }),
       latestMetadataCursor: async () => "9-0",
@@ -262,7 +284,7 @@ describe("Grids websocket server sessions", () => {
   test("delivers full record event payloads for readable bases", async () => {
     const socket = testSocket();
     const access = { ok: true as const, baseId, tableId };
-    const session = createWorkspaceWebSocketSession("session", {
+    const session = workspaceSession("session", {
       evaluateRecordsAccess: async () => access,
       evaluateSubscriptionAccess: async () => access,
       latestRecordCursor: async () => "1-0",
@@ -294,8 +316,8 @@ describe("Grids websocket server sessions", () => {
 
     const eventMessage = socket.messages.find((message) => message.type === "grids.records.event");
     expect(eventMessage?.payload?.cursor).toBe("1-1");
-    expect(eventMessage?.payload?.tableId).toBe(tableId);
-    expect(eventMessage?.payload?.event).toMatchObject({ recordId, version: 2 });
+    expect(eventMessage?.payload?.tableId).toBe(publicTableId);
+    expect(eventMessage?.payload?.event).toMatchObject({ recordId: publicRecordId, version: 2 });
     await session.close();
   });
 
@@ -303,7 +325,7 @@ describe("Grids websocket server sessions", () => {
     const signals: AbortSignal[] = [];
     let canceled = 0;
     const socket = testSocket();
-    const session = createWorkspaceWebSocketSession("session", {
+    const session = workspaceSession("session", {
       evaluateBaseAccess: async () => ({ ok: true, baseId }),
       latestMetadataCursor: async () => "1-0",
       metadataEvents: (({ signal }: { signal?: AbortSignal }) => {
@@ -338,7 +360,7 @@ describe("Grids websocket server sessions", () => {
       release = resolve;
     });
     const socket = testSocket();
-    const session = createWorkspaceWebSocketSession("session", {
+    const session = workspaceSession("session", {
       evaluateBaseAccess: async () => {
         await blocked;
         return { ok: true, baseId };

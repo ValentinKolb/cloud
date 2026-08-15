@@ -93,6 +93,8 @@ const compileWherePushdown = (
     }
     case "formula":
     case "recordMeta":
+    case "publicRecordIds":
+    case "publicRelationIds":
       return null;
   }
 };

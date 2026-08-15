@@ -2,26 +2,27 @@ import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import {
-  CreateDocumentTemplateSchema,
-  DocumentTemplateListSchema,
-  DocumentTemplateSchema,
-  DocumentTemplateSummaryListSchema,
-  RelationLookupResponseSchema,
-  ReorderDocumentTemplatesSchema,
-  UpdateDocumentTemplateSchema,
-} from "../contracts";
+import { CreateDocumentTemplateSchema, UpdateDocumentTemplateSchema } from "../contracts";
 import { gridsService } from "../service";
+import { resolvePublicIds } from "../service/public-resources";
 import { ALL_RECORD_ACCESS } from "../service/record-access";
 import {
   DocumentTemplateSummaryQuerySchema,
   gateEnabledTemplateWrite,
   gateTemplate,
   loadTemplateAndTable,
+  PublicDocumentTemplateListSchema,
+  PublicDocumentTemplateSchema,
+  PublicDocumentTemplateSummaryListSchema,
+  PublicRelationLookupResponseSchema,
+  PublicReorderDocumentTemplatesSchema,
+  projectDocumentTemplateSummaries,
+  projectDocumentTemplates,
+  projectRelationLookup,
   RecordLookupQuerySchema,
-  uuidParam,
 } from "./documents-api-shared";
 import { currentActorUserId, gateAt } from "./permissions";
+import { resolvePublicIdParam } from "./route-params";
 
 export const createDocumentTemplateRoutes = () =>
   new Hono<AuthContext>()
@@ -31,20 +32,20 @@ export const createDocumentTemplateRoutes = () =>
         tags: ["Grids:Document"],
         summary: "List document templates for a table",
         responses: {
-          200: jsonResponse(DocumentTemplateSummaryListSchema, "Document templates"),
+          200: jsonResponse(PublicDocumentTemplateSummaryListSchema, "Document templates"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
       v("query", DocumentTemplateSummaryQuerySchema),
       async (c) => {
-        const tableId = uuidParam(c, "tableId");
+        const tableId = await resolvePublicIdParam(c, "tableId", "table");
         if (!tableId) return c.json({ message: "Table not found" }, 404);
         const table = await gridsService.table.get(tableId);
         if (!table) return c.json({ message: "Table not found" }, 404);
         const tableGate = await gateAt(c, { baseId: table.baseId }, c.req.valid("query").min);
         if (!tableGate.ok) return respond(c, () => Promise.resolve(tableGate));
         const templates = await gridsService.document.listTemplatesForTable(tableId);
-        return c.json(templates.filter((template) => template.enabled).map(gridsService.document.summarizeTemplate));
+        return c.json(await projectDocumentTemplateSummaries(templates.filter((template) => template.enabled)));
       },
     )
 
@@ -54,18 +55,18 @@ export const createDocumentTemplateRoutes = () =>
         tags: ["Grids:Document"],
         summary: "List full document templates for table admins",
         responses: {
-          200: jsonResponse(DocumentTemplateListSchema, "Document templates"),
+          200: jsonResponse(PublicDocumentTemplateListSchema, "Document templates"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
       async (c) => {
-        const tableId = uuidParam(c, "tableId");
+        const tableId = await resolvePublicIdParam(c, "tableId", "table");
         if (!tableId) return c.json({ message: "Table not found" }, 404);
         const table = await gridsService.table.get(tableId);
         if (!table) return c.json({ message: "Table not found" }, 404);
         const gate = await gateAt(c, { baseId: table.baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        return c.json(await gridsService.document.listTemplatesForTable(tableId));
+        return c.json(await projectDocumentTemplates(await gridsService.document.listTemplatesForTable(tableId)));
       },
     )
 
@@ -75,19 +76,21 @@ export const createDocumentTemplateRoutes = () =>
         tags: ["Grids:Document"],
         summary: "Create a document template",
         responses: {
-          201: jsonResponse(DocumentTemplateSchema, "Created document template"),
+          201: jsonResponse(PublicDocumentTemplateSchema, "Created document template"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
       v("json", CreateDocumentTemplateSchema),
       async (c) => {
-        const tableId = uuidParam(c, "tableId");
+        const tableId = await resolvePublicIdParam(c, "tableId", "table");
         if (!tableId) return c.json({ message: "Table not found" }, 404);
         const table = await gridsService.table.get(tableId);
         if (!table) return c.json({ message: "Table not found" }, 404);
         const gate = await gateAt(c, { baseId: table.baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        return respond(c, () => gridsService.document.createTemplate(tableId, c.req.valid("json"), currentActorUserId(c)), 201);
+        const created = await gridsService.document.createTemplate(tableId, c.req.valid("json"), currentActorUserId(c));
+        if (!created.ok) return c.json({ message: created.error.message }, created.error.status);
+        return c.json((await projectDocumentTemplates([created.data]))[0]!, 201);
       },
     )
 
@@ -102,15 +105,22 @@ export const createDocumentTemplateRoutes = () =>
           409: jsonResponse(ErrorResponseSchema, "Template list changed"),
         },
       }),
-      v("json", ReorderDocumentTemplatesSchema),
+      v("json", PublicReorderDocumentTemplatesSchema),
       async (c) => {
-        const tableId = uuidParam(c, "tableId");
+        const tableId = await resolvePublicIdParam(c, "tableId", "table");
         if (!tableId) return c.json({ message: "Table not found" }, 404);
         const table = await gridsService.table.get(tableId);
         if (!table) return c.json({ message: "Table not found" }, 404);
         const gate = await gateAt(c, { baseId: table.baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        const result = await gridsService.document.reorderTemplates(tableId, c.req.valid("json").templateIds, currentActorUserId(c));
+        const publicTemplateIds = c.req.valid("json").templateIds;
+        const resolvedTemplateIds = await resolvePublicIds("documentTemplate", publicTemplateIds);
+        if (resolvedTemplateIds.size !== publicTemplateIds.length) return c.json({ message: "Document template not found" }, 404);
+        const result = await gridsService.document.reorderTemplates(
+          tableId,
+          publicTemplateIds.map((id) => resolvedTemplateIds.get(id)!),
+          currentActorUserId(c),
+        );
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
         return c.body(null, 204);
       },
@@ -122,7 +132,7 @@ export const createDocumentTemplateRoutes = () =>
         tags: ["Grids:Document"],
         summary: "Get a document template",
         responses: {
-          200: jsonResponse(DocumentTemplateSchema, "Document template"),
+          200: jsonResponse(PublicDocumentTemplateSchema, "Document template"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
@@ -131,7 +141,7 @@ export const createDocumentTemplateRoutes = () =>
         if (!loaded) return c.json({ message: "Document template not found" }, 404);
         const gate = await gateTemplate(c, loaded, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        return c.json(loaded.template);
+        return c.json((await projectDocumentTemplates([loaded.template]))[0]!);
       },
     )
 
@@ -141,7 +151,7 @@ export const createDocumentTemplateRoutes = () =>
         tags: ["Grids:Document"],
         summary: "Update a document template",
         responses: {
-          200: jsonResponse(DocumentTemplateSchema, "Updated document template"),
+          200: jsonResponse(PublicDocumentTemplateSchema, "Updated document template"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
@@ -151,7 +161,9 @@ export const createDocumentTemplateRoutes = () =>
         if (!loaded) return c.json({ message: "Document template not found" }, 404);
         const gate = await gateTemplate(c, loaded, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        return respond(c, () => gridsService.document.updateTemplate(loaded.template.id, c.req.valid("json"), currentActorUserId(c)));
+        const updated = await gridsService.document.updateTemplate(loaded.template.id, c.req.valid("json"), currentActorUserId(c));
+        if (!updated.ok) return c.json({ message: updated.error.message }, updated.error.status);
+        return c.json((await projectDocumentTemplates([updated.data]))[0]!);
       },
     )
 
@@ -182,7 +194,7 @@ export const createDocumentTemplateRoutes = () =>
         tags: ["Grids:Document"],
         summary: "Search records for a document template",
         responses: {
-          200: jsonResponse(RelationLookupResponseSchema, "Lookup results"),
+          200: jsonResponse(PublicRelationLookupResponseSchema, "Lookup results"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         },
       }),
@@ -192,15 +204,19 @@ export const createDocumentTemplateRoutes = () =>
         if (!loaded) return c.json({ message: "Document template not found" }, 404);
         const gate = await gateEnabledTemplateWrite(c, loaded);
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        const { q, limit, excludeIds } = c.req.valid("query");
+        const { q, limit, excludeIds: publicExcludeIds } = c.req.valid("query");
+        const excludeIds = await resolvePublicIds("record", publicExcludeIds);
+        if (excludeIds.size !== publicExcludeIds.length) return c.json({ message: "Record not found" }, 404);
         return c.json(
-          await gridsService.relations.lookup({
-            targetTableId: loaded.table.id,
-            q,
-            limit,
-            excludeIds,
-            recordAccess: ALL_RECORD_ACCESS,
-          }),
+          await projectRelationLookup(
+            await gridsService.relations.lookup({
+              targetTableId: loaded.table.id,
+              q,
+              limit,
+              excludeIds: publicExcludeIds.map((id) => excludeIds.get(id)!),
+              recordAccess: ALL_RECORD_ACCESS,
+            }),
+          ),
         );
       },
     );

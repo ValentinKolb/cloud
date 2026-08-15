@@ -1,15 +1,15 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { Button, dialogCore, NoticeCard, PanelDialog, PdfPreview, panelDialogWideOptions, prompts, TagsInput, TextInput } from "@k2b/ui";
 import { createSignal } from "solid-js";
-import type { DocumentTemplateSummary } from "../../../contracts";
-import type { Table } from "../../../service";
+import type { PublicTable as Table } from "../../../api/public-dto";
 import RecordPicker from "../records/RecordPicker";
 import { downloadPdfResponse } from "./document-download";
 import { isPdfResponse, requestDocumentTemplateGeneration, requestDocumentTemplatePreview } from "./document-transfer-client";
+import type { PublicDocumentTemplateSummary } from "./public-document-types";
 
 type DocumentGenerateDialogArgs = {
   table: Table;
-  template: DocumentTemplateSummary;
+  template: PublicDocumentTemplateSummary;
   initialRecordId: string | null;
   onGenerated: () => void | Promise<void>;
 };

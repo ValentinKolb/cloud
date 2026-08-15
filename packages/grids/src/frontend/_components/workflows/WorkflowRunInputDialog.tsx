@@ -1,7 +1,7 @@
-import { dialogCore, PanelDialog, panelDialogOptions, Button } from "@k2b/ui";
+import { Button, dialogCore, PanelDialog, panelDialogOptions } from "@k2b/ui";
 import type { WorkflowBoundPlan, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { createMemo, createSignal } from "solid-js";
-import type { Table } from "../../../service";
+import type { PublicTable } from "../../../api/public-dto";
 import { WorkflowInputFields } from "./WorkflowInputFields";
 import {
   buildWorkflowRunInput,
@@ -12,7 +12,7 @@ import {
 
 type Props = {
   workflow: { name: string; plan: Pick<WorkflowBoundPlan, "inputs" | "bindings"> };
-  tables: Array<Pick<Table, "id" | "shortId" | "name">>;
+  tables: Array<Pick<PublicTable, "id" | "name">>;
   mode: "execute" | "dryRun";
   initialValues?: Record<string, WorkflowJsonValue>;
   title?: string;
@@ -67,7 +67,7 @@ function WorkflowRunInputDialog(props: Props) {
 
 export const requestWorkflowRunInput = async (args: {
   workflow: { name: string; plan: Pick<WorkflowBoundPlan, "inputs" | "bindings"> };
-  tables: Array<Pick<Table, "id" | "shortId" | "name">>;
+  tables: Array<Pick<PublicTable, "id" | "name">>;
   mode: "execute" | "dryRun";
   initialValues?: Record<string, WorkflowJsonValue>;
   title?: string;

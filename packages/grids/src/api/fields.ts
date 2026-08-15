@@ -2,47 +2,94 @@ import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import {
-  CreateFieldSchema,
-  FieldDependentsResponseSchema,
-  FieldListSchema,
-  FieldSchema,
-  ReorderFieldsSchema,
-  UpdateFieldSchema,
-} from "../contracts";
+import { z } from "zod";
+import { ShortIdSchema } from "../contracts";
 import { gridsService } from "../service";
+import type { FieldDependent } from "../service/field-dependents";
+import { type PublicResourceType, projectPublicIds, resolvePublicIds } from "../service/public-resources";
 import { currentActorUserId, gateAt } from "./permissions";
-import { requireUuidParam } from "./route-params";
+import {
+  fromPublicFieldWrite,
+  PublicCreateFieldSchema,
+  PublicFieldListSchema,
+  PublicFieldSchema,
+  PublicUpdateFieldSchema,
+  toPublicField,
+  toPublicFields,
+} from "./public-dto";
+import { internalIdParam, requirePublicIdParam, requireStoredPublicIdParam } from "./route-params";
+
+const PublicFieldDependentSchema = z.object({
+  type: z.enum(["view", "form", "formula", "lookup", "rollup", "relation_display", "audit_policy", "federation_mapping"]),
+  resourceId: ShortIdSchema,
+  resourceName: z.string(),
+  context: z.string().optional(),
+  blocking: z.boolean(),
+});
+const PublicFieldDependentsResponseSchema = z.object({
+  dependents: z.array(PublicFieldDependentSchema),
+  hasBlocking: z.boolean(),
+});
+
+const dependentResourceType = (dependent: FieldDependent): Extract<PublicResourceType, "field" | "form" | "table" | "view"> => {
+  if (dependent.type === "view") return "view";
+  if (dependent.type === "form") return "form";
+  if (dependent.type === "audit_policy" || dependent.type === "federation_mapping") return "table";
+  return "field";
+};
+
+const toPublicFieldDependents = async (dependents: readonly FieldDependent[]) => {
+  const types = ["field", "form", "table", "view"] as const;
+  const projectedByType = new Map(
+    await Promise.all(
+      types.map(
+        async (type) =>
+          [
+            type,
+            await projectPublicIds(
+              type,
+              dependents.filter((item) => dependentResourceType(item) === type).map((item) => item.resourceId),
+            ),
+          ] as const,
+      ),
+    ),
+  );
+  return dependents.map((dependent) => {
+    const publicId = projectedByType.get(dependentResourceType(dependent))?.get(dependent.resourceId);
+    if (!publicId) throw new Error(`Cannot project ${dependent.type} dependent ${dependent.resourceId}`);
+    return { ...dependent, resourceId: publicId };
+  });
+};
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
 
   .get(
     "/by-table/:tableId",
-    requireUuidParam("tableId", "Table"),
+    requirePublicIdParam("tableId", "table", "Table"),
     describeRoute({
       tags: ["Grids:Field"],
       summary: "List fields of a table",
       responses: {
-        200: jsonResponse(FieldListSchema, "Fields"),
+        200: jsonResponse(PublicFieldListSchema, "Fields"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const fields = await gridsService.field.listByTable(tableId);
-      return c.json(fields);
+      return c.json(await toPublicFields(fields));
     },
   )
 
   .post(
     "/by-table/:tableId/reorder",
-    requireUuidParam("tableId", "Table"),
+    requirePublicIdParam("tableId", "table", "Table"),
     describeRoute({
       tags: ["Grids:Field"],
       summary: "Reorder fields of a table",
@@ -55,15 +102,21 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
-    v("json", ReorderFieldsSchema),
+    v("json", z.object({ fieldIds: z.array(ShortIdSchema).min(1) })),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const { fieldIds } = c.req.valid("json");
-      const result = await gridsService.field.reorder(tableId, fieldIds, currentActorUserId(c));
+      const resolved = await resolvePublicIds("field", fieldIds);
+      if (resolved.size !== new Set(fieldIds).size) return c.json({ message: "Field not found" }, 404);
+      const result = await gridsService.field.reorder(
+        tableId,
+        fieldIds.map((id) => resolved.get(id)!),
+        currentActorUserId(c),
+      );
       if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
       return c.body(null, 204);
     },
@@ -71,44 +124,47 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/by-table/:tableId",
-    requireUuidParam("tableId", "Table"),
+    requirePublicIdParam("tableId", "table", "Table"),
     describeRoute({
       tags: ["Grids:Field"],
       summary: "Create a field",
       responses: {
-        201: jsonResponse(FieldSchema, "Created"),
+        201: jsonResponse(PublicFieldSchema, "Created"),
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
         409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
-    v("json", CreateFieldSchema),
+    v("json", PublicCreateFieldSchema),
     async (c) => {
-      const tableId = c.req.param("tableId")!;
+      const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const body = c.req.valid("json");
-      return respond(c, () => gridsService.field.create({ tableId, ...body }, currentActorUserId(c)), 201);
+      const internal = await fromPublicFieldWrite(body.type, body);
+      if (!internal.ok) return respond(c, () => Promise.resolve(internal));
+      const result = await gridsService.field.create({ tableId, ...internal.data }, currentActorUserId(c));
+      return result.ok ? c.json(await toPublicField(result.data), 201) : c.json({ message: result.error.message }, result.error.status);
     },
   )
 
   .get(
     "/:fieldId/dependents",
-    requireUuidParam("fieldId", "Field"),
+    requirePublicIdParam("fieldId", "field", "Field"),
     describeRoute({
       tags: ["Grids:Field"],
       summary: "Pre-flight: where is this field referenced?",
       responses: {
-        200: jsonResponse(FieldDependentsResponseSchema, "Dependents"),
+        200: jsonResponse(PublicFieldDependentsResponseSchema, "Dependents"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
     async (c) => {
-      const fieldId = c.req.param("fieldId")!;
+      const fieldId = internalIdParam(c, "fieldId")!;
       const field = await gridsService.field.get(fieldId);
       if (!field) return c.json({ message: "Field not found" }, 404);
       const table = await gridsService.table.get(field.tableId);
@@ -116,40 +172,43 @@ const app = new Hono<AuthContext>()
       const gate = await gateAt(c, { baseId: table.baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const deps = await gridsService.fieldDependents.get(fieldId);
-      return c.json({ dependents: deps, hasBlocking: gridsService.fieldDependents.hasBlocking(deps) });
+      return c.json({ dependents: await toPublicFieldDependents(deps), hasBlocking: gridsService.fieldDependents.hasBlocking(deps) });
     },
   )
 
   .patch(
     "/:fieldId",
-    requireUuidParam("fieldId", "Field"),
+    requirePublicIdParam("fieldId", "field", "Field"),
     describeRoute({
       tags: ["Grids:Field"],
       summary: "Update field metadata",
       responses: {
-        200: jsonResponse(FieldSchema, "Updated"),
+        200: jsonResponse(PublicFieldSchema, "Updated"),
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
         409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
-    v("json", UpdateFieldSchema),
+    v("json", PublicUpdateFieldSchema),
     async (c) => {
-      const fieldId = c.req.param("fieldId")!;
+      const fieldId = internalIdParam(c, "fieldId")!;
       const field = await gridsService.field.get(fieldId);
       if (!field) return c.json({ message: "Field not found" }, 404);
       const table = await gridsService.table.get(field.tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.field.update(fieldId, c.req.valid("json"), currentActorUserId(c)));
+      const internal = await fromPublicFieldWrite(field.type, c.req.valid("json"));
+      if (!internal.ok) return respond(c, () => Promise.resolve(internal));
+      const result = await gridsService.field.update(fieldId, internal.data, currentActorUserId(c));
+      return result.ok ? c.json(await toPublicField(result.data)) : c.json({ message: result.error.message }, result.error.status);
     },
   )
 
   .delete(
     "/:fieldId",
-    requireUuidParam("fieldId", "Field"),
+    requirePublicIdParam("fieldId", "field", "Field"),
     describeRoute({
       tags: ["Grids:Field"],
       summary: "Soft-delete a field (rejects if blocking dependents exist)",
@@ -161,7 +220,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const fieldId = c.req.param("fieldId")!;
+      const fieldId = internalIdParam(c, "fieldId")!;
       const field = await gridsService.field.get(fieldId);
       if (!field) return c.json({ message: "Field not found" }, 404);
       const table = await gridsService.table.get(field.tableId);
@@ -174,7 +233,7 @@ const app = new Hono<AuthContext>()
         return c.json(
           {
             message: "Field has blocking dependents — remove them before deleting",
-            dependents: deps.filter((d) => d.blocking),
+            dependents: await toPublicFieldDependents(deps.filter((d) => d.blocking)),
           },
           409,
         );
@@ -187,12 +246,12 @@ const app = new Hono<AuthContext>()
 
   .post(
     "/:fieldId/restore",
-    requireUuidParam("fieldId", "Field"),
+    requireStoredPublicIdParam("fieldId", "field", "Field"),
     describeRoute({
       tags: ["Grids:Field"],
       summary: "Restore a soft-deleted field",
       responses: {
-        200: jsonResponse(FieldSchema, "Restored"),
+        200: jsonResponse(PublicFieldSchema, "Restored"),
         400: jsonResponse(ErrorResponseSchema, "Invalid input"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -200,7 +259,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const fieldId = c.req.param("fieldId")!;
+      const fieldId = internalIdParam(c, "fieldId")!;
       // `field.get` intentionally returns soft-deleted fields while still
       // enforcing the live parent table/base invariant.
       const field = await gridsService.field.get(fieldId);
@@ -209,7 +268,8 @@ const app = new Hono<AuthContext>()
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.field.restore(fieldId, currentActorUserId(c)));
+      const result = await gridsService.field.restore(fieldId, currentActorUserId(c));
+      return result.ok ? c.json(await toPublicField(result.data)) : c.json({ message: result.error.message }, result.error.status);
     },
   );
 

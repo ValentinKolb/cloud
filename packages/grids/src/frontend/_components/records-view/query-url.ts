@@ -22,9 +22,9 @@
  *   ?aggregations=<AggregationSpec[] JSON>
  *   ?columns=<ColumnSpec[] JSON>            — ad-hoc computed/view columns
  *   ?cursor=<JSON-encoded keyset cursor token>
- *   ?record=<UUID — selected detail-panel record>
+ *   ?record=<public record ID — selected detail-panel record>
  *   ?trash=1                                — trash mode
- *   ?q=<text>&qFields=<csv UUIDs>           — free-text search
+ *   ?q=<text>&qFields=<csv public field IDs> — free-text search
  *   ?cv=<day|week|month|year>&cd=<YYYY-MM-DD> — calendar state
  *   ?cardSize=<small|medium|large>          — card view density
  *
@@ -205,24 +205,16 @@ export const parseRecordsState = (params: URLSearchParams): RecordsState => ({
   cardSize: parseCardSize(params.get("cardSize")),
 });
 
-/**
- * Path-based URL context for `buildRecordsUrl`. The values are SHORT
- * IDS (not UUIDs) because they're what live in URL segments. The page
- * boundary resolves short_ids → UUIDs for service calls; the island
- * keeps both around.
- */
 export type UrlPathContext = {
-  baseShortId: string;
-  tableShortId: string;
+  baseId: string;
+  tableId: string;
   /** When set, the URL goes `/table/<t>/view/<v>` instead of just
    *  `/table/<t>`. Drives the sidebar's "active view" highlight too. */
-  viewShortId: string | null;
+  viewId: string | null;
 };
 
 export const recordsPath = (path: UrlPathContext): string =>
-  path.viewShortId
-    ? `/app/grids/${path.baseShortId}/table/${path.tableShortId}/view/${path.viewShortId}`
-    : `/app/grids/${path.baseShortId}/table/${path.tableShortId}`;
+  path.viewId ? `/app/grids/${path.baseId}/table/${path.tableId}/view/${path.viewId}` : `/app/grids/${path.baseId}/table/${path.tableId}`;
 
 // Stable JSON.stringify is fine for equality here — both sides come
 // from the same Zod-validated shapes, so key order is stable in practice.

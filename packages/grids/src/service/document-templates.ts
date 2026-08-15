@@ -1,5 +1,5 @@
-import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import type { CreateDocumentTemplateInput, DocumentTemplate, UpdateDocumentTemplateInput } from "../contracts";
 import { logAudit } from "./audit";
@@ -43,7 +43,7 @@ export const getTemplate = async (templateId: string): Promise<DocumentTemplate 
   return row ? mapDocumentTemplate(row) : null;
 };
 
-export const getTemplateByShortId = async (tableId: string, shortId: string): Promise<DocumentTemplate | null> => {
+export const getTemplateByShortIdForTable = async (tableId: string, shortId: string): Promise<DocumentTemplate | null> => {
   const [row] = await sql<DocumentDbRow[]>`
     SELECT dt.*
     FROM grids.document_templates dt
@@ -56,12 +56,15 @@ export const getTemplateByShortId = async (tableId: string, shortId: string): Pr
   return row ? mapDocumentTemplate(row) : null;
 };
 
-export const getTemplateByIdOrShortId = async (tableId: string, idOrSlug: string): Promise<DocumentTemplate | null> => {
-  if (idOrSlug.length === 36 && idOrSlug.includes("-")) {
-    const template = await getTemplate(idOrSlug);
-    return template && template.tableId === tableId ? template : null;
-  }
-  return getTemplateByShortId(tableId, idOrSlug);
+export const getTemplateByShortId = async (shortId: string): Promise<DocumentTemplate | null> => {
+  const [row] = await sql<DocumentDbRow[]>`
+    SELECT dt.*
+    FROM grids.document_templates dt
+    JOIN grids.tables t ON t.id = dt.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE dt.short_id = ${shortId} AND dt.deleted_at IS NULL
+  `;
+  return row ? mapDocumentTemplate(row) : null;
 };
 
 export const validateTemplateWrite = (input: {

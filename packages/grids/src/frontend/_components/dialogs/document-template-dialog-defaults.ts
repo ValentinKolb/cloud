@@ -1,7 +1,7 @@
 import type { DocumentTemplateStarter } from "../../../document-template-starters";
 
 const defaultDocumentSource = (tableId: string) => `from table {${tableId}}\nwhere record.id = '{{ record.id }}'\nlimit 1`;
-export const defaultDocumentNumberTemplate = "{{ template.shortId }}-{{ date.yyyyMMdd }}-{{ run.shortId }}";
+export const defaultDocumentNumberTemplate = "{{ template.id }}-{{ date.yyyyMMdd }}-{{ run.id }}";
 const defaultDocumentFilenameTemplate = "{{ document.number }}.pdf";
 
 export const defaultDocumentStarter = (): DocumentTemplateStarter => ({

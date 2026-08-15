@@ -43,11 +43,16 @@ export const resolveAccessResource = async (ctx: CloudCliContext, args: string[]
   const rest = args.slice(1);
   if (type === "base") {
     const base = await resolveBase(ctx, requireRestArg(rest, 0, "base"));
-    return { type, id: base.id, label: `${base.name} (${base.shortId})`, allowed: accessPermissionsForResource(type) };
+    return {
+      type,
+      id: base.id,
+      label: `${base.name} (${base.id})`,
+      allowed: accessPermissionsForResource(type),
+    };
   }
   const { base, rest: appRest } = await resolveBaseFromCommand(ctx, rest, 1);
   const app = await resolveCustomApp(ctx, base.id, requireRestArg(appRest, 0, "App"));
-  return { type, id: app.id, label: `${app.name} (${app.shortId})`, allowed: accessPermissionsForResource(type) };
+  return { type, id: app.id, label: `${app.name} (${app.id})`, allowed: accessPermissionsForResource(type) };
 };
 
 export const accessResourcePath = (resource: AccessResource): string =>

@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { SQL, sql } from "bun";
 import { migrate as migrateCoreWorkflows } from "../../core/src/migrate/core/workflows";
-import { migrate } from "./migrate";
+import { gridsPublicIdsReady, migrate } from "./migrate";
 import { insertTestWorkflow, insertTestWorkflowRun } from "./service/workflow-test-fixture";
 import { GRIDS_WORKFLOW_SCHEMA_VERSION } from "./workflows/migrate";
 
 const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 
 const uuid = () => Bun.randomUUIDv7();
-const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 6)}`.slice(0, 5);
+const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 7)}`.slice(0, 6);
 
 const withIsolatedDatabase = async (run: (database: SQL) => Promise<void>) => {
   const sourceUrl = process.env.DATABASE_URL;
@@ -39,7 +39,13 @@ describe("grids schema migration", () => {
         // Nothing declares an ordering between the app containers, so on an
         // empty database Grids can migrate before app-core. Postgres would
         // refuse the health view naming a table nobody would think to look for.
-        await expect(migrate(database)).rejects.toThrow(/app-core has not migrated yet/);
+        let migrationError: unknown;
+        try {
+          await migrate(database);
+        } catch (error) {
+          migrationError = error;
+        }
+        expect((migrationError as Error).message).toContain("app-core has not migrated yet");
       });
     },
     30_000,
@@ -53,6 +59,7 @@ describe("grids schema migration", () => {
         await Promise.all([migrate(database), migrate(database)]);
         await migrateCoreWorkflows(database);
         await migrate(database);
+        expect(await gridsPublicIdsReady(database)).toBe(true);
 
         const [row] = await database<Array<{ tableCount: number }>>`
           SELECT count(*)::int AS "tableCount"
@@ -125,13 +132,99 @@ describe("grids schema migration", () => {
   );
 
   postgresTest(
-    "migrates stored Grids App v2 definitions through v4 without changing their queries or other data",
+    "rekeys legacy scoped IDs atomically and reserves tombstoned IDs globally",
+    async () => {
+      await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
+        await migrate(database);
+
+        const baseId = uuid();
+        const liveTableId = uuid();
+        const deletedTableId = uuid();
+        const deletedFieldId = uuid();
+        const deletedViewId = uuid();
+        const validTableId = uuid();
+        await database`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${shortId("B")}, 'Legacy IDs')`;
+        await database`
+          INSERT INTO grids.tables (id, short_id, base_id, name, deleted_at) VALUES
+            (${liveTableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Live', NULL),
+            (${deletedTableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Deleted', now()),
+            (${validTableId}::uuid, 'KEEP01', ${baseId}::uuid, 'Already migrated', NULL)
+        `;
+        await database`
+          INSERT INTO grids.fields (id, short_id, table_id, name, type, deleted_at)
+          VALUES (${deletedFieldId}::uuid, 'FIELD1', ${deletedTableId}::uuid, 'Archived value', 'text', now())
+        `;
+        await database`
+          INSERT INTO grids.views (id, short_id, table_id, name, source, deleted_at)
+          VALUES (
+            ${deletedViewId}::uuid,
+            'VIEW01',
+            ${deletedTableId}::uuid,
+            'Archived view',
+            ${`from table {${deletedTableId}}\nselect {${deletedFieldId}}`},
+            now()
+          )
+        `;
+
+        await database`ALTER TABLE grids.tables DROP CONSTRAINT tables_short_id_format_chk`.simple();
+        await database`DROP INDEX grids.idx_grids_tables_short_id`.simple();
+        await database`UPDATE grids.tables SET short_id = 'OLD01' WHERE id IN (${liveTableId}::uuid, ${deletedTableId}::uuid)`;
+        await database`
+          CREATE UNIQUE INDEX idx_grids_tables_short_id
+          ON grids.tables(base_id, short_id) WHERE deleted_at IS NULL
+        `.simple();
+
+        await migrate(database);
+
+        const rows = await database<Array<{ shortId: string }>>`
+          SELECT short_id AS "shortId"
+          FROM grids.tables
+          WHERE id IN (${liveTableId}::uuid, ${deletedTableId}::uuid)
+          ORDER BY id
+        `;
+        expect(rows).toHaveLength(2);
+        expect(rows.every((row) => /^[A-Za-z0-9]{6}$/.test(row.shortId))).toBe(true);
+        expect(new Set(rows.map((row) => row.shortId)).size).toBe(2);
+        expect(rows.some((row) => row.shortId === "OLD01")).toBe(false);
+        const [preserved] = await database<Array<{ shortId: string }>>`
+          SELECT short_id AS "shortId" FROM grids.tables WHERE id = ${validTableId}::uuid
+        `;
+        expect(preserved?.shortId).toBe("KEEP01");
+        const [deletedSource] = await database<Array<{ tableShortId: string; fieldShortId: string; source: string }>>`
+          SELECT table_.short_id AS "tableShortId", field.short_id AS "fieldShortId", view_.source
+          FROM grids.views view_
+          JOIN grids.tables table_ ON table_.id = view_.table_id
+          JOIN grids.fields field ON field.table_id = table_.id
+          WHERE view_.id = ${deletedViewId}::uuid AND field.id = ${deletedFieldId}::uuid
+        `;
+        expect(deletedSource?.source).toBe(`from table {${deletedSource?.tableShortId}}\nselect {${deletedSource?.fieldShortId}}`);
+        expect(await gridsPublicIdsReady(database)).toBe(true);
+
+        let reuseError: unknown;
+        try {
+          await database`INSERT INTO grids.tables (short_id, base_id, name) VALUES (${rows[1]!.shortId}, ${baseId}::uuid, 'Reuse tombstone')`;
+        } catch (error) {
+          reuseError = error;
+        }
+        expect(reuseError).toMatchObject({ errno: "23505", constraint: "idx_grids_tables_short_id" });
+      });
+    },
+    30_000,
+  );
+
+  postgresTest(
+    "migrates stored Grids App v2 definitions through v5 in one idempotent run",
     async () => {
       await withIsolatedDatabase(async (database) => {
         await migrateCoreWorkflows(database);
         await migrate(database);
         const baseId = uuid();
+        const tableId = uuid();
         const appId = uuid();
+        const baseShortId = shortId("B");
+        const tableShortId = shortId("T");
+        const appShortId = shortId("A");
         const definition = {
           schemaVersion: 2,
           kind: "grids.custom-app",
@@ -168,13 +261,17 @@ describe("grids schema migration", () => {
             },
           ],
         };
-        await database`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${shortId("B")}, 'Apps')`;
+        await database`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${baseShortId}, 'Apps')`;
+        await database`
+          INSERT INTO grids.tables (id, short_id, base_id, name)
+          VALUES (${tableId}::uuid, ${tableShortId}, ${baseId}::uuid, 'Items')
+        `;
         await database`
           INSERT INTO grids.custom_apps (
             id, short_id, base_id, name, draft_definition, draft_capabilities, published_definition, published_capabilities
           ) VALUES (
             ${appId}::uuid,
-            ${shortId("A")},
+            ${appShortId},
             ${baseId}::uuid,
             'Paged app',
             ${definition}::jsonb,
@@ -183,6 +280,9 @@ describe("grids schema migration", () => {
             '{}'::jsonb
           )
         `;
+        // Simulate the pre-v1 schema: a finalized six-character index means
+        // the atomic public-ID/source migration has already completed.
+        await database`DROP INDEX grids.idx_grids_custom_apps_short_id`.simple();
 
         await migrate(database);
         const [migrated] = await database<Array<{ draft: typeof definition; published: typeof definition }>>`
@@ -190,12 +290,14 @@ describe("grids schema migration", () => {
           FROM grids.custom_apps WHERE id = ${appId}::uuid
         `;
         expect(migrated?.draft).toEqual(migrated?.published);
-        expect(migrated?.draft.schemaVersion).toBe(4);
+        expect(migrated?.draft.schemaVersion).toBe(5);
+        expect(migrated?.draft.id).toBe(appShortId);
+        expect(migrated?.draft.baseId).toBe(baseShortId);
         expect(migrated?.draft).not.toHaveProperty("shortId");
         expect(migrated?.draft.pages[0]?.navigation as unknown).toEqual({ visible: true });
         const records = migrated?.draft.pages[0]?.rows[0]?.columns[0]?.blocks[0] as Record<string, unknown> | undefined;
         expect(records).toMatchObject({ searchable: false, pageSize: 25 });
-        expect((records?.source as Record<string, unknown> | undefined)?.query).toBe("from table Items\nlimit 40");
+        expect((records?.source as Record<string, unknown> | undefined)?.query).toBe(`from table {${tableShortId}}\nlimit 40`);
         expect(records?.source).not.toHaveProperty("maxRows");
 
         const once = JSON.stringify(migrated?.draft);
@@ -210,7 +312,7 @@ describe("grids schema migration", () => {
   );
 
   postgresTest(
-    "migrates supported v3 Apps losslessly and unpublishes removed v3 surfaces without touching records",
+    "rolls back the hard cut when unsupported legacy Grids Apps cannot migrate",
     async () => {
       await withIsolatedDatabase(async (database) => {
         await migrateCoreWorkflows(database);
@@ -256,7 +358,10 @@ describe("grids schema migration", () => {
         ];
         await database`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${shortId("B")}, 'Apps')`;
         await database`INSERT INTO grids.tables (id, short_id, base_id, name) VALUES (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Items')`;
-        await database`INSERT INTO grids.records (id, table_id, data) VALUES (${recordId}::uuid, ${tableId}::uuid, ${{ keep: true }}::jsonb)`;
+        await database`
+          INSERT INTO grids.records (id, short_id, table_id, data)
+          VALUES (${recordId}::uuid, ${shortId("R")}, ${tableId}::uuid, ${{ keep: true }}::jsonb)
+        `;
         await database`
           INSERT INTO grids.custom_apps (
             id, short_id, base_id, name, draft_definition, draft_capabilities,
@@ -266,8 +371,15 @@ describe("grids schema migration", () => {
             (${unsupportedId}::uuid, ${shortId("A")}, ${baseId}::uuid, 'Unsupported', ${unsupported}::jsonb, '{}'::jsonb, ${unsupported}::jsonb, '{}'::jsonb, now()),
             (${legacyId}::uuid, ${shortId("A")}, ${baseId}::uuid, 'Legacy', ${{ ...definition(legacyId), schemaVersion: 1 }}::jsonb, '{}'::jsonb, ${{ ...definition(legacyId), schemaVersion: 1 }}::jsonb, '{}'::jsonb, now())
         `;
+        await database`DROP INDEX grids.idx_grids_custom_apps_short_id`.simple();
 
-        await migrate(database);
+        let migrationError: unknown;
+        try {
+          await migrate(database);
+        } catch (error) {
+          migrationError = error;
+        }
+        expect((migrationError as Error).message).toContain("cannot migrate custom app");
         const rows = await database<
           Array<{ id: string; draft: Record<string, unknown>; published: Record<string, unknown> | null; publishedAt: string | null }>
         >`
@@ -277,19 +389,21 @@ describe("grids schema migration", () => {
           ORDER BY id
         `;
         const supported = rows.find((row) => row.id === supportedId)!;
-        expect(supported.draft.schemaVersion).toBe(4);
-        expect(supported.published?.schemaVersion).toBe(4);
-        expect(supported.draft).not.toHaveProperty("shortId");
-        expect((supported.draft.pages as Array<{ navigation: unknown }>)[0]?.navigation).toEqual({ visible: true });
+        expect(supported.draft).toEqual(definition(supportedId));
+        expect(supported.published).toEqual(definition(supportedId));
+        expect(supported.publishedAt).not.toBeNull();
         const retained = rows.find((row) => row.id === unsupportedId)!;
         expect(retained.draft).toEqual(unsupported);
-        expect(retained.published).toBeNull();
-        expect(retained.publishedAt).toBeNull();
+        expect(retained.published).toEqual(unsupported);
+        expect(retained.publishedAt).not.toBeNull();
         const legacy = rows.find((row) => row.id === legacyId)!;
-        expect(legacy.draft.schemaVersion).toBe(1);
-        expect(legacy.published).toBeNull();
+        const legacyDefinition = { ...definition(legacyId), schemaVersion: 1 };
+        expect(legacy.draft).toEqual(legacyDefinition);
+        expect(legacy.published).toEqual(legacyDefinition);
+        expect(legacy.publishedAt).not.toBeNull();
         const [record] = await database<Array<{ data: unknown }>>`SELECT data FROM grids.records WHERE id = ${recordId}::uuid`;
         expect(record?.data).toEqual({ keep: true });
+        expect(await gridsPublicIdsReady(database)).toBe(false);
       });
     },
     30_000,
@@ -409,9 +523,10 @@ describe("grids schema migration", () => {
           )
         `;
         await database`
-          INSERT INTO grids.records (id, table_id, data, created_by, updated_by)
+          INSERT INTO grids.records (id, short_id, table_id, data, created_by, updated_by)
           VALUES (
             ${recordId}::uuid,
+            ${shortId("R")},
             ${tableId}::uuid,
             ${{ [fieldId]: "preserved value" }}::jsonb,
             ${userId}::uuid,
@@ -460,7 +575,7 @@ describe("grids schema migration", () => {
             '<header>Kept</header>',
             '<footer>Kept</footer>',
             '@page { size: A4; }',
-            'DOC-{{ run.shortId }}',
+            'DOC-{{ run.id }}',
             '{{ document.number }}.pdf',
             TRUE,
             6,
@@ -529,9 +644,10 @@ describe("grids schema migration", () => {
           finishedAt: new Date("2026-08-10T10:01:02Z"),
         });
         await database`
-          INSERT INTO grids.record_snapshots (id, base_id, table_id, record_id, root, graph, created_by)
+          INSERT INTO grids.record_snapshots (id, short_id, base_id, table_id, record_id, root, graph, created_by)
           VALUES (
             ${snapshotId}::uuid,
+            ${shortId("S")},
             ${baseId}::uuid,
             ${tableId}::uuid,
             ${recordId}::uuid,
@@ -927,24 +1043,36 @@ describe("grids schema migration", () => {
         const baseId = uuid();
         const workflowId = uuid();
         const workflowRunId = uuid();
+        const tableId = uuid();
+        const recordId = uuid();
+        const templateId = uuid();
+        const templateShortId = shortId("T");
         const snapshotId = uuid();
         const documentRunId = uuid();
         await database`
           INSERT INTO grids.bases (id, short_id, name)
           VALUES (${baseId}::uuid, ${shortId("B")}, 'Workflow reset artifacts')
         `;
+        await database`
+          INSERT INTO grids.tables (id, short_id, base_id, name)
+          VALUES (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Documents')
+        `;
+        await database`
+          INSERT INTO grids.document_templates (id, short_id, table_id, name, source, html)
+          VALUES (${templateId}::uuid, ${templateShortId}, ${tableId}::uuid, 'Document', 'from table Documents', '<main>Document</main>')
+        `;
         await insertTestWorkflow({ db: database, id: workflowId, baseId, name: "Old workflow", shortId: shortId("W") });
         await database`
-          INSERT INTO grids.record_snapshots (id, base_id, table_id, record_id, root, graph)
-          VALUES (${snapshotId}::uuid, ${baseId}::uuid, ${uuid()}::uuid, ${uuid()}::uuid, '{}'::jsonb, '{}'::jsonb)
+          INSERT INTO grids.record_snapshots (id, short_id, base_id, table_id, record_id, root, graph)
+          VALUES (${snapshotId}::uuid, ${shortId("S")}, ${baseId}::uuid, ${tableId}::uuid, ${recordId}::uuid, '{}'::jsonb, '{}'::jsonb)
         `;
         await database`
           INSERT INTO grids.document_runs (
-            id, short_id, workflow_run_id, snapshot_id, base_id, table_id, record_id, document_number, filename,
+            id, short_id, template_id, workflow_run_id, snapshot_id, base_id, table_id, record_id, document_number, filename,
             template_snapshot, render_data
           ) VALUES (
-            ${documentRunId}::uuid, ${shortId("D")}, ${workflowRunId}::uuid, ${snapshotId}::uuid, ${baseId}::uuid,
-            ${uuid()}::uuid, ${uuid()}::uuid, 'DOC-1', 'DOC-1.pdf', '{}'::jsonb, '{}'::jsonb
+            ${documentRunId}::uuid, ${shortId("D")}, ${templateId}::uuid, ${workflowRunId}::uuid, ${snapshotId}::uuid, ${baseId}::uuid,
+            ${tableId}::uuid, ${recordId}::uuid, 'DOC-1', 'DOC-1.pdf', ${{ id: templateShortId }}::jsonb, '{}'::jsonb
           )
         `;
 
@@ -1028,8 +1156,8 @@ describe("grids schema migration", () => {
         await database`
           INSERT INTO grids.tables (short_id, base_id, name)
           VALUES
-            ('TD001', ${baseId}::uuid, 'Orders'),
-            ('TD002', ${baseId}::uuid, ' orders ')
+            ('TD0001', ${baseId}::uuid, 'Orders'),
+            ('TD0002', ${baseId}::uuid, ' orders ')
         `;
 
         let migrationError: unknown;
@@ -1050,15 +1178,17 @@ describe("grids schema migration", () => {
   postgresTest(
     "removes intentional alpha-only schema surfaces",
     async () => {
-      await migrate();
-      await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS query JSONB`.simple();
-      await sql`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS display_config JSONB`.simple();
-      await sql`CREATE TABLE IF NOT EXISTS grids.gql_queries (id UUID PRIMARY KEY)`.simple();
-      await sql`ALTER TABLE grids.email_templates ADD COLUMN IF NOT EXISTS text TEXT`.simple();
+      await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
+        await migrate(database);
+        await database`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS query JSONB`.simple();
+        await database`ALTER TABLE grids.views ADD COLUMN IF NOT EXISTS display_config JSONB`.simple();
+        await database`CREATE TABLE IF NOT EXISTS grids.gql_queries (id UUID PRIMARY KEY)`.simple();
+        await database`ALTER TABLE grids.email_templates ADD COLUMN IF NOT EXISTS text TEXT`.simple();
 
-      await migrate();
+        await migrate(database);
 
-      const legacyColumns = await sql`
+        const legacyColumns = await database`
       SELECT table_name, column_name
       FROM information_schema.columns
       WHERE table_schema = 'grids'
@@ -1067,11 +1197,12 @@ describe("grids schema migration", () => {
           OR (table_name = 'email_templates' AND column_name = 'text')
         )
     `;
-      const [legacyTable] = await sql<Array<{ tableName: string | null }>>`
+        const [legacyTable] = await database<Array<{ tableName: string | null }>>`
       SELECT to_regclass('grids.gql_queries')::text AS "tableName"
     `;
-      expect(legacyColumns).toHaveLength(0);
-      expect(legacyTable?.tableName).toBeNull();
+        expect(legacyColumns).toHaveLength(0);
+        expect(legacyTable?.tableName).toBeNull();
+      });
     },
     30_000,
   );
@@ -1079,38 +1210,35 @@ describe("grids schema migration", () => {
   postgresTest(
     "normalizes legacy number scale config to decimalPlaces",
     async () => {
-      await migrate();
-
-      const baseId = uuid();
-      const tableId = uuid();
-      const fieldId = uuid();
-
-      try {
-        await sql`
+      await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
+        await migrate(database);
+        const baseId = uuid();
+        const tableId = uuid();
+        const fieldId = uuid();
+        await database`
         INSERT INTO grids.bases (id, short_id, name)
         VALUES (${baseId}::uuid, ${shortId("B")}, 'Migration integration')
       `;
-        await sql`
+        await database`
         INSERT INTO grids.tables (id, short_id, base_id, name, position)
         VALUES (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Numbers', 0)
       `;
-        await sql`
+        await database`
         INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
-        VALUES (${fieldId}::uuid, 'NUM01', ${tableId}::uuid, 'Amount', 'number', '{"scale":2}'::jsonb, 0)
+        VALUES (${fieldId}::uuid, 'NUM001', ${tableId}::uuid, 'Amount', 'number', '{"scale":2}'::jsonb, 0)
       `;
 
-        await migrate();
+        await migrate(database);
 
-        const [row] = await sql<Array<{ config: { decimalPlaces?: number; scale?: number } }>>`
+        const [row] = await database<Array<{ config: { decimalPlaces?: number; scale?: number } }>>`
         SELECT config
         FROM grids.fields
         WHERE id = ${fieldId}::uuid
       `;
 
         expect(row?.config).toEqual({ decimalPlaces: 2 });
-      } finally {
-        await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
-      }
+      });
     },
     30_000,
   );

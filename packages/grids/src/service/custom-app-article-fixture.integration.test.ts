@@ -10,7 +10,9 @@ import { apply, compile, get, plan, publish } from "./custom-apps";
 
 const ARTICLE = {
   appId: "20000000-0000-4000-8000-000000000101",
+  appPublicId: "a00101",
   baseId: "20000000-0000-4000-8000-000000000001",
+  basePublicId: "a00001",
   listTableId: "20000000-0000-4000-8000-000000000201",
   articleTableId: "20000000-0000-4000-8000-000000000202",
   listNameFieldId: "20000000-0000-4000-8000-000000000301",
@@ -111,8 +113,8 @@ beforeAll(async () => {
 describe("Article Grids App Golden fixture", () => {
   test("keeps the article entry fixture structurally valid", async () => {
     const definition = await loadArticleDefinition();
-    expect(definition.id).toBe(ARTICLE.appId);
-    expect(definition.baseId).toBe(ARTICLE.baseId);
+    expect(definition.id).toBe(ARTICLE.appPublicId);
+    expect(definition.baseId).toBe(ARTICLE.basePublicId);
   });
 
   postgresTest("executes parameterized child entry through the complete lifecycle", async () => {

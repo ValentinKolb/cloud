@@ -1,3 +1,4 @@
+import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
   AutocompleteEditor,
   Button,
@@ -9,14 +10,15 @@ import {
   TextInput,
   toast,
 } from "@k2b/ui";
-import { createWorkflowYamlHighlighter } from "@valentinkolb/cloud/workflows/editor";
 import type { WorkflowBoundPlan, WorkflowDiagnostic } from "@valentinkolb/cloud/workflows";
-import { mutation as mutations } from "@k2b/stdlib/solid";
+import { createWorkflowYamlHighlighter } from "@valentinkolb/cloud/workflows/editor";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { Table, Workflow } from "../../../service";
+import type { PublicTable } from "../../../api/public-dto";
+import { PublicGridsWorkflowSchema, PublicWorkflowValidateResponseSchema } from "../../../api/workflow-public-contracts";
 import { WORKFLOW_REVISION_HEADER, type WorkflowAutocompleteResponse } from "../../../workflows/contracts";
 import { errorMessage } from "../utils/api-helpers";
+import type { PublicWorkflow } from "../workspace/workspace-public-state-model";
 import { buildBackendWorkflowCompletions } from "./workflow-autocomplete";
 import { automaticTriggerSummary, shouldConfirmAutomaticTriggers } from "./workflow-editor-activation";
 import {
@@ -52,10 +54,9 @@ const workflowEditorApi = apiClient.workflows as unknown as WorkflowEditorApi;
 
 type WorkflowEditorProps = {
   baseId: string;
-  baseShortId: string;
-  tables: Table[];
-  workflow?: Workflow;
-  onChanged: (workflow?: Workflow) => void;
+  tables: Array<Pick<PublicTable, "id" | "name">>;
+  workflow?: PublicWorkflow;
+  onChanged: (workflow?: PublicWorkflow) => void;
   onClose: () => void;
 };
 
@@ -70,11 +71,11 @@ class WorkflowDiagnosticsError extends Error {}
 
 const workflowHighlight = createWorkflowYamlHighlighter();
 
-const workflowReferenceHref = (_baseShortId: string) => "/app/grids/help/grids-workflows";
+const workflowReferenceHref = () => "/app/grids/help/grids-workflows";
 
-const openWorkflowReferenceWindow = (baseShortId: string) => {
+const openWorkflowReferenceWindow = () => {
   if (typeof window === "undefined") return;
-  window.open(workflowReferenceHref(baseShortId), "grids-workflow-reference", "popup,width=1120,height=820,resizable=yes,scrollbars=yes");
+  window.open(workflowReferenceHref(), "grids-workflow-reference", "popup,width=1120,height=820,resizable=yes,scrollbars=yes");
 };
 
 const yamlString = (value: string): string => JSON.stringify(value);
@@ -87,7 +88,7 @@ const editorDiagnostic = (message: string): WorkflowDiagnostic => ({
 });
 
 const defaultSource = (
-  table?: Table,
+  table?: Pick<PublicTable, "id" | "name">,
 ) => `${table ? `inputs:\n  record:\n    type: record\n    table: ${yamlString(table.name)}\n` : ""}steps:
   - setVariable:
       name: ranAt
@@ -217,7 +218,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
     if (!props.workflow) return;
     const response = await workflowEditorApi[":workflowId"].$get({ param: { workflowId: props.workflow.id } });
     if (!response.ok) throw new Error(await errorMessage(response, "Could not reload workflow."));
-    const latest = (await response.json()) as Workflow;
+    const latest = PublicGridsWorkflowSchema.parse(await response.json());
     replaceDraft(workflowEditorDraft(latest, defaultSource(props.tables[0])), latest.plan);
     props.onChanged(latest);
     toast.success("Loaded the latest workflow version");
@@ -244,7 +245,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
     }
   };
 
-  const saveMut = mutations.create<Workflow, void>({
+  const saveMut = mutations.create<PublicWorkflow, void>({
     mutation: async (_, { abortSignal }) => {
       const draft = currentDraft();
       const payload = workflowEditorSavePayload(draft, cleanDraft, !props.workflow);
@@ -261,7 +262,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
           );
       if (res.status === 409) throw new WorkflowConflictError();
       if (!res.ok) throw new Error(await errorMessage(res, "Could not save workflow."));
-      return (await res.json()) as Workflow;
+      return PublicGridsWorkflowSchema.parse(await res.json());
     },
     onSuccess: (saved) => {
       toast.success(`Saved "${saved.name}"`);
@@ -281,9 +282,9 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await errorMessage(response, "Could not validate workflow triggers."));
-      const validation = (await response.json()) as { ok: boolean; plan?: WorkflowBoundPlan; diagnostics?: WorkflowDiagnostic[] };
-      if (!validation.ok || !validation.plan) {
-        setDiagnostics(validation.diagnostics ?? [editorDiagnostic("Workflow source is invalid.")]);
+      const validation = PublicWorkflowValidateResponseSchema.parse(await response.json());
+      if (!validation.ok) {
+        setDiagnostics(validation.diagnostics);
         throw new WorkflowDiagnosticsError();
       }
       return { plan: validation.plan, source, enabled };
@@ -319,7 +320,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
     },
   });
 
-  const deleteMut = mutations.create<{ deleted: boolean }, Workflow>({
+  const deleteMut = mutations.create<{ deleted: boolean }, PublicWorkflow>({
     mutation: async (workflow, { abortSignal }) => {
       const confirmed = await prompts.confirm(`Delete "${persistedName() || workflow.name}"?`, {
         title: "Delete workflow",
@@ -396,7 +397,7 @@ export function WorkflowEditor(props: WorkflowEditorProps) {
                 <h3 class="detail-section-label mb-0">YAML source</h3>
                 <p class="text-xs text-dimmed">Defines inputs, triggers, and steps.</p>
               </div>
-              <Button variant="secondary" size="sm" type="button" onClick={() => openWorkflowReferenceWindow(props.baseShortId)}>
+              <Button variant="secondary" size="sm" type="button" onClick={openWorkflowReferenceWindow}>
                 <i class="ti ti-external-link" /> Open reference
               </Button>
             </div>

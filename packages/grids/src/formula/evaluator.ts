@@ -8,11 +8,7 @@ import { type BinOp, type Expr, formulaError, type Literal } from "./types";
 type EvalContext = FormulaRuntimeContext & {
   /** Record data keyed by field id (UUID). */
   fields: Record<string, unknown>;
-  /** Optional `slug → fieldId` map. Lets the evaluator resolve `#slug`
-   *  field-references in formulas to the underlying UUID-keyed record
-   *  data. Both syntaxes (`#slug` and `{uuid}`) emit the same `field`
-   *  AST node — at evaluation, we try the value as a UUID first, then
-   *  fall back to the slug map. */
+  /** Public field reference to private field UUID map. */
   slugToId?: Record<string, string>;
 };
 
@@ -25,13 +21,9 @@ const truthy = (v: unknown): boolean => {
 };
 
 const evalField = (fieldId: string, ctx: EvalContext): unknown => {
-  // Try UUID-keyed lookup first; fall back to slug→id resolution so
-  // `#slug` formulas work against the same UUID-keyed data.
-  const direct = ctx.fields[fieldId];
-  if (direct !== undefined) return direct;
   const resolved = ctx.slugToId?.[fieldId] ?? ctx.slugToId?.[normalizeRefKey(fieldId)];
   if (resolved !== undefined) return ctx.fields[resolved] ?? null;
-  return null;
+  return ctx.fields[fieldId] ?? null;
 };
 
 const evalUnary = (ast: Extract<Expr, { kind: "unop" }>, ctx: EvalContext): unknown => {

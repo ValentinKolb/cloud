@@ -31,7 +31,7 @@ export const parseSourceReference = (raw: string): string | null => parseIdentif
 
 const sourceMatches = (source: { id: string; shortId: string; name: string }, ref: string): boolean => {
   const key = normalizeRefKey(ref);
-  return normalizeRefKey(source.id) === key || normalizeRefKey(source.shortId) === key || normalizeRefKey(source.name) === key;
+  return normalizeRefKey(source.shortId) === key || normalizeRefKey(source.name) === key;
 };
 
 const resolveView = (ctx: DslResolverContext, ref: string): DslViewSource | undefined =>

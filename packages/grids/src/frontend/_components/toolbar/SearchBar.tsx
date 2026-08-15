@@ -1,7 +1,7 @@
 import { timed as timing } from "@k2b/stdlib/solid";
 import { MultiSelectInput, TextInput } from "@k2b/ui";
 import { createEffect, createSignal, Show } from "solid-js";
-import type { Field } from "../../../service";
+import type { PublicField as Field } from "../../../api/public-dto";
 
 type Props = {
   /** Fields the server-side search compiler can search. */

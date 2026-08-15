@@ -1,21 +1,8 @@
-import type { FieldColumnSpec, RecordDisplayConfig, TableAuditPolicy, TableKind } from "../../../contracts";
+import type { PublicTable } from "../../../api/public-dto";
 
 export { openFieldEditDialog } from "./FieldEditorDialog";
 
-export type TableHeader = {
-  id: string;
-  kind: TableKind;
-  /** UUID of the parent base. Kept for API calls that still take UUIDs. */
-  baseId: string;
-  /** URL-safe slug of the parent base. Used for href construction. */
-  baseShortId: string;
-  /** URL-safe slug of this table. Used for href construction. */
-  shortId: string;
-  name: string;
-  description: string | null;
-  icon?: string | null;
-  columns: FieldColumnSpec[];
-  displayConfig: RecordDisplayConfig;
-  auditPolicy: TableAuditPolicy;
-  disableDirectInsert: boolean;
-};
+export type TableHeader = Pick<
+  PublicTable,
+  "id" | "baseId" | "kind" | "name" | "description" | "icon" | "columns" | "displayConfig" | "auditPolicy" | "disableDirectInsert"
+>;

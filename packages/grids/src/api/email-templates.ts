@@ -2,16 +2,18 @@ import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import {
-  CreateEmailTemplateSchema,
-  EmailTemplateDependencyMapSchema,
-  EmailTemplateListSchema,
-  EmailTemplateSchema,
-  UpdateEmailTemplateSchema,
-} from "../contracts";
+import { CreateEmailTemplateSchema, UpdateEmailTemplateSchema } from "../contracts";
 import { gridsService } from "../service";
 import { currentActorUserId, gateAt } from "./permissions";
-import { uuidParam } from "./route-params";
+import {
+  PublicEmailTemplateDependencyMapSchema,
+  PublicEmailTemplateListSchema,
+  PublicEmailTemplateSchema,
+  toPublicEmailTemplate,
+  toPublicEmailTemplateDependencies,
+  toPublicEmailTemplates,
+} from "./public-email-templates";
+import { internalIdParam, requirePublicIdParam, resolvePublicIdParam } from "./route-params";
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))
@@ -22,17 +24,17 @@ const app = new Hono<AuthContext>()
       tags: ["Grids:EmailTemplates"],
       summary: "List email templates for a base",
       responses: {
-        200: jsonResponse(EmailTemplateListSchema, "Email templates"),
+        200: jsonResponse(PublicEmailTemplateListSchema, "Email templates"),
         400: jsonResponse(ErrorResponseSchema, "Invalid base id"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
       },
     }),
     async (c) => {
-      const baseId = uuidParam(c, "baseId");
+      const baseId = await resolvePublicIdParam(c, "baseId", "base");
       if (!baseId) return c.json({ message: "Invalid base id" }, 400);
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json(await gridsService.emailTemplate.listForBase(baseId));
+      return c.json(await toPublicEmailTemplates(await gridsService.emailTemplate.listForBase(baseId)));
     },
   )
 
@@ -42,17 +44,17 @@ const app = new Hono<AuthContext>()
       tags: ["Grids:EmailTemplates"],
       summary: "List workflow dependencies for email templates",
       responses: {
-        200: jsonResponse(EmailTemplateDependencyMapSchema, "Email template dependencies"),
+        200: jsonResponse(PublicEmailTemplateDependencyMapSchema, "Email template dependencies"),
         400: jsonResponse(ErrorResponseSchema, "Invalid base id"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
       },
     }),
     async (c) => {
-      const baseId = uuidParam(c, "baseId");
+      const baseId = await resolvePublicIdParam(c, "baseId", "base");
       if (!baseId) return c.json({ message: "Invalid base id" }, 400);
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json(await gridsService.emailTemplate.listDependenciesForBase(baseId));
+      return c.json(await toPublicEmailTemplateDependencies(await gridsService.emailTemplate.listDependenciesForBase(baseId)));
     },
   )
 
@@ -62,48 +64,52 @@ const app = new Hono<AuthContext>()
       tags: ["Grids:EmailTemplates"],
       summary: "Create an email template",
       responses: {
-        201: jsonResponse(EmailTemplateSchema, "Created"),
+        201: jsonResponse(PublicEmailTemplateSchema, "Created"),
         400: jsonResponse(ErrorResponseSchema, "Invalid email template"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
       },
     }),
     v("json", CreateEmailTemplateSchema),
     async (c) => {
-      const baseId = uuidParam(c, "baseId");
+      const baseId = await resolvePublicIdParam(c, "baseId", "base");
       if (!baseId) return c.json({ message: "Invalid base id" }, 400);
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.emailTemplate.create(baseId, c.req.valid("json"), currentActorUserId(c)), 201);
+      const result = await gridsService.emailTemplate.create(baseId, c.req.valid("json"), currentActorUserId(c));
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json(await toPublicEmailTemplate(result.data), 201);
     },
   )
 
   .get(
     "/:templateId",
+    requirePublicIdParam("templateId", "emailTemplate", "Email template"),
     describeRoute({
       tags: ["Grids:EmailTemplates"],
       summary: "Get an email template",
       responses: {
-        200: jsonResponse(EmailTemplateSchema, "Email template"),
+        200: jsonResponse(PublicEmailTemplateSchema, "Email template"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
     async (c) => {
-      const template = await gridsService.emailTemplate.get(c.req.param("templateId")!);
+      const template = await gridsService.emailTemplate.get(internalIdParam(c, "templateId")!);
       if (!template) return c.json({ message: "Email template not found" }, 404);
       const gate = await gateAt(c, { baseId: template.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json(template);
+      return c.json(await toPublicEmailTemplate(template));
     },
   )
 
   .patch(
     "/:templateId",
+    requirePublicIdParam("templateId", "emailTemplate", "Email template"),
     describeRoute({
       tags: ["Grids:EmailTemplates"],
       summary: "Update an email template",
       responses: {
-        200: jsonResponse(EmailTemplateSchema, "Updated"),
+        200: jsonResponse(PublicEmailTemplateSchema, "Updated"),
         400: jsonResponse(ErrorResponseSchema, "Invalid email template"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
@@ -111,16 +117,19 @@ const app = new Hono<AuthContext>()
     }),
     v("json", UpdateEmailTemplateSchema),
     async (c) => {
-      const template = await gridsService.emailTemplate.get(c.req.param("templateId")!);
+      const template = await gridsService.emailTemplate.get(internalIdParam(c, "templateId")!);
       if (!template) return c.json({ message: "Email template not found" }, 404);
       const gate = await gateAt(c, { baseId: template.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return respond(c, () => gridsService.emailTemplate.update(template.id, c.req.valid("json"), currentActorUserId(c)));
+      const result = await gridsService.emailTemplate.update(template.id, c.req.valid("json"), currentActorUserId(c));
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json(await toPublicEmailTemplate(result.data));
     },
   )
 
   .delete(
     "/:templateId",
+    requirePublicIdParam("templateId", "emailTemplate", "Email template"),
     describeRoute({
       tags: ["Grids:EmailTemplates"],
       summary: "Delete an email template",
@@ -132,7 +141,7 @@ const app = new Hono<AuthContext>()
       },
     }),
     async (c) => {
-      const template = await gridsService.emailTemplate.get(c.req.param("templateId")!);
+      const template = await gridsService.emailTemplate.get(internalIdParam(c, "templateId")!);
       if (!template) return c.json({ message: "Email template not found" }, 404);
       const gate = await gateAt(c, { baseId: template.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));

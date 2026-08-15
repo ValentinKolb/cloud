@@ -1,4 +1,4 @@
-import { arg, command, confirmFlag, flag, printStructured } from "@valentinkolb/cloud/cli";
+import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
 import type {
   CreateDocumentLinkResponse,
   DocumentLink,
@@ -21,12 +21,13 @@ import {
   resolveDocumentTemplate,
   resolveDocumentTemplateFromCommand,
 } from "./documents-support";
-import { baseFlag, resolveBaseFromCommand, resolveTable, tableArgs, tableFlag } from "./resources";
+import { baseFlag, requirePublicId, resolveBaseFromCommand, resolveTable, tableArgs, tableFlag } from "./resources";
 import {
   applyDefined,
   JSON_BODY_INPUT,
   jsonRequest,
   type MessageResponse,
+  printCliStructured,
   printJsonOrMessage,
   printJsonOrTable,
   printReference,
@@ -78,11 +79,10 @@ export const documentTemplateCommands = [
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const templates = await listDocumentTemplates(ctx, table.id, { full: flags.full, min: flags.min });
       printJsonOrTable(ctx, templates, documentTemplateRows(templates), [
-        { key: "shortId", label: "SHORT" },
+        { key: "id", label: "ID" },
         { key: "name", label: "NAME" },
         { key: "enabled", label: "ENABLED" },
         { key: "updatedAt", label: "UPDATED" },
-        { key: "id", label: "ID" },
       ]);
     },
   }),
@@ -92,8 +92,8 @@ export const documentTemplateCommands = [
     flags: { ...baseFlag, ...tableFlag, ...documentTemplateFlag },
     async run({ ctx, args, flags }) {
       const { template } = await resolveDocumentTemplateFromCommand(ctx, args.args, flags);
-      if (!printStructured(ctx, template)) {
-        ctx.print(`${template.name} (${template.shortId})`);
+      if (!printCliStructured(ctx, template)) {
+        ctx.print(`${template.name} (${template.id})`);
         if (template.description) ctx.print(template.description);
         ctx.print(`enabled: ${template.enabled ? "yes" : "no"}`);
         ctx.print(`id: ${template.id}`);
@@ -150,7 +150,7 @@ export const documentTemplateCommands = [
         `/documents/templates/by-table/${encodeURIComponent(table.id)}`,
         jsonRequest("POST", body),
       );
-      printJsonOrMessage(ctx, template, `Created document template ${template.name} (${template.shortId}).`);
+      printJsonOrMessage(ctx, template, `Created document template ${template.name} (${template.id}).`);
     },
   }),
   command("document-templates update", {
@@ -195,7 +195,7 @@ export const documentTemplateCommands = [
         `/documents/templates/${encodeURIComponent(template.id)}`,
         jsonRequest("PATCH", body),
       );
-      printJsonOrMessage(ctx, updated, `Updated document template ${updated.name} (${updated.shortId}).`);
+      printJsonOrMessage(ctx, updated, `Updated document template ${updated.name} (${updated.id}).`);
     },
   }),
   command("document-templates delete", {
@@ -206,7 +206,7 @@ export const documentTemplateCommands = [
       if (!flags.yes) throw new Error("Pass --yes to delete.");
       const { template } = await resolveDocumentTemplateFromCommand(ctx, args.args, flags);
       await readApi<MessageResponse>(ctx, `/documents/templates/${encodeURIComponent(template.id)}`, jsonRequest("DELETE"));
-      printJsonOrMessage(ctx, { deleted: template.id }, `Deleted document template ${template.name} (${template.shortId}).`);
+      printJsonOrMessage(ctx, { deleted: template.id }, `Deleted document template ${template.name} (${template.id}).`);
     },
   }),
   command("document-templates preview-data", {
@@ -217,19 +217,19 @@ export const documentTemplateCommands = [
       ...tableFlag,
       ...documentTemplateFlag,
       body: JSON_BODY_INPUT,
-      record: flag.string({ description: "Record UUID" }),
+      record: flag.string({ description: "Record public id" }),
     },
     async run({ ctx, args, flags }) {
       const { template } = await resolveDocumentTemplateFromCommand(ctx, args.args, flags);
       const body = (await readJsonInput<Record<string, unknown>>(flags.body, "document preview JSON", false)) ?? {};
-      applyDefined(body, { recordId: flags.record });
+      applyDefined(body, { recordId: flags.record ? requirePublicId(flags.record, "Record id") : undefined });
       if (!body.recordId) throw new Error("Missing record id. Pass --record or --body JSON.");
       const preview = await readApi<DocumentPreviewResponse>(
         ctx,
         `/documents/templates/${encodeURIComponent(template.id)}/preview`,
         jsonRequest("POST", body),
       );
-      if (!printStructured(ctx, preview)) ctx.print(preview.html);
+      if (!printCliStructured(ctx, preview)) ctx.print(preview.html);
     },
   }),
   command("document-templates preview-pdf", {
@@ -240,13 +240,13 @@ export const documentTemplateCommands = [
       ...tableFlag,
       ...documentTemplateFlag,
       body: JSON_BODY_INPUT,
-      record: flag.string({ description: "Record UUID" }),
+      record: flag.string({ description: "Record public id" }),
       out: flag.string({ description: "Output PDF path" }),
     },
     async run({ ctx, args, flags }) {
       const { template } = await resolveDocumentTemplateFromCommand(ctx, args.args, flags);
       const body = (await readJsonInput<Record<string, unknown>>(flags.body, "document preview JSON", false)) ?? {};
-      applyDefined(body, { recordId: flags.record });
+      applyDefined(body, { recordId: flags.record ? requirePublicId(flags.record, "Record id") : undefined });
       if (!body.recordId) throw new Error("Missing record id. Pass --record or --body JSON.");
       await writeApiFile(ctx, `/documents/templates/${encodeURIComponent(template.id)}/preview-pdf`, jsonRequest("POST", body), flags.out);
     },
@@ -261,7 +261,7 @@ export const documentTemplateCommands = [
       ...tableFlag,
       ...documentTemplateFlag,
       body: JSON_BODY_INPUT,
-      record: flag.string({ description: "Preview record UUID" }),
+      record: flag.string({ description: "Preview record public id" }),
       source: flag.input({ name: "source", fileName: "source-file", valueLabel: "gql" }),
       html: flag.input({ name: "html", fileName: "html-file", valueLabel: "html" }),
       headerHtml: flag.input({ name: "header-html", fileName: "header-html-file", valueLabel: "html" }),
@@ -274,13 +274,13 @@ export const documentTemplateCommands = [
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const templateRef = flags.template ?? (flags.table ? rest[0] : rest[1]);
-      const template = templateRef ? await resolveDocumentTemplate(ctx, base, table, templateRef) : null;
+      const template = templateRef ? await resolveDocumentTemplate(ctx, table, templateRef) : null;
       const body = await readDraftTemplateBody(flags, template);
       const endpoint = template
         ? `/documents/templates/${encodeURIComponent(template.id)}/preview-data-draft`
         : `/documents/templates/by-table/${encodeURIComponent(table.id)}/preview-data-draft`;
       const preview = await readApi<DocumentPreviewResponse>(ctx, endpoint, jsonRequest("POST", body));
-      if (!printStructured(ctx, preview)) ctx.print(preview.html);
+      if (!printCliStructured(ctx, preview)) ctx.print(preview.html);
     },
   }),
   command("document-templates preview-draft-pdf", {
@@ -291,7 +291,7 @@ export const documentTemplateCommands = [
       ...tableFlag,
       ...documentTemplateFlag,
       body: JSON_BODY_INPUT,
-      record: flag.string({ description: "Preview record UUID" }),
+      record: flag.string({ description: "Preview record public id" }),
       source: flag.input({ name: "source", fileName: "source-file", valueLabel: "gql" }),
       html: flag.input({ name: "html", fileName: "html-file", valueLabel: "html" }),
       headerHtml: flag.input({ name: "header-html", fileName: "header-html-file", valueLabel: "html" }),
@@ -305,7 +305,7 @@ export const documentTemplateCommands = [
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const templateRef = flags.template ?? (flags.table ? rest[0] : rest[1]);
-      const template = templateRef ? await resolveDocumentTemplate(ctx, base, table, templateRef) : null;
+      const template = templateRef ? await resolveDocumentTemplate(ctx, table, templateRef) : null;
       const body = await readDraftTemplateBody(flags, template);
       const endpoint = template
         ? `/documents/templates/${encodeURIComponent(template.id)}/preview-draft`
@@ -342,12 +342,11 @@ export const documentCommands = [
         })}`,
       );
       printJsonOrTable(ctx, payload, documentRunRows(payload.items), [
-        { key: "shortId", label: "SHORT" },
+        { key: "id", label: "ID" },
         { key: "number", label: "NUMBER" },
         { key: "filename", label: "FILENAME" },
         { key: "tags", label: "TAGS" },
         { key: "generatedAt", label: "GENERATED" },
-        { key: "id", label: "ID" },
       ]);
       if (ctx.options.output !== "json" && payload.nextCursor) ctx.print(`next cursor: ${payload.nextCursor}`);
     },
@@ -379,10 +378,7 @@ export const documentCommands = [
           limit: flags.limit,
         })}`,
       );
-      if (ctx.options.output === "json") {
-        ctx.json(payload);
-        return;
-      }
+      if (printCliStructured(ctx, payload)) return;
       if (payload.folders.length > 0) {
         ctx.table(documentFolderRows(payload.folders), [
           { key: "kind", label: "KIND" },
@@ -393,12 +389,11 @@ export const documentCommands = [
       }
       if (payload.items.length > 0) {
         ctx.table(documentRunRows(payload.items), [
-          { key: "shortId", label: "SHORT" },
+          { key: "id", label: "ID" },
           { key: "number", label: "NUMBER" },
           { key: "filename", label: "FILENAME" },
           { key: "tags", label: "TAGS" },
           { key: "generatedAt", label: "GENERATED" },
-          { key: "id", label: "ID" },
         ]);
       }
       if (payload.folders.length === 0 && payload.items.length === 0) ctx.print("No documents.");
@@ -408,22 +403,21 @@ export const documentCommands = [
   command("documents by-record", {
     summary: "List generated documents for one record",
     args: tableArgs,
-    flags: { ...baseFlag, ...tableFlag, record: flag.string({ description: "Record UUID" }) },
+    flags: { ...baseFlag, ...tableFlag, record: flag.string({ description: "Record public id" }) },
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table && flags.record ? 0 : 2);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
-      const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
+      const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
       const payload = await readApi<DocumentRunSummaryList>(
         ctx,
         `/documents/runs/by-record/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}`,
       );
       printJsonOrTable(ctx, payload, documentRunRows(payload.items), [
-        { key: "shortId", label: "SHORT" },
+        { key: "id", label: "ID" },
         { key: "number", label: "NUMBER" },
         { key: "filename", label: "FILENAME" },
         { key: "tags", label: "TAGS" },
         { key: "generatedAt", label: "GENERATED" },
-        { key: "id", label: "ID" },
       ]);
     },
   }),
@@ -435,20 +429,20 @@ export const documentCommands = [
       ...tableFlag,
       ...documentTemplateFlag,
       body: JSON_BODY_INPUT,
-      record: flag.string({ description: "Record UUID" }),
+      record: flag.string({ description: "Record public id" }),
       filename: flag.string({ description: "Optional generated filename override" }),
       tag: flag.stringList({ description: "Generated document tag. Repeatable." }),
       out: flag.string({ description: "Output PDF path" }),
     },
     examples: [
-      "cld grids documents generate Bookshop Invoices Invoice --record <record-uuid> --out invoice.pdf",
+      "cld grids documents generate Bookshop Invoices Invoice --record <record-id> --out invoice.pdf",
       'cld grids documents generate --base Bookshop --table Labels --template ItemLabel --body \'{"recordId":"...","tags":["printed"]}\' --out label.pdf',
     ],
     async run({ ctx, args, flags }) {
       const { template } = await resolveDocumentTemplateFromCommand(ctx, args.args, flags);
       const body = (await readJsonInput<Record<string, unknown>>(flags.body, "document generation JSON", false)) ?? {};
       applyDefined(body, {
-        recordId: flags.record,
+        recordId: flags.record ? requirePublicId(flags.record, "Record id") : undefined,
         filename: flags.filename,
         tags: flags.tag.length > 0 ? flags.tag : undefined,
       });
@@ -458,7 +452,7 @@ export const documentCommands = [
   }),
   command("documents update", {
     summary: "Update generated document metadata",
-    args: { run: arg.required({ description: "Generated document run UUID" }) },
+    args: { run: arg.required({ description: "Generated document run public id" }) },
     flags: {
       body: JSON_BODY_INPUT,
       filename: flag.string({ description: "Generated filename" }),
@@ -470,23 +464,35 @@ export const documentCommands = [
         filename: flags.filename,
         tags: flags.tag.length > 0 ? flags.tag : undefined,
       });
-      const updated = await readApi<DocumentRunSummary>(ctx, `/documents/runs/${encodeURIComponent(args.run)}`, jsonRequest("PATCH", body));
+      const updated = await readApi<DocumentRunSummary>(
+        ctx,
+        `/documents/runs/${encodeURIComponent(requirePublicId(args.run, "Document run id"))}`,
+        jsonRequest("PATCH", body),
+      );
       printJsonOrMessage(ctx, updated, `Updated document ${updated.filename}.`);
     },
   }),
   command("documents download", {
     summary: "Download a generated document PDF from its stored snapshot",
-    args: { run: arg.required({ description: "Generated document run UUID" }) },
+    args: { run: arg.required({ description: "Generated document run public id" }) },
     flags: { out: flag.string({ description: "Output PDF path" }) },
     async run({ ctx, args, flags }) {
-      await writeApiFile(ctx, `/documents/runs/${encodeURIComponent(args.run)}/download`, undefined, flags.out);
+      await writeApiFile(
+        ctx,
+        `/documents/runs/${encodeURIComponent(requirePublicId(args.run, "Document run id"))}/download`,
+        undefined,
+        flags.out,
+      );
     },
   }),
   command("documents links list", {
     summary: "List public links for a generated document",
-    args: { run: arg.required({ description: "Generated document run UUID" }) },
+    args: { run: arg.required({ description: "Generated document run public id" }) },
     async run({ ctx, args }) {
-      const payload = await readApi<DocumentLinkListResponse>(ctx, `/documents/runs/${encodeURIComponent(args.run)}/links`);
+      const payload = await readApi<DocumentLinkListResponse>(
+        ctx,
+        `/documents/runs/${encodeURIComponent(requirePublicId(args.run, "Document run id"))}/links`,
+      );
       printJsonOrTable(ctx, payload, documentLinkRows(payload.items), [
         { key: "id", label: "ID" },
         { key: "expiresAt", label: "EXPIRES" },
@@ -498,7 +504,7 @@ export const documentCommands = [
   }),
   command("documents links create", {
     summary: "Create an expiring public link for a generated document",
-    args: { run: arg.required({ description: "Generated document run UUID" }) },
+    args: { run: arg.required({ description: "Generated document run public id" }) },
     flags: {
       expiresIn: flag.enum(["1d", "7d", "30d", "90d"] as const, {
         name: "expires-in",
@@ -510,17 +516,21 @@ export const documentCommands = [
     async run({ ctx, args, flags }) {
       const payload = await readApi<CreateDocumentLinkResponse>(
         ctx,
-        `/documents/runs/${encodeURIComponent(args.run)}/links`,
+        `/documents/runs/${encodeURIComponent(requirePublicId(args.run, "Document run id"))}/links`,
         jsonRequest("POST", { expiresIn: flags.expiresIn, comment: flags.comment }),
       );
-      if (!printStructured(ctx, payload)) ctx.print(payload.url);
+      if (!printCliStructured(ctx, payload)) ctx.print(payload.url);
     },
   }),
   command("documents links revoke", {
     summary: "Revoke a public document link",
-    args: { link: arg.required({ description: "Document link UUID" }) },
+    args: { link: arg.required({ description: "Document link public id" }) },
     async run({ ctx, args }) {
-      const link = await readApi<DocumentLink>(ctx, `/documents/links/${encodeURIComponent(args.link)}/revoke`, jsonRequest("POST"));
+      const link = await readApi<DocumentLink>(
+        ctx,
+        `/documents/links/${encodeURIComponent(requirePublicId(args.link, "Document link id"))}/revoke`,
+        jsonRequest("POST"),
+      );
       printJsonOrMessage(ctx, link, `Revoked document link ${link.id}.`);
     },
   }),

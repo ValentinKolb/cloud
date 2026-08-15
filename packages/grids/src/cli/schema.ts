@@ -1,15 +1,25 @@
-import { arg, command, confirmFlag, flag, paginationFlags, printStructured } from "@valentinkolb/cloud/cli";
+import { arg, command, confirmFlag, flag, paginationFlags } from "@valentinkolb/cloud/cli";
 import type {
-  FederatedDraftInput,
-  FederatedRevisionView,
-  FederatedSourceCandidatePage,
-  FederatedSourcePublication,
-  FederatedTableConfig,
-  FederatedValidation,
-  Field,
-  Table,
-  TableKind,
-} from "../contracts";
+  PublicFederatedRevisionView as FederatedRevisionView,
+  PublicFederatedSourcePublication as FederatedSourcePublication,
+  PublicField as Field,
+  PublicFederatedSourceCandidate,
+  PublicTable as Table,
+} from "../api/public-dto";
+import { PublicFederatedDraftInputSchema } from "../api/public-dto";
+import type { TableKind } from "../contracts";
+
+type FederatedDraftInput = ReturnType<typeof PublicFederatedDraftInputSchema.parse>;
+type FederatedTableConfig = { current: FederatedRevisionView | null; draft: FederatedRevisionView };
+type FederatedValidation = { valid: boolean; diagnostics: FederatedRevisionView["diagnostics"] };
+
+type FederatedSourceCandidatePage = {
+  items: PublicFederatedSourceCandidate[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 import {
   baseArgs,
   baseFlag,
@@ -18,16 +28,17 @@ import {
   resolveBase,
   resolveBaseFromCommand,
   resolveField,
+  resolveNamedResource,
   resolveTable,
   tableArgs,
   tableFlag,
 } from "./resources";
 import {
   applyDefined,
-  exactMatch,
   JSON_BODY_INPUT,
   jsonRequest,
   type MessageResponse,
+  printCliStructured,
   printJsonOrMessage,
   printJsonOrTable,
   readApi,
@@ -76,14 +87,7 @@ const resolveSelectOption = (field: Field, ref: string): string => {
   throw new Error(`Unknown option "${ref}" on field "${field.name}".`);
 };
 
-const resolveFieldFromList = (fields: Field[], ref: string): Field =>
-  exactMatch(
-    fields,
-    ref,
-    [(field) => field.id, (field) => field.shortId, (field) => field.name],
-    "field",
-    (field) => `${field.name} (${field.shortId})`,
-  );
+const resolveFieldFromList = (fields: Field[], ref: string): Field => resolveNamedResource(fields, ref, "field");
 
 const friendlyFederatedDraft = async (
   ctx: Parameters<typeof resolveBase>[0],
@@ -133,8 +137,10 @@ const readFederatedDraftInput = async (
   targetTable: Table,
   body: unknown,
 ): Promise<FederatedDraftInput> => {
-  if (body && typeof body === "object" && Array.isArray((body as FederatedDraftInput).sourceTableIds)) {
-    return body as FederatedDraftInput;
+  if (body && typeof body === "object" && "sourceTableIds" in body) {
+    const parsed = PublicFederatedDraftInputSchema.safeParse(body);
+    if (parsed.success) return parsed.data;
+    throw new Error(`Invalid Combined table draft: ${parsed.error.issues[0]?.message ?? "invalid public input"}.`);
   }
   return friendlyFederatedDraft(ctx, targetBaseId, targetTable, body as FriendlyFederatedDraft);
 };
@@ -148,12 +154,11 @@ export const tableCommands = [
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
       const tables = await listTables(ctx, base.id);
       printJsonOrTable(ctx, tables, tableRows(tables), [
-        { key: "shortId", label: "SHORT" },
+        { key: "id", label: "ID" },
         { key: "name", label: "NAME" },
         { key: "kind", label: "KIND" },
         { key: "fields", label: "FIELDS" },
         { key: "updatedAt", label: "UPDATED" },
-        { key: "id", label: "ID" },
       ]);
     },
   }),
@@ -164,8 +169,8 @@ export const tableCommands = [
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
-      if (!printStructured(ctx, table)) {
-        ctx.print(`${table.name} (${table.shortId})`);
+      if (!printCliStructured(ctx, table)) {
+        ctx.print(`${table.name} (${table.id})`);
         if (table.description) ctx.print(table.description);
         ctx.print(`id: ${table.id}`);
         ctx.print(`kind: ${table.kind === "federated" ? "combined" : "stored"}`);
@@ -203,7 +208,7 @@ export const tableCommands = [
       });
       if (!body.name) throw new Error("Missing table name. Pass --name or --body JSON.");
       const table = await readApi<Table>(ctx, `/tables/by-base/${encodeURIComponent(base.id)}`, jsonRequest("POST", body));
-      printJsonOrMessage(ctx, table, `Created table ${table.name} (${table.shortId}).`);
+      printJsonOrMessage(ctx, table, `Created table ${table.name} (${table.id}).`);
     },
   }),
   command("tables update", {
@@ -230,7 +235,7 @@ export const tableCommands = [
         disableDirectInsert: flags.disableDirectInsert ? true : flags.enableDirectInsert ? false : undefined,
       });
       const updated = await readApi<Table>(ctx, `/tables/${encodeURIComponent(table.id)}`, jsonRequest("PATCH", body));
-      printJsonOrMessage(ctx, updated, `Updated table ${updated.name} (${updated.shortId}).`);
+      printJsonOrMessage(ctx, updated, `Updated table ${updated.name} (${updated.id}).`);
     },
   }),
   command("tables delete", {
@@ -242,15 +247,15 @@ export const tableCommands = [
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       await readApi<MessageResponse>(ctx, `/tables/${encodeURIComponent(table.id)}`, jsonRequest("DELETE"));
-      printJsonOrMessage(ctx, { deleted: table.id }, `Deleted table ${table.name} (${table.shortId}).`);
+      printJsonOrMessage(ctx, { deleted: table.id }, `Deleted table ${table.name} (${table.id}).`);
     },
   }),
   command("tables restore", {
-    summary: "Restore a deleted table by UUID",
-    args: { table: arg.required({ description: "Table UUID" }) },
+    summary: "Restore a deleted table by public id",
+    args: { table: arg.required({ description: "Table public id" }) },
     async run({ ctx, args }) {
       const table = await readApi<Table>(ctx, `/tables/${encodeURIComponent(args.table)}/restore`, jsonRequest("POST"));
-      printJsonOrMessage(ctx, table, `Restored table ${table.name} (${table.shortId}).`);
+      printJsonOrMessage(ctx, table, `Restored table ${table.name} (${table.id}).`);
     },
   }),
   command("tables combined get", {
@@ -262,8 +267,8 @@ export const tableCommands = [
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       if (table.kind !== "federated") throw new Error(`Table "${table.name}" is not a Combined table.`);
       const config = await readApi<FederatedTableConfig>(ctx, `/tables/${encodeURIComponent(table.id)}/federation`);
-      if (!printStructured(ctx, config)) {
-        ctx.print(`${table.name} (${table.shortId})`);
+      if (!printCliStructured(ctx, config)) {
+        ctx.print(`${table.name} (${table.id})`);
         ctx.print(
           `draft: revision ${config.draft.revision} · ${config.draft.sources.length} sources · ${config.draft.diagnostics.length} diagnostics`,
         );
@@ -298,16 +303,16 @@ export const tableCommands = [
       );
       const rows = candidates.items.map((candidate) => ({
         base: candidate.base.name,
-        baseShort: candidate.base.shortId,
+        baseId: candidate.base.id,
         table: candidate.table.name,
-        tableShort: candidate.table.shortId,
+        tableId: candidate.table.id,
         fields: candidate.fieldCount,
       }));
       printJsonOrTable(ctx, candidates, rows, [
         { key: "base", label: "BASE" },
-        { key: "baseShort", label: "BASE SHORT" },
+        { key: "baseId", label: "BASE ID" },
         { key: "table", label: "TABLE" },
-        { key: "tableShort", label: "TABLE SHORT" },
+        { key: "tableId", label: "TABLE ID" },
         { key: "fields", label: "FIELDS" },
       ]);
     },
@@ -350,7 +355,7 @@ export const tableCommands = [
   command("tables combined validate", {
     summary: "Validate a Combined table configuration without saving it",
     description:
-      'The body may use API UUIDs or friendly refs: {"sources":[{"base":"East","table":"Items","mappings":[{"target":"Name","source":"Title"}]}]}.',
+      'The body uses exact names or public ids: {"sources":[{"base":"East","table":"Items","mappings":[{"target":"Name","source":"Title"}]}]}.',
     args: tableArgs,
     flags: { ...baseFlag, ...tableFlag, body: JSON_BODY_INPUT },
     async run({ ctx, args, flags }) {
@@ -363,7 +368,7 @@ export const tableCommands = [
         `/tables/${encodeURIComponent(table.id)}/federation/validate`,
         jsonRequest("POST", input),
       );
-      if (!printStructured(ctx, result))
+      if (!printCliStructured(ctx, result))
         if (result.valid) ctx.print("Combined table configuration is valid.");
         else for (const diagnostic of result.diagnostics) ctx.print(`${diagnostic.code}: ${diagnostic.message}`);
     },
@@ -371,7 +376,7 @@ export const tableCommands = [
   command("tables combined draft", {
     summary: "Replace and save a Combined table draft",
     description:
-      'Use names or short ids in a friendly body: {"sources":[{"base":"East","table":"Items","mappings":[{"target":"Name","source":"Title"},{"target":"Status","source":"State","options":{"In stock":"Available"}}]}]}.',
+      'Use exact names or public ids: {"sources":[{"base":"East","table":"Items","mappings":[{"target":"Name","source":"Title"},{"target":"Status","source":"State","options":{"In stock":"Available"}}]}]}.',
     args: tableArgs,
     flags: { ...baseFlag, ...tableFlag, body: JSON_BODY_INPUT },
     async run({ ctx, args, flags }) {
@@ -411,17 +416,17 @@ export const tableCommands = [
   command("tables combined revoke", {
     summary: "Revoke a stored source from a published Combined table",
     description:
-      "Requires only admin access to the source base; target-table is the Combined table UUID shown by the publications command.",
+      "Requires only admin access to the source base; target-table is the Combined table public id shown by the publications command.",
     args: tableArgs,
     flags: {
       ...baseFlag,
       ...tableFlag,
-      targetTable: flag.string({ name: "target-table", description: "Published Combined table UUID" }),
+      targetTable: flag.string({ name: "target-table", description: "Published Combined table public id" }),
       yes: confirmFlag("Revoke this source publication"),
     },
     async run({ ctx, args, flags }) {
       if (!flags.yes) throw new Error("Pass --yes to revoke the source publication.");
-      if (!flags.targetTable) throw new Error("Pass --target-table with the published Combined table UUID.");
+      if (!flags.targetTable) throw new Error("Pass --target-table with the published Combined table public id.");
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
       const source = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "source table"));
       if (source.kind !== "stored") throw new Error(`Table "${source.name}" is not a stored source table.`);
@@ -471,26 +476,25 @@ export const fieldCommands = [
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const fields = await listFields(ctx, table.id);
       printJsonOrTable(ctx, fields, fieldRows(fields), [
-        { key: "shortId", label: "SHORT" },
+        { key: "id", label: "ID" },
         { key: "name", label: "NAME" },
         { key: "type", label: "TYPE" },
         { key: "required", label: "REQ" },
         { key: "presentable", label: "LABEL" },
-        { key: "id", label: "ID" },
       ]);
     },
   }),
   command("fields get", {
     summary: "Show a field",
     args: tableArgs,
-    flags: { ...baseFlag, ...tableFlag, field: flag.string({ description: "Field id, short id, or exact name" }) },
+    flags: { ...baseFlag, ...tableFlag, field: flag.string({ description: "Field public id or exact name" }) },
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? (flags.field ? 0 : 1) : 2);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const fieldRef = flags.field ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "field");
       const field = await resolveField(ctx, table.id, fieldRef);
-      if (!printStructured(ctx, field)) {
-        ctx.print(`${field.name} (${field.shortId})`);
+      if (!printCliStructured(ctx, field)) {
+        ctx.print(`${field.name} (${field.id})`);
         ctx.print(`type: ${field.type}`);
         ctx.print(`id: ${field.id}`);
       }
@@ -514,7 +518,7 @@ export const fieldCommands = [
     },
     examples: [
       'cld grids fields create Bookshop Authors --name Email --type text --config \'{"regex":"^[^@]+@[^@]+$"}\'',
-      'cld grids fields create Bookshop Orders --name Customer --type relation --config \'{"targetTableId":"<table-uuid>","cardinality":"single"}\'',
+      'cld grids fields create Bookshop Orders --name Customer --type relation --config \'{"targetTableId":"<table-id>","cardinality":"single"}\'',
       "cld grids fields create Bookshop Orders --body-file field.json",
     ],
     async run({ ctx, args, flags }) {
@@ -533,7 +537,7 @@ export const fieldCommands = [
       if (!body.name) throw new Error("Missing field name. Pass --name or --body JSON.");
       if (!body.type) throw new Error("Missing field type. Pass --type or --body JSON.");
       const field = await readApi<Field>(ctx, `/fields/by-table/${encodeURIComponent(table.id)}`, jsonRequest("POST", body));
-      printJsonOrMessage(ctx, field, `Created field ${field.name} (${field.shortId}).`);
+      printJsonOrMessage(ctx, field, `Created field ${field.name} (${field.id}).`);
     },
   }),
   command("fields update", {
@@ -542,7 +546,7 @@ export const fieldCommands = [
     flags: {
       ...baseFlag,
       ...tableFlag,
-      field: flag.string({ description: "Field id, short id, or exact name" }),
+      field: flag.string({ description: "Field public id or exact name" }),
       body: JSON_BODY_INPUT,
       name: flag.string({ description: "Field name" }),
       description: flag.string({ description: "Field description" }),
@@ -568,7 +572,7 @@ export const fieldCommands = [
         hideInTable: flags.hideInTable ? true : flags.showInTable ? false : undefined,
       });
       const updated = await readApi<Field>(ctx, `/fields/${encodeURIComponent(field.id)}`, jsonRequest("PATCH", body));
-      printJsonOrMessage(ctx, updated, `Updated field ${updated.name} (${updated.shortId}).`);
+      printJsonOrMessage(ctx, updated, `Updated field ${updated.name} (${updated.id}).`);
     },
   }),
   command("fields delete", {
@@ -577,7 +581,7 @@ export const fieldCommands = [
     flags: {
       ...baseFlag,
       ...tableFlag,
-      field: flag.string({ description: "Field id, short id, or exact name" }),
+      field: flag.string({ description: "Field public id or exact name" }),
       yes: confirmFlag("Delete this field"),
     },
     async run({ ctx, args, flags }) {
@@ -586,27 +590,27 @@ export const fieldCommands = [
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const field = await resolveField(ctx, table.id, flags.field ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "field"));
       await readApi<MessageResponse>(ctx, `/fields/${encodeURIComponent(field.id)}`, jsonRequest("DELETE"));
-      printJsonOrMessage(ctx, { deleted: field.id }, `Deleted field ${field.name} (${field.shortId}).`);
+      printJsonOrMessage(ctx, { deleted: field.id }, `Deleted field ${field.name} (${field.id}).`);
     },
   }),
   command("fields restore", {
-    summary: "Restore a deleted field by UUID",
-    args: { field: arg.required({ description: "Field UUID" }) },
+    summary: "Restore a deleted field by public id",
+    args: { field: arg.required({ description: "Field public id" }) },
     async run({ ctx, args }) {
       const field = await readApi<Field>(ctx, `/fields/${encodeURIComponent(args.field)}/restore`, jsonRequest("POST"));
-      printJsonOrMessage(ctx, field, `Restored field ${field.name} (${field.shortId}).`);
+      printJsonOrMessage(ctx, field, `Restored field ${field.name} (${field.id}).`);
     },
   }),
   command("fields dependents", {
     summary: "Show field dependents",
     args: tableArgs,
-    flags: { ...baseFlag, ...tableFlag, field: flag.string({ description: "Field id, short id, or exact name" }) },
+    flags: { ...baseFlag, ...tableFlag, field: flag.string({ description: "Field public id or exact name" }) },
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? (flags.field ? 0 : 1) : 2);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const field = await resolveField(ctx, table.id, flags.field ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "field"));
       const payload = await readApi<FieldDependentsResponse>(ctx, `/fields/${encodeURIComponent(field.id)}/dependents`);
-      if (!printStructured(ctx, payload)) {
+      if (!printCliStructured(ctx, payload)) {
         ctx.print(payload.hasBlocking ? "Blocking dependents found." : "No blocking dependents.");
         ctx.table(payload.dependents as Record<string, unknown>[], []);
       }

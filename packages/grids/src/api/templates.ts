@@ -3,9 +3,9 @@ import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/
 import { Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
-import { BaseSchema } from "../contracts";
 import { gridsService } from "../service";
 import { currentActorUser, gateCredentialScope } from "./permissions";
+import { PublicBaseSchema, toPublicBase } from "./public-dto";
 
 const TemplateSummarySchema = z.object({
   id: z.string(),
@@ -42,7 +42,7 @@ export const createTemplatesApi = (deps: { requireAuthenticated?: MiddlewareHand
         tags: ["Grids:Templates"],
         summary: "Create a base from a built-in template",
         responses: {
-          201: jsonResponse(BaseSchema, "Created base"),
+          201: jsonResponse(PublicBaseSchema, "Created base"),
           400: jsonResponse(ErrorResponseSchema, "Invalid template"),
           404: jsonResponse(ErrorResponseSchema, "Template not found"),
         },
@@ -54,16 +54,12 @@ export const createTemplatesApi = (deps: { requireAuthenticated?: MiddlewareHand
         const user = currentActorUser(c);
         if (!user) return c.json({ message: "Sign in to create a base from this template." }, 403);
         const body = c.req.valid("json");
-        return respond(
-          c,
-          () =>
-            gridsService.template.instantiate(
-              c.req.param("templateId")!,
-              { name: body.name, withSampleData: body.withSampleData },
-              user.id,
-            ),
-          201,
+        const result = await gridsService.template.instantiate(
+          c.req.param("templateId")!,
+          { name: body.name, withSampleData: body.withSampleData },
+          user.id,
         );
+        return result.ok ? c.json(toPublicBase(result.data), 201) : c.json({ message: result.error.message }, result.error.status);
       },
     );
 

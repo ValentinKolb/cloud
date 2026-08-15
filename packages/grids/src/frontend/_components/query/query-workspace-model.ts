@@ -1,5 +1,5 @@
-import type { DslQueryPreviewResponse } from "../../../contracts";
-import type { Field, Table, View } from "../../../service";
+import type { PublicDslQueryPreviewResponse } from "../../../api/gql-public";
+import type { PublicField as Field, PublicTable as Table, PublicView as View } from "../../../api/public-dto";
 
 export type QueryWorkspaceCurrentSource =
   | { kind: "table"; tableId: string; label: string; ref: string }
@@ -52,7 +52,7 @@ type PreviewSummary =
       limit?: number;
     };
 
-export const previewSummary = (preview: DslQueryPreviewResponse | null, loading: boolean): PreviewSummary => {
+export const previewSummary = (preview: PublicDslQueryPreviewResponse | null, loading: boolean): PreviewSummary => {
   if (loading) return { kind: "checking", label: "Checking", tone: "pending" };
   if (!preview) return { kind: "idle", label: "No result", tone: "muted" };
   if (!preview.ok) return { kind: "issues", label: "Issues", tone: "danger", diagnostics: preview.diagnostics.length };

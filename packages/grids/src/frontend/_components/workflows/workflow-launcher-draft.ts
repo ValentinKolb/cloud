@@ -1,9 +1,10 @@
 import type { WorkflowIrInput, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
-import type { GridsWorkflowLauncher, GridsWorkflowLauncherConfig, GridsWorkflowLauncherKind } from "../../../workflows/contracts";
+import type { GridsWorkflowLauncherConfig, GridsWorkflowLauncherKind } from "../../../workflows/contracts";
+import type { PublicWorkflowLauncher } from "../workspace/workspace-public-state-model";
 import { workflowInputLabel, workflowInputRequired } from "./workflow-trigger-actions";
 
 export const customAppLauncherConfigForSave = (
-  launcher?: GridsWorkflowLauncher,
+  launcher?: Pick<PublicWorkflowLauncher, "config">,
   inputMode: "fixed" | "prompt" = "fixed",
   inputBindings?: Record<string, WorkflowJsonValue>,
 ): Extract<GridsWorkflowLauncherConfig, { kind: "customApp" }> =>

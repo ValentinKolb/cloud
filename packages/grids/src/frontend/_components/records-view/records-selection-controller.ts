@@ -1,10 +1,9 @@
 import { prompts } from "@k2b/ui";
 import { type Accessor, createEffect, createMemo, createSignal, onCleanup, type Setter } from "solid-js";
 import { apiClient } from "../../../api/client";
-import type { TableQueryResult } from "../../../contracts";
-import type { GridRecord } from "../../../service";
+import type { PublicGridRecord as GridRecord, PublicTableQueryResult as TableQueryResult } from "../../../api/public-dto";
 import { errorMessage } from "../utils/api-helpers";
-import type { WorkspaceRecordDetail } from "../workspace/workspace-state-model";
+import type { PublicWorkspaceRecordDetail as WorkspaceRecordDetail } from "../workspace/workspace-public-state-model";
 import { visibleIdsFromResult } from "./live-refresh";
 
 type RecordsSelectionControllerOptions = {
@@ -71,7 +70,7 @@ export const createRecordsSelectionController = (options: RecordsSelectionContro
     );
     if (response.status === 403 || response.status === 404) return emptyDetail(recordId);
     if (!response.ok) throw new Error(await errorMessage(response, "Could not load record details"));
-    return (await response.json()) as WorkspaceRecordDetail;
+    return response.json();
   };
 
   createEffect(() => {

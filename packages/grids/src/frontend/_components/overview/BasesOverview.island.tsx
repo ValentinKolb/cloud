@@ -1,9 +1,9 @@
-import { AppOverview, Pagination, prompts, TextInput } from "@k2b/ui";
 import { navigateTo } from "@k2b/ssr/nav";
 import { mutation as mutations, timed } from "@k2b/stdlib/solid";
+import { AppOverview, Pagination, prompts, TextInput } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { Base } from "../../../service";
+import type { PublicBase } from "../../../api/public-dto";
 import { errorMessage } from "../utils/api-helpers";
 
 type TemplateSummary = {
@@ -15,7 +15,7 @@ type TemplateSummary = {
 };
 
 type Props = {
-  bases: Base[];
+  bases: PublicBase[];
   total: number;
   limit: number;
   offset: number;
@@ -35,7 +35,7 @@ const setQueryParam = (value: string, page: number) => {
 
 export default function BasesOverview(props: Props) {
   const [query, setQuery] = createSignal(props.initialQuery);
-  const [bases, setBases] = createSignal<Base[]>(props.bases);
+  const [bases, setBases] = createSignal<PublicBase[]>(props.bases);
   const [total, setTotal] = createSignal(props.total);
   const [offset, setOffset] = createSignal(props.offset);
   const [creatingTemplateId, setCreatingTemplateId] = createSignal<string | null>(null);
@@ -75,7 +75,7 @@ export default function BasesOverview(props: Props) {
   }, 250);
   onCleanup(() => abortCtl?.abort());
 
-  const createBaseMutation = mutations.create<Base | null, void>({
+  const createBaseMutation = mutations.create<PublicBase | null, void>({
     mutation: async () => {
       const result = await prompts.form({
         title: "New base",
@@ -97,12 +97,12 @@ export default function BasesOverview(props: Props) {
       return res.json();
     },
     onSuccess: (base) => {
-      if (base) navigateTo(`/app/grids/${base.shortId}`);
+      if (base) navigateTo(`/app/grids/${base.id}`);
     },
     onError: (e) => prompts.error(e.message),
   });
 
-  const createFromTemplateMutation = mutations.create<Base | null, TemplateSummary>({
+  const createFromTemplateMutation = mutations.create<PublicBase | null, TemplateSummary>({
     mutation: async (template) => {
       const result = await prompts.form({
         title: `Create ${template.name}`,
@@ -136,7 +136,7 @@ export default function BasesOverview(props: Props) {
     },
     onSuccess: (base) => {
       setCreatingTemplateId(null);
-      if (base) navigateTo(`/app/grids/${base.shortId}`);
+      if (base) navigateTo(`/app/grids/${base.id}`);
     },
     onError: (e) => {
       setCreatingTemplateId(null);
@@ -210,7 +210,7 @@ export default function BasesOverview(props: Props) {
             <For each={bases()}>
               {(base) => (
                 <a
-                  href={`/app/grids/${base.shortId}`}
+                  href={`/app/grids/${base.id}`}
                   class="paper p-4 flex items-center gap-4 hover:paper-highlighted transition-all no-underline"
                   style={`view-transition-name: grids-base-card-${base.id}`}
                 >

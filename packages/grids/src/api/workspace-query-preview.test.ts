@@ -7,6 +7,7 @@ import { withInitialGqlResults } from "./workspace-query-preview";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
 const viewId = "22222222-2222-4222-8222-222222222222";
+const appPublicId = "APP001";
 let savedViewCalls: Array<{ baseId: string; viewId: string; options: unknown }> = [];
 let gqlCalls: Array<{ baseId: string; input: unknown; limits: unknown }> = [];
 const context = {
@@ -43,7 +44,7 @@ const customAppState = (): GridsWorkspaceState =>
       kind: "customApp",
       app: {
         id: "33333333-3333-4333-8333-333333333333",
-        shortId: "APP01",
+        shortId: appPublicId,
         name: "Preview App",
         draftDefinition: {
           startPageId: "home",
@@ -147,7 +148,7 @@ describe("workspace initial GQL results", () => {
           "auth.name": null,
           "auth.username": null,
           "auth.email": null,
-          "app.id": "33333333-3333-4333-8333-333333333333",
+          "app.id": appPublicId,
           "page.id": "home",
           "base.id": baseId,
           "time.timeZone": "UTC",

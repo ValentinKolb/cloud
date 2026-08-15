@@ -5,12 +5,12 @@ import type { Field, GridRecord } from "./types";
 
 // =============================================================================
 // enrichRecordsWithFormulas — pure in-memory function. Tests the dependency
-// ordering, cycle detection, shortId resolution, and currency-precision
+// ordering, cycle detection, public-ID resolution, and currency-precision
 // integration that powers every records read.
 // =============================================================================
 
 const mkField = (overrides: Partial<Field> & Pick<Field, "id" | "type">): Field => ({
-  shortId: overrides.id.slice(0, 5),
+  shortId: overrides.id.slice(0, 6),
   tableId: "00000000-0000-0000-0000-000000000000",
   name: overrides.id,
   description: null,
@@ -38,6 +38,7 @@ const mkFormula = (id: string, shortId: string, expression: string): Field =>
 
 const mkRecord = (id: string, data: Record<string, unknown>): GridRecord => ({
   id,
+  shortId: id.slice(0, 6).padEnd(6, "0"),
   tableId: "00000000-0000-0000-0000-000000000000",
   data,
   version: 1,
@@ -86,9 +87,9 @@ describe("collectHydratedRelationTargetIds", () => {
 });
 
 describe("enrichRecordsWithFormulas — basic evaluation", () => {
-  test("computes a single formula referencing a #shortId", () => {
-    const price = mkField({ id: "fld-price", shortId: "PRICE", type: "number" });
-    const total = mkFormula("fld-total", "TOTAL", "#PRICE * 1.19");
+  test("computes a single formula referencing a public field id", () => {
+    const price = mkField({ id: "fld-price", shortId: "PRICE1", type: "number" });
+    const total = mkFormula("fld-total", "TOTAL1", "{PRICE1} * 1.19");
     const rec = mkRecord("rec-1", {
       "fld-price": "24.50",
     });
@@ -106,7 +107,7 @@ describe("enrichRecordsWithFormulas — basic evaluation", () => {
   });
 
   test("formula with bad expression renders nothing (silent skip)", () => {
-    const broken = mkFormula("fld-broken", "BROKE", "1 + ");
+    const broken = mkFormula("fld-broken", "BROKE1", "1 + ");
     const rec = mkRecord("rec-1", {});
     enrichRecordsWithFormulas([rec], [broken]);
     // Bad parse → orderFormulasByDeps drops the field; nothing written.
@@ -114,14 +115,14 @@ describe("enrichRecordsWithFormulas — basic evaluation", () => {
   });
 
   test("formula with empty expression skipped silently", () => {
-    const empty = mkFormula("fld-empty", "EMPTY", "");
+    const empty = mkFormula("fld-empty", "EMPTY1", "");
     const rec = mkRecord("rec-1", {});
     enrichRecordsWithFormulas([rec], [empty]);
     expect(rec.data["fld-empty"]).toBeUndefined();
   });
 
   test("formula date functions use the provided timezone context", () => {
-    const today = mkFormula("fld-today", "TODAY", "TODAY()");
+    const today = mkFormula("fld-today", "TODAY1", "TODAY()");
     const rec = mkRecord("rec-1", {});
     enrichRecordsWithFormulas([rec], [today], {
       dateConfig: { timeZone: "Europe/Berlin" },
@@ -131,7 +132,7 @@ describe("enrichRecordsWithFormulas — basic evaluation", () => {
   });
 
   test("deleted formula fields are ignored", () => {
-    const f = { ...mkFormula("fld-1", "F1", "1 + 1"), deletedAt: "2026-01-02T00:00:00Z" };
+    const f = { ...mkFormula("fld-1", "FORM01", "1 + 1"), deletedAt: "2026-01-02T00:00:00Z" };
     const rec = mkRecord("rec-1", {});
     enrichRecordsWithFormulas([rec], [f]);
     expect(rec.data["fld-1"]).toBeUndefined();
@@ -143,9 +144,9 @@ describe("enrichRecordsWithFormulas — dependency ordering", () => {
     // base = 10, doubled = base * 2, plusOne = doubled + 1
     // Declaration order is intentionally reversed from dep order so the
     // test fails if the topo sort regresses.
-    const base = mkField({ id: "fld-base", shortId: "BASE", type: "number" });
-    const plusOne = mkFormula("fld-plus", "PLUS", "#DBLED + 1");
-    const doubled = mkFormula("fld-dbl", "DBLED", "#BASE * 2");
+    const base = mkField({ id: "fld-base", shortId: "BASE01", type: "number" });
+    const plusOne = mkFormula("fld-plus", "PLUS01", "{DBLED1} + 1");
+    const doubled = mkFormula("fld-dbl", "DBLED1", "{BASE01} * 2");
     const rec = mkRecord("rec-1", { "fld-base": 10 });
     enrichRecordsWithFormulas([rec], [base, plusOne, doubled]);
     expect(rec.data["fld-dbl"]).toBe(20);
@@ -154,13 +155,10 @@ describe("enrichRecordsWithFormulas — dependency ordering", () => {
 
   test("chain of three formulas evaluates in correct order", () => {
     // a = 1, b = a + 1, c = b + 1, d = c + 1 — produces 2, 3, 4.
-    // Slugs are alphanumeric only (matches readableId(5) charset); the
-    // tokenizer stops at any non-alnum char, so we can't use underscore-
-    // padded names here.
-    const a = mkField({ id: "fld-a", shortId: "alpha", type: "number" });
-    const b = mkFormula("fld-b", "bravo", "#alpha + 1");
-    const c = mkFormula("fld-c", "charl", "#bravo + 1");
-    const d = mkFormula("fld-d", "delta", "#charl + 1");
+    const a = mkField({ id: "fld-a", shortId: "ALPHA1", type: "number" });
+    const b = mkFormula("fld-b", "BRAVO1", "{ALPHA1} + 1");
+    const c = mkFormula("fld-c", "CHARL1", "{BRAVO1} + 1");
+    const d = mkFormula("fld-d", "DELTA1", "{CHARL1} + 1");
     const rec = mkRecord("rec-1", { "fld-a": 1 });
     // Shuffle declaration: d first, then b, then c. Topo sort must still
     // pick the right order.
@@ -173,7 +171,7 @@ describe("enrichRecordsWithFormulas — dependency ordering", () => {
 
 describe("enrichRecordsWithFormulas — cycle detection", () => {
   test("self-reference renders #CYCLE", () => {
-    const self = mkFormula("fld-self", "selfx", "#selfx + 1");
+    const self = mkFormula("fld-self", "SELF01", "{SELF01} + 1");
     const rec = mkRecord("rec-1", {});
     enrichRecordsWithFormulas([rec], [self]);
     expect(rec.data["fld-self"]).toBe("#CYCLE");
@@ -181,8 +179,8 @@ describe("enrichRecordsWithFormulas — cycle detection", () => {
 
   test("two-node cycle marks BOTH members with #CYCLE", () => {
     // a → b → a
-    const a = mkFormula("fld-a", "AAAAA", "#BBBBB + 1");
-    const b = mkFormula("fld-b", "BBBBB", "#AAAAA + 1");
+    const a = mkFormula("fld-a", "AAAAA1", "{BBBBB1} + 1");
+    const b = mkFormula("fld-b", "BBBBB1", "{AAAAA1} + 1");
     const rec = mkRecord("rec-1", {});
     enrichRecordsWithFormulas([rec], [a, b]);
     expect(rec.data["fld-a"]).toBe("#CYCLE");
@@ -191,9 +189,9 @@ describe("enrichRecordsWithFormulas — cycle detection", () => {
 
   test("three-node cycle marks all three", () => {
     // a → b → c → a
-    const a = mkFormula("fld-a", "AAAAA", "#BBBBB");
-    const b = mkFormula("fld-b", "BBBBB", "#CCCCC");
-    const c = mkFormula("fld-c", "CCCCC", "#AAAAA");
+    const a = mkFormula("fld-a", "AAAAA1", "{BBBBB1}");
+    const b = mkFormula("fld-b", "BBBBB1", "{CCCCC1}");
+    const c = mkFormula("fld-c", "CCCCC1", "{AAAAA1}");
     const rec = mkRecord("rec-1", {});
     enrichRecordsWithFormulas([rec], [a, b, c]);
     expect(rec.data["fld-a"]).toBe("#CYCLE");
@@ -203,9 +201,9 @@ describe("enrichRecordsWithFormulas — cycle detection", () => {
 
   test("non-cycle formula adjacent to a cycle still evaluates", () => {
     // a ↔ b cycle; clean = 2 + 2 (independent).
-    const a = mkFormula("fld-a", "AAAAA", "#BBBBB");
-    const b = mkFormula("fld-b", "BBBBB", "#AAAAA");
-    const clean = mkFormula("fld-c", "CLEAN", "2 + 2");
+    const a = mkFormula("fld-a", "AAAAA1", "{BBBBB1}");
+    const b = mkFormula("fld-b", "BBBBB1", "{AAAAA1}");
+    const clean = mkFormula("fld-c", "CLEAN1", "2 + 2");
     const rec = mkRecord("rec-1", {});
     enrichRecordsWithFormulas([rec], [a, b, clean]);
     expect(rec.data["fld-a"]).toBe("#CYCLE");
@@ -214,35 +212,35 @@ describe("enrichRecordsWithFormulas — cycle detection", () => {
   });
 });
 
-describe("enrichRecordsWithFormulas — shortId map", () => {
-  test("shortId map is built across all alive non-formula fields, not just formulas", () => {
-    // The formula references a non-formula field by shortId. If the shortId map
+describe("enrichRecordsWithFormulas — public id map", () => {
+  test("public id map is built across all alive non-formula fields, not just formulas", () => {
+    // The formula references a non-formula field by public ID. If the ID map
     // skipped non-formulas, this would fail to resolve and return null.
-    const price = mkField({ id: "fld-price", shortId: "Pr1cE", type: "number" });
-    const total = mkFormula("fld-total", "TOTAL", "#Pr1cE * 2");
+    const price = mkField({ id: "fld-price", shortId: "PR1CE1", type: "number" });
+    const total = mkFormula("fld-total", "TOTAL1", "{PR1CE1} * 2");
     const rec = mkRecord("rec-1", { "fld-price": "5" });
     enrichRecordsWithFormulas([rec], [price, total]);
     expect(rec.data["fld-total"]).toBe("10");
   });
 
   test("deleted fields are excluded from the shortId map", () => {
-    const live = mkField({ id: "fld-live", shortId: "alive", type: "number" });
+    const live = mkField({ id: "fld-live", shortId: "ALIVE1", type: "number" });
     const dead = {
-      ...mkField({ id: "fld-dead", shortId: "deadx", type: "number" }),
+      ...mkField({ id: "fld-dead", shortId: "DEADX1", type: "number" }),
       deletedAt: "2026-01-02T00:00:00Z",
     };
-    // Formula references the deleted field's shortId — should resolve to null
-    // (shortId not in the map), not to the deleted field's record value.
-    const f = mkFormula("fld-f", "FFFFF", "#deadx + 1");
+    // Formula references the deleted field's public ID — should resolve to null
+    // (ID not in the map), not to the deleted field's record value.
+    const f = mkFormula("fld-f", "FFFFF1", "{DEADX1} + 1");
     const rec = mkRecord("rec-1", { "fld-live": 10, "fld-dead": 99 });
     enrichRecordsWithFormulas([rec], [live, dead, f]);
     expect(rec.data["fld-f"]).toBeNull();
   });
 
-  test("legacy {uuid} syntax still resolves alongside #shortId refs", () => {
-    const a = mkField({ id: "fld-a", shortId: "AAAAA", type: "number" });
-    const b = mkField({ id: "fld-b", shortId: "BBBBB", type: "number" });
-    const f = mkFormula("fld-f", "FFFFF", "{fld-a} + #BBBBB");
+  test("resolves multiple canonical public field ids", () => {
+    const a = mkField({ id: "fld-a", shortId: "AAAAA1", type: "number" });
+    const b = mkField({ id: "fld-b", shortId: "BBBBB1", type: "number" });
+    const f = mkFormula("fld-f", "FFFFF1", "{AAAAA1} + {BBBBB1}");
     const rec = mkRecord("rec-1", { "fld-a": 3, "fld-b": 7 });
     enrichRecordsWithFormulas([rec], [a, b, f]);
     expect(rec.data["fld-f"]).toBe(10);
@@ -251,8 +249,8 @@ describe("enrichRecordsWithFormulas — shortId map", () => {
 
 describe("enrichRecordsWithFormulas — multiple records", () => {
   test("evaluates per-record without leaking state between rows", () => {
-    const x = mkField({ id: "fld-x", shortId: "XXXXX", type: "number" });
-    const f = mkFormula("fld-f", "FFFFF", "#XXXXX * 2");
+    const x = mkField({ id: "fld-x", shortId: "XXXXX1", type: "number" });
+    const f = mkFormula("fld-f", "FFFFF1", "{XXXXX1} * 2");
     const r1 = mkRecord("r-1", { "fld-x": 1 });
     const r2 = mkRecord("r-2", { "fld-x": 5 });
     const r3 = mkRecord("r-3", { "fld-x": null });
@@ -265,9 +263,9 @@ describe("enrichRecordsWithFormulas — multiple records", () => {
 
 describe("enrichRecordsWithFormulas — SQL-projected formula compatibility", () => {
   test("skips SQL-projected formulas while remaining formulas can reference them", () => {
-    const net = mkField({ id: "fld-net", shortId: "NET01", type: "number" });
-    const subtotal = mkFormula("fld-sub", "SUB01", "#NET01 * 2");
-    const gross = mkFormula("fld-gross", "GROSS", "#SUB01 + 1");
+    const net = mkField({ id: "fld-net", shortId: "NET001", type: "number" });
+    const subtotal = mkFormula("fld-sub", "SUB001", "{NET001} * 2");
+    const gross = mkFormula("fld-gross", "GROSS1", "{SUB001} + 1");
     const rec = mkRecord("rec-1", { "fld-net": "12.10", "fld-sub": "24.2" });
 
     enrichRecordsWithFormulas([rec], [net, subtotal, gross], {
@@ -281,7 +279,7 @@ describe("enrichRecordsWithFormulas — SQL-projected formula compatibility", ()
 
 describe("enrichRecordsWithComputedColumns", () => {
   test("evaluates view-only formulas without persisting field metadata", () => {
-    const price = mkField({ id: "fld-price", shortId: "PRICE", type: "number" });
+    const price = mkField({ id: "fld-price", shortId: "PRICE1", type: "number" });
     const rec = mkRecord("rec-1", { "fld-price": "24.50" });
 
     enrichRecordsWithComputedColumns(
@@ -292,7 +290,7 @@ describe("enrichRecordsWithComputedColumns", () => {
           kind: "computed",
           id: "computed_total",
           label: "Total with VAT",
-          expression: "#PRICE * 1.19",
+          expression: "{PRICE1} * 1.19",
         },
       ],
     );
@@ -302,8 +300,8 @@ describe("enrichRecordsWithComputedColumns", () => {
   });
 
   test("can reference formula field values evaluated earlier in the read pipeline", () => {
-    const net = mkField({ id: "fld-net", shortId: "NET01", type: "number" });
-    const subtotal = mkFormula("fld-sub", "SUB01", "#NET01 * 2");
+    const net = mkField({ id: "fld-net", shortId: "NET001", type: "number" });
+    const subtotal = mkFormula("fld-sub", "SUB001", "{NET001} * 2");
     const rec = mkRecord("rec-1", { "fld-net": "12.10" });
 
     enrichRecordsWithFormulas([rec], [net, subtotal]);
@@ -315,7 +313,7 @@ describe("enrichRecordsWithComputedColumns", () => {
           kind: "computed",
           id: "computed_gross",
           label: "Gross",
-          expression: "#SUB01 + 1",
+          expression: "{SUB001} + 1",
         },
       ],
     );

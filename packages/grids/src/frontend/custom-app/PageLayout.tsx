@@ -68,7 +68,7 @@ const intentTargets = (intent: CustomAppBlockDropIntent | null, activeBlockId: s
 export function CustomAppPageLayout(props: {
   definition: CustomAppDefinition;
   page: CustomAppPage;
-  shortId: string;
+  appId: string;
   renderBlock: (block: CustomAppBlock) => JSX.Element;
   sidebarActions?: JSX.Element;
   hasSidebarActions?: boolean;
@@ -99,7 +99,7 @@ export function CustomAppPageLayout(props: {
         <AppWorkspace.SidebarItem
           active={page.id === props.page.id}
           icon={`ti ti-${page.navigation.icon ?? "file"}`}
-          href={props.editor ? undefined : customAppPageHref(props.shortId, page.id)}
+          href={props.editor ? undefined : customAppPageHref(props.appId, page.id)}
           navigation="enhanced"
           onClick={props.editor ? () => props.editor?.onSelectPage(page.id) : undefined}
         >

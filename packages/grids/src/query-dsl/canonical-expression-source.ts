@@ -43,9 +43,7 @@ const isAlive = (field: Field): boolean => !field.deletedAt;
 const lookupField = (fields: Field[], ref: string): Field | null | "ambiguous" => {
   const key = normalizeRefKey(ref);
   const matches = fields.filter(
-    (field) =>
-      isAlive(field) &&
-      (normalizeRefKey(field.id) === key || normalizeRefKey(field.shortId) === key || normalizeRefKey(field.name) === key),
+    (field) => isAlive(field) && (normalizeRefKey(field.shortId) === key || normalizeRefKey(field.name) === key),
   );
   if (matches.length === 0) return null;
   if (matches.length > 1) return "ambiguous";
@@ -96,13 +94,13 @@ export const resolveFieldRef = (
     const matches = scope.derivedColumns.filter((column) => column.refs.some((candidate) => normalizeRefKey(candidate) === key));
     if (matches.length === 0) return { ok: false, diagnostic: { message: `unknown derived column "${ref.ref}"`, ...ref.span } };
     if (matches.length > 1) return { ok: false, diagnostic: { message: `ambiguous derived column "${ref.ref}"`, ...ref.span } };
-    return { ok: true, text: gqlQuotedRef(matches[0]!.key) };
+    return { ok: true, text: gqlQuotedRef(matches[0]!.publicKey ?? matches[0]!.key) };
   }
   const resolved = fieldForRef(ref, scope);
   if (!resolved.ok) return { ok: false, diagnostic: resolved.diagnostic };
   const field = resolved.field;
   const alias = canonicalScopeAlias(scope, ref.scope);
-  return { ok: true, text: alias ? `${alias}.${gqlFieldRef(field.id)}` : gqlFieldRef(field.id) };
+  return { ok: true, text: alias ? `${alias}.${gqlFieldRef(field.shortId)}` : gqlFieldRef(field.shortId) };
 };
 
 const fieldForFormulaFieldRef = (

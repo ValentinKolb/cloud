@@ -1,6 +1,7 @@
-import { logger } from "@valentinkolb/cloud/services";
 import { topic } from "@k2b/sync";
+import { logger } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { type PublicResourceType, projectPublicIds } from "./public-resources";
 
 const log = logger("grids:metadata-events");
 
@@ -45,6 +46,26 @@ export type GridsMetadataEvent = {
   };
   actorId: string | null;
   occurredAt: string;
+};
+
+export const toPublicMetadataEvent = async (event: GridsMetadataEvent) => {
+  const resourceType: PublicResourceType = event.resource.kind === "access" ? "base" : event.resource.kind;
+  const resourceInternalId = event.resource.kind === "access" ? event.baseId : event.resource.id;
+  const [bases, resources, tables] = await Promise.all([
+    projectPublicIds("base", [event.baseId]),
+    projectPublicIds(resourceType, [resourceInternalId]),
+    projectPublicIds("table", event.resource.tableId ? [event.resource.tableId] : []),
+  ]);
+  const baseId = bases.get(event.baseId);
+  const resourceId = resources.get(resourceInternalId);
+  if (!baseId || !resourceId) throw new Error("Missing public ID for metadata event");
+  const tableId = event.resource.tableId ? tables.get(event.resource.tableId) : undefined;
+  if (event.resource.tableId && !tableId) throw new Error("Missing public table ID for metadata event");
+  return {
+    ...event,
+    baseId,
+    resource: { ...event.resource, id: resourceId, ...(tableId ? { tableId } : {}) },
+  };
 };
 
 const metadataTopic = topic<GridsMetadataEvent>({

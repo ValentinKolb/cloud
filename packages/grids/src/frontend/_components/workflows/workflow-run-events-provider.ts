@@ -1,13 +1,13 @@
 import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
-import type { GridsWorkflowRunEvent } from "../../../lib/workflow-run-events";
 import { gridsWorkspace, isGridsStreamCursor } from "../../../lib/workspace-events";
+import type { PublicWorkflowRunEvent } from "./workflow-run-public-event";
 
 type ProviderError = { code: string; message: string };
 
 type WorkflowRunEventsProviderOptions = {
   workflowId: string;
   onReady?: () => void;
-  onEvent?: (event: GridsWorkflowRunEvent, cursor: string | null) => void;
+  onEvent?: (event: PublicWorkflowRunEvent, cursor: string | null) => void;
   onError?: (error: ProviderError) => void;
   onRevoked?: (error: ProviderError) => void;
   onFatal?: (error: ProviderError) => void;
@@ -82,7 +82,7 @@ export const createWorkflowRunEventsProvider = (options: WorkflowRunEventsProvid
       if (message.type !== gridsWorkspace.wsType.workflowRunsEvent || !message.payload || typeof message.payload !== "object") return;
       const payload = message.payload as { cursor?: unknown; event?: unknown };
       if (!payload.event || typeof payload.event !== "object") return;
-      const event = payload.event as GridsWorkflowRunEvent;
+      const event = payload.event as PublicWorkflowRunEvent;
       if (event.v !== 1 || event.workflowId !== options.workflowId || !event.run || event.run.workflowId !== options.workflowId) return;
       const cursor = isGridsStreamCursor(payload.cursor) ? payload.cursor : null;
       options.onEvent?.(event, cursor);

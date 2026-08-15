@@ -9,10 +9,10 @@ import {
 } from "./custom-app-builder-model";
 
 const definition = (): CustomAppDefinition => ({
-  schemaVersion: 4,
+  schemaVersion: 5,
   kind: "grids.custom-app",
-  id: "019f1234-1234-7000-8000-000000000001",
-  baseId: "019f1234-1234-7000-8000-000000000002",
+  id: "APP001",
+  baseId: "BASE01",
   name: "Loans",
   startPageId: "home",
   pages: [
@@ -35,7 +35,7 @@ const definition = (): CustomAppDefinition => ({
                   searchable: true,
                   pageSize: 25,
                   source: { kind: "gql", query: "from table Loans" },
-                  display: { kind: "table", columnIds: ["019f1234-1234-7000-8000-000000000003"] },
+                  display: { kind: "table", columnIds: ["COL001"] },
                   rowNavigate: { kind: "navigate", pageId: "loan", history: "push", params: { loan_id: { source: "ROW", path: "id" } } },
                 },
                 {
@@ -62,8 +62,8 @@ const definition = (): CustomAppDefinition => ({
       id: "loan",
       title: "Loan",
       navigation: { visible: false },
-      parameters: { loan_id: { type: "record", tableId: "019f1234-1234-7000-8000-000000000004", required: true } },
-      record: { tableId: "019f1234-1234-7000-8000-000000000004", id: { source: "PARAMS", path: "loan_id" } },
+      parameters: { loan_id: { type: "record", tableId: "TABLE1", required: true } },
+      record: { tableId: "TABLE1", id: { source: "PARAMS", path: "loan_id" } },
       rows: [
         {
           id: "loan-row",
@@ -75,14 +75,14 @@ const definition = (): CustomAppDefinition => ({
                 {
                   id: "loan-record",
                   type: "record",
-                  fieldIds: ["019f1234-1234-7000-8000-000000000005"],
+                  fieldIds: ["FIELD1"],
                   editableFieldIds: [],
                 },
                 {
                   id: "loan-form",
                   type: "form",
-                  formId: "019f1234-1234-7000-8000-000000000006",
-                  fixedValues: { "019f1234-1234-7000-8000-000000000007": { source: "PARAMS", path: "loan_id" } },
+                  formId: "FORM01",
+                  fixedValues: { FIELD2: { source: "PARAMS", path: "loan_id" } },
                   onSuccessNavigate: { kind: "navigate", pageId: "loan", params: { loan_id: { source: "PARAMS", path: "loan_id" } } },
                 },
                 {
@@ -93,7 +93,7 @@ const definition = (): CustomAppDefinition => ({
                       id: "run",
                       kind: "workflow",
                       label: "Run",
-                      launcherId: "019f1234-1234-7000-8000-000000000008",
+                      launcherId: "LAUNCH",
                       inputs: { loan: { source: "PARAMS", path: "loan_id" } },
                     },
                   ],
@@ -111,7 +111,7 @@ const definition = (): CustomAppDefinition => ({
                       kind: "workflow",
                       label: "Reserve",
                       showLabel: true,
-                      launcherId: "019f1234-1234-7000-8000-000000000009",
+                      launcherId: "LAUN02",
                       inputs: { loan: { source: "PARAMS", path: "loan_id" }, item: { source: "ROW", path: "id" } },
                     },
                   ],
@@ -150,13 +150,13 @@ describe("App builder model", () => {
     };
     const renamed = renameCustomAppPageParameter(current, "loan", "loan_id", "record_id");
     const page = renamed.pages[1]!;
-    expect(page.parameters.record_id?.tableId).toBe("019f1234-1234-7000-8000-000000000004");
+    expect(page.parameters.record_id?.tableId).toBe("TABLE1");
     expect(page.record?.id.path).toBe("record_id");
     const records = renamed.pages[0]!.rows[0]!.columns[0]!.blocks[0]!;
     const form = page.rows[0]!.columns[0]!.blocks[1]!;
     const actions = page.rows[0]!.columns[0]!.blocks[2]!;
     expect(records.type === "records" ? records.rowNavigate?.params : {}).toHaveProperty("record_id");
-    const formBinding = form.type === "form" ? form.fixedValues["019f1234-1234-7000-8000-000000000007"] : null;
+    const formBinding = form.type === "form" ? form.fixedValues["FIELD2"] : null;
     expect(formBinding?.source === "PARAMS" ? formBinding.path : null).toBe("record_id");
     const workflowInput = actions.type === "actions" && actions.actions[0]?.kind === "workflow" ? actions.actions[0].inputs.loan : null;
     expect(workflowInput?.source === "PARAMS" ? workflowInput.path : null).toBe("record_id");

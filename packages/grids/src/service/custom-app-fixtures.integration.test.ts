@@ -11,8 +11,11 @@ import { deleteTestWorkflowScope, insertTestWorkflow } from "./workflow-test-fix
 
 const CERTIFICATE = {
   appId: "10000000-0000-4000-8000-000000000101",
+  appPublicId: "c00101",
   reviewAppId: "10000000-0000-4000-8000-000000000102",
+  reviewAppPublicId: "c00102",
   baseId: "10000000-0000-4000-8000-000000000001",
+  basePublicId: "c00001",
   tableId: "10000000-0000-4000-8000-000000000201",
   fieldIds: [
     "10000000-0000-4000-8000-000000000301",
@@ -165,10 +168,10 @@ describe("Grids App Golden fixtures", () => {
   test("keeps the certificate request fixture structurally valid", async () => {
     const definition = await loadCertificateDefinition();
     const reviewDefinition = await loadCertificateReviewDefinition();
-    expect(definition.id).toBe(CERTIFICATE.appId);
-    expect(reviewDefinition.id).toBe(CERTIFICATE.reviewAppId);
-    expect(definition.baseId).toBe(CERTIFICATE.baseId);
-    expect(reviewDefinition.baseId).toBe(CERTIFICATE.baseId);
+    expect(definition.id).toBe(CERTIFICATE.appPublicId);
+    expect(reviewDefinition.id).toBe(CERTIFICATE.reviewAppPublicId);
+    expect(definition.baseId).toBe(CERTIFICATE.basePublicId);
+    expect(reviewDefinition.baseId).toBe(CERTIFICATE.basePublicId);
   });
 
   postgresTest("executes the certificate request fixture through the complete lifecycle", async () => {

@@ -45,10 +45,10 @@ cld grids apps export MyBase "Certificate requests" --out certificate-app.yaml
 Every definition has this shape:
 
 ```yaml
-schemaVersion: 4
+schemaVersion: 5
 kind: grids.custom-app
-id: 10000000-0000-4000-8000-000000000101
-baseId: 10000000-0000-4000-8000-000000000001
+id: app001
+baseId: bas001
 name: Certificate requests
 icon: certificate
 startPageId: home
@@ -74,15 +74,15 @@ pages:
 | --- | --- |
 | `schemaVersion` | Required integer. Unsupported versions fail validation. |
 | `kind` | Must be `grids.custom-app`. |
-| `id` | Required UUID. Supplying it makes create/apply idempotent. |
-| `baseId` | Required UUID of the one owning base. It cannot be changed later. |
+| `id` | Required 6-character public ID. Supplying it makes create/apply idempotent. |
+| `baseId` | Required 6-character public ID of the one owning base. It cannot be changed later. |
 | `name` | Required visible name. |
 | `icon` | Optional supported icon name. |
 | `startPageId` | Required local ID of an existing page. |
 | `sidebar.actions` | Optional ordered app-global Form launchers. Fixed values accept `LITERAL` and compatible Principal fields also accept `AUTH.currentUser`. Availability has no page or params context. |
 | `pages` | At least one page. |
 
-Malformed YAML fails in the CLI before any request is sent. The strict schema rejects unknown keys, duplicate IDs, invalid UUIDs, and values of the wrong type.
+Malformed YAML fails in the CLI before any request is sent. The strict schema rejects unknown keys, duplicate IDs, invalid public IDs, and values of the wrong type.
 
 ## Define pages and layout {icon="layout-grid"}
 
@@ -95,10 +95,10 @@ pages:
     parameters:
       request_id:
         type: record
-        tableId: 10000000-0000-4000-8000-000000000201
+        tableId: tbl001
         required: true
     record:
-      tableId: 10000000-0000-4000-8000-000000000201
+      tableId: tbl001
       id: { source: PARAMS, path: request_id }
     rows:
       - id: body
@@ -131,7 +131,7 @@ Bindings are discriminated values:
 { source: ROW, path: id }
 
 # A selected single relation from the current row, for row navigation
-{ source: ROW, path: relation, fieldId: 10000000-0000-4000-8000-000000000301 }
+{ source: ROW, path: relation, fieldId: res301 }
 
 # The operation that just succeeded
 { source: RESULT, path: recordId }
@@ -158,11 +158,11 @@ All blocks require a local `id` and `type`. Blocks may support an optional `titl
   pageSize: 25
   source:
     kind: view
-    viewId: 10000000-0000-4000-8000-000000000401
+    viewId: res401
   display:
     kind: table
     columnIds:
-      - 10000000-0000-4000-8000-000000000301
+      - res301
   rowNavigate:
     kind: navigate
     pageId: request
@@ -175,7 +175,7 @@ All blocks require a local `id` and `type`. Blocks may support an optional `titl
       icon: check
       showLabel: true
       kind: workflow
-      launcherId: 10000000-0000-4000-8000-000000000701
+      launcherId: res701
       inputs:
         request_id: { source: ROW, path: id }
 # Bounded inline query
@@ -203,7 +203,7 @@ All blocks require a local `id` and `type`. Blocks may support an optional `titl
 # Existing form with server-fixed context
 - id: request-form
   type: form
-  formId: 10000000-0000-4000-8000-000000000501
+  formId: res501
   fixedValues: {}
   onSuccessNavigate:
     kind: navigate
@@ -215,12 +215,12 @@ All blocks require a local `id` and `type`. Blocks may support an optional `titl
 - id: request
   type: record
   fieldIds:
-    - 10000000-0000-4000-8000-000000000301
+    - res301
   editableFieldIds:
-    - 10000000-0000-4000-8000-000000000301
+    - res301
   documents:
     templateIds:
-      - 10000000-0000-4000-8000-000000000601
+      - res601
 
 # Comments on the current page record
 - id: discussion
@@ -234,7 +234,7 @@ All blocks require a local `id` and `type`. Blocks may support an optional `titl
       label: Approve and generate
       icon: certificate
       kind: workflow
-      launcherId: 10000000-0000-4000-8000-000000000701
+      launcherId: res701
       inputs:
         request_id: { source: RECORD, path: id }
 ```
@@ -292,7 +292,7 @@ Diagnostics use stable definition paths such as `pages[request].rows[detail].col
 cld grids apps apply MyBase --source-file certificate-app.yaml --json
 ```
 
-`apply` creates or updates the draft identified by the supplied app UUID. Applying the same canonical definition again is a no-op and does not create another app. It never changes the published snapshot.
+`apply` creates or updates the draft identified by the supplied app public ID. Applying the same canonical definition again is a no-op and does not create another app. It never changes the published snapshot.
 
 Use `plan` or `apply --dry-run` to observe the `noop` result explicitly. A subsequent ordinary `apply` of that definition leaves the stored app and its update timestamp unchanged.
 
@@ -301,19 +301,19 @@ The command runs as the signed-in Cloud account and requires Base Admin. It cann
 ## Export and review {icon="file-export"}
 
 ```bash
-cld grids apps export 10000000-0000-4000-8000-000000000101 \
+cld grids apps export app001 \
   --out certificate-app.yaml
-cld grids apps export 10000000-0000-4000-8000-000000000101 \
+cld grids apps export app001 \
   --published \
   --out certificate-app-live.yaml
 ```
 
-Export emits canonical key ordering, canonical resource IDs, and no secrets. The server-owned route `shortId` remains response metadata rather than authoring input. A visual-builder edit followed by export must retain the same semantics as a CLI edit followed by apply.
+Export emits canonical key ordering, canonical public resource IDs, and no secrets. A visual-builder edit followed by export must retain the same semantics as a CLI edit followed by apply.
 
 ## Publish {icon="rocket"}
 
 ```bash
-cld grids apps publish 10000000-0000-4000-8000-000000000101 --yes --json
+cld grids apps publish app001 --yes --json
 ```
 
 Publish reruns preflight and replaces the published snapshot only when it succeeds. It is an explicit state change and requires `--yes` in non-interactive use.
@@ -321,9 +321,9 @@ Publish reruns preflight and replaces the published snapshot only when it succee
 Restore discards pending draft changes and copies the live definition back into the draft. Unpublish removes only the live snapshot and keeps the draft. Delete moves the app out of normal listings and removes its live route. These destructive commands require `--yes`:
 
 ```bash
-cld grids apps restore 10000000-0000-4000-8000-000000000101 --yes --json
-cld grids apps unpublish 10000000-0000-4000-8000-000000000101 --yes --json
-cld grids apps delete 10000000-0000-4000-8000-000000000101 --yes --json
+cld grids apps restore app001 --yes --json
+cld grids apps unpublish app001 --yes --json
+cld grids apps delete app001 --yes --json
 ```
 
 The command surface is:

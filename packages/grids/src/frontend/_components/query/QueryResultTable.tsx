@@ -1,10 +1,10 @@
 import { Button, DataTable, type DataTableColumn } from "@k2b/ui";
 import { createMemo, Show } from "solid-js";
-import type { DslQueryPreviewResponse } from "../../../contracts";
-import type { Field } from "../../../service";
+import type { PublicDslQueryPreviewResponse } from "../../../api/gql-public";
+import type { PublicField as Field } from "../../../api/public-dto";
 import { FieldValue } from "../table/FieldValue";
 
-type QueryResult = Extract<DslQueryPreviewResponse, { ok: true }>;
+type QueryResult = Extract<PublicDslQueryPreviewResponse, { ok: true }>;
 type QueryResultRow = QueryResult["rows"][number] & { __rowKey: string };
 type QueryResultColumn = QueryResult["columns"][number];
 
@@ -17,8 +17,7 @@ const displayValue = (value: unknown): string => {
 
 export default function QueryResultTable(props: {
   result: QueryResult;
-  baseShortId: string;
-  tableShortIds: Record<string, string>;
+  baseId: string;
   fieldsByTable: Record<string, Field[]>;
   scrollPreserveKey: string;
   surface?: "paper" | "flat";
@@ -77,8 +76,7 @@ export default function QueryResultTable(props: {
             <FieldValue
               field={field}
               value={value}
-              baseId={props.baseShortId}
-              tableShortIds={props.tableShortIds}
+              baseId={props.baseId}
               fieldsByTable={props.fieldsByTable}
               mode="table"
               relationValueMode={field.type === "relation" ? "labels" : "ids"}

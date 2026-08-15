@@ -33,13 +33,25 @@ export const mapFieldRow = (row: DbRow): Field => ({
  * AND for any field whose parent table or base is trashed (live-parent
  * invariant).
  */
-export const getByShortId = async (tableId: string, shortId: string): Promise<Field | null> => {
+export const getByShortIdForTable = async (tableId: string, shortId: string): Promise<Field | null> => {
   const [row] = await sql<DbRow[]>`
     SELECT f.*
     FROM grids.fields f
     JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
     JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
     WHERE f.table_id = ${tableId}::uuid AND f.short_id = ${shortId} AND f.deleted_at IS NULL
+  `;
+  return row ? mapFieldRow(row) : null;
+};
+
+/** Resolves the only public field identifier to the internal resource. */
+export const getByShortId = async (shortId: string): Promise<Field | null> => {
+  const [row] = await sql<DbRow[]>`
+    SELECT f.*
+    FROM grids.fields f
+    JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE f.short_id = ${shortId} AND f.deleted_at IS NULL
   `;
   return row ? mapFieldRow(row) : null;
 };
@@ -68,9 +80,9 @@ export const listByTable = async (tableId: string, includeDeleted = false, clien
 
 /** Loads fields for several live tables in one round trip. Federation source
  * planning uses this to keep query preparation bounded at the 50-source cap. */
-export const listByTables = async (tableIds: readonly string[]): Promise<Map<string, Field[]>> => {
+export const listByTables = async (tableIds: readonly string[], client: SqlClient = sql): Promise<Map<string, Field[]>> => {
   if (tableIds.length === 0) return new Map();
-  const rows = await sql<DbRow[]>`
+  const rows = await client<DbRow[]>`
     SELECT f.*
     FROM grids.fields f
     JOIN grids.tables t ON t.id = f.table_id AND t.deleted_at IS NULL

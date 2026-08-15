@@ -1,24 +1,37 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
-import { arg, command, confirmFlag, flag, printStructured } from "@valentinkolb/cloud/cli";
-import type { CreateRecordSnapshotResponse, GridRecord, RecordSnapshot, RecordSnapshotListResponse, TableQueryResult } from "../contracts";
+import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
+import type { PublicGridRecord as GridRecord, PublicTableQueryResult as TableQueryResult } from "../api/public-dto";
 import {
   type CombinedAuditResponse,
+  type CreateRecordSnapshotResponse,
   combinedAuditRows,
   type GridFile,
   type GridFileListResponse,
   gridFileRows,
   normalizeRecordImportBody,
   type RecordAuditResponse,
+  type PublicRecordSnapshot as RecordSnapshot,
+  type RecordSnapshotListResponse,
   recordRows,
   snapshotRows,
 } from "./records-support";
-import { baseFlag, listFields, resolveBaseFromCommand, resolveField, resolveTable, tableArgs, tableFlag } from "./resources";
+import {
+  baseFlag,
+  listFields,
+  requirePublicId,
+  resolveBaseFromCommand,
+  resolveField,
+  resolveTable,
+  tableArgs,
+  tableFlag,
+} from "./resources";
 import {
   applyDefined,
   JSON_BODY_INPUT,
   jsonRequest,
   type MessageResponse,
+  printCliStructured,
   printJsonOrMessage,
   printJsonOrTable,
   queryString,
@@ -42,7 +55,7 @@ const AUDIT_INPUT = flag.input({
   name: "audit",
   fileName: "audit-file",
   valueLabel: "json",
-  description: "Audit answers as JSON keyed by audit-question UUID",
+  description: "Audit answers as JSON keyed by audit-question id",
 });
 
 export const composeRecordListBody = (query: Record<string, unknown>, flags: RecordListBodyFlags): Record<string, unknown> => {
@@ -105,7 +118,7 @@ export const recordCommands = [
   command("records shape", {
     summary: "Show the JSON payload shape for records in a table",
     description:
-      "The create/update payload is a plain JSON object keyed by field UUID. This command resolves the table and lists writable fields with examples.",
+      "The create/update payload is a plain JSON object keyed by field public id. This command resolves the table and lists writable fields with examples.",
     args: tableArgs,
     flags: { ...baseFlag, ...tableFlag },
     examples: ["cld grids records shape Bookshop Authors", "cld grids records shape --base Bookshop --table Authors --json"],
@@ -137,8 +150,7 @@ export const recordCommands = [
       const payload = await readApi<TableQueryResult>(ctx, `/tables/${encodeURIComponent(table.id)}/query`, jsonRequest("POST", body));
       const items = payload.items ?? [];
       printJsonOrTable(ctx, payload, recordRows(items), [
-        { key: "id", label: "SHORT" },
-        { key: "recordId", label: "ID" },
+        { key: "id", label: "ID" },
         { key: "version", label: "VERSION" },
         { key: "updatedAt", label: "UPDATED" },
       ]);
@@ -160,8 +172,7 @@ export const recordCommands = [
       const body = (await readJsonInput<Record<string, unknown>>(flags.body, "table query JSON", true)) ?? {};
       if (flags.cursor) body.cursor = flags.cursor;
       const payload = await readApi<TableQueryResult>(ctx, `/tables/${encodeURIComponent(table.id)}/query`, jsonRequest("POST", body));
-      if (!printStructured(ctx, payload))
-        printJsonOrTable(ctx, payload, recordRows(payload.items ?? []), [{ key: "recordId", label: "ID" }]);
+      if (!printCliStructured(ctx, payload)) printJsonOrTable(ctx, payload, recordRows(payload.items ?? []), [{ key: "id", label: "ID" }]);
     },
   }),
   command("records get", {
@@ -170,7 +181,7 @@ export const recordCommands = [
     flags: {
       ...baseFlag,
       ...tableFlag,
-      record: flag.string({ description: "Record UUID" }),
+      record: flag.string({ description: "Record public id" }),
       includeDeleted: flag.boolean({ name: "include-deleted", description: "Allow live or deleted records" }),
       deletedOnly: flag.boolean({ name: "deleted-only", description: "Require a deleted record" }),
     },
@@ -178,7 +189,7 @@ export const recordCommands = [
       if (flags.includeDeleted && flags.deletedOnly) throw new Error("Choose --include-deleted or --deleted-only, not both.");
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? (flags.record ? 0 : 1) : 2);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
-      const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
+      const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
       const record = await readApi<GridRecord>(
         ctx,
         `/records/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}${queryString({
@@ -186,7 +197,7 @@ export const recordCommands = [
           deletedOnly: flags.deletedOnly ? "true" : undefined,
         })}`,
       );
-      if (!printStructured(ctx, record)) {
+      if (!printCliStructured(ctx, record)) {
         ctx.print(`${record.id} v${record.version}`);
         ctx.print(JSON.stringify(record.data, null, 2));
       }
@@ -194,12 +205,13 @@ export const recordCommands = [
   }),
   command("records create", {
     summary: "Create a record",
-    description: "Pass a JSON object keyed by field UUID. Run `cld grids records shape <base> <table>` first for the exact writable keys.",
+    description:
+      "Pass a JSON object keyed by field public id. Run `cld grids records shape <base> <table>` first for the exact writable keys.",
     args: tableArgs,
     flags: { ...baseFlag, ...tableFlag, body: JSON_BODY_INPUT },
     examples: [
       "cld grids records shape Bookshop Authors --json",
-      'cld grids records create Bookshop Authors --body \'{"<field-uuid>":"Octavia Butler"}\'',
+      'cld grids records create Bookshop Authors --body \'{"<field-id>":"Octavia Butler"}\'',
       "cld grids records create Bookshop Orders --body-file record.json",
     ],
     async run({ ctx, args, flags }) {
@@ -213,7 +225,7 @@ export const recordCommands = [
   command("records import", {
     summary: "Import records atomically from JSON",
     description:
-      'Pass a JSON array, or {"items":[...]}, where each item is a record payload keyed by field UUID. The backend creates all records in one transaction.',
+      'Pass a JSON array, or {"items":[...]}, where each item is a record payload keyed by field public id. The backend creates all records in one transaction.',
     args: tableArgs,
     flags: { ...baseFlag, ...tableFlag, body: JSON_BODY_INPUT },
     examples: [
@@ -231,8 +243,7 @@ export const recordCommands = [
         jsonRequest("POST", body),
       );
       printJsonOrTable(ctx, payload, recordRows(payload.items), [
-        { key: "id", label: "SHORT" },
-        { key: "recordId", label: "ID" },
+        { key: "id", label: "ID" },
         { key: "version", label: "VERSION" },
         { key: "updatedAt", label: "UPDATED" },
       ]);
@@ -277,7 +288,7 @@ export const recordCommands = [
     flags: {
       ...baseFlag,
       ...tableFlag,
-      record: flag.string({ description: "Record UUID" }),
+      record: flag.string({ description: "Record public id" }),
       body: JSON_BODY_INPUT,
       audit: AUDIT_INPUT,
       ifVersion: flag.int({ name: "if-version", min: 0, description: "Optimistic version guard" }),
@@ -285,7 +296,7 @@ export const recordCommands = [
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? (flags.record ? 0 : 1) : 2);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
-      const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
+      const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
       const body = await readJsonInput<Record<string, unknown>>(flags.body, "record update JSON", true);
       const answers = await readJsonInput<Record<string, string>>(flags.audit, "record audit answers", false);
       const record = await readApi<GridRecord>(
@@ -306,7 +317,7 @@ export const recordCommands = [
     flags: {
       ...baseFlag,
       ...tableFlag,
-      record: flag.string({ description: "Record UUID" }),
+      record: flag.string({ description: "Record public id" }),
       audit: AUDIT_INPUT,
       yes: confirmFlag("Move this record to trash"),
     },
@@ -314,7 +325,7 @@ export const recordCommands = [
       if (!flags.yes) throw new Error("Pass --yes to move the record to trash.");
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? (flags.record ? 0 : 1) : 2);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
-      const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
+      const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
       const answers = await readJsonInput<Record<string, string>>(flags.audit, "record audit answers", false);
       await readApi<MessageResponse>(
         ctx,
@@ -327,11 +338,11 @@ export const recordCommands = [
   command("records restore", {
     summary: "Restore a record from trash",
     args: tableArgs,
-    flags: { ...baseFlag, ...tableFlag, record: flag.string({ description: "Record UUID" }), audit: AUDIT_INPUT },
+    flags: { ...baseFlag, ...tableFlag, record: flag.string({ description: "Record public id" }), audit: AUDIT_INPUT },
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? (flags.record ? 0 : 1) : 2);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
-      const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
+      const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
       const answers = await readJsonInput<Record<string, string>>(flags.audit, "record audit answers", false);
       await readApi<MessageResponse>(
         ctx,
@@ -344,16 +355,16 @@ export const recordCommands = [
   command("records audit", {
     summary: "Show record audit entries",
     args: tableArgs,
-    flags: { ...baseFlag, ...tableFlag, record: flag.string({ description: "Record UUID" }) },
+    flags: { ...baseFlag, ...tableFlag, record: flag.string({ description: "Record public id" }) },
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? (flags.record ? 0 : 1) : 2);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
-      const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
+      const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
       const payload = await readApi<RecordAuditResponse>(
         ctx,
         `/records/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}/audit`,
       );
-      if (!printStructured(ctx, payload)) ctx.table(payload.items as Record<string, unknown>[], []);
+      if (!printCliStructured(ctx, payload)) ctx.table(payload.items as Record<string, unknown>[], []);
     },
   }),
   command("records audit list", {
@@ -364,7 +375,7 @@ export const recordCommands = [
     flags: {
       ...baseFlag,
       ...tableFlag,
-      record: flag.string({ description: "Filter by record UUID" }),
+      record: flag.string({ description: "Filter by record public id" }),
       source: flag.string({ description: "Filter by source reference from a previous page" }),
       action: flag.enum(["created", "updated", "deleted", "restored", "imported"] as const, {
         description: "Filter by lifecycle action",
@@ -413,13 +424,13 @@ export const recordCommands = [
     flags: {
       ...baseFlag,
       ...tableFlag,
-      record: flag.string({ description: "Record UUID" }),
-      field: flag.string({ description: "File field id, short id, or exact name" }),
+      record: flag.string({ description: "Record public id" }),
+      field: flag.string({ description: "File field public id or exact name" }),
     },
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table && flags.record && flags.field ? 0 : 3);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
-      const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
+      const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
       const fieldRef = flags.field ?? requireRestArg(flags.table ? rest.slice(1) : rest.slice(2), 0, "field");
       const field = await resolveField(ctx, table.id, fieldRef);
       const payload = await readApi<GridFileListResponse>(
@@ -440,8 +451,8 @@ export const recordCommands = [
     flags: {
       ...baseFlag,
       ...tableFlag,
-      record: flag.string({ description: "Record UUID" }),
-      field: flag.string({ description: "File field id, short id, or exact name" }),
+      record: flag.string({ description: "Record public id" }),
+      field: flag.string({ description: "File field public id or exact name" }),
       file: flag.string({ description: "Local file path" }),
       filename: flag.string({ description: "Stored filename override" }),
       mimeType: flag.string({ name: "mime-type", description: "MIME type override" }),
@@ -449,7 +460,7 @@ export const recordCommands = [
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table && flags.record && flags.field ? 0 : 3);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
-      const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
+      const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
       const fieldRef = flags.field ?? requireRestArg(flags.table ? rest.slice(1) : rest.slice(2), 0, "field");
       const filePath = flags.file ?? requireRestArg(flags.table ? rest.slice(2) : rest.slice(3), 0, "file");
       const field = await resolveField(ctx, table.id, fieldRef);
@@ -470,18 +481,18 @@ export const recordCommands = [
     flags: {
       ...baseFlag,
       ...tableFlag,
-      record: flag.string({ description: "Record UUID" }),
-      field: flag.string({ description: "File field id, short id, or exact name" }),
-      file: flag.string({ description: "File UUID" }),
+      record: flag.string({ description: "Record public id" }),
+      field: flag.string({ description: "File field public id or exact name" }),
+      file: flag.string({ description: "File public id" }),
       inline: flag.boolean({ description: "Request inline disposition" }),
       out: flag.string({ description: "Output file path" }),
     },
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table && flags.record && flags.field && flags.file ? 0 : 4);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
-      const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
+      const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
       const fieldRef = flags.field ?? requireRestArg(flags.table ? rest.slice(1) : rest.slice(2), 0, "field");
-      const fileId = flags.file ?? requireRestArg(flags.table ? rest.slice(2) : rest.slice(3), 0, "file");
+      const fileId = requirePublicId(flags.file ?? requireRestArg(flags.table ? rest.slice(2) : rest.slice(3), 0, "file"), "File id");
       const field = await resolveField(ctx, table.id, fieldRef);
       await writeApiFile(
         ctx,
@@ -497,18 +508,18 @@ export const recordCommands = [
     flags: {
       ...baseFlag,
       ...tableFlag,
-      record: flag.string({ description: "Record UUID" }),
-      field: flag.string({ description: "File field id, short id, or exact name" }),
-      file: flag.string({ description: "File UUID" }),
+      record: flag.string({ description: "Record public id" }),
+      field: flag.string({ description: "File field public id or exact name" }),
+      file: flag.string({ description: "File public id" }),
       yes: confirmFlag("Delete this record file"),
     },
     async run({ ctx, args, flags }) {
       if (!flags.yes) throw new Error("Pass --yes to delete.");
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table && flags.record && flags.field && flags.file ? 0 : 4);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
-      const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
+      const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
       const fieldRef = flags.field ?? requireRestArg(flags.table ? rest.slice(1) : rest.slice(2), 0, "field");
-      const fileId = flags.file ?? requireRestArg(flags.table ? rest.slice(2) : rest.slice(3), 0, "file");
+      const fileId = requirePublicId(flags.file ?? requireRestArg(flags.table ? rest.slice(2) : rest.slice(3), 0, "file"), "File id");
       const field = await resolveField(ctx, table.id, fieldRef);
       await readApi<MessageResponse>(
         ctx,
@@ -524,11 +535,11 @@ export const snapshotCommands = [
   command("snapshots list", {
     summary: "List manual recursive snapshots for one record",
     args: tableArgs,
-    flags: { ...baseFlag, ...tableFlag, record: flag.string({ description: "Record UUID" }) },
+    flags: { ...baseFlag, ...tableFlag, record: flag.string({ description: "Record public id" }) },
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table && flags.record ? 0 : 2);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
-      const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
+      const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
       const payload = await readApi<RecordSnapshotListResponse>(
         ctx,
         `/documents/snapshots/by-record/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}`,
@@ -544,11 +555,11 @@ export const snapshotCommands = [
   command("snapshots create", {
     summary: "Create a manual recursive record snapshot",
     args: tableArgs,
-    flags: { ...baseFlag, ...tableFlag, record: flag.string({ description: "Record UUID" }) },
+    flags: { ...baseFlag, ...tableFlag, record: flag.string({ description: "Record public id" }) },
     async run({ ctx, args, flags }) {
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table && flags.record ? 0 : 2);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
-      const recordId = flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record");
+      const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
       const payload = await readApi<CreateRecordSnapshotResponse>(
         ctx,
         `/documents/snapshots/by-record/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}`,
@@ -559,10 +570,13 @@ export const snapshotCommands = [
   }),
   command("snapshots get", {
     summary: "Show one record snapshot",
-    args: { snapshot: arg.required({ description: "Snapshot UUID" }) },
+    args: { snapshot: arg.required({ description: "Snapshot public id" }) },
     async run({ ctx, args }) {
-      const snapshot = await readApi<RecordSnapshot>(ctx, `/documents/snapshots/${encodeURIComponent(args.snapshot)}`);
-      if (!printStructured(ctx, snapshot)) {
+      const snapshot = await readApi<RecordSnapshot>(
+        ctx,
+        `/documents/snapshots/${encodeURIComponent(requirePublicId(args.snapshot, "Snapshot id"))}`,
+      );
+      if (!printCliStructured(ctx, snapshot)) {
         ctx.print(`${snapshot.id}`);
         ctx.print(`record: ${snapshot.recordId}`);
         ctx.print(`created: ${snapshot.createdAt}`);

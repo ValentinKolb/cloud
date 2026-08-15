@@ -22,31 +22,35 @@ describe("published App SSR availability", () => {
     const tableId = testUuid();
     const fieldId = testUuid();
     const viewId = testUuid();
-    const appId = testUuid();
+    const basePublicId = testShortId("B");
+    const tablePublicId = testShortId("T");
+    const fieldPublicId = testShortId("F");
+    const viewPublicId = testShortId("V");
+    const appPublicId = testShortId("A");
     const accessIds: string[] = [];
     const viewGet = spyOn(gridsService.view, "get");
 
     try {
-      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${testShortId("B")}, 'SSR availability')`;
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${basePublicId}, 'SSR availability')`;
       await sql`
         INSERT INTO grids.tables (id, short_id, base_id, name)
-        VALUES (${tableId}::uuid, ${testShortId("T")}, ${baseId}::uuid, 'Requests')
+        VALUES (${tableId}::uuid, ${tablePublicId}, ${baseId}::uuid, 'Requests')
       `;
       await sql`
         INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
-        VALUES (${fieldId}::uuid, ${testShortId("F")}, ${tableId}::uuid, 'Subject', 'text', '{}'::jsonb, 0)
+        VALUES (${fieldId}::uuid, ${fieldPublicId}, ${tableId}::uuid, 'Subject', 'text', '{}'::jsonb, 0)
       `;
       await sql`
         INSERT INTO grids.views (id, short_id, table_id, name, source)
-        VALUES (${viewId}::uuid, ${testShortId("V")}, ${tableId}::uuid, 'Private requests', ${`from table {${tableId}}`})
+        VALUES (${viewId}::uuid, ${viewPublicId}, ${tableId}::uuid, 'Private requests', ${`from table {${tableId}}`})
       `;
 
-      const unavailable = `from table {${tableId}}\nlimit 1`;
+      const unavailable = `from table {${tablePublicId}}\nlimit 1`;
       const definition: CustomAppDefinition = {
-        schemaVersion: 4,
+        schemaVersion: 5,
         kind: "grids.custom-app",
-        id: appId,
-        baseId,
+        id: appPublicId,
+        baseId: basePublicId,
         name: "SSR guard app",
         startPageId: "home",
         pages: [
@@ -69,8 +73,8 @@ describe("published App SSR availability", () => {
                         searchable: true,
                         pageSize: 25,
                         title: "Unavailable records must not render",
-                        source: { kind: "view", viewId },
-                        display: { kind: "table", columnIds: [fieldId] },
+                        source: { kind: "view", viewId: viewPublicId },
+                        display: { kind: "table", columnIds: [fieldPublicId] },
                         availableWhen: { query: unavailable },
                       },
                     ],
@@ -98,11 +102,11 @@ describe("published App SSR availability", () => {
       const applied = await apply(definition);
       expect(applied.ok).toBe(true);
       if (!applied.ok) throw new Error(applied.error.message);
-      const published = await publish(appId);
+      const published = await publish(applied.data.id);
       expect(published.ok).toBe(true);
       const grant = await grantAccess({
         resourceType: "customApp",
-        resourceId: appId,
+        resourceId: applied.data.id,
         permission: "read",
         principal: { type: "public" },
       });
@@ -116,12 +120,12 @@ describe("published App SSR availability", () => {
           await next();
         })
         .get("/:shortId/:pageId", ...customAppPage);
-      const home = await app.request(`/${applied.data.shortId}/home`);
+      const home = await app.request(`/${appPublicId}/home`);
       expect(home.status).toBe(200);
       expect(await home.text()).not.toContain("Unavailable records must not render");
       expect(viewGet).not.toHaveBeenCalled();
 
-      const denied = await app.request(`/${applied.data.shortId}/denied`);
+      const denied = await app.request(`/${appPublicId}/denied`);
       expect(denied.status).toBe(404);
     } finally {
       viewGet.mockRestore();

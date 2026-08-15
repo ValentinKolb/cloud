@@ -1,10 +1,10 @@
-import { prompts } from "@k2b/ui";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { prompts } from "@k2b/ui";
 import type { Accessor, Setter } from "solid-js";
 import { apiClient } from "../../../api/client";
+import type { PublicField as Field, PublicTable as Table, PublicView as View } from "../../../api/public-dto";
 import type { AggregationSpec, ColumnSpec, FieldColumnSpec, GroupBySpec, RecordQuery } from "../../../contracts";
 import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
-import type { Field, Table, View } from "../../../service";
 import { openViewColumnSettingsDialog } from "../dialogs/ViewColumnSettingsDialog";
 import { groupedAggregationColumnId, groupedGroupColumnId } from "../table/GroupedTable";
 import { errorMessage } from "../utils/api-helpers";
@@ -48,8 +48,7 @@ type RecordsViewColumnControllerOptions = {
   props: {
     activeView?: ColumnView | null;
     tableId: string;
-    baseShortId: string;
-    tableShortId: string;
+    baseId: string;
   };
   fields: Accessor<Field[]>;
   tableColumns: Accessor<FieldColumnSpec[]>;
@@ -182,8 +181,8 @@ export const createRecordsViewColumnController = ({
       const result = await openComputedColumnDialog({
         fields: fields(),
         currentTableId: props.tableId,
-        baseShortId: props.baseShortId,
-        tableShortId: props.tableShortId,
+        baseId: props.baseId,
+        tableId: props.tableId,
         column: current,
       });
       if (!result) return;
@@ -382,8 +381,8 @@ export const createRecordsViewColumnController = ({
     const result = await openComputedColumnDialog({
       fields: fields(),
       currentTableId: props.tableId,
-      baseShortId: props.baseShortId,
-      tableShortId: props.tableShortId,
+      baseId: props.baseId,
+      tableId: props.tableId,
     });
     if (!result || result.action !== "save") return;
     persistFlatViewColumns([...(effectiveViewColumns() ?? defaultViewColumns()), result.column]);

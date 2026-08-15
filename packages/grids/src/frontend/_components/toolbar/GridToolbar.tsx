@@ -1,12 +1,12 @@
-import { Button, ButtonLink, prompts, Tooltip } from "@k2b/ui";
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
+import { Button, ButtonLink, prompts, Tooltip } from "@k2b/ui";
 import { createEffect, createSignal, on, Show, untrack } from "solid-js";
 import { apiClient } from "@/api/client";
+import type { PublicField as Field, PublicForm as Form, PublicGridRecord, PublicView } from "../../../api/public-dto";
 import type { ColumnSpec, RecordQuery } from "../../../contracts";
 import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
-import type { Field, Form, GridRecord, View } from "../../../service";
 import type { CardSize } from "../records-view/query-url";
 import { errorMessage } from "../utils/api-helpers";
 import { type AggregationRow, isAggregationRowComplete } from "./AggregationsPanel";
@@ -54,7 +54,7 @@ type Props = {
    * (RecordsView) opens the detail panel for the new record and
    * refetches the table.
    */
-  onRecordCreated?: (record: GridRecord) => void;
+  onRecordCreated?: (record: PublicGridRecord) => void;
   /** Emitted after form submit where there is no single record-open
    *  intent; the parent just refetches the records resource. */
   onRecordsChanged?: () => void;
@@ -163,7 +163,7 @@ export default function GridToolbar(props: Props) {
   // ---- Save as view ------------------------------------------------------
   // Reads signal state rather than URL state so unapplied changes are
   // captured when the user saves the current view.
-  const saveViewMut = mutations.create<View, { name: string; shared: boolean }>({
+  const saveViewMut = mutations.create<PublicView, { name: string; shared: boolean }>({
     mutation: async (input) => {
       const f = validFilter();
       const s = validSort();

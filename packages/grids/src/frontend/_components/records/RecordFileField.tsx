@@ -14,7 +14,7 @@ import {
   Tooltip,
 } from "@k2b/ui";
 import { createEffect, createSignal, For, Show } from "solid-js";
-import type { Field, GridFile } from "../../../service";
+import type { PublicField as Field, PublicGridFile as GridFile } from "../../../api/public-dto";
 import { errorMessage } from "../utils/api-helpers";
 import { uploadRecordFile } from "./record-transfer-client";
 
@@ -194,12 +194,7 @@ export default function RecordFileField(props: {
                   aria-label={`Preview ${file.filename}`}
                   onClick={() => void openRecordFilePreview(location(), file)}
                 >
-                  <img
-                    src={recordFileContentHref(location(), file, true)}
-                    alt=""
-                    class="h-full w-full object-cover"
-                    loading="lazy"
-                  />
+                  <img src={recordFileContentHref(location(), file, true)} alt="" class="h-full w-full object-cover" loading="lazy" />
                 </button>
               )}
             </For>

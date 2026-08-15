@@ -4,7 +4,7 @@ import type { Field } from "./types";
 
 const mkField = (id: string, type: string, patch: Partial<Field> = {}): Field => ({
   id,
-  shortId: id.slice(0, 5),
+  shortId: id.slice(0, 6),
   tableId: "t1",
   name: id,
   description: null,

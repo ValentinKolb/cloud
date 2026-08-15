@@ -16,6 +16,25 @@ import { createWorkflowCatalogRoutes } from "./workflow-catalog-routes";
 const baseId = "11111111-1111-4111-8111-111111111111";
 const workflowId = "22222222-2222-4222-8222-222222222222";
 const userId = "33333333-3333-4333-8333-333333333333";
+const basePublicId = "base01";
+const workflowPublicId = "work01";
+
+mock.module("../service/public-resources", () => ({
+  resolvePublicId: async (type: string, publicId: string) => {
+    if (type === "base" && publicId === basePublicId) return baseId;
+    if (type === "workflow" && publicId === workflowPublicId) return workflowId;
+    return null;
+  },
+  resolvePublicIds: async () => new Map(),
+  projectPublicIds: async (type: string, internalIds: readonly string[]) =>
+    new Map(
+      internalIds.flatMap((internalId) => {
+        if (type === "base" && internalId === baseId) return [[internalId, basePublicId]];
+        if (type === "workflow" && internalId === workflowId) return [[internalId, workflowPublicId]];
+        return [];
+      }),
+    ),
+}));
 
 const user: User = {
   id: userId,
@@ -39,7 +58,7 @@ const user: User = {
 
 const workflow: GridsWorkflow = {
   id: workflowId,
-  shortId: "wf001",
+  shortId: workflowPublicId,
   baseId,
   name: "Notify",
   description: null,
@@ -130,7 +149,7 @@ const app = () =>
   );
 
 const patchWorkflow = (revision?: number) =>
-  app().request(`/workflows/${workflowId}`, {
+  app().request(`/workflows/${workflowPublicId}`, {
     method: "PATCH",
     headers: {
       "content-type": "application/json",
@@ -175,7 +194,7 @@ describe("workflow catalog update route", () => {
   });
 
   test("rejects invalid workflow ids before reading the store", async () => {
-    const response = await app().request("/workflows/not-a-uuid");
+    const response = await app().request("/workflows/not-an-id");
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ message: "Invalid workflow id" });
@@ -212,20 +231,31 @@ describe("workflow catalog update route", () => {
   test("allows readers to inspect immutable workflow revisions", async () => {
     permissionLevel = "read";
 
-    const listResponse = await app().request(`/workflows/${workflowId}/revisions`);
-    const itemResponse = await app().request(`/workflows/${workflowId}/revisions/${revision.revision}`);
+    const listResponse = await app().request(`/workflows/${workflowPublicId}/revisions`);
+    const itemResponse = await app().request(`/workflows/${workflowPublicId}/revisions/${revision.revision}`);
 
     expect(listResponse.status).toBe(200);
-    expect(await listResponse.json()).toEqual({ items: [revision], nextRevision: null });
+    expect(await listResponse.json()).toEqual({
+      items: [
+        {
+          workflowId: workflowPublicId,
+          revision: revision.revision,
+          name: revision.name,
+          actorUserId: revision.actorUserId,
+          createdAt: revision.createdAt,
+        },
+      ],
+      nextRevision: null,
+    });
     expect(itemResponse.status).toBe(200);
-    expect(await itemResponse.json()).toEqual(revision);
+    expect(await itemResponse.json()).toEqual({ ...revision, workflowId: workflowPublicId });
     expect(includeDeletedWorkflowReads).toEqual([true, true]);
   });
 
   test("allows readers to inspect automatic trigger runtime state", async () => {
     permissionLevel = "read";
 
-    const response = await app().request(`/workflows/${workflowId}/trigger-state`);
+    const response = await app().request(`/workflows/${workflowPublicId}/trigger-state`);
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(triggerState);
@@ -233,7 +263,7 @@ describe("workflow catalog update route", () => {
 
   test("requires admin access and the current revision to restore history", async () => {
     permissionLevel = "read";
-    const forbidden = await app().request(`/workflows/${workflowId}/revisions/${revision.revision}/restore`, {
+    const forbidden = await app().request(`/workflows/${workflowPublicId}/revisions/${revision.revision}/restore`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ expectedRevision: workflow.revision }),
@@ -242,7 +272,7 @@ describe("workflow catalog update route", () => {
     expect(restoredRevision).toBeNull();
 
     permissionLevel = "admin";
-    const response = await app().request(`/workflows/${workflowId}/revisions/${revision.revision}/restore`, {
+    const response = await app().request(`/workflows/${workflowPublicId}/revisions/${revision.revision}/restore`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ expectedRevision: workflow.revision }),

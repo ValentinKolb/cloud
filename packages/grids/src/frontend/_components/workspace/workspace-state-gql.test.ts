@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { gridsService } from "../../../service";
+import * as publicResources from "../../../service/public-resources";
 import { loadGridsWorkspaceState } from "./workspace-state";
 
 const loadWorkspaceState = (params: Parameters<typeof loadGridsWorkspaceState>[0]) =>
@@ -10,10 +11,11 @@ const loadWorkspaceState = (params: Parameters<typeof loadGridsWorkspaceState>[0
 
 const viewerId = "44444444-4444-4444-8444-444444444444";
 const selectedRecordId = "77777777-7777-4777-8777-777777777777";
+const selectedRecordPublicId = "REC001";
 
 const base = {
   id: "11111111-1111-4111-8111-111111111111",
-  shortId: "BASE1",
+  shortId: "BASE01",
   name: "GQL Base",
   description: null,
   deletedAt: null,
@@ -23,7 +25,7 @@ const base = {
 
 const table = {
   id: "22222222-2222-4222-8222-222222222222",
-  shortId: "TBL01",
+  shortId: "TABL01",
   baseId: base.id,
   name: "Orders",
   description: null,
@@ -39,7 +41,7 @@ const table = {
 
 const statusField = {
   id: "88888888-8888-4888-8888-888888888888",
-  shortId: "STAT1",
+  shortId: "STAT01",
   tableId: table.id,
   name: "Status",
   description: null,
@@ -60,12 +62,12 @@ const statusField = {
 
 const savedView = {
   id: "99999999-9999-4999-8999-999999999999",
-  shortId: "VIEW1",
+  shortId: "VIEW01",
   tableId: table.id,
   name: "Open orders",
   description: null,
   icon: null,
-  source: `from table {${table.id}}\nwhere {${statusField.id}} = 'Open'\nsort {${statusField.id}} asc`,
+  source: `from table {${table.shortId}}\nwhere {${statusField.shortId}} = 'Open'\nsort {${statusField.shortId}} asc`,
   ui: { displayConfig: { mode: "table" as const } },
   ownerUserId: null,
   position: 0,
@@ -108,7 +110,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     recordGetCalls = 0;
     recordListRecordForId = null;
 
-    spyOn(gridsService.base, "getByIdOrShortId").mockImplementation(async () => base as never);
+    spyOn(gridsService.base, "getByShortId").mockImplementation(async () => base as never);
     spyOn(gridsService.base, "catalog").mockImplementation(
       async () =>
         ({
@@ -124,15 +126,18 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     );
     spyOn(gridsService.permission, "loadBaseGrantsForSubject").mockImplementation(async () => []);
     spyOn(gridsService.permission, "resolve").mockImplementation(() => baseLevel);
-    spyOn(gridsService.table, "getByIdOrShortId").mockImplementation(
+    spyOn(gridsService.table, "getByShortIdForBase").mockImplementation(
       async (_baseId, idOrSlug) =>
         (lookupTable && (lookupTable.id === idOrSlug || lookupTable.shortId === idOrSlug) ? lookupTable : null) as never,
     );
-    spyOn(gridsService.view, "getByIdOrShortId").mockImplementation(
+    spyOn(gridsService.view, "getByShortIdForTable").mockImplementation(
       async (_tableId, idOrSlug) =>
         (lookupView && (lookupView.id === idOrSlug || lookupView.shortId === idOrSlug) ? lookupView : null) as never,
     );
     spyOn(gridsService.field, "listByTable").mockImplementation(async () => [statusField] as never);
+    spyOn(publicResources, "resolveStoredPublicId").mockImplementation(async (_kind, publicId) =>
+      publicId === selectedRecordPublicId ? selectedRecordId : null,
+    );
     spyOn(gridsService.workflow, "listForBase").mockImplementation(async () => []);
     spyOn(gridsService.workflow, "listEnabledForBase").mockImplementation(async () => []);
     spyOn(gridsService.workflow.launcher, "listForBase").mockImplementation(async () => []);
@@ -194,9 +199,9 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     const aggregateView = {
       ...savedView,
       id: "66666666-6666-4666-8666-666666666666",
-      shortId: "COUNT",
+      shortId: "COUNT1",
       name: "Orders count",
-      source: `from table {${table.id}}\naggregate count(*) as orders`,
+      source: `from table {${table.shortId}}\naggregate count(*) as orders`,
     };
     catalogViewsByTable = { [table.id]: [aggregateView] };
     lookupTable = table;
@@ -221,7 +226,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
   test("hydrates grouped aggregate sort into the client records state", async () => {
     const groupedView = {
       ...savedView,
-      source: `from table {${table.id}}\ngroup by {${statusField.id}}\naggregate count(*) as rows\nsort {${statusField.id}} asc, rows desc`,
+      source: `from table {${table.shortId}}\ngroup by {${statusField.shortId}}\naggregate count(*) as rows\nsort {${statusField.shortId}} asc, rows desc`,
     };
     catalogViewsByTable = { [table.id]: [groupedView] };
     lookupTable = table;
@@ -243,7 +248,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
   test("hydrates large grouped limits as bounded cursor pages", async () => {
     const groupedView = {
       ...savedView,
-      source: `from table {${table.id}}\ngroup by {${statusField.id}}\naggregate count(*) as rows\nlimit 2500`,
+      source: `from table {${table.shortId}}\ngroup by {${statusField.shortId}}\naggregate count(*) as rows\nlimit 2500`,
     };
     catalogViewsByTable = { [table.id]: [groupedView] };
     lookupTable = table;
@@ -319,9 +324,9 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     const aggregateView = {
       ...savedView,
       id: "66666666-6666-4666-8666-666666666666",
-      shortId: "COUNT",
+      shortId: "COUNT1",
       name: "Orders count",
-      source: `from table {${table.id}}\naggregate count(*) as orders`,
+      source: `from table {${table.shortId}}\naggregate count(*) as orders`,
     };
     catalogTables = [];
     catalogTableLevels = {};
@@ -350,9 +355,9 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     const hiddenJoinView = {
       ...savedView,
       id: "55555555-5555-4555-8555-555555555555",
-      shortId: "JOIN1",
+      shortId: "JOIN01",
       name: "Joined orders",
-      source: `from table {${table.id}} as orders\njoin table {33333333-3333-4333-8333-333333333333} as hidden on orders.id = hidden.id`,
+      source: `from table {${table.shortId}} as orders\njoin table {HIDN01} as hidden on orders.id = hidden.id`,
     };
     catalogTables = [];
     catalogTableLevels = {};
@@ -396,7 +401,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     const state = await loadWorkspaceState({
       user,
       baseShortId: base.shortId,
-      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${savedView.shortId}?record=${selectedRecordId}`,
+      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${savedView.shortId}?record=${selectedRecordPublicId}`,
       activeTableSlug: table.shortId,
       activeViewSlug: savedView.shortId,
     });
@@ -433,7 +438,7 @@ describe("loadGridsWorkspaceState — GQL-backed views", () => {
     const state = await loadWorkspaceState({
       user,
       baseShortId: base.shortId,
-      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${limitedView.shortId}?record=${selectedRecordId}`,
+      href: `/app/grids/${base.shortId}/table/${table.shortId}/view/${limitedView.shortId}?record=${selectedRecordPublicId}`,
       activeTableSlug: table.shortId,
       activeViewSlug: limitedView.shortId,
     });

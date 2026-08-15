@@ -1,10 +1,10 @@
 import { type DateContext, dates } from "@k2b/stdlib";
 import { Avatar, Button, Discussion, IconButton, MarkdownView, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
 import { createEffect, createSignal, For, Show } from "solid-js";
-import type { RecordComment, RecordCommentPage } from "../../../service/record-comments";
+import type { PublicRecordComment as RecordComment } from "../../../api/public-dto";
 
 type CommentPermissions = { actorUserId: string | null; canWrite: boolean; canModerate: boolean };
-type CommentsResponse = RecordCommentPage & { permissions: CommentPermissions };
+type CommentsResponse = { items: RecordComment[]; nextCursor: string | null; permissions: CommentPermissions };
 
 type Props = {
   endpoint: string;

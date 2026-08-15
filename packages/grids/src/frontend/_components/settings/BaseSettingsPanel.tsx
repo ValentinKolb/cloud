@@ -1,17 +1,11 @@
 import { confirmDiscardIfDirty, NoticeCard, SettingsGroup, SettingsModal } from "@k2b/ui";
 import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { createSignal } from "solid-js";
-import type { DocumentProfile } from "../../../contracts";
+import type { PublicBase } from "../../../api/public-dto";
 import { DangerZone, DocumentProfileForm, GeneralForm, PermissionsSection, TrashSection } from "./BaseSettingsSections";
 
 type Props = {
-  base: {
-    id: string;
-    shortId: string;
-    name: string;
-    description: string | null;
-    documentProfile: DocumentProfile;
-  };
+  base: PublicBase;
   accessEntries: AccessEntry[];
   onClose?: () => void;
 };

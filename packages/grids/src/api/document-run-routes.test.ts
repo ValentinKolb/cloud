@@ -15,6 +15,36 @@ const recordId = "55555555-5555-4555-8555-555555555555";
 const runId = "66666666-6666-4666-8666-666666666666";
 const snapshotId = "77777777-7777-4777-8777-777777777777";
 const userId = "88888888-8888-4888-8888-888888888888";
+const basePublicId = "BASE01";
+const tablePublicId = "TABL01";
+const templatePublicId = "TMPL01";
+const otherTemplatePublicId = "TMPL02";
+const recordPublicId = "RECD01";
+const runPublicId = "DRUN01";
+const otherRunPublicId = "DRUN02";
+const snapshotPublicId = "SNAP01";
+const otherRunId = "99999999-9999-4999-8999-999999999999";
+
+const publicToInternal = new Map([
+  [basePublicId, baseId],
+  [tablePublicId, tableId],
+  [templatePublicId, templateId],
+  [otherTemplatePublicId, otherTemplateId],
+  [recordPublicId, recordId],
+  [runPublicId, runId],
+  [otherRunPublicId, otherRunId],
+  [snapshotPublicId, snapshotId],
+]);
+const internalToPublic = new Map([...publicToInternal].map(([publicId, internalId]) => [internalId, publicId]));
+mock.module("../service/public-resources", () => ({
+  resolvePublicId: async (_type: string, publicId: string) => publicToInternal.get(publicId) ?? null,
+  resolvePublicIds: async (_type: string, publicIds: string[]) =>
+    new Map(publicIds.flatMap((publicId) => (publicToInternal.has(publicId) ? [[publicId, publicToInternal.get(publicId)!]] : []))),
+  projectPublicIds: async (_type: string, internalIds: string[]) =>
+    new Map(
+      internalIds.flatMap((internalId) => (internalToPublic.has(internalId) ? [[internalId, internalToPublic.get(internalId)!]] : [])),
+    ),
+}));
 const validCursor = Buffer.from(JSON.stringify({ generatedAt: "2026-07-11T08:00:00.000Z", id: runId }), "utf8").toString("base64url");
 
 const user: User = {
@@ -38,7 +68,7 @@ const user: User = {
 };
 
 const table = { id: tableId, baseId };
-const template = { id: templateId, tableId };
+const template = { id: templateId, shortId: templatePublicId, tableId };
 type RunFixture = {
   id: string;
   shortId: string;
@@ -59,7 +89,7 @@ type RunFixture = {
 
 const run: RunFixture = {
   id: runId,
-  shortId: "RUN01",
+  shortId: runPublicId,
   templateId,
   workflowRunId: null,
   snapshotId,
@@ -74,7 +104,7 @@ const run: RunFixture = {
   generatedBy: userId,
   generatedAt: "2026-07-11T08:00:00.000Z",
 };
-const otherTemplateRun: RunFixture = { ...run, id: "99999999-9999-4999-8999-999999999999", templateId: otherTemplateId };
+const otherTemplateRun: RunFixture = { ...run, id: otherRunId, shortId: otherRunPublicId, templateId: otherTemplateId };
 
 const summarizeRun = (row: RunFixture) => ({
   id: row.id,
@@ -85,6 +115,20 @@ const summarizeRun = (row: RunFixture) => ({
   baseId: row.baseId,
   tableId: row.tableId,
   recordId: row.recordId,
+  documentNumber: row.documentNumber,
+  filename: row.filename,
+  tags: row.tags,
+  generatedBy: row.generatedBy,
+  generatedAt: row.generatedAt,
+});
+const publicSummary = (row: RunFixture) => ({
+  id: row.shortId,
+  templateId: row.templateId === templateId ? templatePublicId : row.templateId === otherTemplateId ? otherTemplatePublicId : null,
+  workflowRunId: null,
+  snapshotId: snapshotPublicId,
+  baseId: basePublicId,
+  tableId: tablePublicId,
+  recordId: recordPublicId,
   documentNumber: row.documentNumber,
   filename: row.filename,
   tags: row.tags,
@@ -142,7 +186,9 @@ describe("document run routes", () => {
     renderRunResult = { ok: true, data: { pdf: new Uint8Array([37, 80, 68, 70]) } };
 
     spyOn(gridsService.table, "get").mockImplementation(async (id) => (id === tableId ? currentTable : null) as never);
-    spyOn(gridsService.document, "getTemplate").mockImplementation(async (id) => (id === templateId ? currentTemplate : null) as never);
+    spyOn(gridsService.document, "getTemplateByShortId").mockImplementation(
+      async (id) => (id === templatePublicId ? currentTemplate : null) as never,
+    );
     spyOn(gridsService.document, "listRunsForTemplate").mockImplementation(async (input) => {
       listTemplateInput = input;
       return {
@@ -201,12 +247,12 @@ describe("document run routes", () => {
   });
 
   for (const [method, suffix] of [
-    ["GET", `/runs/by-template/${templateId}`],
-    ["GET", `/runs/by-template/${templateId}/browse`],
-    ["GET", `/runs/by-template/${templateId}/${recordId}`],
-    ["GET", `/runs/by-record/${tableId}/${recordId}`],
-    ["PATCH", `/runs/${runId}`],
-    ["GET", `/runs/${runId}/download`],
+    ["GET", `/runs/by-template/${templatePublicId}`],
+    ["GET", `/runs/by-template/${templatePublicId}/browse`],
+    ["GET", `/runs/by-template/${templatePublicId}/${recordPublicId}`],
+    ["GET", `/runs/by-record/${tablePublicId}/${recordPublicId}`],
+    ["PATCH", `/runs/${runPublicId}`],
+    ["GET", `/runs/${runPublicId}/download`],
   ] as const) {
     test(`parent auth protects ${method} ${suffix}`, async () => {
       const response = await deniedApp().request(path(suffix), { method });
@@ -219,7 +265,7 @@ describe("document run routes", () => {
   describe("GET /runs/by-template/:templateId", () => {
     test("returns the exact 404 contract", async () => {
       currentTemplate = null;
-      const response = await app().request(path(`/runs/by-template/${templateId}`));
+      const response = await app().request(path(`/runs/by-template/${templatePublicId}`));
 
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({ message: "Document template not found" });
@@ -227,12 +273,12 @@ describe("document run routes", () => {
 
     test("requires base read permission", async () => {
       tableLevel = "none";
-      await expectForbidden(await app().request(path(`/runs/by-template/${templateId}`)));
+      await expectForbidden(await app().request(path(`/runs/by-template/${templatePublicId}`)));
     });
 
     test("forwards pagination and maps summaries", async () => {
       const response = await app().request(
-        path(`/runs/by-template/${templateId}?q=invoice&tags=finance%2Cpaid&limit=2&offset=1&cursor=${validCursor}`),
+        path(`/runs/by-template/${templatePublicId}?q=invoice&tags=finance%2Cpaid&limit=2&offset=1&cursor=${validCursor}`),
       );
 
       expect(response.status).toBe(200);
@@ -245,7 +291,7 @@ describe("document run routes", () => {
         cursor: validCursor,
       });
       expect(await response.json()).toEqual({
-        items: [summarizeRun(run)],
+        items: [publicSummary(run)],
         total: 3,
         limit: 2,
         offset: 1,
@@ -256,14 +302,14 @@ describe("document run routes", () => {
     });
 
     test("rejects an invalid cursor before querying document runs", async () => {
-      const response = await app().request(path(`/runs/by-template/${templateId}?cursor=not-a-cursor`));
+      const response = await app().request(path(`/runs/by-template/${templatePublicId}?cursor=not-a-cursor`));
 
       expect(response.status).toBe(400);
       expect(listTemplateInput).toBeUndefined();
     });
 
     test("forwards stable list defaults", async () => {
-      const response = await app().request(path(`/runs/by-template/${templateId}`));
+      const response = await app().request(path(`/runs/by-template/${templatePublicId}`));
 
       expect(response.status).toBe(200);
       expect(listTemplateInput).toEqual({
@@ -280,7 +326,7 @@ describe("document run routes", () => {
   describe("GET /runs/by-template/:templateId/browse", () => {
     test("returns the exact 404 contract", async () => {
       currentTemplate = null;
-      const response = await app().request(path(`/runs/by-template/${templateId}/browse`));
+      const response = await app().request(path(`/runs/by-template/${templatePublicId}/browse`));
 
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({ message: "Document template not found" });
@@ -288,13 +334,13 @@ describe("document run routes", () => {
 
     test("requires base read permission", async () => {
       tableLevel = "none";
-      await expectForbidden(await app().request(path(`/runs/by-template/${templateId}/browse`)));
+      await expectForbidden(await app().request(path(`/runs/by-template/${templatePublicId}/browse`)));
     });
 
     test("keeps the specific route ahead of the record route and forwards browse query", async () => {
       const response = await app().request(
         path(
-          `/runs/by-template/${templateId}/browse?q=invoice&tags=finance%2Cpaid&limit=2&cursor=${validCursor}&path=2026%2F07&mode=folders`,
+          `/runs/by-template/${templatePublicId}/browse?q=invoice&tags=finance%2Cpaid&limit=2&cursor=${validCursor}&path=2026%2F07&mode=folders`,
         ),
         { headers: { cookie: "cloud.timezone=Europe%2FBerlin" } },
       );
@@ -313,7 +359,7 @@ describe("document run routes", () => {
       expect(await response.json()).toEqual({
         path: ["2026", "07"],
         folders: [{ kind: "month", key: "08", label: "August", path: ["2026", "08"], count: 2 }],
-        items: [summarizeRun(run)],
+        items: [publicSummary(run)],
         total: 3,
         limit: 2,
         hasMore: true,
@@ -322,7 +368,7 @@ describe("document run routes", () => {
     });
 
     test("forwards stable browse defaults", async () => {
-      const response = await app().request(path(`/runs/by-template/${templateId}/browse`));
+      const response = await app().request(path(`/runs/by-template/${templatePublicId}/browse`));
 
       expect(response.status).toBe(200);
       expect(browseTemplateInput).toEqual({
@@ -340,7 +386,7 @@ describe("document run routes", () => {
 
   describe("GET /runs/by-template/:templateId/:recordId", () => {
     test("returns the exact 404 contract", async () => {
-      const response = await app().request(path(`/runs/by-template/${templateId}/not-a-record-id`));
+      const response = await app().request(path(`/runs/by-template/${templatePublicId}/not-a-record-id`));
 
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({ message: "Record not found" });
@@ -348,21 +394,21 @@ describe("document run routes", () => {
 
     test("requires base read permission", async () => {
       tableLevel = "none";
-      await expectForbidden(await app().request(path(`/runs/by-template/${templateId}/${recordId}`)));
+      await expectForbidden(await app().request(path(`/runs/by-template/${templatePublicId}/${recordPublicId}`)));
     });
 
     test("returns only summaries for the selected template", async () => {
-      const response = await app().request(path(`/runs/by-template/${templateId}/${recordId}`));
+      const response = await app().request(path(`/runs/by-template/${templatePublicId}/${recordPublicId}`));
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ items: [summarizeRun(run)] });
+      expect(await response.json()).toEqual({ items: [publicSummary(run)] });
     });
   });
 
   describe("GET /runs/by-record/:tableId/:recordId", () => {
     test("returns the exact 404 contract", async () => {
       currentTable = null;
-      const response = await app().request(path(`/runs/by-record/${tableId}/${recordId}`));
+      const response = await app().request(path(`/runs/by-record/${tablePublicId}/${recordPublicId}`));
 
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({ message: "Table not found" });
@@ -370,21 +416,21 @@ describe("document run routes", () => {
 
     test("requires table read permission", async () => {
       tableLevel = "none";
-      await expectForbidden(await app().request(path(`/runs/by-record/${tableId}/${recordId}`)));
+      await expectForbidden(await app().request(path(`/runs/by-record/${tablePublicId}/${recordPublicId}`)));
     });
 
     test("returns all run summaries for the record", async () => {
-      const response = await app().request(path(`/runs/by-record/${tableId}/${recordId}`));
+      const response = await app().request(path(`/runs/by-record/${tablePublicId}/${recordPublicId}`));
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ items: [summarizeRun(run), summarizeRun(otherTemplateRun)] });
+      expect(await response.json()).toEqual({ items: [publicSummary(run), publicSummary(otherTemplateRun)] });
     });
   });
 
   describe("PATCH /runs/:runId", () => {
     test("returns the exact 404 contract", async () => {
       currentRun = null;
-      const response = await app().request(path(`/runs/${runId}`), patchJson({ tags: [] }));
+      const response = await app().request(path(`/runs/${runPublicId}`), patchJson({ tags: [] }));
 
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({ message: "Document run not found" });
@@ -392,7 +438,7 @@ describe("document run routes", () => {
 
     test("requires base write permission", async () => {
       tableLevel = "read";
-      await expectForbidden(await app().request(path(`/runs/${runId}`), patchJson({ tags: ["paid"] })));
+      await expectForbidden(await app().request(path(`/runs/${runPublicId}`), patchJson({ tags: ["paid"] })));
       expect(updateInput).toBeUndefined();
     });
 
@@ -400,27 +446,27 @@ describe("document run routes", () => {
       currentTemplate = null;
       tableLevel = "read";
 
-      await expectForbidden(await app().request(path(`/runs/${runId}`), patchJson({ tags: ["paid"] })));
+      await expectForbidden(await app().request(path(`/runs/${runPublicId}`), patchJson({ tags: ["paid"] })));
       expect(updateInput).toBeUndefined();
     });
 
     test("updates metadata and returns the mapped summary", async () => {
       tableLevel = "write";
-      const response = await app().request(path(`/runs/${runId}`), patchJson({ filename: " Updated.pdf ", tags: ["paid"] }));
+      const response = await app().request(path(`/runs/${runPublicId}`), patchJson({ filename: " Updated.pdf ", tags: ["paid"] }));
 
       expect(response.status).toBe(200);
       expect(updateInput).toEqual({ id: runId, input: { filename: "Updated.pdf", tags: ["paid"] }, actorId: userId });
-      expect(await response.json()).toEqual(summarizeRun({ ...run, filename: "Updated.pdf", tags: ["paid"] }));
+      expect(await response.json()).toEqual(publicSummary({ ...run, filename: "Updated.pdf", tags: ["paid"] }));
     });
 
     test("uses base write permission for a template-less run", async () => {
       currentRun = { ...run, templateId: null };
       tableLevel = "read";
-      await expectForbidden(await app().request(path(`/runs/${runId}`), patchJson({ tags: ["paid"] })));
+      await expectForbidden(await app().request(path(`/runs/${runPublicId}`), patchJson({ tags: ["paid"] })));
       expect(updateInput).toBeUndefined();
 
       tableLevel = "write";
-      const response = await app().request(path(`/runs/${runId}`), patchJson({ tags: ["paid"] }));
+      const response = await app().request(path(`/runs/${runPublicId}`), patchJson({ tags: ["paid"] }));
       expect(response.status).toBe(200);
       expect(updateInput).toEqual({ id: runId, input: { tags: ["paid"] }, actorId: userId });
     });
@@ -429,7 +475,7 @@ describe("document run routes", () => {
   describe("GET /runs/:runId/download", () => {
     test("returns the exact 404 contract", async () => {
       currentRun = null;
-      const response = await app().request(path(`/runs/${runId}/download`));
+      const response = await app().request(path(`/runs/${runPublicId}/download`));
 
       expect(response.status).toBe(404);
       expect(await response.json()).toEqual({ message: "Document run not found" });
@@ -437,7 +483,7 @@ describe("document run routes", () => {
 
     test("requires base read permission", async () => {
       tableLevel = "none";
-      await expectForbidden(await app().request(path(`/runs/${runId}/download`)));
+      await expectForbidden(await app().request(path(`/runs/${runPublicId}/download`)));
       expect(renderedRun).toBeUndefined();
     });
 
@@ -445,12 +491,12 @@ describe("document run routes", () => {
       currentTemplate = null;
       tableLevel = "none";
 
-      await expectForbidden(await app().request(path(`/runs/${runId}/download`)));
+      await expectForbidden(await app().request(path(`/runs/${runPublicId}/download`)));
       expect(renderedRun).toBeUndefined();
     });
 
     test("renders the stored run and returns PDF headers", async () => {
-      const response = await app().request(path(`/runs/${runId}/download`));
+      const response = await app().request(path(`/runs/${runPublicId}/download`));
 
       expect(response.status).toBe(200);
       expect(renderedRun).toBe(run);
@@ -459,7 +505,7 @@ describe("document run routes", () => {
         `attachment; filename="Invoice July.pdf"; filename*=UTF-8''Invoice%20July.pdf`,
       );
       expect(response.headers.get("cache-control")).toBe("no-store");
-      expect(response.headers.get("x-grids-document-run-id")).toBe(runId);
+      expect(response.headers.get("x-grids-document-run-id")).toBe(runPublicId);
       expect(response.headers.get("x-grids-document-number")).toBe("DOC-001");
       expect(response.headers.get("x-grids-document-filename")).toBe("Invoice%20July.pdf");
       expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([37, 80, 68, 70]));
@@ -469,11 +515,11 @@ describe("document run routes", () => {
       const tableRun = { ...run, templateId: null };
       currentRun = tableRun;
       tableLevel = "none";
-      await expectForbidden(await app().request(path(`/runs/${runId}/download`)));
+      await expectForbidden(await app().request(path(`/runs/${runPublicId}/download`)));
       expect(renderedRun).toBeUndefined();
 
       tableLevel = "read";
-      const response = await app().request(path(`/runs/${runId}/download`));
+      const response = await app().request(path(`/runs/${runPublicId}/download`));
       expect(response.status).toBe(200);
       expect(renderedRun).toBe(tableRun);
     });
@@ -481,7 +527,7 @@ describe("document run routes", () => {
     test("forwards PDF render failures without download headers", async () => {
       renderRunResult = { ok: false, error: { message: "Gotenberg unavailable", status: 502 } };
 
-      const response = await app().request(path(`/runs/${runId}/download`));
+      const response = await app().request(path(`/runs/${runPublicId}/download`));
 
       expect(response.status).toBe(502);
       expect(await response.json()).toEqual({ message: "Gotenberg unavailable" });
