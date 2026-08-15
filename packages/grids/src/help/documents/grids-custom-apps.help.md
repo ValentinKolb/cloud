@@ -23,7 +23,7 @@ A column may contain:
 
 - **Markdown**, for headings, instructions, links, and request-context placeholders;
 - **Form**, for creating a record with one existing active Grids Form;
-- **Records**, for up to 100 rows from a saved view or bounded GQL; saved views use an explicit field allowlist, while GQL displays its selected result columns;
+- **Records**, for up to 100 rows from a saved view or bounded GQL; tables may display an explicit field subset of the selected result;
 - **Metrics**, for named scalar aggregates from a saved view or bounded GQL;
 - **Chart**, for grouped aggregate results rendered as a supported chart;
 - **Record**, for an explicit field allowlist from the current detail record;
@@ -31,7 +31,7 @@ A column may contain:
 - **Actions**, for internal navigation or an exact published workflow launcher;
 - **Scanner**, for a signed-in camera or manual-code workflow surface backed by one exact Scanner run option.
 
-Record detail pages are route-only. They declare one required `record` parameter, bind it as the page record, and set `navigation.visible: false`. A Records block may map its row id to that parameter with `rowNavigate`. Grids then builds the URL and authorizes the record when the detail page opens.
+Record detail pages are route-only. They declare one required `record` parameter, bind it as the page record, and set `navigation.visible: false`. A Records block may map its row id or one selected single-relation field to that parameter with `rowNavigate`. Grids then builds the URL and authorizes the record when the detail page opens.
 
 A route-only page may also declare a Record parameter without loading it as the page record. This is useful when bounded Records GQL or a Form needs parent context, such as one description list while several related articles are entered.
 

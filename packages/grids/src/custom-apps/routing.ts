@@ -182,12 +182,20 @@ export const customAppActionHref = (
   return customAppPageHref(shortId, action.pageId, params);
 };
 
-export const customAppRowHref = (shortId: string, navigation: CustomAppRowNavigation, recordId: string): string =>
-  customAppPageHref(
-    shortId,
-    navigation.pageId,
-    Object.fromEntries(Object.keys(navigation.params).map((parameterId) => [parameterId, recordId])),
-  );
+export const customAppRowHref = (
+  shortId: string,
+  navigation: CustomAppRowNavigation,
+  recordId: string,
+  resolvedParams: Readonly<Record<string, string>> = {},
+): string | null => {
+  const params: Record<string, string> = {};
+  for (const [parameterId, binding] of Object.entries(navigation.params)) {
+    const value = binding.path === "id" ? recordId : resolvedParams[parameterId];
+    if (!value) return null;
+    params[parameterId] = value;
+  }
+  return customAppPageHref(shortId, navigation.pageId, params);
+};
 
 export const customAppFormSuccessHref = (
   shortId: string,

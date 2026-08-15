@@ -11,6 +11,13 @@ describe("App Records table actions", () => {
     expect(source).toContain("label={action.label}");
     expect(source).toContain("body: { rowId, search: appliedQuery() || undefined, cursor: cursor() || undefined }");
     expect(source).toContain("event.stopPropagation()");
+    expect(source).toContain("ti ti-external-link");
+    expect(source).toContain('class="group font-medium text-primary"');
+    expect(source).toContain("whitespace-pre-wrap break-words underline-offset-2 group-hover:underline group-focus-visible:underline");
+    expect(source).toContain('field?.type === "date" ? "whitespace-nowrap tabular-nums" : "whitespace-pre-wrap break-words"');
+    expect(source).toContain('["text", "longtext", "relation"].includes(column.type) ? "min-w-48" : "min-w-32"');
+    expect(source).toContain('class="overflow-x-auto"');
+    expect(source).toContain("result().rowNavigationParams?.[row.recordId]");
     expect(source).toContain("await loadPage(cursor(), appliedQuery(), history())");
     expect(source).toContain("window.setTimeout(() => void loadPage(null, value.trim(), []), 250)");
     expect(source).toContain('<DataTable.Header title={props.title} as="h2" size="md" />');

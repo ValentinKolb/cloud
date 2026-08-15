@@ -14,6 +14,7 @@ import { invokeCustomAppWorkflow } from "./workflow-action-client";
 type QuerySuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
 export type CustomAppRecordsSuccess = QuerySuccess & {
   presentation?: { fields: Field[] };
+  rowNavigationParams?: Record<string, Record<string, string>>;
   cards?: {
     displayConfig: RecordDisplayConfig;
     fields: Field[];
@@ -127,7 +128,10 @@ export default function RecordsTable(props: {
     result().rows.map((row, index) => ({
       ...row,
       rowKey: row.recordId ? `${row.recordId}:${index}` : `row-${index}`,
-      href: row.recordId && props.rowNavigate ? customAppRowHref(props.shortId, props.rowNavigate, row.recordId) : null,
+      href:
+        row.recordId && props.rowNavigate
+          ? customAppRowHref(props.shortId, props.rowNavigate, row.recordId, result().rowNavigationParams?.[row.recordId])
+          : null,
     })),
   );
   const cardRecords = createMemo<GridRecord[]>(() => {
@@ -178,8 +182,11 @@ export default function RecordsTable(props: {
       header: column.label,
       subtitle: column.type,
       value: (row: ReturnType<typeof rows>[number]) => row.values[column.key],
+      class: ["text", "longtext", "relation"].includes(column.type) ? "min-w-48" : "min-w-32",
     }));
-    if ((props.rowActions?.length ?? 0) > 0) value.push({ id: "__actions", header: "Actions", subtitle: "", value: (row) => row.recordId });
+    if ((props.rowActions?.length ?? 0) > 0) {
+      value.push({ id: "__actions", header: "Actions", subtitle: "", value: (row) => row.recordId, class: "min-w-28" });
+    }
     return value;
   });
 
@@ -252,6 +259,7 @@ export default function RecordsTable(props: {
               getRowId={(row) => row.rowKey}
               density="compact"
               surface="plain"
+              class="overflow-x-auto"
               hoverRows={Boolean(props.rowNavigate)}
               rowClass={(row) => (row.href ? "cursor-pointer" : undefined)}
               onRowClick={
@@ -328,11 +336,16 @@ export default function RecordsTable(props: {
                   displayValue(value)
                 );
                 return row.href && col.id === firstColumnId() ? (
-                  <a href={row.href} class="font-medium text-accent hover:underline">
-                    {rendered}
+                  <a href={row.href} class="group font-medium text-primary" onClick={(event) => event.stopPropagation()}>
+                    <span class="whitespace-pre-wrap break-words underline-offset-2 group-hover:underline group-focus-visible:underline">
+                      {rendered}
+                    </span>{" "}
+                    <i class="ti ti-external-link inline-block text-[10px] text-dimmed" aria-hidden="true" />
                   </a>
                 ) : (
-                  <div class="whitespace-pre-wrap break-words">{rendered}</div>
+                  <div class={field?.type === "date" ? "whitespace-nowrap tabular-nums" : "whitespace-pre-wrap break-words"}>
+                    {rendered}
+                  </div>
                 );
               }}
             />
@@ -353,7 +366,8 @@ export default function RecordsTable(props: {
             onRecordClick={
               props.rowNavigate
                 ? (record) => {
-                    const href = customAppRowHref(props.shortId, props.rowNavigate!, record.id);
+                    const href = customAppRowHref(props.shortId, props.rowNavigate!, record.id, result().rowNavigationParams?.[record.id]);
+                    if (!href) return;
                     if (props.rowNavigate!.history === "replace") window.location.replace(href);
                     else window.location.assign(href);
                   }

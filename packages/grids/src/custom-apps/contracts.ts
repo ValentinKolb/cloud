@@ -55,7 +55,13 @@ const CustomAppRowNavigationSchema = z
     kind: z.literal("navigate"),
     pageId: CustomAppLocalIdSchema,
     history: z.enum(["push", "replace"]).default("push"),
-    params: z.record(CustomAppParameterIdSchema, z.object({ source: z.literal("ROW"), path: z.literal("id") }).strict()),
+    params: z.record(
+      CustomAppParameterIdSchema,
+      z.discriminatedUnion("path", [
+        z.object({ source: z.literal("ROW"), path: z.literal("id") }).strict(),
+        z.object({ source: z.literal("ROW"), path: z.literal("relation"), fieldId: z.string().uuid() }).strict(),
+      ]),
+    ),
   })
   .strict();
 
@@ -1088,7 +1094,7 @@ export const CUSTOM_APP_REFERENCE = {
       display: "Use an explicit App table projection or inherit the existing Cards configuration from a saved View",
       search: "Optional server-side PostgreSQL search over displayed result fields",
       pagination: "Cursor-paged from 5 to 100 rows per request; a GQL limit caps the complete result",
-      rowNavigate: "Optionally navigate a row id into a target page record parameter",
+      rowNavigate: "Optionally navigate a row id or selected single relation into a target page record parameter",
       rowActions: "Optionally invoke plural workflow actions with ROW.id and accessible label/icon presentation",
     },
     metrics: {

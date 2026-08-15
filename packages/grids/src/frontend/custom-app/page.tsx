@@ -128,7 +128,7 @@ const Records = (props: {
       dateConfig={props.dateConfig}
       shortId={props.shortId}
       selectedColumnIds={
-        props.block.source.kind === "view" && props.block.display.kind === "table" ? props.block.display.columnIds : undefined
+        props.block.display.kind === "table" && props.block.display.columnIds.length > 0 ? props.block.display.columnIds : undefined
       }
       result={props.data.result}
       endpoint={props.endpoint}
@@ -575,6 +575,7 @@ export default ssr<AuthContext>(async (c) => {
               ...published.response,
               ...(published.presentation ? { presentation: published.presentation } : {}),
               ...(published.cards ? { cards: published.cards } : {}),
+              ...(published.rowNavigationParams ? { rowNavigationParams: published.rowNavigationParams } : {}),
             },
           },
         ];

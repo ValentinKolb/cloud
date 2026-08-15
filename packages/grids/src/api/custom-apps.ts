@@ -330,6 +330,7 @@ export const createCustomAppsApi = (
             ...published.response,
             ...(published.presentation ? { presentation: published.presentation } : {}),
             ...(published.cards ? { cards: published.cards } : {}),
+            ...(published.rowNavigationParams ? { rowNavigationParams: published.rowNavigationParams } : {}),
           }
         : published.response;
       return c.json(payload, published.response.ok ? 200 : 400);

@@ -86,6 +86,9 @@ describe("Grids App definition contract", () => {
     };
     expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
 
+    records.rowNavigate.params.request_id = { source: "ROW", path: "relation", fieldId: uuid(4) };
+    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
+
     delete records.rowNavigate;
     records.rowActions = [{ id: "reserve", label: "Reserve", showLabel: true, kind: "workflow", launcherId: uuid(10), inputs: {} }];
     expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);

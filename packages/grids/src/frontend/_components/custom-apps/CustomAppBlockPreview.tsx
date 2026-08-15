@@ -105,7 +105,7 @@ function SourcePreview(props: {
               dateConfig={props.dateConfig}
               shortId={props.shortId}
               selectedColumnIds={
-                props.block.source.kind === "view" && props.block.display.kind === "table" ? props.block.display.columnIds : undefined
+                props.block.display.kind === "table" && props.block.display.columnIds.length > 0 ? props.block.display.columnIds : undefined
               }
               result={
                 cardDisplayConfig()

@@ -794,6 +794,25 @@ describe("Grids App lifecycle", () => {
         expect(wrongDocumentResult.diagnostics.some((diagnostic) => diagnostic.message.includes("another table"))).toBe(true);
       }
 
+      const relationRowTarget = structuredClone(definition);
+      const relationRecords = relationRowTarget.pages[0]!.rows[0]!.columns[0]!.blocks.find(
+        (block) => block.type === "records" && block.id === "requests",
+      );
+      if (!relationRecords || relationRecords.type !== "records" || !relationRecords.rowNavigate) {
+        throw new Error("Expected navigable Records block");
+      }
+      relationRecords.rowNavigate.params.request_id = { source: "ROW", path: "relation", fieldId: relationFieldId };
+      expect((await compile({ ...relationRowTarget, id: testUuid() })).ok).toBe(true);
+
+      relationRecords.source = { kind: "gql", query: `from table {${tableId}}\nselect {${fieldId}}` };
+      const unselectedRelationTarget = await compile({ ...relationRowTarget, id: testUuid() });
+      expect(unselectedRelationTarget.ok).toBe(false);
+      if (!unselectedRelationTarget.ok) {
+        expect(unselectedRelationTarget.diagnostics.some((diagnostic) => diagnostic.message.includes("selected single relation"))).toBe(
+          true,
+        );
+      }
+
       const wrongRowTarget = await compile({
         ...definition,
         id: testUuid(),

@@ -533,11 +533,29 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       recordsPrimaryTableIds.set(`${page.id}\0${block.id}`, primaryTableId);
       if (block.rowNavigate) {
         const targetPage = definition.pages.find((candidate) => candidate.id === block.rowNavigate!.pageId)!;
-        for (const parameterId of Object.keys(block.rowNavigate.params)) {
-          if (targetPage.parameters[parameterId]?.tableId !== primaryTableId) {
+        const primaryFields = await resolveFields(primaryTableId);
+        const selectedFieldIds = plan.outputColumns?.flatMap((column) => (column.kind === "field" ? [column.fieldId] : []));
+        for (const [parameterId, binding] of Object.entries(block.rowNavigate.params)) {
+          const targetTableId = targetPage.parameters[parameterId]?.tableId;
+          if (binding.path === "id" && targetTableId !== primaryTableId) {
             diagnostics.push({
               path: ["pages", page.id, "blocks", block.id, "rowNavigate", "params", parameterId],
               message: "Row record ids may only populate parameters for the source table",
+            });
+            continue;
+          }
+          if (binding.path !== "relation") continue;
+          const field = primaryFields.find((candidate) => candidate.id === binding.fieldId && !candidate.deletedAt);
+          const config = field?.config as { cardinality?: unknown; targetTableId?: unknown } | undefined;
+          if (
+            field?.type !== "relation" ||
+            config?.cardinality !== "single" ||
+            config.targetTableId !== targetTableId ||
+            (selectedFieldIds && !selectedFieldIds.includes(field.id))
+          ) {
+            diagnostics.push({
+              path: ["pages", page.id, "blocks", block.id, "rowNavigate", "params", parameterId],
+              message: "Row relation navigation requires a selected single relation to the parameter table",
             });
           }
         }
@@ -608,7 +626,23 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
             ? { displayConfig, displayFieldHash: customAppRecordsDisplayFieldHash(displayConfig, primaryFields), relationLabels }
             : {}),
         });
-      } else recordQueries.push({ pageId: page.id, blockId: block.id, primaryTableId, planHash: compiled.data.planHash, tableIds });
+      } else {
+        if (block.display.kind === "table" && block.display.columnIds.length > 0) {
+          const outputFieldIds =
+            plan.outputColumns && plan.outputColumns.length > 0
+              ? new Set(plan.outputColumns.flatMap((column) => (column.kind === "computed" ? [] : [column.fieldId])))
+              : new Set((compiled.data.fieldsByTableId[primaryTableId] ?? []).filter((field) => !field.deletedAt).map((field) => field.id));
+          for (const fieldId of block.display.columnIds) {
+            if (!outputFieldIds.has(fieldId)) {
+              diagnostics.push({
+                path: ["pages", page.id, "blocks", block.id, "display", "columnIds"],
+                message: `Displayed field ${fieldId} is not selected by the Records query`,
+              });
+            }
+          }
+        }
+        recordQueries.push({ pageId: page.id, blockId: block.id, primaryTableId, planHash: compiled.data.planHash, tableIds });
+      }
     }
   };
   await compileRecordsSourceCapabilities();

@@ -80,6 +80,16 @@ describe("Grids App routing", () => {
         uuid(9),
       ),
     ).toBe(`/apps/abc12/detail?request_id=${uuid(9)}`);
+    const relationNavigation = {
+      kind: "navigate" as const,
+      pageId: "detail",
+      history: "push" as const,
+      params: { request_id: { source: "ROW" as const, path: "relation" as const, fieldId: uuid(4) } },
+    };
+    expect(customAppRowHref("abc12", relationNavigation, uuid(8), { request_id: uuid(9) })).toBe(
+      `/apps/abc12/detail?request_id=${uuid(9)}`,
+    );
+    expect(customAppRowHref("abc12", relationNavigation, uuid(8))).toBeNull();
   });
 
   test("builds internal Form submit and replace-navigation targets", () => {
