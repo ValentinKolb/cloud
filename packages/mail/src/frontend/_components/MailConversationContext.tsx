@@ -76,7 +76,7 @@ export default function MailConversationContext(props: { mailboxId: string; conv
           await contexts.invalidate();
         } catch (error) {
           void prompts.error(error instanceof Error ? error.message : "Contacts could not be refreshed", {
-            title: "Contact created",
+            title: "Contact created, refresh failed",
           });
         }
       }
@@ -106,6 +106,15 @@ export default function MailConversationContext(props: { mailboxId: string; conv
     );
     if (!selected?.value) return;
     createParticipantContact.mutate({ participant, book: selected.value, conversationId: props.conversationId });
+  };
+
+  const reconcileSpacesAfterWrite = async (mailboxId: string, conversationId: string, title: string) => {
+    if (mailboxId !== props.mailboxId || conversationId !== props.conversationId) return;
+    try {
+      await contexts.invalidate();
+    } catch (error) {
+      await prompts.error(error instanceof Error ? error.message : "Linked Spaces could not be refreshed", { title });
+    }
   };
 
   const linkExistingSpaceItem = async () => {
@@ -147,7 +156,7 @@ export default function MailConversationContext(props: { mailboxId: string; conv
       json: { itemId: selected.value.id },
     });
     if (!response.ok) return void prompts.error(await readApiError(response, "Could not link Space item"));
-    if (mailboxId === props.mailboxId && conversationId === props.conversationId) await contexts.invalidate();
+    await reconcileSpacesAfterWrite(mailboxId, conversationId, "Space item linked, refresh failed");
   };
 
   const unlinkSpaceItem = async (itemId: string) => {
@@ -158,7 +167,7 @@ export default function MailConversationContext(props: { mailboxId: string; conv
       json: { itemId },
     });
     if (!response.ok) return void prompts.error(await readApiError(response, "Could not unlink Space item"));
-    if (mailboxId === props.mailboxId && conversationId === props.conversationId) await contexts.invalidate();
+    await reconcileSpacesAfterWrite(mailboxId, conversationId, "Space item unlinked, refresh failed");
   };
 
   const createSpaceItem = async (kind: "task" | "event") => {
@@ -251,7 +260,7 @@ export default function MailConversationContext(props: { mailboxId: string; conv
       json,
     });
     if (!response.ok) return void prompts.error(await readApiError(response, `Could not create Space ${kind}`));
-    if (mailboxId === props.mailboxId && conversationId === props.conversationId) await contexts.invalidate();
+    await reconcileSpacesAfterWrite(mailboxId, conversationId, `Space ${kind} created, refresh failed`);
   };
 
   onCleanup(() => createParticipantContact.abort());

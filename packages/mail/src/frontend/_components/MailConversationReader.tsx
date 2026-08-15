@@ -102,6 +102,7 @@ export default function MailConversationReader(props: {
   onSplitMessage: (messageId: string) => void | Promise<void>;
   onSummarySaved: (conversationId: string, summary: ConversationContentSummary) => Promise<void>;
   onReconcile: () => Promise<void>;
+  onReconcileAfterWrite: () => Promise<void>;
   onClose: (event: LinkNavigateEvent) => void | Promise<void>;
 }) {
   const selectedHistoryMessageId = () =>
@@ -1121,7 +1122,7 @@ export default function MailConversationReader(props: {
                       derive: (kind, selectedMessage) => {
                         void deriveMessage(kind, selectedMessage);
                       },
-                      reconcile: props.onReconcile,
+                      reconcile: props.onReconcileAfterWrite,
                       reassign: props.onReassignMessage,
                       split: props.onSplitMessage,
                     }}

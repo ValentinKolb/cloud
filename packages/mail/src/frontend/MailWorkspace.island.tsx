@@ -56,6 +56,11 @@ import {
   runMailWorkspaceAction,
 } from "./_components/mail-workspace-action-runner";
 import { type MailWorkspacePreferences, writeMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
+import {
+  captureMailWorkspaceRefreshError,
+  type MailWorkspaceRefreshResult,
+  requireMailWorkspaceRefresh,
+} from "./_components/mail-workspace-refresh";
 import { assertCursorProgress } from "./pagination";
 
 const rank = (permission: string): number => (permission === "admin" ? 3 : permission === "write" ? 2 : permission === "read" ? 1 : 0);
@@ -319,12 +324,18 @@ export default function MailWorkspace(props: {
     } else if (result === "failed") toast.error("Could not close this conversation. Your current view was kept.");
   };
 
-  const openWorkspaceHref = async (href: string, replace = false) => {
+  const transitionWorkspaceHref = async (href: string, replace = false): Promise<MailWorkspaceRefreshResult> => {
     const result = await replaceWorkspaceRoute(href);
     if (result === "applied") {
       if (data.selectedConversationId) setConversationOpenIntent((intent) => intent + 1);
       navigate(href, { replace, scroll: "preserve" });
-    } else if (result === "failed") toast.error("Could not open this mailbox view. Your current view was kept.");
+    }
+    return result;
+  };
+
+  const openWorkspaceHref = async (href: string, replace = false) => {
+    const result = await transitionWorkspaceHref(href, replace);
+    if (result === "failed") toast.error("Could not open this mailbox view. Your current view was kept.");
   };
 
   const loadMoreConversations = async (href: string): Promise<boolean> => {
@@ -772,9 +783,15 @@ export default function MailWorkspace(props: {
     } else if (result === "failed") toast.error("Could not open this conversation. Your current view was kept.");
   };
 
+  const requireWorkspaceReconcile = () =>
+    requireMailWorkspaceRefresh(
+      () => replaceWorkspaceRoute(requestUrl()),
+      "Could not refresh this mailbox yet. Reload to confirm the latest state.",
+    );
+
   const reconcileWorkspace = async () => {
-    const result = await replaceWorkspaceRoute(requestUrl());
-    if (result === "failed") toast.error("Could not refresh this mailbox yet. Your current view was kept.");
+    const refreshError = await captureMailWorkspaceRefreshError(requireWorkspaceReconcile);
+    if (refreshError) toast.error(refreshError.message);
   };
 
   const applySavedConversationSummary = async (conversationId: string, summary: NonNullable<MailboxPageData["conversationSummary"]>) => {
@@ -798,9 +815,7 @@ export default function MailWorkspace(props: {
           : current,
       );
     }
-    const result = await replaceWorkspaceRoute(requestUrl());
-    if (result === "failed")
-      throw new Error("This mailbox view could not be refreshed yet. Reload to confirm the latest conversation state.");
+    await requireWorkspaceReconcile();
   };
 
   const orderedConversationIds = () => data.listItems.flatMap((item) => (item.conversationId ? [item.conversationId] : []));
@@ -956,7 +971,10 @@ export default function MailWorkspace(props: {
     return `${current.pathname}${current.search}`;
   };
 
-  const mergeConversationMutation = mutation.create<void, { conversationId: string; revision: number; subject: string }>({
+  const mergeConversationMutation = mutation.create<
+    { refreshError: Error | null } | undefined,
+    { conversationId: string; revision: number; subject: string }
+  >({
     mutation: async (source, { abortSignal }) => {
       const { conversationId: sourceConversationId, revision: sourceRevision } = source;
       const target = await chooseConversationTarget(sourceConversationId);
@@ -985,9 +1003,19 @@ export default function MailWorkspace(props: {
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not merge conversations"));
       if (abortSignal.aborted || disposed) return;
-      await openWorkspaceHref(conversationHref(target.conversationId), true);
+      const refreshError = await captureMailWorkspaceRefreshError(() =>
+        requireMailWorkspaceRefresh(
+          () => transitionWorkspaceHref(conversationHref(target.conversationId), true),
+          "The merged conversation could not be opened yet. Reload to confirm the latest state.",
+        ),
+      );
       if (abortSignal.aborted || disposed) return;
+      return { refreshError };
+    },
+    onSuccess: (result) => {
+      if (!result) return;
       toast.success("Conversations merged");
+      if (result.refreshError) void prompts.error(result.refreshError.message, { title: "Conversations merged, refresh failed" });
     },
     onError: (error) =>
       prompts.error(error.message, {
@@ -1006,7 +1034,10 @@ export default function MailWorkspace(props: {
     return mergeConversation({ conversationId, revision, subject: data.selectedSubject });
   };
 
-  const reassignMessageMutation = mutation.create<void, { messageId: string; sourceConversationId: string; sourceRevision: number }>({
+  const reassignMessageMutation = mutation.create<
+    { refreshError: Error | null } | undefined,
+    { messageId: string; sourceConversationId: string; sourceRevision: number }
+  >({
     mutation: async ({ messageId, sourceConversationId, sourceRevision }, { abortSignal }) => {
       if ((selectedListItem()?.messageCount ?? data.detailMessages.length) <= 1) {
         await prompts.error("This is the only message in the conversation. Merge the whole conversation instead.", {
@@ -1040,9 +1071,14 @@ export default function MailWorkspace(props: {
       );
       if (!response.ok) throw new Error(await readApiError(response, "Could not move message"));
       if (abortSignal.aborted || disposed) return;
-      await reconcileWorkspace();
+      const refreshError = await captureMailWorkspaceRefreshError(requireWorkspaceReconcile);
       if (abortSignal.aborted || disposed) return;
+      return { refreshError };
+    },
+    onSuccess: (result) => {
+      if (!result) return;
       toast.success("Message moved to another conversation");
+      if (result.refreshError) void prompts.error(result.refreshError.message, { title: "Message moved, refresh failed" });
     },
     onError: (error) => prompts.error(error.message, { title: "Message was not moved" }),
   });
@@ -1053,7 +1089,10 @@ export default function MailWorkspace(props: {
     return reassignMessageMutation.mutate({ messageId, sourceConversationId, sourceRevision });
   };
 
-  const splitMessageMutation = mutation.create<void, { messageId: string; conversationId: string; revision: number }>({
+  const splitMessageMutation = mutation.create<
+    { refreshError: Error | null } | undefined,
+    { messageId: string; conversationId: string; revision: number }
+  >({
     mutation: async ({ messageId, conversationId, revision }, { abortSignal }) => {
       const confirmed = await prompts.confirm("Create a separate conversation from this message and its linked internal comments?", {
         title: "Start a new conversation?",
@@ -1076,9 +1115,19 @@ export default function MailWorkspace(props: {
       if (!response.ok) throw new Error(await readApiError(response, "Could not create a separate conversation"));
       const result = await response.json();
       if (abortSignal.aborted || disposed) return;
-      await openWorkspaceHref(conversationHref(result.created.id), true);
+      const refreshError = await captureMailWorkspaceRefreshError(() =>
+        requireMailWorkspaceRefresh(
+          () => transitionWorkspaceHref(conversationHref(result.created.id), true),
+          "The new conversation could not be opened yet. Reload to confirm the latest state.",
+        ),
+      );
       if (abortSignal.aborted || disposed) return;
+      return { refreshError };
+    },
+    onSuccess: (result) => {
+      if (!result) return;
       toast.success("New conversation created");
+      if (result.refreshError) void prompts.error(result.refreshError.message, { title: "Conversation created, refresh failed" });
     },
     onError: (error) => prompts.error(error.message, { title: "Conversation was not changed" }),
   });
@@ -1147,14 +1196,23 @@ export default function MailWorkspace(props: {
       ["archive", "junk", "not_spam", "trash", "move"].includes(nextActionId) &&
       Boolean(data.selectedConversationId && succeeded.has(data.selectedConversationId)),
     refreshAfterSuccess: async ({ removesActiveConversation, succeededConversationIds }) => {
-      if (!removesActiveConversation) return reconcileWorkspace();
-      const focusAfterRemoval = findMailFocusAfterRemoval({
-        orderedConversationIds: orderedConversationIds(),
-        activeConversationId: data.selectedConversationId,
-        removedConversationIds: succeededConversationIds,
-      });
-      await openWorkspaceHref(buildMailListHref(new URL(requestUrl())), true);
-      if (!disposed && focusAfterRemoval) focusConversation(focusAfterRemoval, "row");
+      const focusAfterRemoval = removesActiveConversation
+        ? findMailFocusAfterRemoval({
+            orderedConversationIds: orderedConversationIds(),
+            activeConversationId: data.selectedConversationId,
+            removedConversationIds: succeededConversationIds,
+          })
+        : null;
+      const refreshError = await captureMailWorkspaceRefreshError(() =>
+        removesActiveConversation
+          ? requireMailWorkspaceRefresh(
+              () => transitionWorkspaceHref(buildMailListHref(new URL(requestUrl())), true),
+              "The action was queued, but this mailbox view could not be refreshed yet.",
+            )
+          : requireWorkspaceReconcile(),
+      );
+      if (!disposed && focusAfterRemoval && !refreshError) focusConversation(focusAfterRemoval, "row");
+      if (refreshError) void prompts.error(refreshError.message, { title: "Action queued, refresh failed" });
     },
     reconcile: reconcileWorkspace,
     showMissingTarget: async () => {
@@ -1235,13 +1293,14 @@ export default function MailWorkspace(props: {
       }
       setConversationSelection(emptyMailConversationSelection());
       setSelectionMode(false);
-      await reconcileWorkspace();
+      const refreshError = await captureMailWorkspaceRefreshError(requireWorkspaceReconcile);
       if (abortSignal.aborted || disposed) return;
       toast.success(
         result.updatedConversationIds.length === 0
           ? "Selected conversations already had these tags"
           : `Tags added to ${result.updatedConversationIds.length} ${result.updatedConversationIds.length === 1 ? "conversation" : "conversations"}`,
       );
+      if (refreshError) void prompts.error(refreshError.message, { title: "Tags added, refresh failed" });
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -1472,6 +1531,7 @@ export default function MailWorkspace(props: {
                   onSplitMessage={splitMessage}
                   onSummarySaved={applySavedConversationSummary}
                   onReconcile={reconcileWorkspace}
+                  onReconcileAfterWrite={requireWorkspaceReconcile}
                   onClose={closeConversation}
                 />
               </>
@@ -1494,10 +1554,7 @@ export default function MailWorkspace(props: {
                 await workspaceQuery.loadMore();
                 if (workspaceQuery.error()) toast.error(workspaceQuery.error()!.message);
               }}
-              onRefresh={async () => {
-                const result = await replaceWorkspaceRoute(requestUrl());
-                if (result === "failed") toast.error("Could not refresh scheduled messages yet. Your current view was kept.");
-              }}
+              onRefresh={requireWorkspaceReconcile}
             />
           </Show>
         </AppWorkspace.Main>
