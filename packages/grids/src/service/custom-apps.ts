@@ -414,7 +414,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
         }
         for (const fieldId of editableFieldIds) {
           const field = fieldsById.get(fieldId);
-          if (field && !isRecordWritableFieldType(field.type)) {
+          if (field && !isRecordWritableFieldType(field.type) && field.type !== "file") {
             diagnostics.push({
               path: ["pages", pageIndex, "record", "editableFieldIds"],
               message: `Field ${fieldId} is not a writable record field`,

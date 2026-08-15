@@ -234,8 +234,8 @@ describe("Grids App Form runtime", () => {
                         {
                           id: "record",
                           type: "record",
-                          fieldIds: [fieldId],
-                          editableFieldIds: [fieldId],
+                          fieldIds: [fieldId, imageFieldId],
+                          editableFieldIds: [fieldId, imageFieldId],
                           documents: { templateIds: [documentTemplateId] },
                         },
                         { id: "discussion", type: "comments" },
@@ -580,6 +580,38 @@ describe("Grids App Form runtime", () => {
           body: JSON.stringify({ values: { [testUuid()]: "not published" } }),
         });
         expect(rejectedField.status).toBe(400);
+
+        const rejectedFilePatch = await api.request(recordUrl, {
+          method: "PATCH",
+          headers: { "content-type": "application/json", "If-Match": "2" },
+          body: JSON.stringify({ values: { [imageFieldId]: "not a file upload" } }),
+        });
+        expect(rejectedFilePatch.status).toBe(400);
+
+        const filesUrl = `/apps/runtime/${applied.data.shortId}/request/record/record/files/${imageFieldId}?request_id=${body.recordId}`;
+        expect((await publicApi.request(filesUrl)).status).toBe(401);
+        const listedFiles = await api.request(filesUrl);
+        expect(listedFiles.status).toBe(200);
+        expect(await listedFiles.json()).toMatchObject({ items: [{ id: fileId, filename: "preview.png" }] });
+
+        const uploadBody = new FormData();
+        uploadBody.set("file", new File([new Uint8Array([1, 2, 3])], "receipt.pdf", { type: "application/pdf" }));
+        const uploadedFile = await api.request(filesUrl, { method: "POST", body: uploadBody });
+        expect(uploadedFile.status).toBe(200);
+        const uploadedFileBody = (await uploadedFile.json()) as { id: string };
+        const contentUrl = `${filesUrl.slice(0, filesUrl.indexOf("?"))}/${uploadedFileBody.id}/content?request_id=${body.recordId}`;
+        const content = await api.request(contentUrl);
+        expect(content.status).toBe(200);
+        expect(content.headers.get("content-type")).toBe("application/pdf");
+        expect(new Uint8Array(await content.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+        expect(
+          (
+            await api.request(`${filesUrl.slice(0, filesUrl.indexOf("?"))}/${uploadedFileBody.id}?request_id=${body.recordId}`, {
+              method: "DELETE",
+            })
+          ).status,
+        ).toBe(204);
+        expect((await api.request(contentUrl)).status).toBe(404);
 
         const staleRecord = await api.request(recordUrl, {
           method: "PATCH",
@@ -1050,6 +1082,9 @@ describe("Grids App Form runtime", () => {
         const scannerStatusPath = delegatedScanner.statusUrl.replace(/^\/api\/grids/, "");
         expect((await firstServiceAccountApi.request(scannerStatusPath)).status).toBe(200);
         expect((await secondServiceAccountApi.request(scannerStatusPath)).status).toBe(404);
+        await sql`UPDATE grids.workflow_launchers SET enabled = false WHERE id = ${launcherId}::uuid`;
+        expect((await firstServiceAccountApi.request(scannerStatusPath)).status).toBe(200);
+        await sql`UPDATE grids.workflow_launchers SET enabled = true WHERE id = ${launcherId}::uuid`;
         const forgedRowResponse = await api.request(rowActionUrl, {
           method: "POST",
           headers: { "content-type": "application/json" },

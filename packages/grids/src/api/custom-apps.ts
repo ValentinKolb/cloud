@@ -20,6 +20,7 @@ import { gridsService } from "../service";
 import { resolvePublishedCustomAppForm } from "../service/custom-app-published-form";
 import { buildCustomAppRecordLabelCache } from "../service/custom-app-record-relations";
 import { executePublishedCustomAppRecords } from "../service/custom-app-records-query";
+import { getMaxFileSizeBytes } from "../service/file-limits";
 import { ALL_RECORD_ACCESS } from "../service/record-access";
 import { getWorkflowRunScope } from "../service/workflow-runs";
 import { resolvePublishedCustomAppGlobalRuntime, resolvePublishedCustomAppRuntime } from "./custom-app-published-runtime";
@@ -147,14 +148,14 @@ const resolveRuntimeComments = async (c: Context<AuthContext>) => {
   return { app, page, block, recordId, canModerate } as const;
 };
 
-const resolveRuntimeRecordEdit = async (c: Context<AuthContext>) => {
+const resolveRuntimeRecordBlock = async (c: Context<AuthContext>) => {
   const runtime = await resolvePublishedRuntime(c);
   if (!runtime) return null;
   const { app, capabilities, page, pageParams } = runtime;
   const block = page?.rows
     .flatMap((row) => row.columns.flatMap((column) => column.blocks))
     .find((candidate) => candidate.id === c.req.param("blockId") && candidate.type === "record");
-  if (!page?.record || !pageParams || !block || block.type !== "record" || block.editableFieldIds.length === 0) return null;
+  if (!page?.record || !pageParams || !block || block.type !== "record") return null;
   if (!(await runtime.available("block", block.availableWhen?.query, block.id))) return null;
 
   const capability = capabilities.records.find((candidate) => candidate.pageId === page.id && candidate.tableId === page.record!.tableId);
@@ -179,6 +180,20 @@ const resolveRuntimeRecordEdit = async (c: Context<AuthContext>) => {
   });
   if (!record) return null;
   return { app, page, block, capability, record, viewer: runtime.viewer } as const;
+};
+
+const resolveRuntimeRecordEdit = async (c: Context<AuthContext>) => {
+  const resolved = await resolveRuntimeRecordBlock(c);
+  return resolved && resolved.block.editableFieldIds.length > 0 ? resolved : null;
+};
+
+const resolveRuntimeRecordFile = async (c: Context<AuthContext>, requireWrite: boolean) => {
+  const resolved = await resolveRuntimeRecordBlock(c);
+  if (!resolved) return null;
+  const fieldId = c.req.param("fieldId") ?? "";
+  if (!resolved.block.fieldIds.includes(fieldId) || (requireWrite && !resolved.block.editableFieldIds.includes(fieldId))) return null;
+  const field = (await gridsService.field.listByTable(resolved.page.record!.tableId)).find((candidate) => candidate.id === fieldId);
+  return field?.type === "file" && !field.deletedAt ? { ...resolved, fieldId } : null;
 };
 
 const submitPublishedCustomAppForm = async (c: Context<AuthContext>, submitted: Record<string, unknown>) => {
@@ -479,14 +494,26 @@ export const createCustomAppsApi = (
       );
     })
     .get("/runtime/:shortId/:pageId/:blockId/scanner/runs/:runId", requireUuidParam("runId", "Workflow run"), async (c) => {
-      const resolved = await resolveRuntimeScanner(c);
-      if (!resolved) return c.json({ message: "Workflow run not found" }, 404);
-      const { runtime, block, capability } = resolved;
+      const runtime = await resolvePublishedPageRun(c);
+      if (!runtime) return c.json({ message: "Workflow run not found" }, 404);
+      const block = runtime.blocks.get(c.req.param("blockId") ?? "");
+      const capability =
+        block?.type === "scanner"
+          ? runtime.capabilities.scannerLaunchers.find(
+              (candidate) =>
+                candidate.pageId === runtime.page.id && candidate.blockId === block.id && candidate.launcherId === block.launcherId,
+            )
+          : null;
+      if (!block || block.type !== "scanner" || !capability) return c.json({ message: "Workflow run not found" }, 404);
       const principal = currentWorkflowPrincipal(c);
       const [scope, run] = await Promise.all([loadWorkflowRunScope(c.req.param("runId")!), getWorkflowRun(c.req.param("runId")!)]);
       if (
         !scope ||
         !run ||
+        scope.baseId !== runtime.app.baseId ||
+        run.baseId !== runtime.app.baseId ||
+        run.workflowId !== capability.workflowId ||
+        run.launcherId !== capability.launcherId ||
         scope.principal.userId !== principal.userId ||
         scope.principal.serviceAccountId !== principal.serviceAccountId ||
         (scope.principal.actorServiceAccountId ?? null) !== (principal.actorServiceAccountId ?? null) ||
@@ -595,10 +622,18 @@ export const createCustomAppsApi = (
       if (
         resolved.block.editableFieldIds.some((fieldId) => {
           const field = fieldsById.get(fieldId);
-          return !field || field.deletedAt !== null || !isRecordWritableFieldType(field.type);
+          return !field || field.deletedAt !== null || (!isRecordWritableFieldType(field.type) && field.type !== "file");
         })
       ) {
         return c.json({ message: "This record editor changed after the app was published" }, 409);
+      }
+      if (
+        submittedFieldIds.some((fieldId) => {
+          const field = fieldsById.get(fieldId);
+          return !field || !isRecordWritableFieldType(field.type);
+        })
+      ) {
+        return c.json({ message: "Record update contains a field that is not JSON-writable" }, 400);
       }
 
       const result = await gridsService.record.update(
@@ -637,6 +672,80 @@ export const createCustomAppsApi = (
       }).catch(() => ({}));
       return c.json({ ...projectCustomAppRecord(result.data, resolved.block.fieldIds), relationLabels });
     })
+    .get("/runtime/:shortId/:pageId/:blockId/record/files/:fieldId", requireUuidParam("fieldId", "Field"), async (c) => {
+      const resolved = await resolveRuntimeRecordFile(c, false);
+      if (!resolved) return c.json({ message: "Files not found" }, 404);
+      const result = await gridsService.file.listForRecordField({
+        tableId: resolved.page.record!.tableId,
+        recordId: resolved.record.id,
+        fieldId: resolved.fieldId,
+      });
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      return c.json({ items: result.data });
+    })
+    .post("/runtime/:shortId/:pageId/:blockId/record/files/:fieldId", requireUuidParam("fieldId", "Field"), async (c) => {
+      const resolved = await resolveRuntimeRecordFile(c, true);
+      if (!resolved) return c.json({ message: "File editor not found" }, 404);
+      const form = await c.req.formData().catch(() => null);
+      const file = form?.get("file");
+      if (!(file instanceof File)) return c.json({ message: "Missing 'file' field" }, 400);
+      const maxBytes = await getMaxFileSizeBytes();
+      if (file.size > maxBytes) return c.json({ message: `File exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit` }, 413);
+      const result = await gridsService.file.upload({
+        tableId: resolved.page.record!.tableId,
+        recordId: resolved.record.id,
+        fieldId: resolved.fieldId,
+        filename: file.name || "untitled",
+        mimeType: file.type || "application/octet-stream",
+        bytes: new Uint8Array(await file.arrayBuffer()),
+        userId: currentActorUserId(c),
+      });
+      return respond(c, () => Promise.resolve(result));
+    })
+    .get(
+      "/runtime/:shortId/:pageId/:blockId/record/files/:fieldId/:fileId/content",
+      requireUuidParam("fieldId", "Field"),
+      requireUuidParam("fileId", "File"),
+      async (c) => {
+        const resolved = await resolveRuntimeRecordFile(c, false);
+        if (!resolved) return c.json({ message: "File not found" }, 404);
+        const result = await gridsService.file.getContent({
+          tableId: resolved.page.record!.tableId,
+          recordId: resolved.record.id,
+          fieldId: resolved.fieldId,
+          fileId: c.req.param("fileId")!,
+        });
+        if (!result.ok) return c.json({ message: "File not found" }, 404);
+        const file = result.data;
+        const buffer = file.bytes.buffer.slice(file.bytes.byteOffset, file.bytes.byteOffset + file.bytes.byteLength) as ArrayBuffer;
+        const inline = c.req.query("inline") === "true";
+        return new Response(new Blob([buffer], { type: file.mimeType }), {
+          headers: {
+            "Content-Type": file.mimeType,
+            "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${encodeURIComponent(file.filename)}"`,
+            "Cache-Control": "private, max-age=300",
+            "X-Content-Type-Options": "nosniff",
+          },
+        });
+      },
+    )
+    .delete(
+      "/runtime/:shortId/:pageId/:blockId/record/files/:fieldId/:fileId",
+      requireUuidParam("fieldId", "Field"),
+      requireUuidParam("fileId", "File"),
+      async (c) => {
+        const resolved = await resolveRuntimeRecordFile(c, true);
+        if (!resolved) return c.json({ message: "File editor not found" }, 404);
+        const result = await gridsService.file.remove({
+          tableId: resolved.page.record!.tableId,
+          recordId: resolved.record.id,
+          fieldId: resolved.fieldId,
+          fileId: c.req.param("fileId")!,
+        });
+        if (!result.ok) return respond(c, () => Promise.resolve(result));
+        return c.body(null, 204);
+      },
+    )
     .post("/runtime/:shortId/:pageId/:blockId/actions/:actionId", v("json", CustomAppActionInvocationSchema), async (c) => {
       const runtime = await resolvePublishedRuntime(c);
       if (!runtime) return c.json({ message: "Action not found" }, 404);
@@ -824,6 +933,10 @@ export const createCustomAppsApi = (
         !capability ||
         !scope ||
         !run ||
+        scope.baseId !== runtime.app.baseId ||
+        run.baseId !== runtime.app.baseId ||
+        run.workflowId !== capability.workflowId ||
+        run.launcherId !== capability.launcherId ||
         scope.principal.userId !== principal.userId ||
         scope.principal.serviceAccountId !== principal.serviceAccountId ||
         (scope.principal.actorServiceAccountId ?? null) !== (principal.actorServiceAccountId ?? null) ||

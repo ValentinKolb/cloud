@@ -1104,9 +1104,9 @@ export const CUSTOM_APP_REFERENCE = {
     },
     record: {
       required: ["id", "type", "fieldIds"],
-      editableFieldIds: "Optional writable subset of fieldIds",
+      editableFieldIds: "Optional writable or attachable subset of fieldIds",
       documents: "Optionally show existing generated documents from an exact template allowlist",
-      note: "Displays allowlisted fields from the current page record and may edit an explicit writable subset",
+      note: "Displays allowlisted fields from the current page record and may edit values or attachments from an explicit subset",
     },
     comments: { required: ["id", "type"], note: "Shows the bounded comment thread for the current page record" },
     form: {

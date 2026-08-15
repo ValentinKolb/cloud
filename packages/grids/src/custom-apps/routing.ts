@@ -70,6 +70,18 @@ export const customAppRecordUpdateUrl = (shortId: string, pageId: string, blockI
   return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/record${query}`;
 };
 
+export const customAppRecordFilesUrl = (
+  shortId: string,
+  pageId: string,
+  blockId: string,
+  fieldId: string,
+  params: Record<string, string>,
+): string => {
+  const pageHref = customAppPageHref(shortId, pageId, params);
+  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
+  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/record/files/${encodeURIComponent(fieldId)}${query}`;
+};
+
 export const customAppActionUrl = (
   shortId: string,
   pageId: string,

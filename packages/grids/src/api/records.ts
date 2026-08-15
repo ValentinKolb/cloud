@@ -1,12 +1,12 @@
 import { err, fail, ok } from "@k2b/stdlib";
 import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, getDateConfig, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
-import * as settings from "@valentinkolb/cloud/services/settings";
 import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { ExportBodySchema, GridRecordSchema, RecordOperationBodySchema, RecordPayloadSchema, RecordUpdateBodySchema } from "../contracts";
 import { gridsService } from "../service";
+import { DEFAULT_MAX_FILE_SIZE_MB, getMaxFileSizeBytes } from "../service/file-limits";
 import { validateRecordQueryForTable } from "../service/query-validation";
 import { ALL_RECORD_ACCESS } from "../service/record-access";
 import { currentActorUserId, currentActorViewer, gateAt } from "./permissions";
@@ -70,14 +70,6 @@ const GridFileSchema = z.object({
   createdBy: z.string().uuid().nullable(),
   createdAt: z.string(),
 });
-
-const DEFAULT_MAX_FILE_SIZE_MB = 10;
-
-const getMaxFileSizeBytes = async (): Promise<number> => {
-  const mb = await settings.get<number>("grids.max_file_size_mb");
-  const resolved = typeof mb === "number" && Number.isFinite(mb) && mb > 0 ? mb : DEFAULT_MAX_FILE_SIZE_MB;
-  return resolved * 1024 * 1024;
-};
 
 const app = new Hono<AuthContext>()
   .use(auth.requireRole("authenticated"))

@@ -9,6 +9,7 @@ import {
   customAppFormSubmitUrl,
   customAppFormSuccessHref,
   customAppPageHref,
+  customAppRecordFilesUrl,
   customAppRecordsUrl,
   customAppRecordUpdateUrl,
   customAppRowActionUrl,
@@ -104,6 +105,12 @@ describe("Grids App routing", () => {
   test("builds an internal Record update endpoint with the declared page parameters", () => {
     expect(customAppRecordUpdateUrl("abc12", "detail", "record", { request_id: uuid(9) })).toBe(
       `/api/grids/apps/runtime/abc12/detail/record/record?request_id=${uuid(9)}`,
+    );
+  });
+
+  test("builds an internal Record files endpoint with the declared page parameters", () => {
+    expect(customAppRecordFilesUrl("abc12", "detail", "record", uuid(4), { request_id: uuid(9) })).toBe(
+      `/api/grids/apps/runtime/abc12/detail/record/record/files/${uuid(4)}?request_id=${uuid(9)}`,
     );
   });
 

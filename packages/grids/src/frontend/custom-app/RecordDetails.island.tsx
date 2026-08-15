@@ -4,9 +4,10 @@ import { createSignal, Show } from "solid-js";
 import type { DocumentRunSummary, RecordMutationAudit, TableAuditPolicy } from "../../contracts";
 import type { CustomAppBlock } from "../../custom-apps/contracts";
 import { recordAuditRequirementFor } from "../../record-audit-policy";
-import type { Field, GridRecord } from "../../service";
+import type { Field, GridFile, GridRecord } from "../../service";
 import { downloadPdfResponse } from "../_components/documents/document-download";
 import { openRecordAuditDialog } from "../_components/records/RecordAuditDialog";
+import RecordFileField from "../_components/records/RecordFileField";
 import { formatRecordRelativeTime } from "../_components/records/RecordHistorySection";
 import { openRecordUpsertDialog } from "../_components/records/RecordUpsertDialog";
 import { FieldValue } from "../_components/table/FieldValue";
@@ -28,6 +29,8 @@ export default function RecordDetails(props: {
   fields: Field[];
   relationLabels: Record<string, string>;
   updateEndpoint?: string;
+  fileEndpoints: Record<string, string>;
+  filesByField: Record<string, GridFile[]>;
   documentRuns: CustomAppDocumentRun[];
   dateConfig: DateContext;
 }) {
@@ -39,7 +42,8 @@ export default function RecordDetails(props: {
   const displayedFields = props.block.fieldIds.map((fieldId) => fieldsById.get(fieldId)).filter((field): field is Field => Boolean(field));
   const editableFields = props.block.editableFieldIds
     .map((fieldId) => fieldsById.get(fieldId))
-    .filter((field): field is Field => Boolean(field));
+    .filter((field): field is Field => Boolean(field) && field?.type !== "file");
+  const editableFieldIds = new Set(props.block.editableFieldIds);
 
   const edit = async () => {
     if (!props.updateEndpoint || saving()) return;
@@ -122,18 +126,28 @@ export default function RecordDetails(props: {
         size="sm"
         items={displayedFields.map((field) => ({
           term: field.name,
-          description: (
-            <FieldValue
-              field={field}
-              value={record().data[field.id]}
-              record={record()}
-              allFields={props.fields}
-              relationLabels={relationLabels()}
-              dateConfig={props.dateConfig}
-              mode="detail"
-              empty="—"
-            />
-          ),
+          description:
+            field.type === "file" && props.fileEndpoints[field.id] ? (
+              <RecordFileField
+                tableId={field.tableId}
+                recordId={record().id}
+                field={field}
+                canWrite={editableFieldIds.has(field.id)}
+                initialFiles={props.filesByField[field.id] ?? []}
+                endpoint={props.fileEndpoints[field.id]}
+              />
+            ) : (
+              <FieldValue
+                field={field}
+                value={record().data[field.id]}
+                record={record()}
+                allFields={props.fields}
+                relationLabels={relationLabels()}
+                dateConfig={props.dateConfig}
+                mode="detail"
+                empty="—"
+              />
+            ),
         }))}
       />
       <Show when={props.block.documents}>

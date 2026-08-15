@@ -1,32 +1,29 @@
+import { fileIcons, text } from "@k2b/stdlib";
+import { showFileDialog } from "@k2b/stdlib/browser";
 import {
+  Button,
   canPreviewFile,
   dialogCore,
   FileView,
   type FileViewContent,
+  IconButton,
+  IconButtonLink,
   PanelDialog,
   panelDialogWorkspaceOptions,
   prompts,
   Tooltip,
-  Button,
-  IconButton,
-  IconButtonLink,
 } from "@k2b/ui";
-import { fileIcons, text } from "@k2b/stdlib";
-import { showFileDialog } from "@k2b/stdlib/browser";
 import { createEffect, createSignal, For, Show } from "solid-js";
-import { apiClient } from "@/api/client";
 import type { Field, GridFile } from "../../../service";
 import { errorMessage } from "../utils/api-helpers";
 import { uploadRecordFile } from "./record-transfer-client";
 
 type RecordFileLocation = {
-  tableId: string;
-  recordId: string;
-  fieldId: string;
+  endpoint: string;
 };
 
 const recordFileContentHref = (location: RecordFileLocation, file: GridFile, inline = false) =>
-  `/api/grids/records/${location.tableId}/${location.recordId}/files/${location.fieldId}/${file.id}/content${inline ? "?inline=true" : ""}`;
+  `${location.endpoint}/${encodeURIComponent(file.id)}/content${inline ? "?inline=true" : ""}`;
 
 function RecordFilePreviewDialog(props: { location: RecordFileLocation; file: GridFile; close: () => void }) {
   const downloadHref = () => recordFileContentHref(props.location, props.file);
@@ -96,6 +93,7 @@ export default function RecordFileField(props: {
   field: Field;
   canWrite: boolean;
   initialFiles: GridFile[];
+  endpoint?: string;
 }) {
   const [uploading, setUploading] = createSignal(false);
   const [files, setFiles] = createSignal<GridFile[]>(props.initialFiles);
@@ -103,9 +101,7 @@ export default function RecordFileField(props: {
   createEffect(() => setFiles(props.initialFiles));
 
   const refetch = async () => {
-    const res = await apiClient.records[":tableId"][":recordId"].files[":fieldId"].$get({
-      param: { tableId: props.tableId, recordId: props.recordId, fieldId: props.field.id },
-    });
+    const res = await fetch(location().endpoint);
     if (!res.ok) throw new Error(await errorMessage(res, "Failed to load files"));
     setFiles(((await res.json()) as { items: GridFile[] }).items);
   };
@@ -115,9 +111,9 @@ export default function RecordFileField(props: {
     return Array.isArray(raw) ? raw.join(",") : undefined;
   };
   const location = (): RecordFileLocation => ({
-    tableId: props.tableId,
-    recordId: props.recordId,
-    fieldId: props.field.id,
+    endpoint:
+      props.endpoint ??
+      `/api/grids/records/${encodeURIComponent(props.tableId)}/${encodeURIComponent(props.recordId)}/files/${encodeURIComponent(props.field.id)}`,
   });
   const previewable = (file: GridFile) =>
     canPreviewFile({
@@ -129,12 +125,18 @@ export default function RecordFileField(props: {
   const upload = async (file: File) => {
     setUploading(true);
     try {
-      const res = await uploadRecordFile({
-        tableId: props.tableId,
-        recordId: props.recordId,
-        fieldId: props.field.id,
-        file,
-      });
+      const res = props.endpoint
+        ? await (() => {
+            const form = new FormData();
+            form.set("file", file);
+            return fetch(location().endpoint, { method: "POST", body: form });
+          })()
+        : await uploadRecordFile({
+            tableId: props.tableId,
+            recordId: props.recordId,
+            fieldId: props.field.id,
+            file,
+          });
       if (!res.ok) throw new Error(await errorMessage(res, "Failed to upload file"));
       await refetch();
     } catch (e) {
@@ -163,9 +165,7 @@ export default function RecordFileField(props: {
       confirmText: "Delete",
     });
     if (!confirmed) return;
-    const res = await apiClient.records[":tableId"][":recordId"].files[":fieldId"][":fileId"].$delete({
-      param: { tableId: props.tableId, recordId: props.recordId, fieldId: props.field.id, fileId: file.id },
-    });
+    const res = await fetch(`${location().endpoint}/${encodeURIComponent(file.id)}`, { method: "DELETE" });
     if (!res.ok) {
       prompts.error(await errorMessage(res, "Failed to delete file"));
       return;

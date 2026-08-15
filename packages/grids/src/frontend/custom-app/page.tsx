@@ -16,6 +16,7 @@ import {
   customAppDocumentDownloadUrl,
   customAppFormSubmitUrl,
   customAppPageHref,
+  customAppRecordFilesUrl,
   customAppRecordsUrl,
   customAppRecordUpdateUrl,
   customAppRowActionUrl,
@@ -73,6 +74,8 @@ type PageRecord = {
   relationLabels: Record<string, string>;
   tableName: string;
   auditPolicy: NonNullable<Awaited<ReturnType<typeof gridsService.table.get>>>["auditPolicy"];
+  filesByField: Awaited<ReturnType<typeof gridsService.file.listForRecord>>;
+  fileEndpoints: Record<string, string>;
 };
 type FormBlockData =
   | {
@@ -196,6 +199,8 @@ const Record = (props: {
       fields={props.pageRecord.fields}
       relationLabels={props.pageRecord.relationLabels}
       updateEndpoint={props.updateEndpoint}
+      fileEndpoints={props.pageRecord.fileEndpoints}
+      filesByField={props.pageRecord.filesByField}
       documentRuns={props.documentRuns}
       dateConfig={props.dateConfig}
     />
@@ -445,7 +450,21 @@ export default ssr<AuthContext>(async (c) => {
       readableTableIds: new Set(relationTableIds),
       recordAccessByTableId: new Map(relationTableIds.map((tableId) => [tableId, ALL_RECORD_ACCESS])),
     };
-    pageRecord = { record, fields, relationLabels: {}, tableName: table.name, auditPolicy: table.auditPolicy };
+    const fileFieldIds = fields.filter((field) => field.type === "file").map((field) => field.id);
+    const filesByField = await gridsService.file.listForRecord({
+      tableId: page.record.tableId,
+      recordId: record.id,
+      fieldIds: fileFieldIds,
+    });
+    pageRecord = {
+      record,
+      fields,
+      relationLabels: {},
+      tableName: table.name,
+      auditPolicy: table.auditPolicy,
+      filesByField,
+      fileEndpoints: {},
+    };
     const visibleRecordBlocks = runtimePage.rows.flatMap((row) =>
       row.columns.flatMap((column) => column.blocks.filter((candidate): candidate is RecordBlock => candidate.type === "record")),
     );
@@ -467,6 +486,14 @@ export default ssr<AuthContext>(async (c) => {
         relationLabels,
         tableName: table.name,
         auditPolicy: table.auditPolicy,
+        filesByField: Object.fromEntries(
+          blockFields.filter((field) => field.type === "file").map((field) => [field.id, filesByField[field.id] ?? []]),
+        ),
+        fileEndpoints: Object.fromEntries(
+          blockFields
+            .filter((field) => field.type === "file")
+            .map((field) => [field.id, customAppRecordFilesUrl(app.shortId, page.id, block.id, field.id, pageParams)]),
+        ),
       });
     }
 
