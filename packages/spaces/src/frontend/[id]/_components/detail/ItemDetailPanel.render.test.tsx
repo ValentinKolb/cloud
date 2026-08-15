@@ -123,6 +123,7 @@ describe("Spaces item detail panel", () => {
     expect(html).toContain("view-transition-name:detail-panel");
     expect(html).toContain("view-transition-name:space-item-detail-header");
     expect(html).toContain("view-transition-name:space-item-detail-description");
+    expect(html).toContain('aria-label="Content"');
     expect(html).toContain("view-transition-name: space-item-detail-comments");
     expect(html).toContain("Item information");
     expect(html).toContain('aria-label="Item metadata"');
@@ -154,6 +155,13 @@ describe("Spaces item detail panel", () => {
     expect(html.match(/k2b-detail-panel__body/g)).toHaveLength(1);
   });
 
+  test("uses the comment count as the empty state without duplicate copy", () => {
+    const html = renderPanel({ initialCommentsPage: { items: [], page: 1, perPage: 50, total: 0, hasNext: false } });
+
+    expect(html).toContain("0 comments");
+    expect(html).not.toContain("No comments yet.");
+  });
+
   test("keeps generated occurrences read-only at item level with occurrence-scoped comments", () => {
     const recurrenceId = "2026-08-10T10:00:00.000Z";
     const html = renderPanel({
@@ -175,6 +183,17 @@ describe("Spaces item detail panel", () => {
     expect(html).not.toContain('aria-label="More item actions"');
     expect(html).not.toContain("Mark complete");
     expect(html).not.toContain("Invite or update");
+    expect(html).not.toContain("Link Cloud resource");
+  });
+
+  test("offers the shared Cloud resource picker action before the first link", () => {
+    const html = renderPanel({ references: [] });
+
+    expect(html).toContain(">Linked resources</h3>");
+    expect(html).toContain('aria-label="Resource context"');
+    expect(html).toContain("k2b-detail-panel__action");
+    expect(html).toContain("ti ti-link-plus text-[var(--k2b-action)]");
+    expect(html).toContain(">Link Cloud resource</span>");
   });
 
   test("opens accessible linked resources and preserves unavailable reference snapshots", () => {
@@ -208,6 +227,7 @@ describe("Spaces item detail panel", () => {
     expect(html).toContain("Archived discussion");
     expect(html).toContain("Resource unavailable or no longer accessible");
     expect(html).not.toContain('aria-label="Unlink resource"');
+    expect(html).not.toContain("Link Cloud resource");
   });
 
   test("keeps resource navigation primary and moves unlink into the shared overflow menu", () => {
@@ -233,5 +253,6 @@ describe("Spaces item detail panel", () => {
     expect(html).toContain('aria-haspopup="menu"');
     expect(html).toContain(">Unlink</span>");
     expect(html).not.toContain('aria-label="Unlink resource"');
+    expect(html).toContain(">Link Cloud resource</span>");
   });
 });

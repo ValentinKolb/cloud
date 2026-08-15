@@ -1,6 +1,6 @@
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Avatar, Button, Discussion, IconButton, MarkdownEditor, MarkdownView, Placeholder, prompts, Tooltip, toast } from "@k2b/ui";
+import { Avatar, Button, Discussion, IconButton, MarkdownEditor, MarkdownView, prompts, Tooltip, toast } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceComment } from "@/contracts";
@@ -155,16 +155,7 @@ export default function CommentsSection(props: Props) {
         </Discussion.Composer>
       </Show>
 
-      <Show
-        when={sortedComments().length > 0}
-        fallback={
-          <Placeholder
-            align="left"
-            class="px-0 py-2"
-            description={<>{props.recurrenceId ? "No comments for this occurrence yet." : "No comments yet."}</>}
-          />
-        }
-      >
+      <Show when={sortedComments().length > 0}>
         <Show when={props.hasMore}>
           <Button type="button" variant="ghost" size="xs" class="self-start" disabled={props.loadingMore} onClick={props.onLoadMore}>
             <i class={`ti ${props.loadingMore ? "ti-loader-2 animate-spin" : "ti-history"}`} aria-hidden="true" /> Load earlier comments

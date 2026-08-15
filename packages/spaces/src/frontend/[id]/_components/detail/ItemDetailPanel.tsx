@@ -16,9 +16,18 @@ import {
   Tooltip,
   toast,
 } from "@k2b/ui";
+import { openCloudResourcePicker } from "@valentinkolb/cloud/browser/resource-picker";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { SpaceColumn, SpaceItem, SpaceItemAssignee, SpaceTag, SpaceWormhole, WormholeTransferResult } from "@/contracts";
+import type {
+  SpaceColumn,
+  SpaceItem,
+  SpaceItemAssignee,
+  SpaceItemResourceReferenceInput,
+  SpaceTag,
+  SpaceWormhole,
+  WormholeTransferResult,
+} from "@/contracts";
 import { shouldHandleDetailClick } from "../../../lib/detail";
 import { readResponseError } from "../../../lib/response";
 import { openEditItemDialog, saveItemFormData } from "../shared/editItem";
@@ -133,6 +142,28 @@ export default function ItemDetailPanel(props: Props) {
     onSuccess: () => reconcileAfterWrite(),
     onError: (error) => prompts.error(error.message),
   });
+
+  const linkReference = mutations.create<void, SpaceItemResourceReferenceInput>({
+    mutation: async (reference, { abortSignal }) => {
+      const response = await apiClient[":id"].items[":itemId"].references.$post(
+        { param: { id: props.spaceId, itemId: props.item.id }, json: reference },
+        { init: { signal: abortSignal } },
+      );
+      if (!response.ok) throw new Error(await readResponseError(response, "Failed to link resource"));
+    },
+    onSuccess: () => reconcileAfterWrite(),
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const linkCloudResource = async () => {
+    const selected = await openCloudResourcePicker({
+      title: "Link Cloud resource",
+      excludeRefs: props.references?.map((reference) => reference.ref),
+      requireReader: true,
+    });
+    if (!selected) return;
+    await linkReference.mutate({ ref: selected.ref, label: selected.title });
+  };
 
   createEffect(() => {
     if (props.item.id === selectedItemId) return;
@@ -660,22 +691,29 @@ export default function ItemDetailPanel(props: Props) {
           </Show>
 
           <Show when={props.item.description}>
-            <DetailPanel.Section
-              class="[view-transition-name:space-item-detail-description]"
-              title="Description"
-              icon="ti ti-align-left"
-              tone="neutral"
-              actions={
-                canEditItem() ? (
-                  <IconActionButton icon="ti ti-pencil" title="Edit description" onClick={() => void handleEdit()} disabled={isLoading()} />
-                ) : undefined
-              }
-            >
-              <MarkdownView markdown={props.item.description!} headingScale="compact" class="text-sm" />
-            </DetailPanel.Section>
+            <DetailPanel.Group label="Content">
+              <DetailPanel.Section
+                class="[view-transition-name:space-item-detail-description]"
+                title="Description"
+                icon="ti ti-align-left"
+                tone="neutral"
+                actions={
+                  canEditItem() ? (
+                    <IconActionButton
+                      icon="ti ti-pencil"
+                      title="Edit description"
+                      onClick={() => void handleEdit()}
+                      disabled={isLoading()}
+                    />
+                  ) : undefined
+                }
+              >
+                <MarkdownView markdown={props.item.description!} headingScale="compact" class="text-sm" />
+              </DetailPanel.Section>
+            </DetailPanel.Group>
           </Show>
 
-          <Show when={(props.references?.length ?? 0) > 0}>
+          <Show when={canEditItem() || (props.references?.length ?? 0) > 0}>
             <DetailPanel.Group label="Resource context">
               <DetailPanel.Section title="Linked resources" icon="ti ti-link" tone="neutral">
                 <div class="flex flex-col gap-1">
@@ -726,6 +764,24 @@ export default function ItemDetailPanel(props: Props) {
                       );
                     }}
                   </For>
+                  <Show when={canEditItem()}>
+                    <DetailPanel.Action
+                      type="button"
+                      onClick={() => void linkCloudResource()}
+                      disabled={linkReference.loading()}
+                      leading={
+                        <i
+                          class={
+                            linkReference.loading()
+                              ? "ti ti-loader-2 animate-spin text-[var(--k2b-action)]"
+                              : "ti ti-link-plus text-[var(--k2b-action)]"
+                          }
+                          aria-hidden="true"
+                        />
+                      }
+                      title="Link Cloud resource"
+                    />
+                  </Show>
                 </div>
               </DetailPanel.Section>
             </DetailPanel.Group>

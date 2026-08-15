@@ -279,12 +279,7 @@ export default function EventInvitations(props: { spaceId: string; itemId: strin
     void contextQuery.invalidate().catch(() => prompts.error("Email created, but invitation status could not be refreshed."));
   };
   return (
-    <DetailPanel.Section
-      title="Invitations"
-      description="Invite attendees through Mail without moving calendar ownership out of Spaces."
-      icon="ti ti-calendar-share"
-      tone="accent"
-    >
+    <DetailPanel.Section title="Invitations" description="Invite attendees through Mail." icon="ti ti-calendar-share" tone="accent">
       <Show when={contextQuery.error()}>
         {(error) => (
           <Placeholder
