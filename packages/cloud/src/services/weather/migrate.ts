@@ -23,11 +23,9 @@ export const migrate = async (): Promise<void> => {
     await tx`SELECT pg_advisory_xact_lock(hashtext('cloud.weather.location-short-id-backfill'))`;
     const filled = await backfillWeatherLocationShortIds(tx);
     if (filled > 0) console.log(`  ✓ weather location short_id backfill: ${filled}`);
+    await tx`ALTER TABLE weather_locations ALTER COLUMN short_id SET NOT NULL`;
+    await tx`ALTER TABLE weather_locations DROP CONSTRAINT IF EXISTS weather_locations_short_id_format`;
     await tx`
-      ALTER TABLE weather_locations
-      ALTER COLUMN short_id SET NOT NULL;
-      ALTER TABLE weather_locations
-      DROP CONSTRAINT IF EXISTS weather_locations_short_id_format;
       ALTER TABLE weather_locations
       ADD CONSTRAINT weather_locations_short_id_format CHECK (short_id ~ '^[0-9A-Za-z]{6}$')
     `;
