@@ -12,6 +12,7 @@ Assistant separates Project chats from general chats in the sidebar. Create a Pr
 
 :::reference
 - **Projects:** The Projects section remains visible even when it is empty. Use its plus action to create a Project with a name and optional instructions.
+- **Empty chat:** Choose an optional Project below the centered composer before sending the first message. Starter cards fill an editable request; they never send it automatically.
 - **Project page:** Enter the first message in the standard composer, including files when needed. Assistant creates a private Project chat, sends the message, and then opens the normal chat. Search and scroll through existing Project chats below the composer.
 - **Project context:** The Project page shows Project instructions, knowledge, images, files, and references. People with write access can add or edit this shared context from that page.
 - **General chats:** Up to 15 chats without a Project appear in one **Chats** section below Projects. Use **See all** for the complete history.

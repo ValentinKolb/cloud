@@ -437,7 +437,8 @@ describe("@k2b/ui portable chat family", () => {
     expect(css).toContain("--k2b-ai-accent:");
     expect(css).toContain(".k2b-ui .k2b-chat-composer:focus-within");
     expect(css).toContain("border-color: var(--k2b-ai-border);");
-    expect(css).toContain("box-shadow: none;");
+    expect(css).toContain("border-radius: calc(var(--k2b-radius-surface) + 0.25rem);");
+    expect(css).toContain("box-shadow: var(--k2b-shadow-surface);");
     expect(css).not.toContain("--k2b-ai-focus-ring");
     expect(css).not.toContain(".k2b-ui .k2b-chat-composer textarea:focus-visible");
   });

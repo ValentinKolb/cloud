@@ -222,6 +222,10 @@ export type AiConversationPage = {
   hasNext: boolean;
 };
 
+export type AiConversationProjectUpdateResult =
+  | { ok: true; conversation: AiConversation }
+  | { ok: false; reason: "not_found" | "not_empty" };
+
 export type AiStoredMessage = {
   id: string;
   shortId: string;
@@ -656,6 +660,12 @@ export type AiConversationService = {
     description?: string;
     pinned?: boolean;
   }): Promise<AiConversation | null>;
+  setConversationProject(input: {
+    conversationId: string;
+    appId?: string;
+    ownerUserId?: string;
+    projectId: string | null;
+  }): Promise<AiConversationProjectUpdateResult>;
   setConversationPinned(input: {
     conversationId: string;
     appId?: string;

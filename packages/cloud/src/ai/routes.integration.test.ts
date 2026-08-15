@@ -32,6 +32,86 @@ const insertUser = async (): Promise<string> => {
 };
 
 suite("AI conversation public routes", () => {
+  test("changes a Project only before the first message and only to a readable Project", async () => {
+    const userId = await insertUser();
+    const otherUserId = await insertUser();
+    const subject = { type: "user" as const, userId };
+    const project = await aiProjects.create({ appId: "route-test", subject, name: "Visible Project" });
+    const hiddenProject = await aiProjects.create({
+      appId: "route-test",
+      subject: { type: "user", userId: otherUserId },
+      name: "Hidden Project",
+    });
+    const chat = await aiConversations.createConversation({ appId: "route-test", ownerUserId: userId });
+    const app = new Hono<AuthContext>()
+      .use("*", async (c, next) => {
+        c.set("accessSubject", subject);
+        await next();
+      })
+      .route(
+        "/",
+        createAiChatRoutes({
+          appId: "route-test",
+          allowConversationManagement: true,
+          resolveContext: () =>
+            Promise.resolve({
+              actor: { kind: "user", user: { id: userId } as never },
+              ownerUserId: userId,
+              toolSource: { kind: "none" },
+              modelPolicy: { kind: "locked", modelId: "test" },
+              toolApprovalContext: { actorUserId: userId, appId: "route-test", resource: { kind: "direct" } },
+            }),
+        }),
+      );
+
+    try {
+      const assign = await app.request(`/conversations/${chat.shortId}/project`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: project.shortId }),
+      });
+      expect(assign.status).toBe(200);
+      expect(await assign.json()).toMatchObject({ id: chat.shortId, projectId: project.shortId });
+
+      const detach = await app.request(`/conversations/${chat.shortId}/project`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: null }),
+      });
+      expect(detach.status).toBe(200);
+      expect(await detach.json()).toMatchObject({ id: chat.shortId, projectId: null });
+
+      const hidden = await app.request(`/conversations/${chat.shortId}/project`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: hiddenProject.shortId }),
+      });
+      expect(hidden.status).toBe(404);
+
+      await sql`
+        INSERT INTO ai.messages (short_id, conversation_id, seq, kind, role, message, search_text)
+        VALUES (
+          ${createAiShortId()}, ${chat.id}::uuid, 1, 'message', 'user',
+          '{"role":"user","content":["Hello"]}'::jsonb, 'Hello'
+        )
+      `;
+      const tooLate = await app.request(`/conversations/${chat.shortId}/project`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: project.shortId }),
+      });
+      expect(tooLate.status).toBe(409);
+      const conflict = (await tooLate.json()) as { code: string; message: string };
+      expect(conflict.code).toBe("CONFLICT");
+      expect(conflict.message).toStartWith("Choose a Project before sending the first message.");
+      expect((await aiConversations.getConversation({ conversationId: chat.id }))?.projectId).toBeNull();
+    } finally {
+      await sql`DELETE FROM ai.conversations WHERE id = ${chat.id}::uuid`;
+      await sql`DELETE FROM ai.projects WHERE id IN (${project.id}::uuid, ${hiddenProject.id}::uuid)`;
+      await sql`DELETE FROM auth.users WHERE id IN (${userId}::uuid, ${otherUserId}::uuid)`;
+    }
+  });
+
   test("uploads every attachment into the flat conversation file namespace with user provenance", async () => {
     const userId = await insertUser();
     const subject = { type: "user" as const, userId };

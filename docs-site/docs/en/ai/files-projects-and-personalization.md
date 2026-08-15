@@ -75,8 +75,9 @@ admin principal outside the Project service, operator recovery is required to
 add a new grant directly.
 
 Project chats remain private to their creator. Sharing a Project does not share
-chat history. A chat is attached to one Project when created and is not
-reassigned later.
+chat history. A chat is attached to at most one Project. Its owner may choose,
+change, or clear that Project only while the chat has no messages or turns;
+after the first request the association is immutable.
 
 When a turn is submitted, Cloud rechecks access and stores an immutable snapshot
 with the Project id, name, revision, instructions, context manifest, and model

@@ -16,7 +16,9 @@ available when the work continues later.
 
 ## Use Assistant
 
-- Start a chat for a draft, summary, explanation, plan, or question.
+- Start a chat from a suggested task or write your own request. Before the first
+  message, optionally choose a Project below the composer to use its shared
+  context.
 - Attach source files when the answer must use material beyond the message.
 - Return to saved work through the 15 general chats in the sidebar, Project branches, search, or **See all** for the full chat list.
 - Fork a useful point when another direction should not replace the existing
@@ -47,6 +49,11 @@ Project chats present that shared context together with chat sources and files,
 but Project editing remains on the Project page. Instructions and knowledge
 open as rendered Markdown, images open in the image viewer, and files open in
 the file browser.
+
+The empty chat keeps the composer in the center and offers editable starters
+for common mail, scheduling, Cloud search, and planning work. Choosing a starter
+fills the composer without sending it. Once the first request is sent, the
+Project association is fixed and the composer moves below the conversation.
 
 A model profile selects the provider model and available capabilities for a
 turn. Retry reruns a message in the current branch. Fork copies the conversation

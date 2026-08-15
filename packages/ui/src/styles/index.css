@@ -5636,7 +5636,7 @@
   gap: 0.375rem;
   padding: 0.5rem;
   border: 1px solid var(--k2b-border-strong);
-  border-radius: var(--k2b-radius-surface);
+  border-radius: calc(var(--k2b-radius-surface) + 0.25rem);
   background: var(--k2b-surface-elevated);
   box-shadow: var(--k2b-shadow-surface);
   transition:
@@ -5646,7 +5646,7 @@
 
 .k2b-ui .k2b-chat-composer:focus-within {
   border-color: var(--k2b-ai-border);
-  box-shadow: none;
+  box-shadow: var(--k2b-shadow-surface);
 }
 
 .k2b-ui .k2b-chat-composer[data-drag-active="true"] {

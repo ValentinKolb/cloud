@@ -1,6 +1,6 @@
 import { navigate, navigateTo } from "@k2b/ssr/nav";
 import { mutation, query } from "@k2b/stdlib/solid";
-import { AppWorkspace, Button, Chat } from "@k2b/ui";
+import { AppWorkspace, Button, Chat, openSpotlightSearch } from "@k2b/ui";
 import type {
   AiConversation,
   AiConversationPage,
@@ -35,6 +35,7 @@ import type { AssistantSidebarSnapshot } from "../sidebar";
 import { openAssistantFilesDialog } from "./AssistantArtifactDetail";
 import { AssistantChatContextPanel, assistantChatContextHasPanel, openAssistantChatContextDialog } from "./AssistantChatContext";
 import { assistantMessageAnchorSeq, openAssistantChatMessageSearch } from "./AssistantChatMessageSearch";
+import AssistantEmptyChat, { type AssistantStarterAction } from "./AssistantEmptyChat";
 import { openAssistantCreateProjectDialog } from "./AssistantProjectsDialog";
 import AssistantProjectView from "./AssistantProjectView";
 import AssistantSidebar from "./AssistantSidebar";
@@ -430,6 +431,76 @@ export default function AssistantWorkspace(props: Props) {
     const projectId = activeConversation()?.projectId;
     return projectId ? (projects().find((project) => project.id === projectId) ?? null) : null;
   };
+  const emptyChat = () => !chat.loadingConversation() && chat.messages().length === 0 && !chat.activeTurn();
+  const [emptyProjectId, setEmptyProjectId] = createSignal<string | null>(activeConversation()?.projectId ?? null);
+  const [choosingProject, setChoosingProject] = createSignal(false);
+  let emptyProjectConversationId: string | null = null;
+  createEffect(() => {
+    const conversation = activeConversation();
+    if ((conversation?.id ?? null) === emptyProjectConversationId) return;
+    emptyProjectConversationId = conversation?.id ?? null;
+    setEmptyProjectId(conversation?.projectId ?? null);
+  });
+
+  const chooseEmptyChatProject = async () => {
+    const selected = await openSpotlightSearch<{ projectId: string | null }>({
+      title: "Choose a Project",
+      icon: "ti ti-folder-open",
+      placeholder: "Search Projects…",
+      minQueryLength: 0,
+      noResultsText: "No matching Projects.",
+      resolve: ({ query }) => {
+        const normalized = query.trim().toLocaleLowerCase();
+        return [
+          {
+            value: { projectId: null },
+            label: "No Project",
+            desc: "Keep this chat separate",
+            icon: "ti ti-message-circle",
+          },
+          ...projects()
+            .filter((project) => !normalized || `${project.name} ${project.description}`.toLocaleLowerCase().includes(normalized))
+            .map((project) => ({
+              value: { projectId: project.id },
+              label: project.name,
+              desc: project.description || "Use shared Project context",
+              icon: project.icon || "ti ti-folder",
+            })),
+        ];
+      },
+    });
+    if (!selected?.value || selected.value.projectId === emptyProjectId()) return;
+
+    setChoosingProject(true);
+    try {
+      const conversation = activeConversation();
+      if (!conversation) {
+        if (selected.value.projectId) await createConversation(true, selected.value.projectId);
+        return;
+      }
+      const updated = await assistantApi.updateConversationProject(conversation.id, selected.value.projectId);
+      setEmptyProjectId(updated.projectId);
+      setChatContextPresence(updated.projectId ? true : null);
+      await Promise.all([
+        chat.refreshActiveConversation(),
+        sidebar.invalidate({
+          cursor: null,
+          domains: new Set(["conversation-list"]),
+          conversationIds: new Set([updated.id]),
+          projectIds: null,
+        }),
+      ]);
+    } catch (error) {
+      chat.setError(error instanceof Error ? error.message : "Failed to choose Project.");
+    } finally {
+      setChoosingProject(false);
+    }
+  };
+
+  const useStarter = (starter: AssistantStarterAction) => {
+    setComposerDraft(composerSessionKey(), starter.prompt);
+    focusComposer();
+  };
   const addComposerFiles = async (sessionKey: string, files: readonly File[]) => {
     const current = composerAttachmentsFor(sessionKey);
     const result = await readAiComposerFiles(files, {
@@ -583,6 +654,26 @@ export default function AssistantWorkspace(props: Props) {
     if (archived.id === chat.activeConversationId()) navigateTo("/app/assistant");
   };
 
+  const ComposerNotices = () => (
+    <>
+      <Show when={chat.error() ?? liveError()}>
+        {(message) => (
+          <p class="inline-flex w-full items-start gap-1.5 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:bg-red-950/35 dark:text-red-300">
+            <i class="ti ti-alert-circle mt-0.5 text-sm" aria-hidden="true" />
+            <span>{message()}</span>
+          </p>
+        )}
+      </Show>
+
+      <Show when={chat.streamStatus() === "reconnecting"}>
+        <div class="flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-950/35 dark:text-amber-200">
+          <i class="ti ti-refresh text-sm animate-spin" aria-hidden="true" />
+          <span class="truncate">Reconnecting…</span>
+        </div>
+      </Show>
+    </>
+  );
+
   const ConversationTimeline = () => {
     const items = createAiChatTimeline({ messages: chat.messages, activeTurn: chat.activeTurn });
 
@@ -645,76 +736,78 @@ export default function AssistantWorkspace(props: Props) {
                   <div class="flex min-h-0 flex-1">
                     <div class="flex min-w-0 flex-1 flex-col">
                       <section class="min-h-0 flex-1 overflow-hidden" data-scroll-preserve="assistant-messages">
-                        <AiChatActionsProvider
-                          actions={{
-                            actionDisabled: () => chat.runStatus() === "stopping",
-                            onApproval: async (request, input) => {
-                              if (!(await chat.respondToApproval(request, input))) throw new Error("Could not submit approval.");
-                            },
-                            onFrontendToolResult: async (request, result) => {
-                              if (!(await chat.submitFrontendToolResult(request, result)))
-                                throw new Error("Could not submit tool response.");
-                            },
-                            onForkMessage: async (entry, input) => {
-                              const conversation = await chat.forkMessage(entry.id, input);
-                              if (!conversation) throw new Error("Could not fork conversation.");
-                              if (chat.activeConversationId() === conversation.id) commitConversationUrl(conversation.id);
-                            },
-                            onRetryMessage: async (entry, input) => {
-                              const retried = await chat.retryUserMessage(entry.id, {
-                                ...input,
-                                modelProfileId: selectedModelId() || undefined,
-                              });
-                              if (!retried) throw new Error(chat.error() ?? "Could not retry message.");
-                            },
-                            onRetrySteer: async (block) => {
-                              if (!(await chat.retrySteer(block))) throw new Error(chat.error() ?? "Could not retry steer message.");
-                            },
-                            onOpenFile: (path) => void openFiles(path),
-                            fileUrl: chat.fileContentUrl,
-                          }}
+                        <Show
+                          when={emptyChat()}
+                          fallback={
+                            <AiChatActionsProvider
+                              actions={{
+                                actionDisabled: () => chat.runStatus() === "stopping",
+                                onApproval: async (request, input) => {
+                                  if (!(await chat.respondToApproval(request, input))) throw new Error("Could not submit approval.");
+                                },
+                                onFrontendToolResult: async (request, result) => {
+                                  if (!(await chat.submitFrontendToolResult(request, result)))
+                                    throw new Error("Could not submit tool response.");
+                                },
+                                onForkMessage: async (entry, input) => {
+                                  const conversation = await chat.forkMessage(entry.id, input);
+                                  if (!conversation) throw new Error("Could not fork conversation.");
+                                  if (chat.activeConversationId() === conversation.id) commitConversationUrl(conversation.id);
+                                },
+                                onRetryMessage: async (entry, input) => {
+                                  const retried = await chat.retryUserMessage(entry.id, {
+                                    ...input,
+                                    modelProfileId: selectedModelId() || undefined,
+                                  });
+                                  if (!retried) throw new Error(chat.error() ?? "Could not retry message.");
+                                },
+                                onRetrySteer: async (block) => {
+                                  if (!(await chat.retrySteer(block))) throw new Error(chat.error() ?? "Could not retry steer message.");
+                                },
+                                onOpenFile: (path) => void openFiles(path),
+                                fileUrl: chat.fileContentUrl,
+                              }}
+                            >
+                              <ConversationTimeline />
+                            </AiChatActionsProvider>
+                          }
                         >
-                          <ConversationTimeline />
-                        </AiChatActionsProvider>
+                          <AssistantEmptyChat
+                            composer={<AssistantComposer />}
+                            notices={<ComposerNotices />}
+                            projects={projects()}
+                            selectedProjectId={emptyProjectId()}
+                            choosingProject={choosingProject()}
+                            onChooseProject={() => void chooseEmptyChatProject()}
+                            onStarter={useStarter}
+                          />
+                        </Show>
                       </section>
 
-                      <div class="shrink-0 px-[var(--ui-space-section)] pb-[var(--ui-space-section)] pt-2">
-                        <div class="mx-auto flex max-w-4xl flex-col gap-2">
-                          <Show when={chat.error() ?? liveError()}>
-                            {(message) => (
-                              <p class="inline-flex items-start gap-1.5 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:bg-red-950/35 dark:text-red-300">
-                                <i class="ti ti-alert-circle mt-0.5 text-sm" aria-hidden="true" />
-                                <span>{message()}</span>
-                              </p>
-                            )}
-                          </Show>
-
-                          <Show when={chat.streamStatus() === "reconnecting"}>
-                            <div class="flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-950/35 dark:text-amber-200">
-                              <i class="ti ti-refresh text-sm animate-spin" aria-hidden="true" />
-                              <span class="truncate">Reconnecting…</span>
-                            </div>
-                          </Show>
-
-                          <AssistantComposer />
-                          <Show when={activeConversation() && chatContextPresence() === true ? activeConversation() : null}>
-                            {(conversation) => (
-                              <div class="flex justify-end lg:hidden">
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() =>
-                                    void openAssistantChatContextDialog(conversation().id, activeConversationProject(), liveHub)
-                                  }
-                                >
-                                  <i class="ti ti-adjustments-horizontal" />
-                                  Context
-                                </Button>
-                              </div>
-                            )}
-                          </Show>
+                      <Show when={!emptyChat()}>
+                        <div class="shrink-0 px-[var(--ui-space-section)] pb-[var(--ui-space-section)] pt-2">
+                          <div class="mx-auto flex max-w-4xl flex-col gap-2">
+                            <ComposerNotices />
+                            <AssistantComposer />
+                            <Show when={activeConversation() && chatContextPresence() === true ? activeConversation() : null}>
+                              {(conversation) => (
+                                <div class="flex justify-end lg:hidden">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() =>
+                                      void openAssistantChatContextDialog(conversation().id, activeConversationProject(), liveHub)
+                                    }
+                                  >
+                                    <i class="ti ti-adjustments-horizontal" />
+                                    Context
+                                  </Button>
+                                </div>
+                              )}
+                            </Show>
+                          </div>
                         </div>
-                      </div>
+                      </Show>
                     </div>
                     <Show when={activeConversation()}>
                       {(conversation) => (

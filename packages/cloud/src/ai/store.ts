@@ -1589,6 +1589,39 @@ export const aiConversations: AiConversationService = {
     return rows[0] ? loadConversationSummary(input) : null;
   },
 
+  setConversationProject: async (input) => {
+    return sql.begin(async (tx) => {
+      const conversations = await tx<ConversationRow[]>`
+        SELECT *
+        FROM ai.conversations
+        WHERE id = ${input.conversationId}::uuid
+          AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
+          AND (${input.ownerUserId ?? null}::uuid IS NULL OR created_by_user_id = ${input.ownerUserId ?? null})
+          AND archived_at IS NULL
+        FOR UPDATE
+      `;
+      if (!conversations[0]) return { ok: false as const, reason: "not_found" as const };
+
+      const [activity] = await tx<{ exists: boolean }[]>`
+        SELECT EXISTS (
+          SELECT 1 FROM ai.messages WHERE conversation_id = ${input.conversationId}::uuid
+          UNION ALL
+          SELECT 1 FROM ai.turns WHERE conversation_id = ${input.conversationId}::uuid
+        ) AS exists
+      `;
+      if (activity?.exists) return { ok: false as const, reason: "not_empty" as const };
+
+      const updated = await tx<ConversationRow[]>`
+        UPDATE ai.conversations
+        SET project_id = ${input.projectId}::uuid,
+            updated_at = CASE WHEN project_id IS DISTINCT FROM ${input.projectId}::uuid THEN now() ELSE updated_at END
+        WHERE id = ${input.conversationId}::uuid
+        RETURNING *
+      `;
+      return { ok: true as const, conversation: rowToConversation(updated[0]!) };
+    });
+  },
+
   setConversationPinned: async (input) => {
     const rows = await sql<{ id: string }[]>`
       UPDATE ai.conversations

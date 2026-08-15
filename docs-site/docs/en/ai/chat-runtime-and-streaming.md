@@ -117,6 +117,7 @@ language-dependent automatic retries.
 | `/memories`, `/memories/:id` | Search and manage structured personal facts and preferences |
 | `/conversations` | List and create conversations |
 | `/conversations/:id` | Read or manage one conversation |
+| `/conversations/:id/project` | Choose or clear a Project before the first message |
 | `/conversations/:id/messages/search` | Search visible text inside one owned conversation |
 | `/conversations/:id/resources` | List or filter structured Cloud refs observed in one conversation |
 | `/resources` | List or filter structured Cloud refs across the user's active conversations |

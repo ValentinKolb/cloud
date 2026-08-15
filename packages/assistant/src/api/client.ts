@@ -210,6 +210,15 @@ export const assistantApi = {
     return response.json();
   },
 
+  updateConversationProject: async (conversationId: string, projectId: string | null): Promise<AiConversation> => {
+    const response = await client.conversations[":conversationId"].project.$put({
+      param: { conversationId },
+      json: { projectId },
+    });
+    if (!response.ok) throw new Error(await readError(response, "Failed to choose Project"));
+    return response.json();
+  },
+
   getSystemPromptPreview: async (): Promise<{ prompt: string; renderedAt: string }> => {
     const response = await client.prefs["system-prompt"].$get();
     if (!response.ok) throw new Error(await readError(response, "Failed to load system prompt"));

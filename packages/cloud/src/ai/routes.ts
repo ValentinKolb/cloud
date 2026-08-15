@@ -99,6 +99,10 @@ const ConversationMetadataInputSchema = z.object({
   pinned: z.boolean().optional(),
 });
 
+const ConversationProjectInputSchema = z.object({
+  projectId: z.string().regex(AI_SHORT_ID_PATTERN).nullable(),
+});
+
 const MessagesPageQuerySchema = z.object({
   before: z.coerce.number().int().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -519,6 +523,29 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         });
         if (!updated) return notFound(c);
         return respond(c, ok(await publicConversationFor(updated, config.appId, c.get("accessSubject"))));
+      })
+      .put("/conversations/:conversationId/project", v("json", ConversationProjectInputSchema), async (c) => {
+        if (!config.allowConversationManagement) return notFound(c);
+        const ctx = await config.resolveContext(c);
+        if (ctx instanceof Response) return ctx;
+        const conversation = await loadConversation(c, ctx);
+        if (!conversation) return notFound(c);
+        const body = c.req.valid("json");
+        const project = body.projectId ? await aiProjects.getByShortId(body.projectId, config.appId, c.get("accessSubject"), "read") : null;
+        if (body.projectId && !project) return respond(c, fail(err.notFound("Project")));
+        const result = await aiConversations.setConversationProject({
+          conversationId: conversation.id,
+          appId: config.appId,
+          ownerUserId: ctx.ownerUserId,
+          projectId: project?.id ?? null,
+        });
+        if (!result.ok) {
+          if (result.reason === "not_empty") {
+            return respond(c, fail(err.conflict("Choose a Project before sending the first message.")));
+          }
+          return notFound(c);
+        }
+        return respond(c, ok(await publicConversationFor(result.conversation, config.appId, c.get("accessSubject"))));
       })
       .post("/conversations/:conversationId/pin", async (c) => {
         if (!config.allowConversationManagement) return notFound(c);
