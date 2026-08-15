@@ -130,6 +130,9 @@ Bindings are discriminated values:
 # The current Records result row
 { source: ROW, path: id }
 
+# A selected single relation from the current row, for row navigation
+{ source: ROW, path: relation, fieldId: 10000000-0000-4000-8000-000000000301 }
+
 # The operation that just succeeded
 { source: RESULT, path: recordId }
 ```
@@ -253,7 +256,7 @@ cld grids gql autocomplete MyBase \
   --json
 ```
 
-Use a standalone Actions block for page-level navigation and workflows. Use `rowActions` for up to six workflows that act on one Records result row in either table or Cards presentation. Cards may instead be read-only or only navigate; no separate card action model exists. Every row action has a required accessible label, may hide that label only when it has an icon, and may bind `ROW.id` to a compatible record input. Form validation and submission behavior remain owned by the referenced Form.
+Use a standalone Actions block for page-level navigation and workflows. Use `rowActions` for up to six workflows that act on one Records result row in either table or Cards presentation. Cards may instead be read-only or only navigate; no separate card action model exists. Every row action has a required accessible label, may hide that label only when it has an icon, and may bind `ROW.id` to a compatible record input. Row navigation may instead bind one selected single-relation field to a compatible target page parameter. Form validation and submission behavior remain owned by the referenced Form.
 
 Pages, blocks, Forms, and actions may declare one server-enforced availability query:
 

@@ -90,6 +90,21 @@ describe("Grids Apps documentation contract", () => {
     expect(pages).toContain("the raw GQL console deliberately does not offer Grids App `@…` context");
   });
 
+  test("keeps removed and server-owned v4 surfaces out of the written contract", async () => {
+    const overview = await Bun.file(new URL("./documents/grids-custom-apps.help.md", import.meta.url)).text();
+    const pages = await Bun.file(new URL("./documents/grids-custom-app-pages-blocks.help.md", import.meta.url)).text();
+    const yaml = await Bun.file(new URL("./documents/grids-custom-app-yaml-cli.help.md", import.meta.url)).text();
+    const cli = await Bun.file(new URL("../../../../skills/cloud-cli/references/grids.md", import.meta.url)).text();
+
+    expect(overview).not.toContain("**Bulk actions**");
+    expect(overview).toContain("`apps export` does not contain `shortId`");
+    expect(overview).toContain("Record blocks may edit only explicitly displayed and allowlisted fields or attachments");
+    expect(pages).toContain("without Base or record Write access");
+    expect(yaml).toContain("{ source: ROW, path: relation, fieldId:");
+    expect(cli).toContain("Metrics, Chart, Record, Form, Comments, Actions, and Scanner blocks");
+    expect(cli).toContain("row id or one selected single relation");
+  });
+
   test("keeps the strict YAML root example aligned with the public schema", async () => {
     const markdown = await Bun.file(new URL("./documents/grids-custom-app-yaml-cli.help.md", import.meta.url)).text();
     const source = markdown.match(/## Use one strict root document[\s\S]*?```yaml\n([\s\S]*?)```/)?.[1];

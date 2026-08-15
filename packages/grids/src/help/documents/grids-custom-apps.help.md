@@ -35,7 +35,7 @@ Record detail pages are route-only. They declare one required `record` parameter
 
 A route-only page may also declare a Record parameter without loading it as the page record. This is useful when bounded Records GQL or a Form needs parent context, such as one description list while several related articles are entered.
 
-Scripts, custom HTML and CSS, arbitrary URLs, and direct record mutations are not supported. Actions compose internal navigation and existing validated workflow launchers instead.
+Scripts, custom HTML and CSS, and arbitrary URLs are not supported. Record blocks may edit only explicitly displayed and allowlisted fields or attachments. Actions compose internal navigation and existing validated workflow launchers instead of mutating records directly.
 
 ## Build a list and detail app {icon="terminal-2"}
 
@@ -175,11 +175,11 @@ Apply the definition. This updates only the draft:
 cld grids apps apply MyBase --source-file requests.yaml
 ```
 
-On first apply, Grids assigns the app's stable five-character `shortId`. You may keep `shortId` out of the source file; later applies preserve the assigned value. Use `apps export` for a normalized definition that includes it.
+On first apply, Grids assigns the app's stable five-character `shortId`. It remains route metadata outside the authoring definition, so later applies preserve it and `apps export` does not contain `shortId`.
 
 ## Build visually {icon="apps"}
 
-Base administrators can turn on **Edit mode** and create an app with **New app** under **Apps**. The Pages column creates and selects pages; each page and the active app have their own settings action. **Add block** supports Markdown, Records, Metrics, Charts, Forms, page Records, Comments, Actions, and Scanner. Records, Metrics, and Charts can use an accessible saved View or inline GQL. Scanner appears after an enabled Scanner run option has a ready workflow revision.
+Base administrators can turn on **Edit mode** and create an app with **New app** under **Apps**. The Pages column creates and selects pages; each page and the active app have their own settings action. **Add block** supports Markdown, Records, Metrics, Charts, Forms, Record details, Comments, Actions, and Scanner. Records, Metrics, and Charts can use an accessible saved View or inline GQL. Scanner appears after an enabled Scanner run option has a ready workflow revision.
 
 The inspector keeps the common path short. Required identity, page, source, and block fields stay visible. Access, availability, route parameters, appearance, ordering, documents, and danger controls use expandable sections. Optional availability shows **Always** until you add a server-enforced GQL rule. Inline GQL and Markdown can each be opened in a larger editor without creating a second draft or a separate Save step; autocomplete continues to offer only the selected page's valid `@auth`, `@params`, `@page`, `@app`, `@base`, and `@time` context.
 
@@ -190,8 +190,6 @@ For a saved-View Records block, choose a table field selection or reuse the View
 An Actions block shows a compact list. Open one action to edit its icon, target, history, typed parameter mappings, workflow launcher, input sources, confirmation, availability, and order. Workflow actions list only active Grids App launchers whose validated workflow revision is available in the current Base.
 
 A Records block has a separate **Row actions** section for both table and Cards presentation. Each action selects its launcher, label, optional icon, label visibility, typed inputs, confirmation, availability, and order. `ROW.id` appears only here and only for a compatible record input. The runtime verifies the selected ID is still present in the exact published Records query before invoking the workflow.
-
-Table Records blocks also have **Bulk actions**. Each action selects an existing Bulk run option whose record-list input belongs to the source table. Readers may select at most the current result page; page or search changes clear the selection. Invocation reruns the published source with the same search and cursor before starting the workflow.
 
 The builder saves every structurally complete change automatically. A notice appears while the draft differs from the live version or still needs attention. **Publish changes** validates and publishes the latest saved draft; **Restore live version** discards the pending draft and copies the current live snapshot back into it. The external-link icon opens the live snapshot. Saved View and parameter-free GQL previews are resolved on the server, and the canvas keeps unchanged blocks mounted while a neighboring block is edited. Under **App settings**, the collapsed **Danger zone** can unpublish the live snapshot while keeping the draft and grants, or delete the app without deleting Base data. Both actions require a destructive confirmation.
 

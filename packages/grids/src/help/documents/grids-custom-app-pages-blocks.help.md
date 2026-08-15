@@ -101,7 +101,7 @@ An optional `documents.templateIds` allowlist shows existing generated PDFs link
 
 ### Comments
 
-Comments requires a page record. It loads a bounded first page only when the block is rendered, then fetches older comments with keyset pagination. Creating or changing a comment requires Write access to that record. Authors may edit and delete their own comments; record admins may moderate any comment. Deleted comments remain as a timestamped placeholder so the conversation order stays understandable.
+Comments requires a page record and a signed-in App reader. It loads a bounded first page only when the block is rendered, then fetches older comments with keyset pagination. The published Comments block and current App grant authorize creating comments without Base or record Write access. Authors may edit and delete their own comments; Base administrators may moderate any comment. Deleted comments remain as a timestamped placeholder so the conversation order stays understandable.
 
 Comments inherit record visibility. They do not introduce a separate audience or permission store.
 
