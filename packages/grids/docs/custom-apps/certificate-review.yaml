@@ -1,0 +1,102 @@
+schemaVersion: 4
+kind: grids.custom-app
+id: 10000000-0000-4000-8000-000000000102
+baseId: 10000000-0000-4000-8000-000000000001
+name: Certificate review
+icon: certificate
+startPageId: queue
+pages:
+  - id: queue
+    title: Review queue
+    navigation:
+      visible: true
+      icon: list-check
+    parameters: {}
+    rows:
+      - id: queue
+        columns:
+          - id: content
+            span: 12
+            blocks:
+              - id: guidance
+                type: markdown
+                markdown: |
+                  ## Certificate requests
+                  Review submitted requests and keep questions in the shared discussion.
+              - id: requests
+                type: records
+                title: Open requests
+                emptyText: There are no open certificate requests.
+                searchable: true
+                pageSize: 25
+                source:
+                  kind: gql
+                  query: |
+                    from table {10000000-0000-4000-8000-000000000201}
+                    where {10000000-0000-4000-8000-000000000304} = 'pending'
+                    select {10000000-0000-4000-8000-000000000301}, {10000000-0000-4000-8000-000000000303}, {10000000-0000-4000-8000-000000000304}
+                    sort record.createdAt asc
+                display:
+                  kind: table
+                  columnIds: []
+                rowNavigate:
+                  kind: navigate
+                  pageId: request
+                  history: push
+                  params:
+                    request_id: { source: ROW, path: id }
+
+  - id: request
+    title: Request review
+    navigation:
+      visible: false
+    parameters:
+      request_id:
+        type: record
+        tableId: 10000000-0000-4000-8000-000000000201
+        required: true
+    record:
+      tableId: 10000000-0000-4000-8000-000000000201
+      id: { source: PARAMS, path: request_id }
+    rows:
+      - id: detail
+        columns:
+          - id: request
+            span: 8
+            blocks:
+              - id: request
+                type: record
+                title: Certificate request
+                fieldIds:
+                  - 10000000-0000-4000-8000-000000000301
+                  - 10000000-0000-4000-8000-000000000302
+                  - 10000000-0000-4000-8000-000000000303
+                  - 10000000-0000-4000-8000-000000000304
+                editableFieldIds: []
+                documents:
+                  templateIds:
+                    - 10000000-0000-4000-8000-000000000601
+          - id: review
+            span: 4
+            blocks:
+              - id: review-actions
+                type: actions
+                title: Review
+                actions:
+                  - id: approve
+                    label: Approve and generate certificate
+                    icon: certificate
+                    kind: workflow
+                    launcherId: 10000000-0000-4000-8000-000000000802
+                    inputs:
+                      request: { source: RECORD, path: id }
+                    confirm: Approve this request and generate its certificate?
+                    availableWhen:
+                      query: |
+                        from table {10000000-0000-4000-8000-000000000201}
+                        where record.id = @params.request_id and {10000000-0000-4000-8000-000000000304} = 'pending'
+                        limit 1
+              - id: comments
+                type: comments
+                title: Questions and updates
+                emptyText: No messages yet.

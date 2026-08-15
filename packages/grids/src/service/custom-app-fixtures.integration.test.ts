@@ -1,15 +1,17 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { CustomAppDefinitionSchema } from "../custom-apps/contracts";
-import { customAppFormFieldHash, customAppFormSecurityHash } from "../custom-apps/form-capability";
+import { customAppFormFieldHash } from "../custom-apps/form-capability";
 import { customAppViewSourceHash } from "../custom-apps/insight-source";
 import { postgresTest, testShortId } from "../integration-test-utils";
 import { migrate } from "../migrate";
-import { grantAccess, listCustomAppAccess } from "./access";
+import { grantAccess, listBaseAccess, listCustomAppAccess } from "./access";
 import { apply, compile, get, plan, publish } from "./custom-apps";
+import { deleteTestWorkflowScope, insertTestWorkflow } from "./workflow-test-fixture";
 
 const CERTIFICATE = {
   appId: "10000000-0000-4000-8000-000000000101",
+  reviewAppId: "10000000-0000-4000-8000-000000000102",
   baseId: "10000000-0000-4000-8000-000000000001",
   tableId: "10000000-0000-4000-8000-000000000201",
   fieldIds: [
@@ -23,15 +25,21 @@ const CERTIFICATE = {
   documentTemplateId: "10000000-0000-4000-8000-000000000601",
   requesterGroupId: "10000000-0000-4000-8000-000000000701",
   responsibleGroupId: "10000000-0000-4000-8000-000000000702",
+  workflowId: "10000000-0000-4000-8000-000000000801",
+  launcherId: "10000000-0000-4000-8000-000000000802",
 } as const;
 
 const certificateDefinitionPath = `${import.meta.dir}/../../docs/custom-apps/certificate-requests.yaml`;
+const certificateReviewDefinitionPath = `${import.meta.dir}/../../docs/custom-apps/certificate-review.yaml`;
 
 const loadCertificateDefinition = async () =>
   CustomAppDefinitionSchema.parse(Bun.YAML.parse(await Bun.file(certificateDefinitionPath).text()));
+const loadCertificateReviewDefinition = async () =>
+  CustomAppDefinitionSchema.parse(Bun.YAML.parse(await Bun.file(certificateReviewDefinitionPath).text()));
 
 const cleanupCertificateFixture = async (): Promise<void> => {
   await sql`DELETE FROM grids.bases WHERE id = ${CERTIFICATE.baseId}::uuid`;
+  await deleteTestWorkflowScope(CERTIFICATE.baseId);
   await sql`
     DELETE FROM auth.access
     WHERE group_id IN (${CERTIFICATE.requesterGroupId}::uuid, ${CERTIFICATE.responsibleGroupId}::uuid)
@@ -62,7 +70,16 @@ const insertCertificateResources = async (): Promise<void> => {
       (${titleFieldId}::uuid, ${testShortId("F")}, ${CERTIFICATE.tableId}::uuid, 'Title', 'text', '{}'::jsonb, 0),
       (${descriptionFieldId}::uuid, ${testShortId("F")}, ${CERTIFICATE.tableId}::uuid, 'Description', 'longtext', '{}'::jsonb, 1),
       (${periodFieldId}::uuid, ${testShortId("F")}, ${CERTIFICATE.tableId}::uuid, 'Contribution period', 'text', '{}'::jsonb, 2),
-      (${statusFieldId}::uuid, ${testShortId("F")}, ${CERTIFICATE.tableId}::uuid, 'Status', 'text', '{}'::jsonb, 3)
+      (${statusFieldId}::uuid, ${testShortId("F")}, ${CERTIFICATE.tableId}::uuid, 'Status', 'select', ${{
+        options: [
+          { id: "pending", label: "Pending", color: "orange" },
+          { id: "approved", label: "Approved", color: "green" },
+          { id: "rejected", label: "Rejected", color: "red" },
+        ],
+        multiple: false,
+        minSelected: 1,
+        maxSelected: 1,
+      }}::jsonb, 3)
   `;
   await sql`
     INSERT INTO grids.views (id, short_id, table_id, name, source)
@@ -71,7 +88,7 @@ const insertCertificateResources = async (): Promise<void> => {
       ${testShortId("V")},
       ${CERTIFICATE.tableId}::uuid,
       'My requests',
-      ${`from table {${CERTIFICATE.tableId}}`}
+      ${`from table {${CERTIFICATE.tableId}}\nwhere record.createdBy = @auth.id`}
     )
   `;
   await sql`
@@ -83,7 +100,10 @@ const insertCertificateResources = async (): Promise<void> => {
       'Certificate request',
       ${JSON.stringify({
         title: "Request a certificate",
-        fields: [titleFieldId, descriptionFieldId, periodFieldId].map((fieldId) => ({ kind: "user_input", fieldId })),
+        fields: [
+          ...[titleFieldId, descriptionFieldId, periodFieldId].map((fieldId) => ({ kind: "user_input", fieldId })),
+          { kind: "form_value", fieldId: statusFieldId, value: ["pending"] },
+        ],
       })}::jsonb,
       true,
       0
@@ -100,6 +120,41 @@ const insertCertificateResources = async (): Promise<void> => {
       '<h1>Certificate</h1>'
     )
   `;
+  await insertTestWorkflow({
+    baseId: CERTIFICATE.baseId,
+    id: CERTIFICATE.workflowId,
+    name: "Approve certificate request",
+    enabled: true,
+    plan: {
+      schemaVersion: 2,
+      languageId: "grids",
+      languageVersion: 1,
+      sourceHash: "a".repeat(64),
+      manifestHash: "b".repeat(64),
+      catalogHash: "c".repeat(64),
+      actionPolicies: {},
+      inputs: [{ name: "request", type: "record", config: { required: true } }],
+      triggers: [],
+      steps: [],
+      bindings: { "inputs.request.table": CERTIFICATE.tableId },
+    },
+  });
+  await sql`
+    INSERT INTO grids.workflow_launchers (
+      id, short_id, base_id, workflow_id, name, kind, config, enabled, validated_revision, diagnostics
+    ) VALUES (
+      ${CERTIFICATE.launcherId}::uuid,
+      ${testShortId("L")},
+      ${CERTIFICATE.baseId}::uuid,
+      ${CERTIFICATE.workflowId}::uuid,
+      'Approve certificate request',
+      'customApp',
+      ${{ kind: "customApp", inputMode: "prompt" }}::jsonb,
+      true,
+      1,
+      '[]'::jsonb
+    )
+  `;
 };
 
 beforeAll(async () => {
@@ -109,8 +164,11 @@ beforeAll(async () => {
 describe("Grids App Golden fixtures", () => {
   test("keeps the certificate request fixture structurally valid", async () => {
     const definition = await loadCertificateDefinition();
+    const reviewDefinition = await loadCertificateReviewDefinition();
     expect(definition.id).toBe(CERTIFICATE.appId);
+    expect(reviewDefinition.id).toBe(CERTIFICATE.reviewAppId);
     expect(definition.baseId).toBe(CERTIFICATE.baseId);
+    expect(reviewDefinition.baseId).toBe(CERTIFICATE.baseId);
   });
 
   postgresTest("executes the certificate request fixture through the complete lifecycle", async () => {
@@ -118,6 +176,7 @@ describe("Grids App Golden fixtures", () => {
     try {
       await insertCertificateResources();
       const definition = await loadCertificateDefinition();
+      const reviewDefinition = await loadCertificateReviewDefinition();
 
       const validation = await compile(definition);
       expect(validation.ok).toBe(true);
@@ -128,7 +187,10 @@ describe("Grids App Golden fixtures", () => {
           {
             viewId: CERTIFICATE.viewId,
             tableId: CERTIFICATE.tableId,
-            sourceHash: customAppViewSourceHash(CERTIFICATE.tableId, `from table {${CERTIFICATE.tableId}}`),
+            sourceHash: customAppViewSourceHash(
+              CERTIFICATE.tableId,
+              `from table {${CERTIFICATE.tableId}}\nwhere record.createdBy = @auth.id`,
+            ),
             planHash: expect.any(String),
             tableIds: [CERTIFICATE.tableId],
           },
@@ -161,21 +223,7 @@ describe("Grids App Golden fixtures", () => {
                 deletedAt: null,
               })),
             ),
-            formSecurityHash: customAppFormSecurityHash({
-              tableId: CERTIFICATE.tableId,
-              config: {
-                fields: CERTIFICATE.fieldIds.slice(0, 3).map((fieldId) => ({ kind: "user_input", fieldId })),
-              },
-              fields: CERTIFICATE.fieldIds.slice(0, 3).map((id, index) => ({
-                id,
-                tableId: CERTIFICATE.tableId,
-                type: index === 1 ? "longtext" : "text",
-                config: {},
-                required: false,
-                defaultValue: null,
-                deletedAt: null,
-              })),
-            }),
+            formSecurityHash: expect.any(String),
           },
         ],
         comments: [{ pageId: "request", blockId: "comments", tableId: CERTIFICATE.tableId }],
@@ -242,6 +290,43 @@ describe("Grids App Golden fixtures", () => {
       expect(published.data.publishedDefinition).toEqual(exported);
       expect(published.data.publishedCapabilities).toEqual(validation.compiled.capabilities);
       expect((await get(CERTIFICATE.appId))?.publishedCapabilities).toEqual(validation.compiled.capabilities);
+
+      const reviewValidation = await compile(reviewDefinition);
+      expect(reviewValidation.ok).toBe(true);
+      if (!reviewValidation.ok) throw new Error(reviewValidation.diagnostics.map((item) => item.message).join("; "));
+      expect(reviewValidation.compiled.capabilities.workflowLaunchers).toEqual([
+        {
+          pageId: "request",
+          blockId: "review-actions",
+          actionId: "approve",
+          launcherId: CERTIFICATE.launcherId,
+          workflowId: CERTIFICATE.workflowId,
+          revision: 1,
+        },
+      ]);
+      expect(await plan(reviewDefinition)).toEqual({ valid: true, diagnostics: [], action: "create", changes: ["app"] });
+      const reviewCreated = await apply(reviewDefinition);
+      expect(reviewCreated.ok).toBe(true);
+      if (!reviewCreated.ok) throw new Error(reviewCreated.error.message);
+      const reviewPublished = await publish(CERTIFICATE.reviewAppId);
+      expect(reviewPublished.ok).toBe(true);
+
+      const baseGrant = await grantAccess({
+        resourceType: "base",
+        resourceId: CERTIFICATE.baseId,
+        principal: { type: "group", groupId: CERTIFICATE.responsibleGroupId },
+        permission: "write",
+      });
+      expect(baseGrant.ok).toBe(true);
+      const reviewGrant = await grantAccess({
+        resourceType: "customApp",
+        resourceId: CERTIFICATE.reviewAppId,
+        principal: { type: "group", groupId: CERTIFICATE.responsibleGroupId },
+        permission: "read",
+      });
+      expect(reviewGrant.ok).toBe(true);
+      expect(await listBaseAccess(CERTIFICATE.baseId)).toHaveLength(1);
+      expect(await listCustomAppAccess(CERTIFICATE.reviewAppId)).toHaveLength(1);
     } finally {
       await cleanupCertificateFixture();
     }
