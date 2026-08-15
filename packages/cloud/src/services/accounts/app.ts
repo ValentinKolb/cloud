@@ -1139,6 +1139,8 @@ export const accountsAppService = {
       kinds?: EntityKind[];
       provider?: UserProvider;
       profile?: UserProfile;
+      userIds?: string[];
+      groupIds?: string[];
       excludeUserIds?: string[];
       excludeGroupIds?: string[];
       excludeServiceAccountIds?: string[];
@@ -1167,6 +1169,8 @@ export const accountsAppService = {
         kinds: config.kinds,
         provider: config.provider,
         profile: config.profile,
+        userIds: config.userIds,
+        groupIds: config.groupIds,
         excludeUserIds: config.excludeUserIds,
         excludeGroupIds: config.excludeGroupIds,
         excludeServiceAccountIds: config.excludeServiceAccountIds,

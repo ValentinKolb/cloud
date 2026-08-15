@@ -30,6 +30,8 @@ const QuerySchema = z
     kinds: z.string().optional(),
     provider: UserProviderSchema.optional(),
     profile: UserProfileSchema.optional(),
+    user_ids: z.string().optional(),
+    group_ids: z.string().optional(),
     exclude_user_ids: z.string().optional(),
     exclude_group_ids: z.string().optional(),
     exclude_service_account_ids: z.string().optional(),
@@ -71,7 +73,10 @@ const parseKinds = (value?: string) => {
 const parseUuidList = (value: string | undefined, label: string) => {
   const ids = parseCsv(value);
   if (ids.length === 0) return { ok: true as const, value: undefined };
-  const parsed = z.array(z.uuid()).safeParse(ids);
+  const parsed = z
+    .array(z.uuid())
+    .max(100)
+    .safeParse([...new Set(ids)]);
   if (parsed.success) {
     return { ok: true as const, value: parsed.data };
   }
@@ -126,6 +131,10 @@ export const createAccountsEntitiesRoutes = (dependencies: AccountsEntitiesRoute
       if (!excludeServiceAccountIds.ok) return respond(c, fail(err.badInput(excludeServiceAccountIds.message)));
       const userMemberOfGroupIds = parseUuidList(query.user_member_of_group_ids, "user_member_of_group_ids");
       if (!userMemberOfGroupIds.ok) return respond(c, fail(err.badInput(userMemberOfGroupIds.message)));
+      const userIds = parseUuidList(query.user_ids, "user_ids");
+      if (!userIds.ok) return respond(c, fail(err.badInput(userIds.message)));
+      const groupIds = parseUuidList(query.group_ids, "group_ids");
+      if (!groupIds.ok) return respond(c, fail(err.badInput(groupIds.message)));
 
       const result = await (dependencies.listEntities ?? accountsService.entity.list)({
         actor: {
@@ -139,6 +148,8 @@ export const createAccountsEntitiesRoutes = (dependencies: AccountsEntitiesRoute
         kinds: kinds.value,
         provider: query.provider,
         profile: query.profile,
+        userIds: userIds.value,
+        groupIds: groupIds.value,
         excludeUserIds: excludeUserIds.value,
         excludeGroupIds: excludeGroupIds.value,
         excludeServiceAccountIds: excludeServiceAccountIds.value,

@@ -135,6 +135,19 @@ suite("accounts entity visibility (integration)", () => {
       expect(excluded.total).toBe(1);
       expect(excluded.items).toMatchObject([{ kind: "group", group: { id: parentGroupId } }]);
 
+      const exactVisible = await accountsAppService.entity.list({
+        actor: guestActor,
+        userIds: [guestId, fellowGuestId],
+        groupIds: [parentGroupId, unrelatedGroupId],
+      });
+      expect(exactVisible.total).toBe(2);
+      expect(exactVisible.items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: "user", user: expect.objectContaining({ id: guestId }) }),
+          expect.objectContaining({ kind: "group", group: expect.objectContaining({ id: parentGroupId }) }),
+        ]),
+      );
+
       const serviceAccounts = await accountsAppService.entity.list({ actor: guestActor, kinds: ["service_account"] });
       expect(serviceAccounts).toMatchObject({ total: 0, items: [] });
 

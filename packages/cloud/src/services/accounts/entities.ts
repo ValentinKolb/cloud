@@ -15,6 +15,8 @@ export type EntityListParams = {
   kinds?: EntityKind[];
   provider?: UserProvider;
   profile?: UserProfile;
+  userIds?: string[];
+  groupIds?: string[];
   excludeUserIds?: string[];
   excludeGroupIds?: string[];
   excludeServiceAccountIds?: string[];
@@ -424,6 +426,13 @@ export const list = async (
           )
         )`;
   const kindsCondition = (params.kinds?.length ?? 0) === 0 ? sql`TRUE` : sql`kind = ANY(${toPgTextArray(params.kinds ?? [])}::text[])`;
+  const hasIdFilter = params.userIds !== undefined || params.groupIds !== undefined;
+  const includeIdCondition = !hasIdFilter
+    ? sql`TRUE`
+    : sql`(
+        (kind = 'user' AND id = ANY(${toPgUuidArray(params.userIds ?? [])}::uuid[]))
+        OR (kind = 'group' AND id = ANY(${toPgUuidArray(params.groupIds ?? [])}::uuid[]))
+      )`;
   const excludeUserCondition =
     (params.excludeUserIds?.length ?? 0) === 0
       ? sql`TRUE`
@@ -449,6 +458,7 @@ export const list = async (
   const where = sql`
     ${visibilityCondition}
     AND ${kindsCondition}
+    AND ${includeIdCondition}
     AND (${params.provider ?? null}::text IS NULL OR provider = ${params.provider ?? null})
     AND (${params.profile ?? null}::text IS NULL OR kind = 'group' OR profile = ${params.profile ?? null})
     AND ${excludeUserCondition}
