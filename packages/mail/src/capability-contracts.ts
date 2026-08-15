@@ -307,6 +307,12 @@ export const MessageDataSchema = MessageSummaryDataSchema.extend({
 export const ConversationGetDataSchema = z
   .object({
     conversationId: ResourceShortIdSchema,
+    summary: z
+      .string()
+      .max(50_000)
+      .nullable()
+      .describe("Shared editable conversation context. It can be absent or lag behind the latest messages."),
+    summaryRevision: z.number().int().positive().describe("Revision to use when updating the shared summary."),
     collaboration: z
       .object({
         assignee: z
@@ -322,7 +328,7 @@ export const ConversationGetDataSchema = z
       .array(z.object({ id: ResourceShortIdSchema, name: z.string(), color: z.string(), revision: z.number().int().positive() }).strict())
       .max(100),
     messages: z.array(NavigableMessageSummaryDataSchema).max(100),
-    messagesTruncated: z.boolean(),
+    messagesTruncated: z.boolean().describe("True when earlier messages exist outside this latest-message window."),
   })
   .strict();
 

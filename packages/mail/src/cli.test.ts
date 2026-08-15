@@ -1685,6 +1685,89 @@ test("conversation list forwards a built-in collaboration view", async () => {
   expect(new URLSearchParams(query).get("view")).toBe("mine");
 });
 
+test("conversation get includes shared context and the latest message window", async () => {
+  const requested = new Set<string>();
+  const summary = {
+    summary: "The launch is approved. Waiting for the final checklist.",
+    summaryRevision: 3,
+    conversationRevision: 7,
+  };
+  const collaboration = {
+    conversationId: CONVERSATION_ID,
+    assignee: { id: USER_ID, uid: "ada", displayName: "Ada Lovelace", avatarHash: null },
+    workStatus: "waiting",
+    snoozedUntil: null,
+    revision: 7,
+  };
+  const tags = {
+    conversationId: CONVERSATION_ID,
+    conversationRevision: 7,
+    tags: [
+      {
+        id: TAG_ID,
+        mailboxId: MAILBOX_ID,
+        name: "Launch",
+        color: "blue",
+        revision: 2,
+        createdAt: "2026-08-15T10:00:00.000Z",
+        updatedAt: "2026-08-15T10:00:00.000Z",
+      },
+    ],
+  };
+  const message = {
+    id: MESSAGE_ID,
+    subject: "Final checklist",
+    messageId: "<final@example.test>",
+    internalDate: "2026-08-15T11:00:00.000Z",
+    sentAt: "2026-08-15T11:00:00.000Z",
+    from: [{ name: "Ada", address: "ada@example.test" }],
+    to: [{ name: null, address: "team@example.test" }],
+    flags: [],
+    keywords: [],
+    hydrationStatus: "hydrated",
+    remoteAvailable: true,
+    folderId: FOLDER_ID,
+  };
+  const server = withMailbox((request) => {
+    const url = new URL(request.url);
+    requested.add(`${url.pathname}${url.search}`);
+    const root = `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}`;
+    if (url.pathname === `${root}/summary`) return api(summary);
+    if (url.pathname === `${root}/collaboration`) return api(collaboration);
+    if (url.pathname === `${root}/local-tags`) return api(tags);
+    if (url.pathname === `${root}/messages`) return api({ items: [message], nextCursor: "older" });
+    return api({ message: "unexpected" }, { status: 500 });
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, [
+    "--json",
+    "mail",
+    "conversation",
+    "get",
+    CONVERSATION_ID,
+    "--mailbox",
+    MAILBOX_ID,
+  ]);
+
+  expect(result.exitCode).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual({
+    conversationId: CONVERSATION_ID,
+    summary: summary.summary,
+    summaryRevision: summary.summaryRevision,
+    collaboration: {
+      assignee: collaboration.assignee,
+      workStatus: collaboration.workStatus,
+      snoozedUntil: collaboration.snoozedUntil,
+      revision: collaboration.revision,
+    },
+    tags: [{ id: TAG_ID, name: "Launch", color: "blue", revision: 2 }],
+    messages: [message],
+    messagesTruncated: true,
+  });
+  expect(requested).toContain(`/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/messages?limit=50&latest=true`);
+});
+
 test("command wait polls until a successful terminal state", async () => {
   let reads = 0;
   const server = withMailbox((request) => {

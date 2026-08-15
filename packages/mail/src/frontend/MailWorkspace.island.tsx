@@ -37,6 +37,7 @@ import {
 import type { MailConversationToolbarActionId } from "./_components/mail-conversation-toolbar";
 import { mergeMailCursorPage } from "./_components/mail-cursor-page";
 import { preserveUnavailableMailDetail } from "./_components/mail-detail-availability";
+import { reconcileConversationSummary } from "./_components/mail-details-reconciliation";
 import {
   type MailListOptimisticField,
   type MailListOptimisticPatch,
@@ -776,6 +777,32 @@ export default function MailWorkspace(props: {
     if (result === "failed") toast.error("Could not refresh this mailbox yet. Your current view was kept.");
   };
 
+  const applySavedConversationSummary = async (conversationId: string, summary: NonNullable<MailboxPageData["conversationSummary"]>) => {
+    if (disposed) return;
+    rememberPendingListState(conversationId, { revision: summary.conversationRevision });
+    setData("listItems", (items) =>
+      items.map((item) =>
+        item.conversationId === conversationId ? { ...item, revision: Math.max(item.revision, summary.conversationRevision) } : item,
+      ),
+    );
+    if (data.selectedConversationId === conversationId) {
+      setData("conversationSummary", (current) => reconcileConversationSummary(current, summary));
+      setData("collaborationState", (current) =>
+        current?.conversationId === conversationId
+          ? { ...current, revision: Math.max(current.revision, summary.conversationRevision) }
+          : current,
+      );
+      setData("conversationLocalTags", (current) =>
+        current?.conversationId === conversationId
+          ? { ...current, conversationRevision: Math.max(current.conversationRevision, summary.conversationRevision) }
+          : current,
+      );
+    }
+    const result = await replaceWorkspaceRoute(requestUrl());
+    if (result === "failed")
+      throw new Error("This mailbox view could not be refreshed yet. Reload to confirm the latest conversation state.");
+  };
+
   const orderedConversationIds = () => data.listItems.flatMap((item) => (item.conversationId ? [item.conversationId] : []));
 
   const toggleConversationSelection = (item: MailListItem, range: boolean) => {
@@ -1443,6 +1470,7 @@ export default function MailWorkspace(props: {
                   onMergeConversation={mergeSelectedConversation}
                   onReassignMessage={reassignMessage}
                   onSplitMessage={splitMessage}
+                  onSummarySaved={applySavedConversationSummary}
                   onReconcile={reconcileWorkspace}
                   onClose={closeConversation}
                 />

@@ -68,12 +68,19 @@ contracts Mail adopts.
 ## Automate Mail from the terminal
 
 Mail provides a native CLI module for mailbox operations. These commands list
-readable mailboxes and search the current default mailbox:
+readable mailboxes, search the current default mailbox, and show the current
+shared context for one conversation:
 
 ```bash
 cld mail list --json
 cld mail search --any "renewal" --json
+cld mail conversation get <conversation-id> --json
 ```
+
+The conversation view includes its shared summary, collaboration state, local
+tags, and the most recent messages. It marks the result when earlier messages
+are not included, so a person or agent can decide whether to page through the
+complete history.
 
 Run `cld mail help` for mailbox, conversation, message, collaboration,
 provider, automation, and workflow commands. Run `cld mail <command> --help` before a

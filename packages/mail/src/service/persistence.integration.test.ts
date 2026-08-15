@@ -14,6 +14,7 @@ import { createActorCommand } from "./commands";
 import { reviewDraftComposeSafety } from "./compose-safety";
 import type { ConnectorEnvelope } from "./connectors";
 import { imapSmtpConnector } from "./connectors";
+import { getConversationSummary, updateConversationSummary } from "./conversation-summary";
 import { acquireDraftLease, getDraftLease, heartbeatDraftLease, releaseDraftLease } from "./draft-leases";
 import { recordDraftFolderSyncInTransaction } from "./draft-provider-projection";
 import {
@@ -44,7 +45,7 @@ import { createMailbox, updateMailbox } from "./mailboxes";
 import { deleteOrphanedBlobs, storeReadableBlob } from "./message-blobs";
 import { hydrateMessageFromSource } from "./message-hydration";
 import { recordMessageReceipt } from "./message-receipts";
-import { createAttachmentStream, getMessage, listConversations, openAttachment } from "./messages";
+import { createAttachmentStream, getMessage, listConversationMessages, listConversations, openAttachment } from "./messages";
 import { createProviderConnection, listProviderConnections, replaceProviderConnection } from "./provider-connections";
 import { MAIL_PROVIDER_OPERATION_LEASE_MS, mailProviderOperationMutex } from "./provider-operation-lock";
 import { cancelScheduledSend, cancelSendCommand, listScheduledSends } from "./scheduled-sends";
@@ -649,6 +650,27 @@ suite("mail PostgreSQL foundation", () => {
       GROUP BY c.id
     `;
     expect(answeredConversation).toEqual({ work_status: "needs_action", message_count: 3 });
+    const latestMessagePage = await listConversationMessages({
+      context,
+      mailboxId: mailbox.data.id,
+      conversationId: orderedConversation!.id,
+      limit: 2,
+      latest: true,
+    });
+    expect(latestMessagePage.ok).toBe(true);
+    if (!latestMessagePage.ok) return;
+    const expectedLatestMessages = await sql<{ message_id: string }[]>`
+      SELECT cm.message_id
+      FROM mail.conversation_messages cm
+      JOIN mail.message_contents mc ON mc.id = cm.message_id
+      WHERE cm.conversation_id = ${orderedConversation!.id}::uuid
+      ORDER BY mc.internal_date DESC, cm.message_id DESC
+      LIMIT 2
+    `;
+    expect(latestMessagePage.data.items.map((message) => message.id)).toEqual(
+      expectedLatestMessages.map((message) => message.message_id).toReversed(),
+    );
+    expect(latestMessagePage.data.nextCursor).not.toBeNull();
     const unreadConversations = await listConversations({
       context,
       mailboxId: mailbox.data.id,
@@ -691,6 +713,22 @@ suite("mail PostgreSQL foundation", () => {
     if (!taggedConversation.ok) throw new Error(`${taggedConversation.error.code}: ${taggedConversation.error.message}`);
     expect(taggedConversation.ok).toBe(true);
     if (!taggedConversation.ok) return;
+    const currentSummary = await getConversationSummary({
+      context,
+      mailboxId: mailbox.data.id,
+      conversationId: orderedConversation!.id,
+    });
+    if (!currentSummary.ok) throw new Error(`${currentSummary.error.code}: ${currentSummary.error.message}`);
+    const updatedSummary = await updateConversationSummary({
+      context,
+      mailboxId: mailbox.data.id,
+      conversationId: orderedConversation!.id,
+      input: {
+        expectedSummaryRevision: currentSummary.data.summaryRevision,
+        summary: "The latest reply confirms the plan and leaves one follow-up.",
+      },
+    });
+    if (!updatedSummary.ok) throw new Error(`${updatedSummary.error.code}: ${updatedSummary.error.message}`);
 
     const capabilityResult = await (async (orderedConversation: { id: string }) => {
       const conversationCapability = mailCapabilities.queries["conversation.read"];
@@ -707,6 +745,8 @@ suite("mail PostgreSQL foundation", () => {
     expect(capabilityResult.ok).toBe(true);
     if (!capabilityResult.ok) return;
     expect(ConversationGetDataSchema.safeParse(capabilityResult.data.data).success).toBe(true);
+    expect(capabilityResult.data.data.summary).toBe("The latest reply confirms the plan and leaves one follow-up.");
+    expect(capabilityResult.data.data.summaryRevision).toBe(updatedSummary.data.summaryRevision);
     expect(capabilityResult.data.data.tags).toEqual([
       {
         id: await publicTagId(capabilityTag.data.id),

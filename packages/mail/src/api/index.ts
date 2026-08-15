@@ -174,6 +174,12 @@ const cursorQuerySchema = z.object({
   cursor: z.string().max(2_000).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
+const conversationMessagesQuerySchema = cursorQuerySchema.extend({
+  latest: z
+    .enum(["true", "false"])
+    .transform((value) => value === "true")
+    .optional(),
+});
 const subscriptionQuerySchema = cursorQuerySchema.extend({
   listKey: z.string().trim().toLowerCase().min(1).max(4096).optional(),
 });
@@ -1512,7 +1518,7 @@ const mailOperationsApi = new Hono<MailApiContext>()
   .get(
     "/mailboxes/:mailboxId/conversations/:conversationId/messages",
     v("param", mailboxAndIdParamSchema("conversationId")),
-    v("query", cursorQuerySchema),
+    v("query", conversationMessagesQuerySchema),
     async (c) => {
       const params = internalParams(c, c.req.valid("param")) as {
         mailboxId: string;

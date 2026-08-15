@@ -6,6 +6,7 @@ import {
   reconcileAvailableTags,
   reconcileCollaboration,
   reconcileComments,
+  reconcileConversationSummary,
   reconcileConversationTags,
   reconcileReminder,
 } from "./mail-details-reconciliation";
@@ -53,6 +54,15 @@ const reminder = (revision: number, state: ConversationReminder["state"] = "pend
 });
 
 describe("Mail details reconciliation", () => {
+  test("applies a confirmed conversation summary without regressing a newer live revision", () => {
+    const saved = { summary: "Saved now", summaryRevision: 2, conversationRevision: 5 };
+    const newer = { summary: "Updated elsewhere", summaryRevision: 3, conversationRevision: 6 };
+
+    expect(reconcileConversationSummary(null, saved)).toEqual(saved);
+    expect(reconcileConversationSummary(saved, newer)).toEqual(newer);
+    expect(reconcileConversationSummary(newer, saved)).toEqual(newer);
+  });
+
   test("applies newer collaboration and tag revisions but rejects stale snapshots", () => {
     expect(reconcileCollaboration(collaboration(3, "done"), collaboration(2, "needs_action")).workStatus).toBe("done");
     expect(reconcileCollaboration(collaboration(2, "needs_action"), collaboration(3, "done")).workStatus).toBe("done");

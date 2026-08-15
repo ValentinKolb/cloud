@@ -1,4 +1,5 @@
 import type { ConversationCollaboration, ConversationComment } from "../../service/collaboration";
+import type { ConversationContentSummary } from "../../service/conversation-summary";
 import type { ConversationLocalTags, LocalTag } from "../../service/local-tags";
 import type { ConversationReminder } from "../../service/reminders";
 
@@ -7,6 +8,11 @@ export const reconcileCollaboration = (
   incoming: ConversationCollaboration,
 ): ConversationCollaboration =>
   incoming.conversationId !== current.conversationId || incoming.revision >= current.revision ? incoming : current;
+
+export const reconcileConversationSummary = (
+  current: ConversationContentSummary | null,
+  incoming: ConversationContentSummary,
+): ConversationContentSummary => (current && current.summaryRevision > incoming.summaryRevision ? current : incoming);
 
 export const reconcileConversationTags = (current: ConversationLocalTags, incoming: ConversationLocalTags): ConversationLocalTags =>
   incoming.conversationId !== current.conversationId || incoming.conversationRevision > current.conversationRevision ? incoming : current;

@@ -87,6 +87,7 @@ import type {
   ConversationReferenceConfiguration,
   EnsureConversationReferenceResult,
 } from "./service/conversation-reference";
+import type { ConversationContentSummary } from "./service/conversation-summary";
 import type { MergeConversationsResult, ReassignConversationMessageResult, SplitConversationResult } from "./service/conversations";
 import type { IncomingAutomation } from "./service/incoming-automations";
 import type { AddConversationLocalTagsResult, ConversationLocalTags, LocalTag } from "./service/local-tags";
@@ -103,6 +104,16 @@ type ResolvedMailbox = Mailbox & { permission: PermissionLevel | null };
 type ProviderConnectionResult = {
   connection: ProviderConnection;
   verification: unknown;
+};
+
+type ConversationReadView = {
+  conversationId: string;
+  summary: string | null;
+  summaryRevision: number;
+  collaboration: Omit<ConversationCollaboration, "conversationId">;
+  tags: Array<Pick<LocalTag, "id" | "name" | "color" | "revision">>;
+  messages: MessageSummary[];
+  messagesTruncated: boolean;
 };
 
 const DEFAULT_MAILBOX_KEY = "mail.mailbox";
@@ -3650,6 +3661,54 @@ export default defineCliCommands({
             { key: "id", label: "MESSAGE ID" },
           ],
         );
+      },
+    }),
+    command("conversation get", {
+      summary: "Show shared context and recent messages for one conversation",
+      args: {
+        conversationId: arg.required({ description: "Conversation id" }),
+      },
+      flags: mailboxFlag,
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const conversationId = requireMailResourceId(args.conversationId, "Conversation id");
+        const root = `/mailboxes/${mailbox.id}/conversations/${conversationId}`;
+        const [summary, collaborationState, localTagState, messagePage] = await Promise.all([
+          readApi<ConversationContentSummary>(ctx, `${root}/summary`),
+          readApi<ConversationCollaboration>(ctx, `${root}/collaboration`),
+          readApi<ConversationLocalTags>(ctx, `${root}/local-tags`),
+          readApi<{ items: MessageSummary[]; nextCursor: string | null }>(ctx, `${root}/messages?limit=50&latest=true`),
+        ]);
+        const value: ConversationReadView = {
+          conversationId,
+          summary: summary.summary,
+          summaryRevision: summary.summaryRevision,
+          collaboration: {
+            assignee: collaborationState.assignee,
+            workStatus: collaborationState.workStatus,
+            snoozedUntil: collaborationState.snoozedUntil,
+            revision: collaborationState.revision,
+          },
+          tags: localTagState.tags.map(({ id, name, color, revision }) => ({ id, name, color, revision })),
+          messages: messagePage.items,
+          messagesTruncated: messagePage.nextCursor !== null,
+        };
+        if (printStructured(ctx, value)) return;
+        ctx.print(`Conversation: ${conversationId}`);
+        ctx.print(`Summary: ${value.summary ?? "No shared summary"}`);
+        ctx.print(`Status: ${value.collaboration.workStatus}`);
+        ctx.print(
+          `Assignee: ${value.collaboration.assignee ? `${value.collaboration.assignee.displayName} (${value.collaboration.assignee.id})` : "unassigned"}`,
+        );
+        ctx.print(`Tags: ${value.tags.length > 0 ? value.tags.map((tag) => tag.name).join(", ") : "none"}`);
+        ctx.print(`Recent messages: ${value.messages.length}`);
+        for (const message of value.messages) {
+          const sender = message.from.map((address) => address.address).join(", ") || "unknown sender";
+          ctx.print(`${message.internalDate}  ${sender}  ${message.subject}  ${message.id}`);
+        }
+        if (value.messagesTruncated) {
+          ctx.print("Earlier messages are not shown. Use `cld mail conversation messages` to inspect the complete history.");
+        }
       },
     }),
     command("conversation drafts", {

@@ -21,6 +21,7 @@ import {
   collaboration,
   commands,
   composeSafety,
+  conversationSummaries,
   drafts,
   draftUploads,
   listSubscriptions,
@@ -793,7 +794,8 @@ const queryDefinitions = {
   },
   "conversation.read": {
     title: "Read conversation",
-    description: "Read collaboration state, tags, and message IDs for one conversation; call message.read for safe plain-text bodies.",
+    description:
+      "Read the shared summary, collaboration state, tags, and latest message IDs for one conversation; call message.read for safe plain-text bodies.",
     input: c.ResourceReadInputSchema,
     data: c.ConversationGetDataSchema,
     openWorld: true,
@@ -803,7 +805,12 @@ const queryDefinitions = {
       if (!conversation.ok) return conversation;
       const mailboxId = await resourceParents.conversation(conversation.data);
       if (!mailboxId) return fail(err.notFound("Conversation"));
-      const [state, tags, page] = await Promise.all([
+      const [summary, state, tags, page] = await Promise.all([
+        conversationSummaries.getConversationSummary({
+          context: mailContext,
+          mailboxId,
+          conversationId: conversation.data,
+        }),
         collaboration.getConversationCollaboration({
           context: mailContext,
           mailboxId,
@@ -815,8 +822,10 @@ const queryDefinitions = {
           mailboxId,
           conversationId: conversation.data,
           limit: 50,
+          latest: true,
         }),
       ]);
+      if (!summary.ok) return summary;
       if (!state.ok) return state;
       if (!tags.ok) return tags;
       if (!page.ok) return page;
@@ -835,6 +844,8 @@ const queryDefinitions = {
       return ok({
         data: {
           conversationId: input.id,
+          summary: summary.data.summary,
+          summaryRevision: summary.data.summaryRevision,
           collaboration: {
             assignee: state.data.assignee,
             workStatus: state.data.workStatus,

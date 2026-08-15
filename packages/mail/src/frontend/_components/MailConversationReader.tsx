@@ -29,6 +29,7 @@ import type {
 import type { ConversationContentSummary } from "../../service/conversation-summary";
 import type { MessageDetail } from "../../service/messages";
 import { readApiError } from "./api-response";
+import MailConversationSummaryCard from "./MailConversationSummaryCard";
 import { openMailConversationToolbarDialog } from "./MailConversationToolbarDialog";
 import MailMessageCard from "./MailMessageCard";
 import { getMailAction, type MailActionId } from "./mail-actions";
@@ -99,6 +100,7 @@ export default function MailConversationReader(props: {
   onMergeConversation: () => void | Promise<void>;
   onReassignMessage: (messageId: string) => void | Promise<void>;
   onSplitMessage: (messageId: string) => void | Promise<void>;
+  onSummarySaved: (conversationId: string, summary: ConversationContentSummary) => Promise<void>;
   onReconcile: () => Promise<void>;
   onClose: (event: LinkNavigateEvent) => void | Promise<void>;
 }) {
@@ -112,7 +114,6 @@ export default function MailConversationReader(props: {
   const [expandedMessages, setExpandedMessages] = createSignal(new Set(initialMessageId ? [initialMessageId] : []));
   const [messageSelections, setMessageSelections] = createSignal<Record<string, string>>({});
   const [pendingNewMessages, setPendingNewMessages] = createSignal(0);
-  const [summaryExpanded, setSummaryExpanded] = createSignal(false);
   const summarySave = mutations.create<
     { created: boolean; refreshError: Error | null },
     { conversationId: string; expectedSummaryRevision: number; summary: string; created: boolean }
@@ -126,9 +127,10 @@ export default function MailConversationReader(props: {
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to update conversation summary"));
+      const updated = await response.json();
       let refreshError: Error | null = null;
       try {
-        await props.onReconcile();
+        await props.onSummarySaved(conversationId, updated);
       } catch (error) {
         refreshError = error instanceof Error ? error : new Error(String(error));
       }
@@ -205,11 +207,6 @@ export default function MailConversationReader(props: {
     scheduleReaderScroll({ selectionKey: props.selectionKey, messageId: newest.id, behavior: "smooth" });
   };
 
-  createEffect(() => {
-    props.selectionKey;
-    setSummaryExpanded(false);
-  });
-
   const continueNewestDraft = () => {
     const draft = props.conversationDrafts[0];
     if (!draft) return;
@@ -231,7 +228,9 @@ export default function MailConversationReader(props: {
           description: "Keep the current conversation context concise. Leave empty to remove the summary.",
           default: current.summary ?? "",
           multiline: true,
-          lines: 6,
+          lines: 8,
+          maxLength: 50_000,
+          markdown: true,
         },
       },
       confirmText: current.summary ? "Save summary" : "Create summary",
@@ -1075,21 +1074,12 @@ export default function MailConversationReader(props: {
           >
             <Show when={props.conversationSummary?.summary}>
               {(summary) => (
-                <section class="mx-auto w-full max-w-4xl py-3" aria-label="Conversation summary" data-mail-conversation-summary>
-                  <p class="mb-1 text-[11px] font-medium leading-4 text-secondary">Summary</p>
-                  <p
-                    class="whitespace-pre-line text-sm leading-5 text-dimmed"
-                    classList={{ "line-clamp-3": !summaryExpanded() }}
-                    data-mail-conversation-summary-body
-                  >
-                    {summary()}
-                  </p>
-                  <Show when={summary().length > 280}>
-                    <Button type="button" variant="text" size="xs" class="mt-1" onClick={() => setSummaryExpanded((expanded) => !expanded)}>
-                      {summaryExpanded() ? "Show less" : "More"}
-                    </Button>
-                  </Show>
-                </section>
+                <MailConversationSummaryCard
+                  summary={summary()}
+                  canEdit={props.canWrite}
+                  editDisabled={summarySaving()}
+                  onEdit={() => void editConversationSummary()}
+                />
               )}
             </Show>
             <div class="mx-auto flex w-full max-w-4xl flex-col gap-2" data-mail-conversation-messages>

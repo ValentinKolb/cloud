@@ -266,11 +266,17 @@ Inspect conversations and messages:
 ```bash
 cld --json mail conversation counts
 cld --json mail conversation list --status needs_action
+cld --json mail conversation get <conversation-id>
 cld --json mail conversation messages <conversation-id>
 cld --json mail message get <message-id>
 cld --json mail message inspect <message-id>
 cld --json mail message source <message-id> --out message.eml
 ```
+
+`conversation get` returns the shared summary, collaboration state, local tags,
+and up to the 50 most recent messages. `messagesTruncated: true` means earlier
+messages exist; use `conversation messages` and its cursor to inspect the full
+chronological history.
 
 Queue provider-backed conversation state changes from a concrete source folder:
 
@@ -469,7 +475,7 @@ Use `cld mail <group> help` for all flags. The durable day-to-day surface is:
 | Mailboxes | `list`, `create`, `use`, `current`, `mailbox get`, `mailbox deleted list|get`, `mailbox restore`, `mailbox wait`, `configure`, `delete` |
 | Access | `access list|search-principals|grant|set|revoke` |
 | Discovery | `provider discover|list`, `binding list|attach`, `identity list|add|setup-default|configure|verify|disable`, `folders`, `status` |
-| Read and search | `search`, `message get|wait|inspect|source|edit-as-new|resend`, `conversation list|messages|counts`, `remote-content list|allow-sender|allow-domain|remove` |
+| Read and search | `search`, `message get|wait|inspect|source|edit-as-new|resend`, `conversation list|get|messages|counts`, `remote-content list|allow-sender|allow-domain|remove` |
 | Collaboration | `conversation collaboration|update|users|activity|context|contact-history`, `tag ...`, `conversation tag ...`, `comment list|add|edit|delete`, `reminder get|set|cancel` |
 | Views and repair | `saved-view list|get|create|update|delete|conversations`, `conversation split|merge|reassign-message` |
 

@@ -10,6 +10,7 @@ import { mailCapabilities } from "./capabilities";
 import {
   ActivityListDataSchema,
   CommentListDataSchema,
+  ConversationGetDataSchema,
   ConversationListDataSchema,
   ConversationMarkInputSchema,
   ConversationMoveInputSchema,
@@ -21,7 +22,18 @@ import {
   SubscriptionListDataSchema,
   SubscriptionUnsubscribeInputSchema,
 } from "./capability-contracts";
-import { collaboration, listSubscriptions, mailboxAccess, mailboxes, messages, publicResources, triage } from "./service";
+import {
+  collaboration,
+  conversationSummaries,
+  listSubscriptions,
+  localTags,
+  mailboxAccess,
+  mailboxes,
+  messages,
+  publicResources,
+  resourceParents,
+  triage,
+} from "./service";
 
 const mailboxId = "MbA123";
 const conversationId = "CvB234";
@@ -422,6 +434,84 @@ describe("mail capabilities", () => {
     expect(ConversationListDataSchema.safeParse(result.data.data.map(({ links: _, ...item }) => item)).success).toBeTrue();
     expect(JSON.stringify(result)).not.toContain(internalConversationId);
     expect(JSON.stringify(result)).not.toContain(internalMailboxId);
+  });
+
+  test("reads the shared summary with the latest bounded message window", async () => {
+    spyOn(resourceParents, "conversation").mockResolvedValue(internalMailboxId);
+    spyOn(conversationSummaries, "getConversationSummary").mockResolvedValue({
+      ok: true,
+      data: { summary: "Launch approved; waiting for the checklist.", summaryRevision: 3, conversationRevision: 7 },
+    });
+    spyOn(collaboration, "getConversationCollaboration").mockResolvedValue({
+      ok: true,
+      data: { conversationId: internalConversationId, assignee: null, workStatus: "waiting", snoozedUntil: null, revision: 7 },
+    });
+    spyOn(localTags, "getConversationLocalTags").mockResolvedValue({
+      ok: true,
+      data: {
+        conversationId: internalConversationId,
+        conversationRevision: 7,
+        tags: [
+          {
+            id: internalTagId,
+            mailboxId: internalMailboxId,
+            name: "Launch",
+            color: "blue",
+            revision: 2,
+            createdAt: "2026-08-15T10:00:00.000Z",
+            updatedAt: "2026-08-15T10:00:00.000Z",
+          },
+        ],
+      },
+    });
+    const listMessages = spyOn(messages, "listConversationMessages").mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: internalMessageId,
+            subject: "Final checklist",
+            messageId: "<final@example.test>",
+            internalDate: "2026-08-15T11:00:00.000Z",
+            sentAt: "2026-08-15T11:00:00.000Z",
+            from: [{ name: "Ada", address: "ada@example.test" }],
+            to: [{ name: null, address: "team@example.test" }],
+            flags: [],
+            keywords: [],
+            hydrationStatus: "hydrated",
+            remoteAvailable: true,
+            folderId: internalFolderId,
+          },
+        ],
+        nextCursor: "older",
+      },
+    });
+
+    const result = await mailCapabilities.queries["conversation.read"].run({ id: conversationId }, context);
+
+    expect(listMessages).toHaveBeenCalledWith({
+      context: { actor: context.actor, accessSubject: context.accessSubject },
+      mailboxId: internalMailboxId,
+      conversationId: internalConversationId,
+      limit: 50,
+      latest: true,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        data: {
+          conversationId,
+          summary: "Launch approved; waiting for the checklist.",
+          summaryRevision: 3,
+          collaboration: { workStatus: "waiting", revision: 7 },
+          tags: [{ id: tagId, name: "Launch" }],
+          messages: [{ id: messageId }],
+          messagesTruncated: true,
+        },
+      },
+    });
+    if (!result.ok) throw new Error("Expected conversation read success");
+    expect(ConversationGetDataSchema.safeParse(result.data.data).success).toBeTrue();
   });
 
   test("returns exact conversation links from reviews and mutation results", async () => {

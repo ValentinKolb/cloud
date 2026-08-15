@@ -610,6 +610,7 @@ export const listConversationMessages = async (params: {
   conversationId: string;
   cursor?: string;
   limit?: number;
+  latest?: boolean;
 }): Promise<Result<{ items: MessageSummary[]; nextCursor: string | null }>> => {
   const access = await resolveMailExecution({ mailboxId: params.mailboxId, operation: "actorRead", context: params.context });
   if (!access.ok) return access;
@@ -620,23 +621,34 @@ export const listConversationMessages = async (params: {
     SELECT id FROM mail.conversations WHERE id = ${params.conversationId}::uuid AND mailbox_id = ${params.mailboxId}::uuid
   `;
   if (!conversation) return fail(err.notFound("Conversation"));
-  const rows = await sql<DbMessageSummary[]>`
-    SELECT ${messageSummarySelect}
-    FROM mail.conversation_messages cm
-    JOIN mail.message_contents mc ON mc.id = cm.message_id
-    ${messageSummaryJoins()}
-    WHERE cm.conversation_id = ${params.conversationId}::uuid
-      AND (${cursor.data?.id ?? null}::uuid IS NULL OR (mc.internal_date, mc.id) > (${cursor.data?.date ?? null}::timestamptz, ${cursor.data?.id ?? null}::uuid))
-    ORDER BY mc.internal_date, mc.id
-    LIMIT ${limit + 1}
-  `;
+  const rows = params.latest
+    ? await sql<DbMessageSummary[]>`
+        SELECT ${messageSummarySelect}
+        FROM mail.conversation_messages cm
+        JOIN mail.message_contents mc ON mc.id = cm.message_id
+        ${messageSummaryJoins()}
+        WHERE cm.conversation_id = ${params.conversationId}::uuid
+          AND (${cursor.data?.id ?? null}::uuid IS NULL OR (mc.internal_date, mc.id) < (${cursor.data?.date ?? null}::timestamptz, ${cursor.data?.id ?? null}::uuid))
+        ORDER BY mc.internal_date DESC, mc.id DESC
+        LIMIT ${limit + 1}
+      `
+    : await sql<DbMessageSummary[]>`
+        SELECT ${messageSummarySelect}
+        FROM mail.conversation_messages cm
+        JOIN mail.message_contents mc ON mc.id = cm.message_id
+        ${messageSummaryJoins()}
+        WHERE cm.conversation_id = ${params.conversationId}::uuid
+          AND (${cursor.data?.id ?? null}::uuid IS NULL OR (mc.internal_date, mc.id) > (${cursor.data?.date ?? null}::timestamptz, ${cursor.data?.id ?? null}::uuid))
+        ORDER BY mc.internal_date, mc.id
+        LIMIT ${limit + 1}
+      `;
   const hasMore = rows.length > limit;
   const pageRows = hasMore ? rows.slice(0, limit) : rows;
-  const items = pageRows.map(mapMessageSummary);
-  const last = items.at(-1);
+  const cursorItem = pageRows.at(-1);
+  const items = (params.latest ? pageRows.toReversed() : pageRows).map(mapMessageSummary);
   return ok({
     items,
-    nextCursor: hasMore && last ? encodeCursor({ version: 1, date: last.internalDate, id: last.id }) : null,
+    nextCursor: hasMore && cursorItem ? encodeCursor({ version: 1, date: toIso(cursorItem.internal_date), id: cursorItem.id }) : null,
   });
 };
 
