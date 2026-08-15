@@ -29,7 +29,7 @@ export type ChatActivityProps = {
   /** Optional identity accent for the leading visual. Semantic tones still take precedence. */
   accent?: string;
   tone?: ChatActivityTone;
-  /** Shows the shared three-dot progress indicator at the end of the row. */
+  /** Marks the activity as running with the shared accent sweep. */
   busy?: boolean;
   trailing?: JSX.Element;
   defaultOpen?: boolean;
@@ -252,9 +252,6 @@ const ActivityContent = (props: ChatActivityProps & { disclosure?: boolean }) =>
       <strong>{props.label}</strong>
       <Show when={props.description}>{(description) => <small>{description()}</small>}</Show>
     </span>
-    <Show when={props.busy}>
-      <ChatProgressDots />
-    </Show>
     <Show when={props.trailing}>
       <span class="k2b-chat-activity__trailing">{props.trailing}</span>
     </Show>
@@ -275,8 +272,10 @@ export function ChatActivity(props: ChatActivityProps): JSX.Element {
           class={`k2b-chat-activity ${props.class ?? ""}`}
           data-tone={tone()}
           data-accent={props.accent ? "true" : undefined}
+          data-busy={props.busy ? "true" : undefined}
           data-chat-anchor={props.anchorId !== undefined ? String(props.anchorId) : undefined}
           style={style()}
+          aria-busy={props.busy ? "true" : undefined}
         >
           <div class="k2b-chat-activity__row">
             <ActivityContent {...props} />
@@ -288,10 +287,12 @@ export function ChatActivity(props: ChatActivityProps): JSX.Element {
         class={`k2b-chat-activity ${props.class ?? ""}`}
         data-tone={tone()}
         data-accent={props.accent ? "true" : undefined}
+        data-busy={props.busy ? "true" : undefined}
         data-body-inset={props.bodyInset === false ? "false" : undefined}
         data-chat-anchor={props.anchorId !== undefined ? String(props.anchorId) : undefined}
         style={style()}
         open={props.defaultOpen}
+        aria-busy={props.busy ? "true" : undefined}
       >
         <summary class="k2b-chat-activity__row">
           <ActivityContent {...props} disclosure />

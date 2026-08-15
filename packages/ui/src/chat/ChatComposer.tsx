@@ -5,6 +5,8 @@ import { ChatContextUsage as ContextUsage } from "./ChatPrimitives";
 import { executeChatAction, filterChatCommands, nextChatCommandIndex, reportChatFailure, runChatSubmission } from "./chat-behavior";
 import type { ChatAction, ChatAttachment, ChatComposerState, ChatContextUsageData, ChatModelOption, ChatSubmitInput } from "./types";
 
+const composerMaxInputHeight = 384;
+
 export type ChatCommandContext = {
   setValue: (value: string) => void;
   submit: () => void;
@@ -31,6 +33,8 @@ export type ChatComposerProps = {
   value: string;
   onValueChange: (value: string) => void;
   onSubmit: (input: ChatSubmitInput) => boolean | void | Promise<boolean | void>;
+  /** Submit intent used for drafts entered while a response is running. Defaults to `steer`. */
+  runningSubmitIntent?: "steer" | "queue";
   onStop?: () => void | Promise<void>;
   onError?: (error: unknown) => void;
   state?: ChatComposerState;
@@ -79,6 +83,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   const state = () => props.state ?? "idle";
   const running = () => state() === "running";
   const stopping = () => state() === "stopping";
+  const runningSubmitIntent = () => props.runningSubmitIntent ?? "steer";
   const attachments = () => props.attachments ?? [];
   const commands = () => props.commands ?? [];
   const commandMatches = createMemo(() => filterChatCommands(props.value, commands()));
@@ -89,6 +94,15 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   const canSubmit = () => !blocked() && hasDraft();
   const canSelectFiles = () => Boolean(props.fileSelection && !props.fileSelection.disabled && !running() && !blocked());
   const hasAddMenu = () => Boolean(props.fileSelection || props.menuActions?.length);
+  const hasContextUsage = () => {
+    const context = props.contextUsage;
+    if (!context || typeof context.contextWindow !== "number" || !Number.isFinite(context.contextWindow) || context.contextWindow <= 0) {
+      return false;
+    }
+    return [context.usage?.total, context.usage?.input, context.usage?.output].some(
+      (value) => typeof value === "number" && Number.isFinite(value) && value >= 0,
+    );
+  };
 
   const menuItems = (): readonly DropdownItemData[] => {
     const items: DropdownItemData[] = [];
@@ -115,7 +129,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   const autoResize = () => {
     if (!textareaRef) return;
     textareaRef.style.height = "auto";
-    textareaRef.style.height = `${Math.min(textareaRef.scrollHeight, 144)}px`;
+    textareaRef.style.height = `${Math.min(textareaRef.scrollHeight, composerMaxInputHeight)}px`;
   };
 
   const focus = () => textareaRef?.focus();
@@ -171,7 +185,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
 
   const submit = async () => {
     if (!canSubmit()) return;
-    const intent = running() ? "steer" : "send";
+    const intent = running() ? runningSubmitIntent() : "send";
     const previousValue = props.value;
     const previousAttachments = attachments();
     const input: ChatSubmitInput = {
@@ -432,7 +446,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
               </button>
             )}
           </For>
-          <Show when={props.contextUsage}>{(usage) => <ContextUsage {...usage()} />}</Show>
+          <Show when={hasContextUsage() ? props.contextUsage : undefined}>{(usage) => <ContextUsage {...usage()} />}</Show>
           <Show
             when={running() && !hasDraft() && props.onStop}
             fallback={
@@ -440,8 +454,20 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                 type="button"
                 class="k2b-chat-composer__send"
                 disabled={!canSubmit()}
-                aria-label={submitting() ? (running() ? "Steering" : "Sending") : running() ? "Steer response" : "Send message"}
-                title={running() ? "Steer response" : "Send message"}
+                aria-label={
+                  submitting()
+                    ? running()
+                      ? runningSubmitIntent() === "queue"
+                        ? "Queueing"
+                        : "Steering"
+                      : "Sending"
+                    : running()
+                      ? runningSubmitIntent() === "queue"
+                        ? "Queue message"
+                        : "Steer response"
+                      : "Send message"
+                }
+                title={running() ? (runningSubmitIntent() === "queue" ? "Queue message" : "Steer response") : "Send message"}
                 onClick={() => void submit()}
               >
                 <i class={submitting() ? "ti ti-loader-2 k2b-spin" : "ti ti-arrow-up"} aria-hidden="true" />

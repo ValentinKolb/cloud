@@ -52,7 +52,7 @@ export type ChatModelOption = {
 
 export type ChatComposerState = "idle" | "submitting" | "running" | "stopping";
 
-export type ChatSubmitIntent = "send" | "steer";
+export type ChatSubmitIntent = "send" | "steer" | "queue";
 
 export type ChatSubmitInput = {
   intent: ChatSubmitIntent;

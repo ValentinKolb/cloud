@@ -314,6 +314,34 @@ describe("@k2b/ui content and chat behavior", () => {
     dom.cleanup();
   });
 
+  test("grows the composer for long drafts before it starts scrolling", async () => {
+    const dom = createDomTestHarness();
+    const { Chat } = await import("../src/chat");
+    const [draft, setDraft] = createSignal("");
+    const dispose = render(
+      () =>
+        createComponent(Chat.Composer, {
+          get value() {
+            return draft();
+          },
+          onValueChange: setDraft,
+          onSubmit: () => undefined,
+        }),
+      dom.root,
+    );
+    const textarea = dom.root.querySelector<HTMLTextAreaElement>("textarea")!;
+    Object.defineProperty(textarea, "scrollHeight", { configurable: true, get: () => 600 });
+    textarea.value = "A long draft";
+    const input = new Event("input", { bubbles: true });
+    Object.defineProperty(input, "currentTarget", { configurable: true, value: textarea });
+    (textarea as HTMLTextAreaElement & { $$input?: (event: InputEvent) => void }).$$input?.(input as InputEvent);
+
+    expect(textarea.style.height).toBe("384px");
+
+    dispose();
+    dom.cleanup();
+  });
+
   test("replaces stop with steer as soon as the user types during a run", async () => {
     const dom = createDomTestHarness();
     const { Chat } = await import("../src/chat");
@@ -341,6 +369,41 @@ describe("@k2b/ui content and chat behavior", () => {
 
     expect(dom.root.querySelector('[aria-label="Stop response"]')).toBeNull();
     expect(dom.root.querySelector('[aria-label="Steer response"]')).not.toBeNull();
+
+    dispose();
+    dom.cleanup();
+  });
+
+  test("reports the configured queue intent for a draft entered during a run", async () => {
+    const dom = createDomTestHarness();
+    const { Chat } = await import("../src/chat");
+    const [draft, setDraft] = createSignal("");
+    let intent = "";
+    const dispose = render(
+      () =>
+        createComponent(Chat.Composer, {
+          get value() {
+            return draft();
+          },
+          onValueChange: setDraft,
+          onSubmit: (input) => {
+            intent = input.intent;
+          },
+          state: "running",
+          runningSubmitIntent: "queue",
+        }),
+      dom.root,
+    );
+
+    setDraft("Next question");
+    await Promise.resolve();
+    const queueButton = dom.root.querySelector<HTMLButtonElement>('[aria-label="Queue message"]');
+    expect(queueButton).not.toBeNull();
+    expect(queueButton!.disabled).toBe(false);
+    const click = (queueButton as HTMLButtonElement & { $$click?: () => void })?.$$click;
+    click?.();
+    await Promise.resolve();
+    expect(intent).toBe("queue");
 
     dispose();
     dom.cleanup();

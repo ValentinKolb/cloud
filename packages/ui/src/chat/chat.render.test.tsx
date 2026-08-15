@@ -147,6 +147,31 @@ describe("@k2b/ui portable chat family", () => {
     expect(html).not.toContain('aria-label="Steer response"');
   });
 
+  test("lets applications queue drafts during a running response without changing the compatibility default", () => {
+    const queued = renderToString(() =>
+      createComponent(Chat.Composer, {
+        value: "Next question",
+        onValueChange: () => undefined,
+        onSubmit: () => undefined,
+        onStop: () => undefined,
+        state: "running",
+        runningSubmitIntent: "queue",
+      }),
+    );
+    const steered = renderToString(() =>
+      createComponent(Chat.Composer, {
+        value: "Change direction",
+        onValueChange: () => undefined,
+        onSubmit: () => undefined,
+        state: "running",
+      }),
+    );
+
+    expect(queued).toContain('aria-label="Queue message"');
+    expect(queued).not.toContain('aria-label="Steer response"');
+    expect(steered).toContain('aria-label="Steer response"');
+  });
+
   test("renders semantic messages and expandable activity", () => {
     const message = renderToString(() =>
       createComponent(Chat.Message, {
@@ -252,7 +277,9 @@ describe("@k2b/ui portable chat family", () => {
     expect(html).toContain("Searching");
     expect(html).toContain("Documentation icon");
     expect(html).toContain("--k2b-chat-activity-accent:#2563eb");
-    expect(html).toContain("k2b-chat-progress-dots");
+    expect(html).toContain('data-busy="true"');
+    expect(html).toContain('aria-busy="true"');
+    expect(html).not.toContain("k2b-chat-progress-dots");
     expect(html).toContain("How can I help?");
     expect(html).not.toContain("AiStoredMessage");
   });
@@ -299,6 +326,29 @@ describe("@k2b/ui portable chat family", () => {
     expect(withoutUsage).not.toContain('data-warning="true"');
     expect(withUsage).toContain('data-warning="true"');
     expect(withUsage).toContain("124,000 tokens used, 97% of the context window");
+  });
+
+  test("omits context usage from the composer until context pressure is known", () => {
+    const unavailable = renderToString(() =>
+      createComponent(Chat.Composer, {
+        value: "",
+        onValueChange: () => undefined,
+        onSubmit: () => undefined,
+        contextUsage: { contextWindow: 128_000 },
+      }),
+    );
+    const available = renderToString(() =>
+      createComponent(Chat.Composer, {
+        value: "",
+        onValueChange: () => undefined,
+        onSubmit: () => undefined,
+        contextUsage: { usage: { total: 0 }, contextWindow: 128_000 },
+      }),
+    );
+
+    expect(unavailable).not.toContain("k2b-chat-context");
+    expect(available).toContain("k2b-chat-context");
+    expect(available).toContain("0%");
   });
 
   test("normalizes explicit zero and invalid context usage without leaking non-finite values", () => {
@@ -441,6 +491,7 @@ describe("@k2b/ui portable chat family", () => {
     expect(css).toContain("border-color: var(--k2b-ai-border);");
     expect(css).toContain("border-radius: calc(var(--k2b-radius-surface) + 0.25rem);");
     expect(css).toContain("box-shadow: var(--k2b-shadow-surface);");
+    expect(css).toContain("max-height: 24rem;");
     expect(css).not.toContain("--k2b-ai-focus-ring");
     expect(css).not.toContain(".k2b-ui .k2b-chat-composer textarea:focus-visible");
   });
@@ -454,6 +505,15 @@ describe("@k2b/ui portable chat family", () => {
     expect(dotsRule).toContain("animation: k2b-chat-dot-pulse 1s ease-in-out infinite;");
     expect(css).toContain("@keyframes k2b-chat-dot-pulse");
     expect(css).toContain(".k2b-ui .k2b-chat-message__status--streaming");
+  });
+
+  test("uses an accent sweep instead of progress dots for busy activities", () => {
+    const css = readFileSync(resolve(import.meta.dir, "../styles/index.css"), "utf8");
+
+    expect(css).toContain('.k2b-chat-activity[data-busy="true"]:not([data-tone="success"]):not([data-tone="danger"])');
+    expect(css).toContain("animation: k2b-chat-activity-accent-sweep 1.5s ease-in-out infinite;");
+    expect(css).toContain("animation-delay: 120ms;");
+    expect(css).toContain("@keyframes k2b-chat-activity-accent-sweep");
   });
 
   test("keeps semantic activity tones stronger than an optional identity accent", () => {

@@ -75,7 +75,6 @@ export function ItemChat(props: {
               : chat.send({ ...payload, modelProfileId: props.selectedModelId() });
           }}
           onStop={chat.abort}
-          contextUsage={{ contextWindow: 128_000 }}
         />
       </Chat>
     );
@@ -114,6 +113,12 @@ The controller exposes:
 - file URLs and file counts;
 - one error state for the active chat.
 
+`Chat.Composer` submits a draft entered during an active response as `steer` by
+default. Set `runningSubmitIntent="queue"` when the application owns a local or
+durable follow-up queue, then handle the `queue` intent in `onSubmit`. The
+shared composer only reports intent; queue ordering, persistence, delivery,
+editing, and deletion remain application policy.
+
 ## Show meaningful states
 
 Distinguish:
@@ -140,9 +145,10 @@ those domain renderers in Cloud instead of duplicating the shared activity
 shell.
 
 An active response always uses the shared streaming state of `Chat.Message`,
-including before the first model block arrives. It renders the same minimal
-three-dot progress indicator in both states; do not add a separate generating
-activity or label.
+including before the first model block arrives. It renders the minimal
+three-dot progress indicator; do not add a separate generating activity or
+label. Active tool rows set `busy` on `Chat.Activity`, which uses a quiet accent
+sweep across the tool icon and title instead of adding another loader.
 
 Approval prompts span the available message column and lead with the owning
 application's name and icon. The primary control names the concrete action;

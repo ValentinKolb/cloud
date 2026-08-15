@@ -4,7 +4,10 @@
 
 ## Use Context usage
 
-Usually pass `contextUsage` to `Chat.Composer`. Render `Chat.ContextUsage` directly only when the indicator belongs elsewhere. Omit usage when the provider reports no meaningful values; the control then displays an honest unavailable state instead of `0%`.
+Usually pass `contextUsage` to `Chat.Composer`. The composer omits the compact
+indicator until both a context-window size and meaningful usage values are
+available. Render `Chat.ContextUsage` directly only when an explicit
+unavailable state is useful elsewhere.
 
 The application owns limits, billing, compaction, and model selection.
 
