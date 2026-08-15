@@ -3,6 +3,7 @@ import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { ErrorResponseSchema, GrantAccessSchema, UpdateAccessSchema } from "@valentinkolb/cloud/contracts";
 import { auth, jsonResponse, rateLimit, requiresAuth, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import {
@@ -20,6 +21,8 @@ import {
 } from "../app-integration-contracts";
 import { attachmentPreviewKind, attachmentPreviewSignatureMatches, baseAttachmentContentType } from "../attachment-preview-policy";
 import {
+  type AttachmentLink,
+  type AttachmentLinkPage,
   archiveComposeTemplateInputSchema,
   automaticReplyManagementPermissionSchema,
   cancelConversationReminderSchema,
@@ -49,6 +52,8 @@ import {
   draftEditableContentInputSchema,
   draftLeaseTokenSchema,
   draftSchema,
+  type MailCommand,
+  type MailCommandInput,
   mailCommandInputSchema,
   mailConversationContextQuerySchema,
   mailConversationContextSchema,
@@ -385,6 +390,54 @@ const respondSenderIdentities = <T>(c: Context<MailApiContext>, result: Result<T
   respondPublic(c, result, "senderIdentities");
 const respondDrafts = <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) => respondPublic(c, result, "drafts");
 const respondDeliveries = <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) => respondPublic(c, result, "deliveries");
+const projectAttachmentLinks = async <T extends AttachmentLink | { link: AttachmentLink } | AttachmentLinkPage>(
+  result: Result<T> | Promise<Result<T>>,
+): Promise<Result<T>> => {
+  const resolved = await result;
+  if (!resolved.ok) return resolved;
+  const pathsFor = (link: AttachmentLink, item: string[]) => {
+    return [
+      { path: [...item, "mailboxId"], table: "mailboxes" as const },
+      { path: [...item, "sourceId"], table: link.sourceKind === "message" ? ("messages" as const) : ("drafts" as const) },
+    ];
+  };
+  const paths =
+    "items" in resolved.data
+      ? resolved.data.items.flatMap((link, index) => pathsFor(link, ["items", String(index)]))
+      : "link" in resolved.data
+        ? pathsFor(resolved.data.link, ["link"])
+        : pathsFor(resolved.data, []);
+  return projectResourcePaths(resolved, paths);
+};
+const projectCommands = async <T extends MailCommand | MailCommand[]>(result: Result<T> | Promise<Result<T>>): Promise<Result<T>> => {
+  const resolved = await result;
+  if (!resolved.ok) return resolved;
+  const commands = Array.isArray(resolved.data) ? resolved.data : [resolved.data];
+  const paths = commands.flatMap((command, index) => {
+    if (!["set_flags", "change_message_state", "move", "copy", "delete"].includes(command.kind)) return [];
+    const prefix = Array.isArray(resolved.data) ? [String(index)] : [];
+    return [{ path: [...prefix, "target", "messageId"], table: "messages" as const }];
+  });
+  return projectResourcePaths(resolved, paths);
+};
+const respondCommands = async <T extends MailCommand | MailCommand[]>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) =>
+  respondPublic(c, await projectCommands(result));
+const internalCommandInput = async (c: Context<MailApiContext>, input: MailCommandInput): Promise<MailCommandInput> => {
+  const resolved = await internalInput(c, input);
+  switch (resolved.kind) {
+    case "set_flags":
+    case "change_message_state":
+    case "move":
+    case "copy":
+    case "delete": {
+      const messageId = await publicResources.resolveMailboxPublicId("messages", internalMailboxId(c), resolved.messageId);
+      if (!messageId) throw new HTTPException(404, { message: "Mail resource not found" });
+      return { ...resolved, messageId };
+    }
+    default:
+      return resolved;
+  }
+};
 const respondMessageSource = async <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) =>
   respondPublic(c, await projectRootRelation(await result, "messageId", "messages"));
 const respondMergedConversations = async <T extends { removedConversationId: string }>(
@@ -1242,7 +1295,7 @@ const mailOperationsApi = new Hono<MailApiContext>()
   )
   .post("/mailboxes/:mailboxId/sync", v("param", mailboxParamSchema), async (c) => {
     const mailboxId = internalMailboxId(c);
-    return respondPublic(
+    return respondCommands(
       c,
       commands.createMaintenanceCommand({
         context: requestContext(c),
@@ -1937,21 +1990,25 @@ const mailOperationsApi = new Hono<MailApiContext>()
       const params = internalParams(c, c.req.valid("param"));
       return respondPublic(
         c,
-        attachmentLinks.createPublicAttachmentLink({
-          context: requestContext(c),
-          mailboxId: params.mailboxId,
-          sourceKind: "message",
-          sourceId: params.messageId,
-          attachmentId: params.attachmentId,
-          input: await internalInput(c, c.req.valid("json")),
-        }),
+        projectAttachmentLinks(
+          attachmentLinks.createPublicAttachmentLink({
+            context: requestContext(c),
+            mailboxId: params.mailboxId,
+            sourceKind: "message",
+            sourceId: params.messageId,
+            attachmentId: params.attachmentId,
+            input: await internalInput(c, c.req.valid("json")),
+          }),
+        ),
       );
     },
   )
   .get("/mailboxes/:mailboxId/attachment-links", v("param", mailboxParamSchema), v("query", cursorQuerySchema), async (c) =>
     respondPublic(
       c,
-      attachmentLinks.listPublicAttachmentLinks(requestContext(c), internalMailboxId(c), await internalInput(c, c.req.valid("query"))),
+      projectAttachmentLinks(
+        attachmentLinks.listPublicAttachmentLinks(requestContext(c), internalMailboxId(c), await internalInput(c, c.req.valid("query"))),
+      ),
     ),
   )
   .delete("/mailboxes/:mailboxId/attachment-links/:linkId", v("param", mailboxAndIdParamSchema("linkId", z.uuid())), async (c) => {
@@ -2450,14 +2507,16 @@ const mailOperationsApi = new Hono<MailApiContext>()
       const params = internalParams(c, c.req.valid("param"));
       return respondPublic(
         c,
-        attachmentLinks.createPublicAttachmentLink({
-          context: requestContext(c),
-          mailboxId: params.mailboxId,
-          sourceKind: "draft",
-          sourceId: params.draftId,
-          attachmentId: params.attachmentId,
-          input: await internalInput(c, c.req.valid("json")),
-        }),
+        projectAttachmentLinks(
+          attachmentLinks.createPublicAttachmentLink({
+            context: requestContext(c),
+            mailboxId: params.mailboxId,
+            sourceKind: "draft",
+            sourceId: params.draftId,
+            attachmentId: params.attachmentId,
+            input: await internalInput(c, c.req.valid("json")),
+          }),
+        ),
       );
     },
   )
@@ -2569,17 +2628,17 @@ const mailOperationsApi = new Hono<MailApiContext>()
       ),
   )
   .post("/mailboxes/:mailboxId/commands", v("param", mailboxParamSchema), v("json", mailCommandInputSchema), async (c) =>
-    respondPublic(
+    respondCommands(
       c,
       commands.createMailCommand({
         context: requestContext(c),
         mailboxId: internalMailboxId(c),
-        input: await internalInput(c, c.req.valid("json")),
+        input: await internalCommandInput(c, c.req.valid("json")),
       }),
     ),
   )
   .post("/mailboxes/:mailboxId/operator-actions", v("param", mailboxParamSchema), v("json", maintenanceCommandInputSchema), async (c) =>
-    respondPublic(
+    respondCommands(
       c,
       commands.createMaintenanceCommand({
         context: requestContext(c),
@@ -2589,14 +2648,17 @@ const mailOperationsApi = new Hono<MailApiContext>()
     ),
   )
   .get("/mailboxes/:mailboxId/commands", v("param", mailboxParamSchema), v("query", limitQuerySchema), async (c) =>
-    respondPublic(c, commands.listCommands(requestContext(c), internalMailboxId(c), (await internalInput(c, c.req.valid("query"))).limit)),
+    respondCommands(
+      c,
+      commands.listCommands(requestContext(c), internalMailboxId(c), (await internalInput(c, c.req.valid("query"))).limit),
+    ),
   )
   .get("/mailboxes/:mailboxId/commands/:commandId", v("param", mailboxAndIdParamSchema("commandId", z.uuid())), async (c) => {
     const params = internalParams(c, c.req.valid("param")) as {
       mailboxId: string;
       commandId: string;
     };
-    return respondPublic(c, commands.getCommand(requestContext(c), params.mailboxId, params.commandId));
+    return respondCommands(c, commands.getCommand(requestContext(c), params.mailboxId, params.commandId));
   })
   .post("/mailboxes/:mailboxId/commands/:commandId/cancel", v("param", mailboxAndIdParamSchema("commandId", z.uuid())), async (c) => {
     const params = internalParams(c, c.req.valid("param")) as {

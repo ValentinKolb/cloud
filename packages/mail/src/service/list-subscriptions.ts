@@ -29,7 +29,6 @@ import { publishMailMailboxEvent } from "./events";
 import { resolveRoleFolder } from "./folders";
 import { allowedExternalHref, mailingListMetadata, normalizeListId, oneClickEnabled } from "./mailing-list-metadata";
 import { parseMessageProtocolFacts } from "./message-protocol";
-import { publicIds, requirePublicId } from "./public-resources";
 
 export { mailingListMetadata, subscriptionLink } from "./mailing-list-metadata";
 
@@ -37,6 +36,11 @@ const MAX_REDIRECTS = 3;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const REQUEST_TIMEOUT_MS = 10_000;
 const DISPOSITION_LIMIT = 500;
+const internalMailSubscriptionPageSchema = mailSubscriptionPageSchema.extend({
+  items: mailSubscriptionPageSchema.shape.items.element
+    .extend({ lastMessageId: z.string().uuid(), lastConversationId: z.string().uuid().nullable() })
+    .array(),
+});
 
 type SubscriptionCursor = { version: 1; date: string; listKey: string };
 type SubscriptionRow = {
@@ -56,8 +60,8 @@ type SubscriptionRow = {
 };
 type DispositionTarget = {
   remote_message_ref_id: string;
-  message_short_id: string;
-  source_folder_short_id: string;
+  message_id: string;
+  source_folder_id: string;
 };
 type SubscriptionClaimRow = {
   id: string;
@@ -124,18 +128,16 @@ export const listSubscriptions = async (params: {
     WITH messages AS (
       SELECT
         content.id,
-        content.short_id AS message_short_id,
+        content.id AS message_id,
         content.subject,
         content.internal_date,
         content.protocol_facts,
         ${listKeySql} AS list_key,
         conversation_message.conversation_id,
-        conversation.short_id AS conversation_short_id,
         sender.display_name,
         sender.email
       FROM mail.message_contents content
       LEFT JOIN mail.conversation_messages conversation_message ON conversation_message.message_id = content.id
-      LEFT JOIN mail.conversations conversation ON conversation.id = conversation_message.conversation_id
       LEFT JOIN LATERAL (
         SELECT address.display_name, address.email
         FROM mail.message_addresses address
@@ -155,8 +157,8 @@ export const listSubscriptions = async (params: {
         MAX(internal_date) AS last_message_at,
         (array_agg(subject ORDER BY internal_date DESC, id DESC))[1] AS last_subject,
         (array_agg(COALESCE(NULLIF(display_name, ''), email) ORDER BY internal_date DESC, id DESC))[1] AS last_sender,
-        (array_agg(message_short_id ORDER BY internal_date DESC, id DESC))[1] AS last_message_id,
-        (array_agg(conversation_short_id ORDER BY internal_date DESC, id DESC))[1] AS last_conversation_id,
+        (array_agg(message_id ORDER BY internal_date DESC, id DESC))[1] AS last_message_id,
+        (array_agg(conversation_id ORDER BY internal_date DESC, id DESC))[1] AS last_conversation_id,
         (array_agg(protocol_facts ORDER BY internal_date DESC, id DESC))[1] AS protocol_facts
       FROM messages
       WHERE list_key <> ''
@@ -228,7 +230,7 @@ export const listSubscriptions = async (params: {
           })
         : null,
   };
-  const parsed = mailSubscriptionPageSchema.safeParse(value);
+  const parsed = internalMailSubscriptionPageSchema.safeParse(value);
   return parsed.success ? ok(parsed.data) : fail(err.internal("Subscription data is invalid"));
 };
 
@@ -246,17 +248,15 @@ export const getSubscription = async (
     WITH messages AS (
       SELECT
         content.id,
-        content.short_id AS message_short_id,
+        content.id AS message_id,
         content.subject,
         content.internal_date,
         content.protocol_facts,
         conversation_message.conversation_id,
-        conversation.short_id AS conversation_short_id,
         sender.display_name,
         sender.email
       FROM mail.message_contents content
       LEFT JOIN mail.conversation_messages conversation_message ON conversation_message.message_id = content.id
-      LEFT JOIN mail.conversations conversation ON conversation.id = conversation_message.conversation_id
       LEFT JOIN LATERAL (
         SELECT address.display_name, address.email
         FROM mail.message_addresses address
@@ -276,8 +276,8 @@ export const getSubscription = async (
       MAX(internal_date) AS last_message_at,
       (array_agg(subject ORDER BY internal_date DESC, messages.id DESC))[1] AS last_subject,
       (array_agg(COALESCE(NULLIF(display_name, ''), email) ORDER BY internal_date DESC, messages.id DESC))[1] AS last_sender,
-      (array_agg(message_short_id ORDER BY internal_date DESC, messages.id DESC))[1] AS last_message_id,
-      (array_agg(conversation_short_id ORDER BY internal_date DESC, messages.id DESC))[1] AS last_conversation_id,
+      (array_agg(message_id ORDER BY internal_date DESC, messages.id DESC))[1] AS last_message_id,
+      (array_agg(conversation_id ORDER BY internal_date DESC, messages.id DESC))[1] AS last_conversation_id,
       (array_agg(protocol_facts ORDER BY internal_date DESC, messages.id DESC))[1] AS protocol_facts,
       subscription.state AS subscription_state,
       subscription.requested_at,
@@ -552,8 +552,8 @@ export const applyMailingListDisposition = async (params: {
   const targets = await sql<DispositionTarget[]>`
     SELECT DISTINCT ON (remote_ref.id)
       remote_ref.id AS remote_message_ref_id,
-      content.short_id AS message_short_id,
-      folder.short_id AS source_folder_short_id
+      content.id AS message_id,
+      folder.id AS source_folder_id
     FROM mail.message_contents content
     JOIN mail.remote_message_refs remote_ref ON remote_ref.message_id = content.id AND remote_ref.stale_at IS NULL
     JOIN mail.message_placements placement
@@ -571,16 +571,14 @@ export const applyMailingListDisposition = async (params: {
   `;
   const limited = targets.slice(0, DISPOSITION_LIMIT);
   if (limited.length === 0) return ok({ commandCount: 0, truncated: false });
-  const destinationIds = await publicIds("folders", [destination.data.id]);
-  const destinationFolderId = requirePublicId(destinationIds, destination.data.id);
   const commands = await createActorCommands({
     context: params.context,
     mailboxId: params.mailboxId,
     inputs: limited.map((target) => ({
       kind: "move" as const,
-      messageId: target.message_short_id,
-      sourceFolderId: target.source_folder_short_id,
-      destinationFolderId,
+      messageId: target.message_id,
+      sourceFolderId: target.source_folder_id,
+      destinationFolderId: destination.data.id,
       idempotencyKey: `${parsed.data.idempotencyKey}:${target.remote_message_ref_id}`,
       correlationId: parsed.data.idempotencyKey,
     })),

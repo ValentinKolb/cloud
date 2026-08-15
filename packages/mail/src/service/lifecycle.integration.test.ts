@@ -140,13 +140,6 @@ suite("mail lifecycle control plane", () => {
   let bindingId = "";
   let inboxFolderId = "";
   let inboxFolderShortId = "";
-  const publicMessageId = async (messageId: string): Promise<string> => {
-    const [message] = await sql<{ short_id: string }[]>`
-      SELECT short_id FROM mail.message_contents WHERE id = ${messageId}::uuid
-    `;
-    if (!message) throw new Error("Message public ID is unavailable");
-    return message.short_id;
-  };
   let adminContext: MailRequestContext;
   let collaboratorContext: MailRequestContext;
 
@@ -352,7 +345,7 @@ suite("mail lifecycle control plane", () => {
       if (!verified.ok) expect(verified.error.code).toBe("NOT_FOUND");
       expect(send).not.toHaveBeenCalled();
       const [status] = await sql<{ status: string }[]>`
-        SELECT status FROM mail.sender_identities WHERE short_id = ${identity.data.id}
+        SELECT status FROM mail.sender_identities WHERE id = ${identity.data.id}::uuid
       `;
       expect(status?.status).toBe("disabled");
     } finally {
@@ -539,7 +532,7 @@ suite("mail lifecycle control plane", () => {
         displayName: "Invalid signature",
         fromAddress: `invalid-signature-${suffix}@example.com`,
         defaultCc: [],
-        defaultSignatureTemplateId: newShortId(),
+        defaultSignatureTemplateId: crypto.randomUUID(),
         authenticationPolicy: { automation: "disabled" },
         isDefault: false,
       },
@@ -571,13 +564,13 @@ suite("mail lifecycle control plane", () => {
     });
     expect(identity.ok).toBe(true);
     if (!identity.ok) return;
-    await sql`UPDATE mail.sender_identities SET status = 'verified' WHERE short_id = ${identity.data.id}`;
+    await sql`UPDATE mail.sender_identities SET status = 'verified' WHERE id = ${identity.data.id}::uuid`;
     await sql`
       INSERT INTO mail.sender_identity_bindings (
         sender_identity_id, binding_id, provider_principal, verified_at, verified_secret_revision
       )
       SELECT id, ${bindingId}::uuid, ${identity.data.fromAddress}, now(), 1
-      FROM mail.sender_identities WHERE short_id = ${identity.data.id}
+      FROM mail.sender_identities WHERE id = ${identity.data.id}::uuid
     `;
 
     const updated = await updateSenderIdentity({
@@ -595,7 +588,7 @@ suite("mail lifecycle control plane", () => {
     const [binding] = await sql<{ revoked_at: Date | null }[]>`
       SELECT revoked_at
       FROM mail.sender_identity_bindings
-      WHERE sender_identity_id = (SELECT id FROM mail.sender_identities WHERE short_id = ${identity.data.id})
+      WHERE sender_identity_id = (SELECT id FROM mail.sender_identities WHERE id = ${identity.data.id}::uuid)
         AND binding_id = ${bindingId}::uuid
     `;
     expect(binding?.revoked_at).toBeNull();
@@ -606,7 +599,7 @@ suite("mail lifecycle control plane", () => {
       senderIdentityId: identity.data.id,
       input: {
         fromAddress: `changed-${suffix}@example.com`,
-        defaultSignatureTemplateId: newShortId(),
+        defaultSignatureTemplateId: crypto.randomUUID(),
       },
     });
     expect(rejected).toMatchObject({
@@ -617,7 +610,7 @@ suite("mail lifecycle control plane", () => {
       SELECT identity.from_address, identity.status, identity_binding.revoked_at
       FROM mail.sender_identities identity
       JOIN mail.sender_identity_bindings identity_binding ON identity_binding.sender_identity_id = identity.id
-      WHERE identity.short_id = ${identity.data.id}
+      WHERE identity.id = ${identity.data.id}::uuid
         AND identity_binding.binding_id = ${bindingId}::uuid
     `;
     expect(rolledBack).toMatchObject({
@@ -642,14 +635,14 @@ suite("mail lifecycle control plane", () => {
     });
     expect(identity.ok).toBe(true);
     if (!identity.ok) return;
-    await sql`UPDATE mail.sender_identities SET status = 'verified' WHERE short_id = ${identity.data.id}`;
+    await sql`UPDATE mail.sender_identities SET status = 'verified' WHERE id = ${identity.data.id}::uuid`;
     await sql`
       INSERT INTO mail.sender_identity_bindings (
         sender_identity_id, binding_id, provider_principal, saves_sent_automatically,
         verified_at, verified_secret_revision
       )
       SELECT id, ${bindingId}::uuid, ${identity.data.fromAddress}, true, now(), 1
-      FROM mail.sender_identities WHERE short_id = ${identity.data.id}
+      FROM mail.sender_identities WHERE id = ${identity.data.id}::uuid
     `;
 
     const providerManaged = await setupDefaultSender({
@@ -708,12 +701,12 @@ suite("mail lifecycle control plane", () => {
       expect(appended.ok).toBe(true);
       if (!appended.ok) return;
       expect(appended.data.id).toBe(identity.data.id);
-      expect(appended.data.sentFolderId).toBe(sentFolder!.short_id);
+      expect(appended.data.sentFolderId).toBe(sentFolder!.id);
 
       await sql`
         UPDATE mail.sender_identity_bindings
         SET saves_sent_automatically = true
-        WHERE sender_identity_id = (SELECT id FROM mail.sender_identities WHERE short_id = ${identity.data.id})
+        WHERE sender_identity_id = (SELECT id FROM mail.sender_identities WHERE id = ${identity.data.id}::uuid)
           AND binding_id = ${bindingId}::uuid
       `;
       await sql`
@@ -745,7 +738,7 @@ suite("mail lifecycle control plane", () => {
       await sql`
         UPDATE mail.sender_identity_bindings
         SET saves_sent_automatically = false
-        WHERE sender_identity_id = (SELECT id FROM mail.sender_identities WHERE short_id = ${identity.data.id})
+        WHERE sender_identity_id = (SELECT id FROM mail.sender_identities WHERE id = ${identity.data.id}::uuid)
           AND binding_id = ${bindingId}::uuid
       `;
       rejectVerification = true;
@@ -756,7 +749,7 @@ suite("mail lifecycle control plane", () => {
       });
       expect(rejected.ok).toBe(false);
       const [rejectedIdentity] = await sql<{ status: string }[]>`
-        SELECT status FROM mail.sender_identities WHERE short_id = ${identity.data.id}
+        SELECT status FROM mail.sender_identities WHERE id = ${identity.data.id}::uuid
       `;
       expect(rejectedIdentity?.status).toBe("rejected");
 
@@ -798,7 +791,7 @@ suite("mail lifecycle control plane", () => {
         WHERE ref.binding_id = ${bindingId}::uuid AND ref.remote_path = 'INBOX'
       `;
       inboxFolderId = inbox!.id;
-      inboxFolderShortId = inbox!.short_id;
+      inboxFolderShortId = inbox!.id;
       const [project] = await sql<{ id: string; show_in_sidebar: boolean; subscribed: boolean }[]>`
         SELECT folder.id, folder.show_in_sidebar, ref.subscribed
         FROM mail.folders folder
@@ -2085,7 +2078,7 @@ suite("mail lifecycle control plane", () => {
         enqueue: false,
         input: {
           kind: "set_folder_subscription",
-          folderId: projected!.short_id,
+          folderId: projected!.id,
           subscribed: false,
           idempotencyKey: `folder-unsubscribe-${suffix}`,
         },
@@ -2100,7 +2093,7 @@ suite("mail lifecycle control plane", () => {
         enqueue: false,
         input: {
           kind: "rename_folder",
-          folderId: projected!.short_id,
+          folderId: projected!.id,
           name: `Cloud Renamed ${suffix}`,
           idempotencyKey: `folder-rename-${suffix}`,
         },
@@ -2126,7 +2119,7 @@ suite("mail lifecycle control plane", () => {
         enqueue: false,
         input: {
           kind: "delete_folder",
-          folderId: projected!.short_id,
+          folderId: projected!.id,
           idempotencyKey: `folder-delete-${suffix}`,
         },
       });
@@ -2314,15 +2307,15 @@ suite("mail lifecycle control plane", () => {
       };
     });
     try {
-      const stateMessageId = await publicMessageId(message!.id);
+      const stateMessageId = message!.id;
       const missingPlacement = await createActorCommand({
         context: adminContext,
         mailboxId,
         enqueue: false,
         input: {
           kind: "change_message_state",
-          messageId: newShortId(),
-          folderId: stateFolder.short_id,
+          messageId: crypto.randomUUID(),
+          folderId: stateFolder.id,
           change: { addFlags: ["seen"], removeFlags: [], addKeywords: [], removeKeywords: [] },
           idempotencyKey: `message-state-missing-${suffix}`,
         },
@@ -2335,7 +2328,7 @@ suite("mail lifecycle control plane", () => {
         input: {
           kind: "change_message_state",
           messageId: stateMessageId,
-          folderId: stateFolder.short_id,
+          folderId: stateFolder.id,
           change: {
             addFlags: ["seen"],
             removeFlags: [],
@@ -2366,7 +2359,7 @@ suite("mail lifecycle control plane", () => {
         input: {
           kind: "change_message_state",
           messageId: stateMessageId,
-          folderId: stateFolder.short_id,
+          folderId: stateFolder.id,
           change: {
             addFlags: ["seen"],
             removeFlags: [],
@@ -2448,7 +2441,7 @@ suite("mail lifecycle control plane", () => {
       VALUES (${remoteRef!.id}::uuid, ${inboxFolderId}::uuid, ${message!.id}::uuid)
     `;
 
-    const messageShortId = await publicMessageId(message!.id);
+    const messageShortId = message!.id;
     const createStateCommand = (change: { addFlags: ("answered" | "flagged")[]; removeFlags: ("answered" | "flagged")[] }, key: string) =>
       createActorCommand({
         context: adminContext,
@@ -2649,8 +2642,8 @@ suite("mail lifecycle control plane", () => {
         enqueue: false,
         input: {
           kind: "change_message_state",
-          messageId: await publicMessageId(commandMessage!.id),
-          folderId: dependencyFolder.short_id,
+          messageId: commandMessage!.id,
+          folderId: dependencyFolder.id,
           change: { addFlags: ["seen"], removeFlags: [], addKeywords: [], removeKeywords: [] },
           idempotencyKey: `dependency-command-${suffix}`,
         },
@@ -2820,7 +2813,7 @@ suite("mail lifecycle control plane", () => {
         VALUES (${conversation!.id}::uuid, ${message!.id}::uuid, ${position})
       `;
       refs.push(remoteRef!.id);
-      messageIds.push(await publicMessageId(message!.id));
+      messageIds.push(message!.id);
     }
 
     const idempotencyKey = `atomic-triage-${suffix}`;
@@ -2846,7 +2839,7 @@ suite("mail lifecycle control plane", () => {
     const triage = await createConversationTriageCommands({
       context: adminContext,
       mailboxId,
-      conversationId: conversation!.short_id,
+      conversationId: conversation!.id,
       input: {
         kind: "change_state",
         sourceFolderId: inboxFolderShortId,
@@ -2903,7 +2896,7 @@ suite("mail lifecycle control plane", () => {
     `;
     const input = {
       kind: "change_message_state" as const,
-      messageId: await publicMessageId(message!.id),
+      messageId: message!.id,
       folderId: inboxFolderShortId,
       change: {
         addFlags: ["seen" as const],
@@ -3093,7 +3086,7 @@ suite("mail lifecycle control plane", () => {
       if (!claim) throw new Error("Workflow run was not claimable");
       const terminalInput = {
         kind: "change_message_state" as const,
-        messageId: await publicMessageId(message!.id),
+        messageId: message!.id,
         folderId: inboxFolderShortId,
         change: { addFlags: ["seen" as const], removeFlags: [], addKeywords: [], removeKeywords: [] },
         idempotencyKey: `terminal-workflow-command-${suffix}`,
@@ -3127,7 +3120,7 @@ suite("mail lifecycle control plane", () => {
         workflowVersionId: version.id,
         input: {
           kind: "change_message_state",
-          messageId: await publicMessageId(message!.id),
+          messageId: message!.id,
           folderId: inboxFolderShortId,
           change: { addFlags: ["seen"], removeFlags: [], addKeywords: [], removeKeywords: [] },
           idempotencyKey: `stale-workflow-command-${suffix}`,

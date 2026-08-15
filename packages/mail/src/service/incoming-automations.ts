@@ -751,8 +751,7 @@ export const markSenderMessagesRead = async (params: {
         {
           remote_message_ref_id: string;
           folder_id: string;
-          message_short_id: string;
-          folder_short_id: string;
+          message_id: string;
           flags: string[];
           keywords: string[];
         }[]
@@ -760,8 +759,7 @@ export const markSenderMessagesRead = async (params: {
         SELECT DISTINCT
           remote_ref.id AS remote_message_ref_id,
           placement.folder_id,
-          message.short_id AS message_short_id,
-          folder.short_id AS folder_short_id,
+          message.id AS message_id,
           placement.flags,
           placement.keywords,
           message.internal_date
@@ -788,8 +786,8 @@ export const markSenderMessagesRead = async (params: {
           mailboxId: params.mailboxId,
           inputs: selected.map((target) => ({
             kind: "change_message_state",
-            messageId: target.message_short_id,
-            folderId: target.folder_short_id,
+            messageId: target.message_id,
+            folderId: target.folder_id,
             change: { addFlags: ["seen" as const], removeFlags: [], addKeywords: [], removeKeywords: [] },
             idempotencyKey: `sender-read:${sha256Json([parsed.data.idempotencyKey, target.remote_message_ref_id, target.folder_id])}`,
             correlationId,

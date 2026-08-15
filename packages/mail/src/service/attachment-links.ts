@@ -12,7 +12,6 @@ import type {
 import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import type { AttachmentDownload } from "./messages";
-import { publicIds, requirePublicId } from "./public-resources";
 
 export const MAX_ATTACHMENT_LINK_FILE_BYTES = 100 * 1024 * 1024;
 
@@ -204,29 +203,12 @@ const linkColumns = sql`
 const toIso = (value: Date | string | null): string | null =>
   value ? (value instanceof Date ? value : new Date(value)).toISOString() : null;
 
-const mapLinks = async (rows: DbAttachmentLink[], db: typeof sql = sql): Promise<AttachmentLink[]> => {
-  const [mailboxes, messages, drafts] = await Promise.all([
-    publicIds(
-      "mailboxes",
-      rows.map((row) => row.mailbox_id),
-      db,
-    ),
-    publicIds(
-      "messages",
-      rows.filter((row) => row.source_kind === "message").map((row) => row.source_id),
-      db,
-    ),
-    publicIds(
-      "drafts",
-      rows.filter((row) => row.source_kind === "draft").map((row) => row.source_id),
-      db,
-    ),
-  ]);
-  return rows.map((row) => ({
+const mapLinks = (rows: DbAttachmentLink[]): AttachmentLink[] =>
+  rows.map((row) => ({
     id: row.id,
-    mailboxId: requirePublicId(mailboxes, row.mailbox_id),
+    mailboxId: row.mailbox_id,
     sourceKind: row.source_kind,
-    sourceId: requirePublicId(row.source_kind === "message" ? messages : drafts, row.source_id),
+    sourceId: row.source_id,
     filename: row.filename,
     contentType: row.content_type,
     byteLength: Number(row.byte_length),
@@ -238,9 +220,8 @@ const mapLinks = async (rows: DbAttachmentLink[], db: typeof sql = sql): Promise
     lastDownloadedAt: toIso(row.last_downloaded_at),
     createdAt: toIso(row.created_at)!,
   }));
-};
 
-const mapLink = async (row: DbAttachmentLink, db: typeof sql = sql): Promise<AttachmentLink> => (await mapLinks([row], db))[0]!;
+const mapLink = (row: DbAttachmentLink): AttachmentLink => mapLinks([row])[0]!;
 
 const publicOrigin = (value: unknown): string => {
   const raw = typeof value === "string" ? value.trim() : "";

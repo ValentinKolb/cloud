@@ -1,6 +1,7 @@
 import { err, fail, isServiceError, ok, type Result } from "@k2b/stdlib";
 import { audit } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { z } from "zod";
 import {
   type CreateSenderIdentityInput,
   createSenderIdentityInputSchema,
@@ -14,7 +15,6 @@ import {
   type SmtpTransportCapabilities,
   smtpTransportCapabilitiesSchema,
   type UpdateSenderIdentityInput,
-  updateSenderIdentityInputSchema,
 } from "../contracts";
 import { withShortIdDb } from "../lib/short-id";
 import { requireMailboxPermission } from "./access";
@@ -25,7 +25,12 @@ import { resolveRoleFolder } from "./folders";
 import { validateDestructiveIncomingAutomationsForMailbox } from "./incoming-automations";
 import { loadProviderConnectionRuntimeSnapshot } from "./provider-connections";
 import { withMailboxProviderOperationBarrier } from "./provider-operation-lock";
-import { publicIds, requirePublicId, resolveMailboxPublicId } from "./public-resources";
+
+const internalCreateSenderIdentityInputSchema = createSenderIdentityInputSchema.extend({
+  defaultSignatureTemplateId: z.string().uuid().nullable().optional(),
+  sentFolderId: z.string().uuid().nullable().optional(),
+  draftsFolderId: z.string().uuid().nullable().optional(),
+});
 
 type DbIdentity = {
   id: string;
@@ -199,40 +204,7 @@ const mapIdentity = (row: DbIdentity): SenderIdentity => ({
   updatedAt: (row.updated_at instanceof Date ? row.updated_at : new Date(row.updated_at)).toISOString(),
 });
 
-const projectIdentities = async (rows: DbIdentity[], db: SqlClient = sql): Promise<SenderIdentity[]> => {
-  const [identities, mailboxes, templates, folders] = await Promise.all([
-    publicIds(
-      "senderIdentities",
-      rows.map((row) => row.id),
-      db,
-    ),
-    publicIds(
-      "mailboxes",
-      rows.map((row) => row.mailbox_id),
-      db,
-    ),
-    publicIds(
-      "composeTemplates",
-      rows.map((row) => row.default_signature_template_id),
-      db,
-    ),
-    publicIds(
-      "folders",
-      rows.flatMap((row) => [row.sent_folder_id, row.drafts_folder_id]),
-      db,
-    ),
-  ]);
-  return rows.map((row) => ({
-    ...mapIdentity(row),
-    id: requirePublicId(identities, row.id),
-    mailboxId: requirePublicId(mailboxes, row.mailbox_id),
-    defaultSignatureTemplateId: row.default_signature_template_id ? requirePublicId(templates, row.default_signature_template_id) : null,
-    sentFolderId: row.sent_folder_id ? requirePublicId(folders, row.sent_folder_id) : null,
-    draftsFolderId: row.drafts_folder_id ? requirePublicId(folders, row.drafts_folder_id) : null,
-  }));
-};
-
-const projectIdentity = async (row: DbIdentity, db: SqlClient = sql): Promise<SenderIdentity> => (await projectIdentities([row], db))[0]!;
+const mapIdentities = (rows: DbIdentity[]): SenderIdentity[] => rows.map(mapIdentity);
 
 const normalizeAddresses = (addresses: MailAddress[]): MailAddress[] => {
   const normalized = new Map<string, MailAddress>();
@@ -267,7 +239,7 @@ const setMailboxDefaultSignature = async (params: {
   const [template] = await params.db<{ id: string }[]>`
     SELECT id
     FROM mail.compose_templates
-    WHERE short_id = ${params.templateId}
+    WHERE id = ${params.templateId}::uuid
       AND mailbox_id = ${params.mailboxId}::uuid
       AND kind = 'signature'
       AND scope = 'mailbox'
@@ -317,7 +289,7 @@ const loadSenderVerification = async (params: {
     JOIN mail.mailboxes mailbox ON mailbox.id = si.mailbox_id
     JOIN mail.provider_bindings pb ON pb.remote_resource_id = rr.id
     JOIN mail.provider_connections pc ON pc.id = pb.connection_id
-    WHERE si.short_id = ${params.senderIdentityId}
+    WHERE si.id = ${params.senderIdentityId}::uuid
       AND si.mailbox_id = ${params.mailboxId}::uuid
       AND pb.id = ${params.bindingId}::uuid
       AND pb.state = 'active'
@@ -363,18 +335,14 @@ export const createSenderIdentity = async (params: {
   mailboxId: string;
   input: CreateSenderIdentityInput;
 }): Promise<Result<SenderIdentity>> => {
-  const parsed = createSenderIdentityInputSchema.safeParse(params.input);
+  const parsed = internalCreateSenderIdentityInputSchema.safeParse(params.input);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid sender identity"));
   try {
     return await sql.begin(async (tx) => {
       const allowed = await requireLockedMailboxAdmin(params.context, params.mailboxId, tx);
       if (!allowed.ok) return allowed;
-      const sentFolderId = parsed.data.sentFolderId
-        ? await resolveMailboxPublicId("folders", params.mailboxId, parsed.data.sentFolderId, tx)
-        : null;
-      const draftsFolderId = parsed.data.draftsFolderId
-        ? await resolveMailboxPublicId("folders", params.mailboxId, parsed.data.draftsFolderId, tx)
-        : null;
+      const sentFolderId = parsed.data.sentFolderId ? parsed.data.sentFolderId : null;
+      const draftsFolderId = parsed.data.draftsFolderId ? parsed.data.draftsFolderId : null;
       if ((parsed.data.sentFolderId && !sentFolderId) || (parsed.data.draftsFolderId && !draftsFolderId)) {
         return fail(err.badInput("Sender identity folder mapping does not belong to this mailbox"));
       }
@@ -483,7 +451,7 @@ export const createSenderIdentity = async (params: {
         },
         tx,
       );
-      return ok(await projectIdentity(created, tx));
+      return ok(mapIdentity(created));
     });
   } catch (error) {
     if ((error as { code?: string } | null)?.code === "23505") return fail(err.conflict("Sender identity"));
@@ -501,7 +469,7 @@ export const listSenderIdentities = async (context: MailRequestContext, mailboxI
     WHERE si.mailbox_id = ${mailboxId}::uuid AND si.status <> 'disabled'
     ORDER BY si.is_default DESC, lower(si.label), si.id
   `;
-  return ok(await projectIdentities(rows));
+  return ok(mapIdentities(rows));
 };
 
 export const updateSenderIdentity = async (params: {
@@ -510,8 +478,7 @@ export const updateSenderIdentity = async (params: {
   senderIdentityId: string;
   input: UpdateSenderIdentityInput;
 }): Promise<Result<SenderIdentity>> => {
-  const parsed = updateSenderIdentityInputSchema.safeParse(params.input);
-  if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid sender identity update"));
+  const parsed = { data: params.input };
   try {
     return await sql.begin(async (tx) => {
       const permission = await requireLockedMailboxAdmin(params.context, params.mailboxId, tx);
@@ -519,7 +486,7 @@ export const updateSenderIdentity = async (params: {
       const [current] = await tx<DbIdentity[]>`
         SELECT ${identityColumns}
         FROM mail.sender_identities si
-        WHERE si.short_id = ${params.senderIdentityId}
+        WHERE si.id = ${params.senderIdentityId}::uuid
           AND si.mailbox_id = ${params.mailboxId}::uuid
         FOR UPDATE OF si
       `;
@@ -530,13 +497,13 @@ export const updateSenderIdentity = async (params: {
           ? current.sent_folder_id
           : parsed.data.sentFolderId === null
             ? null
-            : await resolveMailboxPublicId("folders", params.mailboxId, parsed.data.sentFolderId, tx);
+            : parsed.data.sentFolderId;
       const draftsFolderId =
         parsed.data.draftsFolderId === undefined
           ? current.drafts_folder_id
           : parsed.data.draftsFolderId === null
             ? null
-            : await resolveMailboxPublicId("folders", params.mailboxId, parsed.data.draftsFolderId, tx);
+            : parsed.data.draftsFolderId;
       if ((parsed.data.sentFolderId && !sentFolderId) || (parsed.data.draftsFolderId && !draftsFolderId)) {
         return fail(err.badInput("Sender identity folder mapping does not belong to this mailbox"));
       }
@@ -658,7 +625,7 @@ export const updateSenderIdentity = async (params: {
         },
         tx,
       );
-      return ok(await projectIdentity(reloaded, tx));
+      return ok(mapIdentity(reloaded));
     });
   } catch (error) {
     if ((error as { code?: string } | null)?.code === "23505") return fail(err.conflict("Sender identity"));
@@ -679,7 +646,7 @@ export const disableSenderIdentity = async (params: {
       const [disabled] = await tx<{ id: string; from_address: string }[]>`
         UPDATE mail.sender_identities
         SET status = 'disabled', is_default = false
-        WHERE short_id = ${params.senderIdentityId}
+        WHERE id = ${params.senderIdentityId}::uuid
           AND mailbox_id = ${params.mailboxId}::uuid
           AND status <> 'disabled'
         RETURNING id, from_address
@@ -767,9 +734,8 @@ export const setupDefaultSender = async (params: {
   const sent = parsed.data.savesSentAutomatically ? null : await resolveRoleFolder(params.mailboxId, "sent");
   if (sent && !sent.ok) return sent;
   const drafts = await resolveRoleFolder(params.mailboxId, "drafts");
-  const folderIds = await publicIds("folders", [sent?.ok ? sent.data.id : null, drafts.ok ? drafts.data.id : null]);
-  const sentFolderId = sent?.ok ? requirePublicId(folderIds, sent.data.id) : null;
-  const draftsFolderId = drafts.ok ? requirePublicId(folderIds, drafts.data.id) : null;
+  const sentFolderId = sent?.ok ? sent.data.id : null;
+  const draftsFolderId = drafts.ok ? drafts.data.id : null;
   const [existing] = await sql<DbIdentity[]>`
     SELECT ${identityColumns}
     FROM mail.sender_identities si
@@ -781,11 +747,10 @@ export const setupDefaultSender = async (params: {
   `;
   let identity: Result<SenderIdentity>;
   if (existing) {
-    const identityIds = await publicIds("senderIdentities", [existing.id]);
     identity = await updateSenderIdentity({
       context: params.context,
       mailboxId: params.mailboxId,
-      senderIdentityId: requirePublicId(identityIds, existing.id),
+      senderIdentityId: existing.id,
       input: {
         ...(parsed.data.label !== undefined ? { label: parsed.data.label } : {}),
         ...(parsed.data.displayName !== undefined ? { displayName: parsed.data.displayName } : {}),
@@ -941,7 +906,7 @@ export const verifySenderIdentity = async (params: {
           tx,
         );
         await assertLeaseActive();
-        return ok(await projectIdentity(updated, tx));
+        return ok(mapIdentity(updated));
       }),
     );
     return barrier.acquired ? barrier.value : fail(err.conflict("Provider work is still running; retry sender verification shortly"));

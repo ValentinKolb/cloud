@@ -325,17 +325,17 @@ const messageAction = (
           kind === "moveMessage" || kind === "copyMessage" || kind === "archiveMessage" || kind === "trashMessage" || kind === "junkMessage"
             ? {
                 kind: kind === "copyMessage" ? "copy" : "move",
-                messageId: publicMessageId,
-                sourceFolderId: publicFolderId,
-                destinationFolderId: value,
+                messageId,
+                sourceFolderId: folderId,
+                destinationFolderId: await internalResourceId(tx, "folders", scope.mailboxId, value, "Folder"),
                 expectedRemoteState,
                 idempotencyKey: ctx.effectKey,
                 correlationId: ctx.runId,
               }
             : {
                 kind: "change_message_state",
-                messageId: publicMessageId,
-                folderId: publicFolderId,
+                messageId,
+                folderId,
                 change: {
                   addFlags: kind === "addFlag" ? [value as "seen" | "answered" | "flagged" | "draft"] : [],
                   removeFlags: kind === "removeFlag" ? [value as "seen" | "answered" | "flagged" | "draft"] : [],
@@ -906,13 +906,21 @@ export const MAIL_WORKFLOW_ACTIONS = {
       attempt(async () => {
         const scope = await loadScope(ctx);
         const draft = await resolveObject(ctx, values.draft, "draft");
+        const draftId = await internalResourceId(sql, "drafts", scope.mailboxId, asText(draft.id, "draft.id"), "Draft");
+        const senderIdentityId = await internalResourceId(
+          sql,
+          "senderIdentities",
+          scope.mailboxId,
+          asText(draft.senderIdentityId, "draft.senderIdentityId"),
+          "Sender identity",
+        );
         const scheduledAt = asText(values.scheduledAt, "scheduledAt");
         if (!Number.isFinite(Date.parse(scheduledAt))) throw new Error("scheduledAt must be an ISO timestamp");
         return createCommand(ctx, scope, {
           kind: "send",
-          draftId: asText(draft.id, "draft.id"),
+          draftId,
           expectedDraftRevision: Number(draft.revision),
-          senderIdentityId: asText(draft.senderIdentityId, "draft.senderIdentityId"),
+          senderIdentityId,
           scheduledAt,
           undoSeconds: 0,
           idempotencyKey: ctx.effectKey,
@@ -1032,13 +1040,11 @@ export const MAIL_WORKFLOW_ACTIONS = {
           });
           if (!reply.ok || reply.data.state === "suppressed") return reply;
 
-          const draftId = await publicResourceId(tx, "drafts", reply.data.draftId);
-
           const input: ActorCommandInput = {
             kind: "send",
-            draftId,
+            draftId: reply.data.draftId,
             expectedDraftRevision: reply.data.draftRevision,
-            senderIdentityId: publicSenderIdentityId,
+            senderIdentityId,
             scheduledAt: reply.data.scheduledAt,
             undoSeconds: 0,
             idempotencyKey: ctx.effectKey,

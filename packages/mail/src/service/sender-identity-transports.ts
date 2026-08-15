@@ -16,7 +16,6 @@ import { auditActorFromRequest, type MailRequestContext } from "./auth";
 import { imapSmtpConnector } from "./connectors";
 import type { SmtpConnectionConfig } from "./connectors/contract";
 import { logDatabaseFailure } from "./database-errors";
-import { resolveMailboxPublicId } from "./public-resources";
 
 const log = logger("mail:sender-identity-transports");
 
@@ -95,8 +94,7 @@ export const upsertSenderIdentityTransport = async (params: {
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid SMTP transport"));
   const access = await requireMailboxPermission(params.context, params.mailboxId, "admin");
   if (!access.ok) return access;
-  const senderIdentityId = await resolveMailboxPublicId("senderIdentities", params.mailboxId, params.senderIdentityId);
-  if (!senderIdentityId) return fail(err.notFound("Sender identity"));
+  const senderIdentityId = params.senderIdentityId;
 
   let current: DbTransport | undefined;
   try {
@@ -255,8 +253,7 @@ export const deleteSenderIdentityTransport = async (params: {
   senderIdentityId: string;
   expectedRevision: number;
 }): Promise<Result<SenderIdentityTransport>> => {
-  const senderIdentityId = await resolveMailboxPublicId("senderIdentities", params.mailboxId, params.senderIdentityId);
-  if (!senderIdentityId) return fail(err.notFound("Sender identity"));
+  const senderIdentityId = params.senderIdentityId;
   try {
     return await sql.begin(async (tx) => {
       const access = await requireMailboxPermission(params.context, params.mailboxId, "admin", tx);
@@ -341,7 +338,5 @@ export const loadSenderIdentityTransportRuntime = async (params: {
   senderIdentityId: string;
   expectedRevision?: number;
 }): ReturnType<typeof loadSenderIdentityTransportRuntimeById> => {
-  const senderIdentityId = await resolveMailboxPublicId("senderIdentities", params.mailboxId, params.senderIdentityId);
-  if (!senderIdentityId) return null;
-  return loadSenderIdentityTransportRuntimeById({ ...params, senderIdentityId });
+  return loadSenderIdentityTransportRuntimeById(params);
 };

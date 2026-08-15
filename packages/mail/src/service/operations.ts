@@ -19,7 +19,6 @@ import {
   operatorActionForCommand,
   operatorActionForFolder,
 } from "./operator-actions";
-import { publicIds, requirePublicId } from "./public-resources";
 
 const toIso = (value: Date | string | null): string | null =>
   value ? (value instanceof Date ? value : new Date(value)).toISOString() : null;
@@ -454,7 +453,7 @@ export const getMailboxOperations = async (
 
 export const getPlatformMailOperations = async (
   context: MailRequestContext,
-  query: { cursor?: string; limit?: number; q?: string } = {},
+  query: { cursor?: string; limit?: number; q?: string; internalMailboxId?: string } = {},
 ): Promise<Result<PlatformMailOperations>> => {
   if (!(await isCurrentPlatformAdmin(context))) return fail(err.forbidden("Cloud administration access is required"));
   const cursor = decodePlatformCursor(query.cursor);
@@ -518,6 +517,7 @@ export const getPlatformMailOperations = async (
           SELECT id, short_id, name, created_at, health, sync_enabled
           FROM mail.mailboxes
           WHERE deleted_at IS NULL
+            AND (${query.internalMailboxId ?? null}::uuid IS NULL OR id = ${query.internalMailboxId ?? null}::uuid)
             AND (
               ${search}::text IS NULL
               OR LOWER(name) LIKE LOWER(${search}) ESCAPE '\\'
@@ -649,11 +649,8 @@ export const getPlatformMailboxOperation = async (
   context: MailRequestContext,
   mailboxId: string,
 ): Promise<Result<PlatformMailboxOperationSummary>> => {
-  const ids = await publicIds("mailboxes", [mailboxId]);
-  const shortId = ids.get(mailboxId);
-  if (!shortId) return fail(err.notFound("Mailbox"));
-  const result = await getPlatformMailOperations(context, { q: requirePublicId(ids, mailboxId), limit: 2 });
+  const result = await getPlatformMailOperations(context, { internalMailboxId: mailboxId, limit: 1 });
   if (!result.ok) return result;
-  const mailbox = result.data.mailboxes.find((candidate) => candidate.mailboxId === shortId);
+  const mailbox = result.data.mailboxes[0];
   return mailbox ? ok(mailbox) : fail(err.notFound("Mailbox"));
 };

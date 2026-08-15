@@ -1,6 +1,7 @@
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { audit } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { z } from "zod";
 import {
   type ActorRef,
   archiveComposeTemplateInputSchema,
@@ -39,9 +40,22 @@ import {
   validateComposeCss,
   validateComposeTemplateSource,
 } from "./compose-renderer";
-import { publicIds, requirePublicId, resolveMailboxPublicId } from "./public-resources";
 
 type SqlClient = typeof sql;
+
+const internalDraftEditableContentSchema = draftEditableContentInputSchema.extend({ senderIdentityId: z.string().uuid() });
+const internalSetComposeSignatureDefaultInputSchema = setComposeSignatureDefaultInputSchema.extend({
+  templateId: z.string().uuid().nullable(),
+});
+const internalRenderComposeSnippetInputSchema = renderComposeSnippetInputSchema.extend({
+  templateId: z.string().uuid(),
+  draft: internalDraftEditableContentSchema,
+  conversationId: z.string().uuid().nullable().default(null),
+});
+const internalComposeSuggestionsInputSchema = composeSuggestionsInputSchema.extend({
+  draft: internalDraftEditableContentSchema,
+  conversationId: z.string().uuid().nullable().default(null),
+});
 
 type DbTemplate = {
   id: string;
@@ -93,7 +107,7 @@ const templateColumns = sql`
 
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
 const mapTemplate = (row: DbTemplate, mailboxId: string): ComposeTemplate => ({
-  id: row.short_id,
+  id: row.id,
   mailboxId,
   kind: row.kind,
   scope: row.scope,
@@ -158,7 +172,7 @@ const readTemplateForUpdate = async (db: SqlClient, mailboxId: string, templateI
   const [template] = await db<DbTemplate[]>`
     SELECT ${templateColumns}
     FROM mail.compose_templates template
-    WHERE template.short_id = ${templateId} AND template.mailbox_id = ${mailboxId}::uuid
+    WHERE template.id = ${templateId}::uuid AND template.mailbox_id = ${mailboxId}::uuid
     FOR UPDATE
   `;
   return template ?? null;
@@ -197,9 +211,7 @@ export const listComposeTemplates = async (context: MailRequestContext, mailboxI
       AND (template.scope = 'mailbox' OR template.owner_user_id = ${ownerUserId}::uuid)
     ORDER BY template.kind, template.scope, template.normalized_name, template.id
   `;
-  const mailboxIds = await publicIds("mailboxes", [mailboxId]);
-  const publicMailboxId = requirePublicId(mailboxIds, mailboxId);
-  return ok(rows.map((row) => mapTemplate(row, publicMailboxId)));
+  return ok(rows.map((row) => mapTemplate(row, mailboxId)));
 };
 
 export const createComposeTemplate = async (params: {
@@ -270,8 +282,7 @@ export const createComposeTemplate = async (params: {
         },
         tx,
       );
-      const mailboxIds = await publicIds("mailboxes", [params.mailboxId], tx);
-      return ok(mapTemplate(row, requirePublicId(mailboxIds, params.mailboxId)));
+      return ok(mapTemplate(row, params.mailboxId));
     });
   } catch (error) {
     if (databaseCode(error) === "23505") {
@@ -349,8 +360,7 @@ export const updateComposeTemplate = async (params: {
         },
         tx,
       );
-      const mailboxIds = await publicIds("mailboxes", [params.mailboxId], tx);
-      return ok(mapTemplate(row, requirePublicId(mailboxIds, params.mailboxId)));
+      return ok(mapTemplate(row, params.mailboxId));
     });
   } catch (error) {
     if (databaseCode(error) === "23505") {
@@ -416,10 +426,9 @@ export const listComposeSignatureDefaults = async (
   const allowed = await requireMailboxPermission(context, mailboxId, "write");
   if (!allowed.ok) return allowed;
   const ownerUserId = privateOwnerId(context);
-  const rows = await sql<(DbDefault & { mailbox_short_id: string; sender_identity_short_id: string; template_short_id: string })[]>`
+  const rows = await sql<DbDefault[]>`
     SELECT defaults.mailbox_id, defaults.sender_identity_id, defaults.user_id, defaults.template_id,
-      defaults.revision, defaults.updated_at, mailbox.short_id AS mailbox_short_id,
-      sender.short_id AS sender_identity_short_id, template.short_id AS template_short_id
+      defaults.revision, defaults.updated_at
     FROM mail.compose_signature_defaults defaults
     JOIN mail.mailboxes mailbox ON mailbox.id = defaults.mailbox_id
     JOIN mail.sender_identities sender ON sender.id = defaults.sender_identity_id
@@ -431,9 +440,9 @@ export const listComposeSignatureDefaults = async (
   return ok(
     rows.map((row) =>
       mapDefault(row, {
-        mailboxId: row.mailbox_short_id,
-        senderIdentityId: row.sender_identity_short_id,
-        templateId: row.template_short_id,
+        mailboxId: row.mailbox_id,
+        senderIdentityId: row.sender_identity_id,
+        templateId: row.template_id,
       }),
     ),
   );
@@ -445,7 +454,7 @@ export const setComposeSignatureDefault = async (params: {
   senderIdentityId: string;
   input: SetComposeSignatureDefaultInput;
 }): Promise<Result<ComposeSignatureDefault | null>> => {
-  const parsed = setComposeSignatureDefaultInputSchema.safeParse(params.input);
+  const parsed = internalSetComposeSignatureDefaultInputSchema.safeParse(params.input);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid signature default"));
   const ownerUserId = privateOwnerId(params.context);
   if (parsed.data.scope === "private" && !ownerUserId) return fail(err.forbidden("Private defaults require a user"));
@@ -454,8 +463,7 @@ export const setComposeSignatureDefault = async (params: {
       const required = parsed.data.scope === "mailbox" ? "admin" : "write";
       const permission = await requireMailboxPermission(params.context, params.mailboxId, required, tx);
       if (!permission.ok) return permission;
-      const senderIdentityId = await resolveMailboxPublicId("senderIdentities", params.mailboxId, params.senderIdentityId, tx);
-      if (!senderIdentityId) return fail(err.notFound("Sender identity"));
+      const senderIdentityId = params.senderIdentityId;
       const [identity] = await tx<{ id: string }[]>`
         SELECT id FROM mail.sender_identities
         WHERE id = ${senderIdentityId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND status <> 'disabled'
@@ -467,7 +475,7 @@ export const setComposeSignatureDefault = async (params: {
         ? await tx<DbTemplate[]>`
           SELECT ${templateColumns}
           FROM mail.compose_templates template
-          WHERE template.short_id = ${parsed.data.templateId}
+          WHERE template.id = ${parsed.data.templateId}::uuid
             AND template.mailbox_id = ${params.mailboxId}::uuid
             AND template.kind = 'signature'
             AND template.archived_at IS NULL
@@ -556,12 +564,11 @@ export const setComposeSignatureDefault = async (params: {
         },
         tx,
       );
-      const mailboxIds = await publicIds("mailboxes", [params.mailboxId], tx);
       return ok(
         mapDefault(row, {
-          mailboxId: requirePublicId(mailboxIds, params.mailboxId),
+          mailboxId: params.mailboxId,
           senderIdentityId: params.senderIdentityId,
-          templateId: template.short_id,
+          templateId: template.id,
         }),
       );
     });
@@ -583,8 +590,7 @@ export const getMailboxComposeStyle = async (
     WHERE mailbox_id = ${mailboxId}::uuid
   `;
   if (!row) return fail(err.notFound("Mailbox email style"));
-  const mailboxIds = await publicIds("mailboxes", [mailboxId], db);
-  return ok(mapStyle(row, requirePublicId(mailboxIds, mailboxId)));
+  return ok(mapStyle(row, mailboxId));
 };
 
 export const updateMailboxComposeStyle = async (params: {
@@ -636,8 +642,7 @@ export const updateMailboxComposeStyle = async (params: {
         },
         tx,
       );
-      const mailboxIds = await publicIds("mailboxes", [params.mailboxId], tx);
-      return ok(mapStyle(row, requirePublicId(mailboxIds, params.mailboxId)));
+      return ok(mapStyle(row, params.mailboxId));
     });
   } catch {
     return fail(err.internal("Failed to update mailbox email style"));
@@ -669,7 +674,7 @@ const composeRenderContext = async (params: {
     FROM mail.mailboxes mailbox
     JOIN mail.sender_identities sender ON sender.mailbox_id = mailbox.id
     WHERE mailbox.id = ${params.mailboxId}::uuid
-      AND sender.short_id = ${params.senderIdentityId}
+      AND sender.id = ${params.senderIdentityId}::uuid
       AND mailbox.deleted_at IS NULL
       AND sender.status = 'verified'
   `;
@@ -722,7 +727,7 @@ export const renderComposeDraft = async (params: {
   renderLiquid: boolean;
 }): Promise<Result<RenderedComposeContent>> => {
   const db = params.db ?? sql;
-  const parsed = draftEditableContentInputSchema.safeParse(params.draft);
+  const parsed = internalDraftEditableContentSchema.safeParse(params.draft);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid draft"));
   const context = await composeRenderContext({
     db,
@@ -766,7 +771,7 @@ export const renderComposeSnippet = async (params: {
   mailboxId: string;
   input: RenderComposeSnippetInput;
 }): Promise<Result<{ markdown: string }>> => {
-  const parsed = renderComposeSnippetInputSchema.safeParse(params.input);
+  const parsed = internalRenderComposeSnippetInputSchema.safeParse(params.input);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid snippet request"));
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write");
   if (!allowed.ok) return allowed;
@@ -774,7 +779,7 @@ export const renderComposeSnippet = async (params: {
   const [template] = await sql<DbTemplate[]>`
     SELECT ${templateColumns}
     FROM mail.compose_templates template
-    WHERE template.short_id = ${parsed.data.templateId}
+    WHERE template.id = ${parsed.data.templateId}::uuid
       AND template.mailbox_id = ${params.mailboxId}::uuid
       AND template.archived_at IS NULL
       AND (template.scope = 'mailbox' OR template.owner_user_id = ${ownerUserId}::uuid)
@@ -798,7 +803,7 @@ export const renderComposeSuggestions = async (params: {
   mailboxId: string;
   input: ComposeSuggestionsInput;
 }): Promise<Result<ComposeSuggestion[]>> => {
-  const parsed = composeSuggestionsInputSchema.safeParse(params.input);
+  const parsed = internalComposeSuggestionsInputSchema.safeParse(params.input);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid compose suggestion request"));
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, "write");
   if (!allowed.ok) return allowed;
@@ -845,7 +850,7 @@ export const renderComposeSuggestions = async (params: {
         : renderComposeTemplateSource(template.body_template, context.data, parsed.data.draft.format);
     if (!rendered.ok) return rendered;
     suggestions.push({
-      templateId: template.short_id,
+      templateId: template.id,
       name: template.name,
       shortcut: template.shortcut,
       kind: template.kind,
@@ -870,7 +875,7 @@ export const resolveDefaultSignatureSource = async (params: {
       AND default_signature.sender_identity_id = (
         SELECT sender.id
         FROM mail.sender_identities sender
-        WHERE sender.mailbox_id = ${params.mailboxId}::uuid AND sender.short_id = ${params.senderIdentityId}
+        WHERE sender.mailbox_id = ${params.mailboxId}::uuid AND sender.id = ${params.senderIdentityId}::uuid
       )
       AND template.kind = 'signature'
       AND template.archived_at IS NULL

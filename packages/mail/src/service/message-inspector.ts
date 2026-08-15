@@ -1,5 +1,6 @@
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
+import { z } from "zod";
 import { type MessageInspector, type MessageSourcePreview, messageInspectorSchema, messageSourcePreviewSchema } from "../contracts";
 import type { MailRequestContext } from "./auth";
 import { resolveMailExecution } from "./execution";
@@ -14,6 +15,13 @@ export const MESSAGE_INSPECTOR_ATTACHMENT_LIMIT = 10_000;
 export const MESSAGE_INSPECTOR_PART_LIMIT = 10_000;
 export const MESSAGE_INSPECTOR_PLACEMENT_LIMIT = 1000;
 export const MESSAGE_SOURCE_PREVIEW_LIMIT_BYTES = 256 * 1024;
+
+const internalMessageInspectorSchema = messageInspectorSchema.extend({
+  id: z.string().uuid(),
+  placements: messageInspectorSchema.shape.placements.element.extend({ folderId: z.string().uuid() }).array().max(1000),
+  attachments: messageInspectorSchema.shape.attachments.element.extend({ id: z.string().uuid() }).array().max(10_000),
+});
+const internalMessageSourcePreviewSchema = messageSourcePreviewSchema.extend({ messageId: z.string().uuid() });
 
 type InspectorMessageRow = {
   id: string;
@@ -36,7 +44,7 @@ type InspectorMessageRow = {
 };
 
 type PlacementRow = {
-  folder_short_id: string;
+  folder_id: string;
   folder_name: string;
   remote_path: string | null;
   uid_validity: string | number | bigint;
@@ -215,7 +223,7 @@ export const inspectMessage = async (params: {
   const [placements, parts, attachments] = await Promise.all([
     sql<PlacementRow[]>`
       SELECT
-        folder.short_id AS folder_short_id,
+        folder.id AS folder_id,
         folder.name AS folder_name,
         folder_ref.remote_path,
         remote_ref.uid_validity,
@@ -328,7 +336,7 @@ export const inspectMessage = async (params: {
   const protocolFacts = parseMessageProtocolFacts(parseJsonObject(message.protocol_facts));
   const mailingList = mailingListMetadata(protocolFacts);
   const value = {
-    id: message.short_id,
+    id: message.id,
     messageId: message.message_id,
     inReplyTo: message.in_reply_to,
     referenceIds: message.reference_ids,
@@ -351,7 +359,7 @@ export const inspectMessage = async (params: {
     rawHeaders: parsedHeaders.rawHeaders,
     headersComplete: parsedHeaders.complete,
     placements: placements.slice(0, MESSAGE_INSPECTOR_PLACEMENT_LIMIT).map((placement) => ({
-      folderId: placement.folder_short_id,
+      folderId: placement.folder_id,
       folderName: placement.folder_name,
       remotePath: placement.remote_path ?? placement.folder_name,
       uidValidity: String(placement.uid_validity),
@@ -372,7 +380,7 @@ export const inspectMessage = async (params: {
       hydrationStatus: part.hydration_status,
     })),
     attachments: attachments.slice(0, MESSAGE_INSPECTOR_ATTACHMENT_LIMIT).map((attachment) => ({
-      id: attachment.short_id,
+      id: attachment.id,
       filename: attachment.filename,
       contentType: attachment.content_type,
       disposition: attachment.disposition,
@@ -392,7 +400,7 @@ export const inspectMessage = async (params: {
     spam: protocolFacts.spam,
     warnings,
   };
-  const parsed = messageInspectorSchema.safeParse(value);
+  const parsed = internalMessageInspectorSchema.safeParse(value);
   return parsed.success ? ok(parsed.data) : fail(err.internal("Message inspection data is invalid"));
 };
 
@@ -418,8 +426,8 @@ export const previewMessageSource = async (params: {
   });
   if (!currentAccess.ok) return currentAccess;
 
-  const parsed = messageSourcePreviewSchema.safeParse({
-    messageId: loaded.data.short_id,
+  const parsed = internalMessageSourcePreviewSchema.safeParse({
+    messageId: loaded.data.id,
     exact: true,
     text: new TextDecoder("utf-8", { fatal: false }).decode(prefix.bytes),
     byteLength: prefix.blob.byteLength,
@@ -455,7 +463,7 @@ export const openMessageSource = async (params: {
       return fail(err.internal("Message source metadata is invalid"));
     }
     return ok({
-      messageId: loaded.data.short_id,
+      messageId: loaded.data.id,
       blobId: blob.id,
       total: blob.byteLength,
       chunkSize: blob.chunkSize,

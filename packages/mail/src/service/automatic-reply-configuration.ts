@@ -2,6 +2,7 @@ import { err, fail, isServiceError, ok, type Result, unwrap } from "@k2b/stdlib"
 import { audit } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { stringify } from "yaml";
+import { z } from "zod";
 import {
   type AutomaticReplyInactiveBehavior,
   type AutomaticReplyPreview,
@@ -9,11 +10,13 @@ import {
   automaticReplyPreviewInputSchema,
   type CreateAutomaticReplyConfiguration,
   type CreateAutomaticReplySetup,
+  createAutomaticReplyConfigurationSchema,
   createAutomaticReplySetupSchema,
   type PutConversationReferenceConfiguration,
   type ResponseScheduleDefinitionInput,
   type UpdateAutomaticReplyConfiguration,
   type UpdateAutomaticReplySetup,
+  updateAutomaticReplyConfigurationSchema,
   updateAutomaticReplySetupSchema,
   type WorkflowEffectBudget,
 } from "../contracts";
@@ -30,7 +33,6 @@ import {
   putConversationReferenceConfigurationInTransaction,
 } from "./conversation-reference";
 import { publishMailMailboxEvent } from "./events";
-import { publicIds, requirePublicId, resolveMailboxPublicId } from "./public-resources";
 import {
   decodeStoredResponseScheduleDefinition,
   normalizeResponseScheduleDefinition,
@@ -39,6 +41,14 @@ import {
 import { renderMailLiquidTemplate } from "./template-rendering";
 import type { SqlClient } from "./workflow-data";
 import { replaceManagedWorkflowInTransaction, setManagedWorkflowEnabledInTransaction } from "./workflow-definition-service";
+
+const internalAutomaticReplyPreviewInputSchema = automaticReplyPreviewInputSchema.safeExtend({ senderIdentityId: z.string().uuid() });
+const internalCreateAutomaticReplySetupSchema = createAutomaticReplySetupSchema.safeExtend({
+  automaticReply: createAutomaticReplyConfigurationSchema.extend({ senderIdentityId: z.string().uuid() }),
+});
+const internalUpdateAutomaticReplySetupSchema = updateAutomaticReplySetupSchema.safeExtend({
+  automaticReply: updateAutomaticReplyConfigurationSchema.extend({ senderIdentityId: z.string().uuid() }),
+});
 
 export type AutomaticReplyConfiguration = {
   id: string;
@@ -138,7 +148,7 @@ export const previewAutomaticReply = async (params: {
   mailboxId: string;
   input: AutomaticReplyPreviewInput;
 }): Promise<Result<AutomaticReplyPreview>> => {
-  const parsed = automaticReplyPreviewInputSchema.safeParse(params.input);
+  const parsed = internalAutomaticReplyPreviewInputSchema.safeParse(params.input);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid automatic reply preview"));
   const allowed = await requireAutomaticReplyManagementPermission(params.context, params.mailboxId);
   if (!allowed.ok) return allowed;
@@ -249,17 +259,13 @@ const requestActor = (context: MailRequestContext): ConfigurationActor => {
 const mapConfiguration = async (row: AutomaticReplyConfigurationRow, db: SqlClient): Promise<Result<AutomaticReplyConfiguration>> => {
   const schedule = decodeStoredResponseScheduleDefinition(row.schedule_definition);
   if (!schedule.ok) return schedule;
-  const [mailboxes, senders] = await Promise.all([
-    publicIds("mailboxes", [row.mailbox_id], db),
-    publicIds("senderIdentities", [row.sender_identity_id], db),
-  ]);
   return ok({
-    id: row.short_id,
-    mailboxId: requirePublicId(mailboxes, row.mailbox_id),
+    id: row.id,
+    mailboxId: row.mailbox_id,
     workflowId: row.workflow_id,
     name: row.name,
     enabled: row.enabled,
-    senderIdentityId: requirePublicId(senders, row.sender_identity_id),
+    senderIdentityId: row.sender_identity_id,
     subject: row.subject,
     body: row.body,
     format: row.format,
@@ -339,18 +345,28 @@ const validateManagedSchedule = (definition: ResponseScheduleDefinitionInput): R
   return schedule;
 };
 
-const requireAutomationSender = async (db: SqlClient, mailboxId: string, senderIdentityId: string): Promise<Result<void>> => {
-  const [identity] = await db<{ id: string }[]>`
-    SELECT id
+const senderWorkflowResourceId = async (db: SqlClient, mailboxId: string, senderIdentityId: string): Promise<Result<string>> => {
+  const [identity] = await db<{ short_id: string }[]>`
+    SELECT short_id
     FROM mail.sender_identities
-    WHERE short_id = ${senderIdentityId}
+    WHERE id = ${senderIdentityId}::uuid
+      AND mailbox_id = ${mailboxId}::uuid
+  `;
+  return identity ? ok(identity.short_id) : fail(err.badInput("The selected sender identity is not available"));
+};
+
+const requireAutomationSender = async (db: SqlClient, mailboxId: string, senderIdentityId: string): Promise<Result<string>> => {
+  const [identity] = await db<{ short_id: string }[]>`
+    SELECT short_id
+    FROM mail.sender_identities
+    WHERE id = ${senderIdentityId}::uuid
       AND mailbox_id = ${mailboxId}::uuid
       AND status = 'verified'
       AND automation_policy = 'mailbox'
     FOR SHARE
   `;
   return identity
-    ? ok()
+    ? ok(identity.short_id)
     : fail(
         err.badInput("Select a verified identity with Automatic replies enabled in Settings > Accounts & identities > Sending identities"),
       );
@@ -372,7 +388,7 @@ const requireActivationAvailable = async (db: SqlClient, mailboxId: string, conf
     FROM mail.automatic_reply_configurations
     WHERE mailbox_id = ${mailboxId}::uuid
       AND enabled
-      AND (${configurationId}::text IS NULL OR short_id <> ${configurationId})
+      AND (${configurationId}::uuid IS NULL OR id <> ${configurationId}::uuid)
     LIMIT 1
   `;
   return active ? fail(err.conflict("Disable the active automatic reply before enabling another one")) : ok();
@@ -453,7 +469,7 @@ const loadConfiguration = async (
   const [row] = await db<AutomaticReplyConfigurationRow[]>`
     SELECT ${configurationColumns}
     FROM mail.automatic_reply_configurations configuration
-    WHERE configuration.short_id = ${configurationId}
+    WHERE configuration.id = ${configurationId}::uuid
       AND configuration.mailbox_id = ${mailboxId}::uuid
     ${lock ? sql`FOR UPDATE OF configuration` : sql``}
   `;
@@ -517,6 +533,7 @@ const applyAutomaticReplyWorkflowUpdate = async (params: {
   schedule: ResponseScheduleDefinition;
   executionChanged: boolean;
   enabledChanged: boolean;
+  workflowSenderIdentityId: string | null;
 }): Promise<void> => {
   if (params.executionChanged || (params.enabledChanged && !params.input.enabled)) {
     await cancelPendingAutomaticRepliesInTransaction({
@@ -528,6 +545,7 @@ const applyAutomaticReplyWorkflowUpdate = async (params: {
     });
   }
   if (params.executionChanged) {
+    if (!params.workflowSenderIdentityId) throw new Error("Automatic reply workflow sender is unavailable");
     unwrap(
       await replaceManagedWorkflowInTransaction({
         db: params.db,
@@ -539,7 +557,7 @@ const applyAutomaticReplyWorkflowUpdate = async (params: {
         priority: 100,
         managedBy: "automatic_reply",
         source: buildWorkflowSource({
-          senderIdentityId: params.input.senderIdentityId,
+          senderIdentityId: params.workflowSenderIdentityId,
           schedule: params.schedule,
           subject: params.input.subject,
           body: params.input.body,
@@ -591,7 +609,7 @@ export const createAutomaticReplySetup = async (params: {
   mailboxId: string;
   input: CreateAutomaticReplySetup;
 }): Promise<Result<AutomaticReplySetup>> => {
-  const parsed = createAutomaticReplySetupSchema.safeParse(params.input);
+  const parsed = internalCreateAutomaticReplySetupSchema.safeParse(params.input);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid automatic reply"));
   const automaticReply = parsed.data.automaticReply;
   const schedule = validateManagedSchedule(automaticReply.schedule);
@@ -609,9 +627,8 @@ export const createAutomaticReplySetup = async (params: {
         referenceActivityId: string | null;
       }> => {
         unwrap(await lockMailboxForAutomaticReply(params.context, params.mailboxId, tx));
-        unwrap(await requireAutomationSender(tx, params.mailboxId, automaticReply.senderIdentityId));
-        const senderIdentityId = await resolveMailboxPublicId("senderIdentities", params.mailboxId, automaticReply.senderIdentityId, tx);
-        if (!senderIdentityId) unwrap(fail(err.badInput("Automatic reply sender is unavailable")));
+        const workflowSenderIdentityId = unwrap(await requireAutomationSender(tx, params.mailboxId, automaticReply.senderIdentityId));
+        const senderIdentityId = automaticReply.senderIdentityId;
         const referenceMutation = await putInlineReferenceConfiguration({
           context: params.context,
           mailboxId: params.mailboxId,
@@ -633,7 +650,7 @@ export const createAutomaticReplySetup = async (params: {
             priority: 100,
             managedBy: "automatic_reply",
             source: buildWorkflowSource({
-              senderIdentityId: automaticReply.senderIdentityId,
+              senderIdentityId: workflowSenderIdentityId,
               schedule: schedule.data,
               subject: automaticReply.subject,
               body: automaticReply.body,
@@ -753,7 +770,7 @@ export const updateAutomaticReplySetup = async (params: {
   configurationId: string;
   input: UpdateAutomaticReplySetup;
 }): Promise<Result<AutomaticReplySetup>> => {
-  const parsed = updateAutomaticReplySetupSchema.safeParse(params.input);
+  const parsed = internalUpdateAutomaticReplySetupSchema.safeParse(params.input);
   if (!parsed.success) return fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid automatic reply"));
   const automaticReply = parsed.data.automaticReply;
   const schedule = validateManagedSchedule(automaticReply.schedule);
@@ -771,17 +788,19 @@ export const updateAutomaticReplySetup = async (params: {
       }> => {
         unwrap(await lockMailboxForAutomaticReply(params.context, params.mailboxId, tx));
         const current = unwrap(await loadConfiguration(params.mailboxId, params.configurationId, tx, true));
-        const configurationId = await resolveMailboxPublicId("automaticReplyConfigurations", params.mailboxId, params.configurationId, tx);
-        if (!configurationId) throw err.notFound("Automatic reply");
+        const configurationId = params.configurationId;
         if (current.revision !== automaticReply.expectedRevision) {
           unwrap(fail(err.conflict("Automatic reply was changed")));
         }
         const changes = automaticReplyChanges(current, automaticReply, schedule.data, name);
+        let workflowSenderIdentityId: string | null = null;
         if (automaticReply.enabled || changes.senderChanged) {
-          unwrap(await requireAutomationSender(tx, params.mailboxId, automaticReply.senderIdentityId));
+          workflowSenderIdentityId = unwrap(await requireAutomationSender(tx, params.mailboxId, automaticReply.senderIdentityId));
         }
-        const senderIdentityId = await resolveMailboxPublicId("senderIdentities", params.mailboxId, automaticReply.senderIdentityId, tx);
-        if (!senderIdentityId) unwrap(fail(err.badInput("Automatic reply sender is unavailable")));
+        if (changes.executionChanged && !workflowSenderIdentityId) {
+          workflowSenderIdentityId = unwrap(await senderWorkflowResourceId(tx, params.mailboxId, automaticReply.senderIdentityId));
+        }
+        const senderIdentityId = automaticReply.senderIdentityId;
         const referenceMutation = await putInlineReferenceConfiguration({
           context: params.context,
           mailboxId: params.mailboxId,
@@ -811,6 +830,7 @@ export const updateAutomaticReplySetup = async (params: {
           schedule: schedule.data,
           executionChanged: changes.executionChanged,
           enabledChanged: changes.enabledChanged,
+          workflowSenderIdentityId,
         });
         await tx`
           UPDATE mail.automatic_reply_configurations
@@ -827,7 +847,7 @@ export const updateAutomaticReplySetup = async (params: {
             schedule_definition = ${schedule.data}::jsonb,
             enabled = ${automaticReply.enabled},
             revision = revision + 1
-          WHERE short_id = ${params.configurationId}
+          WHERE id = ${params.configurationId}::uuid
             AND mailbox_id = ${params.mailboxId}::uuid
         `;
         const configuration = unwrap(await loadConfiguration(params.mailboxId, params.configurationId, tx));

@@ -819,11 +819,15 @@ const queryDefinitions = {
       if (!state.ok) return state;
       if (!tags.ok) return tags;
       if (!page.ok) return page;
-      const [mailboxes, messageIds] = await Promise.all([
+      const [mailboxes, messageIds, tagIds] = await Promise.all([
         publicResources.publicIds("mailboxes", [mailboxId]),
         publicResources.publicIds(
           "messages",
           page.data.items.map((item) => item.id),
+        ),
+        publicResources.publicIds(
+          "tags",
+          tags.data.tags.map((tag) => tag.id),
         ),
       ]);
       const mailboxShortId = requirePublicId(mailboxes, mailboxId);
@@ -836,7 +840,7 @@ const queryDefinitions = {
             snoozedUntil: state.data.snoozedUntil,
             revision: state.data.revision,
           },
-          tags: tags.data.tags.map(({ id, name, color, revision }) => ({ id, name, color, revision })),
+          tags: tags.data.tags.map(({ id, name, color, revision }) => ({ id: requirePublicId(tagIds, id), name, color, revision })),
           messages: page.data.items.map((item) => mapNavigableMessageSummary(mailboxShortId, input.id, item, messageIds)),
           messagesTruncated: page.data.nextCursor !== null,
         },

@@ -5,7 +5,6 @@ import type { AcquiredDraftLease, DraftLease, DraftLeaseHolder } from "../contra
 import { requireMailboxPermission } from "./access";
 import type { MailRequestContext } from "./auth";
 import { hasCurrentMailboxUserPermission } from "./collaborators";
-import { resolveMailboxPublicId } from "./public-resources";
 
 const DRAFT_LEASE_TTL_MS = 30_000;
 const DRAFT_LEASE_STATE_TTL_MS = 30_000;
@@ -71,11 +70,9 @@ const resolveAuthorizedDraft = async (params: {
 }): Promise<Result<string>> => {
   const allowed = await requireMailboxPermission(params.context, params.mailboxId, params.permission);
   if (!allowed.ok) return allowed;
-  const draftId = await resolveMailboxPublicId("drafts", params.mailboxId, params.draftId);
-  if (!draftId) return fail(err.notFound("Editable draft"));
   const [draft] = await sql<{ id: string }[]>`
     SELECT id FROM mail.drafts
-    WHERE id = ${draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user' AND state = 'draft'
+    WHERE id = ${params.draftId}::uuid AND mailbox_id = ${params.mailboxId}::uuid AND origin = 'user' AND state = 'draft'
   `;
   return draft ? ok(draft.id) : fail(err.notFound("Editable draft"));
 };

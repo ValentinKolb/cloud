@@ -14,7 +14,6 @@ import { auditActorFromRequest, type MailRequestContext } from "./auth";
 import { requireMailboxCollaborationPermission } from "./collaboration";
 import { publishMailMailboxEvent } from "./events";
 import { removeUnsentOutboundMessage } from "./outbound-message-projection";
-import { publicIds, requirePublicId } from "./public-resources";
 
 type ScheduledCursor = { version: 1; scheduledAt: string; id: string };
 type SqlClient = typeof sql;
@@ -75,32 +74,15 @@ const decodeCursor = (value?: string): Result<ScheduledCursor | null> => {
 const bodyPreview = (snapshot: ScheduledSnapshot): string =>
   (snapshot.renderedText || snapshot.body).replace(/\s+/gu, " ").trim().slice(0, 280);
 
-const mapRows = async (rows: ScheduledRow[], db: SqlClient = sql): Promise<ScheduledSend[]> => {
-  const [deliveries, drafts, conversations] = await Promise.all([
-    publicIds(
-      "deliveries",
-      rows.map((row) => row.id),
-      db,
-    ),
-    publicIds(
-      "drafts",
-      rows.map((row) => row.draft_id),
-      db,
-    ),
-    publicIds(
-      "conversations",
-      rows.map((row) => row.conversation_id),
-      db,
-    ),
-  ]);
-  return rows.map((row) => {
+const mapRows = (rows: ScheduledRow[]): ScheduledSend[] =>
+  rows.map((row) => {
     const parsed = snapshotSchema.safeParse(row.draft_snapshot);
     if (!parsed.success) throw new Error(`Invalid scheduled-send snapshot for ${row.id}`);
     return {
-      id: requirePublicId(deliveries, row.id),
+      id: row.id,
       commandId: row.command_id,
-      draftId: requirePublicId(drafts, row.draft_id),
-      conversationId: row.conversation_id ? requirePublicId(conversations, row.conversation_id) : null,
+      draftId: row.draft_id,
+      conversationId: row.conversation_id,
       intent: row.intent,
       to: parsed.data.to.map((address) => ({ name: address.name ?? null, address: address.address })),
       cc: parsed.data.cc.map((address) => ({ name: address.name ?? null, address: address.address })),
@@ -116,7 +98,6 @@ const mapRows = async (rows: ScheduledRow[], db: SqlClient = sql): Promise<Sched
       createdAt: toIso(row.created_at),
     };
   });
-};
 
 const scheduledCount = async (mailboxId: string, db: SqlClient = sql): Promise<number> => {
   const [row] = await db<{ total: number | string }[]>`
@@ -192,7 +173,7 @@ export const listScheduledSends = async (params: {
       const total = await scheduledCount(params.mailboxId, tx);
       const hasMore = rows.length > limit;
       const pageRows = hasMore ? rows.slice(0, limit) : rows;
-      const items = await mapRows(pageRows, tx);
+      const items = mapRows(pageRows);
       const last = pageRows.at(-1);
       return ok({
         items,
@@ -254,7 +235,7 @@ export const getScheduledSend = async (params: {
           AND command.kind = 'send'
           AND command.payload ->> 'scheduledAt' IS NOT NULL
       `;
-      return row ? ok((await mapRows([row], tx))[0]!) : fail(err.notFound("Scheduled message not found"));
+      return row ? ok(mapRows([row])[0]!) : fail(err.notFound("Scheduled message not found"));
     });
   } catch {
     return fail(err.internal("Failed to load scheduled message"));

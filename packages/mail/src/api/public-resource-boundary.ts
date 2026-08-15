@@ -52,6 +52,7 @@ const relationTables: Record<string, RelationTable> = {
   conversationIds: "conversations",
   lastConversationId: "conversations",
   sourceMessageId: "messages",
+  outboundMessageId: "messages",
   derivedFromMessageId: "messages",
   referencedMessageId: "messages",
   messageIds: "messages",
@@ -69,6 +70,7 @@ const relationTables: Record<string, RelationTable> = {
   automationId: "incomingAutomations",
   configurationId: "automaticReplyConfigurations",
   scheduledSendId: "deliveries",
+  outboxSubmissionId: "deliveries",
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);

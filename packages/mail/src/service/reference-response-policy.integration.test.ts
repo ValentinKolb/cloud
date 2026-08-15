@@ -437,10 +437,10 @@ suite("conversation references and automatic reply policies", () => {
       context: writerContext,
       mailboxId,
       input: {
-        conversationId: conversation.shortId,
+        conversationId: conversation.id,
         intent: "reply",
-        sourceMessageId: conversation.messageShortIds[0]!,
-        senderIdentityId: identity.short_id,
+        sourceMessageId: conversation.messageIds[0]!,
+        senderIdentityId: identity.id,
         to: [{ name: "Customer", address: "customer@example.com" }],
         cc: [],
         bcc: [],
@@ -475,10 +475,10 @@ suite("conversation references and automatic reply policies", () => {
       context: writerContext,
       mailboxId,
       input: {
-        conversationId: secondConversation.shortId,
+        conversationId: secondConversation.id,
         intent: "reply_all",
-        sourceMessageId: secondConversation.messageShortIds[0]!,
-        senderIdentityId: identity.short_id,
+        sourceMessageId: secondConversation.messageIds[0]!,
+        senderIdentityId: identity.id,
         to: [{ name: "Customer", address: "customer@example.com" }],
         cc: [],
         bcc: [],
@@ -602,7 +602,7 @@ suite("conversation references and automatic reply policies", () => {
       context: ownerContext,
       mailboxId,
       input: {
-        senderIdentityId: identity.short_id,
+        senderIdentityId: identity.id,
         subject: "Re: {{ inputs.message.subject }}",
         body: "Reference: **{{ reference.value }}**",
         format: "markdown",
@@ -621,7 +621,7 @@ suite("conversation references and automatic reply policies", () => {
       context: ownerContext,
       mailboxId,
       input: {
-        senderIdentityId: identity.short_id,
+        senderIdentityId: identity.id,
         subject: "{{ missing.value }}",
         body: "Body",
         format: "plain",
@@ -633,7 +633,7 @@ suite("conversation references and automatic reply policies", () => {
     const input = {
       name: `Out of office ${suffix}`,
       enabled: true,
-      senderIdentityId: identity.short_id,
+      senderIdentityId: identity.id,
       subject: "Re: {{ inputs.message.subject }}",
       body: "I am currently away.",
       format: "markdown" as const,
@@ -669,7 +669,7 @@ suite("conversation references and automatic reply policies", () => {
     expect(created.data).toMatchObject({
       name: input.name,
       enabled: true,
-      senderIdentityId: identity.short_id,
+      senderIdentityId: identity.id,
       inactiveBehavior: "skip",
       revision: 1,
     });
@@ -837,7 +837,7 @@ suite("conversation references and automatic reply policies", () => {
         ORDER BY revision DESC
         LIMIT 1
       ) latest ON true
-      WHERE configuration.short_id = ${created.data.id}
+      WHERE configuration.id = ${created.data.id}::uuid
     `;
     expect(stored).toMatchObject({
       current_version_id: expect.any(String),
@@ -971,7 +971,7 @@ suite("conversation references and automatic reply policies", () => {
         ORDER BY revision DESC
         LIMIT 1
       ) version ON true
-      WHERE configuration.short_id = ${created.data.id}
+      WHERE configuration.id = ${created.data.id}::uuid
     `;
     expect(referenceWorkflow?.source).toContain("ensureConversationReference:");
     expect(referenceWorkflow?.source).toContain("saveAs: reference");
@@ -983,7 +983,7 @@ suite("conversation references and automatic reply policies", () => {
          WHERE activation.workflow_id = workflow.id AND activation.enabled) AS activation_count
       FROM mail.automatic_reply_configurations configuration
       JOIN workflows.workflow workflow ON workflow.id = configuration.workflow_id
-      WHERE configuration.short_id = ${created.data.id}
+      WHERE configuration.id = ${created.data.id}::uuid
     `;
     expect(disabled).toEqual({ active_version_id: expect.any(String), activation_count: 0 });
     const beforeMetadataUpdate = await sql<{ current_version_id: string }[]>`
@@ -996,7 +996,7 @@ suite("conversation references and automatic reply policies", () => {
         ORDER BY revision DESC
         LIMIT 1
       ) latest ON true
-      WHERE configuration.short_id = ${created.data.id}
+      WHERE configuration.id = ${created.data.id}::uuid
     `;
     const referenceConfiguration = await getReferenceConfiguration();
     const stoppedReferenceAllocation = await putConversationReferenceConfiguration({
@@ -1045,7 +1045,7 @@ suite("conversation references and automatic reply policies", () => {
         ORDER BY revision DESC
         LIMIT 1
       ) latest ON true
-      WHERE configuration.short_id = ${created.data.id}
+      WHERE configuration.id = ${created.data.id}::uuid
     `;
     expect(afterMetadataUpdate[0]?.current_version_id).toBe(beforeMetadataUpdate[0]?.current_version_id);
   });

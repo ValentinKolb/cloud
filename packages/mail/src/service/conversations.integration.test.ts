@@ -13,7 +13,7 @@ import { createLocalTag } from "./local-tags";
 import { createMailbox } from "./mailboxes";
 import { hydrateMessageFromSource } from "./message-hydration";
 import { mailNotificationTargetHref, resolveMailNotificationTarget } from "./notification-targets";
-import { publicIds, requirePublicId, resolveMailboxPublicIds } from "./public-resources";
+import { publicIds, requirePublicId } from "./public-resources";
 import { setConversationReminder } from "./reminders";
 import { ingestEnvelope } from "./sync-runtime";
 import { loadMailboxConversationDetail } from "./workspace";
@@ -271,6 +271,16 @@ suite("mail manual conversation threading", () => {
       forwardText: "HTML-only fixture body",
     });
 
+    const sourceDetail = await loadMailboxConversationDetail({
+      context: readerContext,
+      mailboxId,
+      conversationId: sourceConversationId,
+    });
+    expect(sourceDetail?.detailErrors.drafts).toBeNull();
+    expect(sourceDetail?.conversationDrafts).toEqual([
+      expect.objectContaining({ id: expect.stringMatching(/^[0-9a-f-]{36}$/i), subject: "Merged draft", bodyPreview: "Draft body" }),
+    ]);
+
     const crossMailbox = await loadMailboxConversationDetail({
       context: readerContext,
       mailboxId,
@@ -485,10 +495,8 @@ suite("mail manual conversation threading", () => {
       input: { name: "Shared", color: "#2563eb" },
     });
     if (!sourceOnlyTag.ok || !sharedTag.ok) throw new Error("Failed to create merge tag fixtures");
-    const tagIds = await resolveMailboxPublicIds("tags", mailboxId, [sourceOnlyTag.data.id, sharedTag.data.id]);
-    if (!tagIds) throw new Error("Failed to resolve merge tag fixtures");
-    const sourceOnlyTagId = tagIds[0]!;
-    const sharedTagId = tagIds[1]!;
+    const sourceOnlyTagId = sourceOnlyTag.data.id;
+    const sharedTagId = sharedTag.data.id;
     await sql`
       INSERT INTO mail.conversation_local_tags (
         mailbox_id, conversation_id, tag_id, assigned_by_actor_kind, assigned_by_actor_id

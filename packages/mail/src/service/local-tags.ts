@@ -7,7 +7,6 @@ import { requireMailboxPermission } from "./access";
 import { actorRefFromRequest, auditActorFromRequest, type MailRequestContext } from "./auth";
 import { insertActivity } from "./collaboration";
 import { publishMailCollaborationEvent, publishMailMailboxEvent } from "./events";
-import { resolveMailboxPublicId, resolveMailboxPublicIds } from "./public-resources";
 
 type SqlClient = typeof sql;
 
@@ -54,7 +53,7 @@ type ActorIdentity = { kind: "user" | "service_account"; id: string };
 const localTagColumns = sql`tag.id, tag.short_id, tag.mailbox_id, tag.name, tag.color, tag.revision, tag.created_at, tag.updated_at`;
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
 const mapTag = (row: LocalTagRow): LocalTag => ({
-  id: row.short_id,
+  id: row.id,
   mailboxId: row.mailbox_id,
   name: row.name,
   color: row.color,
@@ -620,10 +619,8 @@ export const setConversationLocalTags = async (params: {
       async (tx): Promise<Result<{ state: ConversationLocalTags; activityId: string | null; conversationId: string }>> => {
         const allowed = await lockMailboxForWrite(params.context, params.mailboxId, tx);
         if (!allowed.ok) return allowed;
-        const conversationId = await resolveMailboxPublicId("conversations", params.mailboxId, params.conversationId, tx);
-        const tagIds = await resolveMailboxPublicIds("tags", params.mailboxId, requestedTagIds, tx);
-        if (!conversationId) return fail(err.notFound("Conversation"));
-        if (!tagIds) return fail(err.badInput("Every local tag must belong to this mailbox"));
+        const conversationId = params.conversationId;
+        const tagIds = requestedTagIds;
         const [conversation] = await tx<{ revision: string | number }[]>`
         SELECT revision
         FROM mail.conversations

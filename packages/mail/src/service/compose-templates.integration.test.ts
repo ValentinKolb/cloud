@@ -123,7 +123,7 @@ suite("mail compose templates", () => {
     `;
     if (!identity) throw new Error("Compose test sender identity was not created");
     senderIdentityDbId = identity.id;
-    senderIdentityId = identity.short_id;
+    senderIdentityId = identity.id;
   });
 
   afterAll(async () => {
