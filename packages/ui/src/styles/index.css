@@ -5546,6 +5546,10 @@
   line-height: 1.55;
 }
 
+.k2b-ui .k2b-chat-activity[data-body-inset="false"] > .k2b-chat-activity__body {
+  margin-left: 0;
+}
+
 .k2b-ui .k2b-chat-timeline__retry,
 .k2b-ui .k2b-chat-message__actions button,
 .k2b-ui .k2b-chat-activity button {

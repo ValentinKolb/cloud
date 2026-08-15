@@ -15,6 +15,8 @@ body in the host so `Chat` remains independent from tool protocols.
 Set `busy` on an activity while work is running. Streaming messages and busy
 activities share the same three-dot progress treatment; applications should
 not add a second spinner or visible generating label.
+Activity bodies are inset beneath their row by default. Set `bodyInset={false}`
+when the body is a peer list that should align with the activity row itself.
 
 ## Import
 

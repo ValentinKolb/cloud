@@ -27,6 +27,7 @@ describe("AI chat primitives", () => {
     expect(blocksSource).toContain("busy");
     expect(fileSource).toContain("<Chat.Activity");
     expect(presentationSource).toContain("<Chat.Activity");
+    expect(presentationSource).toContain("bodyInset={false}");
     expect(webSource).toContain("<Chat.Activity");
     expect(webSource).toContain('leading={<Favicon url={url()} fallbackIcon="ti ti-world-download" />}');
   });

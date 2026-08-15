@@ -164,6 +164,7 @@ describe("@k2b/ui portable chat family", () => {
         leading: "Source icon",
         accent: "#0f766e",
         defaultOpen: true,
+        bodyInset: false,
         children: "Source details",
       }),
     );
@@ -181,6 +182,7 @@ describe("@k2b/ui portable chat family", () => {
     expect(activity).toContain("Source details");
     expect(activity).toContain("Source icon");
     expect(activity).toContain('data-accent="true"');
+    expect(activity).toContain('data-body-inset="false"');
     expect(activity).toContain("--k2b-chat-activity-accent:#0f766e");
   });
 
@@ -460,5 +462,6 @@ describe("@k2b/ui portable chat family", () => {
     expect(css).toContain('.k2b-chat-activity[data-accent="true"]:not([data-tone="success"]):not([data-tone="danger"])');
     expect(css).toContain("var(--k2b-chat-activity-accent) 78%, black");
     expect(css).toContain("var(--k2b-chat-activity-accent) 58%, white");
+    expect(css).toContain('.k2b-chat-activity[data-body-inset="false"] > .k2b-chat-activity__body');
   });
 });

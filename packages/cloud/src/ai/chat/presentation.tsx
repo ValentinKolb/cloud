@@ -36,7 +36,7 @@ function AiAssistantContent(props: { item: AiAssistantTimelineItem }): JSX.Eleme
   return (
     <div class="flex flex-col gap-2">
       <Show when={worked().length > 0}>
-        <Chat.Activity icon="ti ti-route" label={`Worked for ${formatWorkedDuration(props.item.workedMs)}`}>
+        <Chat.Activity icon="ti ti-route" label={`Worked for ${formatWorkedDuration(props.item.workedMs)}`} bodyInset={false}>
           <AiTurnBlockList blocks={worked()} turnId={turnId()} compact />
         </Chat.Activity>
       </Show>

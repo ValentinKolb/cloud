@@ -33,6 +33,8 @@ export type ChatActivityProps = {
   busy?: boolean;
   trailing?: JSX.Element;
   defaultOpen?: boolean;
+  /** Set to false when the body is a peer list that should align with the activity row. */
+  bodyInset?: boolean;
   anchorId?: string | number;
   children?: JSX.Element;
   class?: string;
@@ -286,6 +288,7 @@ export function ChatActivity(props: ChatActivityProps): JSX.Element {
         class={`k2b-chat-activity ${props.class ?? ""}`}
         data-tone={tone()}
         data-accent={props.accent ? "true" : undefined}
+        data-body-inset={props.bodyInset === false ? "false" : undefined}
         data-chat-anchor={props.anchorId !== undefined ? String(props.anchorId) : undefined}
         style={style()}
         open={props.defaultOpen}
