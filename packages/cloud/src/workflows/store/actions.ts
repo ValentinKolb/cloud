@@ -74,7 +74,7 @@ const resolveConfig = async (
   ctx: { evaluate(value: WorkflowJsonValue, path?: Array<string | number>): Promise<WorkflowJsonValue> },
   step: WorkflowActionStep,
 ): Promise<Record<string, WorkflowJsonValue>> => {
-  const resolved = await ctx.evaluate(step.config as WorkflowJsonValue, ["config"]);
+  const resolved = await ctx.evaluate(step.config as WorkflowJsonValue, [...step.sourcePath, step.action]);
   return (resolved && typeof resolved === "object" && !Array.isArray(resolved) ? resolved : {}) as Record<string, WorkflowJsonValue>;
 };
 
