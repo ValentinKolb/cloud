@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { NoticeCard, Button, prompts } from "@k2b/ui";
+import { Button, NoticeCard, prompts } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "../../api/client";
 import type { MessageRemoteContent, RemoteContentRule } from "../../service/remote-content";
@@ -13,6 +13,7 @@ import {
   rewriteCidSources,
   rewriteRemoteImageSources,
   splitPlainMessageSegments,
+  splitPlainTextLinks,
 } from "./mail-message-presentation";
 
 const MAX_INLINE_IMAGE_COUNT = 32;
@@ -22,6 +23,23 @@ const REMOTE_IMAGE_WORKERS = 2;
 const REMOTE_IMAGE_REQUEST_GAP_MS = 350;
 
 const sleep = (durationMs: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, durationMs));
+
+const PlainText = (props: { value: string; linksDisabled?: boolean }) => (
+  <For each={splitPlainTextLinks(props.value)}>
+    {(segment) => (
+      <Show when={segment.kind === "link" && !props.linksDisabled} fallback={segment.text}>
+        <a
+          href={segment.kind === "link" ? segment.href : undefined}
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          class="text-current no-underline hover:underline focus-visible:underline"
+        >
+          {segment.text}
+        </a>
+      </Show>
+    )}
+  </For>
+);
 
 export default function MailMessageBody(props: {
   mailboxId: string;
@@ -240,10 +258,14 @@ export default function MailMessageBody(props: {
                     <summary class="w-fit cursor-pointer select-none rounded-[var(--ui-radius-control)] px-2 py-1 text-xs font-medium hover:bg-[var(--ui-hover)]">
                       Show quoted text
                     </summary>
-                    <pre class="mt-2 whitespace-pre-wrap break-words border-l-2 border-default pl-3 font-sans text-sm">{segment.text}</pre>
+                    <pre class="mt-2 whitespace-pre-wrap break-words border-l-2 border-default pl-3 font-sans text-sm">
+                      <PlainText value={segment.text} linksDisabled={props.linksDisabled} />
+                    </pre>
                   </details>
                 ) : (
-                  <pre class="whitespace-pre-wrap break-words font-sans text-sm">{segment.text}</pre>
+                  <pre class="whitespace-pre-wrap break-words font-sans text-sm">
+                    <PlainText value={segment.text} linksDisabled={props.linksDisabled} />
+                  </pre>
                 )
               }
             </For>

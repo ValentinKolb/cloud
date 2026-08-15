@@ -13,6 +13,7 @@ import {
   rewriteCidSources,
   rewriteRemoteImageSources,
   splitPlainMessageSegments,
+  splitPlainTextLinks,
   undoSendSecondsRemaining,
 } from "./mail-message-presentation";
 
@@ -39,6 +40,22 @@ describe("mail message presentation", () => {
       { kind: "content", text: "Reply" },
       { kind: "quote", text: "> first\n\n\n> second" },
       { kind: "content", text: "After" },
+    ]);
+  });
+
+  test("recognizes safe web links in plain text and keeps surrounding punctuation", () => {
+    expect(splitPlainTextLinks("See https://example.com/a_(b), then http://example.org?q=1.")).toEqual([
+      { kind: "text", text: "See " },
+      { kind: "link", text: "https://example.com/a_(b)", href: "https://example.com/a_(b)" },
+      { kind: "text", text: ", then " },
+      { kind: "link", text: "http://example.org?q=1", href: "http://example.org?q=1" },
+      { kind: "text", text: "." },
+    ]);
+  });
+
+  test("does not turn non-web protocols or malformed URLs into links", () => {
+    expect(splitPlainTextLinks("javascript:alert(1) mailto:test@example.com https://")).toEqual([
+      { kind: "text", text: "javascript:alert(1) mailto:test@example.com https://" },
     ]);
   });
 

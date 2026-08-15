@@ -1,5 +1,5 @@
-import type { CloudTheme } from "@valentinkolb/cloud/shared";
 import type { StatusTone } from "@k2b/ui";
+import type { CloudTheme } from "@valentinkolb/cloud/shared";
 import type { MessageDeliveryState } from "../../service/messages";
 import type { MailReadingFormat } from "./mail-user-preferences";
 
@@ -8,11 +8,14 @@ type PlainMessageSegment = {
   text: string;
 };
 
+export type PlainTextLinkSegment = { kind: "text"; text: string } | { kind: "link"; text: string; href: string };
+
 export type MessageBodyFormat = "html" | "plain";
 
 export { attachmentPreviewKind } from "../../attachment-preview-policy";
 
 const QUOTED_LINE = /^\s*>/u;
+const PLAIN_WEB_URL = /\bhttps?:\/\/[^\s<>"'`]+/giu;
 const CID_SOURCE = /\bsrc=(["'])cid:([^"']+)\1/giu;
 const REMOTE_IMAGE_ATTRIBUTE =
   /\bdata-mail-remote-image=(["'])([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\1/giu;
@@ -95,6 +98,39 @@ export const splitPlainMessageSegments = (value: string): PlainMessageSegment[] 
   }
   flush();
   return segments;
+};
+
+const trimTrailingUrlPunctuation = (value: string): string => {
+  let result = value.replace(/[.,;:!?]+$/gu, "");
+  for (const [opening, closing] of [
+    ["(", ")"],
+    ["[", "]"],
+    ["{", "}"],
+  ] as const) {
+    while (result.endsWith(closing) && result.split(opening).length < result.split(closing).length) result = result.slice(0, -1);
+  }
+  return result;
+};
+
+export const splitPlainTextLinks = (value: string): PlainTextLinkSegment[] => {
+  const segments: PlainTextLinkSegment[] = [];
+  let cursor = 0;
+  for (const match of value.matchAll(PLAIN_WEB_URL)) {
+    const index = match.index;
+    const candidate = trimTrailingUrlPunctuation(match[0]);
+    if (!candidate) continue;
+    try {
+      const url = new URL(candidate);
+      if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+    } catch {
+      continue;
+    }
+    if (index > cursor) segments.push({ kind: "text", text: value.slice(cursor, index) });
+    segments.push({ kind: "link", text: candidate, href: candidate });
+    cursor = index + candidate.length;
+  }
+  if (cursor < value.length) segments.push({ kind: "text", text: value.slice(cursor) });
+  return segments.length > 0 ? segments : [{ kind: "text", text: value }];
 };
 
 export const messagePreviewText = (plainText: string | null, forwardText: string, maxLength = 240): string => {
