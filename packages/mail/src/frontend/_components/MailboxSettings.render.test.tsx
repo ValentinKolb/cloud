@@ -78,6 +78,7 @@ describe("Mailbox settings composition", () => {
     expect(html).toContain("Compose");
     expect(html).toContain("My writing defaults");
     expect(html).toContain("Signatures and snippets");
+    expect(html).toContain('class="flex flex-col gap-8"');
     expect(html).toContain("Organization");
     expect(html).not.toContain("Shared identity and sending safeguards.");
     expect(html).not.toContain("Accounts &amp; identities");
@@ -92,6 +93,14 @@ describe("Mailbox settings composition", () => {
     expect(calendar).toContain("Default destination for imported invitations.");
     expect(calendar).toContain("Default destination");
     expect(calendar).not.toContain("No unsaved changes");
+  });
+
+  test("keeps connected accounts and sending identities in one spaced stack", () => {
+    const html = renderSettings("admin", "delivery");
+
+    expect(html).toContain("Connected account");
+    expect(html).toContain("Sending identities");
+    expect(html).toContain('class="flex flex-col gap-8"');
   });
 
   test("keeps reader settings personal and hides administrator categories", () => {

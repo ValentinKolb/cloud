@@ -385,59 +385,61 @@ export default function MailboxSettings(props: {
               icon="ti ti-pencil"
               description="Personal defaults and reusable mailbox content."
             >
-              <SettingsGroup title="My writing defaults" description="These defaults apply only to this browser.">
-                <SettingsField
-                  label="Compose format"
-                  description="Used for new messages, replies, and forwards."
-                  error={() => undefined}
-                  changed={() => composeFormat() !== savedComposeFormat()}
-                >
-                  {(control) => (
-                    <Select
-                      aria-label="Compose format"
-                      aria-describedby={control.describedBy()}
-                      value={composeFormat}
-                      onValueChange={(value) => setComposeFormat(value === "plain" ? "plain" : "markdown")}
-                      options={[
-                        { id: "markdown", label: "Markdown", icon: "ti ti-markdown" },
-                        { id: "plain", label: "Plain text", icon: "ti ti-align-left" },
-                      ]}
-                    />
-                  )}
-                </SettingsField>
-                <SettingsField
-                  label="Undo send window"
-                  description="Delay delivery so you can cancel a queued message."
-                  error={() => undefined}
-                  changed={() => undoSeconds() !== savedUndoSeconds()}
-                >
-                  {(control) => (
-                    <NumberInput
-                      aria-label="Undo send window"
-                      aria-describedby={control.describedBy()}
-                      value={undoSeconds}
-                      onValueChange={(value) => setUndoSeconds(value ?? 0)}
-                      min={0}
-                      max={60}
-                      allowNegative={false}
-                      suffix="seconds"
-                    />
-                  )}
-                </SettingsField>
-              </SettingsGroup>
-              <MailComposeSettings
-                mailboxId={props.context.mailbox.id}
-                permission={props.context.permission === "admin" ? "admin" : "write"}
-                initialTemplates={compose().templates}
-                initialDefaults={compose().defaults}
-                initialStyle={compose().style}
-                identities={compose().identities}
-                onTemplatesChange={(templates) =>
-                  props.onContextChange((context) =>
-                    context.compose ? { ...context, compose: { ...context.compose, templates } } : context,
-                  )
-                }
-              />
+              <div class="flex flex-col gap-8">
+                <SettingsGroup title="My writing defaults" description="These defaults apply only to this browser.">
+                  <SettingsField
+                    label="Compose format"
+                    description="Used for new messages, replies, and forwards."
+                    error={() => undefined}
+                    changed={() => composeFormat() !== savedComposeFormat()}
+                  >
+                    {(control) => (
+                      <Select
+                        aria-label="Compose format"
+                        aria-describedby={control.describedBy()}
+                        value={composeFormat}
+                        onValueChange={(value) => setComposeFormat(value === "plain" ? "plain" : "markdown")}
+                        options={[
+                          { id: "markdown", label: "Markdown", icon: "ti ti-markdown" },
+                          { id: "plain", label: "Plain text", icon: "ti ti-align-left" },
+                        ]}
+                      />
+                    )}
+                  </SettingsField>
+                  <SettingsField
+                    label="Undo send window"
+                    description="Delay delivery so you can cancel a queued message."
+                    error={() => undefined}
+                    changed={() => undoSeconds() !== savedUndoSeconds()}
+                  >
+                    {(control) => (
+                      <NumberInput
+                        aria-label="Undo send window"
+                        aria-describedby={control.describedBy()}
+                        value={undoSeconds}
+                        onValueChange={(value) => setUndoSeconds(value ?? 0)}
+                        min={0}
+                        max={60}
+                        allowNegative={false}
+                        suffix="seconds"
+                      />
+                    )}
+                  </SettingsField>
+                </SettingsGroup>
+                <MailComposeSettings
+                  mailboxId={props.context.mailbox.id}
+                  permission={props.context.permission === "admin" ? "admin" : "write"}
+                  initialTemplates={compose().templates}
+                  initialDefaults={compose().defaults}
+                  initialStyle={compose().style}
+                  identities={compose().identities}
+                  onTemplatesChange={(templates) =>
+                    props.onContextChange((context) =>
+                      context.compose ? { ...context, compose: { ...context.compose, templates } } : context,
+                    )
+                  }
+                />
+              </div>
               <SettingsModal.Footer>
                 <SettingsPanelFooter
                   changeCount={writingChangeCount}
@@ -572,41 +574,43 @@ export default function MailboxSettings(props: {
             icon="ti ti-send"
             description="Provider connection and selectable sender identities."
           >
-            <Show when={healthPresentation()}>
-              {(health) => (
-                <NoticeCard tone={health().tone} icon={false} bodyClass="flex items-start gap-2" role="status">
-                  <i
-                    class={`ti ${health().tone === "warning" ? "ti-alert-triangle" : "ti-info-circle"} mt-0.5 shrink-0`}
-                    aria-hidden="true"
-                  />
-                  <span>
-                    <strong class="font-semibold text-primary">{health().title}.</strong> {health().message}
-                  </span>
-                </NoticeCard>
-              )}
-            </Show>
-            <SettingsGroup title="Connected account" description="The encrypted IMAP and SMTP credential used by this mailbox.">
-              <MailConnectionSettings
+            <div class="flex flex-col gap-8">
+              <Show when={healthPresentation()}>
+                {(health) => (
+                  <NoticeCard tone={health().tone} icon={false} bodyClass="flex items-start gap-2" role="status">
+                    <i
+                      class={`ti ${health().tone === "warning" ? "ti-alert-triangle" : "ti-info-circle"} mt-0.5 shrink-0`}
+                      aria-hidden="true"
+                    />
+                    <span>
+                      <strong class="font-semibold text-primary">{health().title}.</strong> {health().message}
+                    </span>
+                  </NoticeCard>
+                )}
+              </Show>
+              <SettingsGroup title="Connected account" description="The encrypted IMAP and SMTP credential used by this mailbox.">
+                <MailConnectionSettings
+                  mailbox={props.context.mailbox}
+                  admin={admin()}
+                  currentUserEmail={props.currentUserEmail}
+                  reloading={props.reloading}
+                  onReload={props.onReload}
+                  onWorkspaceChange={props.onWorkspaceChange}
+                />
+              </SettingsGroup>
+              <MailIdentitySettings
                 mailbox={props.context.mailbox}
                 admin={admin()}
+                mailboxSignatures={
+                  props.context.compose?.templates.filter((template) => template.kind === "signature" && template.scope === "mailbox") ?? []
+                }
                 currentUserEmail={props.currentUserEmail}
                 reloading={props.reloading}
+                onDirtyChange={(dirty) => setChildDirty("identity", dirty)}
                 onReload={props.onReload}
                 onWorkspaceChange={props.onWorkspaceChange}
               />
-            </SettingsGroup>
-            <MailIdentitySettings
-              mailbox={props.context.mailbox}
-              admin={admin()}
-              mailboxSignatures={
-                props.context.compose?.templates.filter((template) => template.kind === "signature" && template.scope === "mailbox") ?? []
-              }
-              currentUserEmail={props.currentUserEmail}
-              reloading={props.reloading}
-              onDirtyChange={(dirty) => setChildDirty("identity", dirty)}
-              onReload={props.onReload}
-              onWorkspaceChange={props.onWorkspaceChange}
-            />
+            </div>
           </SettingsModal.Tab>
           <Show when={props.context.integrations.spacesCalendar}>
             <SettingsModal.Tab
