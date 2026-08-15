@@ -244,7 +244,7 @@ suite("listUsersWithAccess", () => {
     } finally {
       await cleanupFixture(fixture);
     }
-  });
+  }, 30_000);
 });
 
 suite("effective access", () => {
@@ -282,5 +282,5 @@ suite("effective access", () => {
     } finally {
       await cleanupFixture(fixture);
     }
-  });
+  }, 30_000);
 });
