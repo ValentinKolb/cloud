@@ -104,7 +104,8 @@ describe("Spaces item detail panel", () => {
     expect(html).toContain("Event time");
     expect(html).toContain('aria-label="Event context"');
     expect(html).toContain('aria-label="Organization"');
-    expect(html).toContain("Invite or update");
+    expect(html).toContain("Prepare invitation");
+    expect(html).not.toContain("Invite attendees through Mail.");
     expect(html).toContain('class="k2b-detail-panel__action');
     expect(html).toContain('class="k2b-discussion');
     expect(html).toContain('class="k2b-discussion__composer');
@@ -182,7 +183,7 @@ describe("Spaces item detail panel", () => {
     expect(html).toContain('aria-label="Post comment"');
     expect(html).not.toContain('aria-label="More item actions"');
     expect(html).not.toContain("Mark complete");
-    expect(html).not.toContain("Invite or update");
+    expect(html).not.toContain("Prepare invitation");
     expect(html).not.toContain("Link Cloud resource");
   });
 

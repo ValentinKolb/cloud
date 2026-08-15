@@ -112,7 +112,7 @@ function InvitationDialog(props: {
         if (!response.ok) throw new Error(await readResponseError(response, "Could not create the invitation draft"));
         const result = await response.json();
         intent.mailTab.location.replace(new URL(result.href, window.location.origin).href);
-        toast.success(props.method === "cancel" ? "Cancellation email created" : "Invitation email created");
+        toast.success(props.method === "cancel" ? "Cancellation opened in Mail" : "Invitation opened in Mail");
         props.onCreated();
         props.close();
       } catch (error) {
@@ -120,7 +120,10 @@ function InvitationDialog(props: {
         throw error;
       }
     },
-    onError: (error) => prompts.error(error.message, { title: "Could not create email" }),
+    onError: (error) =>
+      prompts.error(error.message, {
+        title: props.method === "cancel" ? "Could not prepare cancellation" : "Could not prepare invitation",
+      }),
   });
   const createInvitation = () => {
     if (create.loading()) return;
@@ -159,12 +162,21 @@ function InvitationDialog(props: {
   return (
     <PanelDialog>
       <PanelDialog.Header
-        title={props.method === "cancel" ? "Cancel invitations" : "Invite attendees"}
-        subtitle="Spaces owns the event. Mail opens an editable message before anything is sent."
+        title={props.method === "cancel" ? "Prepare cancellation" : "Prepare invitation"}
+        subtitle="Choose the sender and recipients."
         icon={props.method === "cancel" ? "ti ti-calendar-cancel" : "ti ti-calendar-share"}
         close={props.close}
       />
       <PanelDialog.Body>
+        <NoticeCard
+          tone="info"
+          title="Review before sending"
+          detail={
+            props.method === "cancel"
+              ? "Nothing is sent yet. Review the cancellation in Mail before sending it."
+              : "Nothing is sent yet. People who already received this invitation will get an update when you send it."
+          }
+        />
         <Show
           when={context()}
           fallback={
@@ -248,12 +260,12 @@ function InvitationDialog(props: {
           type="button"
           variant={props.method === "cancel" ? "danger" : "primary"}
           loading={create.loading()}
-          loadingLabel="Creating Mail"
+          loadingLabel={props.method === "cancel" ? "Preparing cancellation" : "Preparing invitation"}
           disabled={contextQuery.loading() || !context() || !mailboxId() || !senderIdentityId()}
           onClick={createInvitation}
         >
           <i class="ti ti-mail-plus" aria-hidden="true" />
-          Create Mail
+          Continue in Mail
         </Button>
       </PanelDialog.Footer>
     </PanelDialog>
@@ -263,10 +275,7 @@ function InvitationDialog(props: {
 const openDialog = (spaceId: string, itemId: string, method: "request" | "cancel", onCreated: () => void) =>
   dialogCore.open<void>(
     (close) => <InvitationDialog spaceId={spaceId} itemId={itemId} method={method} close={() => close()} onCreated={onCreated} />,
-    {
-      ...panelDialogOptions,
-      cancelBehavior: "ignore",
-    },
+    panelDialogOptions,
   );
 
 export default function EventInvitations(props: { spaceId: string; itemId: string }) {
@@ -276,10 +285,10 @@ export default function EventInvitations(props: { spaceId: string; itemId: strin
   });
   const context = contextQuery.data;
   const reconcile = () => {
-    void contextQuery.invalidate().catch(() => prompts.error("Email created, but invitation status could not be refreshed."));
+    void contextQuery.invalidate().catch(() => prompts.error("Invitation prepared, but its status could not be refreshed."));
   };
   return (
-    <DetailPanel.Section title="Invitations" description="Invite attendees through Mail." icon="ti ti-calendar-share" tone="accent">
+    <DetailPanel.Section title="Invitations" icon="ti ti-calendar-share" tone="accent">
       <Show when={contextQuery.error()}>
         {(error) => (
           <Placeholder
@@ -309,14 +318,14 @@ export default function EventInvitations(props: { spaceId: string; itemId: strin
         <DetailPanel.Action
           type="button"
           leading={<i class="ti ti-calendar-share" aria-hidden="true" />}
-          title="Invite or update"
+          title="Prepare invitation"
           onClick={() => openDialog(props.spaceId, props.itemId, "request", reconcile)}
         />
         <Show when={context()?.canCancel}>
           <DetailPanel.Action
             type="button"
             leading={<i class="ti ti-calendar-cancel" aria-hidden="true" />}
-            title="Cancel invitations"
+            title="Prepare cancellation"
             onClick={() => openDialog(props.spaceId, props.itemId, "cancel", reconcile)}
           />
         </Show>
