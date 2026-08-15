@@ -141,7 +141,7 @@ Each property declares which sources and target type it accepts. Validation reso
 
 ## Define blocks {icon="blocks"}
 
-All blocks require a local `id` and `type`. Blocks may support an optional `title` and `availableWhen`; Records, Record, and Comments additionally support `emptyText`. The installed machine reference is authoritative for each block type.
+All blocks require a local `id` and `type`. Blocks may support an optional `title` and `availableWhen`; Records and Record additionally support `emptyText`. The installed machine reference is authoritative for each block type.
 
 ```yaml
 # Guidance

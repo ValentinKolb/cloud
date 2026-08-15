@@ -19,14 +19,14 @@ describe("Discussion", () => {
       createComponent(Discussion, {
         label: "Notes",
         icon: "ti ti-note",
-        count: "2 notes",
+        count: 2,
         actions: "Add note",
         get children() {
           return [
             createComponent(Discussion.Composer, {
-              actions: "Cancel Post note",
-              insetAction: "Quick post",
-              children: "Markdown editor",
+              label: "Add note",
+              submitLabel: "Post note",
+              onSubmit: () => undefined,
             }),
             createComponent(Discussion.List, {
               get children() {
@@ -59,11 +59,12 @@ describe("Discussion", () => {
     expect(html).toContain("Reply to Alex Smith");
   });
 
-  test("supports an inset primary action without requiring footer actions", async () => {
+  test("owns the Markdown composer and inset submit action", async () => {
     const html = renderToString(() =>
       createComponent(Discussion.Composer, {
-        insetAction: "Post note",
-        children: "Markdown editor",
+        label: "Add note",
+        submitLabel: "Post note",
+        onSubmit: () => undefined,
       }),
     );
     const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
@@ -87,7 +88,7 @@ describe("Discussion", () => {
         label: "Questions and updates",
         as: "h2",
         surface: "bare",
-        children: createComponent(Discussion.List, { children: "No comments yet." }),
+        children: createComponent(Discussion.List, {}),
       }),
     );
     const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();

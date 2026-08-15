@@ -2318,9 +2318,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                       error={() => diagnosticFor(selected().block.id, "availableWhen")}
                     />
                     <Show
-                      when={
-                        selected().block.type === "records" || selected().block.type === "record" || selected().block.type === "comments"
-                      }
+                      when={selected().block.type === "records" || selected().block.type === "record"}
                     >
                       <DetailPanel.Section
                         title="Empty state"
@@ -2333,15 +2331,11 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                           label="Message"
                           value={() => {
                             const block = selected().block;
-                            return block.type === "records" || block.type === "record" || block.type === "comments"
-                              ? (block.emptyText ?? "")
-                              : "";
+                            return block.type === "records" || block.type === "record" ? (block.emptyText ?? "") : "";
                           }}
                           onValueChange={(emptyText) =>
                             updateSelectedBlock((block) =>
-                              block.type === "records" || block.type === "record" || block.type === "comments"
-                                ? { ...block, emptyText: emptyText || undefined }
-                                : block,
+                              block.type === "records" || block.type === "record" ? { ...block, emptyText: emptyText || undefined } : block,
                             )
                           }
                           clearable

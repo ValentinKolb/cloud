@@ -1,3 +1,4 @@
+import type { Paginated } from "@k2b/stdlib";
 import { query } from "@k2b/stdlib/solid";
 import { Avatar, Button, ButtonLink, DescriptionList, DetailPanel, Dropdown, IconButton, Placeholder, Tag, Tooltip } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -26,7 +27,7 @@ type Props = {
   initialContact: Contact | null;
   initialContactId: string | null;
   initialBookId: string | null;
-  initialNotes: ContactNote[];
+  initialNotesPage: Paginated<ContactNote>;
   contacts: Contact[];
   bookNames: Record<string, string>;
   writableBooks: Array<{ id: string; name: string }>;
@@ -361,7 +362,7 @@ export default function ContactDetailPanel(props: Props) {
                         </Show>
                         <Show when={actions.canEdit()}>
                           <Button variant="secondary" size="sm" onClick={() => requestContactNoteComposer(c().id)}>
-                            <i class="ti ti-note" aria-hidden="true" /> Note
+                            <i class="ti ti-message" aria-hidden="true" /> Comment
                           </Button>
                         </Show>
                       </nav>
@@ -684,14 +685,20 @@ export default function ContactDetailPanel(props: Props) {
                     </DetailPanel.Group>
                   </Show>
 
-                  <ContactNotesSection
-                    bookId={c().bookId}
-                    contactId={c().id}
-                    currentUserId={props.currentUserId}
-                    initialNotes={c().id === props.initialContactId ? props.initialNotes : []}
-                    canWrite={actions.canEdit()}
-                    isBookAdmin={props.adminBookIds.includes(c().bookId)}
-                  />
+                  <Show when={`${c().bookId}:${c().id}`} keyed>
+                    {(_contactKey) => (
+                      <ContactNotesSection
+                        bookId={c().bookId}
+                        contactId={c().id}
+                        currentUserId={props.currentUserId}
+                        initialNotesPage={
+                          c().id === props.initialContactId && c().bookId === props.initialBookId ? props.initialNotesPage : undefined
+                        }
+                        canWrite={actions.canEdit()}
+                        isBookAdmin={props.adminBookIds.includes(c().bookId)}
+                      />
+                    )}
+                  </Show>
                 </DetailPanel.Body>
               </DetailPanel>
             }

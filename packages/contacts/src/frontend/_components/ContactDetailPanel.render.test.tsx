@@ -127,7 +127,7 @@ describe("Contacts detail panels", () => {
         initialContact={contact}
         initialContactId={contact.id}
         initialBookId={contact.bookId}
-        initialNotes={[note]}
+        initialNotesPage={{ items: [note], page: 1, perPage: 30, total: 1, hasNext: false }}
         contacts={[contact]}
         bookNames={{ team: "Team contacts" }}
         writableBooks={[{ id: "team", name: "Team contacts" }]}
@@ -153,9 +153,9 @@ describe("Contacts detail panels", () => {
     expect(html).toContain('href="mailto:ada@example.com"');
     expect(html).toContain('href="tel:+44 20 7946 0958"');
     expect(html).toContain("Organization");
-    expect(html).toContain("Notes");
+    expect(html).toContain("Comments");
     expect(html).toContain('class="k2b-discussion');
-    expect(html).toContain('class="k2b-discussion__item"');
+    expect(html).toContain('class="k2b-discussion__item');
     expect(html).toContain("Follow up next week.");
     expect(html).toContain("Grace Hopper");
     expect(html).toContain("k2b-tag__label");
@@ -194,7 +194,7 @@ describe("Contacts detail panels", () => {
         initialContact={sparseContact}
         initialContactId={sparseContact.id}
         initialBookId={sparseContact.bookId}
-        initialNotes={[]}
+        initialNotesPage={{ items: [], page: 1, perPage: 30, total: 0, hasNext: false }}
         contacts={[sparseContact]}
         bookNames={{ team: "Team contacts" }}
         writableBooks={[]}
@@ -207,13 +207,13 @@ describe("Contacts detail panels", () => {
 
     expect(html).toContain("Read only contact");
     expect(html).toContain("Overview");
-    expect(html).toContain("Notes");
+    expect(html).toContain("Comments");
     expect(html).not.toContain('class="k2b-detail-panel__primary-actions"');
     expect(html).not.toContain('class="k2b-detail-panel__group"');
     expect(html).not.toContain("Reach");
     expect(html).not.toContain("Organization");
     expect(html).not.toContain("Quick edit");
-    expect(html).not.toContain("Add note");
+    expect(html).not.toContain("Add comment");
   });
 
   test("uses the same panel and single scroll owner for the organization tree", () => {

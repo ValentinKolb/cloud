@@ -1,25 +1,40 @@
-import { createUniqueId, type JSX, Show, splitProps } from "solid-js";
+import { createEffect, createSignal, createUniqueId, type JSX, onCleanup, onMount, Show, splitProps } from "solid-js";
+import { Button, IconButton } from "../actions/Button";
+import { MarkdownEditor } from "../inputs/markdown/MarkdownEditor";
 
 export type DiscussionProps = Omit<JSX.HTMLAttributes<HTMLElement>, "children" | "class"> & {
   label: JSX.Element;
   children: JSX.Element;
   icon?: string | false;
-  count?: JSX.Element;
+  count?: number;
   actions?: JSX.Element;
   as?: "h2" | "h3";
   surface?: "default" | "bare";
   class?: string;
 };
 
-export type DiscussionComposerProps = Omit<JSX.FormHTMLAttributes<HTMLFormElement>, "children" | "class"> & {
-  children: JSX.Element;
-  actions?: JSX.Element;
-  insetAction?: JSX.Element;
+export type DiscussionComposerProps = Omit<JSX.FormHTMLAttributes<HTMLFormElement>, "children" | "class" | "onSubmit"> & {
+  label: string;
+  onSubmit: (message: string) => boolean | void | Promise<boolean | void>;
+  initialValue?: string;
+  placeholder?: string;
+  submitLabel?: string;
+  cancelLabel?: string;
+  onCancel?: () => void;
+  lines?: number;
   class?: string;
 };
 
 export type DiscussionListProps = {
-  children: JSX.Element;
+  children?: JSX.Element;
+  loading?: boolean;
+  loadingLabel?: string;
+  error?: string | null;
+  onRetry?: () => void | Promise<void>;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  loadMoreLabel?: string;
+  onLoadMore?: () => boolean | void | Promise<boolean | void>;
   class?: string;
 };
 
@@ -78,25 +93,214 @@ const DiscussionRoot = (props: DiscussionProps): JSX.Element => {
 };
 
 const DiscussionComposer = (props: DiscussionComposerProps): JSX.Element => {
-  const [local, formProps] = splitProps(props, ["children", "actions", "insetAction", "class"]);
+  const [local, formProps] = splitProps(props, [
+    "label",
+    "onSubmit",
+    "initialValue",
+    "placeholder",
+    "submitLabel",
+    "cancelLabel",
+    "onCancel",
+    "lines",
+    "class",
+  ]);
+  const [message, setMessage] = createSignal(local.initialValue ?? "");
+  const [submitting, setSubmitting] = createSignal(false);
+  const [submitError, setSubmitError] = createSignal<string | null>(null);
+
+  const submit = async () => {
+    const normalized = message().trim();
+    if (!normalized || submitting()) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const accepted = await local.onSubmit(normalized);
+      if (accepted !== false) setMessage("");
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Could not post message");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
-    <form {...formProps} class={classNames("k2b-discussion__composer", local.class)}>
-      <div class="k2b-discussion__composer-field" data-has-inset-action={local.insetAction !== undefined ? "true" : undefined}>
-        {local.children}
-        <Show when={local.insetAction !== undefined}>
-          <div class="k2b-discussion__composer-inset-action">{local.insetAction}</div>
-        </Show>
+    <form
+      {...formProps}
+      class={classNames("k2b-discussion__composer", local.class)}
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <div class="k2b-discussion__composer-field" data-has-inset-action="true">
+        <MarkdownEditor
+          aria-label={local.label}
+          value={message}
+          onValueChange={(value) => {
+            setMessage(value);
+            if (value.trim()) setSubmitError(null);
+          }}
+          placeholder={local.placeholder}
+          lines={local.lines ?? 4}
+          noToolbar
+          showStats={false}
+          disabled={submitting()}
+          error={submitError() !== null}
+          onSubmit={() => void submit()}
+        />
+        <div class="k2b-discussion__composer-inset-action">
+          <IconButton
+            type="submit"
+            label={local.submitLabel ?? "Post message"}
+            size="sm"
+            variant="primary"
+            loading={submitting()}
+            disabled={submitting() || !message().trim()}
+          >
+            <i class="ti ti-send" aria-hidden="true" />
+          </IconButton>
+        </div>
       </div>
-      <Show when={local.actions !== undefined}>
-        <footer>{local.actions}</footer>
+      <Show when={submitError()}>
+        {(error) => (
+          <p class="k2b-discussion__status" role="alert">
+            {error()}
+          </p>
+        )}
+      </Show>
+      <Show when={local.onCancel}>
+        {(onCancel) => (
+          <footer>
+            <Button type="button" variant="ghost" size="xs" disabled={submitting()} onClick={onCancel()}>
+              {local.cancelLabel ?? "Cancel"}
+            </Button>
+          </footer>
+        )}
       </Show>
     </form>
   );
 };
 
-const DiscussionList = (props: DiscussionListProps): JSX.Element => (
-  <ol class={classNames("k2b-discussion__list", props.class)}>{props.children}</ol>
-);
+const scrollOwner = (element: HTMLElement): HTMLElement | null => {
+  let parent = element.parentElement;
+  while (parent) {
+    const style = getComputedStyle(parent);
+    if (style.overflowY === "auto" || style.overflowY === "scroll" || style.overflow === "auto" || style.overflow === "scroll")
+      return parent;
+    parent = parent.parentElement;
+  }
+  return document.scrollingElement instanceof HTMLElement ? document.scrollingElement : null;
+};
+
+const DiscussionList = (props: DiscussionListProps): JSX.Element => {
+  const [loadingMoreInternally, setLoadingMoreInternally] = createSignal(false);
+  const [loadMoreError, setLoadMoreError] = createSignal<string | null>(null);
+  const [sentinelVisible, setSentinelVisible] = createSignal(false);
+  const [automaticLoadAttempted, setAutomaticLoadAttempted] = createSignal(false);
+  let listRef: HTMLOListElement | undefined;
+  let sentinelRef: HTMLDivElement | undefined;
+  let observer: IntersectionObserver | undefined;
+  let adjustmentFrame: number | undefined;
+  let active = true;
+
+  const loadingMore = () => Boolean(props.loadingMore || loadingMoreInternally());
+  const canLoadMore = () =>
+    Boolean(!props.loading && !props.error && !loadMoreError() && props.hasMore && props.onLoadMore && !loadingMore());
+
+  const loadMore = async (retry = false): Promise<boolean> => {
+    if (props.loading || props.error || (!retry && loadMoreError()) || !props.onLoadMore || !props.hasMore || loadingMore()) return false;
+    const owner = listRef ? scrollOwner(listRef) : null;
+    const previousScrollHeight = owner?.scrollHeight ?? 0;
+    setLoadMoreError(null);
+    setLoadingMoreInternally(true);
+    let loaded = false;
+    try {
+      loaded = (await props.onLoadMore()) !== false;
+    } catch (error) {
+      if (active) setLoadMoreError(error instanceof Error ? error.message : "Could not load earlier messages");
+    } finally {
+      if (active) setLoadingMoreInternally(false);
+    }
+    if (!active || !loaded || !owner) return false;
+    queueMicrotask(() => {
+      if (!active) return;
+      adjustmentFrame = requestAnimationFrame(() => {
+        if (!active) return;
+        owner.scrollTop += owner.scrollHeight - previousScrollHeight;
+      });
+    });
+    return true;
+  };
+
+  createEffect(() => {
+    if (!sentinelVisible()) {
+      setAutomaticLoadAttempted(false);
+      return;
+    }
+    if (automaticLoadAttempted() || !canLoadMore()) return;
+    setAutomaticLoadAttempted(true);
+    void loadMore();
+  });
+
+  onMount(() => {
+    if (typeof IntersectionObserver === "undefined" || !sentinelRef) return;
+    observer = new IntersectionObserver(
+      (entries) => {
+        setSentinelVisible(entries.some((entry) => entry.isIntersecting));
+      },
+      { rootMargin: "160px 0px 0px" },
+    );
+    observer.observe(sentinelRef);
+  });
+
+  onCleanup(() => {
+    active = false;
+    observer?.disconnect();
+    if (adjustmentFrame !== undefined) cancelAnimationFrame(adjustmentFrame);
+  });
+
+  return (
+    <div class={classNames("k2b-discussion__list-region", props.class)} aria-busy={props.loading || loadingMore() ? "true" : undefined}>
+      <div ref={sentinelRef} class="k2b-discussion__sentinel" aria-hidden="true" />
+      <Show when={props.loading}>
+        <p class="k2b-discussion__status" role="status">
+          <i class="ti ti-loader-2 k2b-spin" aria-hidden="true" /> {props.loadingLabel ?? "Loading messages"}
+        </p>
+      </Show>
+      <Show when={props.error}>
+        {(error) => (
+          <div class="k2b-discussion__status" role="alert">
+            <span>{error()}</span>
+            <Show when={props.onRetry}>
+              <button type="button" onClick={props.onRetry}>
+                Retry
+              </button>
+            </Show>
+          </div>
+        )}
+      </Show>
+      <Show when={loadMoreError()}>
+        {(error) => (
+          <div class="k2b-discussion__status" role="alert">
+            <span>{error()}</span>
+            <button type="button" onClick={() => void loadMore(true)}>
+              Retry
+            </button>
+          </div>
+        )}
+      </Show>
+      <Show when={!props.loading && !props.error && !loadMoreError() && (canLoadMore() || loadingMore())}>
+        <button type="button" class="k2b-discussion__load-more" disabled={loadingMore()} onClick={() => void loadMore()}>
+          <i class={`ti ${loadingMore() ? "ti-loader-2 k2b-spin" : "ti-history"}`} aria-hidden="true" />
+          {loadingMore() ? (props.loadingLabel ?? "Loading messages") : (props.loadMoreLabel ?? "Load earlier")}
+        </button>
+      </Show>
+      <ol ref={listRef} class="k2b-discussion__list">
+        {props.children}
+      </ol>
+    </div>
+  );
+};
 
 const DiscussionItem = (props: DiscussionItemProps): JSX.Element => {
   const [local, itemProps] = splitProps(props, [

@@ -119,7 +119,7 @@ describe("Contacts detail query behavior", () => {
           initialContact: null,
           initialContactId: null,
           initialBookId: null,
-          initialNotes: [],
+          initialNotesPage: { items: [], page: 1, perPage: 30, total: 0, hasNext: false },
           contacts: [contact],
           bookNames: { team: "Team" },
           writableBooks: [],
@@ -166,7 +166,7 @@ describe("Contacts detail query behavior", () => {
       const request = input instanceof Request ? input : new Request(new URL(String(input), "http://localhost"), init);
       requests.push({ method: request.method, url: request.url });
       if (request.method === "DELETE") return new Response(null, { status: 204 });
-      return Response.json([]);
+      return Response.json({ items: [], page: 1, perPage: 30, total: 0, hasNext: false });
     };
     const [bookId, setBookId] = createSignal("book-a");
     const [contactId, setContactId] = createSignal("contact-a");
@@ -181,14 +181,14 @@ describe("Contacts detail query behavior", () => {
             return contactId();
           },
           currentUserId: "user-1",
-          initialNotes: [note],
+          initialNotesPage: { items: [note], page: 1, perPage: 30, total: 1, hasNext: false },
           canWrite: true,
           isBookAdmin: false,
         }),
       dom.root,
     );
 
-    dom.root.querySelector<HTMLButtonElement>('button[aria-label="Delete note"]')?.click();
+    dom.root.querySelector<HTMLButtonElement>('button[aria-label="Delete comment"]')?.click();
     await flush();
     setBookId("book-b");
     setContactId("contact-b");
@@ -197,6 +197,37 @@ describe("Contacts detail query behavior", () => {
     await flush();
 
     expect(requests.find((request) => request.method === "DELETE")?.url).toContain("/books/book-a/contacts/contact-a/notes/note-a");
+
+    dispose();
+    globalThis.fetch = previousFetch;
+    dom.cleanup();
+  });
+
+  test("loads notes when a selected contact has no server-rendered page", async () => {
+    const dom = createDomTestHarness();
+    const { default: ContactNotesSection } = await import("../src/frontend/_components/ContactNotesSection.tsx");
+    const requests: string[] = [];
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const request = input instanceof Request ? input : new Request(new URL(String(input), "http://localhost"), init);
+      requests.push(request.url);
+      return Response.json({ items: [], page: 1, perPage: 30, total: 0, hasNext: false });
+    };
+
+    const dispose = render(
+      () =>
+        createComponent(ContactNotesSection, {
+          bookId: "book-b",
+          contactId: "contact-b",
+          currentUserId: "user-1",
+          canWrite: false,
+          isBookAdmin: false,
+        }),
+      dom.root,
+    );
+    await flush();
+
+    expect(requests.some((url) => url.includes("/books/book-b/contacts/contact-b/notes/page"))).toBe(true);
 
     dispose();
     globalThis.fetch = previousFetch;

@@ -265,6 +265,14 @@ const ContactNoteInputSchema = z.object({
   content: z.string().min(1).max(10_000),
 });
 
+const ContactNotePageSchema = z.object({
+  items: z.array(ContactNoteSchema),
+  page: z.number().int().positive(),
+  perPage: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  hasNext: z.boolean(),
+});
+
 const ContactTagSchema = z.object({
   id: ResourceShortIdSchema,
   bookId: ResourceShortIdSchema,
@@ -1524,6 +1532,33 @@ const app = new Hono<AuthContext>()
   // ----------------------------------------------------------------
   // CONTACT NOTES (timeline)
   // ----------------------------------------------------------------
+  .get(
+    "/books/:bookId/contacts/:contactId/notes/page",
+    documentRoute({
+      tags: ["Contacts"],
+      summary: "List a page of contact notes",
+      description: "Returns a bounded page of notes attached to one contact, newest first.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(ContactNotePageSchema, "Paginated notes timeline"),
+      },
+    }),
+    v("query", PaginationQuerySchema),
+    async (c) => {
+      const bookId = c.req.param("bookId") ?? "";
+      const contactId = c.req.param("contactId") ?? "";
+      const { bookId: internalBookId, error } = await requireBookAccess(c, bookId, "read");
+      if (error) return error;
+      const contactIds = await resolveBookPublicIds("contacts", internalBookId!, [contactId]);
+      if (!contactIds) return respond(c, fail(err.notFound("Contact")));
+      const page = await contactsService.contact.notes.listPage({
+        bookId: internalBookId!,
+        contactId: contactIds[0]!,
+        pagination: parsePagination(c.req.valid("query")),
+      });
+      return respond(c, ok({ ...page, items: await projectNotes(page.items) }));
+    },
+  )
   .get(
     "/books/:bookId/contacts/:contactId/notes",
     documentRoute({

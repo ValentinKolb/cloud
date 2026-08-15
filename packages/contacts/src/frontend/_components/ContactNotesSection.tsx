@@ -1,11 +1,11 @@
-import { dates } from "@k2b/stdlib";
+import { dates, type Paginated } from "@k2b/stdlib";
 import { mutation as mutations, query } from "@k2b/stdlib/solid";
-import { Avatar, Button, Discussion, IconButton, MarkdownEditor, MarkdownView, Placeholder, prompts, Tooltip, toast } from "@k2b/ui";
+import { Avatar, Button, Discussion, IconButton, MarkdownView, prompts, Tooltip, toast } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ContactNote } from "../../service";
 import { readErrorMessage } from "./api";
-import { createContactQuerySource, isCurrentQuerySnapshot, parseContactQuerySource } from "./contact-query-source";
+import { createContactQuerySource, parseContactQuerySource } from "./contact-query-source";
 import { listenForContactsLiveInvalidation } from "./contacts-live";
 import { CONTACT_NOTE_COMPOSE_EVENT } from "./context";
 
@@ -13,7 +13,7 @@ type Props = {
   bookId: string;
   contactId: string;
   currentUserId: string;
-  initialNotes: ContactNote[];
+  initialNotesPage?: Paginated<ContactNote>;
   /** Whether the current user has write access to the book. Hides compose + edit/delete when false. */
   canWrite: boolean;
   /** Whether the current user is a book admin. Admins can delete notes from
@@ -24,48 +24,61 @@ type Props = {
 /**
  * Append-only notes timeline for a contact. Append-only in spirit:
  * users can edit their own notes and book admins can prune — but the panel
- * presents them as chronological journal entries, newest first.
+ * presents them as chronological journal entries, oldest first.
  */
 export default function ContactNotesSection(props: Props) {
-  const [draft, setDraft] = createSignal("");
+  const perPage = props.initialNotesPage?.perPage ?? 30;
+  const emptyPage: Paginated<ContactNote> = { items: [], page: 1, perPage, total: 0, hasNext: false };
   const [composerOpen, setComposerOpen] = createSignal(false);
   const [editingId, setEditingId] = createSignal<string | null>(null);
-  const [editingContent, setEditingContent] = createSignal("");
   const [deleteConfirming, setDeleteConfirming] = createSignal(false);
   let sectionRoot: HTMLElement | undefined;
   let disposed = false;
   const initialSource = createContactQuerySource({ bookId: props.bookId, contactId: props.contactId });
   const source = () => createContactQuerySource({ bookId: props.bookId, contactId: props.contactId });
 
-  const notesQuery = query.create<string, { source: string; notes: ContactNote[] }>({
+  const notesQuery = query.createInfinite<string, Paginated<ContactNote>, number>({
     source,
-    initial: { source: initialSource, data: { source: initialSource, notes: props.initialNotes } },
-    load: async (currentSource, { abortSignal }) => {
+    ...(props.initialNotesPage ? { initial: { source: initialSource, pages: [props.initialNotesPage] } } : {}),
+    loadPage: async (currentSource, { cursor, abortSignal }) => {
       const { bookId, contactId } = parseContactQuerySource(currentSource);
-      const res = await apiClient.books[":bookId"].contacts[":contactId"].notes.$get(
-        { param: { bookId, contactId } },
+      const res = await apiClient.books[":bookId"].contacts[":contactId"].notes.page.$get(
+        {
+          param: { bookId, contactId },
+          query: { page: String(cursor ?? 1), per_page: String(perPage) },
+        },
         { init: { signal: abortSignal } },
       );
       if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to load notes"));
-      return { source: currentSource, notes: await res.json() };
+      return res.json();
     },
+    getNextCursor: (page) => (page.hasNext ? page.page + 1 : null),
     subscribe: ({ invalidate }) =>
       listenForContactsLiveInvalidation("notes", (event) => {
         if (event.type !== "notes.changed" || event.bookId !== props.bookId || event.contactId !== props.contactId) return;
         return invalidate();
       }),
   });
-  const notes = createMemo(() => {
-    const loaded = notesQuery.data();
-    return isCurrentQuerySnapshot(loaded, source()) ? loaded.notes : [];
+  const notesPage = createMemo(() => {
+    const pages = notesQuery.pages();
+    const first = pages[0] ?? emptyPage;
+    const last = pages.at(-1) ?? first;
+    const seen = new Set<string>();
+    const items = pages
+      .flatMap((page) => page.items)
+      .filter((note) => {
+        if (seen.has(note.id)) return false;
+        seen.add(note.id);
+        return true;
+      })
+      .reverse();
+    return { ...last, items, total: Math.max(first.total, last.total) };
   });
 
   createEffect(() => {
     void source();
-    setDraft("");
     setComposerOpen(false);
     setEditingId(null);
-    setEditingContent("");
   });
 
   onMount(() => {
@@ -84,7 +97,7 @@ export default function ContactNotesSection(props: Props) {
   type WriteTarget = { bookId: string; contactId: string };
   const reconcile = (target: WriteTarget) => {
     if (source() !== createContactQuerySource(target)) return;
-    void notesQuery.invalidate().catch(() => toast.error("The note was saved, but the notes list could not be reloaded."));
+    void notesQuery.invalidate().catch(() => toast.error("The comment was saved, but the comments list could not be reloaded."));
   };
 
   const createMutation = mutations.create<{ target: WriteTarget; note: ContactNote }, WriteTarget & { content: string }>({
@@ -101,10 +114,9 @@ export default function ContactNotesSection(props: Props) {
     },
     onSuccess: ({ target }) => {
       if (source() === createContactQuerySource(target)) {
-        setDraft("");
         setComposerOpen(false);
       }
-      toast.success("Note added");
+      toast.success("Comment added");
       reconcile(target);
     },
     onError: (err) => prompts.error(err.message),
@@ -129,9 +141,8 @@ export default function ContactNotesSection(props: Props) {
     onSuccess: ({ target }) => {
       if (source() === createContactQuerySource(target)) {
         setEditingId(null);
-        setEditingContent("");
       }
-      toast.success("Note updated");
+      toast.success("Comment updated");
       reconcile(target);
     },
     onError: (err) => prompts.error(err.message),
@@ -153,31 +164,19 @@ export default function ContactNotesSection(props: Props) {
       return target;
     },
     onSuccess: (target) => {
-      toast.success("Note deleted");
+      toast.success("Comment deleted");
       reconcile(target);
     },
     onError: (err) => prompts.error(err.message),
   });
-
-  const submitDraft = () => {
-    const content = draft().trim();
-    if (!content) return;
-    createMutation.mutate({ bookId: props.bookId, contactId: props.contactId, content });
-  };
-
-  const submitEdit = (noteId: string) => {
-    const content = editingContent().trim();
-    if (!content) return;
-    updateMutation.mutate({ bookId: props.bookId, contactId: props.contactId, noteId, content });
-  };
 
   const deleteNote = async (note: ContactNote) => {
     if (disposed || deleteConfirming() || deleteMutation.loading()) return;
     const target = { bookId: props.bookId, contactId: props.contactId, noteId: note.id };
     setDeleteConfirming(true);
     try {
-      const confirmed = await prompts.confirm("Delete this note? This cannot be undone.", {
-        title: "Delete note",
+      const confirmed = await prompts.confirm("Delete this comment? This cannot be undone.", {
+        title: "Delete comment",
         icon: "ti ti-trash",
         variant: "danger",
         confirmText: "Delete",
@@ -191,12 +190,10 @@ export default function ContactNotesSection(props: Props) {
 
   const startEdit = (note: ContactNote) => {
     setEditingId(note.id);
-    setEditingContent(note.content);
   };
 
   const cancelEdit = () => {
     setEditingId(null);
-    setEditingContent("");
   };
 
   onCleanup(() => {
@@ -209,13 +206,13 @@ export default function ContactNotesSection(props: Props) {
   return (
     <Discussion
       ref={sectionRoot}
-      label="Notes"
-      icon="ti ti-note"
-      count={`${notes().length} ${notes().length === 1 ? "note" : "notes"}`}
+      label="Comments"
+      icon="ti ti-message"
+      count={notesPage().total}
       actions={
         props.canWrite && !composerOpen() ? (
           <Button variant="ghost" size="xs" onClick={() => setComposerOpen(true)}>
-            <i class="ti ti-plus" aria-hidden="true" /> Add note
+            <i class="ti ti-plus" aria-hidden="true" /> Add comment
           </Button>
         ) : undefined
       }
@@ -223,156 +220,98 @@ export default function ContactNotesSection(props: Props) {
     >
       <Show when={props.canWrite && composerOpen()}>
         <Discussion.Composer
-          onSubmit={(event) => {
-            event.preventDefault();
-            submitDraft();
+          label="Add comment"
+          placeholder="Write a comment in markdown…"
+          submitLabel="Post comment"
+          cancelLabel="Cancel"
+          onCancel={() => setComposerOpen(false)}
+          lines={5}
+          onSubmit={async (content) => {
+            await createMutation.mutate({ bookId: props.bookId, contactId: props.contactId, content });
+            return createMutation.error() === null;
           }}
-          actions={
-            <>
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                onClick={() => {
-                  setDraft("");
-                  setComposerOpen(false);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" size="xs" disabled={!draft().trim()} loading={createMutation.loading()}>
-                <i class="ti ti-send" aria-hidden="true" /> Post note
-              </Button>
-            </>
-          }
-        >
-          <MarkdownEditor
-            aria-label="Add note"
-            value={draft}
-            onValueChange={setDraft}
-            placeholder="Write a note in markdown…"
-            lines={5}
-            noToolbar
-            showStats={false}
-            disabled={createMutation.loading()}
-            onSubmit={submitDraft}
-          />
-        </Discussion.Composer>
+        />
       </Show>
 
-      <Show when={notesQuery.error()}>
-        {(error) => (
-          <Placeholder
-            state="error"
-            align="left"
-            class="px-0 py-2"
-            title="Could not load notes"
-            description={error().message}
-            action={
-              <Button type="button" variant="secondary" size="xs" onClick={() => void notesQuery.refresh()}>
-                Try again
-              </Button>
-            }
-          />
-        )}
-      </Show>
-
-      <Show
-        when={!(notesQuery.loading() || (notesQuery.refreshing() && notes().length === 0) || (notesQuery.error() && notes().length === 0))}
-        fallback={
-          <Show when={!notesQuery.error()}>
-            <Placeholder state="loading" align="left" class="px-0 py-2" description={<>Loading notes…</>} />
-          </Show>
-        }
+      <Discussion.List
+        loading={(notesQuery.loading() || notesQuery.refreshing()) && notesPage().items.length === 0}
+        loadingLabel="Loading comments"
+        error={notesQuery.error()?.message}
+        onRetry={() => notesQuery.refresh()}
+        hasMore={notesPage().hasNext}
+        loadingMore={notesQuery.loadingMore()}
+        loadMoreLabel="Load earlier comments"
+        onLoadMore={() => notesQuery.loadMore()}
       >
-        <Show when={notes().length > 0} fallback={<Placeholder align="left" class="px-0 py-2" description={<>No notes yet.</>} />}>
-          <Discussion.List>
-            <For each={notes()}>
-              {(note) => {
-                const isOwn = () => note.authorUserId === props.currentUserId;
-                const isEditing = () => editingId() === note.id;
-                return (
-                  <Discussion.Item
-                    avatar={
-                      <Avatar
-                        name={note.authorDisplayName}
-                        fallback={(note.authorDisplayName.trim() || "?").slice(0, 2).toUpperCase()}
-                        src={
-                          note.authorUserId && note.authorAvatarHash
-                            ? `/api/accounts/users/${encodeURIComponent(note.authorUserId)}/avatar?rev=${encodeURIComponent(note.authorAvatarHash)}`
-                            : undefined
-                        }
-                        size="xs"
-                      />
+        <For each={notesPage().items}>
+          {(note) => {
+            const isOwn = () => note.authorUserId === props.currentUserId;
+            const isEditing = () => editingId() === note.id;
+            return (
+              <Discussion.Item
+                avatar={
+                  <Avatar
+                    name={note.authorDisplayName}
+                    fallback={(note.authorDisplayName.trim() || "?").slice(0, 2).toUpperCase()}
+                    src={
+                      note.authorUserId && note.authorAvatarHash
+                        ? `/api/accounts/users/${encodeURIComponent(note.authorUserId)}/avatar?rev=${encodeURIComponent(note.authorAvatarHash)}`
+                        : undefined
                     }
-                    author={note.authorDisplayName}
-                    timestamp={
-                      <time dateTime={note.createdAt} title={dates.formatDateTime(note.createdAt)}>
-                        {dates.formatDateTimeRelative(note.createdAt)}
-                      </time>
-                    }
-                    meta={note.updatedAt !== note.createdAt ? <span title={dates.formatDateTime(note.updatedAt)}>edited</span> : undefined}
-                    actions={
-                      props.canWrite && !isEditing() && (isOwn() || props.isBookAdmin) ? (
-                        <>
-                          <Show when={isOwn()}>
-                            <Tooltip.Anchor content="Edit note">
-                              <IconButton variant="ghost" size="xs" onClick={() => startEdit(note)} label="Edit note">
-                                <i class="ti ti-pencil" aria-hidden="true" />
-                              </IconButton>
-                            </Tooltip.Anchor>
-                          </Show>
-                          <Tooltip.Anchor content={isOwn() ? "Delete note" : "Delete note as admin"}>
-                            <IconButton
-                              variant="ghost"
-                              size="xs"
-                              onClick={() => void deleteNote(note)}
-                              disabled={deleteConfirming() || deleteMutation.loading()}
-                              label={isOwn() ? "Delete note" : "Delete note as admin"}
-                            >
-                              <i class="ti ti-trash" aria-hidden="true" />
-                            </IconButton>
-                          </Tooltip.Anchor>
-                        </>
-                      ) : undefined
-                    }
-                  >
-                    <Show when={isEditing()} fallback={<MarkdownView markdown={note.content} headingScale="compact" />}>
-                      <Discussion.Composer
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          submitEdit(note.id);
-                        }}
-                        actions={
-                          <>
-                            <Button type="button" variant="ghost" size="xs" onClick={cancelEdit}>
-                              Cancel
-                            </Button>
-                            <Button type="submit" size="xs" disabled={!editingContent().trim()} loading={updateMutation.loading()}>
-                              <i class="ti ti-check" aria-hidden="true" /> Save
-                            </Button>
-                          </>
-                        }
-                      >
-                        <MarkdownEditor
-                          aria-label="Edit note"
-                          value={editingContent}
-                          onValueChange={setEditingContent}
-                          lines={3}
-                          noToolbar
-                          showStats={false}
-                          disabled={updateMutation.loading()}
-                          onSubmit={() => submitEdit(note.id)}
-                        />
-                      </Discussion.Composer>
-                    </Show>
-                  </Discussion.Item>
-                );
-              }}
-            </For>
-          </Discussion.List>
-        </Show>
-      </Show>
+                    size="xs"
+                  />
+                }
+                author={note.authorDisplayName}
+                timestamp={
+                  <time dateTime={note.createdAt} title={dates.formatDateTime(note.createdAt)}>
+                    {dates.formatDateTimeRelative(note.createdAt)}
+                  </time>
+                }
+                meta={note.updatedAt !== note.createdAt ? <span title={dates.formatDateTime(note.updatedAt)}>edited</span> : undefined}
+                actions={
+                  props.canWrite && !isEditing() && (isOwn() || props.isBookAdmin) ? (
+                    <>
+                      <Show when={isOwn()}>
+                        <Tooltip.Anchor content="Edit comment">
+                          <IconButton variant="ghost" size="xs" onClick={() => startEdit(note)} label="Edit comment">
+                            <i class="ti ti-pencil" aria-hidden="true" />
+                          </IconButton>
+                        </Tooltip.Anchor>
+                      </Show>
+                      <Tooltip.Anchor content={isOwn() ? "Delete comment" : "Delete comment as admin"}>
+                        <IconButton
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => void deleteNote(note)}
+                          disabled={deleteConfirming() || deleteMutation.loading()}
+                          label={isOwn() ? "Delete comment" : "Delete comment as admin"}
+                        >
+                          <i class="ti ti-trash" aria-hidden="true" />
+                        </IconButton>
+                      </Tooltip.Anchor>
+                    </>
+                  ) : undefined
+                }
+              >
+                <Show when={isEditing()} fallback={<MarkdownView markdown={note.content} headingScale="compact" />}>
+                  <Discussion.Composer
+                    label="Edit comment"
+                    initialValue={note.content}
+                    submitLabel="Save comment"
+                    cancelLabel="Cancel"
+                    onCancel={cancelEdit}
+                    lines={3}
+                    onSubmit={async (content) => {
+                      await updateMutation.mutate({ bookId: props.bookId, contactId: props.contactId, noteId: note.id, content });
+                      return updateMutation.error() === null;
+                    }}
+                  />
+                </Show>
+              </Discussion.Item>
+            );
+          }}
+        </For>
+      </Discussion.List>
     </Discussion>
   );
 }

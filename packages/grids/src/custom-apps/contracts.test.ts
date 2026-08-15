@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { CUSTOM_APP_REFERENCE, CustomAppCapabilitiesSchema, CustomAppDefinitionSchema, parseStoredCustomAppDefinition } from "./contracts";
+import {
+  CUSTOM_APP_REFERENCE,
+  CustomAppCapabilitiesSchema,
+  CustomAppCommentsBlockSchema,
+  CustomAppDefinitionSchema,
+  parseStoredCustomAppDefinition,
+} from "./contracts";
 import { customAppScannerConfigHash } from "./scanner-capability";
 
 const uuid = (suffix: number) => `00000000-0000-4000-8000-${String(suffix).padStart(12, "0")}`;
@@ -394,6 +400,7 @@ describe("Grids App definition contract", () => {
   });
 
   test("requires Comments blocks to inherit one declared page record", () => {
+    expect(CustomAppCommentsBlockSchema.safeParse({ id: "discussion", type: "comments", emptyText: "No comments" }).success).toBe(false);
     const source = definition();
     const page = source.pages[0]!;
     const row = page.rows[0]!;

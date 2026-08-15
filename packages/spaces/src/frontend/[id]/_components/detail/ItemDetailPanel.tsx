@@ -872,11 +872,12 @@ export default function ItemDetailPanel(props: Props) {
               recurrenceId={props.commentTarget.recurrenceId}
               comments={commentsPage().items}
               total={commentsPage().total}
+              loading={commentsQuery.loading()}
               hasMore={commentsPage().hasNext}
               loadingMore={commentsQuery.loadingMore()}
               loadError={commentsQuery.error()?.message}
-              onLoadMore={() => void commentsQuery.loadMore()}
-              onRetry={() => void commentsQuery.refresh()}
+              onLoadMore={() => commentsQuery.loadMore()}
+              onRetry={() => commentsQuery.refresh()}
               currentUserId={props.currentUserId}
               onUpdate={() =>
                 void commentsQuery.invalidate().catch(() => prompts.error("Comment saved, but comments could not be refreshed."))

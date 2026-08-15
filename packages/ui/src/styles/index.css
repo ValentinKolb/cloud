@@ -1870,6 +1870,7 @@
 
 .k2b-ui .k2b-discussion__body,
 .k2b-ui .k2b-discussion__composer,
+.k2b-ui .k2b-discussion__list-region,
 .k2b-ui .k2b-discussion__list {
   display: flex;
   min-width: 0;
@@ -1913,6 +1914,62 @@
 
 .k2b-ui .k2b-discussion__composer footer {
   justify-content: flex-end;
+}
+
+.k2b-ui .k2b-discussion__list-region {
+  gap: 0.5rem;
+}
+
+.k2b-ui .k2b-discussion__sentinel {
+  width: 100%;
+  height: 1px;
+  margin-bottom: -0.5rem;
+  pointer-events: none;
+}
+
+.k2b-ui .k2b-discussion__status {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--k2b-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.125rem;
+}
+
+.k2b-ui .k2b-discussion__status[role="alert"] {
+  color: var(--k2b-danger-text);
+}
+
+.k2b-ui .k2b-discussion__status button,
+.k2b-ui .k2b-discussion__load-more {
+  min-height: 1.75rem;
+  padding: 0.25rem 0.5rem;
+  border: 0;
+  border-radius: var(--k2b-radius-control);
+  background: transparent;
+  color: var(--k2b-action);
+  font: inherit;
+  cursor: pointer;
+}
+
+.k2b-ui .k2b-discussion__load-more {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.k2b-ui .k2b-discussion__status button:hover,
+.k2b-ui .k2b-discussion__load-more:hover {
+  background: var(--k2b-surface-subtle);
+}
+
+.k2b-ui .k2b-discussion__load-more:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 .k2b-ui .k2b-discussion__list {

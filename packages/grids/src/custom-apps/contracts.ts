@@ -357,7 +357,6 @@ export const CustomAppCommentsBlockSchema = z
     id: CustomAppLocalIdSchema,
     type: z.literal("comments"),
     title: z.string().trim().min(1).max(160).optional(),
-    emptyText: z.string().trim().min(1).max(240).optional(),
     ...CustomAppAvailabilityShape,
   })
   .strict();
@@ -1207,7 +1206,7 @@ export const CUSTOM_APP_REFERENCE = {
                     fieldIds: ["00000000-0000-4000-8000-000000000004"],
                     documents: { templateIds: ["00000000-0000-4000-8000-000000000007"] },
                   },
-                  { id: "request-comments", type: "comments", emptyText: "No messages yet." },
+                  { id: "request-comments", type: "comments" },
                 ],
               },
             ],

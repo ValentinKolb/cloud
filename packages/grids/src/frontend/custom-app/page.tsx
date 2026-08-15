@@ -284,12 +284,7 @@ const CustomAppPage = (props: {
             dateConfig={props.dateConfig}
           />
         ) : block.type === "comments" ? (
-          <RecordComments
-            endpoint={props.commentEndpoints.get(block.id) ?? ""}
-            title={block.title}
-            emptyText={block.emptyText}
-            dateConfig={props.dateConfig}
-          />
+          <RecordComments endpoint={props.commentEndpoints.get(block.id) ?? ""} title={block.title} dateConfig={props.dateConfig} />
         ) : block.type === "actions" ? (
           <Actions actions={props.actions.get(block.id) ?? []} />
         ) : block.type === "form" ? (

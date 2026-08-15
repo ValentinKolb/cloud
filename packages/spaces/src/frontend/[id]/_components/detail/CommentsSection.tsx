@@ -1,7 +1,7 @@
 import { type DateContext, dates } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Avatar, Button, Discussion, IconButton, MarkdownEditor, MarkdownView, prompts, Tooltip, toast } from "@k2b/ui";
-import { createSignal, For, Show } from "solid-js";
+import { Avatar, Discussion, IconButton, MarkdownView, prompts, Tooltip, toast } from "@k2b/ui";
+import { For, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceComment } from "@/contracts";
 import { readResponseError } from "../../../lib/response";
@@ -12,11 +12,12 @@ type Props = {
   recurrenceId: string | null;
   comments: SpaceComment[];
   total: number;
+  loading: boolean;
   hasMore: boolean;
   loadingMore: boolean;
   loadError?: string;
-  onLoadMore: () => void;
-  onRetry: () => void;
+  onLoadMore: () => void | Promise<void>;
+  onRetry: () => void | Promise<void>;
   currentUserId: string;
   onUpdate: () => void;
   dateConfig?: DateContext;
@@ -24,8 +25,6 @@ type Props = {
 };
 
 export default function CommentsSection(props: Props) {
-  const [newComment, setNewComment] = createSignal("");
-
   const createCommentMutation = mutations.create({
     mutation: async (content: string) => {
       const res = await apiClient[":id"].items[":itemId"].comments.$post({
@@ -39,7 +38,6 @@ export default function CommentsSection(props: Props) {
       return res.json();
     },
     onSuccess: () => {
-      setNewComment("");
       toast.success("Comment added");
       props.onUpdate();
     },
@@ -79,18 +77,6 @@ export default function CommentsSection(props: Props) {
     }
   };
 
-  const submitNewComment = () => {
-    if (createCommentMutation.loading()) return;
-    const content = newComment().trim();
-    if (!content) return;
-    createCommentMutation.mutate(content);
-  };
-
-  const handleSubmit = (event: Event) => {
-    event.preventDefault();
-    submitNewComment();
-  };
-
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     const now = new Date();
@@ -112,99 +98,73 @@ export default function CommentsSection(props: Props) {
     <Discussion
       label={props.recurrenceId ? "Occurrence comments" : "Comments"}
       icon="ti ti-message"
-      count={`${props.total} ${props.total === 1 ? "comment" : "comments"}`}
+      count={props.total}
       style="view-transition-name: space-item-detail-comments"
     >
-      <Show when={props.loadError}>
-        <div class="flex items-center justify-between gap-2 text-xs text-red-600" role="alert">
-          <span>{props.loadError}</span>
-          <Button type="button" variant="ghost" size="xs" onClick={props.onRetry}>
-            Retry
-          </Button>
-        </div>
-      </Show>
       <Show when={props.canWrite}>
         <Discussion.Composer
-          onSubmit={handleSubmit}
-          insetAction={
-            <Tooltip.Anchor content="Post comment (Ctrl/Cmd+Enter)">
-              <IconButton
-                type="submit"
-                label="Post comment"
-                disabled={createCommentMutation.loading() || !newComment().trim()}
-                loading={createCommentMutation.loading()}
-                size="sm"
-                variant="primary"
-              >
-                <i class="ti ti-send" aria-hidden="true" />
-              </IconButton>
-            </Tooltip.Anchor>
-          }
-        >
-          <MarkdownEditor
-            aria-label="Add comment"
-            value={newComment}
-            onValueChange={setNewComment}
-            placeholder="Write a comment in markdown…"
-            lines={4}
-            noToolbar
-            showStats={false}
-            disabled={createCommentMutation.loading()}
-            onSubmit={submitNewComment}
-          />
-        </Discussion.Composer>
+          label="Add comment"
+          placeholder="Write a comment in markdown…"
+          submitLabel="Post comment"
+          onSubmit={async (content) => {
+            await createCommentMutation.mutate(content);
+            return createCommentMutation.error() === null;
+          }}
+        />
       </Show>
 
-      <Show when={sortedComments().length > 0}>
-        <Show when={props.hasMore}>
-          <Button type="button" variant="ghost" size="xs" class="self-start" disabled={props.loadingMore} onClick={props.onLoadMore}>
-            <i class={`ti ${props.loadingMore ? "ti-loader-2 animate-spin" : "ti-history"}`} aria-hidden="true" /> Load earlier comments
-          </Button>
-        </Show>
-        <Discussion.List>
-          <For each={sortedComments()}>
-            {(comment) => (
-              <Discussion.Item
-                avatar={
-                  <Avatar
-                    name={comment.userName ?? "Unknown"}
-                    fallback={((comment.userName ?? "Unknown").trim() || "?").slice(0, 2).toUpperCase()}
-                    src={
-                      comment.userId && comment.userAvatarHash
-                        ? `/api/accounts/users/${encodeURIComponent(comment.userId)}/avatar?rev=${encodeURIComponent(comment.userAvatarHash)}`
-                        : undefined
-                    }
-                    size="xs"
-                  />
-                }
-                author={comment.userName ?? "Unknown"}
-                timestamp={
-                  <time dateTime={comment.createdAt} title={dates.formatDateTime(comment.createdAt, props.dateConfig)}>
-                    {formatDate(comment.createdAt)}
-                  </time>
-                }
-                actions={
-                  props.canWrite && comment.canDelete ? (
-                    <Tooltip.Anchor content="Delete comment">
-                      <IconButton
-                        label="Delete comment"
-                        size="xs"
-                        onClick={() => void deleteComment(comment.id)}
-                        disabled={deleteCommentMutation.loading()}
-                        class="hover:text-red-600 dark:hover:text-red-400"
-                      >
-                        <i class="ti ti-trash" aria-hidden="true" />
-                      </IconButton>
-                    </Tooltip.Anchor>
-                  ) : undefined
-                }
-              >
-                <MarkdownView markdown={comment.content} headingScale="compact" class="text-sm" />
-              </Discussion.Item>
-            )}
-          </For>
-        </Discussion.List>
-      </Show>
+      <Discussion.List
+        loading={props.loading && sortedComments().length === 0}
+        loadingLabel="Loading comments"
+        error={props.loadError}
+        onRetry={props.onRetry}
+        hasMore={props.hasMore}
+        loadingMore={props.loadingMore}
+        loadMoreLabel="Load earlier comments"
+        onLoadMore={props.onLoadMore}
+      >
+        <For each={sortedComments()}>
+          {(comment) => (
+            <Discussion.Item
+              avatar={
+                <Avatar
+                  name={comment.userName ?? "Unknown"}
+                  fallback={((comment.userName ?? "Unknown").trim() || "?").slice(0, 2).toUpperCase()}
+                  src={
+                    comment.userId && comment.userAvatarHash
+                      ? `/api/accounts/users/${encodeURIComponent(comment.userId)}/avatar?rev=${encodeURIComponent(comment.userAvatarHash)}`
+                      : undefined
+                  }
+                  size="xs"
+                />
+              }
+              author={comment.userName ?? "Unknown"}
+              timestamp={
+                <time dateTime={comment.createdAt} title={dates.formatDateTime(comment.createdAt, props.dateConfig)}>
+                  {formatDate(comment.createdAt)}
+                </time>
+              }
+              actions={
+                props.canWrite && comment.canDelete ? (
+                  <Tooltip.Anchor content="Delete comment">
+                    <IconButton
+                      label="Delete comment"
+                      size="xs"
+                      onClick={() => void deleteComment(comment.id)}
+                      disabled={deleteCommentMutation.loading()}
+                      class="hover:text-red-600 dark:hover:text-red-400"
+                    >
+                      <i class="ti ti-trash" aria-hidden="true" />
+                    </IconButton>
+                  </Tooltip.Anchor>
+                ) : undefined
+              }
+            >
+              <MarkdownView markdown={comment.content} headingScale="compact" class="text-sm" />
+            </Discussion.Item>
+          )}
+        </For>
+      </Discussion.List>
     </Discussion>
   );
 }

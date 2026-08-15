@@ -65,23 +65,28 @@ export default ssr<AuthContext>(async (c) => {
     bookId: selectedBookIdFromUrl,
     user,
   });
-  const [permissions, internalNotes, internalFavoriteKeys, internalGlobalTags] = await Promise.all([
+  const [permissions, internalNotesPage, internalFavoriteKeys, internalGlobalTags] = await Promise.all([
     loadContactBookPermissions({ books: internalBooks, user }),
     selectedContact
-      ? contactsService.contact.notes.list({ bookId: selectedContact.bookId, contactId: selectedContact.id })
-      : Promise.resolve([]),
+      ? contactsService.contact.notes.listPage({
+          bookId: selectedContact.bookId,
+          contactId: selectedContact.id,
+          pagination: { page: 1, perPage: 30 },
+        })
+      : Promise.resolve({ items: [], page: 1, perPage: 30, total: 0, hasNext: false }),
     loadFavoriteKeysForContacts(user.id, selectedContact ? [...internalContacts, selectedContact] : internalContacts),
     contactsService.tag.listForBooks({ bookIds: internalBooks.map((book) => book.id) }),
   ]);
   const favoriteContacts = selectedContact ? [...internalContacts, selectedContact] : internalContacts;
-  const [books, contacts, projectedSelected, initialNotes, favoriteKeys, globalTags] = await Promise.all([
+  const [books, contacts, projectedSelected, initialNoteItems, favoriteKeys, globalTags] = await Promise.all([
     projectBooks(internalBooks),
     projectContacts(internalContacts),
     selectedContact ? projectContacts([selectedContact]) : Promise.resolve([]),
-    projectNotes(internalNotes),
+    projectNotes(internalNotesPage.items),
     projectFavoriteKeys(favoriteContacts, internalFavoriteKeys),
     projectTags(internalGlobalTags),
   ]);
+  const initialNotesPage = { ...internalNotesPage, items: initialNoteItems };
   const selectedPublicContact = projectedSelected[0] ?? null;
   const bookIds = new Map(internalBooks.map((book, index) => [book.id, books[index]!.id]));
   const adminBookIds = permissions.adminBookIds.map((id) => bookIds.get(id)!).filter(Boolean);
@@ -137,7 +142,7 @@ export default ssr<AuthContext>(async (c) => {
               initialContact={selectedPublicContact}
               initialContactId={initialSelectedContactId}
               initialBookId={initialSelectedBookId}
-              initialNotes={initialNotes}
+              initialNotesPage={initialNotesPage}
               contacts={contacts}
               bookNames={bookNames}
               writableBooks={writableBooks}

@@ -85,7 +85,7 @@ export const clearSelectedContactInUrl = (history: ContactHistoryMode = "push") 
   setSelectedContactInUrl({ contactId: null, bookId: null, contact: null, history });
 };
 
-/** Opens the notes composer in the currently mounted detail panel. */
+/** Opens the comments composer in the currently mounted detail panel. */
 export const requestContactNoteComposer = (contactId: string) => {
   window.dispatchEvent(new CustomEvent(CONTACT_NOTE_COMPOSE_EVENT, { detail: { contactId } }));
 };

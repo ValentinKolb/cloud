@@ -99,4 +99,3 @@ pages:
               - id: comments
                 type: comments
                 title: Questions and updates
-                emptyText: No messages yet.

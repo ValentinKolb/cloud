@@ -113,20 +113,23 @@ export default ssr<AuthContext>(async (c) => {
     bookId: publicBookId,
     user,
   });
-  const [internalNotes, internalFavoriteKeys] = await Promise.all([
-    selectedContact ? contactsService.contact.notes.list({ bookId, contactId: selectedContact.id }) : Promise.resolve([]),
+  const [internalNotesPage, internalFavoriteKeys] = await Promise.all([
+    selectedContact
+      ? contactsService.contact.notes.listPage({ bookId, contactId: selectedContact.id, pagination: { page: 1, perPage: 30 } })
+      : Promise.resolve({ items: [], page: 1, perPage: 30, total: 0, hasNext: false }),
     loadFavoriteKeysForContacts(user.id, selectedContact ? [...internalContacts, selectedContact] : internalContacts),
   ]);
   const favoriteContacts = selectedContact ? [...internalContacts, selectedContact] : internalContacts;
-  const [books, publicBook, contacts, projectedSelected, initialNotes, favoriteKeys, bookTags] = await Promise.all([
+  const [books, publicBook, contacts, projectedSelected, initialNoteItems, favoriteKeys, bookTags] = await Promise.all([
     projectBooks(internalBooks),
     projectBooks([book]),
     projectContacts(internalContacts),
     selectedContact ? projectContacts([selectedContact]) : Promise.resolve([]),
-    projectNotes(internalNotes),
+    projectNotes(internalNotesPage.items),
     projectFavoriteKeys(favoriteContacts, internalFavoriteKeys),
     projectTags(internalBookTags),
   ]);
+  const initialNotesPage = { ...internalNotesPage, items: initialNoteItems };
   const selectedPublicContact = projectedSelected[0] ?? null;
   const publicBookIds = new Map(internalBooks.map((entry, index) => [entry.id, books[index]!.id]));
   const adminBookIds = internalAdminBookIds.map((id) => publicBookIds.get(id)!).filter(Boolean);
@@ -186,7 +189,7 @@ export default ssr<AuthContext>(async (c) => {
               initialContact={selectedPublicContact}
               initialContactId={initialSelectedContactId}
               initialBookId={initialSelectedBookId}
-              initialNotes={initialNotes}
+              initialNotesPage={initialNotesPage}
               contacts={contacts}
               bookNames={bookNames}
               writableBooks={writableBooks}

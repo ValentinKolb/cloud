@@ -10,7 +10,6 @@ import {
   Discussion,
   FloatingWindow,
   IconButton,
-  MarkdownEditor,
   MarkdownView,
   Pagination,
   PanelDialog,
@@ -30,7 +29,6 @@ import {
   Tag,
   TextInput,
   Toolbar,
-  Tooltip,
 } from "@k2b/ui";
 import { createSignal, Show } from "solid-js";
 import { DemoCard } from "../DemoCard";
@@ -698,10 +696,8 @@ const PanelDemo = () => {
 
 const DiscussionDemo = () => {
   const [composerOpen, setComposerOpen] = createSignal(false);
-  const [draft, setDraft] = createSignal("");
 
   const closeComposer = () => {
-    setDraft("");
     setComposerOpen(false);
   };
 
@@ -710,22 +706,13 @@ const DiscussionDemo = () => {
       id="discussion"
       chip={{ kind: "component", name: "Discussion", from: "@k2b/ui" }}
       description="Compact notes and comments with Markdown composition, clear content hierarchy, optional reply context, and progressive item actions."
-      code={`const [draft, setDraft] = createSignal("");
-
-<Discussion label="Notes" as="h2" surface="bare" count={3}>
+      code={`<Discussion label="Notes" as="h2" surface="bare" count={3}>
   <Discussion.Composer
+    label="Add note"
+    placeholder="Add context for everyone with access…"
+    submitLabel="Post note"
     onSubmit={postNote}
-    actions={<Button>Cancel</Button>}
-    insetAction={
-      <Tooltip.Anchor content="Post note (Ctrl/Cmd+Enter)">
-        <IconButton type="submit" label="Post note" disabled={!draft().trim()}>
-          <i class="ti ti-send" aria-hidden="true" />
-        </IconButton>
-      </Tooltip.Anchor>
-    }
-  >
-    <MarkdownEditor value={draft()} onValueChange={setDraft} noToolbar showStats={false} />
-  </Discussion.Composer>
+  />
   <Discussion.List>
     <Discussion.Item
       author="Mara Klein"
@@ -747,7 +734,7 @@ const DiscussionDemo = () => {
           as="h2"
           surface="bare"
           icon="ti ti-note"
-          count="3 notes"
+          count={3}
           actions={
             <Show when={!composerOpen()}>
               <Button variant="ghost" size="xs" onClick={() => setComposerOpen(true)}>
@@ -758,37 +745,17 @@ const DiscussionDemo = () => {
         >
           <Show when={composerOpen()}>
             <Discussion.Composer
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!draft().trim()) return;
+              label="Add internal note"
+              placeholder="Add context for everyone with access…"
+              submitLabel="Post note"
+              cancelLabel="Cancel"
+              lines={3}
+              onCancel={closeComposer}
+              onSubmit={() => {
                 closeComposer();
+                return true;
               }}
-              actions={
-                <Button type="button" variant="ghost" size="xs" onClick={closeComposer}>
-                  Cancel
-                </Button>
-              }
-              insetAction={
-                <Tooltip.Anchor content="Post note (Ctrl/Cmd+Enter)">
-                  <IconButton type="submit" label="Post note" size="sm" variant="primary" disabled={!draft().trim()}>
-                    <i class="ti ti-send" aria-hidden="true" />
-                  </IconButton>
-                </Tooltip.Anchor>
-              }
-            >
-              <MarkdownEditor
-                value={draft}
-                onValueChange={setDraft}
-                onSubmit={() => {
-                  if (draft().trim()) closeComposer();
-                }}
-                aria-label="Add internal note"
-                placeholder="Add context for everyone with access…"
-                lines={3}
-                noToolbar
-                showStats={false}
-              />
-            </Discussion.Composer>
+            />
           </Show>
 
           <Discussion.List>
@@ -854,7 +821,6 @@ const DiscussionDemo = () => {
 const DetailPanelDemo = () => {
   const [status, setStatus] = createSignal("needs-response");
   const [assignee, setAssignee] = createSignal("unassigned");
-  const [commentDraft, setCommentDraft] = createSignal("");
 
   return (
     <DemoCard
@@ -882,20 +848,14 @@ const DetailPanelDemo = () => {
   <DetailPanel.Section title="Recent threads" icon="ti ti-history" tone="success">…</DetailPanel.Section>
 </DetailPanel.Group>
 
-<Discussion label="Comments" icon="ti ti-messages" count="1 comment">
+<Discussion label="Comments" icon="ti ti-messages" count={1}>
   <Discussion.List>…</Discussion.List>
   <Discussion.Composer
+    label="Add comment"
+    placeholder="Add a comment"
+    submitLabel="Post comment"
     onSubmit={postComment}
-    insetAction={
-      <Tooltip.Anchor content="Post comment (Ctrl/Cmd+Enter)">
-        <IconButton type="submit" label="Post comment" disabled={!draft().trim()}>
-          <i class="ti ti-send" aria-hidden="true" />
-        </IconButton>
-      </Tooltip.Anchor>
-    }
-  >
-    <MarkdownEditor value={draft()} onValueChange={setDraft} noToolbar showStats={false} />
-  </Discussion.Composer>
+  />
 </Discussion>`}
     >
       <div class="ui-detail-panel-patterns">
@@ -1109,7 +1069,7 @@ const DetailPanelDemo = () => {
                   </DetailPanel.Section>
                 </DetailPanel.Group>
 
-                <Discussion label="Comments" icon="ti ti-messages" count="1 comment">
+                <Discussion label="Comments" icon="ti ti-messages" count={1}>
                   <Discussion.List>
                     <Discussion.Item
                       avatar={<Avatar name="Mara Klein" size="xs" />}
@@ -1125,33 +1085,12 @@ const DetailPanelDemo = () => {
                     </Discussion.Item>
                   </Discussion.List>
                   <Discussion.Composer
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (!commentDraft().trim()) return;
-                      setCommentDraft("");
-                    }}
-                    insetAction={
-                      <Tooltip.Anchor content="Post comment (Ctrl/Cmd+Enter)">
-                        <IconButton type="submit" label="Post comment" size="sm" variant="primary" disabled={!commentDraft().trim()}>
-                          <i class="ti ti-send" aria-hidden="true" />
-                        </IconButton>
-                      </Tooltip.Anchor>
-                    }
-                  >
-                    <MarkdownEditor
-                      value={commentDraft}
-                      onValueChange={setCommentDraft}
-                      onSubmit={() => {
-                        if (!commentDraft().trim()) return;
-                        setCommentDraft("");
-                      }}
-                      aria-label="Add comment"
-                      placeholder="Add a comment"
-                      lines={3}
-                      noToolbar
-                      showStats={false}
-                    />
-                  </Discussion.Composer>
+                    label="Add comment"
+                    placeholder="Add a comment"
+                    submitLabel="Post comment"
+                    lines={3}
+                    onSubmit={() => true}
+                  />
                 </Discussion>
 
                 <DetailPanel.Group label="Collaboration context">
