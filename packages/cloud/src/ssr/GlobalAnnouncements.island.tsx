@@ -118,7 +118,7 @@ export default function GlobalAnnouncements(props: Props) {
                 <p class="font-semibold">{banner.title}</p>
                 <MarkdownView
                   trustedHtml={banner.bodyHtml}
-                  smallHeadings
+                  headingScale="compact"
                   class="mt-1 max-h-36 overflow-y-auto overscroll-contain pr-1 [&_p]:my-0"
                 />
               </div>
