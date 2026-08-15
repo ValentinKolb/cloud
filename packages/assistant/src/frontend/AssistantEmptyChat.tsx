@@ -43,35 +43,35 @@ export default function AssistantEmptyChat(props: {
 
   return (
     <section class="flex min-h-full items-center justify-center px-[var(--ui-space-section)] py-10" aria-labelledby="assistant-empty-title">
-      <div class="w-full max-w-4xl -translate-y-[3vh]">
-        <h1 id="assistant-empty-title" class="mb-10 text-center text-2xl font-semibold tracking-tight text-[var(--k2b-text)]">
+      <div class="w-full max-w-4xl -translate-y-[3vh] sm:-translate-y-[9vh]">
+        <h1 id="assistant-empty-title" class="mb-8 text-center text-2xl font-semibold tracking-tight text-[var(--k2b-text)] sm:mb-12">
           What should we work on?
         </h1>
 
         {props.notices ? <div class="mb-2">{props.notices}</div> : null}
         <div class="relative">
           <div class="relative z-10">{props.composer}</div>
-          <div class="mx-4 -mt-1 rounded-b-xl border border-t-0 border-[var(--k2b-border)] bg-[var(--k2b-surface)] px-2 pb-1.5 pt-2.5">
+          <div class="mx-4 -mt-1 rounded-b-xl border border-t-0 border-[var(--k2b-border)] bg-[var(--k2b-surface)] px-1.5 pb-1 pt-2">
             <button
               type="button"
-              class="flex min-h-8 w-full items-center justify-between gap-3 rounded-lg px-2 text-left text-sm text-[var(--k2b-text-muted)] transition-colors hover:text-[var(--k2b-ai-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--k2b-focus-ring)] disabled:cursor-wait disabled:opacity-60"
+              class="flex min-h-7 w-full items-center justify-between gap-2 rounded-lg px-1.5 text-left text-[0.6875rem] text-[var(--k2b-text-muted)] transition-colors hover:text-[var(--k2b-ai-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--k2b-focus-ring)] disabled:cursor-wait disabled:opacity-60"
               aria-label="Choose a Project for this chat"
               disabled={props.choosingProject}
               onClick={props.onChooseProject}
             >
-              <span class="flex min-w-0 items-center gap-2">
+              <span class="flex min-w-0 items-center gap-1.5">
                 <i
-                  class={props.choosingProject ? "ti ti-loader-2 k2b-spin" : selectedProject() ? "ti ti-folder-open" : "ti ti-folder"}
+                  class={`${props.choosingProject ? "ti ti-loader-2 k2b-spin" : selectedProject() ? "ti ti-folder-open" : "ti ti-folder"} text-xs`}
                   aria-hidden="true"
                 />
                 <span class="truncate">{selectedProject()?.name ?? "No Project"}</span>
               </span>
-              <i class="ti ti-chevron-down shrink-0" aria-hidden="true" />
+              <i class="ti ti-chevron-down shrink-0 text-xs" aria-hidden="true" />
             </button>
           </div>
         </div>
 
-        <div class="mt-8 grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label="Conversation starters">
+        <div class="mt-8 grid grid-cols-2 gap-2 sm:mt-12 sm:grid-cols-4" role="group" aria-label="Conversation starters">
           {assistantStarterActions.map((starter) => (
             <button
               type="button"

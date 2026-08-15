@@ -1,6 +1,6 @@
 import { navigate, navigateTo } from "@k2b/ssr/nav";
 import { mutation, query } from "@k2b/stdlib/solid";
-import { AppWorkspace, Button, Chat, openSpotlightSearch } from "@k2b/ui";
+import { AppWorkspace, Button, Chat, openSpotlightSearch, prompts } from "@k2b/ui";
 import type {
   AiConversation,
   AiConversationPage,
@@ -38,6 +38,7 @@ import { assistantMessageAnchorSeq, openAssistantChatMessageSearch } from "./Ass
 import AssistantEmptyChat, { type AssistantStarterAction } from "./AssistantEmptyChat";
 import { openAssistantCreateProjectDialog } from "./AssistantProjectsDialog";
 import AssistantProjectView from "./AssistantProjectView";
+import AssistantQueuedMessages, { type AssistantQueuedMessage } from "./AssistantQueuedMessages";
 import AssistantSidebar from "./AssistantSidebar";
 import {
   type AssistantLiveInvalidation,
@@ -210,6 +211,9 @@ export default function AssistantWorkspace(props: Props) {
   const [composerFocusToken, setComposerFocusToken] = createSignal(0);
   const [composerDrafts, setComposerDrafts] = createSignal<Record<string, string>>({});
   const [composerAttachments, setComposerAttachments] = createSignal<Record<string, AiComposerAttachment[]>>({});
+  const [queuedMessages, setQueuedMessages] = createSignal<Record<string, AssistantQueuedMessage[]>>({});
+  const [sendingQueuedId, setSendingQueuedId] = createSignal<string | null>(null);
+  let queuedMessageSequence = 0;
   const [pendingProjectChats, setPendingProjectChats] = createSignal<Record<string, AiConversation>>({});
   const [filesDialogOpen, setFilesDialogOpen] = createSignal(false);
   const [chatContextPresence, setChatContextPresence] = createSignal<boolean | null>(
@@ -425,6 +429,72 @@ export default function AssistantWorkspace(props: Props) {
     return chat.steer(message);
   };
 
+  const queuedMessagesFor = (conversationId: string) => queuedMessages()[conversationId] ?? [];
+  const setQueuedMessagesFor = (conversationId: string, update: (messages: AssistantQueuedMessage[]) => AssistantQueuedMessage[]) =>
+    setQueuedMessages((current) => ({
+      ...current,
+      [conversationId]: update(current[conversationId] ?? []),
+    }));
+  const removeQueuedMessage = (conversationId: string, messageId: string) =>
+    setQueuedMessagesFor(conversationId, (messages) => messages.filter((message) => message.id !== messageId));
+  const queueMessage = (text: string) => {
+    const conversationId = chat.activeConversationId();
+    const message = text.trim();
+    if (!conversationId || !chat.activeTurn() || !message) return false;
+    setQueuedMessagesFor(conversationId, (messages) => [
+      ...messages,
+      { id: `queued-${Date.now()}-${++queuedMessageSequence}`, text: message },
+    ]);
+    return true;
+  };
+  const sendQueuedMessage = async (message: AssistantQueuedMessage) => {
+    const conversationId = chat.activeConversationId();
+    if (
+      !conversationId ||
+      chat.runStatus() === "stopping" ||
+      sendingQueuedId() ||
+      !queuedMessagesFor(conversationId).some((item) => item.id === message.id)
+    ) {
+      return;
+    }
+    setSendingQueuedId(message.id);
+    try {
+      const sent = chat.activeTurn() ? await steer(message.text) : await send({ message: message.text });
+      if (sent) {
+        removeQueuedMessage(conversationId, message.id);
+      } else {
+        setQueuedMessagesFor(conversationId, (messages) =>
+          messages.map((item) => (item.id === message.id ? { ...item, failed: true } : item)),
+        );
+      }
+    } finally {
+      setSendingQueuedId(null);
+    }
+  };
+  const editQueuedMessage = async (message: AssistantQueuedMessage) => {
+    const conversationId = chat.activeConversationId();
+    if (!conversationId) return;
+    const draft = composerDraft(conversationId).trim();
+    if (
+      draft &&
+      !(await prompts.confirm("Replace the current draft with this queued message?", {
+        title: "Edit queued message",
+      }))
+    ) {
+      return;
+    }
+    setComposerDraft(conversationId, message.text);
+    removeQueuedMessage(conversationId, message.id);
+    focusComposer();
+  };
+
+  createEffect(() => {
+    const conversationId = chat.activeConversationId();
+    const next = conversationId ? queuedMessagesFor(conversationId)[0] : undefined;
+    if (!next || next.failed || sendingQueuedId() || chat.activeTurn() || chat.runStatus() !== "idle") return;
+    queueMicrotask(() => void sendQueuedMessage(next));
+  });
+
   const activeConversation = () =>
     conversations().find((conversation) => conversation.id === chat.activeConversationId()) ?? chat.conversation();
   const activeConversationProject = () => {
@@ -524,99 +594,115 @@ export default function AssistantWorkspace(props: Props) {
     const sessionKey = () => (composerProps.projectId ? projectComposerKey(composerProps.projectId) : composerSessionKey());
     const projectComposer = () => Boolean(composerProps.projectId);
     return (
-      <Chat.Composer
-        value={composerDraft(sessionKey())}
-        onValueChange={(value) => setComposerDraft(sessionKey(), value)}
-        attachments={aiChatAttachments(composerAttachmentsFor(sessionKey()))}
-        onAttachmentsChange={(next) => setComposerAttachmentsFor(sessionKey(), aiComposerAttachmentRecords(next))}
-        fileSelection={{
-          onSelect: (files) => addComposerFiles(sessionKey(), files),
-          accept: aiComposerFileAccept,
-          disabled: !projectComposer() && chat.running(),
-          label: "Attach files",
-        }}
-        models={aiChatModelOptions(props.models)}
-        selectedModelId={selectedModelId()}
-        onModelChange={setSelectedModelId}
-        disabled={!canUseComposer() || newConversation.loading() || chat.loadingConversation()}
-        state={
-          projectComposer()
-            ? newConversation.loading()
-              ? "submitting"
-              : "idle"
-            : chat.runStatus() === "stopping"
-              ? "stopping"
-              : chat.running()
-                ? "running"
+      <>
+        <Show when={!projectComposer() ? chat.activeConversationId() : null}>
+          {(conversationId) => (
+            <AssistantQueuedMessages
+              messages={queuedMessagesFor(conversationId())}
+              sendingId={sendingQueuedId()}
+              onSendNow={(message) => void sendQueuedMessage(message)}
+              onEdit={(message) => void editQueuedMessage(message)}
+              onDelete={(message) => removeQueuedMessage(conversationId(), message.id)}
+            />
+          )}
+        </Show>
+        <Chat.Composer
+          value={composerDraft(sessionKey())}
+          onValueChange={(value) => setComposerDraft(sessionKey(), value)}
+          attachments={aiChatAttachments(composerAttachmentsFor(sessionKey()))}
+          onAttachmentsChange={(next) => setComposerAttachmentsFor(sessionKey(), aiComposerAttachmentRecords(next))}
+          fileSelection={{
+            onSelect: (files) => addComposerFiles(sessionKey(), files),
+            accept: aiComposerFileAccept,
+            disabled: !projectComposer() && chat.running(),
+            label: "Attach files",
+          }}
+          models={aiChatModelOptions(props.models)}
+          selectedModelId={selectedModelId()}
+          onModelChange={setSelectedModelId}
+          disabled={!canUseComposer() || newConversation.loading() || chat.loadingConversation()}
+          state={
+            projectComposer()
+              ? newConversation.loading()
+                ? "submitting"
                 : "idle"
-        }
-        focusToken={projectComposer() ? undefined : composerFocusToken()}
-        placeholder={
-          props.status.enabled
-            ? projectComposer()
-              ? `Start a new chat in ${composerProps.projectName ?? "this Project"}`
               : chat.runStatus() === "stopping"
-                ? "Stopping response"
+                ? "stopping"
                 : chat.running()
-                  ? "Steer the current response"
-                  : "Ask Assistant anything"
-            : "AI is not configured"
-        }
-        error={projectComposer() ? (chat.error() ?? undefined) : undefined}
-        onSubmit={(input) =>
-          composerProps.projectId
-            ? sendProjectMessage(composerProps.projectId, aiComposerSendInput(input))
-            : input.intent === "steer"
-              ? steer(input.text)
-              : send(aiComposerSendInput(input))
-        }
-        onStop={
-          !projectComposer() && chat.activeTurn()
-            ? async () => {
-                await chat.abort();
-              }
-            : undefined
-        }
-        onError={(error) => chat.setError(error instanceof Error ? error.message : "Chat action failed.")}
-        menuActions={
-          projectComposer() || !activeConversation()
-            ? []
-            : [
-                {
-                  id: "search-chat",
-                  label: "Search this chat",
-                  icon: "ti ti-search",
-                  onSelect: async () => {
-                    const conversation = activeConversation();
-                    if (!conversation) return;
-                    const message = await openAssistantChatMessageSearch(conversation.id);
-                    if (message) await revealMessage(message);
+                  ? "running"
+                  : "idle"
+          }
+          focusToken={projectComposer() ? undefined : composerFocusToken()}
+          runningSubmitIntent={!projectComposer() ? "queue" : undefined}
+          placeholder={
+            props.status.enabled
+              ? projectComposer()
+                ? `Start a new chat in ${composerProps.projectName ?? "this Project"}`
+                : chat.runStatus() === "stopping"
+                  ? "Stopping response"
+                  : chat.running()
+                    ? "Queue another message"
+                    : "Ask Assistant anything"
+              : "AI is not configured"
+          }
+          error={projectComposer() ? (chat.error() ?? undefined) : undefined}
+          onSubmit={(input) =>
+            composerProps.projectId
+              ? sendProjectMessage(composerProps.projectId, aiComposerSendInput(input))
+              : input.intent === "queue"
+                ? queueMessage(input.text)
+                : input.intent === "steer"
+                  ? steer(input.text)
+                  : send(aiComposerSendInput(input))
+          }
+          onStop={
+            !projectComposer() && chat.activeTurn()
+              ? async () => {
+                  await chat.abort();
+                }
+              : undefined
+          }
+          onError={(error) => chat.setError(error instanceof Error ? error.message : "Chat action failed.")}
+          menuActions={
+            projectComposer() || !activeConversation()
+              ? []
+              : [
+                  {
+                    id: "search-chat",
+                    label: "Search this chat",
+                    icon: "ti ti-search",
+                    onSelect: async () => {
+                      const conversation = activeConversation();
+                      if (!conversation) return;
+                      const message = await openAssistantChatMessageSearch(conversation.id);
+                      if (message) await revealMessage(message);
+                    },
                   },
-                },
-                {
-                  id: "compact-context",
-                  label: "Compact context",
-                  icon: "ti ti-package",
-                  disabled: chat.running(),
-                  onSelect: async () => {
-                    if (!chat.activeConversationId()) return;
-                    await chat.compactConversation({ modelProfileId: selectedModelId() || undefined });
+                  {
+                    id: "compact-context",
+                    label: "Compact context",
+                    icon: "ti ti-package",
+                    disabled: chat.running(),
+                    onSelect: async () => {
+                      if (!chat.activeConversationId()) return;
+                      await chat.compactConversation({ modelProfileId: selectedModelId() || undefined });
+                    },
                   },
-                },
-              ]
-        }
-        contextActions={[]}
-        contextUsage={
-          projectComposer()
-            ? undefined
-            : {
-                usage: usageSnapshot()?.request ?? null,
-                loopUsage: usageSnapshot()?.loop ?? null,
-                contextWindow: usageModel()?.contextWindow,
-                modelLabel: usageModel()?.label,
-              }
-        }
-      />
+                ]
+          }
+          contextActions={[]}
+          contextUsage={
+            projectComposer()
+              ? undefined
+              : {
+                  usage: usageSnapshot()?.request ?? null,
+                  loopUsage: usageSnapshot()?.loop ?? null,
+                  contextWindow: usageModel()?.contextWindow,
+                  modelLabel: usageModel()?.label,
+                }
+          }
+        />
+      </>
     );
   };
 
@@ -651,27 +737,37 @@ export default function AssistantWorkspace(props: Props) {
       delete next[archived.id];
       return next;
     });
+    setQueuedMessages((current) => {
+      const next = { ...current };
+      delete next[archived.id];
+      return next;
+    });
     if (archived.id === chat.activeConversationId()) navigateTo("/app/assistant");
   };
 
+  const composerNotice = createMemo(() =>
+    chat.streamStatus() === "reconnecting"
+      ? { message: "Reconnecting…", reconnecting: true }
+      : chat.error() || liveError()
+        ? { message: chat.error() ?? liveError()!, reconnecting: false }
+        : null,
+  );
   const ComposerNotices = () => (
-    <>
-      <Show when={chat.error() ?? liveError()}>
-        {(message) => (
-          <p class="inline-flex w-full items-start gap-1.5 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:bg-red-950/35 dark:text-red-300">
-            <i class="ti ti-alert-circle mt-0.5 text-sm" aria-hidden="true" />
-            <span>{message()}</span>
-          </p>
-        )}
-      </Show>
-
-      <Show when={chat.streamStatus() === "reconnecting"}>
-        <div class="flex items-center gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-950/35 dark:text-amber-200">
-          <i class="ti ti-refresh text-sm animate-spin" aria-hidden="true" />
-          <span class="truncate">Reconnecting…</span>
-        </div>
-      </Show>
-    </>
+    <Show when={composerNotice()}>
+      {(notice) => (
+        <p
+          class={`inline-flex w-full items-start gap-1.5 px-1 text-xs ${notice().reconnecting ? "text-[var(--k2b-warning-text)]" : "text-[var(--k2b-danger-text)]"}`}
+          role={notice().reconnecting ? "status" : "alert"}
+        >
+          <i
+            class={`${notice().reconnecting ? "ti ti-refresh animate-spin motion-reduce:animate-none" : "ti ti-alert-circle"} mt-0.5 text-sm`}
+            style={notice().reconnecting ? { "animation-direction": "reverse" } : undefined}
+            aria-hidden="true"
+          />
+          <span>{notice().message}</span>
+        </p>
+      )}
+    </Show>
   );
 
   const ConversationTimeline = () => {

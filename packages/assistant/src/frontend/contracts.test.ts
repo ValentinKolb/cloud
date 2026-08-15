@@ -103,6 +103,19 @@ describe("Assistant frontend contracts", () => {
     expect(messageSearch).not.toContain("listResources");
   });
 
+  test("queues follow-up messages locally and presents one minimal connection notice", async () => {
+    const workspace = await read("./AssistantWorkspace.island.tsx");
+
+    expect(workspace).toContain('runningSubmitIntent={!projectComposer() ? "queue" : undefined}');
+    expect(workspace).toContain('input.intent === "queue"');
+    expect(workspace).toContain("<AssistantQueuedMessages");
+    expect(workspace).toContain('chat.runStatus() !== "idle"');
+    expect(workspace).toContain('message: "Reconnecting…"');
+    expect(workspace).toContain('"animation-direction": "reverse"');
+    expect(workspace).not.toContain("bg-red-50");
+    expect(workspace).not.toContain("bg-amber-50");
+  });
+
   test("frames structured memories as personalization", async () => {
     const [preferences, client] = await Promise.all([read("./AssistantPrefsModals.tsx"), read("../api/client.ts")]);
 
