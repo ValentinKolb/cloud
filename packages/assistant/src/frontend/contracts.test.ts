@@ -80,7 +80,10 @@ describe("Assistant frontend contracts", () => {
   });
 
   test("keeps Assistant composer actions in one contextual Plus menu", async () => {
-    const workspace = await read("./AssistantWorkspace.island.tsx");
+    const [workspace, messageSearch] = await Promise.all([
+      read("./AssistantWorkspace.island.tsx"),
+      read("./AssistantChatMessageSearch.ts"),
+    ]);
 
     expect(workspace).not.toContain("type ChatCommand");
     expect(workspace).not.toContain("const slashCommands");
@@ -89,6 +92,11 @@ describe("Assistant frontend contracts", () => {
     expect(workspace).toContain("projectComposer() || !activeConversation()");
     expect(workspace).toContain('id: "search-chat"');
     expect(workspace).toContain('id: "compact-context"');
+    expect(workspace).toContain("openAssistantChatMessageSearch");
+    expect(workspace).toContain("loadHistoryThroughSeq");
+    expect(messageSearch).toContain("openSpotlightSearch");
+    expect(messageSearch).not.toContain("listConversationResources");
+    expect(messageSearch).not.toContain("listResources");
   });
 
   test("frames structured memories as personalization", async () => {

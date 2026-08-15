@@ -34,7 +34,7 @@ import type { AssistantProjectContextSnapshot } from "../project-context";
 import type { AssistantSidebarSnapshot } from "../sidebar";
 import { openAssistantFilesDialog } from "./AssistantArtifactDetail";
 import { AssistantChatContextPanel, assistantChatContextHasPanel, openAssistantChatContextDialog } from "./AssistantChatContext";
-import { openAssistantChatDiscoveryDialog } from "./AssistantChatDiscoveryDialog";
+import { assistantMessageAnchorSeq, openAssistantChatMessageSearch } from "./AssistantChatMessageSearch";
 import { openAssistantCreateProjectDialog } from "./AssistantProjectsDialog";
 import AssistantProjectView from "./AssistantProjectView";
 import AssistantSidebar from "./AssistantSidebar";
@@ -224,6 +224,34 @@ export default function AssistantWorkspace(props: Props) {
   );
   const [timelineViewport, setTimelineViewport] = createSignal<HTMLDivElement>();
   const [timelineContent, setTimelineContent] = createSignal<HTMLDivElement>();
+
+  const revealMessage = async (message: AiStoredMessage) => {
+    const seq = assistantMessageAnchorSeq(message, chat.timeline());
+    if (!(await chat.loadHistoryThroughSeq(seq))) {
+      chat.setError("Could not load this message.");
+      return;
+    }
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    const viewport = timelineViewport();
+    const anchor = timelineContent()?.querySelector<HTMLElement>(`[data-chat-anchor="${seq}"]`);
+    if (!viewport || !anchor) {
+      chat.setError("Could not find this message in the timeline.");
+      return;
+    }
+    const viewportRect = viewport.getBoundingClientRect();
+    viewport.scrollTop = Math.max(0, viewport.scrollTop + anchor.getBoundingClientRect().top - viewportRect.top - 16);
+    anchor.tabIndex = -1;
+    anchor.focus({ preventScroll: true });
+    if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      anchor.animate(
+        [
+          { outline: "2px solid var(--k2b-ai-accent)", outlineOffset: "2px" },
+          { outline: "2px solid transparent", outlineOffset: "6px" },
+        ],
+        { duration: 900, easing: "ease-out" },
+      );
+    }
+  };
 
   createEffect(() => {
     const conversationId = chat.activeConversationId();
@@ -493,7 +521,9 @@ export default function AssistantWorkspace(props: Props) {
                   icon: "ti ti-search",
                   onSelect: async () => {
                     const conversation = activeConversation();
-                    if (conversation) await openAssistantChatDiscoveryDialog(conversation.id, conversation.title);
+                    if (!conversation) return;
+                    const message = await openAssistantChatMessageSearch(conversation.id);
+                    if (message) await revealMessage(message);
                   },
                 },
                 {
