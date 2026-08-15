@@ -5,7 +5,7 @@ import type { ScriptTypeFile } from "../src/frontend/lib/editor/script-intellige
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const TS_LIB_ROOT = resolve(REPO_ROOT, "node_modules/typescript/lib");
-const STDLIB_SRC_ROOT = resolve(REPO_ROOT, "node_modules/@k2b/stdlib/src");
+const STDLIB_SRC_ROOT = dirname(Bun.resolveSync("@k2b/stdlib", import.meta.dir));
 const VIRTUAL_STDLIB_ROOT = "/node_modules/@k2b/stdlib/src";
 
 const TS_LIB_ENTRY = "lib.es2022.full.d.ts";
