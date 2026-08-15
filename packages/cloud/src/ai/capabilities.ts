@@ -18,7 +18,7 @@ import {
 } from "../contracts/capabilities";
 import type { CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
 import type { RequestActor } from "../server";
-import { defineAiTool, type PreparedAiTools, prepareAiTools } from "./tools";
+import { defineAiTool, type AiToolPreparationContext, type PreparedAiTools, prepareAiTools } from "./tools";
 import type { AiConversationService, AiRuntimeTool, AiToolPresentation } from "./types";
 
 export type AiCapabilityKind = "query" | "action";
@@ -350,6 +350,7 @@ export const createAiHelpToolResolver =
     conversationId: string;
     actor: RequestActor;
     staticTools: AiRuntimeTool[];
+    runtimeContext?: Omit<AiToolPreparationContext, "actor" | "conversationId">;
     listRegistry: () => Promise<HelpRegistryEntry[]>;
     onRegistryError?: (error: unknown) => void;
   }): ToolResolver =>
@@ -357,6 +358,7 @@ export const createAiHelpToolResolver =
     const registry = await resolveHelpRegistry(input.listRegistry, input.onRegistryError);
     return prepareAiTools({
       tools: [...input.staticTools, ...createAiHelpTools(registry)],
+      ...input.runtimeContext,
       actor: input.actor,
       conversationId: input.conversationId,
     }).tools;
@@ -616,6 +618,7 @@ export const createAiCapabilityToolResolver =
     conversationId: string;
     actor: RequestActor;
     staticTools: AiRuntimeTool[];
+    runtimeContext?: Omit<AiToolPreparationContext, "actor" | "conversationId">;
     store: Pick<AiConversationService, "getLoadedCapabilities" | "loadCapabilities">;
     listRegistry: () => Promise<CapabilityRegistryEntry[]>;
     onCapabilityRegistryError?: (error: unknown) => void;
@@ -663,6 +666,7 @@ export const createAiCapabilityToolResolver =
     ];
     const prepared = prepareAiTools({
       tools: [...input.staticTools, ...capabilityTools],
+      ...input.runtimeContext,
       actor: input.actor,
       conversationId: input.conversationId,
     });

@@ -43,18 +43,21 @@ turn, Cloud snapshots the exact newly attached files and a bounded, newest-first
 file inventory into the system context as untrusted metadata. Attached file
 versions are copied atomically with the turn, so retries use the same bytes even
 when the conversation file changes later. A turn accepts at most eight files,
-10 MB per image, and 40 MB of image input in total. Use `list_files`
-for the complete inventory and `read_file` or `view_image` before relying on a
-file's contents.
+10 MB per image, and 40 MB of image input in total. Use `list_files` for the
+complete inventory and `read_file` or `view_image` before relying on a file's
+contents. In a Project chat, the same tools expose authorized shared Project
+files read-only below `/project`.
 
 When the selected chat model supports Vision, Cloud resolves newly attached
 images transiently for that provider request; the stored message remains
-reference-only. A tool-capable model without Vision can use `view_image` when
-an administrator configured a separate Vision tool model. The tool accepts an
-image path and optional inspection guidance. It reads only an authorized file
-from the current conversation, stays inside the application's allowed data
-boundary, and returns a bounded textual analysis. A model with neither Vision
-nor Tools cannot accept image attachments.
+reference-only. Tool-capable models also receive `view_image` so they can
+inspect a stored image again on a later turn. The selected model performs that
+inspection when it supports Vision; otherwise an administrator must configure
+a separate Vision tool model. The tool accepts an image path and optional
+inspection guidance. It reads only an authorized conversation or Project file,
+stays inside the application's allowed data boundary, and returns a bounded
+textual analysis. A model with neither Vision nor Tools cannot accept image
+attachments.
 
 The default Assistant tools can list files, read bounded UTF-8 slices, write
 assistant-owned text files, inspect supported images when configured, and
@@ -82,8 +85,9 @@ after the first request the association is immutable.
 When a turn is submitted, Cloud rechecks access and stores an immutable snapshot
 with the Project id, name, revision, instructions, context manifest, and model
 default. Retries reuse that snapshot. Project edits affect the next turn.
-Workers recheck current access before execution, and `project_context` rechecks
-it before every search or read.
+Workers recheck current access before execution. `project_context` and every
+read below the virtual `/project` file mount recheck it before returning data.
+The mount is never writable and does not copy shared bytes into a private chat.
 
 Only Project instructions are instruction-bearing. Knowledge, files, references,
 and tool results are untrusted data. References contain metadata only; the agent

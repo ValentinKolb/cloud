@@ -367,9 +367,7 @@ const materializeChatConfig = async (config: AiChatTurnRunConfig, signal: AbortS
     tools:
       source.kind === "default"
         ? [
-            ...(await createConfiguredDefaultCloudAiTools({
-              allowedDataBoundaries: config.modelPolicy?.allowedDataBoundaries,
-            })),
+            ...(await createConfiguredDefaultCloudAiTools()),
             ...(config.clientToolIds?.includes("local_bash") ? [createCloudAiLocalBashTool()] : []),
           ]
         : [],
@@ -515,7 +513,26 @@ export class AiTurnExecutor {
     const memoryActive = Boolean(prefs?.memoryEnabled);
     const memory = memoryActive && user ? await aiMemories.selectHot(user.id, memoryQueryFromInput(config.input)) : null;
     const timeZone = String((await coreSettings.get<string>("app.timezone")) || "").trim() || "UTC";
-    const projectSubject = config.project ? accessSubjectForActor(material.actor) : null;
+    const project = config.project;
+    const projectSubject = project ? accessSubjectForActor(material.actor) : null;
+    const projectFiles =
+      project && resolvedProjectId && projectSubject
+        ? {
+            list: async () =>
+              (await aiProjects.listFiles(resolvedProjectId, project.appId, projectSubject)).map((file) => ({
+                path: file.path,
+                mediaType: file.mediaType,
+                size: file.size,
+                updatedAt: file.updatedAt,
+              })),
+            read: async (path: string) => {
+              const file = await aiProjects.readFileByPath(resolvedProjectId, project.appId, path, projectSubject);
+              return file
+                ? { path: file.path, mediaType: file.mediaType, size: file.size, updatedAt: file.updatedAt, bytes: file.bytes }
+                : null;
+            },
+          }
+        : undefined;
     const runtimeTools = [
       ...material.tools,
       ...(memoryActive ? [createCloudAiMemoryTool()] : []),
@@ -536,13 +553,18 @@ export class AiTurnExecutor {
       });
     }
 
-    const prepared = prepareAiTools({
-      tools: activeTools,
-      actor: material.actor,
-      conversationId,
+    const dynamicToolRuntimeContext = {
       turnId,
       attachedFilePaths: new Set(config.files?.attached.map((file) => file.path) ?? []),
       allowedDataBoundaries: material.modelPolicy?.allowedDataBoundaries,
+      projectFiles,
+      selectedModel: resolved,
+    };
+    const prepared = prepareAiTools({
+      tools: activeTools,
+      ...dynamicToolRuntimeContext,
+      actor: material.actor,
+      conversationId,
     });
     const rememberableCapabilityApprovals = new Map<string, string>();
     pipeline.setFrontendModes(prepared.frontendModes);
@@ -601,6 +623,7 @@ export class AiTurnExecutor {
           conversationId,
           actor: capabilityAuthority.actor,
           staticTools: activeTools,
+          runtimeContext: dynamicToolRuntimeContext,
           store: aiConversations,
           listRegistry: listCapabilities,
           onCapabilityRegistryError: (error) =>
@@ -662,6 +685,7 @@ export class AiTurnExecutor {
             conversationId,
             actor: helpActor,
             staticTools: activeTools,
+            runtimeContext: dynamicToolRuntimeContext,
             listRegistry: loadCurrentHelp,
             onRegistryError: (error) =>
               log.warn("AI Help registry unavailable; continuing without Help documents", {

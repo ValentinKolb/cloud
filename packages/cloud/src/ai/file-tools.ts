@@ -1,9 +1,18 @@
 import { z } from "zod";
+import { AI_PROJECT_FILE_MOUNT, aiProjectFilePathFromMount, mountAiProjectFilePath } from "./file-mount";
 import { aiFileStore, guessAiMediaType, normalizeAiFilePath } from "./files-store";
 import { defineAiTool } from "./tools";
 
 const FILE_READ_MAX_BYTES = 64 * 1024;
 const FILE_WRITE_MAX_BYTES = 100 * 1024;
+
+const projectPathMatchesPrefix = (path: string, prefix: string): boolean =>
+  prefix.length === 0 || path === prefix || path.startsWith(`${prefix}/`);
+
+const assertConversationFilePath = (path: string, action: string): void => {
+  if (aiProjectFilePathFromMount(path) !== null)
+    throw new Error(`The ${AI_PROJECT_FILE_MOUNT} namespace is read-only and cannot be ${action}.`);
+};
 
 const toolPath = (value: string, access: "read" | "write"): string => {
   const candidate = value.startsWith("/") ? value : `/${value}`;
@@ -27,11 +36,22 @@ const conversationId = (value: string | undefined, tool: string): string => {
 };
 
 export const CloudAiListFilesInputSchema = z.object({
-  path: z.string().trim().min(1).default("/").describe("Directory or path prefix. Use / for all conversation files."),
+  path: z
+    .string()
+    .trim()
+    .min(1)
+    .default("/")
+    .describe("Directory or path prefix. Use / for all available files or /project for shared Project files."),
 });
 export const CloudAiListFilesOutputSchema = z.object({
   files: z.array(
-    z.object({ path: z.string(), size: z.number(), mediaType: z.string(), origin: z.enum(["user", "assistant"]), updatedAt: z.string() }),
+    z.object({
+      path: z.string(),
+      size: z.number(),
+      mediaType: z.string(),
+      origin: z.enum(["user", "assistant", "project"]),
+      updatedAt: z.string(),
+    }),
   ),
   truncated: z.boolean(),
 });
@@ -39,19 +59,34 @@ export const CloudAiListFilesOutputSchema = z.object({
 export const createCloudAiListFilesTool = () =>
   defineAiTool({
     name: "list_files",
-    description: "List persistent conversation files. Files are ordered newest first.",
+    description:
+      "List persistent conversation files and shared Project files when this chat belongs to a Project. Project files are mounted read-only below /project. Files are ordered newest first.",
     inputSchema: CloudAiListFilesInputSchema,
     outputSchema: CloudAiListFilesOutputSchema,
     approval: "never",
-    promptHint: "list conversation files before reading an upload or locating a generated result.",
+    promptHint: "list available chat and Project files before reading an upload or locating a generated result.",
   }).server(async (input, ctx) => {
     const prefix = input.path === "/" ? "/" : toolPath(input.path, "read");
-    const files = await aiFileStore.list({ conversationId: conversationId(ctx.conversationId, "list_files"), prefix });
+    const projectPrefix = aiProjectFilePathFromMount(prefix);
+    const includeConversationFiles = projectPrefix === null;
+    const includeProjectFiles = prefix === "/" || projectPrefix !== null;
+    const [conversationFiles, projectFiles] = await Promise.all([
+      includeConversationFiles
+        ? aiFileStore.list({ conversationId: conversationId(ctx.conversationId, "list_files"), prefix })
+        : Promise.resolve([]),
+      includeProjectFiles && ctx.projectFiles ? ctx.projectFiles.list() : Promise.resolve([]),
+    ]);
+    const files = [
+      ...conversationFiles.filter((file) => aiProjectFilePathFromMount(file.path) === null),
+      ...projectFiles
+        .filter((file) => projectPathMatchesPrefix(file.path, projectPrefix ?? ""))
+        .map((file) => ({ ...file, path: mountAiProjectFilePath(file.path), origin: "project" as const })),
+    ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.path.localeCompare(b.path));
     return { files: files.slice(0, 200), truncated: files.length > 200 };
   });
 
 export const CloudAiReadFileInputSchema = z.object({
-  path: z.string().trim().min(1).describe("Absolute conversation file path."),
+  path: z.string().trim().min(1).describe("Absolute file path. Shared Project files are available below /project."),
   offset: z.number().int().min(0).default(0).describe("Byte offset. Continue with nextOffset from the previous result."),
   length: z
     .number()
@@ -74,26 +109,39 @@ export const createCloudAiReadFileTool = () =>
   defineAiTool({
     name: "read_file",
     description:
-      "Read a UTF-8 text conversation file in bounded byte slices. Binary files are not returned as model context. Continue large files with nextOffset.",
+      "Read an available UTF-8 text file in bounded byte slices. Shared Project files below /project are read-only. Binary files are not returned as model context. Continue large files with nextOffset.",
     inputSchema: CloudAiReadFileInputSchema,
     outputSchema: CloudAiReadFileOutputSchema,
     approval: "never",
-    promptHint: "read text uploads or generated files in bounded slices; continue large files with nextOffset.",
+    promptHint: "read available text files in bounded slices; continue large files with nextOffset.",
   }).server(async (input, ctx) => {
-    const id = conversationId(ctx.conversationId, "read_file");
     const path = toolPath(input.path, "read");
-    const snapshotRequired = ctx.attachedFilePaths?.has(path) ?? false;
-    const snapshot = ctx.turnId
-      ? await aiFileStore.readTurnSliceWithStat({ turnId: ctx.turnId, path, offset: input.offset, length: input.length })
-      : null;
+    const projectPath = aiProjectFilePathFromMount(path);
+    const projectFile =
+      projectPath !== null && projectPath.length > 0 && ctx.projectFiles ? await ctx.projectFiles.read(projectPath) : null;
+    if (projectPath !== null && !projectFile) throw new Error(`No such Project file: ${path}`);
+    const snapshotRequired = projectPath === null && (ctx.attachedFilePaths?.has(path) ?? false);
+    const snapshot =
+      projectPath === null && ctx.turnId
+        ? await aiFileStore.readTurnSliceWithStat({ turnId: ctx.turnId, path, offset: input.offset, length: input.length })
+        : null;
     if (snapshotRequired && !snapshot) throw new Error(`Attached file snapshot is unavailable: ${path}`);
     const stored =
-      snapshot ?? (await aiFileStore.readSliceWithStat({ conversationId: id, path, offset: input.offset, length: input.length }));
+      projectFile ??
+      snapshot ??
+      (projectPath === null
+        ? await aiFileStore.readSliceWithStat({
+            conversationId: conversationId(ctx.conversationId, "read_file"),
+            path,
+            offset: input.offset,
+            length: input.length,
+          })
+        : null);
     if (!stored) throw new Error(`No such file: ${path}`);
     if (!isTextMediaType(stored.mediaType)) throw new Error(`Cannot read binary file ${path} (${stored.mediaType}) as text.`);
     if (input.offset > stored.size) throw new Error(`Offset ${input.offset} is past the end of ${path} (${stored.size} bytes).`);
     const requestedEnd = Math.min(stored.size, input.offset + input.length);
-    const bytes = stored.bytes;
+    const bytes = projectFile ? stored.bytes.slice(input.offset, requestedEnd) : stored.bytes;
 
     let end = -1;
     let content = "";
@@ -133,6 +181,7 @@ export const createCloudAiWriteFileTool = () =>
   }).server(async (input, ctx) => {
     const id = conversationId(ctx.conversationId, "write_file");
     const path = toolPath(input.path, "write");
+    assertConversationFilePath(path, "written");
     const existing = await aiFileStore.stat({ conversationId: id, path });
     if (existing?.origin === "user") throw new Error(`Cannot overwrite user-uploaded file ${path}. Choose another path.`);
     const bytes = new TextEncoder().encode(input.content);
@@ -165,6 +214,7 @@ export const createCloudAiPresentTool = () =>
   }).server(async (input, ctx) => {
     const id = conversationId(ctx.conversationId, "present");
     const path = toolPath(input.path, "read");
+    assertConversationFilePath(path, "presented");
     const stat = await aiFileStore.stat({ conversationId: id, path });
     if (!stat) throw new Error(`No such file: ${path}`);
     return { path: stat.path, size: stat.size, mediaType: stat.mediaType };

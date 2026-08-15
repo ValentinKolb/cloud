@@ -5,6 +5,7 @@ import { expectUserBackedActor } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { loadAssistantChatContextSnapshot } from "../chat-context";
 import { ssr } from "../config";
+import { assistantModelPolicy } from "../model-policy";
 import { loadAssistantProjectContextSnapshot } from "../project-context";
 import { loadAssistantSidebarSnapshot } from "../sidebar";
 import AssistantWorkspace from "./AssistantWorkspace.island";
@@ -19,7 +20,7 @@ export default ssr<AuthContext>(async (c) => {
   const initialLiveCursor = (await latestAiInvalidationCursor("assistant", user.id)) ?? "0-0";
   const [status, models, prefs, sidebar] = await Promise.all([
     toPublicAiSettingsState(),
-    listAiModels({ kind: "selectable", requiredCapabilities: ["streaming"] }),
+    listAiModels(assistantModelPolicy),
     aiUserPrefs.get(user.id),
     loadAssistantSidebarSnapshot(user.id),
   ]);

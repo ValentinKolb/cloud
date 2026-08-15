@@ -117,12 +117,13 @@ model could finish with plain text but Cloud prefers the tool-backed experience,
 as with cards, surveys, or presented files. Keep operation details and arguments
 in the tool description and schema; the hint does not replace either.
 
-`view_image` is a safe read over one authorized conversation file. Its input is
-an absolute file path and optional bounded guidance. Cloud validates the image
-type and size, invokes the administrator-selected Vision tool model, and returns
-a bounded description. Image contents remain untrusted data, and the tool is
-not registered when no Vision tool model is configured or when that model is
-outside the application's allowed data boundary.
+`view_image` is a safe read over one authorized conversation or read-only
+Project file. Its input is an absolute file path and optional bounded guidance;
+Project files are mounted below `/project`. Cloud validates the image type and
+size, invokes the selected model when it supports Vision or the
+administrator-selected Vision tool model otherwise, and returns a bounded
+description. Image contents remain untrusted data. Without either usable Vision
+path, the tool reports that image inspection is unavailable.
 
 ## Search product Help
 

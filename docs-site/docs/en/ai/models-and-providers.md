@@ -85,11 +85,11 @@ store them in application data.
 
 ## Configure image inspection
 
-Set **Vision tool model** to an enabled profile with the `vision` capability to
-make `view_image` available to tool-capable chat models. Cloud does not silently
-choose another provider. A newly attached image still goes directly to the
-selected chat model when that model itself supports Vision; the configured tool
-model is used only for explicit `view_image` calls. The tool model must also
+`view_image` is available to tool-capable chat models. When the selected model
+also supports Vision, it performs the explicit image inspection itself. Set
+**Vision tool model** to an enabled profile with the `vision` capability when
+tool-capable models without Vision must inspect images too. Cloud does not
+silently choose another provider. The selected or configured tool model must
 match the application's allowed data boundary; Cloud does not route private
 chat data to a hosted fallback.
 

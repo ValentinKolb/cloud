@@ -5,6 +5,7 @@ import { Hono } from "hono";
 import { loadAssistantChatContextSnapshot } from "../chat-context";
 import { chatTaskRoutes } from "../chat-tasks-routes";
 import { loadAssistantProjectContextSnapshot } from "../project-context";
+import { assistantModelPolicy } from "../model-policy";
 import { assistantChatPrompt } from "../prompt";
 import { loadAssistantSidebarSnapshot } from "../sidebar";
 
@@ -35,7 +36,7 @@ const chatRoutes = createAiChatRoutes({
       ownerUserId: user.id,
       systemPrompt: assistantChatPrompt(),
       toolSource: { kind: "default", capabilities: true },
-      modelPolicy: { kind: "selectable", requiredCapabilities: ["streaming"] },
+      modelPolicy: assistantModelPolicy,
       toolApprovalContext: { actorUserId: user.id, appId: ASSISTANT_APP_ID, resource: { kind: "direct" } },
     };
   },

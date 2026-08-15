@@ -143,6 +143,13 @@ suite("AI conversation public routes", () => {
       expect(await upload.json()).toMatchObject({ file: { path: "/photo.png", mediaType: "image/png", size: 3, origin: "user" } });
       const list = await app.request(`/conversations/${chat.shortId}/files`);
       expect(await list.json()).toMatchObject({ files: [{ path: "/photo.png", origin: "user" }] });
+      const reserved = await app.request(`/conversations/${chat.shortId}/files/content`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ path: "/project/note.md", content: "reserved", encoding: "utf8" }),
+      });
+      expect(reserved.status).toBe(400);
+      expect(await reserved.json()).toMatchObject({ code: "BAD_INPUT", message: "The /project namespace is reserved." });
     } finally {
       await sql`DELETE FROM ai.conversations WHERE id = ${chat.id}::uuid`;
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;

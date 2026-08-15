@@ -56,8 +56,10 @@ fills the composer without sending it. Once the first request is sent, the
 Project association is fixed and the composer moves below the conversation.
 
 A model profile selects the provider model and available capabilities for a
-turn. Retry reruns a message in the current branch. Fork copies the conversation
-through a selected message into a new chat.
+turn. Assistant lists streaming, tool-capable models so stored chat and Project
+images can be inspected again through `view_image`. Retry reruns a message in
+the current branch. Fork copies the conversation through a selected message
+into a new chat.
 
 ## How Assistant fits Cloud
 

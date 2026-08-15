@@ -114,13 +114,16 @@ describe.skipIf(!(await canUseAiDatabase()))("aiProjects (integration)", () => {
       expect(knowledge).not.toBeNull();
       expect(file).not.toBeNull();
       expect(reference).not.toBeNull();
+      expect(new TextDecoder().decode((await aiProjects.readFileByPath(project.id, "assistant", "guides/triage.md", member))?.bytes)).toBe(
+        "# Triage",
+      );
 
       const snapshot = await aiProjects.snapshot(project.id, "assistant", member);
       expect(snapshot?.appId).toBe("assistant");
       expect(snapshot?.instructions).toBe("Answer with the support policy.");
       expect(snapshot?.defaultModelProfileId).toBe("model-support");
       expect(snapshot?.context).toContain("Escalation");
-      expect(snapshot?.context).toContain("guides/triage.md");
+      expect(snapshot?.context).toContain("/project/guides/triage.md");
       expect(snapshot?.context).toContain("notebooks.notebook/support-runbook");
 
       const beforeRollback = await aiProjects.get(project.id, "assistant", owner);
@@ -155,6 +158,7 @@ describe.skipIf(!(await canUseAiDatabase()))("aiProjects (integration)", () => {
 
       expect(await aiProjects.revokeAccess(project.id, "assistant", grant!.id, owner)).toBe(true);
       expect(await aiProjects.get(project.id, "assistant", member)).toBeNull();
+      expect(await aiProjects.readFileByPath(project.id, "assistant", "guides/triage.md", member)).toBeNull();
       expect(await aiProjects.resolveShortIds([project.id], "assistant", member)).toEqual(new Map());
     } finally {
       await sql`DELETE FROM ai.conversations WHERE created_by_user_id IN (${ownerId}::uuid, ${memberId}::uuid)`;

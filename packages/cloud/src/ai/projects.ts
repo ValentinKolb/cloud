@@ -10,6 +10,7 @@ import {
   type Principal,
 } from "../server/services/access";
 import { toPgUuidArray } from "../services/postgres";
+import { mountAiProjectFilePath } from "./file-mount";
 import { withAiShortIdForDb } from "./short-id";
 import type { AiProjectPromptSnapshot } from "./types";
 
@@ -385,7 +386,9 @@ export const aiProjects = {
       project.description ? `Description: ${project.description}` : null,
       knowledge.length ? `Knowledge entries:\n${knowledge.map((item) => `- ${item.title} [${item.shortId}]`).join("\n")}` : null,
       files.length
-        ? `Files:\n${files.map((file) => `- ${file.path} (${file.mediaType}, ${file.size} bytes) [${file.shortId}]`).join("\n")}`
+        ? `Files (read-only below /project):\n${files
+            .map((file) => `- ${mountAiProjectFilePath(file.path)} (${file.mediaType}, ${file.size} bytes) [${file.shortId}]`)
+            .join("\n")}`
         : null,
       references.length
         ? `Cloud references (metadata only; use authorized app capabilities to read the source):\n${references
@@ -686,6 +689,21 @@ export const aiProjects = {
     const rows = await sql<(FileRow & { bytes: Uint8Array })[]>`
       SELECT id, short_id, project_id, path, media_type, size, updated_at, bytes FROM ai.project_files
       WHERE short_id = ${fileId} AND project_id = ${projectId}::uuid
+    `;
+    return rows[0] ? { ...toFile(rows[0]), bytes: rows[0].bytes } : null;
+  },
+
+  async readFileByPath(
+    projectId: string,
+    appId: string,
+    path: string,
+    subject: AccessSubject | null,
+  ): Promise<(AiProjectFile & { bytes: Uint8Array }) | null> {
+    if (!(await requireProject(projectId, appId, subject, "read"))) return null;
+    const normalized = normalizeProjectPath(path);
+    const rows = await sql<(FileRow & { bytes: Uint8Array })[]>`
+      SELECT id, short_id, project_id, path, media_type, size, updated_at, bytes FROM ai.project_files
+      WHERE path = ${normalized} AND project_id = ${projectId}::uuid
     `;
     return rows[0] ? { ...toFile(rows[0]), bytes: rows[0].bytes } : null;
   },

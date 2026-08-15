@@ -1,9 +1,9 @@
 import { type AiInterChatMessage, aiConversations, aiProjects, deliverAiInterChatMessage } from "@valentinkolb/cloud/ai";
 import { accounts, logger } from "@valentinkolb/cloud/services";
+import { assistantModelPolicy } from "./model-policy";
 import { assistantChatPrompt } from "./prompt";
 
 const ASSISTANT_APP_ID = "assistant";
-const modelPolicy = { kind: "selectable" as const, requiredCapabilities: ["streaming" as const] };
 const log = logger("assistant:inter-chat-messages");
 
 export type AssistantMessageDeliveryStatus = "queued" | "delivered" | "failed";
@@ -54,7 +54,7 @@ export const deliverPendingAssistantMessages = async (
       const delivered = await deliverAiInterChatMessage({
         message,
         actor: { kind: "user", user },
-        modelPolicy,
+        modelPolicy: assistantModelPolicy,
         systemPrompt: assistantChatPrompt(target.shortId),
         project: project ?? undefined,
         sourceHref: `/app/assistant?conversation=${encodeURIComponent(message.sourceChatId)}`,

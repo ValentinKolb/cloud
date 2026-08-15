@@ -409,6 +409,21 @@ export type AiProjectPromptSnapshot = {
   defaultModelProfileId: string | null;
 };
 
+export type AiProjectFileToolStat = {
+  path: string;
+  mediaType: string;
+  size: number;
+  updatedAt: string;
+};
+
+export type AiProjectFileToolContent = AiProjectFileToolStat & { bytes: Uint8Array };
+
+/** Current-authority, read-only Project file access mounted into AI file tools. */
+export type AiProjectFileToolSource = {
+  list: () => Promise<AiProjectFileToolStat[]>;
+  read: (path: string) => Promise<AiProjectFileToolContent | null>;
+};
+
 export type AiConversationResourceRef = {
   ref: CloudResourceRef;
   title: string | null;
@@ -910,6 +925,8 @@ export type AiToolRuntime<TInput extends z.ZodType = z.ZodType, TOutput extends 
           turnId?: string;
           attachedFilePaths?: ReadonlySet<string>;
           allowedDataBoundaries?: AiDataBoundary[];
+          projectFiles?: AiProjectFileToolSource;
+          selectedModel?: AiResolvedModel;
         },
       ): Promise<z.infer<TOutput>>;
     }

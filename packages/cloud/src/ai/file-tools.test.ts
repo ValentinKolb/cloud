@@ -1,5 +1,72 @@
 import { describe, expect, test } from "bun:test";
-import { evaluateAiDate, evaluateAiMath } from "./file-tools";
+import {
+  createCloudAiListFilesTool,
+  createCloudAiReadFileTool,
+  createCloudAiWriteFileTool,
+  evaluateAiDate,
+  evaluateAiMath,
+} from "./file-tools";
+
+const projectFiles = {
+  list: async () => [
+    {
+      path: "guides/triage.md",
+      mediaType: "text/markdown",
+      size: 8,
+      updatedAt: "2026-08-15T12:00:00.000Z",
+    },
+  ],
+  read: async (path: string) =>
+    path === "guides/triage.md"
+      ? {
+          path,
+          mediaType: "text/markdown",
+          size: 8,
+          updatedAt: "2026-08-15T12:00:00.000Z",
+          bytes: new TextEncoder().encode("# Triage"),
+        }
+      : null,
+};
+
+const toolContext = {
+  actor: { kind: "user", user: { id: "user-1" } },
+  conversationId: "conversation-1",
+  projectFiles,
+  signal: new AbortController().signal,
+} as never;
+
+describe("AI Project file mount", () => {
+  test("lists and reads Project files below the reserved read-only namespace", async () => {
+    const list = createCloudAiListFilesTool();
+    const read = createCloudAiReadFileTool();
+    const write = createCloudAiWriteFileTool();
+    if (list.location !== "server" || read.location !== "server" || write.location !== "server") throw new Error("Expected server tools");
+
+    expect(await list.run({ path: "/project" }, toolContext)).toEqual({
+      files: [
+        {
+          path: "/project/guides/triage.md",
+          mediaType: "text/markdown",
+          size: 8,
+          origin: "project",
+          updatedAt: "2026-08-15T12:00:00.000Z",
+        },
+      ],
+      truncated: false,
+    });
+    expect(await read.run({ path: "/project/guides/triage.md", offset: 0, length: 16_384 }, toolContext)).toEqual({
+      path: "/project/guides/triage.md",
+      mediaType: "text/markdown",
+      content: "# Triage",
+      offset: 0,
+      nextOffset: 8,
+      eof: true,
+    });
+    await expect(write.run({ path: "/project/result.md", content: "No", mode: "overwrite" }, toolContext)).rejects.toThrow(
+      "/project namespace is read-only",
+    );
+  });
+});
 
 describe("AI calculate tool", () => {
   test("evaluates arithmetic without executing code", () => {

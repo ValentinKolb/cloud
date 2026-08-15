@@ -6,9 +6,9 @@ import { AiTurnExecutor } from "./executor";
 import { aiFileStore } from "./files-store";
 import { aiMemories } from "./memories";
 import { migrateCloudAi } from "./migrate";
+import { aiProjects } from "./projects";
 import type { AiWireEvent } from "./protocol";
 import { createAiProvider } from "./provider";
-import { createAiShortId } from "./short-id";
 import { aiConversations } from "./store";
 import { aiStreamTopic } from "./stream";
 import type { AiModelProfile, AiTurnFinalizedEvent } from "./types";
@@ -104,6 +104,21 @@ const textCompletion = (text: string): string[] => [
   sseChunk({ choices: [{ delta: { role: "assistant" } }] }),
   ...text.split(" ").map((word, index) => sseChunk({ choices: [{ delta: { content: (index === 0 ? "" : " ") + word } }] })),
   sseChunk({ choices: [{ delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }),
+  "data: [DONE]\n\n",
+];
+
+const toolCallCompletion = (id: string, name: string, args: unknown): string[] => [
+  sseChunk({ choices: [{ delta: { role: "assistant" } }] }),
+  sseChunk({
+    choices: [
+      {
+        delta: {
+          tool_calls: [{ index: 0, id, type: "function", function: { name, arguments: JSON.stringify(args) } }],
+        },
+      },
+    ],
+  }),
+  sseChunk({ choices: [{ delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } }),
   "data: [DONE]\n\n",
 ];
 
@@ -472,6 +487,120 @@ suite("AI executor integration", () => {
     }
   });
 
+  test("view_image reads a mounted Project image with the selected Vision model", async () => {
+    const userId = await insertUser();
+    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    try {
+      const profile: AiModelProfile = { ...mockProfile(), capabilities: ["streaming", "tools", "vision"] };
+      let requestBody: unknown;
+      onCompletionRequest = (body) => {
+        requestBody = body;
+      };
+      nextJsonCompletion = '{"description":"A Project diagram."}';
+      const tool = createCloudAiViewImageTool();
+      if (tool.location !== "server") throw new Error("view_image must be a server tool");
+      const result = await tool.run({ path: "/project/diagram.png", prompt: "Describe the diagram." }, {
+        actor: { kind: "user", user: actorUser(userId) },
+        conversationId: conversation.id,
+        selectedModel: { profile, provider: createAiProvider(profile, "test") },
+        projectFiles: {
+          list: async () => [],
+          read: async (path: string) =>
+            path === "diagram.png"
+              ? {
+                  path,
+                  mediaType: "image/png",
+                  size: 3,
+                  updatedAt: "2026-08-15T12:00:00.000Z",
+                  bytes: new Uint8Array([4, 5, 6]),
+                }
+              : null,
+        },
+        signal: new AbortController().signal,
+      } as never);
+
+      expect(result).toEqual({ path: "/project/diagram.png", mediaType: "image/png", description: "A Project diagram." });
+      expect(JSON.stringify(requestBody)).toContain("Describe the diagram.");
+      expect(JSON.stringify(requestBody)).toContain("data:image/png;base64,BAUG");
+    } finally {
+      onCompletionRequest = null;
+      nextJsonCompletion = null;
+      await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
+  test("keeps mounted Project files available when dynamic capabilities reprepare the tools", async () => {
+    const userId = await insertUser();
+    const subject = { type: "user" as const, userId };
+    const project = await aiProjects.create({ appId: "ai-exec", subject, name: "Project files" });
+    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId, projectId: project.id });
+    try {
+      await aiProjects.writeFile(project.id, "ai-exec", subject, {
+        path: "guide.md",
+        mediaType: "text/markdown",
+        bytes: new TextEncoder().encode("# Guide"),
+      });
+      const projectSnapshot = await aiProjects.snapshot(project.id, "ai-exec", subject);
+      if (!projectSnapshot) throw new Error("Expected Project snapshot");
+
+      const requests: unknown[] = [];
+      completionRequestCount = 0;
+      completionQueue = [toolCallCompletion("list-project-files", "list_files", { path: "/project" }), textCompletion("Found the file")];
+      onCompletionRequest = (body) => {
+        requests.push(body);
+      };
+      const { turn } = await aiConversations.submitChatTurn({
+        conversationId: conversation.id,
+        modelProfileId: MODEL_ID,
+        runConfig: {
+          kind: "chat",
+          input: "List the Project files.",
+          actor: { kind: "user", user: actorUser(userId) },
+          project: projectSnapshot,
+          toolSource: { kind: "default", capabilities: true },
+        },
+        userMessage: userMessage("List the Project files."),
+      });
+      const claim = await aiConversations.claimTurn({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        leaseOwner: "project-files-capabilities-exec",
+        leaseMs: 30_000,
+        from: "queue",
+        maxAttempts: 5,
+        runBudgetMs: 60_000,
+      });
+
+      await createExecutor("project-files-capabilities-exec", undefined, fakeValidateToolTurn).run({
+        conversationId: conversation.id,
+        turnId: turn.id,
+        claim: claim!,
+        signal: new AbortController().signal,
+      });
+
+      expect(requests).toHaveLength(2);
+      const secondRequest = requests[1];
+      if (!secondRequest || typeof secondRequest !== "object" || !("messages" in secondRequest) || !Array.isArray(secondRequest.messages)) {
+        throw new Error("Expected provider messages");
+      }
+      const toolMessage = secondRequest.messages.find(
+        (message) => message && typeof message === "object" && "role" in message && message.role === "tool",
+      );
+      if (!toolMessage || typeof toolMessage !== "object" || !("content" in toolMessage) || typeof toolMessage.content !== "string") {
+        throw new Error("Expected list_files result");
+      }
+      expect(JSON.parse(toolMessage.content)).toMatchObject({ files: [{ path: "/project/guide.md", origin: "project" }] });
+      expect((await aiConversations.getTurn({ conversationId: conversation.id, turnId: turn.id }))?.status).toBe("completed");
+    } finally {
+      completionQueue = [];
+      onCompletionRequest = null;
+      await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
+      await sql`DELETE FROM ai.projects WHERE id = ${project.id}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
   test("exposes Help for a user-backed default chat without enabling capabilities", async () => {
     const userId = await insertUser();
     const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
@@ -634,12 +763,13 @@ suite("AI executor integration", () => {
 
   test("uses the Project snapshot from the durable turn config", async () => {
     const userId = await insertUser();
-    const projectId = "11111111-1111-4111-8111-111111111111";
-    const projectShortId = createAiShortId();
-    await sql`
-      INSERT INTO ai.projects (id, short_id, app_id, name, instructions, revision)
-      VALUES (${projectId}::uuid, ${projectShortId}, 'ai-exec', 'Meeting summary', 'Current instructions that must not replace the snapshot.', 5)
-    `;
+    const project = await aiProjects.create({
+      appId: "ai-exec",
+      subject: { type: "user", userId },
+      name: "Meeting summary",
+      instructions: "Current instructions that must not replace the snapshot.",
+    });
+    await sql`UPDATE ai.projects SET revision = 5 WHERE id = ${project.id}::uuid`;
     const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
 
     try {
@@ -657,7 +787,7 @@ suite("AI executor integration", () => {
           input: "Summarize this meeting.",
           actor: { kind: "user", user: actorUser(userId) },
           project: {
-            id: projectShortId,
+            id: project.shortId,
             appId: "ai-exec",
             name: "Meeting summary",
             instructions: "List decisions before action items.",
@@ -695,7 +825,7 @@ suite("AI executor integration", () => {
     } finally {
       onCompletionRequest = null;
       await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
-      await sql`DELETE FROM ai.projects WHERE id = ${projectId}::uuid`;
+      await sql`DELETE FROM ai.projects WHERE id = ${project.id}::uuid`;
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
     }
   });

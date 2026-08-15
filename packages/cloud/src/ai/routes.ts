@@ -4,6 +4,7 @@ import { type AccessSubject, type ApiErrorResponse, type AuthContext, err, fail,
 import { coreSettings } from "../services/settings/api";
 import type { AiToolApprovalContext } from "./approvals";
 import { createConfiguredDefaultCloudAiTools } from "./default-tools";
+import { aiProjectFilePathFromMount } from "./file-mount";
 import { AI_FILES_MAX_FILE_BYTES_DEFAULT, aiFileStore, decodeAiFileContent, guessAiMediaType, normalizeAiFilePath } from "./files-store";
 import {
   AiCompactionInputSchema,
@@ -317,10 +318,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         const toolsSupported = Boolean(previewProfile?.capabilities.includes("tools"));
         const tools =
           isDefaultToolSource && toolsSupported
-            ? [
-                ...(await createConfiguredDefaultCloudAiTools({ allowedDataBoundaries: ctx.modelPolicy.allowedDataBoundaries })),
-                ...(memoryEnabled ? [createCloudAiMemoryTool()] : []),
-              ]
+            ? [...(await createConfiguredDefaultCloudAiTools()), ...(memoryEnabled ? [createCloudAiMemoryTool()] : [])]
             : [];
         const memoryToolEnabled = tools.some((tool) => tool.def.name === "memory");
         const timeZone = String((await coreSettings.get<string>("app.timezone")) || "").trim() || "UTC";
@@ -887,6 +885,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         const name = (file.name || "upload").replaceAll("/", "_").replaceAll("\\", "_").replaceAll("\0", "").slice(0, 160) || "upload";
         let path = normalizeAiFilePath(`/${name}`);
         if (!path) return respond(c, fail(err.badInput("Invalid file name")));
+        if (aiProjectFilePathFromMount(path) !== null) return respond(c, fail(err.badInput("The /project namespace is reserved.")));
         // Keep multiple same-named uploads apart: report.csv → report-2.csv.
         for (let attempt = 2; (await aiFileStore.stat({ conversationId: conversation.id, path })) && attempt < 100; attempt++) {
           const dot = name.lastIndexOf(".");
@@ -944,6 +943,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         const body = c.req.valid("json");
         const path = normalizeAiFilePath(body.path);
         if (!path) return respond(c, fail(err.badInput("Use an absolute conversation file path.")));
+        if (aiProjectFilePathFromMount(path) !== null) return respond(c, fail(err.badInput("The /project namespace is reserved.")));
         const existing = await aiFileStore.stat({ conversationId: conversation.id, path });
         try {
           await aiFileStore.write({
@@ -968,6 +968,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         const from = normalizeAiFilePath(body.from);
         const to = normalizeAiFilePath(body.to);
         if (!from || !to) return respond(c, fail(err.badInput("Use absolute conversation file paths.")));
+        if (aiProjectFilePathFromMount(to) !== null) return respond(c, fail(err.badInput("The /project namespace is reserved.")));
         const renamed = await aiFileStore.rename({ conversationId: conversation.id, from, to });
         if (renamed === "not_found") return notFound(c);
         if (renamed === "conflict") return respond(c, fail(err.conflict(`File "${to}"`)));

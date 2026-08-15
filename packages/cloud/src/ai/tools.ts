@@ -3,7 +3,16 @@ import { defineTool as defineNessiTool } from "@k2b/nessi";
 import type { z } from "zod";
 import type { RequestActor } from "../server";
 import { aiToolNeedsApproval } from "./approvals";
-import type { AiDataBoundary, AiFrontendToolMode, AiRuntimeTool, AiToolApprovalPolicy, AiToolDefinition, AiToolRuntime } from "./types";
+import type {
+  AiDataBoundary,
+  AiFrontendToolMode,
+  AiProjectFileToolSource,
+  AiResolvedModel,
+  AiRuntimeTool,
+  AiToolApprovalPolicy,
+  AiToolDefinition,
+  AiToolRuntime,
+} from "./types";
 
 export const defineAiTool = <TInput extends z.ZodType, TOutput extends z.ZodType>(config: {
   name: string;
@@ -40,6 +49,8 @@ export const defineAiTool = <TInput extends z.ZodType, TOutput extends z.ZodType
           turnId?: string;
           attachedFilePaths?: ReadonlySet<string>;
           allowedDataBoundaries?: AiDataBoundary[];
+          projectFiles?: AiProjectFileToolSource;
+          selectedModel?: AiResolvedModel;
         },
       ) => Promise<z.infer<TOutput>>,
     ): AiToolRuntime<TInput, TOutput> {
@@ -72,14 +83,17 @@ export type PreparedAiTools = {
   frontendModes: Map<string, AiFrontendToolMode>;
 };
 
-export const prepareAiTools = (input: {
-  tools?: AiRuntimeTool[];
+export type AiToolPreparationContext = {
   actor?: RequestActor;
   conversationId?: string;
   turnId?: string;
   attachedFilePaths?: ReadonlySet<string>;
   allowedDataBoundaries?: AiDataBoundary[];
-}): PreparedAiTools => {
+  projectFiles?: AiProjectFileToolSource;
+  selectedModel?: AiResolvedModel;
+};
+
+export const prepareAiTools = (input: AiToolPreparationContext & { tools?: AiRuntimeTool[] }): PreparedAiTools => {
   const approvalPolicies = new Map<string, AiToolApprovalPolicy>();
   const frontendModes = new Map<string, AiFrontendToolMode>();
 
@@ -108,6 +122,8 @@ export const prepareAiTools = (input: {
           turnId: input.turnId,
           attachedFilePaths: input.attachedFilePaths,
           allowedDataBoundaries: input.allowedDataBoundaries,
+          projectFiles: input.projectFiles,
+          selectedModel: input.selectedModel,
         });
       });
     }

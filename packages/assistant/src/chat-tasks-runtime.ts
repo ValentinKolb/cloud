@@ -2,12 +2,12 @@ import { job, mutex, scheduler } from "@k2b/sync";
 import { aiChatTasks, aiConversations, aiProjects, enqueueExistingAiTurn, validateAiTurnRequest } from "@valentinkolb/cloud/ai";
 import { accounts, coreSettings, logger } from "@valentinkolb/cloud/services";
 import { isAccountExpired } from "@valentinkolb/cloud/services/account-model";
+import { assistantModelPolicy } from "./model-policy";
 import { assistantChatPrompt } from "./prompt";
 
 const APP_ID = "assistant";
 const RECOVERY_ID = "assistant:chat-tasks:recover";
 const SCHEDULE_PREFIX = "task:";
-const modelPolicy = { kind: "selectable" as const, requiredCapabilities: ["streaming" as const] };
 const log = logger("assistant:chat-tasks");
 
 const taskScheduler = scheduler({ id: "assistant-chat-tasks" });
@@ -40,7 +40,7 @@ const taskJob = job<{ occurrenceId: string }, { status: "gone" | "failed" | "not
       const text = `Scheduled task ${task.shortId} (${occurrence.scheduledFor}):\n\n${task.prompt}`;
       const { resolved } = await validateAiTurnRequest({
         input: text,
-        modelPolicy,
+        modelPolicy: assistantModelPolicy,
         requestedModelId: project?.defaultModelProfileId ?? undefined,
       });
       const delivered = await aiChatTasks.deliverOccurrence({
@@ -50,7 +50,7 @@ const taskJob = job<{ occurrenceId: string }, { status: "gone" | "failed" | "not
           kind: "chat",
           input: text,
           actor: { kind: "user", user },
-          modelPolicy,
+          modelPolicy: assistantModelPolicy,
           requestedModelId: project?.defaultModelProfileId ?? undefined,
           systemPrompt: assistantChatPrompt(conversation.shortId),
           project: project ?? undefined,

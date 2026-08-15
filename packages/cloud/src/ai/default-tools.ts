@@ -7,7 +7,6 @@ import {
   createCloudAiWriteFileTool,
 } from "./file-tools";
 import { createCloudAiWebExtractTool, createCloudAiWebSearchTool, isCloudAiFirecrawlConfigured } from "./firecrawl-tools";
-import { isAiVisionModelConfigured } from "./settings";
 import { defineAiTool } from "./tools";
 import type { AiDataBoundary, AiRuntimeTool } from "./types";
 import { createCloudAiViewImageTool } from "./vision-tool";
@@ -135,15 +134,13 @@ export const createConfiguredDefaultCloudAiTools = async (config?: {
     createCloudAiWriteFileTool(),
     createCloudAiPresentTool(),
     createCloudAiCalculateTool(),
+    createCloudAiViewImageTool(),
   ];
   const firecrawlConfigured =
     config && "firecrawlApiKey" in config ? Boolean(config.firecrawlApiKey?.trim()) : await isCloudAiFirecrawlConfigured();
   if (firecrawlConfigured) {
     tools.push(createCloudAiWebSearchTool({ apiKey: config?.firecrawlApiKey, fetch: config?.fetch }));
     tools.push(createCloudAiWebExtractTool({ apiKey: config?.firecrawlApiKey, fetch: config?.fetch }));
-  }
-  if (await isAiVisionModelConfigured(config?.allowedDataBoundaries)) {
-    tools.push(createCloudAiViewImageTool());
   }
   return tools;
 };
