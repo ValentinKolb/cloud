@@ -1,4 +1,4 @@
-import { currentMonthDate, field, form, formula, type GridTemplate, launcher, record, table, view } from "./types";
+import { currentMonthDate, field, form, formula, type GridTemplate, launcher, record, table, view, viewColumns } from "./types";
 
 const monthlySpendSource = () =>
   formula(
@@ -1012,226 +1012,280 @@ steps:
   customApps: [
     {
       key: "overview",
-      name: "Finance overview",
-      description: "Current spending, recent purchases, budgets, and receipt processing.",
-      rows: [
-        {
-          id: "r_stats",
-          columns: [
-            {
-              id: "w_income",
-              type: "metrics",
-              title: "Income",
-              valueFormat: {
-                style: "number",
-                decimalPlaces: 2,
-                unit: "EUR",
-                unitPosition: "suffix",
-              },
-              span: 3,
-              source: {
-                kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("transactions"),
-                  "\nwhere ",
-                  field("transactions.type"),
-                  " = 'income'\naggregate sum(",
-                  field("transactions.amount"),
-                  ") as total_income",
-                ),
-              },
+      definition: {
+        schemaVersion: 4,
+        kind: "grids.custom-app",
+        name: "Finance overview",
+        startPageId: "overview",
+        pages: [
+          {
+            id: "overview",
+            title: "Finance overview",
+            navigation: {
+              visible: true,
             },
-            {
-              id: "w_spend",
-              type: "metrics",
-              title: "Spend",
-              valueFormat: {
-                style: "number",
-                decimalPlaces: 2,
-                unit: "EUR",
-                unitPosition: "suffix",
+            parameters: {},
+            rows: [
+              {
+                id: "r-stats",
+                columns: [
+                  {
+                    id: "w-income-column",
+                    span: 3,
+                    blocks: [
+                      {
+                        id: "w-income",
+                        type: "metrics",
+                        title: "Income",
+                        source: {
+                          kind: "gql",
+                          query: formula(
+                            "from table ",
+                            table("transactions"),
+                            "\nwhere ",
+                            field("transactions.type"),
+                            " = 'income'\naggregate sum(",
+                            field("transactions.amount"),
+                            ") as total_income",
+                          ),
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-spend-column",
+                    span: 3,
+                    blocks: [
+                      {
+                        id: "w-spend",
+                        type: "metrics",
+                        title: "Spend",
+                        source: {
+                          kind: "gql",
+                          query: formula(
+                            "from table ",
+                            table("transactions"),
+                            "\nwhere ",
+                            field("transactions.type"),
+                            " = 'expense'\naggregate sum(",
+                            field("transactions.amount"),
+                            ") as total_spend",
+                          ),
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-tx-column",
+                    span: 3,
+                    blocks: [
+                      {
+                        id: "w-tx",
+                        type: "metrics",
+                        title: "Transactions",
+                        source: {
+                          kind: "gql",
+                          query: formula("from table ", table("transactions"), "\naggregate count(*) as transaction_count"),
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-budget-column",
+                    span: 3,
+                    blocks: [
+                      {
+                        id: "w-budget",
+                        type: "metrics",
+                        title: "Budget",
+                        source: {
+                          kind: "gql",
+                          query: formula(
+                            "from table ",
+                            table("budgets"),
+                            "\nwhere YEAR(",
+                            field("budgets.month"),
+                            ") = YEAR(TODAY()) and MONTH(",
+                            field("budgets.month"),
+                            ") = MONTH(TODAY())\naggregate sum(",
+                            field("budgets.limit"),
+                            ") as total_budget",
+                          ),
+                        },
+                      },
+                    ],
+                  },
+                ],
               },
-              span: 3,
-              source: {
-                kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("transactions"),
-                  "\nwhere ",
-                  field("transactions.type"),
-                  " = 'expense'\naggregate sum(",
-                  field("transactions.amount"),
-                  ") as total_spend",
-                ),
+              {
+                id: "r-charts",
+                columns: [
+                  {
+                    id: "w-spend-cat-column",
+                    span: 6,
+                    blocks: [
+                      {
+                        id: "w-spend-cat",
+                        type: "chart",
+                        title: "Spend by category",
+                        subtitle: "Expense transactions only",
+                        chartType: "donut",
+                        source: {
+                          kind: "gql",
+                          query: formula(
+                            "from table ",
+                            table("transactions"),
+                            "\njoin table ",
+                            table("categories"),
+                            " as category on ",
+                            field("transactions.category"),
+                            " = category.id\nwhere ",
+                            field("transactions.type"),
+                            " = 'expense'\ngroup by category.",
+                            field("categories.name"),
+                            "\naggregate sum(",
+                            field("transactions.amount"),
+                            ") as category_spend\nhaving category_spend > 0\nsort category_spend desc nulls last",
+                          ),
+                        },
+                        limit: 100,
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-monthly-column",
+                    span: 6,
+                    blocks: [
+                      {
+                        id: "w-monthly",
+                        type: "chart",
+                        title: "Monthly spend",
+                        chartType: "bar",
+                        source: {
+                          kind: "gql",
+                          query: monthlySpendSource(),
+                        },
+                        valueFormat: {
+                          style: "number",
+                          decimalPlaces: 2,
+                          unit: "EUR",
+                          unitPosition: "suffix",
+                        },
+                        yAxisLabel: "EUR",
+                        limit: 100,
+                      },
+                    ],
+                  },
+                ],
               },
-            },
-            {
-              id: "w_tx",
-              type: "metrics",
-              title: "Transactions",
-              valueFormat: { style: "integer" },
-              span: 3,
-              source: {
-                kind: "gql",
-                query: formula("from table ", table("transactions"), "\naggregate count(*) as transaction_count"),
+              {
+                id: "r-work",
+                columns: [
+                  {
+                    id: "w-recent-column",
+                    span: 7,
+                    blocks: [
+                      {
+                        id: "w-recent",
+                        type: "records",
+                        searchable: true,
+                        pageSize: 25,
+                        title: "Recent transactions",
+                        source: { kind: "view", viewId: view("recent_transactions") },
+                        display: {
+                          kind: "table",
+                          columnIds: viewColumns("recent_transactions"),
+                        },
+                        rowActions: [
+                          {
+                            id: "send-receipt",
+                            label: "Process receipt",
+                            showLabel: true,
+                            kind: "workflow",
+                            launcherId: launcher("clear_and_send_receipt_custom_app"),
+                            inputs: { transaction: { source: "ROW", path: "id" } },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-log-column",
+                    span: 5,
+                    blocks: [
+                      {
+                        id: "w-log",
+                        type: "form",
+                        title: "Log a purchase",
+                        formId: form("log_expense"),
+                        fixedValues: {},
+                      },
+                    ],
+                  },
+                ],
               },
-            },
-            {
-              id: "w_budget",
-              type: "metrics",
-              title: "Budget",
-              valueFormat: {
-                style: "number",
-                decimalPlaces: 2,
-                unit: "EUR",
-                unitPosition: "suffix",
+              {
+                id: "r-budget",
+                columns: [
+                  {
+                    id: "w-budgets-column",
+                    span: 6,
+                    blocks: [
+                      {
+                        id: "w-budgets",
+                        type: "records",
+                        searchable: true,
+                        pageSize: 25,
+                        title: "Monthly budgets",
+                        source: { kind: "view", viewId: view("budgets") },
+                        display: {
+                          kind: "table",
+                          columnIds: viewColumns("budgets"),
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-income-chart-column",
+                    span: 6,
+                    blocks: [
+                      {
+                        id: "w-income-chart",
+                        type: "chart",
+                        title: "Monthly income",
+                        chartType: "bar",
+                        source: {
+                          kind: "gql",
+                          query: formula(
+                            "from table ",
+                            table("transactions"),
+                            "\nwhere ",
+                            field("transactions.type"),
+                            " = 'income'\ngroup by ",
+                            field("transactions.date"),
+                            " by month\naggregate sum(",
+                            field("transactions.amount"),
+                            ") as monthly_income\nsort ",
+                            field("transactions.date"),
+                            " asc",
+                          ),
+                        },
+                        valueFormat: {
+                          style: "number",
+                          decimalPlaces: 2,
+                          unit: "EUR",
+                          unitPosition: "suffix",
+                        },
+                        limit: 100,
+                      },
+                    ],
+                  },
+                ],
               },
-              span: 3,
-              source: {
-                kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("budgets"),
-                  "\nwhere YEAR(",
-                  field("budgets.month"),
-                  ") = YEAR(TODAY()) and MONTH(",
-                  field("budgets.month"),
-                  ") = MONTH(TODAY())\naggregate sum(",
-                  field("budgets.limit"),
-                  ") as total_budget",
-                ),
-              },
-            },
-          ],
-        },
-        {
-          id: "r_charts",
-          columns: [
-            {
-              id: "w_spend_cat",
-              type: "chart",
-              title: "Spend by category",
-              subtitle: "Expense transactions only",
-              chartType: "donut",
-              source: {
-                kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("transactions"),
-                  "\njoin table ",
-                  table("categories"),
-                  " as category on ",
-                  field("transactions.category"),
-                  " = category.id\nwhere ",
-                  field("transactions.type"),
-                  " = 'expense'\ngroup by category.",
-                  field("categories.name"),
-                  "\naggregate sum(",
-                  field("transactions.amount"),
-                  ") as category_spend\nhaving category_spend > 0\nsort category_spend desc nulls last",
-                ),
-              },
-              span: 6,
-            },
-            {
-              id: "w_monthly",
-              type: "chart",
-              title: "Monthly spend",
-              chartType: "bar",
-              source: {
-                kind: "gql",
-                query: monthlySpendSource(),
-              },
-              valueFormat: {
-                style: "number",
-                decimalPlaces: 2,
-                unit: "EUR",
-                unitPosition: "suffix",
-              },
-              yAxisLabel: "EUR",
-              span: 6,
-            },
-          ],
-        },
-        {
-          id: "r_work",
-          columns: [
-            {
-              id: "w_recent",
-              type: "records",
-              searchable: true,
-              pageSize: 25,
-              title: "Recent transactions",
-              source: { kind: "view", viewId: view("recent_transactions") },
-              span: 7,
-            },
-            {
-              id: "w_log",
-              type: "form",
-              title: "Log a purchase",
-              formId: form("log_expense"),
-              span: 5,
-            },
-          ],
-        },
-        {
-          id: "r_budget",
-          columns: [
-            {
-              id: "w_budgets",
-              type: "records",
-              searchable: true,
-              pageSize: 25,
-              title: "Monthly budgets",
-              source: { kind: "view", viewId: view("budgets") },
-              span: 6,
-            },
-            {
-              id: "w_income_chart",
-              type: "chart",
-              title: "Monthly income",
-              chartType: "bar",
-              source: {
-                kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("transactions"),
-                  "\nwhere ",
-                  field("transactions.type"),
-                  " = 'income'\ngroup by ",
-                  field("transactions.date"),
-                  " by month\naggregate sum(",
-                  field("transactions.amount"),
-                  ") as monthly_income\nsort ",
-                  field("transactions.date"),
-                  " asc",
-                ),
-              },
-              valueFormat: {
-                style: "number",
-                decimalPlaces: 2,
-                unit: "EUR",
-                unitPosition: "suffix",
-              },
-              span: 6,
-            },
-          ],
-        },
-        {
-          id: "r_receipts",
-          columns: [
-            {
-              id: "w_send_receipt",
-              type: "actions",
-              title: "Process a receipt",
-              buttonLabel: "Choose transaction",
-              launcherId: launcher("clear_and_send_receipt_custom_app"),
-              span: 12,
-            },
-          ],
-        },
-      ],
+            ],
+          },
+        ],
+      },
     },
   ],
 };

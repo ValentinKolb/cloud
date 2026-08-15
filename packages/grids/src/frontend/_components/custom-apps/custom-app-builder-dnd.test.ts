@@ -18,7 +18,7 @@ const ids: CustomAppLayoutIds = {
 const page = (blocks = ["A", "B", "C"]): CustomAppPage => ({
   id: "page",
   title: "Page",
-  navigation: { visible: true, order: 0 },
+  navigation: { visible: true },
   parameters: {},
   rows: [
     {

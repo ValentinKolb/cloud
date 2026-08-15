@@ -151,12 +151,12 @@ export const renameCustomAppPageParameter = (
 });
 
 export const moveCustomAppPage = (definition: CustomAppDefinition, pageId: string, direction: -1 | 1): CustomAppDefinition => {
-  const pages = [...definition.pages].sort((left, right) => left.navigation.order - right.navigation.order);
+  const pages = [...definition.pages];
   const index = pages.findIndex((page) => page.id === pageId);
   const target = index + direction;
   if (index < 0 || target < 0 || target >= pages.length) return definition;
   [pages[index], pages[target]] = [pages[target]!, pages[index]!];
-  return { ...definition, pages: pages.map((page, order) => ({ ...page, navigation: { ...page.navigation, order } })) };
+  return { ...definition, pages };
 };
 
 export const customAppPageParameterUsage = (definition: CustomAppDefinition, pageId: string, parameterId: string): string[] => {

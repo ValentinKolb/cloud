@@ -79,6 +79,8 @@ describe("built-in template instantiation", () => {
           emailName: "Order invoice ready",
           workflows: [{ name: "Send order invoice", steps: 9 }],
           launchers: ["Choose order to send invoice"],
+          workflowCapabilities: 1,
+          scannerCapabilities: 0,
         },
         {
           templateId: "finance",
@@ -86,6 +88,8 @@ describe("built-in template instantiation", () => {
           emailName: "Transaction receipt ready",
           workflows: [{ name: "Clear and send receipt", steps: 9 }],
           launchers: ["Choose transaction to process receipt"],
+          workflowCapabilities: 1,
+          scannerCapabilities: 0,
         },
         {
           templateId: "inventory",
@@ -97,6 +101,8 @@ describe("built-in template instantiation", () => {
             { name: "Mark loan item as returned", steps: 6 },
           ],
           launchers: ["Choose loan to send agreement", "Scan damaged inventory item", "Return items for one loan"],
+          workflowCapabilities: 1,
+          scannerCapabilities: 1,
         },
       ];
 
@@ -185,7 +191,8 @@ describe("built-in template instantiation", () => {
             blocks.some((block) => block.type === "actions"),
             `${expected.templateId} unsupported overview workflow action`,
           ).toBe(false);
-          expect(capabilities.workflowLaunchers).toEqual([]);
+          expect(capabilities.workflowLaunchers).toHaveLength(expected.workflowCapabilities);
+          expect(capabilities.scannerLaunchers).toHaveLength(expected.scannerCapabilities);
           expect(documentAudit?.action).toBe("document_template.created");
           await verifyRuntimeSurfaces(created.data.id, true);
         } finally {

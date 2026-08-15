@@ -30,7 +30,6 @@ import { customAppContextKeys, customAppGlobalContextKeys } from "../../../custo
 import type {
   CustomAppAction,
   CustomAppBlock,
-  CustomAppBulkAction,
   CustomAppDefinition,
   CustomAppDiagnostic,
   CustomAppRowAction,
@@ -82,10 +81,6 @@ type CustomAppWorkflowLauncher = WorkspaceCatalog["workflowLaunchers"][number] &
 type CustomAppScannerLauncher = WorkspaceCatalog["workflowLaunchers"][number] & {
   config: Extract<WorkspaceCatalog["workflowLaunchers"][number]["config"], { kind: "scanner" }>;
 };
-type CustomAppBulkLauncher = WorkspaceCatalog["workflowLaunchers"][number] & {
-  config: Extract<WorkspaceCatalog["workflowLaunchers"][number]["config"], { kind: "bulk" }>;
-};
-
 const iconInputValue = (slug: string | undefined): string | null => (slug ? `ti ti-${slug}` : null);
 const iconSlug = (value: string | null): string | undefined => value?.replace(/^ti ti-/, "") || undefined;
 
@@ -124,8 +119,6 @@ const chartTypeFrom = (value: string): Extract<CustomAppBlock, { type: "chart" }
     case "bar":
     case "line":
     case "donut":
-    case "sparkline":
-    case "scatter":
       return value;
     default:
       return null;
@@ -163,10 +156,9 @@ export const isCustomAppAvailabilityDiagnostic = (diagnostic: CustomAppDiagnosti
   diagnostic.path.includes(targetId) && diagnostic.path.includes("availableWhen");
 
 export const blankCustomAppDefinition = (app: CustomApp): CustomAppDefinition => ({
-  schemaVersion: 3,
+  schemaVersion: 4,
   kind: "grids.custom-app",
   id: app.id,
-  shortId: app.shortId,
   baseId: app.baseId,
   name: app.name,
   ...(app.icon ? { icon: app.icon } : {}),
@@ -175,7 +167,7 @@ export const blankCustomAppDefinition = (app: CustomApp): CustomAppDefinition =>
     {
       id: "home",
       title: "Home",
-      navigation: { visible: true, order: 0 },
+      navigation: { visible: true },
       parameters: {},
       rows: [
         {
@@ -382,7 +374,7 @@ function InvalidCustomAppDraft(props: { app: CustomApp; baseShortId: string }) {
   const replaceMutation = mutations.create<void, void>({
     mutation: async (_, { abortSignal }) => {
       const confirmed = await prompts.confirm(
-        "Replace the stored draft with a new blank schema v3 definition? Download the stored JSON first if you still need it.",
+        "Replace the stored draft with a new blank schema v4 definition? Download the stored JSON first if you still need it.",
         {
           title: "Replace incompatible draft",
           icon: "ti ti-file-plus",
@@ -415,7 +407,7 @@ function InvalidCustomAppDraft(props: { app: CustomApp; baseShortId: string }) {
         <NoticeCard
           tone="danger"
           title="This draft cannot be opened"
-          detail="The stored definition is preserved, but this editor only accepts App schema v3. Nothing will run or publish until you choose a recovery action."
+          detail="The stored definition is preserved, but this editor only accepts App schema v4. Nothing will run or publish until you choose a recovery action."
           role="alert"
         >
           <ul class="list-disc space-y-1 pl-4 text-sm">
@@ -442,7 +434,7 @@ function InvalidCustomAppDraft(props: { app: CustomApp; baseShortId: string }) {
             disabled={restoreMutation.loading()}
             onClick={() => replaceMutation.mutate(undefined)}
           >
-            <i class="ti ti-file-plus" aria-hidden="true" /> Replace with blank schema v3 draft
+            <i class="ti ti-file-plus" aria-hidden="true" /> Replace with blank schema v4 draft
           </Button>
         </div>
         <NoticeCard
@@ -462,10 +454,7 @@ const newPage = (definition: CustomAppDefinition): CustomAppPage => {
   return {
     id: localId("page"),
     title: `Page ${pageNumber}`,
-    navigation: {
-      visible: true,
-      order: Math.max(-1, ...definition.pages.map((page) => page.navigation.order)) + 1,
-    },
+    navigation: { visible: true },
     parameters: {},
     rows: [
       {
@@ -683,27 +672,6 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       },
     }));
   };
-  const addSidebarWorkflow = () => {
-    const launcher = workflowLaunchers()[0];
-    if (!launcher) return;
-    setDefinition((definition) => ({
-      ...definition,
-      sidebar: {
-        actions: [
-          ...(definition.sidebar?.actions ?? []),
-          {
-            id: localId("workflow"),
-            kind: "workflow",
-            label: launcher.config.label || launcher.name,
-            icon: "bolt",
-            tone: "default",
-            launcherId: launcher.id,
-            inputs: {},
-          },
-        ],
-      },
-    }));
-  };
   const formBindingOptions = (formId: string) => {
     const form = formsById().get(formId);
     if (!form) return [];
@@ -752,22 +720,6 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     const tableId = selectedSourceTableId();
     return tableId ? (props.catalog.fieldsByTable[tableId] ?? []).filter((field) => field.deletedAt === null).slice(0, 30) : [];
   });
-  const bulkLaunchers = createMemo(() => {
-    const tableId = selectedSourceTableId();
-    return props.catalog.workflowLaunchers.filter((launcher): launcher is CustomAppBulkLauncher => {
-      if (launcher.config.kind !== "bulk" || !tableId) return false;
-      const workflow = workflowsById().get(launcher.workflowId);
-      return Boolean(workflow && workflow.plan.bindings[`inputs.${launcher.config.input}.table`] === tableId);
-    });
-  });
-  const bulkLauncherOptions = createMemo(() =>
-    bulkLaunchers().map((launcher) => ({
-      value: launcher.id,
-      label: launcher.name,
-      description: workflowsById().get(launcher.workflowId)?.name ?? "Bulk workflow",
-      icon: "ti ti-checklist",
-    })),
-  );
   const rowInputForLauncher = (launcher: CustomAppWorkflowLauncher) => {
     if (launcher.config.inputMode !== "prompt") return null;
     const tableId = selectedSourceTableId();
@@ -1207,7 +1159,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
         if (!response.ok) throw new Error(await errorMessage(response, "Could not save the App draft."));
         const saved = (await response.json()) as CustomAppDraftSave;
         if (!saved.app.draftDefinition) {
-          throw new Error(saved.app.draftDiagnostics[0]?.message ?? "The saved draft is not a valid schema v3 definition.");
+          throw new Error(saved.app.draftDiagnostics[0]?.message ?? "The saved draft is not a valid schema v4 definition.");
         }
         setApp(saved.app);
         setDiagnostics(saved.diagnostics);
@@ -1299,7 +1251,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     },
     onSuccess: (published) => {
       if (!published.draftDefinition) {
-        prompts.error(published.draftDiagnostics[0]?.message ?? "The published draft is not a valid schema v3 definition.");
+        prompts.error(published.draftDiagnostics[0]?.message ?? "The published draft is not a valid schema v4 definition.");
         return;
       }
       setApp(published);
@@ -1555,13 +1507,6 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     selectAction(action.id);
   };
 
-  const addBulkWorkflowAction = () => {
-    const launcher = bulkLaunchers()[0];
-    if (!launcher) return;
-    const action: CustomAppBulkAction = { id: localId("bulk-action"), label: launcher.name, launcherId: launcher.id };
-    updateSelectedBlock((block) => (block.type === "records" ? { ...block, bulkActions: [...(block.bulkActions ?? []), action] } : block));
-  };
-
   const moveSelectedAction = (direction: -1 | 1) => {
     const selected = selectedAction();
     if (!selected) return;
@@ -1640,7 +1585,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     },
     onSuccess: (restored) => {
       if (!restored.draftDefinition) {
-        prompts.error(restored.draftDiagnostics[0]?.message ?? "The live version is not a valid schema v3 definition.");
+        prompts.error(restored.draftDiagnostics[0]?.message ?? "The live version is not a valid schema v4 definition.");
         return;
       }
       saveQueued = false;
@@ -1695,7 +1640,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
           </Toolbar>
           <AppWorkspace.SidebarBody class="p-2" scrollPreserveKey={`grids-custom-app-pages-${props.app.id}`}>
             <AppWorkspace.SidebarSection>
-              <For each={[...draft.draft().pages].sort((left, right) => left.navigation.order - right.navigation.order)}>
+              <For each={draft.draft().pages}>
                 {(page) => (
                   <AppWorkspace.SidebarItem active={selectedPage().id === page.id} onClick={() => selectPage(page.id)}>
                     <AppWorkspace.SidebarItemIcon icon={page.navigation.visible ? "ti ti-file" : "ti ti-file-off"} />
@@ -1919,7 +1864,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                 <DetailPanel.Section
                   title="App sidebar"
                   icon="ti ti-layout-sidebar-left"
-                  description="Add app-wide Forms and Workflows. They do not receive page, route, record, or row values."
+                  description="Add app-wide Forms. They do not receive page, route, record, or row values."
                   collapsible
                   defaultOpen={sidebarActions().length > 0}
                 >
@@ -1930,21 +1875,13 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                     </InlineGuidance>
                     <For each={sidebarActions()}>
                       {(sidebarAction) => {
-                        const selectedForm = () => (sidebarAction.kind === "form" ? formsById().get(sidebarAction.formId) : undefined);
-                        const selectedLauncher = () =>
-                          sidebarAction.kind === "workflow"
-                            ? workflowLaunchers().find((launcher) => launcher.id === sidebarAction.launcherId)
-                            : undefined;
-                        const selectedWorkflow = () => {
-                          const launcher = selectedLauncher();
-                          return launcher ? workflowsById().get(launcher.workflowId) : undefined;
-                        };
+                        const selectedForm = () => formsById().get(sidebarAction.formId);
                         return (
                           <div class="rounded-xl border border-subtle bg-surface p-3">
                             <div class="flex flex-col gap-3">
                               <div class="flex items-center gap-2">
                                 <strong class="min-w-0 flex-1 truncate text-sm">{sidebarAction.label}</strong>
-                                <StatusBadge tone="neutral" label={sidebarAction.kind === "form" ? "Form" : "Workflow"} variant="text" />
+                                <StatusBadge tone="neutral" label="Form" variant="text" />
                                 <IconButton
                                   size="sm"
                                   label={`Remove ${sidebarAction.label}`}
@@ -2094,74 +2031,6 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                                   }
                                 />
                               </Show>
-                              <Show when={sidebarAction.kind === "workflow"}>
-                                <Select
-                                  label="App run option"
-                                  searchable
-                                  value={() => (sidebarAction.kind === "workflow" ? sidebarAction.launcherId : null)}
-                                  options={workflowLauncherOptions()}
-                                  onValueChange={(launcherId) =>
-                                    launcherId &&
-                                    updateSidebarAction(sidebarAction.id, (action) =>
-                                      action.kind === "workflow" ? { ...action, launcherId, inputs: {} } : action,
-                                    )
-                                  }
-                                />
-                                <Show when={selectedLauncher()?.config.inputMode === "prompt"}>
-                                  <For each={selectedWorkflow()?.plan.inputs ?? []}>
-                                    {(input) => {
-                                      const value = () =>
-                                        sidebarAction.kind === "workflow" ? sidebarAction.inputs[input.name] : undefined;
-                                      return (
-                                        <div class="flex flex-col gap-2">
-                                          <Switch
-                                            label={typeof input.config.label === "string" ? input.config.label : input.name}
-                                            description="Supply a fixed value to this global workflow launcher."
-                                            value={() => Boolean(value())}
-                                            onValueChange={(enabled) =>
-                                              updateSidebarAction(sidebarAction.id, (action) => {
-                                                if (action.kind !== "workflow") return action;
-                                                const inputs = { ...action.inputs };
-                                                if (enabled) inputs[input.name] = { source: "LITERAL", value: null };
-                                                else delete inputs[input.name];
-                                                return { ...action, inputs };
-                                              })
-                                            }
-                                          />
-                                          <Show when={value()}>
-                                            {(literal) => (
-                                              <JsonValueInput
-                                                label={`${input.name} value`}
-                                                value={literal().value}
-                                                onValueChange={(next) =>
-                                                  updateSidebarAction(sidebarAction.id, (action) =>
-                                                    action.kind === "workflow"
-                                                      ? {
-                                                          ...action,
-                                                          inputs: { ...action.inputs, [input.name]: { source: "LITERAL", value: next } },
-                                                        }
-                                                      : action,
-                                                  )
-                                                }
-                                              />
-                                            )}
-                                          </Show>
-                                        </div>
-                                      );
-                                    }}
-                                  </For>
-                                </Show>
-                                <TextInput
-                                  label="Confirmation message"
-                                  clearable
-                                  value={() => (sidebarAction.kind === "workflow" ? (sidebarAction.confirm ?? "") : "")}
-                                  onValueChange={(confirm) =>
-                                    updateSidebarAction(sidebarAction.id, (action) =>
-                                      action.kind === "workflow" ? { ...action, confirm: confirm || undefined } : action,
-                                    )
-                                  }
-                                />
-                              </Show>
                               <CustomAppAvailabilitySection
                                 baseId={draft.draft().baseId}
                                 contextKeys={customAppGlobalContextKeys()}
@@ -2188,14 +2057,6 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                         onClick={addSidebarForm}
                       >
                         <i class="ti ti-plus" aria-hidden="true" /> Add Form
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={workflowLaunchers().length === 0 || sidebarActions().length >= 12}
-                        onClick={addSidebarWorkflow}
-                      >
-                        <i class="ti ti-plus" aria-hidden="true" /> Add Workflow
                       </Button>
                     </div>
                   </div>
@@ -2384,9 +2245,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                     <Button
                       size="sm"
                       variant="secondary"
-                      disabled={
-                        [...draft.draft().pages].sort((a, b) => a.navigation.order - b.navigation.order)[0]?.id === selectedPage().id
-                      }
+                      disabled={draft.draft().pages[0]?.id === selectedPage().id}
                       onClick={() => moveSelectedPage(-1)}
                     >
                       <i class="ti ti-arrow-up" aria-hidden="true" /> Move up
@@ -2394,9 +2253,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                     <Button
                       size="sm"
                       variant="secondary"
-                      disabled={
-                        [...draft.draft().pages].sort((a, b) => a.navigation.order - b.navigation.order).at(-1)?.id === selectedPage().id
-                      }
+                      disabled={draft.draft().pages.at(-1)?.id === selectedPage().id}
                       onClick={() => moveSelectedPage(1)}
                     >
                       <i class="ti ti-arrow-down" aria-hidden="true" /> Move down
@@ -2916,7 +2773,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                         <DetailPanel.Section
                           title="Row actions"
                           icon="ti ti-click"
-                          description="Signed-in app readers can run workflows for selected table rows."
+                          description="Signed-in app readers can run workflows for selected table rows or cards."
                           collapsible
                           defaultOpen={(selectedRecordsBlock()?.rowActions?.length ?? 0) > 0}
                         >
@@ -2941,7 +2798,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                                 workflowLaunchers().length === 0
                                   ? "Add an enabled App run option first."
                                   : (selectedRecordsBlock()?.rowActions?.length ?? 0) >= 6
-                                    ? "Records tables support up to 6 row actions."
+                                    ? "Records blocks support up to 6 row actions."
                                     : undefined
                               }
                             >
@@ -2962,91 +2819,10 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                                 </Show>
                               }
                             >
-                              <InlineGuidance>This Records table already has the maximum of 6 row actions.</InlineGuidance>
+                              <InlineGuidance>This Records block already has the maximum of 6 row actions.</InlineGuidance>
                             </Show>
                           </div>
                         </DetailPanel.Section>
-                        <Show when={selectedRecordsUsesTable()}>
-                          <DetailPanel.Section
-                            title="Bulk actions"
-                            icon="ti ti-checklist"
-                            description="Let signed-in readers select records from the current result page and run a bulk workflow."
-                            collapsible
-                            defaultOpen={(selectedRecordsBlock()?.bulkActions?.length ?? 0) > 0}
-                          >
-                            <div class="flex flex-col gap-3">
-                              <For each={selectedRecordsBlock()?.bulkActions ?? []}>
-                                {(action) => (
-                                  <div class="rounded-md border border-subtle p-3">
-                                    <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-                                      <TextInput
-                                        label="Label"
-                                        value={() => action.label}
-                                        onValueChange={(label) =>
-                                          updateSelectedBlock((block) =>
-                                            block.type === "records"
-                                              ? {
-                                                  ...block,
-                                                  bulkActions: (block.bulkActions ?? []).map((candidate) =>
-                                                    candidate.id === action.id ? { ...candidate, label } : candidate,
-                                                  ),
-                                                }
-                                              : block,
-                                          )
-                                        }
-                                      />
-                                      <Select
-                                        label="Bulk workflow"
-                                        value={() => action.launcherId}
-                                        options={bulkLauncherOptions()}
-                                        onValueChange={(launcherId) =>
-                                          launcherId &&
-                                          updateSelectedBlock((block) =>
-                                            block.type === "records"
-                                              ? {
-                                                  ...block,
-                                                  bulkActions: (block.bulkActions ?? []).map((candidate) =>
-                                                    candidate.id === action.id ? { ...candidate, launcherId } : candidate,
-                                                  ),
-                                                }
-                                              : block,
-                                          )
-                                        }
-                                      />
-                                      <IconButton
-                                        label={`Remove ${action.label}`}
-                                        variant="ghost"
-                                        onClick={() =>
-                                          updateSelectedBlock((block) =>
-                                            block.type === "records"
-                                              ? {
-                                                  ...block,
-                                                  bulkActions: (block.bulkActions ?? []).filter((candidate) => candidate.id !== action.id),
-                                                }
-                                              : block,
-                                          )
-                                        }
-                                      >
-                                        <i class="ti ti-trash" aria-hidden="true" />
-                                      </IconButton>
-                                    </div>
-                                  </div>
-                                )}
-                              </For>
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={addBulkWorkflowAction}
-                                disabled={bulkLaunchers().length === 0 || (selectedRecordsBlock()?.bulkActions?.length ?? 0) >= 6}
-                              >
-                                <i class="ti ti-checklist" aria-hidden="true" /> Add bulk action
-                              </Button>
-                              <Show when={bulkLaunchers().length === 0}>
-                                <InlineGuidance>Create an enabled Bulk run option for this Records table first.</InlineGuidance>
-                              </Show>
-                            </div>
-                          </DetailPanel.Section>
-                        </Show>
                       </Show>
                     </DetailPanel.Group>
                   </Show>
@@ -3431,8 +3207,6 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                               { id: "bar", label: "Bar" },
                               { id: "line", label: "Line" },
                               { id: "donut", label: "Donut" },
-                              { id: "sparkline", label: "Sparkline" },
-                              { id: "scatter", label: "Scatter" },
                             ]}
                           />
                           <NumberInput

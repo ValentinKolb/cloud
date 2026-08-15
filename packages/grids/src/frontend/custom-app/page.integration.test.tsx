@@ -8,7 +8,9 @@ import { migrate } from "../../migrate";
 import { gridsService } from "../../service";
 import { grantAccess } from "../../service/access";
 import { apply, publish } from "../../service/custom-apps";
-import customAppPage from "./page";
+import "../_components/ssr-test-plugin";
+
+const { default: customAppPage } = await import("./page");
 
 beforeAll(async () => {
   if (process.env.GRIDS_DB_TEST === "1") await migrate();
@@ -41,7 +43,7 @@ describe("published App SSR availability", () => {
 
       const unavailable = `from table {${tableId}}\nlimit 1`;
       const definition: CustomAppDefinition = {
-        schemaVersion: 3,
+        schemaVersion: 4,
         kind: "grids.custom-app",
         id: appId,
         baseId,
@@ -51,7 +53,7 @@ describe("published App SSR availability", () => {
           {
             id: "home",
             title: "Home",
-            navigation: { visible: true, order: 0 },
+            navigation: { visible: true },
             parameters: {},
             rows: [
               {
@@ -80,7 +82,7 @@ describe("published App SSR availability", () => {
           {
             id: "denied",
             title: "Denied page must not render",
-            navigation: { visible: false, order: 1 },
+            navigation: { visible: false },
             parameters: {},
             availableWhen: { query: unavailable },
             rows: [

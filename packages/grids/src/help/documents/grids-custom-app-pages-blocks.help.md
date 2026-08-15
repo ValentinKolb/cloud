@@ -65,21 +65,19 @@ Markdown renders headings, lists, links, and safe images. It does not run HTML, 
 
 ### Records
 
-Records reads either an existing saved view or an inline GQL query. A saved View can use an explicit table field selection or reuse that View's existing Cards configuration, including its file cover. Cards require row navigation and are pinned with the saved View when the App is published. Inline GQL displays exactly its selected ordinary-record columns, including aliases, so it has no second Columns selector. Use Metrics or Chart for aggregate results. Both Records sources support empty copy, optional row navigation, and optional server-side search.
+Records reads either an existing saved view or an inline GQL query. A saved View can use an explicit table field selection or reuse that View's existing Cards configuration, including its file cover. Cards may be read-only, navigate to a row page, or expose row actions, and are pinned with the saved View when the App is published. Inline GQL displays exactly its selected ordinary-record columns, including aliases, so it has no second Columns selector. Use Metrics or Chart for aggregate results. Both Records sources support empty copy, optional row navigation, and optional server-side search.
 
 `pageSize` controls how many rows the server returns at once. Readers move through protected cursor pages; search and pagination run on the server and never load the full result into the browser. A GQL `limit` caps the complete result when the author intentionally wants only the first N matching rows. Shared query budgets remain enforced independently.
 
 An inline query receives typed `@auth.id`, `@auth.name`, `@auth.username`, `@auth.email`, `@auth.subjects`, `@params`, `@page`, `@app`, `@base`, and `@time` context automatically. `@auth.subjects` contains the signed-in user UUID plus effective group UUIDs and is empty for anonymous readers. Values are bound separately from query text. Unknown namespaces and undeclared page parameters fail publication.
 
-Use `ROW.id` only for that Records block's row link or workflow row actions. A row action is rechecked against the exact published query result before its workflow starts. Configure up to six actions with a required accessible label and an optional icon; the table may show the label, the icon, or both.
-
-Table Records blocks can also expose up to six Bulk actions backed by existing Bulk workflow run options. Readers select records from the current result page. The server reruns that exact published source, search, and cursor page and rejects any selected ID that is no longer present before supplying the bounded record list to the workflow. Selection never means “all matching records” and does not cross a page change.
+Use `ROW.id` only for that Records block's row link or workflow row actions. A row action is rechecked against the exact published query result before its workflow starts. Configure up to six actions with a required accessible label and an optional icon; tables and Cards may show the label, the icon, or both.
 
 ### Metrics and Chart
 
 Metrics and Chart read either an existing saved view or an inline GQL query. The runtime applies shared query budgets.
 
-Metrics accepts an ungrouped aggregate query and renders up to 12 named scalar results. Chart accepts a grouped aggregate query and renders a donut, bar, line, sparkline, or scatter chart. Scatter requires two aggregate value series; the other chart types require one. A Chart block may render at most 100 groups through its `limit`.
+Metrics accepts an ungrouped aggregate query and renders up to 12 named scalar results. Chart accepts a grouped aggregate query and renders a donut, bar, or line chart with at least one aggregate value series. A Chart block may render at most 100 groups through its `limit`.
 
 The published capability records the exact tables and fields behind the block. App readers need no Base access, and the runtime cannot query sources outside that immutable capability. Republish after changing a saved View's source.
 

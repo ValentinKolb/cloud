@@ -1,4 +1,4 @@
-schemaVersion: 3
+schemaVersion: 4
 kind: grids.custom-app
 id: 30000000-0000-4000-8000-000000000102
 baseId: 30000000-0000-4000-8000-000000000001
@@ -10,7 +10,6 @@ pages:
     title: Loans
     navigation:
       visible: true
-      order: 10
     parameters: {}
     rows:
       - id: loans
@@ -42,7 +41,6 @@ pages:
     title: Loan detail
     navigation:
       visible: false
-      order: 20
     parameters:
       loan_id:
         type: record

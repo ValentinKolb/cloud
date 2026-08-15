@@ -1,5 +1,5 @@
 import { createMockCover } from "@valentinkolb/cloud/shared";
-import { currentMonthDate, field, form, formula, type GridTemplate, launcher, record, table, view } from "./types";
+import { currentMonthDate, field, form, formula, type GridTemplate, launcher, record, table, view, viewColumns } from "./types";
 
 export const bookshopTemplate: GridTemplate = {
   id: "bookshop",
@@ -1158,186 +1158,266 @@ steps:
   customApps: [
     {
       key: "sales",
-      name: "Bookshop overview",
-      description: "Revenue, fulfillment, catalog maintenance, and recent books.",
-      rows: [
-        {
-          id: "r_stats",
-          columns: [
-            {
-              id: "w_orders",
-              type: "metrics",
-              title: "Orders",
-              valueFormat: { style: "integer" },
-              span: 4,
-              source: {
-                kind: "gql",
-                query: formula("from table ", table("orders"), "\naggregate count(*) as order_count"),
+      definition: {
+        schemaVersion: 4,
+        kind: "grids.custom-app",
+        name: "Bookshop overview",
+        startPageId: "overview",
+        pages: [
+          {
+            id: "overview",
+            title: "Bookshop overview",
+            navigation: {
+              visible: true,
+            },
+            parameters: {},
+            rows: [
+              {
+                id: "r-stats",
+                columns: [
+                  {
+                    id: "w-orders-column",
+                    span: 4,
+                    blocks: [
+                      {
+                        id: "w-orders",
+                        type: "metrics",
+                        title: "Orders",
+                        source: {
+                          kind: "gql",
+                          query: formula("from table ", table("orders"), "\naggregate count(*) as order_count"),
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-revenue-column",
+                    span: 4,
+                    blocks: [
+                      {
+                        id: "w-revenue",
+                        type: "metrics",
+                        title: "Total revenue",
+                        source: {
+                          kind: "gql",
+                          query: formula(
+                            "from table ",
+                            table("order_lines"),
+                            "\naggregate sum(formula(",
+                            field("order_lines.quantity"),
+                            " * ",
+                            field("order_lines.unit_price"),
+                            ")) as total_revenue",
+                          ),
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-books-column",
+                    span: 4,
+                    blocks: [
+                      {
+                        id: "w-books",
+                        type: "metrics",
+                        title: "Books",
+                        source: {
+                          kind: "gql",
+                          query: formula("from table ", table("books"), "\naggregate count(*) as book_count"),
+                        },
+                      },
+                    ],
+                  },
+                ],
               },
-            },
-            {
-              id: "w_revenue",
-              type: "metrics",
-              title: "Total revenue",
-              valueFormat: {
-                style: "number",
-                decimalPlaces: 2,
-                unit: "EUR",
-                unitPosition: "suffix",
+              {
+                id: "r-main",
+                columns: [
+                  {
+                    id: "w-chart-column",
+                    span: 6,
+                    blocks: [
+                      {
+                        id: "w-chart",
+                        type: "chart",
+                        title: "Monthly revenue",
+                        chartType: "line",
+                        source: {
+                          kind: "gql",
+                          query: formula(
+                            "from table ",
+                            table("order_lines"),
+                            " as line\njoin table ",
+                            table("orders"),
+                            " as order on line.",
+                            field("order_lines.order"),
+                            " = order.id\ngroup by order.",
+                            field("orders.ordered_at"),
+                            " by month\naggregate sum(formula(",
+                            "line.",
+                            field("order_lines.quantity"),
+                            " * line.",
+                            field("order_lines.unit_price"),
+                            ")) as monthly_revenue, count(*) as order_line_count\nsort ",
+                            "order.",
+                            field("orders.ordered_at"),
+                            " asc",
+                          ),
+                        },
+                        valueFormat: {
+                          style: "number",
+                          decimalPlaces: 2,
+                          unit: "EUR",
+                          unitPosition: "suffix",
+                        },
+                        limit: 100,
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-new-order-column",
+                    span: 3,
+                    blocks: [
+                      {
+                        id: "w-new-order",
+                        type: "form",
+                        title: "New order",
+                        formId: form("new_order"),
+                        fixedValues: {},
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-add-order-line-column",
+                    span: 3,
+                    blocks: [
+                      {
+                        id: "w-add-order-line",
+                        type: "form",
+                        title: "Add order line",
+                        formId: form("add_order_line"),
+                        fixedValues: {},
+                      },
+                    ],
+                  },
+                ],
               },
-              span: 4,
-              source: {
-                kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("order_lines"),
-                  "\naggregate sum(formula(",
-                  field("order_lines.quantity"),
-                  " * ",
-                  field("order_lines.unit_price"),
-                  ")) as total_revenue",
-                ),
+              {
+                id: "r-views",
+                columns: [
+                  {
+                    id: "w-add-book-column",
+                    span: 6,
+                    blocks: [
+                      {
+                        id: "w-add-book",
+                        type: "form",
+                        title: "Add book",
+                        formId: form("add_book"),
+                        fixedValues: {},
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-recent-column",
+                    span: 6,
+                    blocks: [
+                      {
+                        id: "w-recent",
+                        type: "records",
+                        searchable: true,
+                        pageSize: 25,
+                        title: "Recent books",
+                        source: { kind: "view", viewId: view("recent_books") },
+                        display: {
+                          kind: "table",
+                          columnIds: viewColumns("recent_books"),
+                        },
+                      },
+                    ],
+                  },
+                ],
               },
-            },
-            {
-              id: "w_books",
-              type: "metrics",
-              title: "Books",
-              valueFormat: { style: "integer" },
-              span: 4,
-              source: {
-                kind: "gql",
-                query: formula("from table ", table("books"), "\naggregate count(*) as book_count"),
+              {
+                id: "r-fulfillment",
+                columns: [
+                  {
+                    id: "w-revenue-by-customer-column",
+                    span: 7,
+                    blocks: [
+                      {
+                        id: "w-revenue-by-customer",
+                        type: "chart",
+                        title: "Revenue by customer",
+                        subtitle: "Joined directly from orders and customers",
+                        chartType: "bar",
+                        source: {
+                          kind: "gql",
+                          query: formula(
+                            "from table ",
+                            table("order_lines"),
+                            " as line\njoin table ",
+                            table("orders"),
+                            " as order on line.",
+                            field("order_lines.order"),
+                            " = order.id\njoin table ",
+                            table("customers"),
+                            " as customer on order.",
+                            field("orders.customer"),
+                            " = customer.id\ngroup by customer.",
+                            field("customers.name"),
+                            "\naggregate sum(formula(",
+                            "line.",
+                            field("order_lines.quantity"),
+                            " * line.",
+                            field("order_lines.unit_price"),
+                            ")) as customer_revenue\nhaving customer_revenue > 0\nsort customer_revenue desc nulls last\nlimit 8",
+                          ),
+                        },
+                        valueFormat: {
+                          style: "number",
+                          decimalPlaces: 2,
+                          unit: "EUR",
+                          unitPosition: "suffix",
+                        },
+                        limit: 100,
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-send-invoice-column",
+                    span: 5,
+                    blocks: [
+                      {
+                        id: "w-invoice-orders",
+                        type: "records",
+                        title: "Orders ready to invoice",
+                        source: { kind: "view", viewId: view("order_calendar") },
+                        display: {
+                          kind: "table",
+                          columnIds: viewColumns("order_calendar"),
+                        },
+                        searchable: true,
+                        pageSize: 25,
+                        rowActions: [
+                          {
+                            id: "send-invoice",
+                            label: "Send invoice",
+                            showLabel: true,
+                            kind: "workflow",
+                            launcherId: launcher("send_order_invoice_custom_app"),
+                            inputs: { order: { source: "ROW", path: "id" } },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
               },
-            },
-          ],
-        },
-        {
-          id: "r_main",
-          columns: [
-            {
-              id: "w_chart",
-              type: "chart",
-              title: "Monthly revenue",
-              chartType: "line",
-              source: {
-                kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("order_lines"),
-                  " as line\njoin table ",
-                  table("orders"),
-                  " as order on line.",
-                  field("order_lines.order"),
-                  " = order.id\ngroup by order.",
-                  field("orders.ordered_at"),
-                  " by month\naggregate sum(formula(",
-                  "line.",
-                  field("order_lines.quantity"),
-                  " * line.",
-                  field("order_lines.unit_price"),
-                  ")) as monthly_revenue, count(*) as order_line_count\nsort ",
-                  "order.",
-                  field("orders.ordered_at"),
-                  " asc",
-                ),
-              },
-              valueFormat: {
-                style: "number",
-                decimalPlaces: 2,
-                unit: "EUR",
-                unitPosition: "suffix",
-              },
-              span: 6,
-            },
-            {
-              id: "w_new_order",
-              type: "form",
-              title: "New order",
-              formId: form("new_order"),
-              span: 3,
-            },
-            {
-              id: "w_add_order_line",
-              type: "form",
-              title: "Add order line",
-              formId: form("add_order_line"),
-              span: 3,
-            },
-          ],
-        },
-        {
-          id: "r_views",
-          columns: [
-            {
-              id: "w_add_book",
-              type: "form",
-              title: "Add book",
-              formId: form("add_book"),
-              span: 6,
-            },
-            {
-              id: "w_recent",
-              type: "records",
-              searchable: true,
-              pageSize: 25,
-              title: "Recent books",
-              source: { kind: "view", viewId: view("recent_books") },
-              span: 6,
-            },
-          ],
-        },
-        {
-          id: "r_fulfillment",
-          columns: [
-            {
-              id: "w_revenue_by_customer",
-              type: "chart",
-              title: "Revenue by customer",
-              subtitle: "Joined directly from orders and customers",
-              chartType: "bar",
-              source: {
-                kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("order_lines"),
-                  " as line\njoin table ",
-                  table("orders"),
-                  " as order on line.",
-                  field("order_lines.order"),
-                  " = order.id\njoin table ",
-                  table("customers"),
-                  " as customer on order.",
-                  field("orders.customer"),
-                  " = customer.id\ngroup by customer.",
-                  field("customers.name"),
-                  "\naggregate sum(formula(",
-                  "line.",
-                  field("order_lines.quantity"),
-                  " * line.",
-                  field("order_lines.unit_price"),
-                  ")) as customer_revenue\nhaving customer_revenue > 0\nsort customer_revenue desc nulls last\nlimit 8",
-                ),
-              },
-              valueFormat: {
-                style: "number",
-                decimalPlaces: 2,
-                unit: "EUR",
-                unitPosition: "suffix",
-              },
-              span: 7,
-            },
-            {
-              id: "w_send_invoice",
-              type: "actions",
-              title: "Send an invoice",
-              buttonLabel: "Choose order",
-              launcherId: launcher("send_order_invoice_custom_app"),
-              span: 5,
-            },
-          ],
-        },
-      ],
+            ],
+          },
+        ],
+      },
     },
   ],
 };

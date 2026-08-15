@@ -1298,6 +1298,125 @@ const migrateCustomApps = async (sql: SQL): Promise<void> => {
        OR published_definition->>'schemaVersion' = '2'
   `.simple();
   await sql`DROP FUNCTION grids.custom_app_definition_v3(JSONB)`.simple();
+  // v4 removes server-owned route identity and duplicate navigation ordering
+  // from authoring JSON. Definitions using intentionally removed features stay
+  // recoverable as raw drafts, but are unpublished instead of being changed
+  // silently. Domain records are not part of this migration.
+  await sql`
+    CREATE OR REPLACE FUNCTION grids.custom_app_definition_v4_supported(value JSONB)
+    RETURNS BOOLEAN
+    LANGUAGE plpgsql
+    IMMUTABLE
+    AS $$
+    DECLARE
+      item JSONB;
+    BEGIN
+      IF jsonb_typeof(value) = 'array' THEN
+        FOR item IN SELECT entry FROM jsonb_array_elements(value) AS entries(entry) LOOP
+          IF NOT grids.custom_app_definition_v4_supported(item) THEN RETURN false; END IF;
+        END LOOP;
+      ELSIF jsonb_typeof(value) = 'object' THEN
+        IF value->>'type' = 'chart' AND value->>'chartType' IN ('scatter', 'sparkline') THEN RETURN false; END IF;
+        IF value ? 'bulkActions'
+           AND jsonb_typeof(value->'bulkActions') = 'array'
+           AND jsonb_array_length(value->'bulkActions') > 0 THEN
+          RETURN false;
+        END IF;
+        IF value->>'kind' = 'grids.custom-app'
+           AND jsonb_typeof(value#>'{sidebar,actions}') = 'array'
+           AND EXISTS (
+             SELECT 1 FROM jsonb_array_elements(value#>'{sidebar,actions}') AS actions(action)
+             WHERE action->>'kind' = 'workflow'
+           ) THEN
+          RETURN false;
+        END IF;
+        FOR item IN SELECT entry FROM jsonb_each(value) AS entries(key, entry) LOOP
+          IF NOT grids.custom_app_definition_v4_supported(item) THEN RETURN false; END IF;
+        END LOOP;
+      END IF;
+      RETURN true;
+    END
+    $$
+  `.simple();
+  await sql`
+    CREATE OR REPLACE FUNCTION grids.custom_app_definition_v4(value JSONB)
+    RETURNS JSONB
+    LANGUAGE plpgsql
+    IMMUTABLE
+    AS $$
+    DECLARE
+      pages JSONB;
+      result JSONB;
+    BEGIN
+      IF value->>'schemaVersion' <> '3' OR NOT grids.custom_app_definition_v4_supported(value) THEN RETURN NULL; END IF;
+      SELECT COALESCE(
+        jsonb_agg(
+          CASE
+            WHEN jsonb_typeof(page->'navigation') = 'object'
+              THEN jsonb_set(page, '{navigation}', (page->'navigation') - 'order', false)
+            ELSE page
+          END
+          ORDER BY ordinal
+        ),
+        '[]'::jsonb
+      )
+      INTO pages
+      FROM jsonb_array_elements(COALESCE(value->'pages', '[]'::jsonb)) WITH ORDINALITY AS entries(page, ordinal);
+      result := jsonb_set((value - 'shortId'), '{schemaVersion}', '4'::jsonb, false);
+      RETURN jsonb_set(result, '{pages}', pages, false);
+    END
+    $$
+  `.simple();
+  await sql`
+    UPDATE grids.custom_apps
+    SET
+      draft_definition = CASE
+        WHEN draft_definition->>'schemaVersion' = '3'
+             AND NOT grids.custom_app_definition_v4_supported(draft_definition)
+          THEN draft_definition
+        ELSE published_definition
+      END,
+      draft_capabilities = NULL,
+      published_definition = NULL,
+      published_capabilities = NULL,
+      published_at = NULL,
+      updated_at = now()
+    WHERE (draft_definition->>'schemaVersion' = '3' AND NOT grids.custom_app_definition_v4_supported(draft_definition))
+       OR (published_definition->>'schemaVersion' = '3' AND NOT grids.custom_app_definition_v4_supported(published_definition))
+  `.simple();
+  await sql`
+    UPDATE grids.custom_apps
+    SET
+      draft_definition = CASE
+        WHEN draft_definition->>'schemaVersion' = '3' AND grids.custom_app_definition_v4_supported(draft_definition)
+          THEN grids.custom_app_definition_v4(draft_definition)
+        ELSE draft_definition
+      END,
+      published_definition = CASE
+        WHEN published_definition->>'schemaVersion' = '3' AND grids.custom_app_definition_v4_supported(published_definition)
+          THEN grids.custom_app_definition_v4(published_definition)
+        ELSE published_definition
+      END
+    WHERE draft_definition->>'schemaVersion' = '3'
+       OR published_definition->>'schemaVersion' = '3'
+  `.simple();
+  await sql`
+    UPDATE grids.custom_apps
+    SET
+      draft_definition = CASE
+        WHEN draft_definition->>'schemaVersion' = '4' THEN published_definition
+        ELSE draft_definition
+      END,
+      draft_capabilities = NULL,
+      published_definition = NULL,
+      published_capabilities = NULL,
+      published_at = NULL,
+      updated_at = now()
+    WHERE published_definition IS NOT NULL
+      AND published_definition->>'schemaVersion' IS DISTINCT FROM '4'
+  `.simple();
+  await sql`DROP FUNCTION grids.custom_app_definition_v4(JSONB)`.simple();
+  await sql`DROP FUNCTION grids.custom_app_definition_v4_supported(JSONB)`.simple();
   await sql`
     CREATE TABLE IF NOT EXISTS grids.custom_app_access (
       custom_app_id UUID NOT NULL REFERENCES grids.custom_apps(id) ON DELETE CASCADE,

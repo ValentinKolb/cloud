@@ -202,7 +202,7 @@ describe("Grids App Golden fixtures", () => {
 
       const exportedYaml = Bun.YAML.stringify(created.data.draftDefinition);
       const exported = CustomAppDefinitionSchema.parse(Bun.YAML.parse(exportedYaml));
-      expect(exported).toEqual({ ...definition, shortId: created.data.shortId });
+      expect(exported).toEqual(definition);
       expect((await plan(exported)).action).toBe("noop");
 
       const reapplied = await apply(exported);

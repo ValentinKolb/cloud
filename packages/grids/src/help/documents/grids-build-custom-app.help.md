@@ -32,7 +32,7 @@ Choose the audience boundaries before composing pages:
 | Requesters | Grids App Read | Use only the published pages, personal GQL result, included Form, comments, and documents. |
 | Responsible group | Base Write, or a separate staff Grids App | Process all requests without widening the requester app. |
 
-Grids App access does not grant raw Base access. The immutable publication lists the exact data and operations available to requesters. Preview the requester app and the staff surface separately before publishing.
+Grids App access does not grant raw Base access. The immutable publication lists the exact data and operations available to requesters. Exercise the requester app and the staff surface with separate real test accounts before publishing.
 
 **Checkpoint:** a requester can submit the Form and the app's Records query returns only `record.createdBy = @auth.id`; the responsible group can process all requests through its separate boundary. If this fails, correct the query or split the audience before building more pages.
 
@@ -60,7 +60,7 @@ Create these pages, then inspect and refine them in the builder:
 
 Page IDs are stable definition identifiers. You may edit them in Page settings; the builder updates navigation references atomically. Labels may change without breaking navigation. The hidden detail page is reached from a row or successful form submission.
 
-**Checkpoint:** preview opens on Apply, shows Apply and My requests in navigation, and keeps Request detail out of navigation. If not, correct the start page, page IDs, and navigation settings.
+**Checkpoint:** the draft opens on Apply, shows Apply and My requests in navigation, and keeps Request detail out of navigation. If not, correct the start page, each page's visibility, and the page array order.
 
 ## Build Apply {icon="forms"}
 
@@ -110,7 +110,7 @@ Arrange the page in task order:
 
 Requester fields should normally be read-only after submission. If corrections are allowed, add only those fields to **Editable fields**. Status, approval data, and generated output remain workflow-owned.
 
-When no certificate exists, the Record block shows the configured empty text: “Your certificate will appear here after approval.” It does not render a disabled or empty download control.
+When the page record is missing, the Record block can show configured empty text. An existing request with no generated certificate simply has no download entry; the current schema has no document-specific empty copy.
 
 **Checkpoint:** status, comments, and generated documents remain attached to the same request after reload. A failure belongs to the Record binding, Comments access, or document run named by the failing block.
 
@@ -120,9 +120,9 @@ The responsible group can process requests in the Grids workspace or a second or
 
 The workflow must re-read and validate the request before changing it. Related record changes use the workflow's atomic record-change boundary; external effects begin only after those changes commit. This keeps concurrent reviewers from silently applying a stale transition.
 
-## Preview the complete journey {icon="shield-check"}
+## Test the complete journey {icon="shield-check"}
 
-Use **Preview as** to verify:
+Save the draft, grant it only to dedicated test accounts representing each audience, and verify:
 
 :::steps
 1. As a requester, submit a valid request and confirm that its detail page opens immediately.
@@ -133,7 +133,7 @@ Use **Preview as** to verify:
 6. Repeat the journey at desktop and narrow widths using keyboard navigation.
 :::
 
-The app is ready when the requester journey is understandable without the Grids workspace or knowledge of the underlying table.
+The app is ready when the requester journey is understandable without the Grids workspace or knowledge of the underlying table. There is no impersonation or anonymous-preview mode in the builder; test public access only on a deliberately published test app.
 
 ## Take an app offline or delete it {icon="alert-triangle"}
 

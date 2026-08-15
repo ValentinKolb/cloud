@@ -3,6 +3,7 @@ import type { DslQueryContextValues } from "../query-dsl/parameters";
 import type { DslResolvedSqlQueryPlan } from "../query-dsl/resolver";
 import { isImplicitlySelectableField, relationTargetIsReadable } from "../query-dsl/sql-compiler-fields";
 import type { Field } from "../service/types";
+import { stableCustomAppValue } from "./stable-value";
 
 const CANONICAL_UUID = "00000000-0000-4000-8000-000000000000";
 
@@ -30,18 +31,6 @@ export const canonicalCustomAppQueryContext = (context: DslQueryContextValues): 
       .map((key) => [key, CANONICAL_UUID]),
   ),
 });
-
-const stableValue = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(stableValue);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, stableValue(item)]),
-    );
-  }
-  return value;
-};
 
 const walkStrings = (value: unknown, visit: (value: string) => void): void => {
   if (typeof value === "string") {
@@ -159,7 +148,7 @@ export const customAppQueryPlanHash = (plan: DslResolvedSqlQueryPlan, fieldsByTa
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
 
-  const payload = stableValue({
+  const payload = stableCustomAppValue({
     plan,
     fields,
     relationTargets: relationTargets.sort((left, right) => left.fieldId.localeCompare(right.fieldId)),

@@ -25,9 +25,7 @@ describe("published App page routes", () => {
     const records = source.indexOf('/records"');
     const pageForm = source.indexOf('/:blockId/submit"');
     const sidebarForm = source.indexOf('/sidebar/forms/:actionId/submit"');
-    const sidebarWorkflow = source.indexOf('/sidebar/actions/:actionId"');
     const rowAction = source.indexOf('/row-actions/:actionId"');
-    const bulkAction = source.indexOf('/bulk-actions/:actionId"');
     const cardFile = source.indexOf('/files/:token"');
     const scanner = source.indexOf('/:blockId/scanner"');
 
@@ -40,9 +38,9 @@ describe("published App page routes", () => {
     expect(download).toBeLessThan(authenticated);
     expect(sidebarForm).toBeGreaterThan(0);
     expect(sidebarForm).toBeLessThan(authenticated);
-    expect(sidebarWorkflow).toBeGreaterThan(authenticated);
+    expect(source).not.toContain('/sidebar/actions/:actionId"');
     expect(rowAction).toBeGreaterThan(authenticated);
-    expect(bulkAction).toBeGreaterThan(authenticated);
+    expect(source).not.toContain('/bulk-actions/:actionId"');
     expect(cardFile).toBeLessThan(authenticated);
     expect(scanner).toBeGreaterThan(authenticated);
     expect(source).toContain("executePublishedCustomAppRecords");

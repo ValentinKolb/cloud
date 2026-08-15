@@ -1,19 +1,17 @@
 import { MarkdownView, Placeholder, StatCell, StatGrid } from "@k2b/ui";
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
-import { accessActorUser, actorViewerFor, gateCustomAppAtAccess, gridsAccessContext } from "../../api/permissions";
+import { resolvePublishedCustomAppRuntime } from "../../api/custom-app-published-runtime";
+import { accessActorUser, actorViewerFor, gridsAccessContext } from "../../api/permissions";
 import { ssr } from "../../config";
 import type { DocumentRunSummary, Field, GridRecord } from "../../contracts";
 import { customAppPageRecordFieldIds } from "../../custom-apps/conditions";
 import type { CustomAppBlock, CustomAppDefinition, CustomAppPage } from "../../custom-apps/contracts";
-import { customAppFormInlineTargetTableIds } from "../../custom-apps/form-capability";
-import { customAppFormMatchesPublishedCapability } from "../../custom-apps/form-runtime";
 import { renderCustomAppMarkdown } from "../../custom-apps/markdown-context";
 import { projectCustomAppRecord } from "../../custom-apps/record-projection";
 import {
   customAppActionHref,
   customAppActionUrl,
-  customAppBulkActionUrl,
   customAppCommentsUrl,
   customAppDocumentDownloadUrl,
   customAppFormSubmitUrl,
@@ -22,17 +20,9 @@ import {
   customAppRecordUpdateUrl,
   customAppRowActionUrl,
   customAppScannerUrl,
-  customAppSidebarActionUrl,
   customAppSidebarFormSubmitUrl,
-  resolveCustomAppPage,
-  resolveCustomAppPageParams,
 } from "../../custom-apps/routing";
-import {
-  buildCustomAppGlobalRuntimeContext,
-  buildCustomAppRuntimeContext,
-  customAppDefinitionWithAvailableNavigation,
-  loadCustomAppAuthSubjectIds,
-} from "../../custom-apps/runtime-context";
+import { buildCustomAppRuntimeContext, customAppDefinitionWithAvailableNavigation } from "../../custom-apps/runtime-context";
 import { customAppScannerConfigHash } from "../../custom-apps/scanner-capability";
 import type { DslQueryContextValues } from "../../query-dsl/parameters";
 import { gridsService } from "../../service";
@@ -42,6 +32,7 @@ import {
   chartDataFromPreview,
   metricCellsFromPreview,
 } from "../../service/custom-app-insights";
+import { resolvePublishedCustomAppForm } from "../../service/custom-app-published-form";
 import {
   buildCustomAppRecordLabelCache,
   customAppRecordRelationSnapshot,
@@ -59,11 +50,7 @@ import Actions, { type CustomAppRenderedAction } from "./Actions.island";
 import CustomAppChart from "./Chart";
 import { CustomAppPageLayout } from "./PageLayout";
 import RecordDetails from "./RecordDetails.island";
-import RecordsTable, {
-  type CustomAppRecordsSuccess,
-  type CustomAppRenderedBulkAction,
-  type CustomAppRenderedRowAction,
-} from "./RecordsTable.island";
+import RecordsTable, { type CustomAppRecordsSuccess, type CustomAppRenderedRowAction } from "./RecordsTable.island";
 import Scanner from "./Scanner.island";
 import SidebarActions, { type CustomAppRenderedSidebarAction } from "./SidebarActions.island";
 import { formatCustomAppValue } from "./value-format";
@@ -119,7 +106,6 @@ const Records = (props: {
   shortId: string;
   endpoint: string;
   rowActions: CustomAppRenderedRowAction[];
-  bulkActions: CustomAppRenderedBulkAction[];
 }) => {
   if (!props.data.ok) {
     return (
@@ -146,7 +132,6 @@ const Records = (props: {
       searchable={props.block.searchable}
       rowNavigate={props.block.rowNavigate}
       rowActions={props.rowActions}
-      bulkActions={props.bulkActions}
     />
   );
 };
@@ -246,7 +231,6 @@ const CustomAppPage = (props: {
   commentEndpoints: Map<string, string>;
   actions: Map<string, CustomAppRenderedAction[]>;
   rowActions: Map<string, CustomAppRenderedRowAction[]>;
-  bulkActions: Map<string, CustomAppRenderedBulkAction[]>;
   recordEndpoints: Map<string, string>;
   recordUpdateEndpoints: Map<string, string>;
   documentRuns: Map<string, CustomAppDocumentRun[]>;
@@ -276,7 +260,6 @@ const CustomAppPage = (props: {
             shortId={props.shortId}
             endpoint={props.recordEndpoints.get(block.id) ?? ""}
             rowActions={props.rowActions.get(block.id) ?? []}
-            bulkActions={props.bulkActions.get(block.id) ?? []}
           />
         ) : block.type === "metrics" ? (
           <Metrics data={props.metrics.get(block.id) ?? { ok: false, message: "Metrics are unavailable." }} dateConfig={props.dateConfig} />
@@ -326,45 +309,17 @@ const CustomAppPage = (props: {
 };
 
 export default ssr<AuthContext>(async (c) => {
-  const app = await gridsService.customApp.getPublishedByShortId(c.req.param("shortId") ?? "");
-  if (!app?.publishedDefinition || !app.publishedCapabilities || !app.publishedAt) return c.notFound();
-  const capabilities = app.publishedCapabilities;
-
   const requestAccess = gridsAccessContext(c);
-  if (!(await gateCustomAppAtAccess(requestAccess, app.id)).ok) return c.notFound();
-
-  const definition = app.publishedDefinition;
-  const page = resolveCustomAppPage(definition, c.req.param("pageId"));
-  if (!page) return c.notFound();
-  const dateConfig = getDateConfig(c);
-  const pageParams = resolveCustomAppPageParams(page, c.req.query());
-  if (!pageParams) return c.notFound();
-  const base = await gridsService.base.get(app.baseId);
-  if (!base) return c.notFound();
-  const pageUrl = customAppPageHref(app.shortId, page.id, pageParams);
-  const authSubjectIds = await loadCustomAppAuthSubjectIds(requestAccess);
-  const runtimeContext = buildCustomAppRuntimeContext({
+  const runtime = await resolvePublishedCustomAppRuntime({
     access: requestAccess,
-    app,
-    base,
-    page,
-    pageUrl,
-    pageParams,
-    dateConfig,
-    authSubjectIds,
+    shortId: c.req.param("shortId") ?? "",
+    pageId: c.req.param("pageId"),
+    query: c.req.query(),
+    dateConfig: getDateConfig(c),
+    signal: c.req.raw.signal,
   });
-  const globalRuntimeContext = buildCustomAppGlobalRuntimeContext({
-    access: requestAccess,
-    app,
-    base,
-    dateConfig,
-    now: runtimeContext.now,
-    authSubjectIds,
-  });
-  const viewer = {
-    ...actorViewerFor(requestAccess),
-    isAdmin: true,
-  };
+  if (!runtime) return c.notFound();
+  const { app, definition, capabilities, base, page, pageParams, dateConfig, runtimeContext, authSubjectIds, viewer } = runtime;
   const availabilityCapability = (pageId: string, target: "page" | "block" | "action", blockId?: string, actionId?: string) =>
     capabilities.availability.find(
       (candidate) =>
@@ -394,9 +349,7 @@ export default ssr<AuthContext>(async (c) => {
       viewer,
     });
   };
-  const available = (target: "page" | "block" | "action", query: string | undefined, blockId?: string, actionId?: string) =>
-    evaluateAvailability(page.id, runtimeContext.query, target, query, blockId, actionId);
-  if (!(await available("page", page.availableWhen?.query))) return c.notFound();
+  const available = runtime.available;
 
   const availableNavigationPageIds = await availableIdsInBatches(
     definition.pages.filter((item) => item.navigation.visible),
@@ -419,20 +372,7 @@ export default ssr<AuthContext>(async (c) => {
   );
   const runtimeDefinition = customAppDefinitionWithAvailableNavigation(definition, availableNavigationPageIds);
   const availableSidebarActionIds = await availableIdsInBatches(definition.sidebar?.actions ?? [], async (action) => {
-    if (!action.availableWhen) return true;
-    const capability = capabilities.availability.find(
-      (candidate) => candidate.target === "sidebarAction" && candidate.actionId === action.id,
-    );
-    if (!capability) return false;
-    return publishedCustomAppAvailability({
-      baseId: app.baseId,
-      source: action.availableWhen.query,
-      capability,
-      context: globalRuntimeContext.query,
-      signal: c.req.raw.signal,
-      timeZone: globalRuntimeContext.query["time.timeZone"],
-      viewer,
-    });
+    return runtime.availableSidebarAction(action.id, action.availableWhen?.query);
   });
   const availableSidebarActions = (definition.sidebar?.actions ?? []).filter((action) => availableSidebarActionIds.has(action.id));
 
@@ -600,7 +540,17 @@ export default ssr<AuthContext>(async (c) => {
         if (!published.response.ok) {
           return [block.id, { ok: false, message: published.response.diagnostics[0]?.message ?? "This data source is unavailable." }];
         }
-        return [block.id, { ok: true, result: published.cards ? { ...published.response, cards: published.cards } : published.response }];
+        return [
+          block.id,
+          {
+            ok: true,
+            result: {
+              ...published.response,
+              ...(published.presentation ? { presentation: published.presentation } : {}),
+              ...(published.cards ? { cards: published.cards } : {}),
+            },
+          },
+        ];
       } catch {
         return [block.id, { ok: false, message: "This data source is temporarily unavailable." }];
       }
@@ -651,9 +601,7 @@ export default ssr<AuthContext>(async (c) => {
         const sourceFields = outputTableIds.flatMap((tableId) => fieldGroups.get(tableId) ?? []);
         if (block.type === "metrics") return [block.id, { ok: true, cells: metricCellsFromPreview(response, sourceFields) }];
         const chart = chartDataFromPreview(response, sourceFields);
-        if (chart.kind === "error" || (block.chartType === "scatter" && chart.viewQuery.aggregations.length < 2)) {
-          return [block.id, { ok: false, message: chart.kind === "error" ? chart.reason : "Scatter charts need two value series." }];
-        }
+        if (chart.kind === "error") return [block.id, { ok: false, message: chart.reason }];
         return [block.id, { ok: true, chart }];
       } catch {
         return [block.id, { ok: false, message: "This data source is temporarily unavailable." }];
@@ -683,33 +631,11 @@ export default ssr<AuthContext>(async (c) => {
   );
   const formEntries = await Promise.all(
     formBlocks.map(async (block): Promise<[string, FormBlockData]> => {
-      const capability = capabilities.forms.find(
-        (candidate) =>
-          "pageId" in candidate && candidate.pageId === page.id && candidate.blockId === block.id && candidate.formId === block.formId,
-      );
-      const form = capability ? await gridsService.form.get(block.formId) : null;
-      const liveFields = form ? await gridsService.field.listByTable(form.tableId, true) : [];
-      const securityTargetFields = form
-        ? (
-            await Promise.all(
-              customAppFormInlineTargetTableIds(form.config, liveFields).map((tableId) => gridsService.field.listByTable(tableId, true)),
-            )
-          ).flat()
-        : [];
-      if (
-        !capability ||
-        !form ||
-        !customAppFormMatchesPublishedCapability({
-          block,
-          page,
-          form,
-          fields: liveFields,
-          inlineTargetFields: securityTargetFields,
-          capability,
-        })
-      ) {
+      const resolvedForm = await resolvePublishedCustomAppForm({ surface: block, page, capabilities });
+      if (!resolvedForm) {
         return [block.id, { ok: false, message: "This form is unavailable." }];
       }
+      const { form, fields: liveFields, inlineTargetFields: securityTargetFields } = resolvedForm;
       const fixedFieldIds = Object.keys(block.fixedValues).sort();
       const fixed = new Set(fixedFieldIds);
       const renderable = gridsService.form.toPublicRenderableForm(form);
@@ -751,50 +677,9 @@ export default ssr<AuthContext>(async (c) => {
   const forms = new Map(formEntries);
   const sidebarActions: CustomAppRenderedSidebarAction[] = [];
   for (const action of availableSidebarActions) {
-    if (action.kind === "workflow") {
-      if (!accessActorUser(requestAccess)) continue;
-      const capability = capabilities.workflowLaunchers.find(
-        (candidate) =>
-          "sidebarActionId" in candidate && candidate.sidebarActionId === action.id && candidate.launcherId === action.launcherId,
-      );
-      if (capability) {
-        sidebarActions.push({
-          id: action.id,
-          kind: "workflow",
-          label: action.label,
-          icon: action.icon,
-          tone: action.tone,
-          endpoint: customAppSidebarActionUrl(app.shortId, action.id),
-          confirm: action.confirm,
-        });
-      }
-      continue;
-    }
-    const capability = capabilities.forms.find(
-      (candidate) => "sidebarActionId" in candidate && candidate.sidebarActionId === action.id && candidate.formId === action.formId,
-    );
-    const form = capability ? await gridsService.form.get(action.formId) : null;
-    const liveFields = form ? await gridsService.field.listByTable(form.tableId, true) : [];
-    const securityTargetFields = form
-      ? (
-          await Promise.all(
-            customAppFormInlineTargetTableIds(form.config, liveFields).map((tableId) => gridsService.field.listByTable(tableId, true)),
-          )
-        ).flat()
-      : [];
-    if (
-      !capability ||
-      !form ||
-      !customAppFormMatchesPublishedCapability({
-        block: action,
-        form,
-        fields: liveFields,
-        inlineTargetFields: securityTargetFields,
-        capability,
-      })
-    ) {
-      continue;
-    }
+    const resolvedForm = await resolvePublishedCustomAppForm({ surface: action, capabilities });
+    if (!resolvedForm) continue;
+    const { form, fields: liveFields, inlineTargetFields: securityTargetFields } = resolvedForm;
     const fixed = new Set(Object.keys(action.fixedValues));
     const renderable = gridsService.form.toPublicRenderableForm(form);
     renderable.config = {
@@ -867,7 +752,6 @@ export default ssr<AuthContext>(async (c) => {
     actions.set(block.id, rendered);
   }
   const rowActions = new Map<string, CustomAppRenderedRowAction[]>();
-  const bulkActions = new Map<string, CustomAppRenderedBulkAction[]>();
   const recordEndpoints = new Map<string, string>();
   for (const block of blocks) {
     recordEndpoints.set(block.id, customAppRecordsUrl(app.shortId, page.id, block.id, pageParams));
@@ -895,28 +779,6 @@ export default ssr<AuthContext>(async (c) => {
       }
     }
     rowActions.set(block.id, rendered);
-    const renderedBulk: CustomAppRenderedBulkAction[] = [];
-    if (accessActorUser(requestAccess)) {
-      for (const action of block.bulkActions ?? []) {
-        const capability = capabilities.workflowLaunchers.find(
-          (candidate) =>
-            "pageId" in candidate &&
-            candidate.pageId === page.id &&
-            candidate.blockId === block.id &&
-            candidate.actionId === action.id &&
-            candidate.launcherId === action.launcherId,
-        );
-        if (!capability) continue;
-        renderedBulk.push({
-          id: action.id,
-          label: action.label,
-          icon: action.icon,
-          endpoint: customAppBulkActionUrl(app.shortId, page.id, block.id, action.id, pageParams),
-          confirm: action.confirm,
-        });
-      }
-    }
-    bulkActions.set(block.id, renderedBulk);
   }
   const scanners = new Map<string, { state: WorkflowScannerState; endpoint: string }>();
   if (accessActorUser(requestAccess)) {
@@ -980,7 +842,6 @@ export default ssr<AuthContext>(async (c) => {
         commentEndpoints={commentEndpoints}
         actions={actions}
         rowActions={rowActions}
-        bulkActions={bulkActions}
         recordEndpoints={recordEndpoints}
         recordUpdateEndpoints={recordUpdateEndpoints}
         documentRuns={documentRuns}

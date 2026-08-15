@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { RecordDisplayConfigSchema } from "../contracts";
-import { SHORT_ID_REGEX } from "../service/short-id";
 
 export const CustomAppValueFormatSchema = z
   .object({
@@ -99,8 +98,6 @@ export const CustomAppGlobalFormValueBindingSchema = z.discriminatedUnion("sourc
   CustomAppAuthPrincipalValueSchema,
 ]);
 
-export const CustomAppLiteralValueBindingSchema = z.object({ source: z.literal("LITERAL"), value: z.json() }).strict();
-
 export const CustomAppRowValueBindingSchema = z.discriminatedUnion("source", [
   z.object({ source: z.literal("LITERAL"), value: z.json() }).strict(),
   CustomAppParamValueSchema,
@@ -172,22 +169,6 @@ export const CustomAppRowActionSchema = z
     }
   });
 
-export const CustomAppBulkActionSchema = z
-  .object({
-    id: CustomAppLocalIdSchema,
-    label: z.string().trim().min(1).max(120),
-    icon: z
-      .string()
-      .trim()
-      .min(1)
-      .max(120)
-      .regex(/^[a-z0-9-]+$/, "Use a Tabler icon slug")
-      .optional(),
-    launcherId: z.string().uuid(),
-    confirm: z.string().trim().min(1).max(240).optional(),
-  })
-  .strict();
-
 const CustomAppFormSuccessValueSchema = z.discriminatedUnion("source", [
   CustomAppParamValueSchema,
   z.object({ source: z.literal("RESULT"), path: z.literal("recordId") }).strict(),
@@ -223,26 +204,15 @@ const CustomAppSidebarActionShape = {
   ...CustomAppAvailabilityShape,
 };
 
-export const CustomAppSidebarActionSchema = z.discriminatedUnion("kind", [
-  z
-    .object({
-      ...CustomAppSidebarActionShape,
-      kind: z.literal("form"),
-      formId: z.string().uuid(),
-      fixedValues: z.record(z.string().uuid(), CustomAppGlobalFormValueBindingSchema).default({}),
-      onSuccessNavigate: CustomAppGlobalFormSuccessNavigationSchema.optional(),
-    })
-    .strict(),
-  z
-    .object({
-      ...CustomAppSidebarActionShape,
-      kind: z.literal("workflow"),
-      launcherId: z.string().uuid(),
-      inputs: z.record(z.string().trim().min(1).max(120), CustomAppLiteralValueBindingSchema).default({}),
-      confirm: z.string().trim().min(1).max(240).optional(),
-    })
-    .strict(),
-]);
+export const CustomAppSidebarActionSchema = z
+  .object({
+    ...CustomAppSidebarActionShape,
+    kind: z.literal("form"),
+    formId: z.string().uuid(),
+    fixedValues: z.record(z.string().uuid(), CustomAppGlobalFormValueBindingSchema).default({}),
+    onSuccessNavigate: CustomAppGlobalFormSuccessNavigationSchema.optional(),
+  })
+  .strict();
 
 export const CustomAppMarkdownBlockSchema = z
   .object({
@@ -272,22 +242,12 @@ export const CustomAppRecordsBlockSchema = z
     pageSize: z.number().int().min(5).max(100).default(25),
     rowNavigate: CustomAppRowNavigationSchema.optional(),
     rowActions: z.array(CustomAppRowActionSchema).max(6).optional(),
-    bulkActions: z.array(CustomAppBulkActionSchema).max(6).optional(),
     ...CustomAppAvailabilityShape,
   })
   .strict()
   .superRefine((block, ctx) => {
     if (block.display.kind === "cards" && block.source.kind !== "view") {
       ctx.addIssue({ code: "custom", message: "Cards display must inherit a saved View", path: ["display"] });
-    }
-    if (block.display.kind === "cards" && !block.rowNavigate) {
-      ctx.addIssue({ code: "custom", message: "Cards display requires row navigation", path: ["rowNavigate"] });
-    }
-    if (block.display.kind === "cards" && (block.rowActions?.length ?? 0) > 0) {
-      ctx.addIssue({ code: "custom", message: "Cards display does not support row actions", path: ["rowActions"] });
-    }
-    if (block.display.kind === "cards" && (block.bulkActions?.length ?? 0) > 0) {
-      ctx.addIssue({ code: "custom", message: "Cards display does not support bulk actions", path: ["bulkActions"] });
     }
     if (block.source.kind === "view" && block.display.kind === "table" && block.display.columnIds.length === 0) {
       ctx.addIssue({
@@ -300,12 +260,6 @@ export const CustomAppRecordsBlockSchema = z
     for (const [index, action] of (block.rowActions ?? []).entries()) {
       if (actionIds.has(action.id)) {
         ctx.addIssue({ code: "custom", message: `Duplicate row action id "${action.id}"`, path: ["rowActions", index, "id"] });
-      }
-      actionIds.add(action.id);
-    }
-    for (const [index, action] of (block.bulkActions ?? []).entries()) {
-      if (actionIds.has(action.id)) {
-        ctx.addIssue({ code: "custom", message: `Duplicate Records action id "${action.id}"`, path: ["bulkActions", index, "id"] });
       }
       actionIds.add(action.id);
     }
@@ -332,7 +286,7 @@ export const CustomAppChartBlockSchema = z
     type: z.literal("chart"),
     title: z.string().trim().min(1).max(160).optional(),
     subtitle: z.string().trim().min(1).max(200).optional(),
-    chartType: z.enum(["donut", "bar", "line", "sparkline", "scatter"]),
+    chartType: z.enum(["donut", "bar", "line"]),
     source: CustomAppInsightSourceSchema,
     limit: z.number().int().min(1).max(100).default(100),
     valueFormat: CustomAppValueFormatSchema.optional(),
@@ -461,7 +415,6 @@ const CustomAppPageSchema = z
     navigation: z
       .object({
         visible: z.boolean().default(true),
-        order: z.number().int().min(-1_000).max(1_000).default(0),
         icon: z
           .string()
           .trim()
@@ -471,7 +424,7 @@ const CustomAppPageSchema = z
           .optional(),
       })
       .strict()
-      .default({ visible: true, order: 0 }),
+      .default({ visible: true }),
     parameters: z.record(CustomAppParameterIdSchema, CustomAppRecordParameterSchema).default({}),
     record: CustomAppPageRecordSchema.optional(),
     ...CustomAppAvailabilityShape,
@@ -507,11 +460,10 @@ const CustomAppPageSchema = z
 
 export const CustomAppDefinitionSchema = z
   .object({
-    schemaVersion: z.literal(3),
+    schemaVersion: z.literal(4),
     kind: z.literal("grids.custom-app"),
     id: z.string().uuid(),
     baseId: z.string().uuid(),
-    shortId: z.string().regex(SHORT_ID_REGEX).optional(),
     name: z.string().trim().min(1).max(200),
     icon: z
       .string()
@@ -1006,26 +958,16 @@ export const CustomAppCapabilitiesSchema = z
       .default([]),
     workflowLaunchers: z
       .array(
-        z.union([
-          z
-            .object({
-              pageId: CustomAppLocalIdSchema,
-              blockId: CustomAppLocalIdSchema,
-              actionId: CustomAppLocalIdSchema,
-              launcherId: z.string().uuid(),
-              workflowId: z.string().uuid(),
-              revision: z.number().int().positive(),
-            })
-            .strict(),
-          z
-            .object({
-              sidebarActionId: CustomAppLocalIdSchema,
-              launcherId: z.string().uuid(),
-              workflowId: z.string().uuid(),
-              revision: z.number().int().positive(),
-            })
-            .strict(),
-        ]),
+        z
+          .object({
+            pageId: CustomAppLocalIdSchema,
+            blockId: CustomAppLocalIdSchema,
+            actionId: CustomAppLocalIdSchema,
+            launcherId: z.string().uuid(),
+            workflowId: z.string().uuid(),
+            revision: z.number().int().positive(),
+          })
+          .strict(),
       )
       .max(288)
       .default([]),
@@ -1064,7 +1006,6 @@ export type CustomAppValueBinding = z.infer<typeof CustomAppValueBindingSchema>;
 export type CustomAppFormValueBinding = z.infer<typeof CustomAppFormValueBindingSchema>;
 export type CustomAppRowValueBinding = z.infer<typeof CustomAppRowValueBindingSchema>;
 export type CustomAppRowAction = z.infer<typeof CustomAppRowActionSchema>;
-export type CustomAppBulkAction = z.infer<typeof CustomAppBulkActionSchema>;
 export type CustomAppSidebarAction = z.infer<typeof CustomAppSidebarActionSchema>;
 
 export type CustomAppDiagnostic = { path: Array<string | number>; message: string };
@@ -1074,11 +1015,11 @@ export const parseStoredCustomAppDefinition = (raw: unknown, version: "draft" | 
   if (parsed.success) return { definition: parsed.data, diagnostics: [] };
   const schemaVersion = raw && typeof raw === "object" && "schemaVersion" in raw ? raw.schemaVersion : undefined;
   const recovery =
-    schemaVersion === 1 || schemaVersion === 2
-      ? `Stored ${version} uses unsupported Grids App schemaVersion ${schemaVersion}; replace it with a schemaVersion 3 definition${
+    schemaVersion === 1 || schemaVersion === 2 || schemaVersion === 3
+      ? `Stored ${version} uses unsupported Grids App schemaVersion ${schemaVersion}; replace it with a schemaVersion 4 definition${
           version === "draft" ? " or restore a valid published version" : ""
         }.`
-      : `Stored ${version} is not a valid Grids App schemaVersion 3 definition; replace it with a valid definition${
+      : `Stored ${version} is not a valid Grids App schemaVersion 4 definition; replace it with a valid definition${
           version === "draft" ? " or restore a valid published version" : ""
         }.`;
   const diagnostics: CustomAppDiagnostic[] = [
@@ -1092,12 +1033,12 @@ export const parseStoredCustomAppDefinition = (raw: unknown, version: "draft" | 
 };
 
 export const CUSTOM_APP_REFERENCE = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   kind: "grids.custom-app",
   identity: {
     id: "Stable UUID chosen by the author",
     baseId: "Owning Base UUID",
-    shortId: "Omit on create; Grids assigns and preserves it",
+    shortId: "Server-owned route identity returned outside the authoring definition",
     icon: "Optional Tabler icon slug, for example app-window",
   },
   limits: {
@@ -1108,20 +1049,19 @@ export const CUSTOM_APP_REFERENCE = {
     recordsBlocks: 4,
     recordsPageSize: 100,
     rowActionsPerRecordsBlock: 6,
-    bulkActionsPerRecordsBlock: 6,
     insightBlocks: 24,
     metricsPerBlock: 12,
     chartGroupsPerBlock: 100,
     scannerBlocks: 24,
   },
   pages: {
-    navigation: "Set visible to false for route-only parameterized pages; visible pages use optional icon and order in AppWorkspace",
+    navigation: "Set visible to false for route-only parameterized pages; visible pages follow pages array order and may use an icon",
     parameters: "This release supports required same-base record parameters",
     record: "Bind one authorized page record from PARAMS",
   },
   sidebar: {
-    actions: "Up to 12 app-global Form or Workflow launchers, independent from pages",
-    inputs: "Global fixed Form values and Workflow inputs are LITERAL only",
+    actions: "Up to 12 app-global Form launchers, independent from pages",
+    inputs: "Global fixed Form values are LITERAL or AUTH.currentUser",
     availability: "Global availability may use auth, app, base, and time context; page and params context is rejected",
   },
   availability: {
@@ -1150,7 +1090,6 @@ export const CUSTOM_APP_REFERENCE = {
       pagination: "Cursor-paged from 5 to 100 rows per request; a GQL limit caps the complete result",
       rowNavigate: "Optionally navigate a row id into a target page record parameter",
       rowActions: "Optionally invoke plural workflow actions with ROW.id and accessible label/icon presentation",
-      bulkActions: "Optionally select the current result page and invoke a matching Bulk workflow launcher",
     },
     metrics: {
       required: ["id", "type", "source"],
@@ -1159,7 +1098,7 @@ export const CUSTOM_APP_REFERENCE = {
     },
     chart: {
       required: ["id", "type", "chartType", "source"],
-      chartTypes: ["donut", "bar", "line", "sparkline", "scatter"],
+      chartTypes: ["donut", "bar", "line"],
       source: "Grouped aggregate saved view or inline GQL",
       note: "Renders grouped, aggregated output with at most 100 buckets",
     },
@@ -1185,7 +1124,7 @@ export const CUSTOM_APP_REFERENCE = {
     },
   },
   example: {
-    schemaVersion: 3,
+    schemaVersion: 4,
     kind: "grids.custom-app",
     id: "00000000-0000-4000-8000-000000000001",
     baseId: "00000000-0000-4000-8000-000000000002",
@@ -1196,7 +1135,7 @@ export const CUSTOM_APP_REFERENCE = {
       {
         id: "home",
         title: "My requests",
-        navigation: { visible: true, order: 10 },
+        navigation: { visible: true },
         rows: [
           {
             id: "content",
@@ -1240,7 +1179,7 @@ export const CUSTOM_APP_REFERENCE = {
       {
         id: "request",
         title: "Request detail",
-        navigation: { visible: false, order: 20 },
+        navigation: { visible: false },
         parameters: {
           request_id: { type: "record", tableId: "00000000-0000-4000-8000-000000000005", required: true },
         },

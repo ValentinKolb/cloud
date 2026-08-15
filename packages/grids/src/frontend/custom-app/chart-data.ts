@@ -17,10 +17,8 @@ import type { AggregationSpec, Field, GroupBySpec } from "../../contracts";
  *  - `values` keys are namespaced `${fieldId}__${agg}` (mirrors `record.aggregate()`).
  *    The shorthand `*` is used for COUNT(*).
  *
- * The transformers in this module take one bucket array + the
- * relevant widget metadata, and emit either a list of slices/bars
- * (donut, bar), a tiny numeric trend (sparkline), or one-or-more
- * series of points (line, scatter).
+ * The transformers in this module take one bucket array plus the
+ * relevant chart metadata and emit slices, bars, or line series.
  */
 
 /** Bucket shape as produced by `gridsService.record.group()`. */
@@ -150,16 +148,6 @@ export const bucketsToBars = (
   relationLabels?: Record<string, string>,
 ): BarItem[] => bucketsToSlices(buckets, primaryAgg, groupBy, relationLabels) as BarItem[];
 
-export const bucketsToSparklineData = (buckets: ChartBucket[], primaryAgg: AggregationSpec): number[] => {
-  const key = aggKey(primaryAgg);
-  const data: number[] = [];
-  for (const bucket of buckets) {
-    const value = toNumber(bucket.values[key]);
-    if (value !== null) data.push(value);
-  }
-  return data;
-};
-
 /**
  * Line — one `Series` per aggregation. x is the bucket index (0..N)
  * so categorical groupBys (strings, mixed types) work without
@@ -183,33 +171,6 @@ export const bucketsToLineSeries = (buckets: ChartBucket[], aggs: AggregationSpe
     });
     return { label: aggLabel(agg, fieldsById), data };
   });
-};
-
-/**
- * Scatter — needs ≥2 aggregations. x = first agg, y = second agg
- * per bucket. A third+ agg can become point size when set (bubble
- * scatter); two-agg minimum maps directly to a flat scatter.
- *
- * When fewer than 2 aggs are configured the function returns an
- * empty series array; the wrapping Chart shows its "No data"
- * placeholder instead of an axis-only blank.
- */
-export const bucketsToScatterSeries = (buckets: ChartBucket[], aggs: AggregationSpec[], fieldsById: Map<string, Field>): Series[] => {
-  if (aggs.length < 2) return [];
-  const xKey = aggKey(aggs[0]!);
-  const yKey = aggKey(aggs[1]!);
-  const sizeKey = aggs[2] ? aggKey(aggs[2]) : null;
-  const data: Point[] = [];
-  for (const b of buckets) {
-    const x = toNumber(b.values[xKey]);
-    const y = toNumber(b.values[yKey]);
-    if (x === null || y === null) continue;
-    const size = sizeKey ? (toNumber(b.values[sizeKey]) ?? undefined) : undefined;
-    data.push({ x, y, size });
-  }
-  const xLabel = aggLabel(aggs[0]!, fieldsById);
-  const yLabel = aggLabel(aggs[1]!, fieldsById);
-  return [{ label: `${yLabel} vs ${xLabel}`, data }];
 };
 
 /** Format-function for the x-axis tick numeric index, looking up the
@@ -240,13 +201,11 @@ export const chartXAxisFormat = (
 type ChartRenderData =
   | { kind: "donut"; data: SliceItem[] }
   | { kind: "bar"; data: BarItem[] }
-  | { kind: "sparkline"; data: number[] }
   | {
       kind: "line";
       series: Series[];
       xAxisFormat: (v: number) => string;
-    }
-  | { kind: "scatter"; series: Series[] };
+    };
 
 /**
  * Inputs the renderer needs to map buckets to a chart-specific shape.
@@ -255,7 +214,7 @@ type ChartRenderData =
  * itself but now come from the GQL source that the widget points at.
  */
 type ChartRenderInput = {
-  widget: { chartType: "donut" | "bar" | "line" | "sparkline" | "scatter" };
+  widget: { chartType: "donut" | "bar" | "line" };
   /** The source's groupBy specs (parallel to bucket.keys positions). */
   groupBy: GroupBySpec[];
   /** The source's aggregations (parallel to bucket.values keys). */
@@ -291,21 +250,11 @@ export const buildChartRenderData = (input: ChartRenderInput): ChartRenderData =
         kind: "bar",
         data: bucketsToBars(input.buckets, primary, groupBy, relLabels),
       };
-    case "sparkline":
-      return {
-        kind: "sparkline",
-        data: bucketsToSparklineData(input.buckets, primary),
-      };
     case "line":
       return {
         kind: "line",
         series: bucketsToLineSeries(input.buckets, aggs, input.fieldsById),
         xAxisFormat: chartXAxisFormat(input.buckets, groupBy, relLabels),
-      };
-    case "scatter":
-      return {
-        kind: "scatter",
-        series: bucketsToScatterSeries(input.buckets, aggs, input.fieldsById),
       };
   }
 };

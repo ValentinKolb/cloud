@@ -21,7 +21,7 @@ const block: CustomAppFormBlock = {
 const page: CustomAppPage = {
   id: "create",
   title: "Create",
-  navigation: { visible: false, order: 0 },
+  navigation: { visible: false },
   parameters: { parent_id: { type: "record", tableId: parentTableId, required: true } },
   rows: [{ id: "main", columns: [{ id: "content", span: 12, blocks: [block] }] }],
 };

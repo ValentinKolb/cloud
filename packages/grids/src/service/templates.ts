@@ -115,6 +115,12 @@ const resolveRef = (ref: TemplateRef, ctx: TemplateContext): string => {
   return value;
 };
 
+const isViewColumnsRef = (value: unknown): value is { $ref: "viewColumns"; key: string } =>
+  !!value &&
+  typeof value === "object" &&
+  (value as Record<string, unknown>).$ref === "viewColumns" &&
+  typeof (value as Record<string, unknown>).key === "string";
+
 const resolveValue = (value: unknown, ctx: TemplateContext): unknown => {
   if (value === undefined) return undefined;
   if (isRef(value)) return resolveRef(value, ctx);
@@ -196,6 +202,11 @@ const resolveGqlValue = (value: unknown, ctx: TemplateContext): unknown => {
 
 const resolveCustomAppValue = (value: unknown, ctx: TemplateContext): unknown => {
   if (value === undefined) return undefined;
+  if (isViewColumnsRef(value)) {
+    const columns = ctx.viewColumns.get(value.key);
+    if (!columns) throw new TemplateError(err.badInput(`template view columns not found: ${value.key}`));
+    return columns;
+  }
   if (isRef(value) || isFormulaExpression(value) || isDateExpression(value)) return resolveValue(value, ctx);
   if (Array.isArray(value)) return value.map((item) => resolveCustomAppValue(item, ctx));
   if (!value || typeof value !== "object") return value;
@@ -368,121 +379,16 @@ const createForms = async (template: GridTemplate, actorId: string | null, ctx: 
   }
 };
 
-const customAppSource = (source: unknown, ctx: TemplateContext): unknown => {
-  if (!source || typeof source !== "object") return source;
-  const input = source as Record<string, unknown>;
-  if (input.kind === "view" && isRef(input.viewId) && input.viewId.$ref === "view") {
-    return { kind: "view", viewId: resolveRef(input.viewId, ctx) };
-  }
-  if (input.kind === "gql") {
-    return {
-      kind: "gql",
-      query: resolveGqlValue(input.query, ctx),
-    };
-  }
-  return resolveCustomAppValue(source, ctx);
-};
-
-const customAppLocalId = (templateId: string): string => templateId.replaceAll("_", "-");
-
 const createCustomApps = async (template: GridTemplate, baseId: string, actorId: string | null, ctx: TemplateContext) => {
-  for (const definition of template.customApps ?? []) {
+  for (const templateApp of template.customApps ?? []) {
     const appId = crypto.randomUUID();
-    const pageId = "overview";
-    const rows = definition.rows
-      .map((row) => ({
-        id: customAppLocalId(row.id),
-        columns: row.columns
-          .filter((column) => column.type !== "actions")
-          .map((column) => {
-            const columnId = customAppLocalId(column.id);
-            const source = customAppSource(column.source, ctx);
-            const block =
-              column.type === "metrics"
-                ? { id: columnId, type: "metrics", title: column.title, source }
-                : column.type === "chart"
-                  ? {
-                      id: columnId,
-                      type: "chart",
-                      title: column.title,
-                      subtitle: column.subtitle,
-                      chartType: column.chartType,
-                      source,
-                      limit: 100,
-                      valueFormat: column.valueFormat,
-                      xAxisLabel: column.xAxisLabel,
-                      yAxisLabel: column.yAxisLabel,
-                    }
-                  : column.type === "records"
-                    ? {
-                        id: columnId,
-                        type: "records",
-                        searchable: column.searchable ?? true,
-                        pageSize: column.pageSize ?? 25,
-                        title: column.title,
-                        source,
-                        display: {
-                          kind: "table",
-                          columnIds:
-                            source &&
-                            typeof source === "object" &&
-                            (source as { kind?: unknown }).kind === "view" &&
-                            isRef(
-                              column.source && typeof column.source === "object" ? (column.source as { viewId?: unknown }).viewId : null,
-                            )
-                              ? (ctx.viewColumns.get((column.source as { viewId: TemplateRef }).viewId.key) ?? [])
-                              : [],
-                        },
-                      }
-                    : column.type === "form"
-                      ? {
-                          id: columnId,
-                          type: "form",
-                          title: column.title,
-                          formId: resolveRef(column.formId!, ctx),
-                          fixedValues: {},
-                        }
-                      : {
-                          id: columnId,
-                          type: "actions",
-                          title: column.title,
-                          actions: [
-                            {
-                              id: `${columnId}-run`,
-                              label: column.buttonLabel ?? column.title ?? "Run",
-                              kind: "workflow",
-                              launcherId: resolveRef(column.launcherId!, ctx),
-                              inputs: {},
-                            },
-                          ],
-                        };
-            return {
-              id: `${columnId}-column`,
-              span: column.span,
-              blocks: [block],
-            };
-          }),
-      }))
-      .filter((row) => row.columns.length > 0);
+    const resolved = resolveCustomAppValue(templateApp.definition, ctx);
     const created = requireResult(
       await customApps.apply(
         {
-          schemaVersion: 3,
-          kind: "grids.custom-app",
+          ...(resolved as Record<string, unknown>),
           id: appId,
           baseId,
-          name: definition.name,
-          icon: definition.icon,
-          startPageId: pageId,
-          pages: [
-            {
-              id: pageId,
-              title: definition.name,
-              navigation: { visible: true, order: 0 },
-              parameters: {},
-              rows,
-            },
-          ],
         },
         actorId,
       ),

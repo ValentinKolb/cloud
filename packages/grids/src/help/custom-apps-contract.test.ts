@@ -97,7 +97,7 @@ describe("Grids Apps documentation contract", () => {
       const source = await Bun.file(new URL(`../../docs/custom-apps/${filename}`, import.meta.url)).text();
       const definition = Bun.YAML.parse(source) as DefinitionNode & Record<string, unknown>;
 
-      expect(definition.schemaVersion, filename).toBe(3);
+      expect(definition.schemaVersion, filename).toBe(4);
       expect(definition.kind, filename).toBe("grids.custom-app");
       expect(typeof definition.id, filename).toBe("string");
       expect(typeof definition.baseId, filename).toBe("string");

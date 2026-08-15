@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { CustomAppPage } from "./contracts";
 import { customAppPageRecordFieldIds } from "./conditions";
+import type { CustomAppPage } from "./contracts";
 
 const fieldId = "11111111-1111-4111-8111-111111111111";
 
@@ -9,7 +9,7 @@ describe("Grids App page record fields", () => {
     const page = {
       id: "request",
       title: "Request",
-      navigation: { visible: false, order: 0 },
+      navigation: { visible: false },
       parameters: { request_id: { type: "record", tableId: fieldId, required: true } },
       record: { tableId: fieldId, id: { source: "PARAMS", path: "request_id" } },
       rows: [

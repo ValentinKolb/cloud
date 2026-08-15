@@ -20,10 +20,9 @@ const { CustomAppMarkdownField } = await import("./CustomAppMarkdownField");
 
 const app = (): CustomApp => {
   const draftDefinition: NonNullable<CustomApp["draftDefinition"]> = {
-    schemaVersion: 3 as const,
+    schemaVersion: 4 as const,
     kind: "grids.custom-app",
     id: "33333333-3333-4333-8333-333333333333",
-    shortId: "APP1",
     baseId: "11111111-1111-4111-8111-111111111111",
     name: "Loan desk",
     icon: "clipboard",
@@ -32,7 +31,7 @@ const app = (): CustomApp => {
       {
         id: "overview",
         title: "Overview",
-        navigation: { visible: true, order: 0 },
+        navigation: { visible: true },
         parameters: {},
         availableWhen: { query: "from table Loans\nwhere created_by = @auth.id\nlimit 1" },
         rows: [
@@ -190,10 +189,10 @@ const catalogWithAuthoringResources = (): WorkspaceCatalog => {
 };
 
 describe("CustomAppBuilder", () => {
-  test("creates a blank schema v3 draft without legacy condition inputs", () => {
+  test("creates a blank schema v4 draft without legacy condition inputs", () => {
     const blank = blankCustomAppDefinition(app());
 
-    expect(blank.schemaVersion).toBe(3);
+    expect(blank.schemaVersion).toBe(4);
     expect(blank.pages[0]?.rows[0]?.columns[0]?.blocks[0]).toEqual({
       id: "intro",
       type: "markdown",
@@ -480,7 +479,7 @@ describe("CustomAppBuilder", () => {
     expect(html).toContain("schemaVersion 1");
     expect(html).toContain("Download stored JSON");
     expect(html).toContain("Restore live version");
-    expect(html).toContain("Replace with blank schema v3 draft");
+    expect(html).toContain("Replace with blank schema v4 draft");
     expect(html).toContain("Unpublish app");
     expect(html).toContain("Delete app");
     expect(html).not.toContain("App canvas");
@@ -575,7 +574,7 @@ describe("CustomAppBuilder", () => {
     expect(html).toContain("New request");
     expect(source).toContain('title="App sidebar"');
     expect(source).toContain("Add Form");
-    expect(source).toContain("Add Workflow");
+    expect(source).not.toContain("Add Workflow");
     expect(source).toContain("Hide this input and inject one trusted value on the server.");
   });
 

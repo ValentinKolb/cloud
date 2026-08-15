@@ -25,6 +25,7 @@ type RecordsCapability = CustomAppCapabilities["views"][number] | CustomAppCapab
 export type PublishedCustomAppRecordsResult = {
   response: DslQueryPreviewResponse;
   primaryTableId: string;
+  presentation?: { fields: Field[] };
   cards?: {
     displayConfig: RecordDisplayConfig;
     fields: Field[];
@@ -112,8 +113,15 @@ export const executePublishedCustomAppRecords = async (input: {
     labelRelationValues: true,
   });
   const primaryTableId = "primaryTableId" in capability ? capability.primaryTableId : capability.tableId;
+  const fieldTableIds = response.ok
+    ? [...new Set(response.columns.flatMap((column) => (column.fieldId && column.tableId ? [column.tableId] : [])))]
+    : [];
+  const presentationFields = (await Promise.all(fieldTableIds.map((tableId) => listFields(tableId)))).flatMap((fields) =>
+    fields.filter((field) => response.ok && response.columns.some((column) => column.fieldId === field.id)),
+  );
+  const presentation = presentationFields.length > 0 ? { fields: presentationFields } : undefined;
   if (!response.ok || block.display.kind !== "cards" || source.kind !== "view" || !("displayConfig" in capability)) {
-    return { response, primaryTableId };
+    return { response, primaryTableId, presentation };
   }
   const displayConfig = capability.displayConfig;
   const displayFieldHash = capability.displayFieldHash;
@@ -216,5 +224,10 @@ export const executePublishedCustomAppRecords = async (input: {
       ),
     ]),
   );
-  return { response, primaryTableId, cards: { displayConfig, fields, records: projectedRecords, relationLabels, filePreviews } };
+  return {
+    response,
+    primaryTableId,
+    presentation,
+    cards: { displayConfig, fields, records: projectedRecords, relationLabels, filePreviews },
+  };
 };

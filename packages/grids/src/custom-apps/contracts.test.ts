@@ -5,7 +5,7 @@ import { customAppScannerConfigHash } from "./scanner-capability";
 const uuid = (suffix: number) => `00000000-0000-4000-8000-${String(suffix).padStart(12, "0")}`;
 
 const definition = () => ({
-  schemaVersion: 3,
+  schemaVersion: 4,
   kind: "grids.custom-app",
   id: uuid(1),
   baseId: uuid(2),
@@ -60,12 +60,12 @@ describe("Grids App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse(gql).success).toBe(false);
   });
 
-  test("reuses Cards only from a saved View with row navigation", () => {
+  test("supports navigable, actionable, and read-only Cards from a saved View", () => {
     const source = CustomAppDefinitionSchema.parse(definition());
     source.pages.push({
       id: "request",
       title: "Request",
-      navigation: { visible: false, order: 1 },
+      navigation: { visible: false },
       parameters: { request_id: { type: "record", tableId: uuid(9), required: true } },
       record: { tableId: uuid(9), id: { source: "PARAMS", path: "request_id" } },
       rows: [
@@ -84,6 +84,13 @@ describe("Grids App definition contract", () => {
       history: "push",
       params: { request_id: { source: "ROW", path: "id" } },
     };
+    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
+
+    delete records.rowNavigate;
+    records.rowActions = [{ id: "reserve", label: "Reserve", showLabel: true, kind: "workflow", launcherId: uuid(10), inputs: {} }];
+    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
+
+    delete records.rowActions;
     expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
 
     records.source = { kind: "gql", query: "from table Requests" };
@@ -107,7 +114,7 @@ describe("Grids App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse({ ...definition(), script: "alert(1)" }).success).toBe(false);
   });
 
-  test("accepts page-independent sidebar Forms with literals or current user and literal-only Workflows", () => {
+  test("accepts page-independent sidebar Forms with literals or current user", () => {
     const app = {
       ...definition(),
       sidebar: {
@@ -123,15 +130,6 @@ describe("Grids App definition contract", () => {
               [uuid(21)]: { source: "LITERAL", value: "draft" },
               [uuid(24)]: { source: "AUTH", path: "currentUser" },
             },
-          },
-          {
-            id: "refresh",
-            kind: "workflow",
-            label: "Refresh",
-            tone: "default",
-            launcherId: uuid(22),
-            inputs: { mode: { source: "LITERAL", value: "safe" } },
-            availableWhen: { query: `from table {${uuid(23)}}\nwhere CreatedBy = @auth.id` },
           },
         ],
       },
@@ -149,7 +147,7 @@ describe("Grids App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse(unsafe).success).toBe(false);
   });
 
-  test("keeps legacy stored definitions recoverable without parsing them as live v3", () => {
+  test("keeps legacy stored definitions recoverable without parsing them as live v4", () => {
     const legacy = { ...definition(), schemaVersion: 1, legacyMarker: { keep: true } };
     const inspected = parseStoredCustomAppDefinition(legacy, "draft");
     expect(inspected.definition).toBeNull();
@@ -486,15 +484,10 @@ describe("Grids App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse(noAccessibleIcon).success).toBe(false);
   });
 
-  test("supports bounded bulk workflows only on Records tables", () => {
-    const source = CustomAppDefinitionSchema.parse(definition());
-    const records = source.pages[0]!.rows[0]!.columns[1]!.blocks[0]!;
-    if (records.type !== "records") throw new Error("Expected Records block");
-    records.bulkActions = [{ id: "approve", label: "Approve selected", launcherId: uuid(92) }];
-    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
-
-    records.display = { kind: "cards" };
-    records.rowNavigate = { kind: "navigate", pageId: "home", history: "push", params: {} };
+  test("rejects removed v3 Bulk actions", () => {
+    const source = structuredClone(definition()) as Record<string, unknown>;
+    const pages = source.pages as Array<{ rows: Array<{ columns: Array<{ blocks: Array<Record<string, unknown>> }> }> }>;
+    pages[0]!.rows[0]!.columns[1]!.blocks[0]!.bulkActions = [{ id: "approve", label: "Approve selected", launcherId: uuid(92) }];
     expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(false);
   });
 

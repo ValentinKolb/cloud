@@ -11,14 +11,13 @@ Grids Apps do not copy data. A publication stores an immutable definition and a 
 
 ## Pages and blocks {icon="layout"}
 
-An app may contain up to 12 responsive pages. Set `startPageId` to the page shown at `/apps/<shortId>`. Pages with `navigation.visible: true` appear in the AppWorkspace sidebar in `order`, with an optional Tabler `icon`. If the current page has no other available page and the app has no available global action, the sidebar is omitted.
+An app may contain up to 12 responsive pages. Set `startPageId` to the page shown at `/apps/<shortId>`. Pages with `navigation.visible: true` appear in array order in the AppWorkspace sidebar, with an optional Tabler `icon`. If the current page has no other available page and the app has no available global action, the sidebar is omitted.
 
 The optional root `sidebar.actions` list adds app-global launchers that are independent from every page:
 
-- a **Form** opens in a large dialog and may be available to public app readers;
-- a **Workflow** runs directly from the sidebar and requires a signed-in reader.
+- a **Form** opens in a large dialog and may be available to public app readers.
 
-Global launchers deliberately receive no page, route, record, or selected-row values. Their fixed Form values and Workflow inputs are `LITERAL` values. Their `availableWhen` GQL may use `@auth.*`, `@app.*`, `@base.*`, and `@time.*`; `@page.*` and `@params.*` fail validation. The server rechecks the exact published Form or Workflow capability and availability immediately before execution.
+Global launchers deliberately receive no page, route, record, or selected-row values. Their fixed Form values use `LITERAL` or a compatible `AUTH.currentUser` binding. Their `availableWhen` GQL may use `@auth.*`, `@app.*`, `@base.*`, and `@time.*`; `@page.*` and `@params.*` fail validation. The server rechecks the exact published Form capability and availability immediately before submission.
 
 A column may contain:
 
@@ -43,7 +42,7 @@ Scripts, custom HTML and CSS, arbitrary URLs, and direct record mutations are no
 You need **Admin** access to the app's base. Start with UUIDs for the base, saved view, table, and fields you want to display.
 
 ```yaml
-schemaVersion: 3
+schemaVersion: 4
 kind: grids.custom-app
 id: 00000000-0000-4000-8000-000000000001
 baseId: 00000000-0000-4000-8000-000000000002
@@ -64,7 +63,6 @@ pages:
     title: My requests
     navigation:
       visible: true
-      order: 10
     rows:
       - id: content
         columns:
@@ -110,7 +108,6 @@ pages:
     title: Request detail
     navigation:
       visible: false
-      order: 20
     parameters:
       request_id:
         type: record
@@ -186,11 +183,11 @@ The inspector keeps the common path short. Required identity, page, source, and 
 
 Route parameters are required Record IDs, each with one parameter ID and Record table. Adding a Record block binds the page to its single compatible route parameter, hides the page from navigation, and makes that same record available to Record and Comments blocks; there is no second Page Record setting. Renaming a parameter updates its typed Form, navigation, workflow, row-action, and exact `@params.<name>` GQL references. Page IDs are editable and their navigation references update with them. Records rows can link to compatible route pages or run plural row workflows; Forms can receive typed server-trusted values and navigate after creation; Record blocks can choose writable fields and document templates.
 
-For a saved-View Records block, choose a table field selection or reuse the View's existing Cards configuration. Cards keep the View's configured fields and file cover, require row navigation, and are pinned at publication. A GQL Records source displays exactly the ordinary-record columns returned by its query, including aliases, so it needs no second Columns selection. Use Metrics or Chart for aggregate results.
+For a saved-View Records block, choose a table field selection or reuse the View's existing Cards configuration. Cards keep the View's configured fields and file cover, may be read-only, link to a row page, or expose the same row workflows as a table, and are pinned at publication. A GQL Records source displays exactly the ordinary-record columns returned by its query, including aliases, so it needs no second Columns selection. Use Metrics or Chart for aggregate results.
 
 An Actions block shows a compact list. Open one action to edit its icon, target, history, typed parameter mappings, workflow launcher, input sources, confirmation, availability, and order. Workflow actions list only active Grids App launchers whose validated workflow revision is available in the current Base.
 
-A Records block has a separate **Row actions** section. Each action selects its launcher, label, optional icon, label visibility, typed inputs, confirmation, availability, and order. `ROW.id` appears only here and only for a compatible record input. The runtime verifies the selected ID is still present in the exact published Records query before invoking the workflow.
+A Records block has a separate **Row actions** section for both table and Cards presentation. Each action selects its launcher, label, optional icon, label visibility, typed inputs, confirmation, availability, and order. `ROW.id` appears only here and only for a compatible record input. The runtime verifies the selected ID is still present in the exact published Records query before invoking the workflow.
 
 Table Records blocks also have **Bulk actions**. Each action selects an existing Bulk run option whose record-list input belongs to the source table. Readers may select at most the current result page; page or search changes clear the selection. Invocation reruns the published source with the same search and cursor before starting the workflow.
 

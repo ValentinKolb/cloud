@@ -128,13 +128,6 @@ function SourcePreview(props: {
                 showLabel: action.showLabel,
                 endpoint: "",
               }))}
-              bulkActions={(props.block.bulkActions ?? []).map((action) => ({
-                id: action.id,
-                label: action.label,
-                icon: action.icon,
-                endpoint: "",
-                confirm: action.confirm,
-              }))}
               preview
             />
           ) : props.block.type === "metrics" ? (

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { FormConfig } from "../service/forms";
+import { stableCustomAppValue } from "./stable-value";
 
 export type CustomAppFormCapabilityField = {
   id: string;
@@ -16,24 +17,12 @@ export type CustomAppFormSecurityField = CustomAppFormCapabilityField & {
 
 export type CustomAppFormInlineTargetReference = { tableId: string; fieldId: string };
 
-const stableValue = (value: unknown): unknown => {
-  if (Array.isArray(value)) return value.map(stableValue);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-        .map(([key, item]) => [key, stableValue(item)]),
-    );
-  }
-  return value;
-};
-
 export const customAppFormFieldHash = (fieldIds: readonly string[], fields: readonly CustomAppFormCapabilityField[]): string => {
   const fieldsById = new Map(fields.map((field) => [field.id, field]));
   const snapshots = [...new Set(fieldIds)].sort().map((fieldId) => {
     const field = fieldsById.get(fieldId);
     return field
-      ? { id: field.id, type: field.type, config: stableValue(field.config), deleted: field.deletedAt !== null }
+      ? { id: field.id, type: field.type, config: stableCustomAppValue(field.config), deleted: field.deletedAt !== null }
       : { id: fieldId, missing: true };
   });
   return createHash("sha256").update("grids.custom-app.form-fields.v1\0").update(JSON.stringify(snapshots)).digest("hex");
@@ -64,7 +53,7 @@ export const customAppFormInlineTargetReferences = (
 export const customAppFormInlineTargetTableIds = (config: FormConfig, directFields: readonly CustomAppFormCapabilityField[]): string[] =>
   [...new Set(customAppFormInlineTargetReferences(config, directFields).map((reference) => reference.tableId))].sort();
 
-const configuredDefault = (value: unknown): unknown => (value === undefined || value === null ? null : stableValue(value));
+const configuredDefault = (value: unknown): unknown => (value === undefined || value === null ? null : stableCustomAppValue(value));
 
 export const customAppFormSecurityHash = (input: {
   tableId: string;
@@ -93,7 +82,7 @@ export const customAppFormSecurityHash = (input: {
             tableId: field.tableId,
             id: field.id,
             type: field.type,
-            config: stableValue(field.config),
+            config: stableCustomAppValue(field.config),
             required: field.required,
             defaultValue: configuredDefault(field.defaultValue),
             deleted: field.deletedAt !== null,
@@ -103,7 +92,7 @@ export const customAppFormSecurityHash = (input: {
   const fieldsConfig = input.config.fields
     .map((entry) =>
       entry.kind === "form_value"
-        ? { kind: entry.kind, fieldId: entry.fieldId, value: stableValue(entry.value) }
+        ? { kind: entry.kind, fieldId: entry.fieldId, value: stableCustomAppValue(entry.value) }
         : {
             kind: entry.kind,
             fieldId: entry.fieldId,

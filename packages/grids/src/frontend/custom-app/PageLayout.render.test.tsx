@@ -7,10 +7,9 @@ import "../_components/ssr-test-plugin";
 const { CustomAppPageLayout } = await import("./PageLayout");
 
 const definition: CustomAppDefinition = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   kind: "grids.custom-app",
   id: "33333333-3333-4333-8333-333333333333",
-  shortId: "APP1",
   baseId: "11111111-1111-4111-8111-111111111111",
   name: "Loan desk",
   icon: "package",
@@ -19,7 +18,7 @@ const definition: CustomAppDefinition = {
     {
       id: "overview",
       title: "Overview",
-      navigation: { visible: true, order: 0 },
+      navigation: { visible: true },
       parameters: {},
       rows: [
         {
@@ -75,7 +74,7 @@ describe("CustomAppPageLayout", () => {
       ...definition,
       pages: [
         ...definition.pages,
-        { ...definition.pages[0]!, id: "reports", title: "Reports", navigation: { visible: true, order: 20, icon: "chart-bar" } },
+        { ...definition.pages[0]!, id: "reports", title: "Reports", navigation: { visible: true, icon: "chart-bar" } },
       ],
     };
     const html = renderToString(() =>

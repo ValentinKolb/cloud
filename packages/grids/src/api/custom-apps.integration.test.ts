@@ -149,7 +149,7 @@ describe("Grids App Form runtime", () => {
       `;
 
         const definition: CustomAppDefinition = {
-          schemaVersion: 3,
+          schemaVersion: 4,
           kind: "grids.custom-app",
           id: appId,
           baseId,
@@ -176,7 +176,7 @@ describe("Grids App Form runtime", () => {
             {
               id: "home",
               title: "Apply",
-              navigation: { visible: true, order: 0 },
+              navigation: { visible: true },
               parameters: {},
               rows: [
                 {
@@ -220,7 +220,7 @@ describe("Grids App Form runtime", () => {
             {
               id: "request",
               title: "Request",
-              navigation: { visible: false, order: 10 },
+              navigation: { visible: false },
               parameters: { request_id: { type: "record", tableId, required: true } },
               record: { tableId, id: { source: "PARAMS", path: "request_id" } },
               rows: [
@@ -335,9 +335,11 @@ describe("Grids App Form runtime", () => {
         });
         expect(cardsResponse.status).toBe(200);
         const cardsBody = (await cardsResponse.json()) as {
+          presentation?: { fields: Array<{ id: string; type: string }> };
           cards?: { displayConfig: { mode: string }; records: Array<{ id: string; data: Record<string, unknown> }> };
         };
         expect(cardsBody.cards?.displayConfig.mode).toBe("cards");
+        expect(cardsBody.presentation?.fields).toContainEqual(expect.objectContaining({ id: fieldId, type: "text" }));
         expect(cardsBody.cards?.records.find((item) => item.id === body.recordId)?.data).toEqual({ [suppliedFieldId]: "App portal" });
 
         const searchedCardsResponse = await publicApi.request(
@@ -618,14 +620,6 @@ describe("Grids App Form runtime", () => {
             },
           ],
         });
-        actionDefinition.sidebar!.actions.push({
-          id: "approve-global",
-          kind: "workflow",
-          label: "Approve request",
-          tone: "default",
-          launcherId,
-          inputs: { request: { source: "LITERAL", value: body.recordId } },
-        });
         const viewSource = `from table {${tableId}}\nselect {${fieldId}}`;
         actionDefinition.pages[1]!.rows[0]!.columns[0]!.blocks.push({
           id: "request-view",
@@ -715,7 +709,6 @@ describe("Grids App Form runtime", () => {
                 },
               ],
               workflowLaunchers: [
-                { sidebarActionId: "approve-global", launcherId, workflowId, revision: 1 },
                 { pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 },
                 { pageId: "request", blockId: "requests", actionId: "approve-row", launcherId, workflowId, revision: 1 },
               ],
@@ -742,8 +735,11 @@ describe("Grids App Form runtime", () => {
         const recordsUrl = `/apps/runtime/${applied.data.shortId}/request/requests/records?request_id=${body.recordId}`;
         const firstRecordsResponse = await api.request(recordsUrl);
         expect(firstRecordsResponse.status).toBe(200);
-        const firstRecords = (await firstRecordsResponse.json()) as Extract<DslQueryPreviewResponse, { ok: true }>;
+        const firstRecords = (await firstRecordsResponse.json()) as Extract<DslQueryPreviewResponse, { ok: true }> & {
+          presentation?: { fields: Array<{ id: string; type: string }> };
+        };
         expect(firstRecords.rows).toHaveLength(25);
+        expect(firstRecords.presentation?.fields).toContainEqual(expect.objectContaining({ id: fieldId, type: "text" }));
         expect(firstRecords.page?.nextCursor).toBeString();
         const secondRecordsResponse = await api.request(`${recordsUrl}&cursor=${encodeURIComponent(firstRecords.page?.nextCursor ?? "")}`);
         expect(secondRecordsResponse.status).toBe(200);
@@ -844,26 +840,6 @@ describe("Grids App Form runtime", () => {
             revision: 1,
           },
         });
-        const sidebarActionResponse = await api.request(`/apps/runtime/${applied.data.shortId}/sidebar/actions/approve-global`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ operationId: testUuid() }),
-        });
-        expect(sidebarActionResponse.status).toBe(202);
-        expect(actionInvocation).toMatchObject({
-          launcherId,
-          expectedRevision: 1,
-          inputs: { request: body.recordId },
-          authorization: {
-            kind: "custom-app-sidebar-action",
-            customAppId: appId,
-            publishedAt: expect.any(String),
-            timeZone: "UTC",
-            actionId: "approve-global",
-            revision: 1,
-          },
-        });
-
         const statusRuns = new Map<
           string,
           {
@@ -955,7 +931,6 @@ describe("Grids App Form runtime", () => {
                     }
                   : null;
               },
-              canExecuteWorkflow: async () => true,
             }),
           );
         const firstServiceAccountApi = createStatusApi(testUuid());
@@ -1100,7 +1075,30 @@ describe("Grids App Form runtime", () => {
         );
         expect(hiddenAction.status).toBe(404);
         expect(actionInvocation).toBeNull();
+        const hiddenActionStatus = await firstServiceAccountApi.request(statusPath);
+        expect(hiddenActionStatus.status).toBe(200);
+        expect(await hiddenActionStatus.json()).toEqual({ status: "succeeded", message: "Approved" });
+        const hiddenBlockDefinition = structuredClone(actionDefinition);
+        const hiddenActionBlock = hiddenBlockDefinition.pages[1]!.rows[0]!.columns[0]!.blocks.find((block) => block.id === "actions");
+        if (!hiddenActionBlock) throw new Error("Action block is missing");
+        hiddenActionBlock.availableWhen = {
+          query: `from table {${tableId}}\nwhere {${fieldId}} = 'No matching action block record'\nlimit 1`,
+        };
+        await sql`
+          UPDATE grids.custom_apps
+          SET published_definition = ${hiddenBlockDefinition}::jsonb
+          WHERE id = ${appId}::uuid
+        `;
+        expect((await firstServiceAccountApi.request(statusPath)).status).toBe(200);
+        await sql`
+          DELETE FROM grids.custom_app_access
+          WHERE custom_app_id = ${appId}::uuid AND access_id = ${appGrant.data.accessId}::uuid
+        `;
         expect((await firstServiceAccountApi.request(statusPath)).status).toBe(404);
+        await sql`
+          INSERT INTO grids.custom_app_access (custom_app_id, access_id)
+          VALUES (${appId}::uuid, ${appGrant.data.accessId}::uuid)
+        `;
 
         const blockAvailability = `from table {${tableId}}\nwhere {${fieldId}} = 'No matching form record'\nlimit 1`;
         const unavailableFormDefinition = structuredClone(actionDefinition);
@@ -1176,6 +1174,27 @@ describe("Grids App Form runtime", () => {
           body: JSON.stringify({ [fieldId]: "Must not be created" }),
         });
         expect(unavailablePageResponse.status).toBe(404);
+        const unavailableStatusPageDefinition = structuredClone(unavailablePageDefinition);
+        unavailableStatusPageDefinition.pages[1]!.availableWhen = { query: pageAvailability };
+        await sql`
+          UPDATE grids.custom_apps
+          SET published_definition = ${unavailableStatusPageDefinition}::jsonb,
+              published_capabilities = ${{
+                ...unavailableFormCapabilities,
+                availability: [
+                  ...((unavailableFormCapabilities.availability as unknown[]) ?? []),
+                  {
+                    target: "page",
+                    pageId: "request",
+                    sourceHash: customAppViewSourceHash(baseId, pageAvailability),
+                    planHash: compiledPageAvailability.data.planHash,
+                    tableIds: [tableId],
+                  },
+                ],
+              }}::jsonb
+          WHERE id = ${appId}::uuid
+        `;
+        expect((await firstServiceAccountApi.request(statusPath)).status).toBe(404);
 
         await sql`
         UPDATE grids.custom_apps

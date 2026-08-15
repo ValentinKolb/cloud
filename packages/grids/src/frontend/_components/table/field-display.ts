@@ -83,6 +83,8 @@ export const resolveFieldDisplay = (options: ResolveFieldDisplayOptions): FieldD
 
   if (field.type === "principal") {
     const values = Array.isArray(value) ? value : [];
+    const providedLabels = values.filter((item): item is string => typeof item === "string" && item.length > 0);
+    if (providedLabels.length > 0) return { kind: "principal", text: providedLabels.join(", ") };
     const labels = values.flatMap((item) => {
       if (!item || typeof item !== "object") return [];
       const id = (item as { id?: unknown }).id;

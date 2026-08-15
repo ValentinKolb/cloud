@@ -1,4 +1,4 @@
-schemaVersion: 3
+schemaVersion: 4
 kind: grids.custom-app
 id: 30000000-0000-4000-8000-000000000101
 baseId: 30000000-0000-4000-8000-000000000001
@@ -24,7 +24,6 @@ pages:
     title: Inventory
     navigation:
       visible: true
-      order: 10
       icon: package
     parameters: {}
     rows:
@@ -57,7 +56,6 @@ pages:
     title: My loans
     navigation:
       visible: true
-      order: 30
       icon: clipboard-list
     parameters: {}
     rows:
@@ -90,7 +88,6 @@ pages:
     title: Loan detail
     navigation:
       visible: false
-      order: 40
     parameters:
       loan_id:
         type: record
@@ -171,7 +168,6 @@ pages:
     title: Add item
     navigation:
       visible: false
-      order: 50
     parameters:
       loan_id:
         type: record

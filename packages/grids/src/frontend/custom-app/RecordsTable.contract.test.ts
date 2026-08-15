@@ -5,6 +5,8 @@ describe("App Records table actions", () => {
     const source = await Bun.file(new URL("./RecordsTable.island.tsx", import.meta.url)).text();
 
     expect(source).toContain("<For each={props.rowActions ?? []}>");
+    expect(source).toContain("renderActions={");
+    expect(source).toContain("<FieldValue");
     expect(source).toContain("<IconButton");
     expect(source).toContain("label={action.label}");
     expect(source).toContain("body: { rowId, search: appliedQuery() || undefined, cursor: cursor() || undefined }");
@@ -19,13 +21,11 @@ describe("App Records table actions", () => {
     expect(source).not.toContain("window.confirm");
   });
 
-  test("keeps bulk selection on the current published result page", async () => {
+  test("does not retain the removed Bulk action surface", async () => {
     const source = await Bun.file(new URL("./RecordsTable.island.tsx", import.meta.url)).text();
 
-    expect(source).toContain("Select page");
-    expect(source).toContain("body: { recordIds, search: appliedQuery() || undefined, cursor: cursor() || undefined }");
-    expect(source).toContain("setSelectedRecordIds(new Set<string>())");
-    expect(source).toContain("<For each={props.bulkActions ?? []}>");
-    expect(source).toContain("aria-label={`Select record ${row.recordId}`}");
+    expect(source).not.toContain("bulkActions");
+    expect(source).not.toContain("recordIds");
+    expect(source).not.toContain("Select page");
   });
 });

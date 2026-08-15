@@ -9,7 +9,7 @@ import {
 } from "./custom-app-builder-model";
 
 const definition = (): CustomAppDefinition => ({
-  schemaVersion: 3,
+  schemaVersion: 4,
   kind: "grids.custom-app",
   id: "019f1234-1234-7000-8000-000000000001",
   baseId: "019f1234-1234-7000-8000-000000000002",
@@ -19,7 +19,7 @@ const definition = (): CustomAppDefinition => ({
     {
       id: "home",
       title: "Home",
-      navigation: { visible: true, order: 0 },
+      navigation: { visible: true },
       parameters: {},
       rows: [
         {
@@ -61,7 +61,7 @@ const definition = (): CustomAppDefinition => ({
     {
       id: "loan",
       title: "Loan",
-      navigation: { visible: false, order: 1 },
+      navigation: { visible: false },
       parameters: { loan_id: { type: "record", tableId: "019f1234-1234-7000-8000-000000000004", required: true } },
       record: { tableId: "019f1234-1234-7000-8000-000000000004", id: { source: "PARAMS", path: "loan_id" } },
       rows: [
@@ -175,9 +175,6 @@ describe("App builder model", () => {
       "Row action input",
     ]);
     expect(removeCustomAppPageParameter(definition(), "loan", "loan_id").pages[1]!.parameters).toEqual({});
-    expect(moveCustomAppPage(definition(), "loan", -1).pages.map((page) => [page.id, page.navigation.order])).toEqual([
-      ["loan", 0],
-      ["home", 1],
-    ]);
+    expect(moveCustomAppPage(definition(), "loan", -1).pages.map((page) => page.id)).toEqual(["loan", "home"]);
   });
 });

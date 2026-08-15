@@ -125,7 +125,7 @@ describe("grids schema migration", () => {
   );
 
   postgresTest(
-    "migrates stored Grids App v2 definitions to v3 without changing their queries or other data",
+    "migrates stored Grids App v2 definitions through v4 without changing their queries or other data",
     async () => {
       await withIsolatedDatabase(async (database) => {
         await migrateCoreWorkflows(database);
@@ -137,13 +137,14 @@ describe("grids schema migration", () => {
           kind: "grids.custom-app",
           id: appId,
           baseId,
+          shortId: "OLD01",
           name: "Paged app",
           startPageId: "home",
           pages: [
             {
               id: "home",
               title: "Home",
-              navigation: { visible: true, order: 0 },
+              navigation: { visible: true, order: 12 },
               parameters: {},
               rows: [
                 {
@@ -189,7 +190,9 @@ describe("grids schema migration", () => {
           FROM grids.custom_apps WHERE id = ${appId}::uuid
         `;
         expect(migrated?.draft).toEqual(migrated?.published);
-        expect(migrated?.draft.schemaVersion).toBe(3);
+        expect(migrated?.draft.schemaVersion).toBe(4);
+        expect(migrated?.draft).not.toHaveProperty("shortId");
+        expect(migrated?.draft.pages[0]?.navigation as unknown).toEqual({ visible: true });
         const records = migrated?.draft.pages[0]?.rows[0]?.columns[0]?.blocks[0] as Record<string, unknown> | undefined;
         expect(records).toMatchObject({ searchable: false, pageSize: 25 });
         expect((records?.source as Record<string, unknown> | undefined)?.query).toBe("from table Items\nlimit 40");
@@ -201,6 +204,92 @@ describe("grids schema migration", () => {
           SELECT draft_definition AS draft FROM grids.custom_apps WHERE id = ${appId}::uuid
         `;
         expect(JSON.stringify(rerun?.draft)).toBe(once);
+      });
+    },
+    30_000,
+  );
+
+  postgresTest(
+    "migrates supported v3 Apps losslessly and unpublishes removed v3 surfaces without touching records",
+    async () => {
+      await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
+        await migrate(database);
+        const baseId = uuid();
+        const tableId = uuid();
+        const recordId = uuid();
+        const supportedId = uuid();
+        const unsupportedId = uuid();
+        const legacyId = uuid();
+        const definition = (id: string) => ({
+          schemaVersion: 3,
+          kind: "grids.custom-app",
+          id,
+          baseId,
+          shortId: "OLD01",
+          name: "Migrated app",
+          startPageId: "home",
+          pages: [
+            {
+              id: "home",
+              title: "Home",
+              navigation: { visible: true, order: 9 },
+              parameters: {},
+              rows: [
+                {
+                  id: "main",
+                  columns: [{ id: "content", span: 12, blocks: [{ id: "intro", type: "markdown", markdown: "Hello" }] }],
+                },
+              ],
+            },
+          ],
+        });
+        const unsupported = definition(unsupportedId);
+        unsupported.pages[0]!.rows[0]!.columns[0]!.blocks = [
+          {
+            id: "records",
+            type: "records",
+            source: { kind: "gql", query: "from table Items" },
+            display: { kind: "table", columnIds: [] },
+            bulkActions: [{ id: "run", label: "Run", launcherId: uuid() }],
+          } as never,
+        ];
+        await database`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${shortId("B")}, 'Apps')`;
+        await database`INSERT INTO grids.tables (id, short_id, base_id, name) VALUES (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Items')`;
+        await database`INSERT INTO grids.records (id, table_id, data) VALUES (${recordId}::uuid, ${tableId}::uuid, ${{ keep: true }}::jsonb)`;
+        await database`
+          INSERT INTO grids.custom_apps (
+            id, short_id, base_id, name, draft_definition, draft_capabilities,
+            published_definition, published_capabilities, published_at
+          ) VALUES
+            (${supportedId}::uuid, ${shortId("A")}, ${baseId}::uuid, 'Supported', ${definition(supportedId)}::jsonb, '{}'::jsonb, ${definition(supportedId)}::jsonb, '{}'::jsonb, now()),
+            (${unsupportedId}::uuid, ${shortId("A")}, ${baseId}::uuid, 'Unsupported', ${unsupported}::jsonb, '{}'::jsonb, ${unsupported}::jsonb, '{}'::jsonb, now()),
+            (${legacyId}::uuid, ${shortId("A")}, ${baseId}::uuid, 'Legacy', ${{ ...definition(legacyId), schemaVersion: 1 }}::jsonb, '{}'::jsonb, ${{ ...definition(legacyId), schemaVersion: 1 }}::jsonb, '{}'::jsonb, now())
+        `;
+
+        await migrate(database);
+        const rows = await database<
+          Array<{ id: string; draft: Record<string, unknown>; published: Record<string, unknown> | null; publishedAt: string | null }>
+        >`
+          SELECT id::text, draft_definition AS draft, published_definition AS published, published_at::text AS "publishedAt"
+          FROM grids.custom_apps
+          WHERE id IN (${supportedId}::uuid, ${unsupportedId}::uuid, ${legacyId}::uuid)
+          ORDER BY id
+        `;
+        const supported = rows.find((row) => row.id === supportedId)!;
+        expect(supported.draft.schemaVersion).toBe(4);
+        expect(supported.published?.schemaVersion).toBe(4);
+        expect(supported.draft).not.toHaveProperty("shortId");
+        expect((supported.draft.pages as Array<{ navigation: unknown }>)[0]?.navigation).toEqual({ visible: true });
+        const retained = rows.find((row) => row.id === unsupportedId)!;
+        expect(retained.draft).toEqual(unsupported);
+        expect(retained.published).toBeNull();
+        expect(retained.publishedAt).toBeNull();
+        const legacy = rows.find((row) => row.id === legacyId)!;
+        expect(legacy.draft.schemaVersion).toBe(1);
+        expect(legacy.published).toBeNull();
+        const [record] = await database<Array<{ data: unknown }>>`SELECT data FROM grids.records WHERE id = ${recordId}::uuid`;
+        expect(record?.data).toEqual({ keep: true });
       });
     },
     30_000,
@@ -233,14 +322,39 @@ describe("grids schema migration", () => {
         const appAccessId = uuid();
         const obsoleteAccessId = uuid();
         const draftDefinition = {
-          schemaVersion: 1,
-          name: "Legacy draft kept byte-for-byte as JSON",
-          pages: [{ id: "draft", title: "Draft", blocks: [] }],
+          schemaVersion: 4,
+          kind: "grids.custom-app",
+          id: customAppId,
+          baseId,
+          name: "Draft kept byte-for-byte as JSON",
+          startPageId: "draft",
+          pages: [
+            {
+              id: "draft",
+              title: "Draft",
+              navigation: { visible: true },
+              parameters: {},
+              rows: [
+                { id: "main", columns: [{ id: "content", span: 12, blocks: [{ id: "intro", type: "markdown", markdown: "Draft" }] }] },
+              ],
+            },
+          ],
         };
         const publishedDefinition = {
-          schemaVersion: 1,
-          name: "Legacy published kept byte-for-byte as JSON",
-          pages: [{ id: "published", title: "Published", blocks: [] }],
+          ...draftDefinition,
+          name: "Published kept byte-for-byte as JSON",
+          startPageId: "published",
+          pages: [
+            {
+              id: "published",
+              title: "Published",
+              navigation: { visible: true },
+              parameters: {},
+              rows: [
+                { id: "main", columns: [{ id: "content", span: 12, blocks: [{ id: "intro", type: "markdown", markdown: "Published" }] }] },
+              ],
+            },
+          ],
         };
         const draftCapabilities = { schemaVersion: 1, tableIds: [tableId], marker: "draft" };
         const publishedCapabilities = { schemaVersion: 1, tableIds: [tableId], marker: "published" };

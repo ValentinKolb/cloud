@@ -26,7 +26,11 @@ const record = {
 
 const displayConfig = { mode: "cards", cards: { fieldIds: [field.id] } } as RecordDisplayConfig;
 
-const renderCards = (cardSize: "small" | "medium" | "large", selectedId?: string) =>
+const renderCards = (
+  cardSize: "small" | "medium" | "large",
+  selectedId?: string,
+  options: { interactive?: boolean; actions?: boolean } = { interactive: true },
+) =>
   renderToString(() =>
     createComponent(RecordCardsView, {
       items: [record],
@@ -36,7 +40,8 @@ const renderCards = (cardSize: "small" | "medium" | "large", selectedId?: string
       tableId: record.tableId,
       cardSize,
       selectedId,
-      onRecordClick: () => undefined,
+      onRecordClick: options.interactive ? () => undefined : undefined,
+      renderActions: options.actions ? () => <button type="button">Reserve</button> : undefined,
     }),
   );
 
@@ -52,6 +57,16 @@ describe("RecordCardsView sizing", () => {
 
     expect(html).toContain("grids-record-card");
     expect(html).toContain('data-selected="true"');
+  });
+
+  test("keeps navigation and action controls as siblings and permits read-only cards", () => {
+    const interactive = renderCards("medium", undefined, { interactive: true, actions: true });
+    const readOnly = renderCards("medium", undefined, { interactive: false, actions: false });
+
+    expect(interactive).toContain("Open Camera");
+    expect(interactive).toContain("Reserve");
+    expect(interactive).toMatch(/aria-label="Open Camera"><\/button>[\s\S]*<footer[^>]*>[\s\S]*<button/);
+    expect(readOnly).not.toContain("<button");
   });
 
   test("keeps widths monotonic and the selected border stable on hover", async () => {

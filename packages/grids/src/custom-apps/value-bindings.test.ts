@@ -7,7 +7,7 @@ const uuid = (suffix: number) => `00000000-0000-4000-8000-${String(suffix).padSt
 const page: CustomAppPage = {
   id: "detail",
   title: "Detail",
-  navigation: { visible: false, order: 0 },
+  navigation: { visible: false },
   parameters: { loan_id: { type: "record", tableId: uuid(1), required: true } },
   record: { tableId: uuid(1), id: { source: "PARAMS", path: "loan_id" } },
   rows: [

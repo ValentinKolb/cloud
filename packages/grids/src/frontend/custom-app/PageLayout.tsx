@@ -74,11 +74,7 @@ export function CustomAppPageLayout(props: {
   hasSidebarActions?: boolean;
   editor?: EditorProps;
 }) {
-  const navigation = () =>
-    props.definition.pages
-      .map((page, index) => ({ page, index }))
-      .filter(({ page }) => page.navigation.visible)
-      .sort((left, right) => left.page.navigation.order - right.page.navigation.order || left.index - right.index);
+  const navigation = () => props.definition.pages.map((page, index) => ({ page, index })).filter(({ page }) => page.navigation.visible);
   const activeBlockId = () => {
     const activeId = props.editor?.dnd.activeId();
     return activeId?.startsWith("custom-app-block-drag:") ? activeId.slice("custom-app-block-drag:".length) : null;

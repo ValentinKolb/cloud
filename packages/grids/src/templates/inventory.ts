@@ -1,5 +1,5 @@
 import { createMockCover } from "@valentinkolb/cloud/shared";
-import { currentMonthDate, field, form, formula, type GridTemplate, launcher, record, table, view } from "./types";
+import { currentMonthDate, field, form, formula, type GridTemplate, launcher, record, table, view, viewColumns } from "./types";
 
 export const inventoryTemplate: GridTemplate = {
   id: "inventory",
@@ -918,173 +918,226 @@ export const inventoryTemplate: GridTemplate = {
   customApps: [
     {
       key: "overview",
-      name: "Inventory overview",
-      description: "Inventory value, open loan requests, and quick entry.",
-      rows: [
-        {
-          id: "r_stats",
-          columns: [
-            {
-              id: "w_items",
-              type: "metrics",
-              title: "Items",
-              valueFormat: { style: "integer" },
-              span: 3,
-              source: {
-                kind: "gql",
-                query: formula("from table ", table("items"), "\naggregate count(*) as item_count"),
+      definition: {
+        schemaVersion: 4,
+        kind: "grids.custom-app",
+        name: "Inventory overview",
+        startPageId: "overview",
+        pages: [
+          {
+            id: "overview",
+            title: "Inventory overview",
+            navigation: {
+              visible: true,
+            },
+            parameters: {},
+            rows: [
+              {
+                id: "r-stats",
+                columns: [
+                  {
+                    id: "w-items-column",
+                    span: 3,
+                    blocks: [
+                      {
+                        id: "w-items",
+                        type: "metrics",
+                        title: "Items",
+                        source: {
+                          kind: "gql",
+                          query: formula("from table ", table("items"), "\naggregate count(*) as item_count"),
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-kits-column",
+                    span: 3,
+                    blocks: [
+                      {
+                        id: "w-kits",
+                        type: "metrics",
+                        title: "Kits",
+                        source: {
+                          kind: "gql",
+                          query: formula("from table ", table("kits"), "\naggregate count(*) as kit_count"),
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-open-loans-column",
+                    span: 3,
+                    blocks: [
+                      {
+                        id: "w-open-loans",
+                        type: "metrics",
+                        title: "Open loans",
+                        source: {
+                          kind: "gql",
+                          query: formula(
+                            "from table ",
+                            table("loans"),
+                            "\nwhere oneof(",
+                            field("loans.status"),
+                            ", 'requested', 'approved', 'active')\naggregate count(*) as open_loan_count",
+                          ),
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-value-column",
+                    span: 3,
+                    blocks: [
+                      {
+                        id: "w-value",
+                        type: "metrics",
+                        title: "Inventory value",
+                        source: {
+                          kind: "gql",
+                          query: formula(
+                            "from table ",
+                            table("items"),
+                            "\naggregate sum(formula(",
+                            field("items.quantity"),
+                            " * ",
+                            field("items.replacement_value"),
+                            ")) as inventory_value",
+                          ),
+                        },
+                      },
+                    ],
+                  },
+                ],
               },
-            },
-            {
-              id: "w_kits",
-              type: "metrics",
-              title: "Kits",
-              valueFormat: { style: "integer" },
-              span: 3,
-              source: {
-                kind: "gql",
-                query: formula("from table ", table("kits"), "\naggregate count(*) as kit_count"),
+              {
+                id: "r-main",
+                columns: [
+                  {
+                    id: "w-available-column",
+                    span: 7,
+                    blocks: [
+                      {
+                        id: "w-available",
+                        type: "records",
+                        searchable: true,
+                        pageSize: 25,
+                        title: "Available items",
+                        source: { kind: "view", viewId: view("available_items") },
+                        display: {
+                          kind: "table",
+                          columnIds: viewColumns("available_items"),
+                        },
+                      },
+                    ],
+                  },
+                  {
+                    id: "w-add-column",
+                    span: 5,
+                    blocks: [
+                      {
+                        id: "w-add",
+                        type: "form",
+                        title: "Add item",
+                        formId: form("add_item"),
+                        fixedValues: {},
+                      },
+                    ],
+                  },
+                ],
               },
-            },
-            {
-              id: "w_open_loans",
-              type: "metrics",
-              title: "Open loans",
-              valueFormat: { style: "integer" },
-              span: 3,
-              source: {
-                kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("loans"),
-                  "\nwhere oneof(",
-                  field("loans.status"),
-                  ", 'requested', 'approved', 'active')\naggregate count(*) as open_loan_count",
-                ),
+              {
+                id: "r-stock",
+                columns: [
+                  {
+                    id: "w-stock-by-category-column",
+                    span: 12,
+                    blocks: [
+                      {
+                        id: "w-stock-by-category",
+                        type: "chart",
+                        title: "Stock by category",
+                        subtitle: "Available units per category",
+                        chartType: "bar",
+                        source: {
+                          kind: "gql",
+                          query: formula(
+                            "from table ",
+                            table("items"),
+                            "\njoin table ",
+                            table("categories"),
+                            " as category on ",
+                            field("items.category"),
+                            " = category.id\nwhere ",
+                            field("items.status"),
+                            " = 'available'\ngroup by category.",
+                            field("categories.name"),
+                            "\naggregate sum(",
+                            field("items.quantity"),
+                            ") as available_units, count(*) as item_count\nhaving available_units > 0\nsort available_units desc nulls last",
+                          ),
+                        },
+                        limit: 100,
+                      },
+                    ],
+                  },
+                ],
               },
-            },
-            {
-              id: "w_value",
-              type: "metrics",
-              title: "Inventory value",
-              valueFormat: {
-                style: "number",
-                decimalPlaces: 2,
-                unit: "EUR",
-                unitPosition: "suffix",
+              {
+                id: "r-bottom",
+                columns: [
+                  {
+                    id: "w-open-column",
+                    span: 12,
+                    blocks: [
+                      {
+                        id: "w-open",
+                        type: "records",
+                        searchable: true,
+                        pageSize: 25,
+                        title: "Open loans",
+                        source: { kind: "view", viewId: view("open_loans") },
+                        display: {
+                          kind: "table",
+                          columnIds: viewColumns("open_loans"),
+                        },
+                        rowActions: [
+                          {
+                            id: "send-agreement",
+                            label: "Send agreement",
+                            showLabel: true,
+                            kind: "workflow",
+                            launcherId: launcher("send_loan_agreement_custom_app"),
+                            inputs: { loan: { source: "ROW", path: "id" } },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
               },
-              span: 3,
-              source: {
-                kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("items"),
-                  "\naggregate sum(formula(",
-                  field("items.quantity"),
-                  " * ",
-                  field("items.replacement_value"),
-                  ")) as inventory_value",
-                ),
+              {
+                id: "r-workflows",
+                columns: [
+                  {
+                    id: "w-report-defect-column",
+                    span: 12,
+                    blocks: [
+                      {
+                        id: "w-report-defect",
+                        type: "scanner",
+                        title: "Report a damaged item",
+                        launcherId: launcher("report_item_defect_scanner"),
+                      },
+                    ],
+                  },
+                ],
               },
-            },
-          ],
-        },
-        {
-          id: "r_main",
-          columns: [
-            {
-              id: "w_available",
-              type: "records",
-              searchable: true,
-              pageSize: 25,
-              title: "Available items",
-              source: { kind: "view", viewId: view("available_items") },
-              span: 7,
-            },
-            {
-              id: "w_add",
-              type: "form",
-              title: "Add item",
-              formId: form("add_item"),
-              span: 5,
-            },
-          ],
-        },
-        {
-          id: "r_stock",
-          columns: [
-            {
-              id: "w_stock_by_category",
-              type: "chart",
-              title: "Stock by category",
-              subtitle: "Available units per category",
-              chartType: "bar",
-              source: {
-                kind: "gql",
-                query: formula(
-                  "from table ",
-                  table("items"),
-                  "\njoin table ",
-                  table("categories"),
-                  " as category on ",
-                  field("items.category"),
-                  " = category.id\nwhere ",
-                  field("items.status"),
-                  " = 'available'\ngroup by category.",
-                  field("categories.name"),
-                  "\naggregate sum(",
-                  field("items.quantity"),
-                  ") as available_units, count(*) as item_count\nhaving available_units > 0\nsort available_units desc nulls last",
-                ),
-              },
-              span: 12,
-            },
-          ],
-        },
-        {
-          id: "r_bottom",
-          columns: [
-            {
-              id: "w_open",
-              type: "records",
-              searchable: true,
-              pageSize: 25,
-              title: "Open loans",
-              source: { kind: "view", viewId: view("open_loans") },
-              span: 12,
-            },
-          ],
-        },
-        {
-          id: "r_workflows",
-          columns: [
-            {
-              id: "w_send_agreement",
-              type: "actions",
-              title: "Send an agreement",
-              buttonLabel: "Choose loan",
-              launcherId: launcher("send_loan_agreement_custom_app"),
-              span: 4,
-            },
-            {
-              id: "w_return_item",
-              type: "actions",
-              title: "Return loaned items",
-              buttonLabel: "Open return scanner",
-              launcherId: launcher("return_loan_item_scanner"),
-              span: 4,
-            },
-            {
-              id: "w_report_defect",
-              type: "actions",
-              title: "Report a damaged item",
-              buttonLabel: "Open asset scanner",
-              launcherId: launcher("report_item_defect_scanner"),
-              span: 4,
-            },
-          ],
-        },
-      ],
+            ],
+          },
+        ],
+      },
     },
   ],
   documentTemplates: [
@@ -1307,9 +1360,9 @@ steps:
           message: "Loan \${{ inputs.loan.Loan number }} is not active."
   - if:
       not:
-        contains:
+        includes:
           - \${{ inputs.loan.Loaned items }}
-          - \${{ inputs.item.recordId }}
+          - \${{ inputs.item }}
     then:
       - fail:
           message: "Item \${{ inputs.item.Asset ID }} does not belong to loan \${{ inputs.loan.Loan number }}."

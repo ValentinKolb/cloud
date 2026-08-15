@@ -18,8 +18,8 @@ The deterministic agent sequence is:
 3. configure Base access for administrators and Grids App access for its audience;
 4. write the app-only YAML with the returned canonical IDs;
 5. validate, plan, and apply the app draft;
-6. preview the complete journey as its intended audiences;
-7. publish only after the plan and preview pass.
+6. open the saved draft and exercise the complete journey with real test accounts for each intended audience;
+7. publish only after the plan and journey checks pass.
 
 Grids App YAML is deliberately not a whole-base bundle. A second table, workflow, or permission schema would duplicate existing APIs, create conflicting owners, and make partial updates harder to reason about. An agent may keep several ordinary input files beside the app YAML, but it applies each file through the command that owns that resource.
 
@@ -45,11 +45,10 @@ cld grids apps export MyBase "Certificate requests" --out certificate-app.yaml
 Every definition has this shape:
 
 ```yaml
-schemaVersion: 3
+schemaVersion: 4
 kind: grids.custom-app
 id: 10000000-0000-4000-8000-000000000101
 baseId: 10000000-0000-4000-8000-000000000001
-shortId: a1b2c
 name: Certificate requests
 icon: certificate
 startPageId: home
@@ -58,7 +57,7 @@ sidebar:
 pages:
   - id: home
     title: Home
-    navigation: { visible: true, order: 0 }
+    navigation: { visible: true }
     parameters: {}
     rows:
       - id: content
@@ -77,14 +76,13 @@ pages:
 | `kind` | Must be `grids.custom-app`. |
 | `id` | Required UUID. Supplying it makes create/apply idempotent. |
 | `baseId` | Required UUID of the one owning base. It cannot be changed later. |
-| `shortId` | Omit on first apply. Grids assigns it; exported values are immutable. |
 | `name` | Required visible name. |
 | `icon` | Optional supported icon name. |
 | `startPageId` | Required local ID of an existing page. |
-| `sidebar.actions` | Optional ordered app-global Form and Workflow launchers. Values are literal-only and availability has no page or params context. |
+| `sidebar.actions` | Optional ordered app-global Form launchers. Fixed values accept `LITERAL` and compatible Principal fields also accept `AUTH.currentUser`. Availability has no page or params context. |
 | `pages` | At least one page. |
 
-Unknown keys, duplicate IDs, aliases, custom YAML tags, invalid UUIDs, and implicit type coercion fail validation.
+Malformed YAML fails in the CLI before any request is sent. The strict schema rejects unknown keys, duplicate IDs, invalid UUIDs, and values of the wrong type.
 
 ## Define pages and layout {icon="layout-grid"}
 
@@ -94,7 +92,6 @@ pages:
     title: Request detail
     navigation:
       visible: false
-      order: 30
     parameters:
       request_id:
         type: record
@@ -141,7 +138,7 @@ Each property declares which sources and target type it accepts. Validation reso
 
 ## Define blocks {icon="blocks"}
 
-All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `availableWhen` use the shared block contract.
+All blocks require a local `id` and `type`. Blocks may support an optional `title` and `availableWhen`; Records, Record, and Comments additionally support `emptyText`. The installed machine reference is authoritative for each block type.
 
 ```yaml
 # Guidance
@@ -178,12 +175,6 @@ All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `
       launcherId: 10000000-0000-4000-8000-000000000701
       inputs:
         request_id: { source: ROW, path: id }
-  bulkActions:
-    - id: approve-selected
-      label: Approve selected
-      icon: checklist
-      launcherId: 10000000-0000-4000-8000-000000000702
-
 # Bounded inline query
 - id: totals
   type: metrics
@@ -247,7 +238,7 @@ All blocks require a local `id` and `type`. Optional `title`, `emptyText`, and `
 
 `documents.templateIds` is an exact publication allowlist for existing generated PDFs. It does not generate a document; point an Actions block at a Workflow launcher when generation is part of the flow.
 
-Metrics and Chart read a saved view or bounded inline GQL. Metrics requires ungrouped aggregates. Chart derives its categories and values from grouped aggregate output and declares one of `donut`, `bar`, `line`, `sparkline`, or `scatter`. Refer to `apps reference --json` for the exact installed contract.
+Metrics and Chart read a saved view or bounded inline GQL. Metrics requires ungrouped aggregates. Chart derives its categories and values from grouped aggregate output and declares one of `donut`, `bar`, or `line`. Refer to `apps reference --json` for the exact installed contract.
 
 Inline GQL automatically receives `@auth`, declared `@params`, `@page`, `@app`, `@base`, and `@time` context. Unknown namespaces and undeclared page parameters fail validation. Values are bound separately from query text and are never interpolated into it.
 
@@ -262,7 +253,7 @@ cld grids gql autocomplete MyBase \
   --json
 ```
 
-Use a standalone Actions block for page-level navigation and workflows. Use `rowActions` for up to six workflows that act on one Records result row. Every row action has a required accessible label, may hide that label only when it has an icon, and may bind `ROW.id` to a compatible record input. Table Records blocks may also define up to six `bulkActions` that reference ready Bulk run options for the source table. Bulk selection is limited to the current published result page and is rechecked server-side. Form validation and submission behavior remain owned by the referenced Form.
+Use a standalone Actions block for page-level navigation and workflows. Use `rowActions` for up to six workflows that act on one Records result row in either table or Cards presentation. Cards may instead be read-only or only navigate; no separate card action model exists. Every row action has a required accessible label, may hide that label only when it has an icon, and may bind `ROW.id` to a compatible record input. Form validation and submission behavior remain owned by the referenced Form.
 
 Pages, blocks, Forms, and actions may declare one server-enforced availability query:
 
@@ -279,12 +270,12 @@ At least one returned row means available. An empty result, invalid query, missi
 ## Validate and plan {icon="list-check"}
 
 ```bash
-cld grids apps validate --source-file certificate-app.yaml --json
-cld grids apps plan --source-file certificate-app.yaml --json
-cld grids apps apply --source-file certificate-app.yaml --dry-run --json
+cld grids apps validate MyBase --source-file certificate-app.yaml --json
+cld grids apps plan MyBase --source-file certificate-app.yaml --json
+cld grids apps apply MyBase --source-file certificate-app.yaml --dry-run --json
 ```
 
-`validate` checks schema, IDs, references, types, query bounds, navigation, and block invariants without writing. `plan` runs the same compiler and also compares the definition with the saved draft. Its deterministic output contains additions, changes, removals, warnings, and the derived publication capabilities.
+`validate` checks schema, IDs, references, types, query bounds, navigation, and block invariants without writing. `plan` runs the same compiler and also compares the definition with the saved draft. Its deterministic output contains the action, concrete changes, diagnostics, and the derived publication capabilities.
 
 `apply --dry-run` is a convenience spelling of that same plan operation. It returns the same `CustomAppPlan` and never calls the apply endpoint, so agents can use one final command shape before removing `--dry-run`.
 
@@ -295,7 +286,7 @@ Diagnostics use stable definition paths such as `pages[request].rows[detail].col
 ## Apply without publishing {icon="database-import"}
 
 ```bash
-cld grids apps apply --source-file certificate-app.yaml --json
+cld grids apps apply MyBase --source-file certificate-app.yaml --json
 ```
 
 `apply` creates or updates the draft identified by the supplied app UUID. Applying the same canonical definition again is a no-op and does not create another app. It never changes the published snapshot.
@@ -314,7 +305,7 @@ cld grids apps export 10000000-0000-4000-8000-000000000101 \
   --out certificate-app-live.yaml
 ```
 
-Export emits canonical key ordering, canonical resource IDs, the assigned `shortId`, and no secrets. A visual-builder edit followed by export must retain the same semantics as a CLI edit followed by apply.
+Export emits canonical key ordering, canonical resource IDs, and no secrets. The server-owned route `shortId` remains response metadata rather than authoring input. A visual-builder edit followed by export must retain the same semantics as a CLI edit followed by apply.
 
 ## Publish {icon="rocket"}
 

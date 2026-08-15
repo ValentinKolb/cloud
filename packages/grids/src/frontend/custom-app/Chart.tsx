@@ -1,11 +1,11 @@
-import { Chart, Placeholder } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
-import type { CustomAppChartData } from "../../service/custom-app-insights";
+import { Chart, Placeholder } from "@k2b/ui";
 import type { CustomAppValueFormat } from "../../custom-apps/contracts";
+import type { CustomAppChartData } from "../../service/custom-app-insights";
 import { buildChartRenderData } from "./chart-data";
 import { formatCustomAppValue } from "./value-format";
 
-type ChartType = "bar" | "line" | "donut" | "scatter" | "sparkline";
+type ChartType = "bar" | "line" | "donut";
 
 export default function CustomAppChart(props: {
   chartType: ChartType;
@@ -28,9 +28,8 @@ export default function CustomAppChart(props: {
   const format = (value: number) => formatCustomAppValue(value, props.valueFormat, props.dateConfig);
   if (renderData.kind === "donut") return <Chart kind="donut" data={renderData.data} legend />;
   if (renderData.kind === "bar") return <Chart kind="bar" data={renderData.data} yAxis={{ format }} />;
-  if (renderData.kind === "sparkline") return <Chart kind="sparkline" data={renderData.data} showLast />;
   if (renderData.kind === "line") {
     return <Chart kind="line" series={renderData.series} xAxis={{ format: renderData.xAxisFormat }} yAxis={{ format }} />;
   }
-  return <Chart kind="scatter" series={renderData.series} xAxis={{ format }} yAxis={{ format }} />;
+  return <Placeholder variant="compact" description="No chart data." />;
 }

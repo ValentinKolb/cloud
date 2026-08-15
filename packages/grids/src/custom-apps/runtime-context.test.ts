@@ -84,12 +84,12 @@ describe("Grids App runtime context", () => {
     const page = (id: string, visible: boolean) => ({
       id,
       title: id,
-      navigation: { visible, order: 0 },
+      navigation: { visible },
       parameters: {},
       rows: [{ id: `${id}-row`, columns: [{ id: `${id}-column`, span: 12, blocks: [block(`${id}-block`)] }] }],
     });
     const definition: CustomAppDefinition = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       kind: "grids.custom-app",
       id: common.app.id,
       baseId: common.base.id,

@@ -1,40 +1,25 @@
 import type { DateContext } from "@k2b/stdlib";
-import { AppWorkspace, dialogCore, PanelDialog, panelDialogOptions, prompts, toast } from "@k2b/ui";
-import { createSignal, For, onCleanup } from "solid-js";
+import { AppWorkspace, dialogCore, PanelDialog, panelDialogOptions } from "@k2b/ui";
+import { For } from "solid-js";
 import type { Field } from "../../contracts";
 import type { PublicRenderableForm } from "../../service/forms";
 import FormSubmit from "../_components/forms/PublicFormSubmit.island";
-import { invokeCustomAppWorkflow } from "./workflow-action-client";
 
-export type CustomAppRenderedSidebarAction =
-  | {
-      id: string;
-      kind: "form";
-      label: string;
-      icon?: string;
-      tone: "default" | "success" | "danger";
-      submitUrl: string;
-      form: PublicRenderableForm;
-      fields: Field[];
-      inlineTargetFields: Record<string, Field[]>;
-      dateConfig: DateContext;
-    }
-  | {
-      id: string;
-      kind: "workflow";
-      label: string;
-      icon?: string;
-      tone: "default" | "success" | "danger";
-      endpoint: string;
-      confirm?: string;
-    };
+export type CustomAppRenderedSidebarAction = {
+  id: string;
+  kind: "form";
+  label: string;
+  icon?: string;
+  tone: "default" | "success" | "danger";
+  submitUrl: string;
+  form: PublicRenderableForm;
+  fields: Field[];
+  inlineTargetFields: Record<string, Field[]>;
+  dateConfig: DateContext;
+};
 
 export default function SidebarActions(props: { actions: CustomAppRenderedSidebarAction[]; preview?: boolean }) {
-  const [pendingId, setPendingId] = createSignal<string | null>(null);
-  let controller: AbortController | null = null;
-  onCleanup(() => controller?.abort());
-
-  const openForm = (action: Extract<CustomAppRenderedSidebarAction, { kind: "form" }>) => {
+  const openForm = (action: CustomAppRenderedSidebarAction) => {
     if (props.preview) return;
     void dialogCore.open<void>(
       (close) => (
@@ -61,44 +46,16 @@ export default function SidebarActions(props: { actions: CustomAppRenderedSideba
     );
   };
 
-  const invokeWorkflow = async (action: Extract<CustomAppRenderedSidebarAction, { kind: "workflow" }>) => {
-    if (props.preview || pendingId()) return;
-    setPendingId(action.id);
-    try {
-      if (
-        action.confirm &&
-        !(await prompts.confirm(action.confirm, {
-          title: action.label,
-          confirmText: action.label,
-          variant: action.tone === "danger" ? "danger" : action.tone === "success" ? "success" : "primary",
-        }))
-      )
-        return;
-      controller = new AbortController();
-      const outcome = await invokeCustomAppWorkflow({ endpoint: action.endpoint, signal: controller.signal });
-      if (outcome.kind === "success") {
-        toast.success(outcome.message);
-        window.setTimeout(() => window.location.reload(), 600);
-      } else if (outcome.kind === "error") toast.error(outcome.message);
-    } catch (cause) {
-      if (!controller?.signal.aborted) toast.error(cause instanceof Error ? cause.message : "The workflow could not be started.");
-    } finally {
-      controller = null;
-      setPendingId(null);
-    }
-  };
-
   return (
     <For each={props.actions}>
       {(action) => (
         <AppWorkspace.SidebarItem
-          icon={`ti ti-${action.icon ?? (action.kind === "form" ? "forms" : "bolt")}`}
+          icon={`ti ti-${action.icon ?? "forms"}`}
           tone={action.tone}
-          disabled={props.preview || Boolean(pendingId())}
-          onClick={() => (action.kind === "form" ? openForm(action) : void invokeWorkflow(action))}
+          disabled={props.preview}
+          onClick={() => openForm(action)}
         >
           <AppWorkspace.SidebarItemLabel>{action.label}</AppWorkspace.SidebarItemLabel>
-          {pendingId() === action.id ? <AppWorkspace.SidebarItemMeta>Running…</AppWorkspace.SidebarItemMeta> : null}
         </AppWorkspace.SidebarItem>
       )}
     </For>

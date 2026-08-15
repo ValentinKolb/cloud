@@ -39,7 +39,8 @@ export function RecordCardsView(props: {
   relationLabels?: Record<string, string>;
   selectedId?: string | null;
   highlightedIds?: ReadonlySet<string>;
-  onRecordClick: (record: GridRecord) => void;
+  onRecordClick?: (record: GridRecord) => void;
+  renderActions?: (record: GridRecord) => JSX.Element;
   cardSize?: CardSize;
   hasMore?: boolean;
   loadingMore?: boolean;
@@ -97,66 +98,79 @@ export function RecordCardsView(props: {
               const selected = () => props.selectedId === record.id;
               const highlighted = () => props.highlightedIds?.has(record.id);
               return (
-                <button
-                  type="button"
-                  class={`grids-record-card paper flex min-w-0 flex-col overflow-hidden text-left transition hover:paper-highlighted ${cardPaddingClass[size()]} ${
+                <article
+                  class={`grids-record-card paper relative flex min-w-0 flex-col overflow-hidden text-left transition ${
+                    props.onRecordClick ? "hover:paper-highlighted" : ""
+                  } ${cardPaddingClass[size()]} ${
                     selected() ? "bg-[var(--ui-selected)]" : ""
                   } ${highlighted() ? "bg-[var(--ui-active)]" : ""}`}
                   data-selected={selected() ? "true" : undefined}
-                  onClick={() => props.onRecordClick(record)}
                 >
-                  <Show when={preview()}>
-                    {(file) => (
-                      <div class="aspect-square w-full overflow-hidden rounded-md bg-white shadow-sm ring-1 ring-black/5 dark:bg-zinc-950 dark:ring-white/10">
-                        <img src={coverUrl(file())} alt="" class="h-full w-full object-cover" loading="lazy" />
-                      </div>
-                    )}
+                  <Show when={props.onRecordClick}>
+                    <button
+                      type="button"
+                      class="absolute inset-0 z-10 rounded-[inherit] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ui-focus)]"
+                      aria-label={`Open ${title(record)}`}
+                      onClick={() => props.onRecordClick?.(record)}
+                    />
                   </Show>
-                  <div class="flex flex-col gap-3 pt-3">
-                    <div class="min-w-0">
-                      <div class={`truncate text-sm font-semibold leading-tight ${selected() ? "app-accent-text" : "text-primary"}`}>
-                        {title(record)}
+                  <div class="pointer-events-none relative flex flex-col">
+                    <Show when={preview()}>
+                      {(file) => (
+                        <div class="aspect-square w-full overflow-hidden rounded-md bg-white shadow-sm ring-1 ring-black/5 dark:bg-zinc-950 dark:ring-white/10">
+                          <img src={coverUrl(file())} alt="" class="h-full w-full object-cover" loading="lazy" />
+                        </div>
+                      )}
+                    </Show>
+                    <div class="flex flex-col gap-3 pt-3">
+                      <div class="min-w-0">
+                        <div class={`truncate text-sm font-semibold leading-tight ${selected() ? "app-accent-text" : "text-primary"}`}>
+                          {title(record)}
+                        </div>
+                        <Show when={subtitle(record)}>
+                          {(text) => <div class="mt-1 truncate text-xs leading-snug text-dimmed">{text()}</div>}
+                        </Show>
                       </div>
-                      <Show when={subtitle(record)}>
-                        {(text) => <div class="mt-1 truncate text-xs leading-snug text-dimmed">{text()}</div>}
+                      <Show when={factFields(record).length > 0}>
+                        <div class="flex flex-col gap-1.5">
+                          <For each={factFields(record)}>
+                            {(field) => (
+                              <div class="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-2 gap-y-0.5">
+                                <div class="max-w-[6.5rem] truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-dimmed">
+                                  {field.name}
+                                </div>
+                                <div
+                                  class={`min-w-0 overflow-hidden text-xs font-medium leading-snug text-primary [overflow-wrap:anywhere] ${
+                                    hasVisualFormat(field) ? "pointer-events-auto relative z-20" : "line-clamp-2"
+                                  }`}
+                                >
+                                  {props.renderValue?.(record, field) ?? (
+                                    <FieldValue
+                                      record={record}
+                                      field={field}
+                                      value={record.data[field.id]}
+                                      baseId={props.baseId}
+                                      tableShortIds={props.tableShortIds}
+                                      fieldsByTable={props.fieldsByTable}
+                                      relationLabels={props.relationLabels}
+                                      dateConfig={props.dateConfig}
+                                      mode="card"
+                                      markdownClass="line-clamp-3 text-sm"
+                                      showBarcodeOpenAction
+                                    />
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </For>
+                        </div>
                       </Show>
                     </div>
-                    <Show when={factFields(record).length > 0}>
-                      <div class="flex flex-col gap-1.5">
-                        <For each={factFields(record)}>
-                          {(field) => (
-                            <div class="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-2 gap-y-0.5">
-                              <div class="max-w-[6.5rem] truncate text-[10px] font-semibold uppercase tracking-[0.08em] text-dimmed">
-                                {field.name}
-                              </div>
-                              <div
-                                class={`min-w-0 overflow-hidden text-xs font-medium leading-snug text-primary [overflow-wrap:anywhere] ${
-                                  hasVisualFormat(field) ? "" : "line-clamp-2"
-                                }`}
-                              >
-                                {props.renderValue?.(record, field) ?? (
-                                  <FieldValue
-                                    record={record}
-                                    field={field}
-                                    value={record.data[field.id]}
-                                    baseId={props.baseId}
-                                    tableShortIds={props.tableShortIds}
-                                    fieldsByTable={props.fieldsByTable}
-                                    relationLabels={props.relationLabels}
-                                    dateConfig={props.dateConfig}
-                                    mode="card"
-                                    markdownClass="line-clamp-3 text-sm"
-                                    showBarcodeOpenAction
-                                  />
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
                   </div>
-                </button>
+                  <Show when={props.renderActions?.(record)}>
+                    {(actions) => <footer class="relative z-20 mt-3 flex flex-wrap items-center gap-1">{actions()}</footer>}
+                  </Show>
+                </article>
               );
             }}
           </For>

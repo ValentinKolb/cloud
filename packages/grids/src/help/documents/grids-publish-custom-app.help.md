@@ -2,12 +2,12 @@
 id: grids-publish-custom-app
 title: Publish a Grids App
 icon: ti ti-rocket
-description: Preview access, review capabilities, and publish a fail-closed app snapshot.
+description: Test access, review capabilities, and publish a fail-closed app snapshot.
 order: 135
 ---
 Publishing makes one reviewed Grids App snapshot available at its stable URL. A public app grant makes only that compiled snapshot public; it never opens the raw Base.
 
-Only a base administrator can edit, preview, or publish a Grids App.
+Only a base administrator can edit or publish a Grids App.
 
 ## Understand the published boundary {icon="shield-lock"}
 
@@ -34,19 +34,18 @@ Use the immutable published query to select audience data. For example, an authe
 
 Use separate apps when public and authenticated audiences need different data or actions. Do not build per-page ACLs or rely on navigation visibility as authorization.
 
-## Preview before publishing {icon="device-desktop-check"}
+## Test before publishing {icon="device-desktop-check"}
 
-Preview uses the draft and current saved resources without changing the published app. Check:
+Use the saved draft with dedicated test accounts where possible. For public or no-access behavior, use a deliberately published test app because the builder does not impersonate another audience. Check:
 
 - desktop and narrow widths;
-- the current account;
-- an audience with ordinary access;
-- the anonymous public presentation and the no-access presentation, neither of which may reveal undeclared metadata;
+- the current account and an ordinary test account;
+- the anonymous public presentation and the no-access presentation on the test publication, neither of which may reveal undeclared metadata;
 - valid, missing, malformed, deleted, and inaccessible page parameters;
 - empty, loading, error, and success states;
 - every direct edit, form submission, document action, and workflow launcher.
 
-Preview never bypasses the app capability or availability rules. A Base administrator can preview as the current account, an anonymous caller, or the explicit no-access state.
+Draft rendering and published runtime both keep capability and availability rules server-enforced. Neither provides an impersonation bypass.
 
 ## Read the preflight {icon="list-check"}
 
@@ -61,7 +60,7 @@ Publish preflight compiles the same typed definition used by runtime and CLI. Pu
 - a resource operation cannot be represented by the derived capability set;
 - an unknown schema key or unsupported schema version is present.
 
-Warnings cover reachable but likely poor experiences, such as missing empty copy, a hidden start page, or a layout that becomes unusually long at narrow width. Warnings require review but do not weaken runtime checks.
+Preflight returns path-specific diagnostics for invalid definitions. The CLI plan reports its action and concrete changes; it does not have a separate warning class.
 
 ## Publish one snapshot {icon="copy-check"}
 

@@ -1,4 +1,4 @@
-schemaVersion: 3
+schemaVersion: 4
 kind: grids.custom-app
 id: 10000000-0000-4000-8000-000000000101
 baseId: 10000000-0000-4000-8000-000000000001
@@ -10,7 +10,6 @@ pages:
     title: Apply
     navigation:
       visible: true
-      order: 10
     parameters: {}
     rows:
       - id: intro
@@ -37,7 +36,6 @@ pages:
     title: My requests
     navigation:
       visible: true
-      order: 20
     parameters: {}
     rows:
       - id: list
@@ -71,7 +69,6 @@ pages:
     title: Request detail
     navigation:
       visible: false
-      order: 30
     parameters:
       request_id:
         type: record

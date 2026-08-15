@@ -5,9 +5,7 @@ import {
   aggLabel,
   bucketsToBars,
   bucketsToLineSeries,
-  bucketsToScatterSeries,
   bucketsToSlices,
-  bucketsToSparklineData,
   buildChartRenderData,
   chartXAxisFormat,
   formatCategoryKey,
@@ -198,34 +196,6 @@ describe("bucketsToLineSeries", () => {
 });
 
 // =============================================================================
-// Scatter — needs ≥2 aggs (x=agg1, y=agg2, optional size=agg3)
-// =============================================================================
-
-describe("bucketsToScatterSeries", () => {
-  test("happy path — x from first agg, y from second", () => {
-    const out = bucketsToScatterSeries(lineBuckets, [countStar, sumAmount], fieldsById);
-    expect(out).toHaveLength(1);
-    expect(out[0]!.label).toBe("Total amount vs count(*)");
-    expect(out[0]!.data).toEqual([
-      { x: 10, y: 120.5, size: undefined },
-      { x: 14, y: 180, size: undefined },
-      { x: 9, y: 95.25, size: undefined },
-    ]);
-  });
-
-  test("third agg becomes bubble size", () => {
-    const buckets = [{ keys: ["a"], values: { "*__count": 5, "f-amount__sum": 10, "f-score__avg": 3 } }];
-    const out = bucketsToScatterSeries(buckets, [countStar, sumAmount, avgScore], fieldsById);
-    expect(out[0]!.data[0]!.size).toBe(3);
-  });
-
-  test("fewer than 2 aggs → empty series (renderer shows empty state)", () => {
-    expect(bucketsToScatterSeries(lineBuckets, [countStar], fieldsById)).toEqual([]);
-    expect(bucketsToScatterSeries(lineBuckets, [], fieldsById)).toEqual([]);
-  });
-});
-
-// =============================================================================
 // chartXAxisFormat — index → category label round-trip for line charts
 // =============================================================================
 
@@ -255,7 +225,7 @@ describe("chartXAxisFormat", () => {
 // buildChartRenderData — top-level dispatcher used by the renderer
 // =============================================================================
 
-type ChartWidget = { chartType: "donut" | "bar" | "line" | "sparkline" | "scatter" };
+type ChartWidget = { chartType: "donut" | "bar" | "line" };
 
 const widget = (chartType: ChartWidget["chartType"]): ChartWidget => ({
   chartType,
@@ -282,26 +252,11 @@ describe("buildChartRenderData", () => {
     expect(out.kind).toBe("bar");
   });
 
-  test("sparkline → first aggregation numeric trend", () => {
-    expect(bucketsToSparklineData(lineBuckets, sumAmount)).toEqual([120.5, 180, 95.25]);
-    const out = buildChartRenderData(renderInput(widget("sparkline"), [sumAmount], lineBuckets));
-    expect(out.kind).toBe("sparkline");
-    if (out.kind !== "sparkline") throw new Error("unreachable");
-    expect(out.data).toEqual([120.5, 180, 95.25]);
-  });
-
   test("line → series + xAxisFormat callback wired up", () => {
     const out = buildChartRenderData(renderInput(widget("line"), [countStar, sumAmount], lineBuckets));
     expect(out.kind).toBe("line");
     if (out.kind !== "line") throw new Error("unreachable");
     expect(out.series).toHaveLength(2);
     expect(out.xAxisFormat(0)).toBe("Q1");
-  });
-
-  test("scatter → series with bubble x/y points", () => {
-    const out = buildChartRenderData(renderInput(widget("scatter"), [countStar, sumAmount], lineBuckets));
-    expect(out.kind).toBe("scatter");
-    if (out.kind !== "scatter") throw new Error("unreachable");
-    expect(out.series).toHaveLength(1);
   });
 });

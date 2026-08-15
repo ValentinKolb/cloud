@@ -10,18 +10,17 @@ const appId = "13131313-1313-4313-8313-131313131313";
 const tableId = "14141414-1414-4414-8414-141414141414";
 const base = { id: baseId, shortId: "base1", name: "Requests" };
 const definition: CustomAppDefinition = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   kind: "grids.custom-app",
   id: appId,
   baseId,
-  shortId: "request1",
   name: "Request portal",
   startPageId: "home",
   pages: [
     {
       id: "home",
       title: "Requests",
-      navigation: { visible: true, order: 0 },
+      navigation: { visible: true },
       parameters: {},
       rows: [
         {
@@ -33,7 +32,7 @@ const definition: CustomAppDefinition = {
     {
       id: "detail",
       title: "Request detail",
-      navigation: { visible: false, order: 1 },
+      navigation: { visible: false },
       parameters: { request_id: { type: "record", tableId, required: true } },
       rows: [
         {

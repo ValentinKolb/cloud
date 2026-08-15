@@ -1,17 +1,19 @@
 import type { DateContext } from "@k2b/stdlib";
-import { Button, Checkbox, DataTable, type DataTableColumn, IconButton, Placeholder, prompts, TextInput, toast } from "@k2b/ui";
+import { Button, DataTable, type DataTableColumn, IconButton, Placeholder, prompts, TextInput, toast } from "@k2b/ui";
 import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { DslQueryPreviewResponse, Field, GridRecord, RecordDisplayConfig } from "../../contracts";
 import type { CustomAppRowNavigation } from "../../custom-apps/contracts";
 import { customAppRowHref } from "../../custom-apps/routing";
 import type { GridFilePreview } from "../../service";
 import { RecordCardsView } from "../_components/records-view/RecordCardsView";
+import { FieldValue } from "../_components/table/FieldValue";
 import { customAppCardFileUrl } from "./records-card-url";
 import { customAppRecordsResultColumns } from "./records-table-model";
 import { invokeCustomAppWorkflow } from "./workflow-action-client";
 
 type QuerySuccess = Extract<DslQueryPreviewResponse, { ok: true }>;
 export type CustomAppRecordsSuccess = QuerySuccess & {
+  presentation?: { fields: Field[] };
   cards?: {
     displayConfig: RecordDisplayConfig;
     fields: Field[];
@@ -29,14 +31,6 @@ export type CustomAppRenderedRowAction = {
   endpoint: string;
   confirm?: string;
 };
-export type CustomAppRenderedBulkAction = {
-  id: string;
-  label: string;
-  icon?: string;
-  endpoint: string;
-  confirm?: string;
-};
-
 export const displayValue = (value: unknown): string => {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
@@ -74,7 +68,6 @@ export default function RecordsTable(props: {
   result: CustomAppRecordsSuccess;
   rowNavigate?: CustomAppRowNavigation;
   rowActions?: CustomAppRenderedRowAction[];
-  bulkActions?: CustomAppRenderedBulkAction[];
   preview?: boolean;
 }) {
   const [result, setResult] = createSignal(props.result);
@@ -84,7 +77,6 @@ export default function RecordsTable(props: {
   const [history, setHistory] = createSignal<Array<string | null>>([]);
   const [loading, setLoading] = createSignal(false);
   const [pendingKey, setPendingKey] = createSignal<string | null>(null);
-  const [selectedRecordIds, setSelectedRecordIds] = createSignal<Set<string>>(new Set());
   let queryTimer: number | null = null;
   let requestController: AbortController | null = null;
   let workflowController: AbortController | null = null;
@@ -112,7 +104,6 @@ export default function RecordsTable(props: {
       const next = await resultFromResponse(response);
       if (controller.signal.aborted) return;
       setResult(next);
-      setSelectedRecordIds(new Set<string>());
       setAppliedQuery(nextQuery);
       setCursor(nextCursor);
       setHistory(nextHistory);
@@ -131,6 +122,7 @@ export default function RecordsTable(props: {
   };
 
   const resultColumns = createMemo(() => customAppRecordsResultColumns(result().columns, props.selectedColumnIds));
+  const presentationFields = createMemo(() => new Map((result().presentation?.fields ?? []).map((field) => [field.id, field])));
   const rows = createMemo(() =>
     result().rows.map((row, index) => ({
       ...row,
@@ -166,6 +158,20 @@ export default function RecordsTable(props: {
     return customAppCardFileUrl(props.endpoint, preview.contentToken);
   };
   const firstColumnId = createMemo(() => resultColumns()[0]?.key);
+  const rowRecord = (row: ReturnType<typeof rows>[number]): GridRecord | undefined => {
+    if (!row.recordId || !row.tableId) return undefined;
+    return {
+      id: row.recordId,
+      tableId: row.tableId,
+      data: Object.fromEntries(result().columns.flatMap((column) => (column.fieldId ? [[column.fieldId, row.values[column.key]]] : []))),
+      version: row.recordMeta?.version ?? 1,
+      deletedAt: row.recordMeta?.deletedAt ?? null,
+      createdBy: row.recordMeta?.createdBy ?? null,
+      updatedBy: row.recordMeta?.updatedBy ?? null,
+      createdAt: row.recordMeta?.createdAt ?? "1970-01-01T00:00:00.000Z",
+      updatedAt: row.recordMeta?.updatedAt ?? "1970-01-01T00:00:00.000Z",
+    };
+  };
   const columns = createMemo<DataTableColumn<ReturnType<typeof rows>[number]>[]>(() => {
     const value = resultColumns().map((column) => ({
       id: column.key,
@@ -173,49 +179,9 @@ export default function RecordsTable(props: {
       subtitle: column.type,
       value: (row: ReturnType<typeof rows>[number]) => row.values[column.key],
     }));
-    if ((props.bulkActions?.length ?? 0) > 0)
-      value.unshift({ id: "__select", header: "Select", subtitle: "", value: (row) => row.recordId });
     if ((props.rowActions?.length ?? 0) > 0) value.push({ id: "__actions", header: "Actions", subtitle: "", value: (row) => row.recordId });
     return value;
   });
-
-  const toggleSelection = (recordId: string, selected: boolean) => {
-    setSelectedRecordIds((current) => {
-      const next = new Set(current);
-      if (selected) next.add(recordId);
-      else next.delete(recordId);
-      return next;
-    });
-  };
-
-  const invokeBulk = async (action: CustomAppRenderedBulkAction) => {
-    const recordIds = [...selectedRecordIds()];
-    const key = `bulk:${action.id}`;
-    if (props.preview || recordIds.length === 0 || pendingKey()) return;
-    setPendingKey(key);
-    let controller: AbortController | null = null;
-    try {
-      if (action.confirm && !(await prompts.confirm(action.confirm, { title: action.label, confirmText: action.label }))) return;
-      controller = new AbortController();
-      workflowController = controller;
-      const outcome = await invokeCustomAppWorkflow({
-        endpoint: action.endpoint,
-        body: { recordIds, search: appliedQuery() || undefined, cursor: cursor() || undefined },
-        signal: controller.signal,
-      });
-      if (outcome.kind === "success") {
-        toast.success(outcome.message);
-        setSelectedRecordIds(new Set<string>());
-        await loadPage(cursor(), appliedQuery(), history());
-      } else if (outcome.kind === "error") toast.error(outcome.message);
-      else toast(outcome.message);
-    } catch (cause) {
-      if (!controller?.signal.aborted) toast.error(cause instanceof Error ? cause.message : "The workflow could not be started.");
-    } finally {
-      if (workflowController === controller) workflowController = null;
-      setPendingKey(null);
-    }
-  };
 
   const invoke = async (rowId: string, action: CustomAppRenderedRowAction) => {
     const key = `${rowId}:${action.id}`;
@@ -247,7 +213,7 @@ export default function RecordsTable(props: {
   return (
     <DataTable.Panel class="overflow-hidden">
       <DataTable.Header title={props.title} as="h2" size="md" />
-      <Show when={!props.preview && (props.searchable || (props.bulkActions?.length ?? 0) > 0)}>
+      <Show when={!props.preview && props.searchable}>
         <DataTable.Controls>
           <Show when={props.searchable}>
             <TextInput
@@ -261,36 +227,6 @@ export default function RecordsTable(props: {
               clearable
               onClear={() => onSearch("")}
             />
-          </Show>
-          <Show when={(props.bulkActions?.length ?? 0) > 0}>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => setSelectedRecordIds(new Set(rows().flatMap((row) => (row.recordId ? [row.recordId] : []))))}
-            >
-              Select page
-            </Button>
-            <Show when={selectedRecordIds().size > 0}>
-              <Button size="sm" variant="secondary" onClick={() => setSelectedRecordIds(new Set())}>
-                {selectedRecordIds().size} selected
-                <i class="ti ti-x" aria-hidden="true" />
-              </Button>
-              <For each={props.bulkActions ?? []}>
-                {(action) => (
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    loading={pendingKey() === `bulk:${action.id}`}
-                    loadingLabel={`${action.label}…`}
-                    disabled={Boolean(pendingKey())}
-                    onClick={() => void invokeBulk(action)}
-                  >
-                    <Show when={action.icon}>{(icon) => <i class={`ti ti-${icon()}`} aria-hidden="true" />}</Show>
-                    {action.label}
-                  </Button>
-                )}
-              </For>
-            </Show>
           </Show>
         </DataTable.Controls>
       </Show>
@@ -329,17 +265,6 @@ export default function RecordsTable(props: {
               }
               empty={<span>{appliedQuery() ? `No records match “${appliedQuery()}”.` : props.emptyText}</span>}
               renderCell={({ row, col, value }) => {
-                if (col.id === "__select") {
-                  if (!row.recordId) return null;
-                  return (
-                    <Checkbox
-                      aria-label={`Select record ${row.recordId}`}
-                      value={() => selectedRecordIds().has(row.recordId!)}
-                      disabled={props.preview || Boolean(pendingKey())}
-                      onValueChange={(selected) => toggleSelection(row.recordId!, selected)}
-                    />
-                  );
-                }
                 if (col.id === "__actions") {
                   if (!row.recordId) return null;
                   return (
@@ -387,13 +312,27 @@ export default function RecordsTable(props: {
                     </div>
                   );
                 }
-                const text = displayValue(value);
+                const resultColumn = resultColumns().find((column) => column.key === col.id);
+                const field = resultColumn?.fieldId ? presentationFields().get(resultColumn.fieldId) : undefined;
+                const rendered = field ? (
+                  <FieldValue
+                    field={field}
+                    value={value}
+                    record={rowRecord(row)}
+                    baseId={props.baseId}
+                    dateConfig={props.dateConfig}
+                    mode="table"
+                    relationValueMode={field.type === "relation" ? "labels" : undefined}
+                  />
+                ) : (
+                  displayValue(value)
+                );
                 return row.href && col.id === firstColumnId() ? (
                   <a href={row.href} class="font-medium text-accent hover:underline">
-                    {text}
+                    {rendered}
                   </a>
                 ) : (
-                  <span class="whitespace-pre-wrap break-words">{text}</span>
+                  <div class="whitespace-pre-wrap break-words">{rendered}</div>
                 );
               }}
             />
@@ -411,12 +350,53 @@ export default function RecordsTable(props: {
             dateConfig={props.dateConfig}
             relationLabels={cards().relationLabels}
             emptyText={appliedQuery() ? `No records match “${appliedQuery()}”.` : props.emptyText}
-            onRecordClick={(record) => {
-              if (!props.rowNavigate) return;
-              const href = customAppRowHref(props.shortId, props.rowNavigate, record.id);
-              if (props.rowNavigate.history === "replace") window.location.replace(href);
-              else window.location.assign(href);
-            }}
+            onRecordClick={
+              props.rowNavigate
+                ? (record) => {
+                    const href = customAppRowHref(props.shortId, props.rowNavigate!, record.id);
+                    if (props.rowNavigate!.history === "replace") window.location.replace(href);
+                    else window.location.assign(href);
+                  }
+                : undefined
+            }
+            renderActions={
+              (props.rowActions?.length ?? 0) > 0
+                ? (record) => (
+                    <For each={props.rowActions ?? []}>
+                      {(action) => (
+                        <Show
+                          when={action.showLabel}
+                          fallback={
+                            <IconButton
+                              label={action.label}
+                              size="xs"
+                              variant="secondary"
+                              loading={pendingKey() === `${record.id}:${action.id}`}
+                              loadingLabel={`${action.label}…`}
+                              disabled={props.preview || Boolean(pendingKey())}
+                              onClick={() => void invoke(record.id, action)}
+                            >
+                              <i class={`ti ti-${action.icon}`} aria-hidden="true" />
+                            </IconButton>
+                          }
+                        >
+                          <Button
+                            size="xs"
+                            variant="secondary"
+                            loading={pendingKey() === `${record.id}:${action.id}`}
+                            loadingLabel={`${action.label}…`}
+                            disabled={props.preview || Boolean(pendingKey())}
+                            onClick={() => void invoke(record.id, action)}
+                          >
+                            <Show when={action.icon}>{(icon) => <i class={`ti ti-${icon()}`} aria-hidden="true" />}</Show>
+                            {action.label}
+                          </Button>
+                        </Show>
+                      )}
+                    </For>
+                  )
+                : undefined
+            }
             coverUrl={(preview) => appFileUrl(preview as GridFilePreview & { contentToken?: string })}
           />
         )}

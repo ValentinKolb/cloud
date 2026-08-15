@@ -1,4 +1,5 @@
 import type { WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
+import type { CustomAppDefinition } from "../custom-apps/contracts";
 import type { GridsWorkflowLauncherConfig } from "../workflows/contracts";
 
 type TemplateRefKind = "table" | "field" | "record" | "view" | "form" | "launcher";
@@ -11,6 +12,21 @@ export type TemplateRef = {
 type TemplateFormulaExpression = {
   $formula: Array<string | TemplateRef>;
 };
+
+type TemplateViewColumnsRef = {
+  $ref: "viewColumns";
+  key: string;
+};
+
+type TemplateResolvable<T> = T extends string
+  ? T | TemplateRef | TemplateFormulaExpression
+  : T extends Array<infer Item>
+    ? Item extends string
+      ? Array<TemplateResolvable<Item>> | TemplateViewColumnsRef
+      : Array<TemplateResolvable<Item>>
+    : T extends object
+      ? { [Key in keyof T]: TemplateResolvable<T[Key]> }
+      : T;
 
 export type TemplateDateExpression = {
   $date: "current_month";
@@ -71,33 +87,9 @@ type TemplateForm = {
   config: Record<string, unknown>;
 };
 
-type TemplateCustomAppBlock = {
-  id: string;
-  type: "metrics" | "chart" | "records" | "form" | "actions";
-  title?: string;
-  subtitle?: string;
-  chartType?: "donut" | "bar" | "line" | "sparkline" | "scatter";
-  source?: unknown;
-  formId?: TemplateRef;
-  launcherId?: TemplateRef;
-  buttonLabel?: string;
-  valueFormat?: unknown;
-  xAxisLabel?: string;
-  yAxisLabel?: string;
-  searchable?: boolean;
-  pageSize?: number;
-  span: number;
-};
-
 type TemplateCustomApp = {
   key: string;
-  name: string;
-  description?: string | null;
-  icon?: string;
-  rows: Array<{
-    id: string;
-    columns: TemplateCustomAppBlock[];
-  }>;
+  definition: TemplateResolvable<Omit<CustomAppDefinition, "id" | "baseId" | "shortId">>;
 };
 
 type TemplateDocumentTemplate = {
@@ -159,6 +151,7 @@ export const table = (key: string): TemplateRef => ({ $ref: "table", key });
 export const field = (key: string): TemplateRef => ({ $ref: "field", key });
 export const record = (key: string): TemplateRef => ({ $ref: "record", key });
 export const view = (key: string): TemplateRef => ({ $ref: "view", key });
+export const viewColumns = (key: string): TemplateViewColumnsRef => ({ $ref: "viewColumns", key });
 export const form = (key: string): TemplateRef => ({ $ref: "form", key });
 export const launcher = (key: string): TemplateRef => ({
   $ref: "launcher",

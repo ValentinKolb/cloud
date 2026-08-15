@@ -154,6 +154,10 @@ describe("FieldValue helpers", () => {
       kind: "principal",
       text: "Private user",
     });
+    expect(resolveFieldDisplay({ field: participants, value: ["Ada", "Design team"] })).toEqual({
+      kind: "principal",
+      text: "Ada, Design team",
+    });
   });
 
   test("normalizes date, barcode, and progress display semantics", () => {

@@ -281,7 +281,7 @@ describe("Grids App lifecycle", () => {
       const scannerLauncherId = scannerLauncherResult.data.id;
 
       const definition: CustomAppDefinition = {
-        schemaVersion: 3,
+        schemaVersion: 4,
         kind: "grids.custom-app",
         id: appId,
         baseId,
@@ -303,21 +303,13 @@ describe("Grids App lifecycle", () => {
               },
               availableWhen: { query: `from table {${tableId}}\nwhere {${fieldId}} = @auth.id\nlimit 1` },
             },
-            {
-              id: "approve-global",
-              kind: "workflow",
-              label: "Approve request",
-              tone: "default",
-              launcherId,
-              inputs: { request: { source: "LITERAL", value: appId } },
-            },
           ],
         },
         pages: [
           {
             id: "home",
             title: "My requests",
-            navigation: { visible: true, order: 0 },
+            navigation: { visible: true },
             parameters: {},
             availableWhen: { query: `from table {${tableId}}\nwhere record.id = '${requestRecordId}'\nlimit 1` },
             rows: [
@@ -373,7 +365,6 @@ describe("Grids App lifecycle", () => {
                             inputs: { request: { source: "ROW", path: "id" } },
                           },
                         ],
-                        bulkActions: [{ id: "approve-selected", label: "Approve selected", launcherId: bulkLauncherId }],
                       },
                       {
                         id: "apply",
@@ -396,7 +387,7 @@ describe("Grids App lifecycle", () => {
           {
             id: "request",
             title: "Request detail",
-            navigation: { visible: false, order: 10 },
+            navigation: { visible: false },
             parameters: { request_id: { type: "record", tableId, required: true } },
             record: { tableId, id: { source: "PARAMS", path: "request_id" } },
             rows: [
@@ -566,16 +557,7 @@ describe("Grids App lifecycle", () => {
           },
         ],
         workflowLaunchers: [
-          { sidebarActionId: "approve-global", launcherId, workflowId, revision: 1 },
           { pageId: "home", blockId: "requests", actionId: "approve-row", launcherId, workflowId, revision: 1 },
-          {
-            pageId: "home",
-            blockId: "requests",
-            actionId: "approve-selected",
-            launcherId: bulkLauncherId,
-            workflowId: bulkWorkflowId,
-            revision: 1,
-          },
           { pageId: "request", blockId: "actions", actionId: "approve", launcherId, workflowId, revision: 1 },
         ],
         scannerLaunchers: [
@@ -663,7 +645,7 @@ describe("Grids App lifecycle", () => {
         },
         launcherId: bulkLauncherId,
       };
-      expect(await canExecuteWorkflow(bulkExecutionClaim)).toBe(true);
+      expect(await canExecuteWorkflow(bulkExecutionClaim)).toBe(false);
       expect(
         await canExecuteWorkflow({
           ...executionClaim,
@@ -676,7 +658,7 @@ describe("Grids App lifecycle", () => {
             revision: 1,
           },
         }),
-      ).toBe(true);
+      ).toBe(false);
       const scannerExecutionClaim = {
         baseId,
         workflowId,
@@ -718,7 +700,7 @@ describe("Grids App lifecycle", () => {
       expect(await canExecuteWorkflow(executionClaim)).toBe(false);
       await sql`UPDATE grids.workflow_launchers SET enabled = TRUE WHERE id = ${launcherId}::uuid`;
 
-      const updated = await apply({ ...definition, shortId: created.data.shortId, name: "Updated draft" });
+      const updated = await apply({ ...definition, name: "Updated draft" });
       expect(updated.ok).toBe(true);
       expect((await get(appId))?.publishedDefinition?.name).toBe("Request portal");
 
