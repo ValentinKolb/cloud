@@ -220,6 +220,36 @@ export const displayToolName = (name: string) => {
   return name;
 };
 
+const BUILT_IN_TOOL_ICONS = new Map<string, string>([
+  ["card", "ti ti-layout-cards"],
+  ["cloud_card", "ti ti-layout-cards"],
+  ["survey", "ti ti-forms"],
+  ["cloud_survey", "ti ti-forms"],
+  ["local_bash", "ti ti-terminal-2"],
+  ["list_files", "ti ti-file-spark"],
+  ["read_file", "ti ti-file-spark"],
+  ["write_file", "ti ti-file-spark"],
+  ["present", "ti ti-file-spark"],
+  ["calculate", "ti ti-calculator"],
+  ["web_search", "ti ti-search"],
+  ["web_extract", "ti ti-world-download"],
+  ["view_image", "ti ti-photo-spark"],
+  ["memory", "ti ti-brain"],
+  ["project_context", "ti ti-folder-open"],
+  ["search_help", "ti ti-help-hexagon"],
+  ["read_help", "ti ti-help-hexagon"],
+  ["search_capabilities", "ti ti-ai-gateway"],
+  ["list_capability_apps", "ti ti-ai-gateway"],
+  ["list_capabilities", "ti ti-ai-gateway"],
+  ["load_capabilities", "ti ti-ai-gateway"],
+  ["read_cloud_resource", "ti ti-ai-gateway"],
+]);
+
+export const aiToolIcon = (name: string, appIcon?: string | null): string => {
+  if (appIcon) return appIcon;
+  return BUILT_IN_TOOL_ICONS.get(name) ?? (/__(?:query|action)__/.test(name) ? "ti ti-ai-gateway" : "ti ti-tool");
+};
+
 export const jsonPreview = (value: unknown) => {
   try {
     return JSON.stringify(value, null, 2);

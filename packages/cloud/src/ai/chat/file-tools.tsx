@@ -4,7 +4,7 @@ import { Show } from "solid-js";
 import { formatAiFileSize } from "../attachments";
 import type { AiTurnBlock } from "../protocol";
 import { useAiChatActions } from "./message-actions";
-import { isRecord } from "./message-utils";
+import { aiToolIcon, isRecord } from "./message-utils";
 
 type ToolBlock = Extract<AiTurnBlock, { kind: "tool" }>;
 type PresentResult = { path: string; size: number; mediaType: string };
@@ -35,7 +35,7 @@ export function PresentToolBlock(props: { block: ToolBlock }) {
       when={file() && !props.block.isError}
       fallback={
         <Show when={props.block.status === "running"}>
-          <Chat.Activity label="Preparing file" icon="ti ti-file-export" busy />
+          <Chat.Activity label="Preparing file" icon={aiToolIcon(props.block.name)} busy />
         </Show>
       }
     >

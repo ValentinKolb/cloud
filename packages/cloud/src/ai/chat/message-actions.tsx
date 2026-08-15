@@ -3,7 +3,7 @@ import { type ChatAction, dialogCore, PanelDialog, panelDialogFixedOptions, prom
 import { createContext, For, type JSX, Show, useContext } from "solid-js";
 import type { AiTurnBlock } from "../protocol";
 import type { AiStoredMessage } from "../types";
-import { type AiForkMessageInput, type AiRetryMessageInput, displayToolName, formatWorkedDuration } from "./message-utils";
+import { type AiForkMessageInput, type AiRetryMessageInput, aiToolIcon, displayToolName, formatWorkedDuration } from "./message-utils";
 
 /** The active-turn coordinates an approval/tool action needs to resolve on the server. */
 export type AiTurnActionRequest = { turnId: string; callId: string; name: string };
@@ -179,7 +179,7 @@ const openAssistantResponseInfo = (entries: AiStoredMessage[]) => {
                 <For each={info.tools}>
                   {(tool) => (
                     <span class="inline-flex items-center gap-1.5 rounded-md bg-zinc-100 px-2 py-1 text-xs text-secondary dark:bg-zinc-900">
-                      <i class="ti ti-tool text-sm" aria-hidden="true" />
+                      <i class={`${aiToolIcon(tool.name)} text-sm`} aria-hidden="true" />
                       {displayToolName(tool.name)}
                       <Show when={tool.count > 1}>
                         <span class="rounded bg-white px-1 font-medium tabular-nums text-dimmed dark:bg-zinc-950">×{tool.count}</span>

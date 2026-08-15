@@ -7,6 +7,7 @@ import { isRenderableTurnBlock } from "../protocol";
 import { PresentToolBlock } from "./file-tools";
 import { useAiChatActions } from "./message-actions";
 import {
+  aiToolIcon,
   displayToolName,
   formatToolDetailText,
   isCardToolName,
@@ -105,7 +106,7 @@ function ToolResultDisclosure(props: {
     [props.descriptionPrefix, props.isError ? "error" : undefined, summary() || undefined].filter(Boolean).join(" · ") || undefined;
   return (
     <Chat.Activity
-      icon={props.icon ?? `ti ${props.isError ? "ti-alert-circle" : "ti-tool"}`}
+      icon={props.icon ?? (props.isError ? "ti ti-alert-circle" : aiToolIcon(props.toolName))}
       label={props.isError ? (props.labelOnError ?? "Show tool error") : props.name}
       description={description()}
       tone={props.isError ? "danger" : "neutral"}
@@ -180,7 +181,7 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
               style={{ color: appAccent() ? "var(--ui-app-accent-text)" : "var(--k2b-ai-accent)" }}
               aria-hidden="true"
             >
-              <i class={`${props.block.presentation?.appIcon ?? "ti ti-tool"} leading-none`} />
+              <i class={`${aiToolIcon(props.block.name, props.block.presentation?.appIcon)} leading-none`} />
             </span>
             <h3 class="min-w-0 text-sm font-semibold leading-5 text-primary">{ownerName()}</h3>
           </div>
@@ -304,7 +305,7 @@ function CapabilityToolView(props: { block: ToolBlock }) {
       when={props.block.status !== "running"}
       fallback={
         <Chat.Activity
-          icon={presentation().appIcon || "ti ti-apps"}
+          icon={aiToolIcon(props.block.name, presentation().appIcon)}
           label={label()}
           description={kind()}
           tone="ai"
@@ -316,7 +317,7 @@ function CapabilityToolView(props: { block: ToolBlock }) {
       <ToolResultDisclosure
         name={label()}
         labelOnError={label()}
-        icon={presentation().appIcon || "ti ti-apps"}
+        icon={aiToolIcon(props.block.name, presentation().appIcon)}
         accent={presentation().appAccent}
         descriptionPrefix={kind()}
         toolName={props.block.name}
@@ -417,7 +418,7 @@ function ToolBlockView(props: { turnId: string; block: ToolBlock }) {
         <SurveyToolView turnId={props.turnId} block={props.block} />
       </Match>
       <Match when={status() === "running" || status() === "awaiting_client"}>
-        <Chat.Activity label={displayToolName(props.block.name)} icon="ti ti-tool" busy />
+        <Chat.Activity label={displayToolName(props.block.name)} icon={aiToolIcon(props.block.name)} busy />
       </Match>
     </Switch>
   );

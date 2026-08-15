@@ -67,10 +67,30 @@ describe("capability tool presentation", () => {
     const pendingHtml = renderToString(() => createComponent(AiTurnBlockView, { block: pending, turnId: "turn-1" }));
 
     expect(completedHtml).toContain("Local Bash");
+    expect(completedHtml).toContain("ti-terminal-2");
     expect(completedHtml).toContain("git status --short");
     expect(pendingHtml).toContain("Local Bash");
+    expect(pendingHtml).toContain("ti-terminal-2");
     expect(pendingHtml).not.toContain("Approve");
     expect(pendingHtml).not.toContain("Run");
+  });
+
+  test("uses semantic built-in icons while a tool runs and after it completes", () => {
+    const running: AiTurnBlock = {
+      id: "project-call-1",
+      kind: "tool",
+      callId: "project-1",
+      name: "project_context",
+      args: { action: "list" },
+      status: "running",
+    };
+    const completed: AiTurnBlock = { ...running, status: "completed", result: { ok: true, message: "Found 1 Project item." } };
+
+    const runningHtml = renderToString(() => createComponent(AiTurnBlockView, { block: running, turnId: "turn-1" }));
+    const completedHtml = renderToString(() => createComponent(AiTurnBlockView, { block: completed, turnId: "turn-1" }));
+
+    expect(runningHtml).toContain("ti-folder-open");
+    expect(completedHtml).toContain("ti-folder-open");
   });
 
   test("keeps the app identity on approval prompts", () => {

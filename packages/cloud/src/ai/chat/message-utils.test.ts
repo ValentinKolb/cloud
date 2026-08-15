@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { LoopAggregate, Message, Usage } from "@k2b/nessi";
 import type { AiStoredMessage } from "../types";
-import { latestLoopUsage, latestUsage, latestUsageSnapshot, memoryToolPresentation } from "./message-utils";
+import { aiToolIcon, latestLoopUsage, latestUsage, latestUsageSnapshot, memoryToolPresentation } from "./message-utils";
 
 const storedAssistant = (input: { usage: Usage; aggregate?: LoopAggregate }): AiStoredMessage => {
   const message: Message = {
@@ -74,6 +74,39 @@ describe("AI usage selectors", () => {
 
     expect(latestUsage(messages)).toEqual(requestUsage);
     expect(latestLoopUsage(messages)).toEqual(requestUsage);
+  });
+});
+
+describe("AI tool icons", () => {
+  test.each([
+    ["project_context", "ti ti-folder-open"],
+    ["list_files", "ti ti-file-spark"],
+    ["read_file", "ti ti-file-spark"],
+    ["write_file", "ti ti-file-spark"],
+    ["present", "ti ti-file-spark"],
+    ["view_image", "ti ti-photo-spark"],
+    ["memory", "ti ti-brain"],
+    ["calculate", "ti ti-calculator"],
+    ["web_search", "ti ti-search"],
+    ["web_extract", "ti ti-world-download"],
+    ["search_help", "ti ti-help-hexagon"],
+    ["read_help", "ti ti-help-hexagon"],
+    ["search_capabilities", "ti ti-ai-gateway"],
+    ["list_capability_apps", "ti ti-ai-gateway"],
+    ["list_capabilities", "ti ti-ai-gateway"],
+    ["load_capabilities", "ti ti-ai-gateway"],
+    ["read_cloud_resource", "ti ti-ai-gateway"],
+    ["local_bash", "ti ti-terminal-2"],
+    ["card", "ti ti-layout-cards"],
+    ["survey", "ti ti-forms"],
+  ])("maps %s to its semantic family", (name, icon) => {
+    expect(aiToolIcon(name)).toBe(icon);
+  });
+
+  test("keeps app identity and uses the AI gateway only as the capability fallback", () => {
+    expect(aiToolIcon("contacts__query__list", "ti ti-address-book")).toBe("ti ti-address-book");
+    expect(aiToolIcon("contacts__query__list")).toBe("ti ti-ai-gateway");
+    expect(aiToolIcon("custom_tool")).toBe("ti ti-tool");
   });
 });
 
