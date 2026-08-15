@@ -57,6 +57,7 @@
   --k2b-selected: var(--k2b-accent-100);
   --k2b-action: var(--k2b-accent-700);
   --k2b-action-hover: var(--k2b-accent-800);
+  --k2b-app-workspace-active: var(--k2b-action);
   --k2b-action-solid: var(--k2b-accent-700);
   --k2b-action-solid-hover: var(--k2b-accent-800);
   --k2b-selection: rgb(29 78 216 / 0.35);
@@ -732,9 +733,13 @@
 }
 
 .k2b-ui .k2b-app-workspace__sidebar-item.is-active {
-  color: var(--k2b-action);
-  background: var(--k2b-selected);
+  color: var(--k2b-app-workspace-active);
+  background: transparent;
   font-weight: 600;
+}
+
+.k2b-ui .k2b-app-workspace__sidebar-item.is-active:hover {
+  background: var(--k2b-hover);
 }
 
 .k2b-ui .k2b-app-workspace__sidebar-item:disabled {
@@ -2920,10 +2925,18 @@
   min-width: 0;
 }
 
-.k2b-ui .k2b-app-workspace__sidebar-icon-action:hover,
+.k2b-ui .k2b-app-workspace__sidebar-icon-action:hover {
+  color: var(--k2b-app-workspace-active);
+  background: var(--k2b-hover);
+}
+
 .k2b-ui .k2b-app-workspace__sidebar-icon-action.is-active {
-  color: var(--k2b-action);
-  background: var(--k2b-selected);
+  color: var(--k2b-app-workspace-active);
+  background: transparent;
+}
+
+.k2b-ui .k2b-app-workspace__sidebar-icon-action.is-active:hover {
+  background: var(--k2b-hover);
 }
 
 .k2b-ui .k2b-app-workspace[data-sidebar-collapsed="true"] [data-sidebar-mode="expanded"],

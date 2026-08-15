@@ -235,6 +235,23 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     expect(actionRule).toContain("line-height: 1");
   });
 
+  test("keeps active sidebar navigation quiet and distinct from hover", async () => {
+    const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
+    const activeItemRule = css.match(/\.k2b-ui \.k2b-app-workspace__sidebar-item\.is-active \{([^}]*)\}/)?.[1];
+    const activeItemHoverRule = css.match(/\.k2b-ui \.k2b-app-workspace__sidebar-item\.is-active:hover \{([^}]*)\}/)?.[1];
+    const activeIconRule = css.match(/\.k2b-ui \.k2b-app-workspace__sidebar-icon-action\.is-active \{([^}]*)\}/)?.[1];
+    const activeIconHoverRule = css.match(/\.k2b-ui \.k2b-app-workspace__sidebar-icon-action\.is-active:hover \{([^}]*)\}/)?.[1];
+
+    expect(css).toContain("--k2b-app-workspace-active: var(--k2b-action)");
+    expect(activeItemRule).toContain("color: var(--k2b-app-workspace-active)");
+    expect(activeItemRule).toContain("background: transparent");
+    expect(activeItemRule).toContain("font-weight: 600");
+    expect(activeItemHoverRule).toContain("background: var(--k2b-hover)");
+    expect(activeIconRule).toContain("color: var(--k2b-app-workspace-active)");
+    expect(activeIconRule).toContain("background: transparent");
+    expect(activeIconHoverRule).toContain("background: var(--k2b-hover)");
+  });
+
   // FloatingWindow portals its frame, so SSR yields no markup to assert on.
   test("exposes exactly one keyboard-resizable window corner", async () => {
     const source = await Bun.file(resolve(import.meta.dir, "./FloatingWindow.tsx")).text();

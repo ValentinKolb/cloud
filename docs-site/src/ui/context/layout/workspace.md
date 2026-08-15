@@ -90,6 +90,11 @@ compositions.
 Section titles are quiet sentence-case labels. Keep them short and let the
 navigation rows carry the stronger visual emphasis.
 
+Active rows use the workspace accent color and a stronger text weight without
+a persistent fill. Hover retains its quiet background, and keyboard focus keeps
+the shared focus ring. Standalone themes can override
+`--k2b-app-workspace-active`; Cloud maps it to the current application accent.
+
 ```tsx
 <AppWorkspace.SidebarSection
   title="Projects"
