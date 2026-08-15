@@ -681,13 +681,16 @@ describe("@k2b/ui action geometry parity", () => {
     expect(section).toContain("margin-top: 0.25rem");
   });
 
-  test("the filter trigger keeps the control radius and field fill of btn-input", () => {
+  test("the filter trigger matches the geometry and surface of adjacent fields", () => {
     const chip = rule(".k2b-ui .k2b-filter-chip");
+    const iconOnly = rule('.k2b-ui .k2b-filter-chip[data-icon-only="true"]');
 
+    expect(chip).toContain("min-height: 2.25rem");
     expect(chip).toContain("border-radius: var(--k2b-radius-control)");
     expect(chip).not.toContain("999px");
     expect(chip).toContain("padding: 0.375rem 0.75rem");
     expect(chip).toContain("background: var(--k2b-surface-muted)");
+    expect(iconOnly).toContain("width: 2.25rem");
     expect(actionsCss).toContain(".k2b-ui .k2b-filter-chip:hover");
   });
 

@@ -3225,11 +3225,11 @@
   text-transform: uppercase;
 }
 
-/* Cloud renders the trigger as `btn-input btn-input-sm` + `.filter-chip-trigger`:
-   a control-radius field surface with a transparent border, not a pill. */
+/* Filter triggers are field controls: they use the same height, radius, and
+   surface as the input they sit beside rather than a smaller button size. */
 .k2b-ui .k2b-filter-chip {
   display: inline-flex;
-  min-height: 2rem;
+  min-height: 2.25rem;
   align-items: center;
   justify-content: center;
   gap: 0.375rem;
@@ -3261,7 +3261,7 @@
 }
 
 .k2b-ui .k2b-filter-chip[data-icon-only="true"] {
-  width: 2rem;
+  width: 2.25rem;
   justify-content: center;
   padding: 0;
 }
