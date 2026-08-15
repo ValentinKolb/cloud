@@ -216,19 +216,9 @@ function FolderEditor(props: {
               activeIcon="ti ti-search"
               onValueChange={(value) => setParentFolderId(value === TOP_LEVEL_FOLDER_ID ? null : value)}
             />
-            <div class="flex flex-col gap-2 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-3 py-2">
-              <div class="flex items-center justify-between gap-3">
-                <div class="min-w-0">
-                  <p class="text-xs text-dimmed">Add the folder to this mailbox's navigation.</p>
-                </div>
-                <Switch label="Show in Mail" value={showInSidebar} onValueChange={setShowInSidebar} />
-              </div>
-              <div class="flex items-center justify-between gap-3">
-                <div class="min-w-0">
-                  <p class="text-xs text-dimmed">Keep the folder in the provider's subscribed folder list.</p>
-                </div>
-                <Switch label="Subscribe on provider" value={subscribe} onValueChange={setSubscribe} />
-              </div>
+            <div class="flex flex-col gap-3 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-3 py-3">
+              <Switch label="Show in mailbox navigation" value={showInSidebar} onValueChange={setShowInSidebar} />
+              <Switch label="Subscribe on provider" value={subscribe} onValueChange={setSubscribe} />
             </div>
           </Show>
         </div>
