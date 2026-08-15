@@ -663,7 +663,6 @@ describe("mail capabilities", () => {
       body: "c".repeat(1000),
       bodyTruncated: true,
       author: { kind: "user" as const, id: userId, displayName: "Agent", avatarHash: null },
-      parentCommentId: null,
       referencedMessageId: null,
       revision: 1,
       editedAt: null,

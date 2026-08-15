@@ -4131,6 +4131,15 @@ const finalizePublicShortIds = async (db: SqlClient): Promise<void> => {
   await installLiveInvalidationEnqueue(db);
 };
 
+const flattenConversationComments = async (db: SqlClient): Promise<void> => {
+  await db`
+    UPDATE mail.activity_events
+    SET metadata = metadata - 'parentCommentId'
+    WHERE metadata ? 'parentCommentId'
+  `;
+  await db`ALTER TABLE mail.conversation_comments DROP COLUMN IF EXISTS parent_comment_id`;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -4233,6 +4242,7 @@ const migrations: readonly MailMigration[] = [
   { version: 115, name: "live_invalidation_outbox", run: addLiveInvalidationOutbox },
   { version: 116, name: "detached_live_invalidation_scope", run: detachLiveInvalidationScope },
   { version: 117, name: "public_short_ids", run: finalizePublicShortIds },
+  { version: 118, name: "flat_conversation_comments", run: flattenConversationComments },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

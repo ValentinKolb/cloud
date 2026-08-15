@@ -296,13 +296,6 @@ suite("mail collaboration backend", () => {
       input: { expectedRevision: 1, body: "Edited internal context" },
     });
     expect(edited.ok && edited.data.revision).toBe(2);
-    const reply = await createConversationComment({
-      context: writerContext,
-      mailboxId,
-      conversationId,
-      input: { body: "Flat reply", parentCommentId: comment.data.id },
-    });
-    expect(reply.ok && reply.data.parentCommentId).toBe(comment.data.id);
     const deleted = await deleteConversationComment({
       context: ownerContext,
       mailboxId,
@@ -314,7 +307,7 @@ suite("mail collaboration backend", () => {
     if (!deleted.ok) return;
     expect(deleted.data).toMatchObject({ body: null, revision: 3 });
     const comments = await listConversationComments({ context: readerContext, mailboxId, conversationId, limit: 10 });
-    expect(comments.ok && comments.data.items).toHaveLength(2);
+    expect(comments.ok && comments.data.items).toHaveLength(1);
     if (comments.ok) expect(comments.data.items[0]).toMatchObject({ id: comment.data.id, body: null, revision: 3 });
     const versions = await sql<{ revision: number; deleted: boolean }[]>`
       SELECT revision::int, deleted

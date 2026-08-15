@@ -62,7 +62,6 @@ const relationTables: Record<string, RelationTable> = {
   tagId: "tags",
   tagIds: "tags",
   commentId: "comments",
-  parentCommentId: "comments",
   reminderId: "reminders",
   viewId: "savedViews",
   templateId: "composeTemplates",

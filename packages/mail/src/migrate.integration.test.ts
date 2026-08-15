@@ -8,6 +8,34 @@ const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 suite("mail migrations", () => {
+  test("removes comment reply relationships", async () => {
+    await migrate();
+    await migrate();
+
+    const [shape] = await sql<{ applied_count: number; parent_column_present: boolean; stale_metadata: number }[]>`
+      SELECT
+        (
+          SELECT count(*)::int
+          FROM mail.schema_migrations
+          WHERE version = 118 AND name = 'flat_conversation_comments'
+        ) AS applied_count,
+        EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'conversation_comments'
+            AND column_name = 'parent_comment_id'
+        ) AS parent_column_present,
+        (
+          SELECT count(*)::int
+          FROM mail.activity_events
+          WHERE metadata ? 'parentCommentId'
+        ) AS stale_metadata
+    `;
+
+    expect(shape).toEqual({ applied_count: 1, parent_column_present: false, stale_metadata: 0 });
+  });
+
   test("finalizes public short IDs without changing internal UUID keys", async () => {
     await migrate();
     await migrate();

@@ -420,15 +420,13 @@ const draftPublicIds = async (drafts: MailDraft[]): Promise<DraftPublicIds> => {
   return { mailboxes, drafts: draftIds, conversations, messages, senderIdentities: senderIdentityIds, draftAttachments };
 };
 
-const projectComments = async <
-  T extends { id: string; conversationId: string; parentCommentId: string | null; referencedMessageId: string | null },
->(
+const projectComments = async <T extends { id: string; conversationId: string; referencedMessageId: string | null }>(
   items: T[],
 ): Promise<T[]> => {
   const [comments, conversations, messages] = await Promise.all([
     publicResources.publicIds(
       "comments",
-      items.flatMap((item) => [item.id, item.parentCommentId]),
+      items.map((item) => item.id),
     ),
     publicResources.publicIds(
       "conversations",
@@ -443,7 +441,6 @@ const projectComments = async <
     ...item,
     id: requirePublicId(comments, item.id),
     conversationId: requirePublicId(conversations, item.conversationId),
-    parentCommentId: item.parentCommentId ? requirePublicId(comments, item.parentCommentId) : null,
     referencedMessageId: item.referencedMessageId ? requirePublicId(messages, item.referencedMessageId) : null,
   }));
 };
@@ -2112,17 +2109,15 @@ const actionDefinitions = {
     run: async (input: z.output<typeof c.CommentCreateInputSchema>, context: CapabilityExecutionContext) => {
       const scope = await resolveConversationScope(input.mailboxId, input.conversationId);
       if (!scope.ok) return scope;
-      const [parentCommentId, referencedMessageId] = await Promise.all([
-        input.parentCommentId ? resolveMailboxResource("comments", scope.data.mailbox.id, input.parentCommentId) : ok(null),
-        input.referencedMessageId ? resolveMailboxResource("messages", scope.data.mailbox.id, input.referencedMessageId) : ok(null),
-      ]);
-      if (!parentCommentId.ok) return parentCommentId;
+      const referencedMessageId = input.referencedMessageId
+        ? await resolveMailboxResource("messages", scope.data.mailbox.id, input.referencedMessageId)
+        : ok(null);
       if (!referencedMessageId.ok) return referencedMessageId;
       const result = await collaboration.createConversationComment({
         context: requestContext(context),
         mailboxId: scope.data.mailbox.id,
         conversationId: scope.data.conversationId,
-        input: { body: input.body, parentCommentId: parentCommentId.data, referencedMessageId: referencedMessageId.data },
+        input: { body: input.body, referencedMessageId: referencedMessageId.data },
       });
       if (!result.ok) return result;
       const [item] = await projectComments([result.data]);

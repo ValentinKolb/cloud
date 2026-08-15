@@ -86,7 +86,6 @@ export default function MailDetailsPanel(props: {
   const [tagState, setTagState] = createSignal(props.initialConversationLocalTags);
   const [comments, setComments] = createSignal(props.initialComments);
   const [commentBody, setCommentBody] = createSignal("");
-  const [replyingTo, setReplyingTo] = createSignal<ConversationComment | null>(null);
   const [commentInvalid, setCommentInvalid] = createSignal(false);
   const [reminderDueAt, setReminderDueAt] = createSignal(props.initialReminder?.state === "pending" ? props.initialReminder.dueAt : null);
   let confirmedState = props.initialState;
@@ -279,7 +278,6 @@ export default function MailDetailsPanel(props: {
           },
           json: {
             body,
-            parentCommentId: replyingTo()?.id ?? null,
           },
         },
         { init: { signal: abortSignal } },
@@ -291,7 +289,6 @@ export default function MailDetailsPanel(props: {
       if (!comment) return;
       setComments((current) => [...current, comment]);
       setCommentBody("");
-      setReplyingTo(null);
       setCommentInvalid(false);
     },
     onError: (error) => prompts.error(error.message),
@@ -323,7 +320,6 @@ export default function MailDetailsPanel(props: {
     onSuccess: (commentId) => {
       if (!commentId) return;
       setComments((current) => current.filter((comment) => comment.id !== commentId));
-      if (replyingTo()?.id === commentId) setReplyingTo(null);
     },
     onError: (error) => prompts.error(error.message),
   });
@@ -392,7 +388,6 @@ export default function MailDetailsPanel(props: {
         setReminderDueAt(props.initialReminder?.state === "pending" ? props.initialReminder.dueAt : null);
         confirmedAvailableTagIds = new Set(props.initialLocalTags.map((tag) => tag.id));
         setCommentBody("");
-        setReplyingTo(null);
         setCommentInvalid(false);
       },
       { defer: true },
@@ -644,7 +639,6 @@ export default function MailDetailsPanel(props: {
               <Discussion.List>
                 <For each={visibleComments()}>
                   {(comment) => {
-                    const parent = () => visibleComments().find((candidate) => candidate.id === comment.parentCommentId);
                     const canModerate = () =>
                       props.canAdmin || (comment.author.kind === "user" && comment.author.id === props.currentUserId);
                     return (
@@ -662,14 +656,6 @@ export default function MailDetailsPanel(props: {
                             {dates.formatDateTimeRelative(comment.createdAt, props.dateConfig)}
                           </time>
                         }
-                        replyContext={
-                          comment.parentCommentId ? (
-                            <>
-                              <i class="ti ti-arrow-back-up" aria-hidden="true" />
-                              <span class="truncate">Reply to {parent()?.author.displayName ?? "an earlier comment"}</span>
-                            </>
-                          ) : undefined
-                        }
                         actions={
                           <>
                             <Show when={canModerate()}>
@@ -686,20 +672,6 @@ export default function MailDetailsPanel(props: {
                                 </Tooltip.Anchor>
                               </>
                             </Show>
-                            <Tooltip.Anchor content={`Reply to ${comment.author.displayName}`}>
-                              <IconButton
-                                type="button"
-                                label={`Reply to ${comment.author.displayName}`}
-                                size="xs"
-                                onClick={() => {
-                                  setReplyingTo(comment);
-                                  setCommentBody("");
-                                  setCommentInvalid(false);
-                                }}
-                              >
-                                <i class="ti ti-arrow-back-up" aria-hidden="true" />
-                              </IconButton>
-                            </Tooltip.Anchor>
                           </>
                         }
                       >
@@ -712,19 +684,6 @@ export default function MailDetailsPanel(props: {
             </Show>
 
             <Show when={!props.detailErrors.comments}>
-              <Show when={replyingTo()}>
-                {(comment) => (
-                  <div class="flex items-center gap-2 text-xs text-dimmed">
-                    <i class="ti ti-arrow-back-up" aria-hidden="true" />
-                    <span class="min-w-0 flex-1 truncate">Replying to {comment().author.displayName}</span>
-                    <Tooltip.Anchor content="Cancel reply">
-                      <IconButton type="button" label="Cancel reply" size="xs" onClick={() => setReplyingTo(null)}>
-                        <i class="ti ti-x" aria-hidden="true" />
-                      </IconButton>
-                    </Tooltip.Anchor>
-                  </div>
-                )}
-              </Show>
               <Discussion.Composer
                 onSubmit={(event) => {
                   event.preventDefault();

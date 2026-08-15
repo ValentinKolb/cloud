@@ -61,7 +61,6 @@ const comment: ConversationComment = {
     displayName: "Valentin Kolb",
     avatarHash: null,
   },
-  parentCommentId: null,
   referencedMessageId: null,
   revision: 1,
   editedAt: null,
@@ -243,7 +242,7 @@ describe("Mail conversation detail panel", () => {
     expect(html).toContain('data-visibility="progressive"');
     expect(html).not.toContain('data-visibility="always"');
     expect(html.indexOf('aria-label="Edit comment"')).toBeLessThan(html.indexOf('aria-label="Delete comment"'));
-    expect(html.indexOf('aria-label="Delete comment"')).toBeLessThan(html.indexOf('aria-label="Reply to Valentin Kolb"'));
+    expect(html).not.toContain('aria-label="Reply to Valentin Kolb"');
     expect(html.slice(html.indexOf('aria-label="Edit comment"'), html.indexOf('aria-label="Edit comment"') + 220)).toContain(
       'data-size="xs"',
     );
@@ -265,11 +264,10 @@ describe("Mail conversation detail panel", () => {
     const html = renderPanel({ canWrite: false, canAdmin: false, currentUserId: "user-2" });
     const editIndex = html.indexOf('aria-label="Edit comment"');
     const deleteIndex = html.indexOf('aria-label="Delete comment"');
-    const replyIndex = html.indexOf('aria-label="Reply to Valentin Kolb"');
 
     expect(editIndex).toBe(-1);
     expect(deleteIndex).toBe(-1);
-    expect(replyIndex).toBeGreaterThan(-1);
+    expect(html).not.toContain("Reply to");
     expect(html).toContain('aria-label="Create tag"');
     expect(html).toContain("disabled");
     expect(html).toContain('aria-label="Internal comment"');

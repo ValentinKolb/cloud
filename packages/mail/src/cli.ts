@@ -4384,7 +4384,6 @@ export default defineCliCommands({
           stdinName: "body-stdin",
           description: "Comment body",
         }),
-        parent: flag.string({ description: "Parent comment id" }),
         message: flag.string({ description: "Referenced message id" }),
       },
       run: async ({ ctx, args, flags }) => {
@@ -4398,7 +4397,6 @@ export default defineCliCommands({
           `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/comments`,
           jsonRequest("POST", {
             body: body ?? "",
-            parentCommentId: flags.parent ? requireMailResourceId(flags.parent, "Parent comment id") : undefined,
             referencedMessageId: flags.message ? requireMailResourceId(flags.message, "Referenced message id") : undefined,
           }),
         );

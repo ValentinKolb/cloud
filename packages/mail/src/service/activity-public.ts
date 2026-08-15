@@ -77,7 +77,6 @@ const metadataTables: Readonly<Record<string, Table>> = {
   removedTagIds: "tags",
   requestedTagIds: "tags",
   commentId: "comments",
-  parentCommentId: "comments",
   reminderId: "reminders",
   deliveryId: "deliveries",
   outboxSubmissionId: "deliveries",

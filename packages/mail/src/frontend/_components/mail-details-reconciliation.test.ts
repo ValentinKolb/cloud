@@ -33,7 +33,6 @@ const comment = (id: string, revision: number, body: string): ConversationCommen
   conversationId: "00000000-0000-4000-8000-000000000001",
   body,
   author: { kind: "user", id: "00000000-0000-4000-8000-000000000003", displayName: "Ada", avatarHash: null },
-  parentCommentId: null,
   referencedMessageId: null,
   revision,
   editedAt: null,

@@ -1576,7 +1576,7 @@ test("saved view commands cover structured filters and revisioned lifecycle", as
   ]);
 }, 45_000);
 
-test("comment add forwards stdin and references", async () => {
+test("comment add forwards stdin and a message reference", async () => {
   let requestBody: unknown;
   const server = withMailbox(async (request) => {
     if (
@@ -1589,7 +1589,6 @@ test("comment add forwards stdin and references", async () => {
         conversationId: CONVERSATION_ID,
         body: "Internal note\n",
         author: { kind: "user", id: USER_ID, displayName: "Writer", avatarHash: null },
-        parentCommentId: COMMENT_ID,
         referencedMessageId: MESSAGE_ID,
         revision: 1,
         editedAt: null,
@@ -1604,27 +1603,13 @@ test("comment add forwards stdin and references", async () => {
 
   const result = await runCli(
     `http://127.0.0.1:${server.port}`,
-    [
-      "--json",
-      "mail",
-      "comment",
-      "add",
-      CONVERSATION_ID,
-      "--mailbox",
-      MAILBOX_ID,
-      "--body-stdin",
-      "--parent",
-      COMMENT_ID,
-      "--message",
-      MESSAGE_ID,
-    ],
+    ["--json", "mail", "comment", "add", CONVERSATION_ID, "--mailbox", MAILBOX_ID, "--body-stdin", "--message", MESSAGE_ID],
     "Internal note\n",
   );
 
   expect(result.exitCode).toBe(0);
   expect(requestBody).toEqual({
     body: "Internal note\n",
-    parentCommentId: COMMENT_ID,
     referencedMessageId: MESSAGE_ID,
   });
 });
@@ -1641,7 +1626,6 @@ test("comment delete uses a revisioned tombstone request", async () => {
         conversationId: CONVERSATION_ID,
         body: null,
         author: { kind: "user", id: USER_ID, displayName: "Writer", avatarHash: null },
-        parentCommentId: null,
         referencedMessageId: null,
         revision: 3,
         editedAt: "2026-07-13T00:00:01.000Z",

@@ -52,7 +52,6 @@ export type ConversationComment = {
     displayName: string;
     avatarHash: string | null;
   };
-  parentCommentId: string | null;
   referencedMessageId: string | null;
   revision: number;
   editedAt: string | null;
@@ -103,7 +102,6 @@ type CommentRow = {
   author_id: string;
   author_display_name: string;
   author_avatar_hash: string | null;
-  parent_comment_id: string | null;
   referenced_message_id: string | null;
   revision: string | number;
   edited_at: Date | string | null;
@@ -677,7 +675,6 @@ const commentColumns = sql`
     END
   ) AS author_display_name,
   author_user.avatar_hash AS author_avatar_hash,
-  comment.parent_comment_id,
   comment.referenced_message_id,
   comment.revision,
   comment.edited_at,
@@ -696,7 +693,6 @@ const mapComment = (row: CommentRow): ConversationComment => ({
     displayName: row.author_display_name,
     avatarHash: row.author_avatar_hash,
   },
-  parentCommentId: row.parent_comment_id,
   referencedMessageId: row.referenced_message_id,
   revision: Number(row.revision),
   editedAt: toNullableIso(row.edited_at),
@@ -740,18 +736,8 @@ export const getConversationComment = async (params: {
 const validateCommentReferences = async (params: {
   db: SqlClient;
   conversationId: string;
-  parentCommentId?: string | null;
   referencedMessageId?: string | null;
 }): Promise<Result<void>> => {
-  if (params.parentCommentId) {
-    const [parent] = await params.db<{ id: string }[]>`
-      SELECT id FROM mail.conversation_comments
-      WHERE id = ${params.parentCommentId}::uuid
-        AND conversation_id = ${params.conversationId}::uuid
-        AND deleted_at IS NULL
-    `;
-    if (!parent) return fail(err.badInput("Reply target must be an active comment in this conversation"));
-  }
   if (params.referencedMessageId) {
     const [message] = await params.db<{ message_id: string }[]>`
       SELECT message_id FROM mail.conversation_messages
@@ -857,7 +843,6 @@ export const createConversationComment = async (params: {
       const references = await validateCommentReferences({
         db: tx,
         conversationId: params.conversationId,
-        parentCommentId: params.input.parentCommentId,
         referencedMessageId: params.input.referencedMessageId,
       });
       if (!references.ok) return references;
@@ -867,14 +852,13 @@ export const createConversationComment = async (params: {
         "comment",
         (db, shortId) => db<{ id: string }[]>`
         INSERT INTO mail.conversation_comments (
-          short_id, conversation_id, author_kind, author_id, body_markdown, parent_comment_id, referenced_message_id
+          short_id, conversation_id, author_kind, author_id, body_markdown, referenced_message_id
         ) VALUES (
           ${shortId},
           ${params.conversationId}::uuid,
           ${actor.kind},
           ${actor.id}::uuid,
           ${params.input.body},
-          ${params.input.parentCommentId ?? null}::uuid,
           ${params.input.referencedMessageId ?? null}::uuid
         )
         RETURNING id
@@ -905,7 +889,6 @@ export const createConversationComment = async (params: {
         targetId: comment.id,
         metadata: {
           revision: 1,
-          parentCommentId: value.parentCommentId,
           referencedMessageId: value.referencedMessageId,
         },
       });
@@ -973,7 +956,7 @@ export const createWorkflowConversationCommentInTransaction = async (params: {
     action: "conversation.comment_created",
     targetType: "comment",
     targetId: comment.id,
-    metadata: { revision: 1, parentCommentId: null, referencedMessageId: null },
+    metadata: { revision: 1, referencedMessageId: null },
   });
   return ok({ id: comment.id, activityId });
 };

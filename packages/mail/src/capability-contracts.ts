@@ -685,7 +685,6 @@ export const CommentDataSchema = z
         avatarHash: NullableTextSchema,
       })
       .strict(),
-    parentCommentId: ResourceShortIdSchema.nullable(),
     referencedMessageId: ResourceShortIdSchema.nullable(),
     revision: z.number().int().positive(),
     editedAt: NullableTimestampSchema,
@@ -712,7 +711,6 @@ export const CommentCreateInputSchema = z
     mailboxId: MailboxIdInputSchema,
     conversationId: ConversationIdInputSchema,
     body: z.string().trim().min(1).max(50_000).describe("Internal comment body."),
-    parentCommentId: ResourceShortIdSchema.nullable().optional().describe("Optional parent comment ID."),
     referencedMessageId: ResourceShortIdSchema.nullable().optional().describe("Optional referenced message ID."),
   })
   .strict();

@@ -2431,7 +2431,6 @@ const internalCommentBodySchema = z
 
 export const createConversationCommentSchema = z.object({
   body: internalCommentBodySchema,
-  parentCommentId: ResourceShortIdSchema.nullable().optional(),
   referencedMessageId: ResourceShortIdSchema.nullable().optional(),
 });
 export type CreateConversationComment = z.infer<typeof createConversationCommentSchema>;

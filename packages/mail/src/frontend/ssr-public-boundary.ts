@@ -193,7 +193,6 @@ export const projectMailboxPageData = async (data: MailboxPageData, loadPublicId
   addResourceList(paths, "comments", ["comments"], data.comments);
   data.comments.forEach((item, index) => {
     add(paths, "conversations", ["comments", index, "conversationId"], item.conversationId);
-    add(paths, "comments", ["comments", index, "parentCommentId"], item.parentCommentId);
     add(paths, "messages", ["comments", index, "referencedMessageId"], item.referencedMessageId);
   });
   if (data.reminder) {

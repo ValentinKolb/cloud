@@ -259,29 +259,12 @@ const moveMessageComments = async (params: {
   messageIds: string[];
 }): Promise<number> => {
   const moved = await params.db<{ id: string }[]>`
-    WITH RECURSIVE selected_comments AS (
-      SELECT comment.id
-      FROM mail.conversation_comments comment
-      WHERE comment.conversation_id = ${params.sourceConversationId}::uuid
-        AND comment.referenced_message_id IN (
-          SELECT value::uuid FROM jsonb_array_elements_text(${params.messageIds}::jsonb)
-        )
-
-      UNION
-
-      SELECT child.id
-      FROM mail.conversation_comments child
-      JOIN selected_comments parent ON child.parent_comment_id = parent.id
-      WHERE child.conversation_id = ${params.sourceConversationId}::uuid
-    )
     UPDATE mail.conversation_comments comment
-    SET
-      conversation_id = ${params.targetConversationId}::uuid,
-      parent_comment_id = CASE
-        WHEN comment.parent_comment_id IN (SELECT id FROM selected_comments) THEN comment.parent_comment_id
-        ELSE NULL
-      END
-    WHERE comment.id IN (SELECT id FROM selected_comments)
+    SET conversation_id = ${params.targetConversationId}::uuid
+    WHERE comment.conversation_id = ${params.sourceConversationId}::uuid
+      AND comment.referenced_message_id IN (
+        SELECT value::uuid FROM jsonb_array_elements_text(${params.messageIds}::jsonb)
+      )
     RETURNING comment.id
   `;
   return moved.length;
