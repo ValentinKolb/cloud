@@ -382,6 +382,7 @@ const loadListItems = async (params: {
   listMode: MailListMode;
   searchExpression: MailSearchExpression | null;
   searchSort: "relevance" | "newest";
+  excludedFolderIds: readonly string[];
   cursor?: string;
 }): Promise<MailListPage> => {
   const activeViewExpression = (): MailSearchExpression => {
@@ -419,6 +420,7 @@ const loadListItems = async (params: {
         limit: 50,
       },
       groupByConversation: params.listMode === "conversations",
+      excludedFolderIds: params.excludedFolderIds,
     });
     if (!result.ok) return { items: [], nextCursor: null, error: result.error.message };
     const items = result.data.items.map((item) => searchHitToListItem(item, params.listMode));
@@ -442,6 +444,7 @@ const loadListItems = async (params: {
     context: params.context,
     mailboxId: params.mailboxId,
     folderId: params.folderId,
+    excludedFolderIds: params.excludedFolderIds,
     view: params.activeView,
     cursor: params.cursor,
     limit: 50,
@@ -504,6 +507,10 @@ export const loadMailboxPageData = async (params: {
   const folders = folderResult.ok ? folderResult.data : [];
   const activeSavedView = savedViewResult.ok ? (savedViewResult.data.find((view) => view.id === savedViewId) ?? null) : null;
   const listMode = params.listMode ?? "conversations";
+  const defaultAllMail = !scheduledMode && !searchExpression && !folderId && !activeView && !activeSavedView;
+  const excludedFolderIds = defaultAllMail
+    ? folders.filter((folder) => folder.role === "trash" || folder.role === "junk").map((folder) => folder.id)
+    : [];
   const [list, scheduledPageResult] = await Promise.all([
     scheduledMode
       ? Promise.resolve({ items: [], nextCursor: null, error: null })
@@ -522,6 +529,7 @@ export const loadMailboxPageData = async (params: {
             listMode,
             searchExpression,
             searchSort,
+            excludedFolderIds,
             cursor: listCursor ?? undefined,
           }),
     scheduledMode

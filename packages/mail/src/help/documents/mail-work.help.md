@@ -44,6 +44,7 @@ The built-in **Follow-up** views show what should happen next. **Assignment** sh
 | Follow-up | Done | Conversations marked Done |
 | Assignment | Assigned to me | Conversations assigned to you |
 | Assignment | Unassigned | Conversations without an assignee |
+| Mail / More | All mail | Mail from every provider folder except Trash and Junk |
 | More | Recent activity | Recently changed conversations |
 | Mail | Scheduled | Messages waiting for future delivery |
 

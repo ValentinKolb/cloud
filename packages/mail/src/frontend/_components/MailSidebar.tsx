@@ -101,8 +101,11 @@ export default function MailSidebar(props: {
   const secondaryFolders = createMemo(() => flatFolders().filter((folder) => SECONDARY_FOLDER_ROLES.has(folder.role)));
   const customFolderTree = createMemo(() => excludeMailFolderTreeRoles(folderTree(), SYSTEM_FOLDER_ROLES));
   const customFolderBranchIds = createMemo(() => folderBranchIds(customFolderTree()));
+  const allMailActive = () =>
+    !props.scheduledMode && !props.activeFolderId && !props.activeView && !props.activeSavedViewId && !props.searchActive;
   const moreOpen = () =>
     moreExpanded() ||
+    allMailActive() ||
     SECONDARY_VIEW_ITEMS.some((view) => props.activeView === view.id) ||
     secondaryFolders().some((folder) => props.activeFolderId === folder.id);
   const sync = mutations.create<void, void, { idempotencyKey: string }>({
@@ -260,7 +263,7 @@ export default function MailSidebar(props: {
     setCollapsedFolders(new Set(customFolderBranchIds().filter((id) => !expanded.has(id))));
   };
 
-  const folderNode = (node: MailFolderTreeNode, suffix: string) => {
+  const folderNode = (node: MailFolderTreeNode, suffix: string, count: number | null = node.folder.unread) => {
     const folder = node.folder;
     const hasChildren = node.children.length > 0;
     return (
@@ -270,7 +273,7 @@ export default function MailSidebar(props: {
         href={folder.selectable ? `/app/mail/${props.mailboxId}?folder=${folder.id}` : undefined}
         icon={hasChildren ? "ti ti-folder-plus" : folderIcon(folder.role)}
         expandedIcon={hasChildren ? "ti ti-folder-open" : undefined}
-        meta={folder.unread > 0 ? <span class="tabular-nums">{folder.unread}</span> : undefined}
+        meta={count !== null && count > 0 ? <span class="tabular-nums">{count}</span> : undefined}
         title={folder.name}
         viewTransitionName={`mail-folder-${folder.id}-${suffix}`}
         navigation="enhanced"
@@ -323,12 +326,11 @@ export default function MailSidebar(props: {
       ariaLabel={`${role === "inbox" ? "Inbox" : role === "drafts" ? "Draft" : "Sent"} folders`}
       selectedId={props.activeFolderId}
     >
-      {folderTreeItems(
-        primaryFolders()
-          .filter((folder) => folder.role === role)
-          .map((folder) => ({ folder, children: [] })),
-        suffix,
-      )}
+      <For each={primaryFolders().filter((folder) => folder.role === role)}>
+        {(folder) =>
+          folderNode({ folder, children: [] }, suffix, role === "drafts" ? folder.total : role === "sent" ? null : folder.unread)
+        }
+      </For>
     </AppWorkspace.NavTree>
   );
 
@@ -336,7 +338,7 @@ export default function MailSidebar(props: {
     <AppWorkspace.SidebarItem
       href={`/app/mail/${props.mailboxId}`}
       icon="ti ti-mail"
-      active={!props.scheduledMode && !props.activeFolderId && !props.activeView && !props.activeSavedViewId && !props.searchActive}
+      active={allMailActive()}
       navigation="enhanced"
       onNavigate={props.onNavigate}
       scroll="preserve"
@@ -351,12 +353,11 @@ export default function MailSidebar(props: {
       {primaryFolderItems("drafts", suffix)}
       {scheduledItem(suffix)}
       {primaryFolderItems("sent", suffix)}
-      {allMail()}
     </>
   );
 
   const moreItems = (suffix: string) => (
-    <AppWorkspace.SidebarSection>
+    <>
       <AppWorkspace.SidebarItem
         icon={`ti ${moreOpen() ? "ti-chevron-down" : "ti-chevron-right"}`}
         onClick={() => setMoreExpanded((current) => !current)}
@@ -365,12 +366,13 @@ export default function MailSidebar(props: {
         More
       </AppWorkspace.SidebarItem>
       <Show when={moreOpen()}>
+        {allMail()}
         {viewItems(SECONDARY_VIEW_ITEMS, `${suffix}-more`)}
         <AppWorkspace.NavTree ariaLabel="Additional mailbox folders" selectedId={props.activeFolderId}>
           <For each={secondaryFolders()}>{(folder) => folderNode({ folder, children: [] }, suffix)}</For>
         </AppWorkspace.NavTree>
       </Show>
-    </AppWorkspace.SidebarSection>
+    </>
   );
 
   const savedViewItems = (suffix: string) => (
@@ -439,7 +441,10 @@ export default function MailSidebar(props: {
         <AppWorkspace.SidebarMobileBody scrollPreserveKey={`mail-sidebar-mobile-${props.mailboxId}`}>
           <AppWorkspace.SidebarSection title="Follow-up">{viewItems(FOLLOW_UP_VIEW_ITEMS, "mobile")}</AppWorkspace.SidebarSection>
           <AppWorkspace.SidebarSection title="Assignment">{viewItems(ASSIGNMENT_VIEW_ITEMS, "mobile")}</AppWorkspace.SidebarSection>
-          <AppWorkspace.SidebarSection title="Mail">{mailItems("mobile")}</AppWorkspace.SidebarSection>
+          <AppWorkspace.SidebarSection title="Mail">
+            {mailItems("mobile")}
+            {moreItems("mobile")}
+          </AppWorkspace.SidebarSection>
           <Show when={flattenMailFolderTree(customFolderTree()).length > 0}>
             <AppWorkspace.SidebarSection title="Folders">{customFolderItems("mobile")}</AppWorkspace.SidebarSection>
           </Show>
@@ -447,7 +452,6 @@ export default function MailSidebar(props: {
           {props.savedViews.length > 0 && (
             <AppWorkspace.SidebarSection title="Saved views">{savedViewItems("mobile")}</AppWorkspace.SidebarSection>
           )}
-          {moreItems("mobile")}
         </AppWorkspace.SidebarMobileBody>
       </AppWorkspace.SidebarMobile>
       <AppWorkspace.SidebarDesktop>
@@ -460,7 +464,10 @@ export default function MailSidebar(props: {
         <AppWorkspace.SidebarBody scrollPreserveKey={`mail-sidebar-${props.mailboxId}`}>
           <AppWorkspace.SidebarSection title="Follow-up">{viewItems(FOLLOW_UP_VIEW_ITEMS, "desktop")}</AppWorkspace.SidebarSection>
           <AppWorkspace.SidebarSection title="Assignment">{viewItems(ASSIGNMENT_VIEW_ITEMS, "desktop")}</AppWorkspace.SidebarSection>
-          <AppWorkspace.SidebarSection title="Mail">{mailItems("desktop")}</AppWorkspace.SidebarSection>
+          <AppWorkspace.SidebarSection title="Mail">
+            {mailItems("desktop")}
+            {moreItems("desktop")}
+          </AppWorkspace.SidebarSection>
           <Show when={flattenMailFolderTree(customFolderTree()).length > 0}>
             <AppWorkspace.SidebarSection title="Folders">{customFolderItems("desktop")}</AppWorkspace.SidebarSection>
           </Show>
@@ -468,7 +475,6 @@ export default function MailSidebar(props: {
           {props.savedViews.length > 0 && (
             <AppWorkspace.SidebarSection title="Saved views">{savedViewItems("desktop")}</AppWorkspace.SidebarSection>
           )}
-          {moreItems("desktop")}
         </AppWorkspace.SidebarBody>
         <AppWorkspace.SidebarFooter class="flex flex-col gap-1">
           <AppWorkspace.SidebarItem href="/app/mail" icon="ti ti-switch-horizontal" navigation="document">

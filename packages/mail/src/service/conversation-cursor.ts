@@ -5,6 +5,7 @@ import { type ConversationView, type ConversationWorkStatus, conversationViewSch
 export type ConversationCursorScope = {
   mailboxId: string;
   folderId: string | null;
+  excludedFolderIds: string[];
   status: ConversationWorkStatus | null;
   view: ConversationView | null;
   unread: boolean | null;
@@ -12,17 +13,18 @@ export type ConversationCursorScope = {
 };
 
 type ConversationCursor = {
-  version: 3;
+  version: 4;
   scope: ConversationCursorScope;
   date: string;
   id: string;
 };
 
 const conversationCursorSchema = z.object({
-  version: z.literal(3),
+  version: z.literal(4),
   scope: z.object({
     mailboxId: z.uuid(),
     folderId: z.uuid().nullable(),
+    excludedFolderIds: z.array(z.uuid()),
     status: conversationWorkStatusSchema.nullable(),
     view: conversationViewSchema.nullable(),
     unread: z.boolean().nullable(),
@@ -35,13 +37,15 @@ const conversationCursorSchema = z.object({
 const sameScope = (left: ConversationCursorScope, right: ConversationCursorScope): boolean =>
   left.mailboxId === right.mailboxId &&
   left.folderId === right.folderId &&
+  left.excludedFolderIds.length === right.excludedFolderIds.length &&
+  left.excludedFolderIds.every((id, index) => id === right.excludedFolderIds[index]) &&
   left.status === right.status &&
   left.view === right.view &&
   left.unread === right.unread &&
   left.userId === right.userId;
 
 export const encodeConversationCursor = (cursor: Omit<ConversationCursor, "version">): string =>
-  Buffer.from(JSON.stringify({ version: 3, ...cursor })).toString("base64url");
+  Buffer.from(JSON.stringify({ version: 4, ...cursor })).toString("base64url");
 
 export const decodeConversationCursor = (
   value: string | undefined,

@@ -206,7 +206,7 @@ describe("Mail conversation detail panel", () => {
     expect(header).not.toContain("1 attachment");
     expect(header).toContain('class="k2b-detail-panel__meta"');
     expect(header).toContain("Needs action");
-    expect(html).toContain('class="k2b-detail-panel__summary"');
+    expect(html).toContain('class="k2b-detail-panel__group" role="group" aria-label="Workflow"');
     expect(html).not.toContain(">Active collaborators<");
     expect(html).not.toContain("Here now");
     expect(html).toContain(">Tags<");

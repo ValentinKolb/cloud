@@ -674,6 +674,7 @@ const runSearch = async (params: {
   backend: "native" | "pg_textsearch";
   currentUserId: string | null;
   groupByConversation: boolean;
+  excludedFolderIds: readonly string[];
 }): Promise<DbSearchHit[]> => {
   const predicate = compileSearchExpression(params.expression, params.currentUserId);
   const indexedSeed = findIndexedSeed(params.expression);
@@ -681,6 +682,11 @@ const runSearch = async (params: {
   const conversationOnly = params.groupByConversation && !indexedSeed && isConversationOnlyExpression(params.expression);
   const cursor = params.cursor;
   const limit = params.limit + 1;
+  const includedPlacement = (folderId: SqlFragment) => sql`
+    NOT (${folderId} IN (
+      SELECT value::uuid FROM jsonb_array_elements_text(${params.excludedFolderIds}::jsonb)
+    ))
+  `;
   const indexedSeedCte = indexedSeed ? sql`indexed_seed AS MATERIALIZED (${compileIndexedSeed(indexedSeed, params.mailboxId)}),` : sql``;
   const useConversationSeed = conversationOnly;
   const conversationSeedCte = useConversationSeed
@@ -720,6 +726,7 @@ const runSearch = async (params: {
               FROM mail.message_placements latest_visible
               WHERE latest_visible.message_id = latest_message.id
                 AND latest_visible.deleted_at IS NULL
+                AND ${includedPlacement(sql`latest_visible.folder_id`)}
             )
           ORDER BY latest_message.internal_date DESC, latest_message.id DESC
           LIMIT 1
@@ -799,7 +806,9 @@ const runSearch = async (params: {
         AND mc.mailbox_id = ${params.mailboxId}::uuid
         AND EXISTS (
           SELECT 1 FROM mail.message_placements visible
-          WHERE visible.message_id = mc.id AND visible.deleted_at IS NULL
+          WHERE visible.message_id = mc.id
+            AND visible.deleted_at IS NULL
+            AND ${includedPlacement(sql`visible.folder_id`)}
         )
         AND (${useConversationSeed || indexedSeedCoversExpression ? sql`true` : predicate})
         ${messageNewestPage}
@@ -833,7 +842,9 @@ const runSearch = async (params: {
       LEFT JOIN LATERAL (
         SELECT mp.flags
         FROM mail.message_placements mp
-        WHERE mp.message_id = mc.id AND mp.deleted_at IS NULL
+        WHERE mp.message_id = mc.id
+          AND mp.deleted_at IS NULL
+          AND ${includedPlacement(sql`mp.folder_id`)}
         ORDER BY mp.updated_at DESC
         LIMIT 1
       ) placement ON true
@@ -929,6 +940,7 @@ const runSearch = async (params: {
             JOIN mail.message_placements flagged_placement ON flagged_placement.message_id = flagged_cm.message_id
             WHERE flagged_cm.conversation_id = deduplicated.conversation_id
               AND flagged_placement.deleted_at IS NULL
+              AND ${includedPlacement(sql`flagged_placement.folder_id`)}
               AND '\\Flagged' = ANY(flagged_placement.flags)
           )
         END AS flagged,
@@ -1003,6 +1015,7 @@ const runSearch = async (params: {
             AND deduplicated.conversation_id IS NULL
             AND unread_placement.message_id = deduplicated.id
             AND ${unreadFolderPredicate}
+            AND ${includedPlacement(sql`unread_placement.folder_id`)}
           ORDER BY unread_placement.folder_id::text
         ) AS folder_ids
       ) message_unread_state ON true
@@ -1017,6 +1030,7 @@ const runSearch = async (params: {
             AND unread_cm.conversation_id = deduplicated.conversation_id
             AND NOT ('\\Seen' = ANY(unread_placement.flags))
             AND ${unreadFolderPredicate}
+            AND ${includedPlacement(sql`unread_placement.folder_id`)}
           ORDER BY unread_placement.folder_id::text
         ) AS folder_ids
       ) conversation_unread_state ON true
@@ -1027,6 +1041,7 @@ const runSearch = async (params: {
             FROM mail.message_placements active_placement
             WHERE active_placement.message_id = deduplicated.id
               AND active_placement.deleted_at IS NULL
+              AND ${includedPlacement(sql`active_placement.folder_id`)}
             ORDER BY active_placement.folder_id::text
           ) AS folder_ids,
           CASE
@@ -1037,6 +1052,7 @@ const runSearch = async (params: {
         WHERE (NOT ${params.groupByConversation} OR deduplicated.conversation_id IS NULL)
           AND source_placement.message_id = deduplicated.id
           AND source_placement.deleted_at IS NULL
+          AND ${includedPlacement(sql`source_placement.folder_id`)}
       ) message_active_state ON true
       LEFT JOIN LATERAL (
         SELECT
@@ -1046,6 +1062,7 @@ const runSearch = async (params: {
             JOIN mail.message_placements active_placement
               ON active_placement.message_id = active_cm.message_id
              AND active_placement.deleted_at IS NULL
+             AND ${includedPlacement(sql`active_placement.folder_id`)}
             WHERE active_cm.conversation_id = deduplicated.conversation_id
             ORDER BY active_placement.folder_id::text
           ) AS folder_ids,
@@ -1057,6 +1074,7 @@ const runSearch = async (params: {
         JOIN mail.message_placements source_placement
           ON source_placement.message_id = source_cm.message_id
          AND source_placement.deleted_at IS NULL
+         AND ${includedPlacement(sql`source_placement.folder_id`)}
         WHERE deduplicated.conversation_id IS NOT NULL
           AND source_cm.conversation_id = deduplicated.conversation_id
       ) conversation_active_state ON true
@@ -1071,6 +1089,7 @@ const runSearch = async (params: {
             FROM mail.message_placements latest_placement
             WHERE latest_placement.message_id = latest_message.id
               AND latest_placement.deleted_at IS NULL
+              AND ${includedPlacement(sql`latest_placement.folder_id`)}
           )
         ORDER BY latest_message.internal_date DESC, latest_message.id DESC
         LIMIT 1
@@ -1152,6 +1171,7 @@ const executeSearchWithFallback = async (params: {
   backend: SearchCursor["backend"];
   currentUserId: string | null;
   groupByConversation: boolean;
+  excludedFolderIds: readonly string[];
 }): Promise<Result<{ rows: DbSearchHit[]; backend: SearchCursor["backend"] }>> => {
   try {
     const rows = await executeSearch(params);
@@ -1173,6 +1193,7 @@ export const searchMessages = async (params: {
   mailboxId: string;
   request: SearchRequest;
   groupByConversation?: boolean;
+  excludedFolderIds?: readonly string[];
 }): Promise<Result<MessageSearchPage>> => {
   const expression = params.request.expression;
   const complexity = validateSearchComplexity(expression);
@@ -1182,7 +1203,8 @@ export const searchMessages = async (params: {
   const sort = params.request.sort ?? "relevance";
   const currentUserId = userBackedActor(params.context)?.id ?? null;
   const groupByConversation = params.groupByConversation !== false;
-  const queryHash = sha256Json({ mailboxId: params.mailboxId, expression, currentUserId, groupByConversation });
+  const excludedFolderIds = [...new Set(params.excludedFolderIds ?? [])].sort();
+  const queryHash = sha256Json({ mailboxId: params.mailboxId, expression, currentUserId, groupByConversation, excludedFolderIds });
   const cursor = decodeCursor(params.request.cursor, sort, queryHash);
   if (!cursor.ok) return cursor;
   const limit = Math.min(Math.max(Math.floor(params.request.limit ?? 50), 1), 100);
@@ -1200,6 +1222,7 @@ export const searchMessages = async (params: {
     backend,
     currentUserId,
     groupByConversation,
+    excludedFolderIds,
   });
   if (!execution.ok) return execution;
   const rows = execution.data.rows;

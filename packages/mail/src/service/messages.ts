@@ -203,6 +203,7 @@ export const listConversations = async (params: {
   context: MailRequestContext;
   mailboxId: string;
   folderId?: string | null;
+  excludedFolderIds?: readonly string[];
   status?: ConversationWorkStatus | null;
   view?: ConversationView | null;
   unread?: boolean | null;
@@ -215,9 +216,16 @@ export const listConversations = async (params: {
   const currentUserId = userBackedActor(params.context)?.id ?? null;
   const view = params.view ?? null;
   const folderId = params.folderId ?? null;
+  const excludedFolderIds = [...new Set(params.excludedFolderIds ?? [])].sort();
+  const includedPlacement = (folderId: Bun.SQL.Query<unknown>) => sql`
+    NOT (${folderId} IN (
+      SELECT value::uuid FROM jsonb_array_elements_text(${excludedFolderIds}::jsonb)
+    ))
+  `;
   const cursorScope: ConversationCursorScope = {
     mailboxId: params.mailboxId,
     folderId,
+    excludedFolderIds,
     status: params.status ?? null,
     view,
     unread: params.unread ?? null,
@@ -248,6 +256,7 @@ export const listConversations = async (params: {
         JOIN mail.message_placements flagged_mp ON flagged_mp.message_id = flagged_cm.message_id
         WHERE flagged_cm.conversation_id = c.id
           AND flagged_mp.deleted_at IS NULL
+          AND ${includedPlacement(sql`flagged_mp.folder_id`)}
           AND '\\Flagged' = ANY(flagged_mp.flags)
           AND (${folderId}::uuid IS NULL OR flagged_mp.folder_id = ${folderId}::uuid)
       ) AS flagged,
@@ -277,6 +286,7 @@ export const listConversations = async (params: {
         JOIN mail.message_placements unread_mp ON unread_mp.message_id = unread_cm.message_id
         WHERE unread_cm.conversation_id = c.id
           AND unread_mp.deleted_at IS NULL
+          AND ${includedPlacement(sql`unread_mp.folder_id`)}
           AND NOT ('\\Seen' = ANY(unread_mp.flags))
           AND (${folderId}::uuid IS NULL OR unread_mp.folder_id = ${folderId}::uuid)
         ORDER BY unread_mp.folder_id::text
@@ -289,6 +299,7 @@ export const listConversations = async (params: {
         JOIN mail.message_placements active_mp ON active_mp.message_id = active_cm.message_id
         WHERE active_cm.conversation_id = c.id
           AND active_mp.deleted_at IS NULL
+          AND ${includedPlacement(sql`active_mp.folder_id`)}
           AND (${folderId}::uuid IS NULL OR active_mp.folder_id = ${folderId}::uuid)
         ORDER BY active_mp.folder_id::text
       ) AS folder_ids
@@ -309,6 +320,7 @@ export const listConversations = async (params: {
           SELECT placement.folder_id
           FROM mail.message_placements placement
           WHERE placement.message_id = mc.id AND placement.deleted_at IS NULL
+            AND ${includedPlacement(sql`placement.folder_id`)}
           ORDER BY placement.updated_at DESC, placement.folder_id DESC
           LIMIT 1
         ) AS folder_id
@@ -381,11 +393,23 @@ export const listConversations = async (params: {
         LEFT JOIN mail.message_placements visible_mp
           ON visible_mp.message_id = visible_cm.message_id
          AND visible_mp.deleted_at IS NULL
+         AND ${includedPlacement(sql`visible_mp.folder_id`)}
         LEFT JOIN mail.outbox_submissions visible_outbox
           ON visible_outbox.message_id = visible_cm.message_id
          AND visible_outbox.state <> 'cancelled'
         WHERE visible_cm.conversation_id = c.id
-          AND (visible_mp.message_id IS NOT NULL OR visible_outbox.id IS NOT NULL)
+          AND (
+            visible_mp.message_id IS NOT NULL
+            OR (
+              visible_outbox.id IS NOT NULL
+              AND NOT EXISTS (
+                SELECT 1
+                FROM mail.message_placements any_visible_mp
+                WHERE any_visible_mp.message_id = visible_cm.message_id
+                  AND any_visible_mp.deleted_at IS NULL
+              )
+            )
+          )
       )
       AND (
         ${cursor.data?.id ?? null}::uuid IS NULL

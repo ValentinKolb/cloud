@@ -506,84 +506,86 @@ export default function MailDetailsPanel(props: {
             disabled={!props.canWrite}
           />
 
-          <DetailPanel.Summary
-            title="Workflow"
-            actions={
-              <Tooltip.Anchor content="Create tag">
-                <IconButton type="button" label="Create tag" size="xs" disabled={!props.canWrite} onClick={() => void createTag()}>
-                  <i class="ti ti-tag-plus" aria-hidden="true" />
-                </IconButton>
-              </Tooltip.Anchor>
-            }
-          >
-            <div class="flex flex-col gap-2.5">
-              <MultiSelectInput
-                label="Tags"
-                value={() => tagState().tags.map((tag) => tag.id)}
-                onValueChange={updateConversationTags}
-                options={availableTags().map((tag) => ({
-                  id: tag.id,
-                  label: tag.name,
-                  icon: "ti ti-tag",
-                  color: tag.color,
-                }))}
-                selectedOptions={() =>
-                  tagState().tags.map((tag) => ({
+          <DetailPanel.Group label="Workflow">
+            <DetailPanel.Section
+              title="Workflow"
+              actions={
+                <Tooltip.Anchor content="Create tag">
+                  <IconButton type="button" label="Create tag" size="xs" disabled={!props.canWrite} onClick={() => void createTag()}>
+                    <i class="ti ti-tag-plus" aria-hidden="true" />
+                  </IconButton>
+                </Tooltip.Anchor>
+              }
+            >
+              <div class="flex flex-col gap-2.5">
+                <MultiSelectInput
+                  label="Tags"
+                  value={() => tagState().tags.map((tag) => tag.id)}
+                  onValueChange={updateConversationTags}
+                  options={availableTags().map((tag) => ({
                     id: tag.id,
                     label: tag.name,
                     icon: "ti ti-tag",
                     color: tag.color,
-                  }))
-                }
-                placeholder="Select tags"
-                clearable
-                disabled={!props.canWrite}
-              />
-              <Select
-                label="Assignee"
-                value={() => state().assignee?.id ?? null}
-                selectedLabel={() => state().assignee?.displayName}
-                onValueChange={(userId) => updateCollaboration({ assigneeUserId: userId || null })}
-                options={props.assignableUsers.map((user) => ({
-                  id: user.id,
-                  label: user.displayName,
-                  description: user.description,
-                }))}
-                clearable
-                disabled={!props.canWrite || Boolean(props.detailErrors.assignableUsers)}
-              />
-              <DateTimePicker
-                label="Snooze until"
-                value={() => state().snoozedUntil}
-                onValueChange={(value) => updateCollaboration({ snoozedUntil: value || null })}
-                dateConfig={props.dateConfig}
-                disabled={!props.canWrite || state().workStatus === "done"}
-              />
-              <div class="flex items-end gap-2">
-                <div class="min-w-0 flex-1">
-                  <DateTimePicker
-                    label="Personal reminder"
-                    value={reminderDueAt}
-                    onValueChange={(value) => value && updateReminder(value)}
-                    dateConfig={props.dateConfig}
-                    disabled={Boolean(props.detailErrors.reminder)}
-                  />
+                  }))}
+                  selectedOptions={() =>
+                    tagState().tags.map((tag) => ({
+                      id: tag.id,
+                      label: tag.name,
+                      icon: "ti ti-tag",
+                      color: tag.color,
+                    }))
+                  }
+                  placeholder="Select tags"
+                  clearable
+                  disabled={!props.canWrite}
+                />
+                <Select
+                  label="Assignee"
+                  value={() => state().assignee?.id ?? null}
+                  selectedLabel={() => state().assignee?.displayName}
+                  onValueChange={(userId) => updateCollaboration({ assigneeUserId: userId || null })}
+                  options={props.assignableUsers.map((user) => ({
+                    id: user.id,
+                    label: user.displayName,
+                    description: user.description,
+                  }))}
+                  clearable
+                  disabled={!props.canWrite || Boolean(props.detailErrors.assignableUsers)}
+                />
+                <DateTimePicker
+                  label="Snooze until"
+                  value={() => state().snoozedUntil}
+                  onValueChange={(value) => updateCollaboration({ snoozedUntil: value || null })}
+                  dateConfig={props.dateConfig}
+                  disabled={!props.canWrite || state().workStatus === "done"}
+                />
+                <div class="flex items-end gap-2">
+                  <div class="min-w-0 flex-1">
+                    <DateTimePicker
+                      label="Personal reminder"
+                      value={reminderDueAt}
+                      onValueChange={(value) => value && updateReminder(value)}
+                      dateConfig={props.dateConfig}
+                      disabled={Boolean(props.detailErrors.reminder)}
+                    />
+                  </div>
+                  <Show when={reminderDueAt()}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      type="button"
+                      class="mb-0.5"
+                      disabled={Boolean(props.detailErrors.reminder)}
+                      onClick={clearReminder}
+                    >
+                      Clear
+                    </Button>
+                  </Show>
                 </div>
-                <Show when={reminderDueAt()}>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    type="button"
-                    class="mb-0.5"
-                    disabled={Boolean(props.detailErrors.reminder)}
-                    onClick={clearReminder}
-                  >
-                    Clear
-                  </Button>
-                </Show>
               </div>
-            </div>
-          </DetailPanel.Summary>
+            </DetailPanel.Section>
+          </DetailPanel.Group>
 
           <DetailPanel.Group label="Conversation context">
             <Show when={props.presence.length > 0}>

@@ -2060,6 +2060,27 @@ suite("mail PostgreSQL foundation", () => {
         now() - interval '1 day'
       )
     `;
+    const excludedConversationList = await listConversations({
+      context,
+      mailboxId: mailbox.data.id,
+      excludedFolderIds: [folder!.id, secondaryFolder!.id],
+      limit: 100,
+    });
+    expect(excludedConversationList.ok).toBe(true);
+    if (excludedConversationList.ok) {
+      expect(excludedConversationList.data.items.map((item) => item.id)).not.toContain(attachmentConversation!.id);
+    }
+    const excludedMessageList = await searchMessages({
+      context,
+      mailboxId: mailbox.data.id,
+      excludedFolderIds: [folder!.id, secondaryFolder!.id],
+      groupByConversation: false,
+      request: { expression: { type: "all" }, sort: "newest", limit: 100 },
+    });
+    expect(excludedMessageList.ok).toBe(true);
+    if (excludedMessageList.ok) {
+      expect(excludedMessageList.data.items.map((item) => item.conversationId)).not.toContain(attachmentConversation!.id);
+    }
     const folderScoped = await searchMessages({
       context,
       mailboxId: mailbox.data.id,

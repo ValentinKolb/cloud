@@ -50,11 +50,11 @@ The left navigation contains:
 
 - **Follow-up** for Needs action, Waiting for reply, Snoozed, and Done.
 - **Assignment** for Assigned to me and Unassigned.
-- **Mail** for Inbox, Drafts, Scheduled, Sent, and All mail.
+- **Mail** for Inbox, Drafts, Scheduled, Sent, and an expandable More group.
 - **Folders** for custom provider folders and their nested hierarchy. Mailbox administrators can hide folders here without deleting or unsubscribing them.
 - **Tags** for opening every conversation with a mailbox-local tag. This section appears only when at least one tag exists.
 - **Saved views** created from reusable mailbox and collaboration filters. This section appears only when at least one view exists.
-- **More** for Recent activity, Archive, Trash, and Junk. It opens automatically when one of these destinations is active.
+- **More** for All mail, Recent activity, Archive, Trash, and Junk. All mail combines the mailbox except Trash and Junk. More opens automatically when one of these destinations is active.
 - **Mailbox tools** for synchronization, health, automations, mailing lists, remote images, shared links, and browser email-link handling. Available tools depend on your permission.
 - **Settings** at the bottom when your permission allows it.
 
