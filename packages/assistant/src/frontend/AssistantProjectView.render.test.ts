@@ -18,7 +18,7 @@ afterAll(() => {
   if (createdSerovalLink) unlinkSync(serovalLink);
 });
 
-const [{ default: AssistantProjectView }, { AssistantContextSection }, { AssistantLiveProvider, createAssistantLiveInvalidationHub }] =
+const [{ default: AssistantProjectView }, { assistantContextCountTitle }, { AssistantLiveProvider, createAssistantLiveInvalidationHub }] =
   await Promise.all([import("./AssistantProjectView"), import("./AssistantContextContent"), import("./assistant-live")]);
 
 const project = {
@@ -129,6 +129,7 @@ describe("Assistant Project view", () => {
     expect(html).not.toContain("divide-y");
     expect(html).toContain("Project context");
     expect(html).toContain("View project");
+    expect(html).toContain('class="ti ti-eye"');
     expect(html).toContain("IT support");
     expect(html).toContain("text-[var(--ui-app-accent-text)]");
     expect(html).not.toContain(">Project instructions</h2>");
@@ -137,24 +138,17 @@ describe("Assistant Project view", () => {
     expect(html).toContain("Images");
     expect(html).toContain("References");
     expect(html).not.toContain('aria-expanded="true"');
-    expect(html).toContain('aria-label="Project settings"');
+    expect(html.match(/aria-label="Project settings"/g)).toHaveLength(1);
     expect(html).toContain('aria-label="Add Project knowledge"');
     expect(html).toContain('aria-label="Add reference"');
     expect(html).toContain("Add files");
     expect(html).not.toContain("admin access");
   });
 
-  test("matches View all typography to section counts", () => {
-    const html = renderToString(() =>
-      createComponent(AssistantContextSection, {
-        title: "Images",
-        count: 1,
-        onViewAll: () => undefined,
-        children: "Image row",
-      }),
-    );
-
-    expect(html).toContain('style="font-size:0.75rem;font-weight:400"');
+  test("puts non-zero file counts into the section title", () => {
+    expect(assistantContextCountTitle(0, "Image", "Images")).toBe("Images");
+    expect(assistantContextCountTitle(1, "Image", "Images")).toBe("1 Image");
+    expect(assistantContextCountTitle(3, "Image", "Images")).toBe("3 Images");
   });
 
   test("uses one item action menu for Project context management", () => {
@@ -182,8 +176,50 @@ describe("Assistant Project view", () => {
     expect(html).toContain('aria-label="Actions for printer.png"');
     expect(html).toContain('aria-label="Actions for printer.txt"');
     expect(html).toContain('aria-label="Actions for Printer incident"');
+    expect(html).toContain("1 Image");
+    expect(html).toContain("1 File");
+    expect(html).toContain("1 Reference");
+    expect(html).not.toContain(">View all<");
     expect(html).not.toContain('aria-label="Edit Printer runbook"');
     expect(html).not.toContain('aria-label="Delete Printer runbook"');
+  });
+
+  test("adds View all as the last action only when a section overflows", () => {
+    const live = createAssistantLiveInvalidationHub({ onApplied: () => undefined });
+    const html = renderToString(() =>
+      createComponent(AssistantLiveProvider, {
+        value: live,
+        get children() {
+          return createComponent(AssistantProjectView, {
+            project,
+            initialQuery: "",
+            initialPage: page,
+            initialContext: {
+              ...projectContext,
+              files: [
+                ...projectContext.files,
+                {
+                  ...projectContext.files[0]!,
+                  id: "image456",
+                  shortId: "image456",
+                  path: "printer-detail.png",
+                },
+              ],
+            },
+            onOpenConversation: async () => true,
+            get composer() {
+              return "Standard composer";
+            },
+          });
+        },
+      }),
+    );
+    live.dispose();
+
+    expect(html).toContain("2 Images");
+    expect(html).toContain('class="ti ti-eye"');
+    expect(html.match(/>View all</g)).toHaveLength(1);
+    expect(html.indexOf("printer.png")).toBeLessThan(html.indexOf("View all"));
   });
 
   test("keeps Project context management out of a read-only workspace", () => {

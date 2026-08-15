@@ -1,6 +1,5 @@
 import { downloadFileFromContent } from "@k2b/stdlib/browser";
 import {
-  Button,
   DetailPanel,
   type DropdownItem,
   FileBrowserPanel,
@@ -33,14 +32,10 @@ export type AssistantContextFile = {
 
 export const isAssistantContextImage = (file: AssistantContextFile): boolean => file.mediaType.startsWith("image/");
 
-export function AssistantContextSection(props: {
-  title: string;
-  identity?: boolean;
-  count?: number;
-  action?: JSX.Element;
-  onViewAll?: () => void;
-  children: JSX.Element;
-}) {
+export const assistantContextCountTitle = (count: number, singular: string, plural: string): string =>
+  count > 0 ? `${count} ${count === 1 ? singular : plural}` : plural;
+
+export function AssistantContextSection(props: { title: string; identity?: boolean; action?: JSX.Element; children: JSX.Element }) {
   return (
     <section class="flex flex-col gap-2">
       <div class="flex min-h-7 items-center justify-between gap-2">
@@ -54,14 +49,6 @@ export function AssistantContextSection(props: {
           {props.title}
         </h2>
         {props.action}
-        <Show when={props.onViewAll && (props.count ?? 0) > 0}>
-          <Button size="xs" variant="ghost" style={{ "font-size": "0.75rem", "font-weight": "400" }} onClick={() => props.onViewAll?.()}>
-            View all
-          </Button>
-        </Show>
-        <Show when={props.count !== undefined}>
-          <span class="min-w-5 text-right text-xs tabular-nums text-dimmed">{props.count}</span>
-        </Show>
       </div>
       {props.children}
     </section>
@@ -278,6 +265,10 @@ export const loadAssistantContextImages = async (files: readonly AssistantContex
 
 export function AssistantContextRows(props: { children: JSX.Element }) {
   return <div class="flex flex-col gap-1">{props.children}</div>;
+}
+
+export function AssistantContextViewAll(props: { onClick: () => void }) {
+  return <AssistantContextRow icon="ti ti-eye" title="View all" onClick={props.onClick} />;
 }
 
 export function AssistantContextEmpty(props: { children: JSX.Element }) {

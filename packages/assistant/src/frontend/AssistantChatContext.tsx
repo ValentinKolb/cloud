@@ -14,6 +14,8 @@ import {
   AssistantContextRow,
   AssistantContextRows,
   AssistantContextSection,
+  AssistantContextViewAll,
+  assistantContextCountTitle,
   assistantProjectFileSource,
   confirmOpenAssistantLink,
   isAssistantContextImage,
@@ -34,6 +36,8 @@ import {
 } from "./assistant-live";
 
 export { splitAssistantConversationSources } from "./assistant-context";
+
+const CONTEXT_PREVIEW_LIMIT = 3;
 
 export const assistantChatContextHasContent = (snapshot: AssistantChatContextSnapshot): boolean =>
   snapshot.sources.some((source) => source.kind !== "file") ||
@@ -192,27 +196,28 @@ function AssistantChatContextView(props: { state: AssistantChatContextState }) {
             void prompts.error(error instanceof Error ? error.message : "Images could not be loaded.", { title: "Could not open images" });
           }
         };
+        const references = () => [
+          ...value().chat.references.map((source) => ({
+            kind: "source" as const,
+            title: source.title,
+            description: source.preview ?? undefined,
+            icon: source.icon,
+            source,
+          })),
+          ...(value().projectContext?.references ?? []).map((reference) => ({
+            kind: "project" as const,
+            title: reference.label || `${reference.ref.type} · ${reference.ref.id}`,
+            description: "Project",
+            icon: "ti ti-link",
+            reference,
+          })),
+        ];
         const openReferences = async () => {
-          const references = [
-            ...value().chat.references.map((source) => ({
-              kind: "source" as const,
-              title: source.title,
-              description: source.preview ?? undefined,
-              icon: source.icon,
-              source,
-            })),
-            ...(value().projectContext?.references ?? []).map((reference) => ({
-              kind: "project" as const,
-              title: reference.label || `${reference.ref.type} · ${reference.ref.id}`,
-              description: "Project",
-              icon: "ti ti-link",
-              reference,
-            })),
-          ];
-          const selected = await prompts.search<(typeof references)[number]>(
+          const items = references();
+          const selected = await prompts.search<(typeof items)[number]>(
             ({ query }) => {
               const normalized = query.trim().toLocaleLowerCase();
-              return references
+              return items
                 .filter(
                   (reference) =>
                     !normalized || `${reference.title} ${reference.description ?? ""}`.toLocaleLowerCase().includes(normalized),
@@ -239,6 +244,7 @@ function AssistantChatContextView(props: { state: AssistantChatContextState }) {
               {(project) => (
                 <AssistantContextSection title={project().name} identity>
                   <AssistantContextRow
+                    icon="ti ti-eye"
                     title="View project"
                     onClick={() =>
                       void openAssistantMarkdown(
@@ -254,32 +260,29 @@ function AssistantChatContextView(props: { state: AssistantChatContextState }) {
 
             <Show when={value().projectContext}>
               {(project) => (
-                <AssistantContextSection
-                  title="Project knowledge"
-                  count={project().knowledge.length}
-                  onViewAll={() => void openAssistantKnowledgeSearch(project().knowledge)}
-                >
+                <AssistantContextSection title="Project knowledge">
                   <Show when={project().knowledge[0]} fallback={<AssistantContextEmpty>No Project knowledge yet.</AssistantContextEmpty>}>
                     {(item) => (
-                      <AssistantContextRow
-                        icon="ti ti-bulb"
-                        title={item().title}
-                        onClick={() => void openAssistantMarkdown(item().title, item().content, "ti ti-bulb")}
-                      />
+                      <AssistantContextRows>
+                        <AssistantContextRow
+                          icon="ti ti-bulb"
+                          title={item().title}
+                          onClick={() => void openAssistantMarkdown(item().title, item().content, "ti ti-bulb")}
+                        />
+                        <Show when={project().knowledge.length > 1}>
+                          <AssistantContextViewAll onClick={() => void openAssistantKnowledgeSearch(project().knowledge)} />
+                        </Show>
+                      </AssistantContextRows>
                     )}
                   </Show>
                 </AssistantContextSection>
               )}
             </Show>
 
-            <AssistantContextSection
-              title="Sources"
-              count={value().chat.sources.length}
-              onViewAll={() => void openSourceSearch("Sources", value().chat.sources)}
-            >
+            <AssistantContextSection title="Sources">
               <Show when={value().chat.sources.length > 0} fallback={<AssistantContextEmpty>No sources used yet.</AssistantContextEmpty>}>
                 <AssistantContextRows>
-                  <For each={value().chat.sources.slice(0, 3)}>
+                  <For each={value().chat.sources.slice(0, CONTEXT_PREVIEW_LIMIT)}>
                     {(source) => (
                       <AssistantContextRow
                         icon={source.icon}
@@ -289,100 +292,105 @@ function AssistantChatContextView(props: { state: AssistantChatContextState }) {
                       />
                     )}
                   </For>
+                  <Show when={value().chat.sources.length > CONTEXT_PREVIEW_LIMIT}>
+                    <AssistantContextViewAll onClick={() => void openSourceSearch("Sources", value().chat.sources)} />
+                  </Show>
                 </AssistantContextRows>
               </Show>
             </AssistantContextSection>
 
-            <AssistantContextSection
-              title="References"
-              count={value().chat.references.length + (value().projectContext?.references.length ?? 0)}
-              onViewAll={() => void openReferences()}
-            >
+            <AssistantContextSection title={assistantContextCountTitle(references().length, "Reference", "References")}>
               <AssistantContextRows>
-                <For each={value().chat.references.slice(0, 2)}>
-                  {(source) => (
+                <For each={references().slice(0, CONTEXT_PREVIEW_LIMIT)}>
+                  {(reference) => (
                     <AssistantContextRow
-                      icon={source.icon}
-                      title={source.title}
-                      description={source.preview ?? undefined}
-                      onClick={source.href ? () => void confirmOpenAssistantLink(source.title, source.href!) : undefined}
+                      icon={reference.icon}
+                      title={reference.title}
+                      description={reference.kind === "source" ? reference.description : undefined}
+                      scope={reference.kind === "project" ? "project" : undefined}
+                      showScope={reference.kind === "project" && value().chat.references.length > 0}
+                      onClick={
+                        reference.kind === "project"
+                          ? () => void openAssistantCloudReference(reference.title, reference.reference.ref)
+                          : reference.source.href
+                            ? () => void confirmOpenAssistantLink(reference.title, reference.source.href!)
+                            : undefined
+                      }
                     />
                   )}
                 </For>
-                <For each={(value().projectContext?.references ?? []).slice(0, 2)}>
-                  {(reference) => {
-                    const title = reference.label || `${reference.ref.type} · ${reference.ref.id}`;
-                    return (
-                      <AssistantContextRow
-                        icon="ti ti-link"
-                        title={title}
-                        scope="project"
-                        showScope={value().chat.references.length > 0}
-                        onClick={() => void openAssistantCloudReference(title, reference.ref)}
-                      />
-                    );
-                  }}
-                </For>
-                <Show when={value().chat.references.length + (value().projectContext?.references.length ?? 0) === 0}>
+                <Show when={references().length === 0}>
                   <AssistantContextEmpty>No references used yet.</AssistantContextEmpty>
+                </Show>
+                <Show when={references().length > CONTEXT_PREVIEW_LIMIT}>
+                  <AssistantContextViewAll onClick={() => void openReferences()} />
                 </Show>
               </AssistantContextRows>
             </AssistantContextSection>
 
-            <AssistantContextSection title="Images" count={images().length} onViewAll={() => void openImages()}>
+            <AssistantContextSection title={assistantContextCountTitle(images().length, "Image", "Images")}>
               <Show when={images()[0]} fallback={<AssistantContextEmpty>No images yet.</AssistantContextEmpty>}>
                 {(file) => (
-                  <AssistantContextRow
-                    icon="ti ti-photo"
-                    title={file().path.replace(/^.*\//u, "")}
-                    scope={file().scope}
-                    showScope={hasMixedScope(images())}
-                    onClick={() => void openImages(file())}
-                  />
+                  <AssistantContextRows>
+                    <AssistantContextRow
+                      icon="ti ti-photo"
+                      title={file().path.replace(/^.*\//u, "")}
+                      scope={file().scope}
+                      showScope={hasMixedScope(images())}
+                      onClick={() => void openImages(file())}
+                    />
+                    <Show when={images().length > 1}>
+                      <AssistantContextViewAll onClick={() => void openImages()} />
+                    </Show>
+                  </AssistantContextRows>
                 )}
               </Show>
             </AssistantContextSection>
 
-            <AssistantContextSection
-              title="Files"
-              count={regularFiles().length}
-              onViewAll={() => void openAssistantContextFiles(regularFiles())}
-            >
+            <AssistantContextSection title={assistantContextCountTitle(regularFiles().length, "File", "Files")}>
               <Show when={regularFiles()[0]} fallback={<AssistantContextEmpty>No files yet.</AssistantContextEmpty>}>
                 {(file) => (
-                  <AssistantContextRow
-                    icon="ti ti-file"
-                    title={file().path.replace(/^.*\//u, "")}
-                    scope={file().scope}
-                    showScope={hasMixedScope(regularFiles())}
-                    onClick={() => void openAssistantContextFiles(regularFiles(), file())}
-                  />
+                  <AssistantContextRows>
+                    <AssistantContextRow
+                      icon="ti ti-file"
+                      title={file().path.replace(/^.*\//u, "")}
+                      scope={file().scope}
+                      showScope={hasMixedScope(regularFiles())}
+                      onClick={() => void openAssistantContextFiles(regularFiles(), file())}
+                    />
+                    <Show when={regularFiles().length > 1}>
+                      <AssistantContextViewAll onClick={() => void openAssistantContextFiles(regularFiles())} />
+                    </Show>
+                  </AssistantContextRows>
                 )}
               </Show>
             </AssistantContextSection>
 
-            <AssistantContextSection
-              title="Scheduled"
-              count={value().chat.tasks.length}
-              onViewAll={() =>
-                void prompts.dialog<void>(() => <AssistantTasksView chatId={value().chat.chatId} />, {
-                  title: "Scheduled tasks",
-                  icon: "ti ti-calendar-time",
-                  size: "large",
-                })
-              }
-            >
+            <AssistantContextSection title="Scheduled">
               <Show when={value().chat.tasks[0]} fallback={<AssistantContextEmpty>Nothing scheduled.</AssistantContextEmpty>}>
                 {(task) => {
                   const status = () => taskStatus(task());
                   return (
-                    <div class="flex items-start justify-between gap-2">
-                      <span class="min-w-0">
-                        <span class="block line-clamp-2 text-xs text-secondary">{task().prompt}</span>
-                        <span class="mt-1 block truncate text-xs text-dimmed">{formatAssistantTaskSchedule(task())}</span>
-                      </span>
-                      <StatusBadge label={status().label} tone={status().tone} variant="text" />
-                    </div>
+                    <AssistantContextRows>
+                      <div class="flex items-start justify-between gap-2">
+                        <span class="min-w-0">
+                          <span class="block line-clamp-2 text-xs text-secondary">{task().prompt}</span>
+                          <span class="mt-1 block truncate text-xs text-dimmed">{formatAssistantTaskSchedule(task())}</span>
+                        </span>
+                        <StatusBadge label={status().label} tone={status().tone} variant="text" />
+                      </div>
+                      <Show when={value().chat.tasks.length > 1}>
+                        <AssistantContextViewAll
+                          onClick={() =>
+                            void prompts.dialog<void>(() => <AssistantTasksView chatId={value().chat.chatId} />, {
+                              title: "Scheduled tasks",
+                              icon: "ti ti-calendar-time",
+                              size: "large",
+                            })
+                          }
+                        />
+                      </Show>
+                    </AssistantContextRows>
                   );
                 }}
               </Show>

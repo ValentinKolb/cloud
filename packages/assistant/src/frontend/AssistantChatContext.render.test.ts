@@ -103,7 +103,7 @@ describe("Assistant chat context", () => {
     live.dispose();
   });
 
-  test("keeps the compact context title-free with right-aligned counts and no Chat ID", () => {
+  test("keeps the compact context title-free without detached section counts or a Chat ID", () => {
     const live = createAssistantLiveInvalidationHub({ onApplied: () => undefined });
     const html = renderToString(() =>
       createComponent(AssistantLiveProvider, {
@@ -121,10 +121,61 @@ describe("Assistant chat context", () => {
     expect(html).toContain("Sources");
     expect(html).toContain("References");
     expect(html).toContain("Images");
-    expect(html).toContain("tabular-nums");
-    expect(html).toContain("text-right");
+    expect(html).not.toContain("tabular-nums");
+    expect(html).not.toContain("text-right");
     expect(html).not.toContain("Chat ID");
     expect(html).not.toContain(">Chat context<");
+  });
+
+  test("counts files in section titles and only adds View all for hidden rows", () => {
+    const live = createAssistantLiveInvalidationHub({ onApplied: () => undefined });
+    const html = renderToString(() =>
+      createComponent(AssistantLiveProvider, {
+        value: live,
+        get children() {
+          return createComponent(AssistantChatContextContent, {
+            chatId: "cHt234",
+            initial: {
+              chatId: "cHt234",
+              sources: [],
+              files: [
+                {
+                  path: "first.png",
+                  size: 42,
+                  mediaType: "image/png",
+                  origin: "user",
+                  updatedAt: "2026-08-12T08:00:00.000Z",
+                  version: 1,
+                },
+                {
+                  path: "second.png",
+                  size: 42,
+                  mediaType: "image/png",
+                  origin: "user",
+                  updatedAt: "2026-08-12T08:00:00.000Z",
+                  version: 1,
+                },
+                {
+                  path: "notes.txt",
+                  size: 42,
+                  mediaType: "text/plain",
+                  origin: "user",
+                  updatedAt: "2026-08-12T08:00:00.000Z",
+                  version: 1,
+                },
+              ],
+              tasks: [],
+            },
+          });
+        },
+      }),
+    );
+    live.dispose();
+
+    expect(html).toContain("2 Images");
+    expect(html).toContain("1 File");
+    expect(html.match(/>View all</g)).toHaveLength(1);
+    expect(html.indexOf("first.png")).toBeLessThan(html.indexOf("View all"));
   });
 
   test("uses direct context viewers instead of an intermediate DetailPanel", async () => {
@@ -142,6 +193,7 @@ describe("Assistant chat context", () => {
       Bun.file(resolve(import.meta.dir, "AssistantContextContent.tsx")).text(),
     ]);
     expect(context).toContain('title="View project"');
+    expect(context).toMatch(/icon="ti ti-eye"\s+title="View project"/);
     expect(context).not.toContain("openAssistantProjectSettingsDialog");
     expect(shared).toContain("<DetailPanel.Action");
   });

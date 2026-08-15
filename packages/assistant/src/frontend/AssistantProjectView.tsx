@@ -14,6 +14,8 @@ import {
   AssistantContextRow,
   AssistantContextRows,
   AssistantContextSection,
+  AssistantContextViewAll,
+  assistantContextCountTitle,
   assistantProjectFileSource,
   downloadAssistantContextFile,
   isAssistantContextImage,
@@ -36,6 +38,8 @@ type Props = {
   composer: JSX.Element;
   onOpenConversation: (conversationId: string) => Promise<boolean>;
 };
+
+const CONTEXT_PREVIEW_LIMIT = 3;
 
 export default function AssistantProjectView(props: Props) {
   const [query, setQuery] = createSignal(props.initialQuery);
@@ -300,6 +304,21 @@ export default function AssistantProjectView(props: Props) {
         ]
       : [];
 
+  const openReferences = async (references: NonNullable<AssistantProjectContextSnapshot["references"]>) => {
+    const selected = await prompts.search<(typeof references)[number]>(
+      ({ query }) => {
+        const normalized = query.trim().toLocaleLowerCase();
+        return references
+          .map((reference) => ({ reference, title: reference.label || `${reference.ref.type} · ${reference.ref.id}` }))
+          .filter(({ title }) => !normalized || title.toLocaleLowerCase().includes(normalized))
+          .map(({ reference, title }) => ({ value: reference, label: title, icon: "ti ti-link" }));
+      },
+      { title: "References", icon: "ti ti-link", placeholder: "Search references…", minQueryLength: 0, size: "small" },
+    );
+    if (!selected?.value) return;
+    await openAssistantCloudReference(selected.value.label || `${selected.value.ref.type} · ${selected.value.ref.id}`, selected.value.ref);
+  };
+
   createEffect(() => {
     const value = query().trim();
     if (first) {
@@ -340,7 +359,7 @@ export default function AssistantProjectView(props: Props) {
     <div class="min-h-0 flex-1 overflow-auto p-[var(--ui-space-section)]">
       <div class="mx-auto grid min-h-full w-full max-w-[88rem] gap-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <main class="flex min-h-[36rem] min-w-0 flex-col">
-          <header class="flex min-w-0 items-start justify-between gap-4">
+          <header class="flex min-w-0 items-start gap-4">
             <div class="min-w-0">
               <p class="text-xs text-dimmed">Project</p>
               <h1 class="truncate text-xl font-semibold text-primary">{props.project.name}</h1>
@@ -348,16 +367,6 @@ export default function AssistantProjectView(props: Props) {
                 <p class="mt-1 line-clamp-2 text-sm text-secondary">{props.project.description}</p>
               </Show>
             </div>
-            <Show when={props.project.permission !== "read"}>
-              <IconButton
-                size="sm"
-                variant="subtle"
-                label="Project settings"
-                onClick={() => void openAssistantProjectSettingsDialog(props.project, live)}
-              >
-                <i class="ti ti-settings" aria-hidden="true" />
-              </IconButton>
-            </Show>
           </header>
 
           <div class="mx-auto mt-auto flex w-full max-w-4xl flex-col gap-3 pt-16">
@@ -453,15 +462,16 @@ export default function AssistantProjectView(props: Props) {
                 <Show when={props.project.permission === "admin"}>
                   <IconButton
                     size="xs"
-                    label="Edit Project instructions"
+                    label="Project settings"
                     onClick={() => void openAssistantProjectSettingsDialog(props.project, live)}
                   >
-                    <i class="ti ti-pencil" aria-hidden="true" />
+                    <i class="ti ti-settings" aria-hidden="true" />
                   </IconButton>
                 </Show>
               }
             >
               <AssistantContextRow
+                icon="ti ti-eye"
                 title="View project"
                 onClick={() =>
                   void openAssistantMarkdown(
@@ -493,8 +503,6 @@ export default function AssistantProjectView(props: Props) {
                 <>
                   <AssistantContextSection
                     title="Project knowledge"
-                    count={value().knowledge.length}
-                    onViewAll={() => void openAssistantKnowledgeSearch(value().knowledge)}
                     action={
                       <Show when={props.project.permission !== "read"}>
                         <IconButton size="xs" label="Add Project knowledge" onClick={() => void editKnowledge()}>
@@ -508,7 +516,7 @@ export default function AssistantProjectView(props: Props) {
                       fallback={<AssistantContextEmpty>No Project knowledge yet.</AssistantContextEmpty>}
                     >
                       <AssistantContextRows>
-                        <For each={value().knowledge.slice(0, 3)}>
+                        <For each={value().knowledge.slice(0, CONTEXT_PREVIEW_LIMIT)}>
                           {(item) => (
                             <AssistantContextRow
                               icon="ti ti-bulb"
@@ -519,14 +527,15 @@ export default function AssistantProjectView(props: Props) {
                             />
                           )}
                         </For>
+                        <Show when={value().knowledge.length > CONTEXT_PREVIEW_LIMIT}>
+                          <AssistantContextViewAll onClick={() => void openAssistantKnowledgeSearch(value().knowledge)} />
+                        </Show>
                       </AssistantContextRows>
                     </Show>
                   </AssistantContextSection>
 
                   <AssistantContextSection
-                    title="Images"
-                    count={imageFiles().length}
-                    onViewAll={() => void openImages()}
+                    title={assistantContextCountTitle(imageFiles().length, "Image", "Images")}
                     action={
                       <Show when={props.project.permission !== "read"}>
                         <IconButton size="xs" label="Add images" onClick={() => void chooseFiles(true)}>
@@ -537,21 +546,24 @@ export default function AssistantProjectView(props: Props) {
                   >
                     <Show when={imageFiles()[0]} fallback={<AssistantContextEmpty>No Project images yet.</AssistantContextEmpty>}>
                       {(file) => (
-                        <AssistantContextRow
-                          icon="ti ti-photo"
-                          title={file().path.replace(/^.*\//u, "")}
-                          onClick={() => void openImages(file())}
-                          menuItems={fileMenu(file())}
-                          menuLabel={`Actions for ${file().path.replace(/^.*\//u, "")}`}
-                        />
+                        <AssistantContextRows>
+                          <AssistantContextRow
+                            icon="ti ti-photo"
+                            title={file().path.replace(/^.*\//u, "")}
+                            onClick={() => void openImages(file())}
+                            menuItems={fileMenu(file())}
+                            menuLabel={`Actions for ${file().path.replace(/^.*\//u, "")}`}
+                          />
+                          <Show when={imageFiles().length > 1}>
+                            <AssistantContextViewAll onClick={() => void openImages()} />
+                          </Show>
+                        </AssistantContextRows>
                       )}
                     </Show>
                   </AssistantContextSection>
 
                   <AssistantContextSection
-                    title="Files"
-                    count={regularFiles().length}
-                    onViewAll={() => void openAssistantContextFiles(regularFiles())}
+                    title={assistantContextCountTitle(regularFiles().length, "File", "Files")}
                     action={
                       <Show when={props.project.permission !== "read"}>
                         <IconButton size="xs" label="Add files" onClick={() => void chooseFiles()}>
@@ -562,7 +574,7 @@ export default function AssistantProjectView(props: Props) {
                   >
                     <Show when={regularFiles().length > 0} fallback={<AssistantContextEmpty>No Project files yet.</AssistantContextEmpty>}>
                       <AssistantContextRows>
-                        <For each={regularFiles().slice(0, 3)}>
+                        <For each={regularFiles().slice(0, CONTEXT_PREVIEW_LIMIT)}>
                           {(file) => (
                             <AssistantContextRow
                               icon="ti ti-file"
@@ -573,13 +585,15 @@ export default function AssistantProjectView(props: Props) {
                             />
                           )}
                         </For>
+                        <Show when={regularFiles().length > CONTEXT_PREVIEW_LIMIT}>
+                          <AssistantContextViewAll onClick={() => void openAssistantContextFiles(regularFiles())} />
+                        </Show>
                       </AssistantContextRows>
                     </Show>
                   </AssistantContextSection>
 
                   <AssistantContextSection
-                    title="References"
-                    count={value().references.length}
+                    title={assistantContextCountTitle(value().references.length, "Reference", "References")}
                     action={
                       <Show when={props.project.permission !== "read"}>
                         <IconButton size="xs" label="Add reference" onClick={() => void addReference()}>
@@ -593,7 +607,7 @@ export default function AssistantProjectView(props: Props) {
                       fallback={<AssistantContextEmpty>No Project references yet.</AssistantContextEmpty>}
                     >
                       <AssistantContextRows>
-                        <For each={value().references.slice(0, 3)}>
+                        <For each={value().references.slice(0, CONTEXT_PREVIEW_LIMIT)}>
                           {(reference) => {
                             const label = () => reference.label || `${reference.ref.type} · ${reference.ref.id}`;
                             return (
@@ -607,6 +621,9 @@ export default function AssistantProjectView(props: Props) {
                             );
                           }}
                         </For>
+                        <Show when={value().references.length > CONTEXT_PREVIEW_LIMIT}>
+                          <AssistantContextViewAll onClick={() => void openReferences(value().references)} />
+                        </Show>
                       </AssistantContextRows>
                     </Show>
                   </AssistantContextSection>
