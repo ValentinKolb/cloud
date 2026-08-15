@@ -109,11 +109,27 @@ export function AssistantContextRow(props: {
   );
 }
 
+const normalizedMarkdownTitle = (value: string) => value.trim().replace(/\s+/gu, " ").toLocaleLowerCase();
+
+export const assistantMarkdownBody = (title: string, markdown: string): string => {
+  const lines = markdown.split(/\r?\n/u);
+  const headingIndex = lines.findIndex((line) => line.trim().length > 0);
+  if (headingIndex < 0) return markdown;
+  const heading = lines[headingIndex]?.match(/^\s*#\s+(.+?)\s*$/u);
+  if (!heading) return markdown;
+  const headingTitle = heading[1]?.replace(/\s+#+\s*$/u, "") ?? "";
+  if (normalizedMarkdownTitle(headingTitle) !== normalizedMarkdownTitle(title)) return markdown;
+  return lines
+    .slice(headingIndex + 1)
+    .join("\n")
+    .replace(/^(?:\s*\n)+/u, "");
+};
+
 export const openAssistantMarkdown = (title: string, markdown: string, icon = "ti ti-file-description") =>
   prompts.dialog<void>(
     () => (
-      <div class="k2b-dialog__body max-h-[70vh] overflow-auto">
-        <MarkdownView markdown={markdown} headingScale="compact" />
+      <div class="max-h-[70vh] overflow-auto">
+        <MarkdownView markdown={assistantMarkdownBody(title, markdown)} headingScale="compact" />
       </div>
     ),
     { title, icon, size: "large" },

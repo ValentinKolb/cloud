@@ -20,7 +20,8 @@ afterAll(() => {
   if (createdSerovalLink) unlinkSync(serovalLink);
 });
 
-const { assistantChatContextHasContent, AssistantChatContextContent, AssistantChatContextPanel } = await import("./AssistantChatContext");
+const { assistantChatContextHasContent, assistantChatContextHasPanel, AssistantChatContextContent, AssistantChatContextPanel } =
+  await import("./AssistantChatContext");
 const { AssistantChatContextSurface } = await import("./AssistantChatContextSurfaces");
 const { AssistantLiveProvider, createAssistantLiveInvalidationHub } = await import("./assistant-live");
 
@@ -96,6 +97,8 @@ describe("Assistant chat context", () => {
     const populated = { ...empty, sources: [source("web", "docs")] } satisfies AssistantChatContextSnapshot;
 
     expect(assistantChatContextHasContent(empty)).toBeFalse();
+    expect(assistantChatContextHasPanel(empty)).toBeFalse();
+    expect(assistantChatContextHasPanel(empty, true)).toBeTrue();
     expect(assistantChatContextHasContent({ ...empty, sources: [source("file", "stale.pdf")] })).toBeFalse();
     expect(renderPanel(empty)).not.toContain('data-assistant-context="compact"');
     expect(assistantChatContextHasContent(populated)).toBeTrue();
@@ -103,7 +106,23 @@ describe("Assistant chat context", () => {
     live.dispose();
   });
 
-  test("keeps the compact context title-free without detached section counts or a Chat ID", () => {
+  test("keeps unknown non-Project context closed while it loads", () => {
+    const live = createAssistantLiveInvalidationHub({ onApplied: () => undefined });
+    const html = renderToString(() =>
+      createComponent(AssistantLiveProvider, {
+        value: live,
+        get children() {
+          return createComponent(AssistantChatContextPanel, { chatId: "cHt234" });
+        },
+      }),
+    );
+    live.dispose();
+
+    expect(html).not.toContain('data-assistant-context="compact"');
+    expect(html).not.toContain("Loading context");
+  });
+
+  test("renders only populated context sections", () => {
     const live = createAssistantLiveInvalidationHub({ onApplied: () => undefined });
     const html = renderToString(() =>
       createComponent(AssistantLiveProvider, {
@@ -111,7 +130,7 @@ describe("Assistant chat context", () => {
         get children() {
           return createComponent(AssistantChatContextContent, {
             chatId: "cHt234",
-            initial: { chatId: "cHt234", sources: [], files: [], tasks: [] },
+            initial: { chatId: "cHt234", sources: [source("web", "Cloud docs")], files: [], tasks: [] },
           });
         },
       }),
@@ -119,8 +138,15 @@ describe("Assistant chat context", () => {
     live.dispose();
 
     expect(html).toContain("Sources");
-    expect(html).toContain("References");
-    expect(html).toContain("Images");
+    expect(html).toContain("Cloud docs");
+    expect(html).not.toContain("References");
+    expect(html).not.toContain("Images");
+    expect(html).not.toContain("Files");
+    expect(html).not.toContain("Scheduled");
+    expect(html).not.toContain("No sources used yet.");
+    expect(html).not.toContain("No references used yet.");
+    expect(html).not.toContain("No files yet.");
+    expect(html).not.toContain("Nothing scheduled.");
     expect(html).not.toContain("tabular-nums");
     expect(html).not.toContain("text-right");
     expect(html).not.toContain("Chat ID");
@@ -174,6 +200,9 @@ describe("Assistant chat context", () => {
 
     expect(html).toContain("2 Images");
     expect(html).toContain("1 File");
+    expect(html).not.toContain("Sources");
+    expect(html).not.toContain("References");
+    expect(html).not.toContain("Scheduled");
     expect(html.match(/>View all</g)).toHaveLength(1);
     expect(html.indexOf("first.png")).toBeLessThan(html.indexOf("View all"));
   });
@@ -188,13 +217,15 @@ describe("Assistant chat context", () => {
   });
 
   test("uses the shared compact action rows and keeps Project editing out of chats", async () => {
-    const [context, shared] = await Promise.all([
+    const [context, shared, workspace] = await Promise.all([
       Bun.file(resolve(import.meta.dir, "AssistantChatContext.tsx")).text(),
       Bun.file(resolve(import.meta.dir, "AssistantContextContent.tsx")).text(),
+      Bun.file(resolve(import.meta.dir, "AssistantWorkspace.island.tsx")).text(),
     ]);
     expect(context).toContain('title="View project"');
     expect(context).toMatch(/icon="ti ti-eye"\s+title="View project"/);
     expect(context).not.toContain("openAssistantProjectSettingsDialog");
     expect(shared).toContain("<DetailPanel.Action");
+    expect(workspace).toContain("chatContextPresence() === true");
   });
 });

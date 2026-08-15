@@ -79,6 +79,18 @@ describe("Assistant frontend contracts", () => {
     expect(projectSettings).toContain("<SettingsModal");
   });
 
+  test("keeps Assistant composer actions in one contextual Plus menu", async () => {
+    const workspace = await read("./AssistantWorkspace.island.tsx");
+
+    expect(workspace).not.toContain("type ChatCommand");
+    expect(workspace).not.toContain("const slashCommands");
+    expect(workspace).not.toContain("commands={");
+    expect(workspace).not.toContain("type / ...");
+    expect(workspace).toContain("projectComposer() || !activeConversation()");
+    expect(workspace).toContain('id: "search-chat"');
+    expect(workspace).toContain('id: "compact-context"');
+  });
+
   test("frames structured memories as personalization", async () => {
     const [preferences, client] = await Promise.all([read("./AssistantPrefsModals.tsx"), read("../api/client.ts")]);
 

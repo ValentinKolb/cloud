@@ -1,6 +1,6 @@
 import { navigate, navigateTo } from "@k2b/ssr/nav";
 import { mutation, query } from "@k2b/stdlib/solid";
-import { AppWorkspace, Button, Chat, type ChatCommand, prompts } from "@k2b/ui";
+import { AppWorkspace, Button, Chat } from "@k2b/ui";
 import type {
   AiConversation,
   AiConversationPage,
@@ -33,9 +33,8 @@ import type { AssistantChatContextSnapshot } from "../chat-context";
 import type { AssistantProjectContextSnapshot } from "../project-context";
 import type { AssistantSidebarSnapshot } from "../sidebar";
 import { openAssistantFilesDialog } from "./AssistantArtifactDetail";
-import { AssistantChatContextPanel, assistantChatContextHasContent, openAssistantChatContextDialog } from "./AssistantChatContext";
+import { AssistantChatContextPanel, assistantChatContextHasPanel, openAssistantChatContextDialog } from "./AssistantChatContext";
 import { openAssistantChatDiscoveryDialog } from "./AssistantChatDiscoveryDialog";
-import { openAssistantConversationEditor } from "./AssistantConversationEditor";
 import { openAssistantCreateProjectDialog } from "./AssistantProjectsDialog";
 import AssistantProjectView from "./AssistantProjectView";
 import AssistantSidebar from "./AssistantSidebar";
@@ -217,14 +216,26 @@ export default function AssistantWorkspace(props: Props) {
   const [pendingProjectChats, setPendingProjectChats] = createSignal<Record<string, AiConversation>>({});
   const [filesDialogOpen, setFilesDialogOpen] = createSignal(false);
   const [chatContextPresence, setChatContextPresence] = createSignal<boolean | null>(
-    props.initialContext ? assistantChatContextHasContent(props.initialContext) : null,
+    props.initialContext
+      ? assistantChatContextHasPanel(props.initialContext, Boolean(props.initialDetail?.conversation.projectId))
+      : props.initialDetail?.conversation.projectId
+        ? true
+        : null,
   );
   const [timelineViewport, setTimelineViewport] = createSignal<HTMLDivElement>();
   const [timelineContent, setTimelineContent] = createSignal<HTMLDivElement>();
 
   createEffect(() => {
     const conversationId = chat.activeConversationId();
-    setChatContextPresence(props.initialContext?.chatId === conversationId ? assistantChatContextHasContent(props.initialContext) : null);
+    const conversation = conversations().find((item) => item.id === conversationId) ?? chat.conversation();
+    const hasProject = Boolean(conversation?.projectId);
+    setChatContextPresence(
+      props.initialContext?.chatId === conversationId
+        ? assistantChatContextHasPanel(props.initialContext, hasProject)
+        : hasProject
+          ? true
+          : null,
+    );
   });
 
   const canUseComposer = createMemo(() => props.status.ok && props.status.enabled && props.models.length > 0);
@@ -395,133 +406,6 @@ export default function AssistantWorkspace(props: Props) {
     const projectId = activeConversation()?.projectId;
     return projectId ? (projects().find((project) => project.id === projectId) ?? null) : null;
   };
-  const requireIdleConversation = (): AiConversation | null => {
-    const conversation = activeConversation();
-    if (!conversation) {
-      chat.setError("Open a chat first.");
-      return null;
-    }
-    if (chat.running()) {
-      chat.setError("Stop the current response first.");
-      return null;
-    }
-    return conversation;
-  };
-
-  const archiveChat = mutation.create<AiConversation | null, AiConversation>({
-    mutation: async (conversation) => {
-      const confirmed = await prompts.confirm(`Archive "${conversation.title}"?`, {
-        title: "Archive chat",
-        icon: "ti ti-archive",
-        confirmText: "Archive",
-        cancelText: "Cancel",
-      });
-      if (!confirmed) return null;
-      await assistantApi.archiveConversation(conversation.id);
-      return conversation;
-    },
-    onSuccess: (conversation) => {
-      if (conversation) archiveConversation(conversation);
-    },
-    onError: (error) => chat.setError(error.message),
-  });
-
-  const slashCommands = (): ChatCommand[] => [
-    {
-      name: "new",
-      description: "Start a new conversation",
-      icon: "ti ti-message-plus",
-      action: () => {
-        void createAndFocusConversation();
-      },
-    },
-    {
-      name: "compact",
-      description: "Compact this chat's context",
-      icon: "ti ti-package",
-      action: () => {
-        if (!chat.activeConversationId()) {
-          chat.setError("Open a chat before compacting context.");
-          return;
-        }
-        void chat.compactConversation({ modelProfileId: selectedModelId() || undefined });
-      },
-    },
-    {
-      name: "search",
-      description: "Search this chat's messages and resources",
-      icon: "ti ti-search",
-      action: () => {
-        const conversation = activeConversation();
-        if (!conversation) {
-          chat.setError("Open a chat first.");
-          return;
-        }
-        void openAssistantChatDiscoveryDialog(conversation.id, conversation.title);
-      },
-    },
-    {
-      name: "fork",
-      description: "Fork this conversation into a new chat",
-      icon: "ti ti-git-fork",
-      action: async () => {
-        if (!requireIdleConversation()) return;
-        const last = chat.messages().at(-1);
-        if (!last) {
-          chat.setError("Nothing to fork yet.");
-          return;
-        }
-        const conversation = await chat.forkMessage(last.id);
-        if (conversation && chat.activeConversationId() === conversation.id) commitConversationUrl(conversation.id);
-      },
-    },
-    {
-      name: "retry",
-      description: "Regenerate the last answer",
-      icon: "ti ti-refresh",
-      action: () => {
-        if (!requireIdleConversation()) return;
-        const target = chat
-          .messages()
-          .findLast((message) => message.kind === "message" && message.message.role === "user" && !message.compactedAt);
-        if (!target) {
-          chat.setError("No user message to retry.");
-          return;
-        }
-        void chat
-          .retryUserMessage(target.id, {
-            modelProfileId: selectedModelId() || undefined,
-          })
-          .then(() => undefined);
-      },
-    },
-    {
-      name: "rename",
-      description: "Rename this chat",
-      icon: "ti ti-pencil",
-      action: async () => {
-        const conversation = activeConversation();
-        if (!conversation) {
-          chat.setError("Open a chat first.");
-          return;
-        }
-        const result = await openAssistantConversationEditor(conversation);
-        if (result?.action === "save") updateConversation(result.conversation);
-        if (result?.action === "archive") archiveConversation(result.conversation);
-      },
-    },
-    {
-      name: "archive",
-      description: "Archive this chat",
-      icon: "ti ti-archive",
-      action: () => {
-        const conversation = requireIdleConversation();
-        if (!conversation) return;
-        void archiveChat.mutate(conversation);
-      },
-    },
-  ];
-
   const addComposerFiles = async (sessionKey: string, files: readonly File[]) => {
     const current = composerAttachmentsFor(sessionKey);
     const result = await readAiComposerFiles(files, {
@@ -559,7 +443,6 @@ export default function AssistantWorkspace(props: Props) {
         models={aiChatModelOptions(props.models)}
         selectedModelId={selectedModelId()}
         onModelChange={setSelectedModelId}
-        commands={slashCommands()}
         disabled={!canUseComposer() || newConversation.loading() || chat.loadingConversation()}
         state={
           projectComposer()
@@ -581,7 +464,7 @@ export default function AssistantWorkspace(props: Props) {
                 ? "Stopping response"
                 : chat.running()
                   ? "Steer the current response"
-                  : "Ask Assistant anything or type / ..."
+                  : "Ask Assistant anything"
             : "AI is not configured"
         }
         error={projectComposer() ? (chat.error() ?? undefined) : undefined}
@@ -601,26 +484,26 @@ export default function AssistantWorkspace(props: Props) {
         }
         onError={(error) => chat.setError(error instanceof Error ? error.message : "Chat action failed.")}
         menuActions={
-          projectComposer()
+          projectComposer() || !activeConversation()
             ? []
             : [
                 {
-                  id: "new-chat",
-                  label: "New chat",
-                  icon: "ti ti-message-plus",
-                  disabled: newConversation.loading(),
-                  onSelect: async () => {
-                    await createAndFocusConversation();
-                  },
-                },
-                {
                   id: "search-chat",
-                  label: "Search messages and resources",
+                  label: "Search this chat",
                   icon: "ti ti-search",
-                  disabled: !activeConversation(),
                   onSelect: async () => {
                     const conversation = activeConversation();
                     if (conversation) await openAssistantChatDiscoveryDialog(conversation.id, conversation.title);
+                  },
+                },
+                {
+                  id: "compact-context",
+                  label: "Compact context",
+                  icon: "ti ti-package",
+                  disabled: chat.running(),
+                  onSelect: async () => {
+                    if (!chat.activeConversationId()) return;
+                    await chat.compactConversation({ modelProfileId: selectedModelId() || undefined });
                   },
                 },
               ]
@@ -788,7 +671,7 @@ export default function AssistantWorkspace(props: Props) {
                           </Show>
 
                           <AssistantComposer />
-                          <Show when={activeConversation() && chatContextPresence() !== false ? activeConversation() : null}>
+                          <Show when={activeConversation() && chatContextPresence() === true ? activeConversation() : null}>
                             {(conversation) => (
                               <div class="flex justify-end lg:hidden">
                                 <Button

@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { FileSource } from "@k2b/ui";
-import { type AssistantContextFile, assistantContextFileSource, isAssistantContextImage } from "./AssistantContextContent";
+import {
+  type AssistantContextFile,
+  assistantContextFileSource,
+  assistantMarkdownBody,
+  isAssistantContextImage,
+} from "./AssistantContextContent";
 
 const source = (label: string): FileSource => ({
   list: async () => [],
@@ -35,5 +40,13 @@ describe("Assistant context files", () => {
     >;
     expect(isAssistantContextImage({ ...base, mediaType: "image/png" })).toBeTrue();
     expect(isAssistantContextImage({ ...base, mediaType: "application/pdf" })).toBeFalse();
+  });
+});
+
+describe("Assistant context Markdown", () => {
+  test("removes only a leading H1 that duplicates the structured title", () => {
+    expect(assistantMarkdownBody("Typography and motion", "\n# Typography   and motion\n\nBody copy.")).toBe("Body copy.");
+    expect(assistantMarkdownBody("Typography and motion", "# Different heading\n\nBody copy.")).toBe("# Different heading\n\nBody copy.");
+    expect(assistantMarkdownBody("Typography and motion", "Body copy.")).toBe("Body copy.");
   });
 });
