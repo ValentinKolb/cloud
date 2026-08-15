@@ -68,7 +68,7 @@
     "sharp": "0.35.3"
   },
   "scripts": {
-    "dev:infra": "docker compose -f compose.yml up -d",
+    "dev:infra": "docker compose -f compose.yml up -d --wait --wait-timeout 60",
     "dev:infra:down": "docker compose -f compose.yml down",
     "dev": "bun run dev:infra && docker compose -f compose.dev.yml up --build",
     "dev:fibel": "docker compose -f compose.fibel.yml up --build -d --wait --wait-timeout 180 --force-recreate --renew-anon-volumes",
@@ -76,7 +76,7 @@
     "dev:fibel:down": "docker compose -f compose.fibel.yml down --remove-orphans --volumes",
     "dev:full": "bun run dev:infra && docker compose -f compose.dev.yml --profile extra up --build",
     "dev:down": "docker compose -f compose.dev.yml --profile extra down --remove-orphans",
-    "dev:rebuild:all": "bun run dev:infra && docker compose -f compose.dev.yml --profile extra up --build -d",
+    "dev:rebuild:all": "bun run dev:infra && bun run scripts/dev-rebuild-all.ts",
     "dev:start": "bun run scripts/dev-start.ts",
     "dev:stop": "bun run scripts/dev-stop.ts",
     "dev:rebuild": "bun run scripts/dev-rebuild.ts",

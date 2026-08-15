@@ -15,6 +15,11 @@ running process. It registers the live service, prepares shared runtime state,
 runs application lifecycle hooks, and returns the Bun-compatible server
 definition.
 
+The returned server handles `/_cloud/ready` before the application router.
+Because Bun does not start serving until the awaited definition is returned,
+the endpoint becomes reachable only after registration, `setup`, and `start`
+have completed. Use it for direct container or pod readiness checks.
+
 Pass the Hono fetch handler:
 
 ```ts

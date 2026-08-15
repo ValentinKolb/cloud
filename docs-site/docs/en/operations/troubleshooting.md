@@ -30,6 +30,11 @@ bun run dev:status
 bun run dev:logs <app>
 ```
 
+`dev:status` distinguishes a ready application from a container that is still
+starting or has become unhealthy. `dev:start` and `dev:rebuild` wait for the
+same direct readiness check and print the latest relevant startup error when it
+fails.
+
 Keep timestamps, application IDs, request IDs, and trace IDs from the failing
 request.
 

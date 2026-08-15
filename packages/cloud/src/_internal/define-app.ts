@@ -32,6 +32,7 @@ import { appRuntimeMetadata } from "./build-metadata";
 import { compileCapabilities, invokeCompiledCapability, reviewCompiledCapability, serializeCapabilityProviderResult } from "./capabilities";
 import { createHeartbeat } from "./heartbeat";
 import { compileHelp } from "./help";
+import { APP_READINESS_PATH, appReadinessResponse } from "./readiness";
 import { type CapabilityRegistryRecord, capabilityRegistry, helpRegistry } from "./registry";
 import { ensureRuntimeWatcher, getCurrentRuntime, stopRuntimeWatcher } from "./runtime-watcher";
 import { servePublicAsset } from "./static-assets";
@@ -462,6 +463,7 @@ export const defineApp = <
     // island chunk would land in telemetry as its own route.
     const server = new Hono<AuthContext>()
       .use("*", routeTemplate)
+      .get(APP_READINESS_PATH, () => appReadinessResponse(meta.id))
       .route(ssrMountPath, routes(config))
       .all("/public/*", servePublicAsset(isDevelopment));
 

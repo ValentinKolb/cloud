@@ -21,6 +21,16 @@ x-app: &app
     dockerfile: Dockerfile.dev
   working_dir: /app
   restart: unless-stopped
+  healthcheck:
+    test:
+      - CMD
+      - bun
+      - -e
+      - const response = await fetch("http://127.0.0.1:3000/_cloud/ready"); if (!response.ok) process.exit(1)
+    interval: 2s
+    timeout: 2s
+    retries: 90
+    start_period: 2s
 
 services:
   # ══════════════════════════════════════════════════════════════════

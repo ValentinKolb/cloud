@@ -47,9 +47,9 @@ bun run dev:status grids
 
 | Command | Result |
 | --- | --- |
-| `dev:start <app...>` | Starts existing images |
+| `dev:start <app...>` | Starts existing images and waits until the applications are ready |
 | `dev:stop <app...>` | Stops containers without removing them |
-| `dev:rebuild <app...>` | Rebuilds and restarts applications |
+| `dev:rebuild <app...>` | Rebuilds applications and waits until they are ready |
 | `dev:logs <app>` | Follows one application log |
 | `dev:status [app]` | Shows stack or application status |
 | `dev:help` | Lists commands and application names |
@@ -57,6 +57,11 @@ bun run dev:status grids
 
 Rebuild after dependency, package-manifest, or Dockerfile changes. Source edits
 normally use the watch process already running in the container.
+
+`dev:rebuild:all` applies the same readiness check to the complete stack. A
+command that exits successfully has observed each requested application's
+direct `/_cloud/ready` endpoint. `dev:status` reports `ready`, `starting`, or
+`unhealthy`; a merely running container is not considered ready.
 
 ## Use the current CLI
 

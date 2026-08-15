@@ -34,9 +34,9 @@ p(`  ${color.cyan}bun run dev:infra${color.reset}            start Postgres, Val
 p(`  ${color.cyan}bun run dev:infra:down${color.reset}       stop development infrastructure`);
 p("");
 p(`${color.bold}Per-app${color.reset} (one or more apps, space-separated)`);
-p(`  ${color.cyan}bun run dev:start <app...>${color.reset}   start app(s) — joins running stack`);
+p(`  ${color.cyan}bun run dev:start <app...>${color.reset}   start app(s) and wait until ready`);
 p(`  ${color.cyan}bun run dev:stop <app...>${color.reset}    stop app(s)`);
-p(`  ${color.cyan}bun run dev:rebuild <app...>${color.reset} rebuild image(s) + restart`);
+p(`  ${color.cyan}bun run dev:rebuild <app...>${color.reset} rebuild + wait until ready`);
 p(`  ${color.cyan}bun run dev:logs <app>${color.reset}       follow one app's logs`);
 p(`  ${color.cyan}bun run dev:status${color.reset}           list all apps + state`);
 p(`  ${color.cyan}bun run dev:status <app>${color.reset}     detail + recent logs for one app`);

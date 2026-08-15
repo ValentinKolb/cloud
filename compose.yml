@@ -13,6 +13,11 @@ services:
       - "5432:5432"
     volumes:
       - ipa_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ipa -d ipa"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
 
   valkey:
     image: docker.io/valkey/valkey:8-alpine
@@ -23,6 +28,11 @@ services:
       - "6379:6379"
     volumes:
       - ipa_valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
 
   geo:
     image: ghcr.io/valentinkolb/geo:latest

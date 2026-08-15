@@ -36,6 +36,7 @@ Do not place a page below `/public/<app-id>`; that path is for static files.
 | Path | Purpose |
 | --- | --- |
 | `<basePath>/_ssr/*` | Solid island chunks |
+| `/_cloud/ready` | Direct process readiness for deployment health checks |
 | `/public/*` | Static assets |
 | `/api/_internal/search` | Search provider endpoint when enabled |
 | the declared OpenAPI path | Generated OpenAPI document |
@@ -46,6 +47,10 @@ The gateway, Core, OAuth, and other platform applications also own special
 top-level routes such as `/auth`, `/oauth`, and `/.well-known/...`.
 
 Do not reuse a platform prefix.
+
+`/_cloud/ready` is intentionally checked on the application's private service
+address, not through the gateway. It responds only after `app.start()` has
+completed registration and all awaited lifecycle startup work.
 
 ## Match and normalize prefixes
 

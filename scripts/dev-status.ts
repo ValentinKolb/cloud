@@ -9,7 +9,8 @@
  * LLM agent (stable section labels, fixed state-enum strings, compact
  * time format). ANSI colors only on TTY — piped output stays clean.
  *
- * State column values are a closed set: `running` / `stopped` / `never built`.
+ * State column values are a closed set: `ready` / `starting` / `unhealthy` /
+ * `stopped` / `never built`.
  * The agent-facing skill docs match these strings literally; don't rename
  * them without updating those.
  */
@@ -60,7 +61,7 @@ const fetchComposePs = async (): Promise<Map<string, ComposeRow>> => {
   return out;
 };
 
-type AppState = "running" | "stopped" | "never built";
+type AppState = "ready" | "starting" | "unhealthy" | "stopped" | "never built";
 
 type AppStatus = {
   short: string;
@@ -79,7 +80,9 @@ const buildStatuses = async (services: string[]): Promise<AppStatus[]> => {
     const imageRepo = `cloud-${service}`;
     const builtAt = imageAges.get(imageRepo) ?? null;
     let state: AppState;
-    if (row?.State === "running") state = "running";
+    if (row?.State === "running" && row.Health === "healthy") state = "ready";
+    else if (row?.State === "running" && row.Health === "unhealthy") state = "unhealthy";
+    else if (row?.State === "running") state = "starting";
     else if (row) state = "stopped";
     else if (!builtAt) state = "never built";
     else state = "stopped";
@@ -102,7 +105,9 @@ const buildStatuses = async (services: string[]): Promise<AppStatus[]> => {
 // =============================================================================
 
 const stateColor = (s: AppState): string => {
-  if (s === "running") return color.green;
+  if (s === "ready") return color.green;
+  if (s === "unhealthy") return color.red;
+  if (s === "starting") return color.blue;
   if (s === "stopped") return color.yellow;
   return color.dim;
 };
@@ -132,10 +137,14 @@ const printTable = (rows: AppStatus[]) => {
 };
 
 const printSummary = (rows: AppStatus[]) => {
-  const running = rows.filter((r) => r.state === "running").length;
+  const ready = rows.filter((r) => r.state === "ready").length;
+  const starting = rows.filter((r) => r.state === "starting").length;
+  const unhealthy = rows.filter((r) => r.state === "unhealthy").length;
   const stopped = rows.filter((r) => r.state === "stopped").length;
   const never = rows.filter((r) => r.state === "never built").length;
-  console.log(`${color.dim}${rows.length} apps · ${running} running · ${stopped} stopped · ${never} never built${color.reset}`);
+  console.log(
+    `${color.dim}${rows.length} apps · ${ready} ready · ${starting} starting · ${unhealthy} unhealthy · ${stopped} stopped · ${never} never built${color.reset}`,
+  );
 };
 
 // =============================================================================
@@ -155,7 +164,7 @@ const printDetail = async (s: AppStatus) => {
   }
   console.log(`Image age  ${s.imageAge}`);
 
-  if (s.state === "running") {
+  if (s.state === "ready" || s.state === "starting" || s.state === "unhealthy") {
     console.log("");
     console.log(`${color.bold}Recent logs (last 20 lines)${color.reset}`);
     const logs = await compose(["logs", "--tail", "20", "--no-color", s.service]).text();

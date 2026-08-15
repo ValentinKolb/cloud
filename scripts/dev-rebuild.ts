@@ -10,7 +10,7 @@
  * stale. For code changes alone, the container's `--watch` flag
  * already picks them up via the bind mount — no rebuild needed.
  */
-import { color, compose, helpFor, resolveApps } from "./dev-cli";
+import { color, composeUpAndWait, helpFor, resolveApps } from "./dev-cli";
 
 const inputs = process.argv.slice(2);
 
@@ -31,8 +31,8 @@ if (inputs.length === 0) {
 
 const services = await resolveApps(inputs);
 
-await compose(["up", "--build", "-d", ...services]);
+await composeUpAndWait(["--build"], services);
 
 for (const s of services) {
-  console.log(`${color.green}✓${color.reset} ${s} rebuilt and up`);
+  console.log(`${color.green}✓${color.reset} ${s} rebuilt and ready`);
 }

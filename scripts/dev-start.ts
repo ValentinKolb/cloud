@@ -10,7 +10,7 @@
  * keeps `dev:start` snappy for the common "I just stopped it, start it
  * again" loop.
  */
-import { color, compose, helpFor, resolveApps, shortName } from "./dev-cli";
+import { color, composeUpAndWait, helpFor, resolveApps } from "./dev-cli";
 
 const inputs = process.argv.slice(2);
 
@@ -27,9 +27,8 @@ if (inputs.length === 0) {
 
 const services = await resolveApps(inputs);
 
-await compose(["up", "-d", ...services]);
+await composeUpAndWait([], services);
 
 for (const s of services) {
-  console.log(`${color.green}✓${color.reset} ${s} is up`);
+  console.log(`${color.green}✓${color.reset} ${s} is ready`);
 }
-console.log(`${color.dim}gateway discovers new apps within ~5s${color.reset}`);

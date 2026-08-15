@@ -5,6 +5,7 @@
  * matching, HTTP/WS proxying, minimal health, and telemetry publication.
  */
 
+import { APP_READINESS_PATH } from "@valentinkolb/cloud";
 import { logger } from "@valentinkolb/cloud/services";
 import { gatewayRouter } from "./config";
 import { proxyRequest } from "./proxy";
@@ -63,6 +64,7 @@ export default {
     }
 
     if (url.pathname === "/health") return health();
+    if (url.pathname === APP_READINESS_PATH) return Response.json({ status: "ready", appId: "gateway" });
 
     return proxyRequest(
       req,

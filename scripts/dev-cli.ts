@@ -6,6 +6,7 @@
  *
  *   COMPOSE_FILE          path to the dev compose file
  *   compose(...args)      wrap `docker compose -f … --profile extra <args>`
+ *   composeUpAndWait(...) start services and require their healthchecks
  *   listAppServices()     all app-* services declared in the compose file
  *   resolveApps(inputs)   normalize / validate caller args, exit on bad input
  *   color                 ANSI helpers — empty strings on non-TTY
@@ -35,6 +36,32 @@ export const COMPOSE_FILE = "compose.dev.yml";
  *  before they're explicitly started. The base profile alone would
  *  hide the optional apps and break validation for any extra service. */
 export const compose = (args: string[]) => $`docker compose -f ${COMPOSE_FILE} --profile extra ${args}`;
+
+const startupFailurePattern = /\b(?:error|failed|failure|enoent|exception|panic|cannot|could not)\b/i;
+
+export const findStartupFailure = (logs: string): string | undefined => {
+  const lines = logs
+    .split("\n")
+    .map((line) => line.replace(/^\S+\s+\|\s?/, "").trim())
+    .filter(Boolean);
+  return [...lines].reverse().find((line) => startupFailurePattern.test(line)) ?? lines.at(-1);
+};
+
+export const composeUpAndWait = async (args: string[], services: string[]): Promise<void> => {
+  try {
+    await compose(["up", ...args, "-d", "--wait", "--wait-timeout", "180", ...services]);
+  } catch (error) {
+    console.error(`${color.red}Services did not become ready:${color.reset}`);
+    for (const service of services) {
+      const logs = await compose(["logs", "--tail", "100", "--no-color", service])
+        .text()
+        .catch(() => "");
+      console.error(`  ${shortName(service)}: ${findStartupFailure(logs) ?? "no startup error in recent logs"}`);
+    }
+    console.error(`Run ${color.cyan}bun run dev:status <app>${color.reset} for details.`);
+    throw error;
+  }
+};
 
 // =============================================================================
 // Service discovery / validation
