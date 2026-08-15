@@ -316,6 +316,7 @@ describe("@k2b/ui Cloud content contract", () => {
     expect(normalMarkdown).not.toContain("data-heading-scale");
     expect(largeMarkdown).toContain('data-heading-scale="large"');
     expect(compactMarkdown).toContain("<h2>Result</h2>");
+    expect(contentCss).toMatch(/\.k2b-content-markdown \{[^}]*white-space: normal/s);
     expect(contentCss).toContain('.k2b-content-markdown[data-heading-scale="compact"] h1');
     expect(contentCss).toContain('.k2b-content-markdown[data-heading-scale="large"] h1');
     expect(contentCss).toMatch(/\.k2b-content-markdown :is\(h1, h2, h3, h4, h5, h6\) \{[^}]*margin: 1rem 0 0\.5em/s);

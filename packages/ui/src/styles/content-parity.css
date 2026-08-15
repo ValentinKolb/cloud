@@ -1566,6 +1566,7 @@
   color: var(--k2b-text-secondary);
   font-size: 0.875rem;
   line-height: 1.7;
+  white-space: normal;
 }
 
 .k2b-ui .k2b-content-markdown > :first-child {
