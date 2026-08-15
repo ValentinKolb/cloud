@@ -702,7 +702,7 @@ export default function MailDetailsPanel(props: {
                           </>
                         }
                       >
-                        <Show when={comment.body}>{(body) => <MarkdownView markdown={body()} smallHeadings />}</Show>
+                        <Show when={comment.body}>{(body) => <MarkdownView markdown={body()} headingScale="compact" />}</Show>
                       </Discussion.Item>
                     );
                   }}

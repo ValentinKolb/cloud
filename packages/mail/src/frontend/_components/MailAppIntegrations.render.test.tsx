@@ -30,8 +30,8 @@ describe("Mail app integration states", () => {
     expect(source).toContain('title="Spaces Task"');
     expect(source).toContain('title="Spaces Event"');
     expect(source.match(/>new item<\/span>/g)).toHaveLength(2);
-    expect(source.match(/target="_blank"/g)).toHaveLength(2);
-    expect(source.match(/rel="noopener noreferrer"/g)).toHaveLength(2);
+    expect(source.match(/target="_blank"/g)).toHaveLength(3);
+    expect(source.match(/rel="noopener noreferrer"/g)).toHaveLength(3);
     expect(source).toContain('label: "Related Mail"');
     expect(source).not.toContain('title="Related Mail"');
     expect(source).toContain('label: "Unlink"');
