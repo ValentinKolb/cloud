@@ -1569,14 +1569,6 @@
   white-space: normal;
 }
 
-.k2b-ui .k2b-content-markdown > :first-child {
-  margin-top: 0;
-}
-
-.k2b-ui .k2b-content-markdown > :last-child {
-  margin-bottom: 0;
-}
-
 .k2b-ui .k2b-content-markdown :is(h1, h2, h3, h4, h5, h6) {
   margin: 1rem 0 0.5em;
   color: var(--k2b-text);
@@ -1635,12 +1627,16 @@
   font-size: 1.1428571em;
 }
 
-.k2b-ui .k2b-content-markdown > :is(h1, h2, h3, h4, h5, h6):first-child {
-  margin-top: 0;
-}
-
 .k2b-ui .k2b-content-markdown :is(p, ul, ol, dl, table, pre, blockquote) {
   margin-block: 1.1428571em;
+}
+
+.k2b-ui .k2b-content-markdown > :first-child {
+  margin-block-start: 0;
+}
+
+.k2b-ui .k2b-content-markdown > :last-child {
+  margin-block-end: 0;
 }
 
 .k2b-ui .k2b-content-markdown :is(ul, ol) {

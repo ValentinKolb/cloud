@@ -321,7 +321,9 @@ describe("@k2b/ui Cloud content contract", () => {
     expect(contentCss).toContain('.k2b-content-markdown[data-heading-scale="large"] h1');
     expect(contentCss).toMatch(/\.k2b-content-markdown :is\(h1, h2, h3, h4, h5, h6\) \{[^}]*margin: 1rem 0 0\.5em/s);
     expect(contentCss).toMatch(/data-heading-scale="compact"[^}]*margin: 0\.75rem 0 0\.4em/s);
-    expect(contentCss).toMatch(/> :is\(h1, h2, h3, h4, h5, h6\):first-child \{[^}]*margin-top: 0/s);
+    expect(contentCss).toMatch(/> :first-child \{[^}]*margin-block-start: 0/s);
+    expect(contentCss).toMatch(/> :last-child \{[^}]*margin-block-end: 0/s);
+    expect(contentCss.indexOf("margin-block-start: 0")).toBeGreaterThan(contentCss.indexOf("margin-block: 1.1428571em"));
     expect(contentCss).not.toMatch(/data-heading-scale="compact"[^}]*text-decoration:\s*underline/s);
     expect(data).toContain("View formatted");
     expect(data).toContain("k2b-content-structured-data__action");
