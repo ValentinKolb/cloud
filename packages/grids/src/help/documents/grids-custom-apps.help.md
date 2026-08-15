@@ -140,6 +140,8 @@ The Form, saved view, and `request_id` parameter must use the same records table
 
 The Record block may also list existing PDFs generated for that record by exact template ID. Generation remains a Workflow responsibility; the block offers downloads only when the published app capability includes that template and the current app grant is valid.
 
+`editableFieldIds` may include ordinary writable fields and displayed File fields. Ordinary values use the versioned Record update. Signed-in App readers use the existing attachment service through an App-scoped list, upload, download, and delete route; the App grant does not expose the Base record API. File type, count, and size limits still come from the live field and Grids settings.
+
 A Form block may hide user inputs and supply them with typed bindings. `LITERAL` values are validated against the live field type. Compatible relation inputs may use a declared Record parameter or the current page record. Principal inputs may use the current signed-in user. The server resolves every value again and rejects browser attempts to override it:
 
 ```yaml

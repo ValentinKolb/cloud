@@ -564,21 +564,19 @@ Commands are `forms list|default|get|create|update|delete|restore|submit`. `--pu
 
 ## Publish a Grids App
 
-Grids Apps are strict YAML definitions owned by one base. The current contract supports up to 12 pages containing responsive rows and
+Grids Apps are strict schema-v4 YAML definitions owned by one base. The current contract supports up to 12 pages containing responsive rows and
 columns plus Markdown, Records, Metric, Chart, Record, Form, Comments, and Actions blocks. Records and insight blocks can use a saved view
 or GQL. A Records block can navigate its row id into one required
-record parameter on a detail page. Record and Comments blocks use that page record; Record renders only its explicit field allowlist and
-Comments inherits the record's existing access. Form blocks submit existing Grids forms and may carry trusted typed `LITERAL`, `PARAMS`,
+record parameter on a detail page. Record and Comments blocks use that page record; Record renders only its explicit field allowlist.
+For signed-in readers, an editable displayed File field exposes App-scoped attachment controls without granting raw Base API access. File validation and limits remain owned by the field and file service. Comments inherits the record's existing access. Form blocks submit existing Grids forms and may carry trusted typed `LITERAL`, `PARAMS`,
 or page `RECORD` values. Records blocks may declare up to six workflow `rowActions`; compatible record inputs can receive `ROW.id`, and
-the runtime rechecks the selected id against the exact published query result. Table Records blocks may also declare up to six `bulkActions`
-that reference ready Bulk run options for the source table. Selection is bounded to the current result page and rechecked against the same
-published source, search, and cursor before invocation. Run the live reference before authoring a definition:
+the runtime rechecks the selected id against the exact published query result. Run the live reference before authoring a definition:
 
-Saved-view Records blocks can use `display: { kind: table, columnIds: [...] }` or `display: { kind: cards }`. Cards reuse and pin the saved View's existing Cards fields and file cover and require row navigation. GQL Records blocks are table-only and display the query's selected ordinary-record columns, including aliases; use an empty `columnIds` list because no second column selection is applied. Use Metrics or Chart for aggregate output. Set `searchable: true` for parameterized PostgreSQL search over displayed fields and choose `pageSize` from 5 to 100. Cursor pagination stays server-side for both saved Views and GQL; use a GQL `limit` only to cap the complete result intentionally.
+Saved-view Records blocks can use `display: { kind: table, columnIds: [...] }` or `display: { kind: cards }`. Cards reuse and pin the saved View's existing Cards fields and file cover. Row navigation is optional, and Cards reuse the same bounded workflow `rowActions` as tables. GQL Records blocks are table-only and display the query's selected ordinary-record columns, including aliases; use an empty `columnIds` list because no second column selection is applied. Use Metrics or Chart for aggregate output. Set `searchable: true` for parameterized PostgreSQL search over displayed fields and choose `pageSize` from 5 to 100. Cursor pagination stays server-side for both saved Views and GQL; use a GQL `limit` only to cap the complete result intentionally.
 
 Pages, blocks, Forms, and actions may use one `availableWhen.query`. At least one returned row means available. An empty result, invalid query, missing context, timeout, or cancellation means unavailable. The server rechecks Forms and actions before execution.
 
-The optional root `sidebar.actions` list adds ordered app-global Form and Workflow launchers to the AppWorkspace navigation. Global Form fixed values accept `LITERAL` and `AUTH.currentUser` for Principal inputs. Global Workflow inputs accept `LITERAL` only. They never inherit `PARAMS`, page `RECORD`, or `ROW`. Global availability receives only `@auth.*`, `@app.*`, `@base.*`, and `@time.*`. Form launchers can serve public app readers in a large dialog, while Workflow launchers and `AUTH.currentUser` require sign-in. Visible pages use `navigation.order` and an optional `navigation.icon`; the runtime hides the whole sidebar when it would contain neither another page nor an action.
+The optional root `sidebar.actions` list adds ordered app-global Form launchers to the AppWorkspace navigation. Fixed values accept `LITERAL` and `AUTH.currentUser` for Principal inputs. They never inherit `PARAMS`, page `RECORD`, or `ROW`. Global availability receives only `@auth.*`, `@app.*`, `@base.*`, and `@time.*`. Form launchers can serve public app readers in a large dialog, while `AUTH.currentUser` requires sign-in. Visible pages follow their array order and may set `navigation.icon`; the runtime hides the whole sidebar when it would contain neither another page nor a Form action.
 
 ```bash
 cld grids apps reference

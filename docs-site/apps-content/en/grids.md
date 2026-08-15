@@ -21,9 +21,11 @@ documents, and workflows without splitting the domain across unrelated tools.
 - Save filtered or grouped views for recurring work and reporting.
 - Publish Forms for guided record creation and Custom Apps for focused metrics,
   lists, instructions, and actions.
-- Reuse a saved View's Cards layout and image cover in a Custom App, or expose
-  bounded Bulk workflow actions on a table Records block. Published Apps pin
-  the View contract and recheck selected records server-side.
+- Reuse a saved View's Cards layout and image cover in a Custom App, and expose
+  bounded workflow row actions on Records blocks. Published Apps pin the View
+  contract and recheck selected records server-side.
+- Let signed-in App readers manage explicitly editable File fields from Record details
+  without granting access to the Base record API.
 - Keep relationships between compatible Form inputs, such as a start date that
   must not follow its due date, in server-enforced cross-field validation.
 - Generate documents or PDFs from reviewed templates and record data.
