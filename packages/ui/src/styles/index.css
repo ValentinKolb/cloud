@@ -1009,6 +1009,30 @@
   background: var(--k2b-hover);
 }
 
+.k2b-ui .k2b-button[data-variant="input"] {
+  min-height: 2.25rem;
+  border-color: transparent;
+  color: var(--k2b-text-secondary);
+  background: var(--k2b-surface-muted);
+}
+
+.k2b-ui .k2b-icon-button[data-variant="input"] {
+  width: 2.25rem;
+}
+
+.k2b-ui .k2b-button[data-variant="input"]:not(:disabled):hover {
+  border-color: var(--k2b-border);
+  color: var(--k2b-text);
+  background: var(--k2b-hover);
+}
+
+.k2b-ui .k2b-button[data-variant="input"]:focus-visible {
+  border-color: transparent;
+  background: var(--k2b-surface);
+  box-shadow: var(--k2b-focus-inset);
+  outline: none;
+}
+
 .k2b-ui .k2b-button[data-variant="danger"] {
   background: var(--k2b-danger-600);
 }

@@ -119,10 +119,19 @@ describe("Assistant frontend contracts", () => {
   test("frames structured memories as personalization", async () => {
     const [preferences, client] = await Promise.all([read("./AssistantPrefsModals.tsx"), read("../api/client.ts")]);
 
-    expect(preferences).toContain("Learn personalization from private chats");
+    expect(preferences).toContain('title="Personalization"');
+    expect(preferences).toContain("Facts and preferences Assistant may carry into future conversations.");
     expect(preferences).toContain("Search personalization");
     expect(preferences).toContain("Add personalization");
+    expect(preferences).toContain('variant="input"');
+    expect(preferences).not.toContain("suffix={");
+    expect(preferences).toContain("Use personalization in Assistant chats");
+    expect(preferences).toContain("Learn personalization from private chats");
+    expect(preferences).toContain("SettingsPanelFooter");
+    expect(preferences).toContain("confirmDiscardIfDirty");
     expect(preferences).toContain("SettingsCollection.Item.Actions");
+    expect(preferences).not.toContain("Find personalization");
+    expect(preferences).not.toContain("Saved personalization");
     expect(preferences).toContain("System prompt");
     expect(preferences).not.toContain("Custom instructions");
     expect(preferences).not.toContain("PanelDialog");

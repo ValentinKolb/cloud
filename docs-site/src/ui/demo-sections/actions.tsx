@@ -31,7 +31,7 @@ const ButtonsDemo = () => (
       { kind: "component", name: "IconButtonLink", from: "@k2b/ui" },
       { kind: "component", name: "SplitButton", from: "@k2b/ui" },
     ]}
-    description="Package-native buttons share one variant and size contract. Hover keeps the variant tone, immediate actions press with a subtle flat scale without layout movement, split-button menu triggers stay still, Button defaults to primary, IconButton defaults to ghost, and text actions stay surface-free and flush with nearby copy."
+    description="Package-native buttons share one variant and size contract. Input actions align with adjacent field controls, immediate actions press with a subtle flat scale without layout movement, split-button menu triggers stay still, Button defaults to primary, IconButton defaults to ghost, and text actions stay surface-free and flush with nearby copy."
     code={`<Button variant="primary">Save</Button>
 <Button variant="secondary">Preview</Button>
 <Button variant="ghost">Later</Button>
@@ -49,6 +49,7 @@ const ButtonsDemo = () => (
 </IconButton>
 <IconButton label="Publish" variant="primary"><i class="ti ti-rocket" /></IconButton>
 <IconButton label="Refresh" variant="secondary"><i class="ti ti-refresh" /></IconButton>
+<IconButton label="Add filter" variant="input"><i class="ti ti-plus" /></IconButton>
 <IconButton label="Delete" variant="danger">
   <i class="ti ti-trash" />
 </IconButton>
@@ -98,6 +99,9 @@ const ButtonsDemo = () => (
       </IconButton>
       <IconButton label="Refresh" variant="secondary">
         <i class="ti ti-refresh" aria-hidden="true" />
+      </IconButton>
+      <IconButton label="Add filter" variant="input">
+        <i class="ti ti-plus" aria-hidden="true" />
       </IconButton>
       <IconButton label="Delete" variant="danger">
         <i class="ti ti-trash" aria-hidden="true" />

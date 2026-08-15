@@ -4,7 +4,7 @@
 
 ## Use Buttons
 
-Use `primary` for the main forward action, `secondary` for supporting actions, `ghost` for quiet toolbar actions, `text` for inline disclosures without a surface or horizontal inset, `subtle` for compact contextual actions, `danger` for destructive work, and `success` only when success is the action's meaning.
+Use `primary` for the main forward action, `secondary` for supporting actions, `ghost` for quiet toolbar actions, `text` for inline disclosures without a surface or horizontal inset, `subtle` for compact contextual actions, `input` for actions placed directly beside a field, `danger` for destructive work, and `success` only when success is the action's meaning.
 
 ## Import
 
@@ -29,6 +29,10 @@ import { Button, ButtonLink, IconButton, IconButtonLink, SplitButton } from "@k2
   <i class="ti ti-settings" aria-hidden="true" />
 </IconButton>
 
+<IconButton label="Add filter" variant="input">
+  <i class="ti ti-plus" aria-hidden="true" />
+</IconButton>
+
 <ButtonLink href="/settings" variant="secondary">Settings</ButtonLink>
 
 <IconButtonLink href="/settings" label="Open settings">
@@ -48,6 +52,8 @@ import { Button, ButtonLink, IconButton, IconButtonLink, SplitButton } from "@k2
 ```
 
 `size` accepts `xs`, `sm`, `md`, or `lg`. `Button` defaults to `primary`; `IconButton` defaults to `ghost`. Loading disables the action, exposes busy semantics, and may replace the visible label through `loadingLabel`.
+
+The `input` variant uses the same height, radius, muted surface, hover border, and inset focus treatment as form fields. Use it for a separate action immediately beside an input, not for actions embedded inside the field shell.
 
 Hover preserves each variant's color hierarchy. Pressing an immediate action adds a subtle inward scale without adding shadow depth or changing layout; a split button's main action moves the compound control, while its menu trigger opens without scaling. Reduced-motion preferences keep the color feedback without the scale.
 

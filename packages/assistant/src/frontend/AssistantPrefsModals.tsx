@@ -7,7 +7,6 @@ import {
   prompts,
   Select,
   SettingsCollection,
-  SettingsField,
   SettingsGroup,
   SettingsModal,
   SettingsPanelFooter,
@@ -294,17 +293,28 @@ function MemorySettings(props: { prefs: AiUserPrefs; onDirtyChange: (dirty: bool
           />
         </SettingsGroup>
 
-        <SettingsGroup title="Find personalization" description="Filter the saved facts and preferences shown below.">
-          <SettingsField label="Search" description="Search by words contained in a saved entry." error={() => undefined}>
-            <TextInput
-              aria-label="Search personalization"
-              value={query}
-              onValueChange={setQuery}
-              placeholder="Search facts and preferences"
-              disabled={Boolean(busyId())}
-            />
-          </SettingsField>
-        </SettingsGroup>
+        <div class="flex items-center gap-2">
+          <TextInput
+            class="min-w-0 flex-1"
+            aria-label="Search personalization"
+            type="search"
+            icon="ti ti-search"
+            value={query}
+            onValueChange={setQuery}
+            placeholder="Search personalization"
+            disabled={Boolean(busyId())}
+          />
+          <IconButton
+            label="Add personalization"
+            title="Add personalization"
+            variant="input"
+            loading={busyId() === "new"}
+            disabled={Boolean(busyId())}
+            onClick={() => void addMemory()}
+          >
+            <i class="ti ti-plus" aria-hidden="true" />
+          </IconButton>
+        </div>
 
         <Show when={memories.loading}>
           <Placeholder state="loading" title="Loading memories" />
@@ -319,16 +329,10 @@ function MemorySettings(props: { prefs: AiUserPrefs; onDirtyChange: (dirty: bool
         </Show>
         <Show when={!memories.loading && !memories.error}>
           <SettingsCollection
-            title="Saved personalization"
-            description="Facts and preferences Assistant may carry into future conversations. Item changes save immediately."
+            title={<span class="sr-only">Personalization entries</span>}
+            class="[&>.k2b-settings-collection__header]:sr-only"
             empty={query().trim() ? "No matching personalization. Try a different search." : "No personalization yet."}
           >
-            <SettingsCollection.Action>
-              <Button size="sm" loading={busyId() === "new"} disabled={Boolean(busyId())} onClick={() => void addMemory()}>
-                <i class="ti ti-plus" aria-hidden="true" />
-                Add personalization
-              </Button>
-            </SettingsCollection.Action>
             <For each={memories()}>
               {(memory) => (
                 <SettingsCollection.Item
@@ -414,7 +418,7 @@ function PrefsDialog(props: { prefs: AiUserPrefs; initialTab: AssistantPrefsTab;
             id="personalization"
             title="Personalization"
             icon="ti ti-user-cog"
-            description="Manage the facts and preferences Assistant can carry into future conversations."
+            description="Facts and preferences Assistant may carry into future conversations."
           >
             <MemorySettings prefs={props.prefs} onDirtyChange={setPersonalizationDirty} />
           </SettingsModal.Tab>
