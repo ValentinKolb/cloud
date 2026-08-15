@@ -17,7 +17,8 @@ export type TagProps = {
 
 /** Compact label presentation with optional color, icon, and remove action. */
 export function Tag(props: TagProps): JSX.Element {
-  const icon = () => (props.selected ? "ti ti-check" : props.icon);
+  const hasIconSlot = () => props.selected !== undefined || Boolean(props.icon);
+  const icon = () => (props.selected ? "ti ti-check" : (props.icon ?? "ti ti-check"));
 
   return (
     <span
@@ -26,7 +27,9 @@ export function Tag(props: TagProps): JSX.Element {
       data-selected={props.selected ? "true" : undefined}
       style={colorTintStyle(props.color)}
     >
-      <Show when={icon()}>{(value) => <i class={`${value()} k2b-tag__icon`} aria-hidden="true" />}</Show>
+      <Show when={hasIconSlot()}>
+        <i class={`${icon()} k2b-tag__icon`} data-placeholder={!props.selected && !props.icon ? "true" : undefined} aria-hidden="true" />
+      </Show>
       <span class="k2b-tag__label">{props.children}</span>
       <Show when={props.onRemove}>
         {(remove) => (

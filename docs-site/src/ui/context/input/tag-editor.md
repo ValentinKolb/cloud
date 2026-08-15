@@ -16,9 +16,11 @@ import { MultiSelectInput, Tag, TagEditor, type TagEditorItem } from "@k2b/ui";
 
 `Tag` owns compact passive and selected presentation. Set `selected` when the
 surrounding control represents the current value; the selected treatment uses
-a stronger surface and replaces an optional icon with a check, so it does not
-depend on color alone. `Tag` remains presentation-only: the surrounding link or
-button owns `href`, activation, `aria-current`, or `aria-pressed`.
+a stronger surface, label weight, and a check, so it does not depend on color
+alone. Passing either `true` or `false` reserves the same icon slot and keeps
+the tag geometry stable while selection changes. `Tag` remains
+presentation-only: the surrounding link or button owns `href`, activation,
+`aria-current`, or `aria-pressed`.
 
 `TagEditor` is controlled and backend-free. It owns create/edit/delete interaction, busy state, focus, and inline errors. The application owns persistence, authorization, uniqueness, confirmation, toasts, sorting, and reconciliation. A rejected async callback keeps the editor open. A missing callback hides that capability.
 

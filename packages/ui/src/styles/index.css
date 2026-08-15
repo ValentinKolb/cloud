@@ -3961,12 +3961,17 @@
 .k2b-ui .k2b-tag[data-selected="true"] {
   color: var(--k2b-text);
   background: color-mix(in srgb, var(--k2b-choice-color, var(--k2b-action)) 24%, var(--k2b-surface-elevated));
-  outline: 2px solid color-mix(in srgb, var(--k2b-choice-color, var(--k2b-action)) 58%, transparent);
-  outline-offset: -1px;
+  font-weight: 600;
 }
 
 .k2b-ui .k2b-tag__icon {
-  flex: 0 0 auto;
+  width: 1em;
+  flex: 0 0 1em;
+  text-align: center;
+}
+
+.k2b-ui .k2b-tag__icon[data-placeholder="true"] {
+  visibility: hidden;
 }
 
 .k2b-ui .k2b-tag__label {

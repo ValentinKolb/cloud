@@ -97,8 +97,22 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
     expect(selectedTag).toContain('data-selected="true"');
     expect(selectedTag).toContain("ti ti-check k2b-tag__icon");
     expect(selectedTag).not.toContain("ti ti-point");
+    const unselectedTag = renderToString(() =>
+      createComponent(Tag, {
+        selected: false,
+        size: "lg",
+        children: "All",
+      }),
+    );
+    expect(unselectedTag).toContain('ti ti-check k2b-tag__icon" data-placeholder="true"');
     expect(baseCss).toContain('.k2b-ui .k2b-tag[data-selected="true"]');
     expect(baseCss).toContain("var(--k2b-choice-color, var(--k2b-action))");
+    const selectedTagRule = baseCss.match(/\.k2b-ui \.k2b-tag\[data-selected="true"\] \{([^}]*)\}/)?.[1];
+    const tagIconRule = baseCss.match(/\.k2b-ui \.k2b-tag__icon \{([^}]*)\}/)?.[1];
+    expect(selectedTagRule).toContain("font-weight: 600");
+    expect(selectedTagRule).not.toContain("outline");
+    expect(tagIconRule).toContain("width: 1em");
+    expect(tagIconRule).toContain("flex: 0 0 1em");
     expect(baseCss).toContain("color: var(--k2b-text);");
     expect(list).toContain("<dl");
     expect(list).toContain("<dt>Owner</dt>");
