@@ -5,6 +5,7 @@ import "./ssr-test-plugin";
 
 const { default: BookSettingsForm } = await import("./BookSettingsForm.tsx");
 const { default: ContactsSidebar } = await import("./ContactsSidebar.tsx");
+const { default: ContactsSpotlightButton } = await import("./ContactsSpotlightButton.island.tsx");
 
 const tag: ContactTag = {
   id: "tag-1",
@@ -75,5 +76,12 @@ describe("Contact book settings", () => {
 
     expect(html.match(/aria-label="Open settings for Suppliers"/g)).toHaveLength(2);
     expect(html).not.toContain("/app/contacts/book-1/settings");
+  });
+
+  test("uses the workspace icon action geometry for collapsed search", () => {
+    const html = renderToString(() => <ContactsSpotlightButton variant="icon" />);
+
+    expect(html).toContain("k2b-app-workspace__sidebar-icon-action");
+    expect(html).not.toContain("k2b-spotlight-button");
   });
 });

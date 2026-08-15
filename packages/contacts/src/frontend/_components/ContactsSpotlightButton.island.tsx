@@ -1,5 +1,12 @@
 import { navigateTo } from "@k2b/ssr/nav";
-import { isSpotlightShortcut, openSpotlightSearch, SPOTLIGHT_SHORTCUT_TITLE, SpotlightButton, type SpotlightButtonVariant } from "@k2b/ui";
+import {
+  AppWorkspace,
+  isSpotlightShortcut,
+  openSpotlightSearch,
+  SPOTLIGHT_SHORTCUT_TITLE,
+  SpotlightButton,
+  type SpotlightButtonVariant,
+} from "@k2b/ui";
 import { onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { Contact } from "../../service";
@@ -70,6 +77,16 @@ export default function ContactsSpotlightButton(props: Props) {
     window.addEventListener("keydown", onKeyDown);
     onCleanup(() => window.removeEventListener("keydown", onKeyDown));
   });
+
+  if (props.variant === "icon") {
+    return (
+      <AppWorkspace.SidebarIconAction
+        icon="ti ti-search"
+        label={`Search contacts (${SPOTLIGHT_SHORTCUT_TITLE})`}
+        onClick={() => void openSearch()}
+      />
+    );
+  }
 
   return (
     <SpotlightButton

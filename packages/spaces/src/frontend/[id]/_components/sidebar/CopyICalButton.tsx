@@ -1,5 +1,5 @@
 import { clipboard } from "@k2b/stdlib/browser";
-import { AppWorkspace, Button, IconButton, Tooltip } from "@k2b/ui";
+import { AppWorkspace, Button } from "@k2b/ui";
 import { createSignal } from "solid-js";
 
 type Props = {
@@ -38,11 +38,11 @@ export default function CopyICalButton(props: Props) {
   if (props.variant === "icon") {
     const label = () => (copied() ? "Copied iCal URL" : "Copy iCal URL");
     return (
-      <Tooltip.Anchor content={label()}>
-        <IconButton label={label()} size="sm" onClick={handleCopy}>
-          <i class={`ti ${copied() ? "ti-check" : "ti-calendar-share"} text-base`} />
-        </IconButton>
-      </Tooltip.Anchor>
+      <AppWorkspace.SidebarIconAction
+        icon={`ti ${copied() ? "ti-check" : "ti-calendar-share"}`}
+        label={label()}
+        onClick={() => void handleCopy()}
+      />
     );
   }
 

@@ -1,4 +1,11 @@
-import { isSpotlightShortcut, openSpotlightSearch, SPOTLIGHT_SHORTCUT_TITLE, SpotlightButton, type SpotlightButtonVariant } from "@k2b/ui";
+import {
+  AppWorkspace,
+  isSpotlightShortcut,
+  openSpotlightSearch,
+  SPOTLIGHT_SHORTCUT_TITLE,
+  SpotlightButton,
+  type SpotlightButtonVariant,
+} from "@k2b/ui";
 import { onCleanup, onMount } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { ItemFilter, SpaceColumn, SpaceItem } from "@/contracts";
@@ -108,6 +115,16 @@ export default function SearchButton(props: Props) {
     window.addEventListener("keydown", onKeyDown);
     onCleanup(() => window.removeEventListener("keydown", onKeyDown));
   });
+
+  if (props.variant === "icon") {
+    return (
+      <AppWorkspace.SidebarIconAction
+        icon="ti ti-search"
+        label={`Search items (${SPOTLIGHT_SHORTCUT_TITLE})`}
+        onClick={() => void openSearch()}
+      />
+    );
+  }
 
   return (
     <SpotlightButton

@@ -1,6 +1,6 @@
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { AppWorkspace, Button, dialogCore, IconButton, panelDialogOptions, prompts, Tooltip, toast } from "@k2b/ui";
+import { AppWorkspace, Button, dialogCore, panelDialogOptions, prompts, toast } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { SpaceColumn, SpaceItem, SpaceTag } from "@/contracts";
@@ -101,11 +101,12 @@ export default function CreateItemButton(props: Props) {
 
   if (props.variant === "icon") {
     return (
-      <Tooltip.Anchor content={label()}>
-        <IconButton label={label()} size="sm" onClick={() => void createItem()} disabled={pending()}>
-          <i class={`ti ${pending() ? "ti-loader-2 animate-spin" : "ti-plus"} text-base`} />
-        </IconButton>
-      </Tooltip.Anchor>
+      <AppWorkspace.SidebarIconAction
+        icon={pending() ? "ti ti-loader-2 animate-spin" : "ti ti-plus"}
+        label={label()}
+        onClick={() => void createItem()}
+        disabled={pending()}
+      />
     );
   }
 
