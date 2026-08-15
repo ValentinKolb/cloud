@@ -12,7 +12,6 @@ import {
   Discussion,
   formatFileViewSize,
   IconButton,
-  MarkdownEditor,
   MarkdownView,
   MultiSelectInput,
   Placeholder,
@@ -67,6 +66,7 @@ export default function MailDetailsPanel(props: {
   initialLocalTags: LocalTag[];
   initialConversationLocalTags: ConversationLocalTags;
   initialComments: ConversationComment[];
+  initialCommentsCursor: string | null;
   assignableUsers: MailAssignableUser[];
   presence: ConversationPresenceParticipant[];
   activity: MailActivityEvent[];
@@ -85,13 +85,15 @@ export default function MailDetailsPanel(props: {
   const [availableTags, setAvailableTags] = createSignal(props.initialLocalTags);
   const [tagState, setTagState] = createSignal(props.initialConversationLocalTags);
   const [comments, setComments] = createSignal(props.initialComments);
-  const [commentBody, setCommentBody] = createSignal("");
-  const [commentInvalid, setCommentInvalid] = createSignal(false);
+  const [commentsCursor, setCommentsCursor] = createSignal(props.initialCommentsCursor);
+  const [loadingOlderComments, setLoadingOlderComments] = createSignal(false);
   const [reminderDueAt, setReminderDueAt] = createSignal(props.initialReminder?.state === "pending" ? props.initialReminder.dueAt : null);
   let confirmedState = props.initialState;
   let confirmedTagState = props.initialConversationLocalTags;
   let confirmedReminder = props.initialReminder;
   let confirmedAvailableTagIds = new Set(props.initialLocalTags.map((tag) => tag.id));
+  let commentsHistoryExtended = false;
+  let commentsHistoryRequest = 0;
   const latestMessage = () => props.messages.at(-1);
   const attachments = createMemo(() =>
     props.messages.flatMap((message) => message.attachments.map((attachment) => ({ ...attachment, messageId: message.id }))),
@@ -262,14 +264,8 @@ export default function MailDetailsPanel(props: {
     if (values) await createTagMutation.mutate(values);
   };
 
-  const addComment = mutations.create<ConversationComment | null, void>({
-    mutation: async (_input, { abortSignal }) => {
-      const body = commentBody().trim();
-      if (!body) {
-        setCommentInvalid(true);
-        return null;
-      }
-      setCommentInvalid(false);
+  const addComment = mutations.create<ConversationComment, string>({
+    mutation: async (body, { abortSignal }) => {
       const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].comments.$post(
         {
           param: {
@@ -283,16 +279,37 @@ export default function MailDetailsPanel(props: {
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await readApiError(response, "Failed to add comment"));
-      return await response.json();
+      return response.json();
     },
     onSuccess: (comment) => {
-      if (!comment) return;
       setComments((current) => [...current, comment]);
-      setCommentBody("");
-      setCommentInvalid(false);
     },
     onError: (error) => prompts.error(error.message),
   });
+
+  const loadOlderComments = async (): Promise<boolean> => {
+    const cursor = commentsCursor();
+    if (!cursor || loadingOlderComments()) return false;
+    const conversationId = props.conversationId;
+    const request = ++commentsHistoryRequest;
+    setLoadingOlderComments(true);
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"].conversations[":conversationId"].comments.$get({
+        param: { mailboxId: props.mailboxId, conversationId },
+        query: { cursor, limit: "100", order: "newest" },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Failed to load earlier comments"));
+      const page = await response.json();
+      if (request !== commentsHistoryRequest || conversationId !== props.conversationId) return false;
+      const seen = new Set(comments().map((comment) => comment.id));
+      setComments((current) => [...page.items.filter((comment) => !seen.has(comment.id)), ...current]);
+      setCommentsCursor(page.nextCursor);
+      commentsHistoryExtended = true;
+      return true;
+    } finally {
+      if (request === commentsHistoryRequest) setLoadingOlderComments(false);
+    }
+  };
 
   const removeComment = mutations.create<string | null, ConversationComment>({
     mutation: async (comment, { abortSignal }) => {
@@ -374,6 +391,8 @@ export default function MailDetailsPanel(props: {
     on(
       () => props.conversationId,
       () => {
+        commentsHistoryRequest++;
+        setLoadingOlderComments(false);
         detailUpdates.reset();
         addComment.abort();
         removeComment.abort();
@@ -385,10 +404,10 @@ export default function MailDetailsPanel(props: {
         setAvailableTags(props.initialLocalTags);
         setTagState(props.initialConversationLocalTags);
         setComments(props.initialComments);
+        setCommentsCursor(props.initialCommentsCursor);
+        commentsHistoryExtended = false;
         setReminderDueAt(props.initialReminder?.state === "pending" ? props.initialReminder.dueAt : null);
         confirmedAvailableTagIds = new Set(props.initialLocalTags.map((tag) => tag.id));
-        setCommentBody("");
-        setCommentInvalid(false);
       },
       { defer: true },
     ),
@@ -416,7 +435,10 @@ export default function MailDetailsPanel(props: {
   createEffect(
     on(
       () => props.initialComments,
-      (incoming) => setComments((current) => reconcileComments(current, incoming)),
+      (incoming) => {
+        setComments((current) => reconcileComments(current, incoming));
+        if (!commentsHistoryExtended) setCommentsCursor(props.initialCommentsCursor);
+      },
     ),
   );
   createEffect(
@@ -630,98 +652,82 @@ export default function MailDetailsPanel(props: {
             </Show>
           </DetailPanel.Group>
 
-          <Discussion
-            label="Team notes"
-            icon="ti ti-messages"
-            count={`${visibleComments().length} ${visibleComments().length === 1 ? "note" : "notes"}`}
-          >
-            <Show when={visibleComments().length > 0}>
-              <Discussion.List>
-                <For each={visibleComments()}>
-                  {(comment) => {
-                    const canModerate = () =>
-                      props.canAdmin || (comment.author.kind === "user" && comment.author.id === props.currentUserId);
-                    return (
-                      <Discussion.Item
-                        avatar={
-                          <Avatar
-                            name={comment.author.displayName}
-                            src={avatarSource(comment.author.kind === "user" ? comment.author.id : undefined, comment.author.avatarHash)}
-                            size="xs"
-                          />
-                        }
-                        author={comment.author.displayName}
-                        timestamp={
-                          <time dateTime={comment.createdAt} title={dates.formatDateTime(comment.createdAt, props.dateConfig)}>
-                            {dates.formatDateTimeRelative(comment.createdAt, props.dateConfig)}
-                          </time>
-                        }
-                        actions={
-                          <>
-                            <Show when={canModerate()}>
-                              <>
-                                <Tooltip.Anchor content="Edit comment">
-                                  <IconButton type="button" label="Edit comment" size="xs" onClick={() => editComment.mutate(comment)}>
-                                    <i class="ti ti-edit" aria-hidden="true" />
-                                  </IconButton>
-                                </Tooltip.Anchor>
-                                <Tooltip.Anchor content="Delete comment">
-                                  <IconButton type="button" label="Delete comment" size="xs" onClick={() => removeComment.mutate(comment)}>
-                                    <i class="ti ti-trash" aria-hidden="true" />
-                                  </IconButton>
-                                </Tooltip.Anchor>
-                              </>
-                            </Show>
-                          </>
-                        }
-                      >
-                        <Show when={comment.body}>{(body) => <MarkdownView markdown={body()} headingScale="compact" />}</Show>
-                      </Discussion.Item>
-                    );
-                  }}
-                </For>
-              </Discussion.List>
-            </Show>
+          <Show when={props.conversationId} keyed>
+            {(_conversationId) => (
+              <Discussion label="Team notes" icon="ti ti-messages" count={commentsCursor() ? undefined : visibleComments().length}>
+                <Discussion.List
+                  error={props.detailErrors.comments}
+                  onRetry={props.onReconcile}
+                  hasMore={commentsCursor() !== null}
+                  loadingMore={loadingOlderComments()}
+                  loadingLabel="Loading team notes"
+                  loadMoreLabel="Load earlier team notes"
+                  onLoadMore={loadOlderComments}
+                >
+                  <For each={visibleComments()}>
+                    {(comment) => {
+                      const canModerate = () =>
+                        props.canAdmin || (comment.author.kind === "user" && comment.author.id === props.currentUserId);
+                      return (
+                        <Discussion.Item
+                          avatar={
+                            <Avatar
+                              name={comment.author.displayName}
+                              src={avatarSource(comment.author.kind === "user" ? comment.author.id : undefined, comment.author.avatarHash)}
+                              size="xs"
+                            />
+                          }
+                          author={comment.author.displayName}
+                          timestamp={
+                            <time dateTime={comment.createdAt} title={dates.formatDateTime(comment.createdAt, props.dateConfig)}>
+                              {dates.formatDateTimeRelative(comment.createdAt, props.dateConfig)}
+                            </time>
+                          }
+                          actions={
+                            <>
+                              <Show when={canModerate()}>
+                                <>
+                                  <Tooltip.Anchor content="Edit comment">
+                                    <IconButton type="button" label="Edit comment" size="xs" onClick={() => editComment.mutate(comment)}>
+                                      <i class="ti ti-edit" aria-hidden="true" />
+                                    </IconButton>
+                                  </Tooltip.Anchor>
+                                  <Tooltip.Anchor content="Delete comment">
+                                    <IconButton
+                                      type="button"
+                                      label="Delete comment"
+                                      size="xs"
+                                      onClick={() => removeComment.mutate(comment)}
+                                    >
+                                      <i class="ti ti-trash" aria-hidden="true" />
+                                    </IconButton>
+                                  </Tooltip.Anchor>
+                                </>
+                              </Show>
+                            </>
+                          }
+                        >
+                          <Show when={comment.body}>{(body) => <MarkdownView markdown={body()} headingScale="compact" />}</Show>
+                        </Discussion.Item>
+                      );
+                    }}
+                  </For>
+                </Discussion.List>
 
-            <Show when={!props.detailErrors.comments}>
-              <Discussion.Composer
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  addComment.mutate();
-                }}
-                insetAction={
-                  <Tooltip.Anchor content="Post comment (Ctrl/Cmd+Enter)">
-                    <IconButton
-                      type="submit"
-                      label="Post comment"
-                      size="sm"
-                      variant="primary"
-                      loading={addComment.loading()}
-                      disabled={!commentBody().trim() || addComment.loading()}
-                    >
-                      <i class="ti ti-send" aria-hidden="true" />
-                    </IconButton>
-                  </Tooltip.Anchor>
-                }
-              >
-                <MarkdownEditor
-                  value={commentBody}
-                  onValueChange={(value) => {
-                    setCommentBody(value);
-                    if (value.trim()) setCommentInvalid(false);
-                  }}
-                  onSubmit={() => addComment.mutate()}
-                  placeholder="Add internal comment"
-                  aria-label="Internal comment"
-                  lines={4}
-                  noToolbar
-                  showStats={false}
-                  error={commentInvalid()}
-                  disabled={addComment.loading()}
-                />
-              </Discussion.Composer>
-            </Show>
-          </Discussion>
+                <Show when={!props.detailErrors.comments}>
+                  <Discussion.Composer
+                    label="Add internal comment"
+                    placeholder="Add internal comment"
+                    submitLabel="Post comment"
+                    onSubmit={async (body) => {
+                      await addComment.mutate(body);
+                      return addComment.error() === null;
+                    }}
+                  />
+                </Show>
+              </Discussion>
+            )}
+          </Show>
 
           <DetailPanel.Group label="Conversation history">
             <Show when={props.activity.length > 0}>

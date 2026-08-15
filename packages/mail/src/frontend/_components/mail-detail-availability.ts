@@ -21,6 +21,7 @@ export const preserveUnavailableMailDetail = <T extends MailSelectionDetail>(cur
   collaborationState: incoming.detailErrors.collaboration ? current.collaborationState : incoming.collaborationState,
   conversationLocalTags: incoming.detailErrors.tags ? current.conversationLocalTags : incoming.conversationLocalTags,
   comments: incoming.detailErrors.comments ? current.comments : incoming.comments,
+  commentsCursor: incoming.detailErrors.comments ? current.commentsCursor : incoming.commentsCursor,
   assignableUsers: incoming.detailErrors.assignableUsers ? current.assignableUsers : incoming.assignableUsers,
   activity: incoming.detailErrors.activity ? current.activity : incoming.activity,
   reminder: incoming.detailErrors.reminder ? current.reminder : incoming.reminder,

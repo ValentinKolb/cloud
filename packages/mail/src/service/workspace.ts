@@ -116,6 +116,7 @@ export type MailboxPageData = {
   localTags: LocalTag[];
   conversationLocalTags: ConversationLocalTags | null;
   comments: ConversationComment[];
+  commentsCursor: string | null;
   assignableUsers: MailAssignableUser[];
   activity: MailActivityEvent[];
   reminder: ConversationReminder | null;
@@ -146,6 +147,7 @@ export type MailSelectionDetail = Pick<
   | "collaborationState"
   | "conversationLocalTags"
   | "comments"
+  | "commentsCursor"
   | "assignableUsers"
   | "activity"
   | "reminder"
@@ -174,6 +176,7 @@ const EMPTY_SELECTION_DETAIL: MailSelectionDetail = {
   collaborationState: null,
   conversationLocalTags: null,
   comments: [],
+  commentsCursor: null,
   assignableUsers: [],
   activity: [],
   reminder: null,
@@ -303,6 +306,7 @@ const loadConversationDetails = async (params: {
     collaborationState: stateResult.ok ? stateResult.data : null,
     conversationLocalTags: tagResult.ok ? tagResult.data : null,
     comments: commentsResult.ok ? commentsResult.data.items : [],
+    commentsCursor: commentsResult.ok ? commentsResult.data.nextCursor : null,
     assignableUsers: usersResult.ok ? usersResult.data : [],
     activity: activityResult.ok ? activityResult.data.items : [],
     reminder: reminderResult.ok ? reminderResult.data : null,

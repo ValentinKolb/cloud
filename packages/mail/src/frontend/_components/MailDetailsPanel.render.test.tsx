@@ -176,6 +176,7 @@ const renderPanel = (overrides: Partial<Parameters<typeof MailDetailsPanel>[0]> 
       initialLocalTags: [tag],
       initialConversationLocalTags: conversationTags,
       initialComments: [comment],
+      initialCommentsCursor: null,
       assignableUsers: [{ ...collaboration.assignee!, permission: "admin", description: "Mailbox admin" }],
       presence: [presence],
       activity: [activity],
@@ -228,7 +229,6 @@ describe("Mail conversation detail panel", () => {
     expect(html).toContain('class="k2b-discussion__item');
     expect(html).toContain('class="k2b-discussion__composer-inset-action"');
     expect(html).toContain('aria-label="Post comment"');
-    expect(html).toContain("Post comment (Ctrl/Cmd+Enter)");
     const postButton = html.slice(html.indexOf('aria-label="Post comment"') - 180, html.indexOf('aria-label="Post comment"') + 220);
     expect(postButton).toContain("disabled");
     expect(postButton).toContain('data-variant="primary"');
@@ -254,7 +254,7 @@ describe("Mail conversation detail panel", () => {
   test("omits deleted comments from the visible discussion", () => {
     const html = renderPanel({ initialComments: [comment, deletedComment] });
 
-    expect(html).toContain("1 note");
+    expect(html).toContain('class="k2b-discussion__count">1</span>');
     expect(html).toContain("Valentin Kolb");
     expect(html).not.toContain("Deleted Author");
     expect(html).not.toContain("Comment deleted");
@@ -270,7 +270,7 @@ describe("Mail conversation detail panel", () => {
     expect(html).not.toContain("Reply to");
     expect(html).toContain('aria-label="Create tag"');
     expect(html).toContain("disabled");
-    expect(html).toContain('aria-label="Internal comment"');
+    expect(html).toContain('aria-label="Add internal comment"');
   });
 
   test("preserves partial-error and empty states without empty attachment shells", () => {
@@ -283,7 +283,7 @@ describe("Mail conversation detail panel", () => {
 
     expect(html).toContain("Some conversation details are temporarily unavailable");
     expect(html).toContain("Retry");
-    expect(html).toContain("0 notes");
+    expect(html).toContain('class="k2b-discussion__count">0</span>');
     expect(html).not.toContain("No team notes yet.");
     expect(html).toContain("Loading contacts...");
     expect(html).not.toContain(">Attachments<");

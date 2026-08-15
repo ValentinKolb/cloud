@@ -10,6 +10,7 @@ const detail = (overrides: Partial<MailSelectionDetail> = {}): MailSelectionDeta
   collaborationState: null,
   conversationLocalTags: null,
   comments: [],
+  commentsCursor: null,
   assignableUsers: [],
   activity: [],
   reminder: null,
