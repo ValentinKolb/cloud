@@ -22,6 +22,7 @@ import { AI_MEMORY_CONTENT_MAX_CHARS, aiMemories } from "./memories";
 import { createCloudAiMemoryTool } from "./memory-tool";
 import { aiActorUser, aiPrefsUserId, aiUserPrefs } from "./prefs";
 import { aiProjects } from "./projects";
+import { projectPublicAiStoredMessages, publicAiStoredMessages } from "./public-projection";
 import { isConversationResourceCursor } from "./resource-refs";
 import {
   AiTurnActionSchema,
@@ -37,7 +38,7 @@ import { aiConversations } from "./store";
 import { createAiConversationStreamResponse, loadAiStreamState } from "./stream";
 import { composeAiSystemPrompt } from "./system-prompt";
 import { aiToolPromptHints } from "./tools";
-import type { AiConversation, AiConversationResource, AiModelPolicy, AiStoredMessage, AiTurn, AiTurnToolSource } from "./types";
+import type { AiConversation, AiConversationResource, AiModelPolicy, AiTurn, AiTurnToolSource } from "./types";
 
 /** Everything a resolved, authorized request needs to run against the shared runtime. */
 export type AiChatRequestContext = {
@@ -194,12 +195,6 @@ const publicPendingAction = (
   conversationId: string,
   turnId: string,
 ) => ({ ...action, conversationId, turnId });
-const publicStoredMessage = (message: AiStoredMessage, conversationId: string): AiStoredMessage => ({
-  ...message,
-  id: message.shortId,
-  conversationId,
-});
-
 /**
  * The single AI chat route surface. The Assistant app and every embedded
  * resource chat instantiate this with their own `resolveContext`, so there is
@@ -449,7 +444,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
           beforeSeq: query.before,
           limit: query.limit ?? 50,
         });
-        return respond(c, ok({ ...page, messages: page.messages.map((message) => publicStoredMessage(message, conversation.shortId)) }));
+        return respond(c, ok({ ...page, messages: await publicAiStoredMessages(page.messages, conversation) }));
       })
       .get("/conversations/:conversationId/messages/search", v("query", MessagesSearchQuerySchema), async (c) => {
         const ctx = await config.resolveContext(c);
@@ -463,7 +458,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
           beforeSeq: query.before,
           limit: query.limit ?? 50,
         });
-        return respond(c, ok({ ...page, messages: page.messages.map((message) => publicStoredMessage(message, conversation.shortId)) }));
+        return respond(c, ok({ ...page, messages: await publicAiStoredMessages(page.messages, conversation) }));
       })
       .get("/conversations/:conversationId/resources", v("query", ConversationResourcesQuerySchema), async (c) => {
         const ctx = await config.resolveContext(c);
@@ -628,7 +623,11 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
             c,
             ok({
               turn: publicTurn(result.turn, conversation.shortId),
-              message: publicStoredMessage(result.message, conversation.shortId),
+              message: projectPublicAiStoredMessages(
+                [result.message],
+                conversation.shortId,
+                new Map([[result.turn.id, result.turn.shortId]]),
+              )[0]!,
             }),
             201,
           );
@@ -704,7 +703,11 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
             c,
             ok({
               turn: publicTurn(result.turn, conversation.shortId),
-              message: publicStoredMessage(result.message, conversation.shortId),
+              message: projectPublicAiStoredMessages(
+                [result.message],
+                conversation.shortId,
+                new Map([[result.turn.id, result.turn.shortId]]),
+              )[0]!,
             }),
             201,
           );

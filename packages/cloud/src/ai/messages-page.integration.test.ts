@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { sql } from "bun";
 import { migrateCloudAi } from "./migrate";
+import { publicAiStoredMessages } from "./public-projection";
 import { createAiShortId } from "./short-id";
 import { aiConversations } from "./store";
 
@@ -68,6 +69,31 @@ const insertMessage = async (input: {
 };
 
 describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", () => {
+  test("projects internal message loop ids to the public Turn id", async () => {
+    const userId = await insertUser();
+    const conversationIds: string[] = [];
+    try {
+      const conversation = await aiConversations.createConversation({ appId: "ai-page-test", ownerUserId: userId });
+      conversationIds.push(conversation.id);
+      const turnId = crypto.randomUUID();
+      const turnShortId = createAiShortId();
+      await sql`
+        INSERT INTO ai.turns (id, short_id, conversation_id, status, model_profile_id, completed_at)
+        VALUES (${turnId}::uuid, ${turnShortId}, ${conversation.id}::uuid, 'completed', 'test-model', now())
+      `;
+      await insertMessage({ conversationId: conversation.id, seq: 1, role: "user", text: "go", loopId: turnId });
+      await insertMessage({ conversationId: conversation.id, seq: 2, role: "assistant", text: "done", loopId: turnId });
+
+      const page = await aiConversations.listMessagesPage({ conversationId: conversation.id });
+      const messages = await publicAiStoredMessages(page.messages, conversation);
+
+      expect(messages.map((message) => message.loopId)).toEqual([turnShortId, turnShortId]);
+      expect(messages.every((message) => message.conversationId === conversation.shortId)).toBe(true);
+    } finally {
+      await cleanupFixture({ userId, conversationIds });
+    }
+  });
+
   test("windows newest-first with lossless cursor paging", async () => {
     const userId = await insertUser();
     const conversationIds: string[] = [];

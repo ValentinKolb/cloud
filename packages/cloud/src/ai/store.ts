@@ -41,6 +41,21 @@ const MESSAGE_BM25_INDEX = "ai.messages_search_bm25_idx";
 const SEARCH_CAPABILITY_ERROR_CODES = new Set(["0A000", "42704", "42883", "55000"]);
 const log = logger("ai:conversation-search");
 
+export const resolveAiTurnShortIds = async (input: {
+  conversationId: string;
+  turnIds: readonly string[];
+}): Promise<Map<string, string>> => {
+  const turnIds = [...new Set(input.turnIds.filter(Boolean))];
+  if (turnIds.length === 0) return new Map();
+  const rows = await sql<{ id: string; short_id: string }[]>`
+    SELECT id::text AS id, short_id
+    FROM ai.turns
+    WHERE conversation_id = ${input.conversationId}::uuid
+      AND id::text = ANY(${toPgTextArray(turnIds)}::text[])
+  `;
+  return new Map(rows.map((row) => [row.id, row.short_id]));
+};
+
 type ConversationSearchBackend = "native" | "bm25";
 let conversationSearchBackendPromise: Promise<ConversationSearchBackend> | null = null;
 

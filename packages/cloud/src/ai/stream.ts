@@ -9,6 +9,7 @@ import {
   steerAppliedBlockId,
   steerMessageBlockId,
 } from "./protocol";
+import { projectPublicAiStoredMessages, publicAiStoredMessages } from "./public-projection";
 import { aiConversations } from "./store";
 import type { AiConversation } from "./types";
 
@@ -109,7 +110,7 @@ export const loadAiStreamState = async (conversation: AiConversation): Promise<E
   return {
     type: "state",
     conversation: { ...conversation, id: conversation.shortId },
-    messages: page.messages.map((message) => ({ ...message, id: message.shortId, conversationId: conversation.shortId })),
+    messages: await publicAiStoredMessages(page.messages, conversation),
     hasMoreMessages: page.hasMore,
     activeTurn: snapshot,
   };
@@ -241,11 +242,7 @@ export const createAiConversationStreamResponse = (input: {
                   ...event,
                   conversationId: input.conversation.shortId,
                   turnId: publicTurnId,
-                  messages: messages.map((message) => ({
-                    ...message,
-                    id: message.shortId,
-                    conversationId: input.conversation.shortId,
-                  })),
+                  messages: projectPublicAiStoredMessages(messages, input.conversation.shortId, new Map([[event.turnId, publicTurnId]])),
                 }),
               )
             )
