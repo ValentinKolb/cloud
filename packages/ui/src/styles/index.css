@@ -729,7 +729,7 @@
 .k2b-ui .k2b-app-workspace__sidebar-item-meta.k2b-app-workspace__nav-tree-leaf-meta {
   display: inline-flex;
   min-width: 1.5rem;
-  justify-content: center;
+  justify-content: flex-end;
 }
 
 .k2b-ui .k2b-app-workspace__sidebar-item.is-active {

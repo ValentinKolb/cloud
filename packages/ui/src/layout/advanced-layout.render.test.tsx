@@ -225,11 +225,16 @@ describe("@k2b/ui complete advanced layout migrations", () => {
   test("aligns sidebar metadata and actions on one inherited icon line box", async () => {
     const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
     const metaRule = css.match(/\.k2b-ui \.k2b-app-workspace__sidebar-item-meta \{([^}]*)\}/)?.[1];
+    const leafMetaRule = css.match(
+      /\.k2b-ui \.k2b-app-workspace__sidebar-item-meta\.k2b-app-workspace__nav-tree-leaf-meta \{([^}]*)\}/,
+    )?.[1];
     const actionRule = css.match(/\.k2b-ui \.k2b-app-workspace__sidebar-item-action \{([^}]*)\}/)?.[1];
 
     expect(metaRule).toContain("inline-flex");
     expect(metaRule).toContain("items-center");
     expect(metaRule).toContain("line-height: 1");
+    expect(leafMetaRule).toContain("min-width: 1.5rem");
+    expect(leafMetaRule).toContain("justify-content: flex-end");
     expect(actionRule).toContain("place-items: center");
     expect(actionRule).toContain("font: inherit");
     expect(actionRule).toContain("line-height: 1");
