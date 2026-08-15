@@ -15,6 +15,7 @@ import {
 import { CustomAppDefinitionSchema } from "../custom-apps/contracts";
 import { documentTemplateStarterById } from "../document-template-starters";
 import { fieldTypeRegistry, getRecordWritableFieldType } from "../field-types";
+import { bindDslQueryContext } from "../query-dsl/parameters";
 import { parseGridsQueryDsl } from "../query-dsl/parser";
 import { type DslResolverContext, resolveDslQueryToQueryPlan } from "../query-dsl/resolver";
 import { renderDocumentHtml, renderDocumentSource, validateTemplateWrite } from "../service/documents";
@@ -965,8 +966,22 @@ describe("built-in grid templates", () => {
                 const parsed = parseGridsQueryDsl(gql);
                 expect(parsed.ok, `${template.id}.${app.key}.${block.id} Grids App GQL parses`).toBe(true);
                 if (!parsed.ok) continue;
+                const bound = bindDslQueryContext(parsed.ast, {
+                  "auth.id": testUuid(20_000),
+                  "auth.subjects": [testUuid(20_000)],
+                  "time.today": "2026-06-15",
+                  "time.now": "2026-06-15T12:00:00.000Z",
+                  "time.timeZone": "UTC",
+                  ...Object.fromEntries(
+                    Object.keys(app.definition.pages.find((page) => page.id === app.definition.startPageId)?.parameters ?? {}).map(
+                      (key) => [`params.${key}`, testUuid(20_001)],
+                    ),
+                  ),
+                });
+                expect(bound.ok, `${template.id}.${app.key}.${block.id} Grids App GQL context`).toBe(true);
+                if (!bound.ok) continue;
                 const resolved = resolveDslQueryToQueryPlan(
-                  parsed.ast,
+                  bound.ast,
                   templateResolverContext(template, template.tables[0]?.key ?? "", ctx),
                 );
                 expect(

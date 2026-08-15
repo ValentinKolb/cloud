@@ -14,6 +14,17 @@ Every subject is an ordinary Cloud account or group.
 Comments inherit the request record scope. Requesters cannot infer another
 request from comments, counts, documents, or a copied record URL.
 
+## Reimbursements
+
+| Subject | Requester app | Finance app | Requests and expenses | Receipts | Decision launchers |
+| --- | --- | --- | --- | --- | --- |
+| Requester group | Open | None | Create through Forms; read own records through `created_by` and their Request relation | Upload and read on own expense records | None |
+| Finance group | None | Open | Base write for all pending requests and related expenses | Read through the finance app | Execute approve and reject |
+
+Receipt upload uses the published Record field allowlist. It does not grant the
+requester access to the Base API, and copied request or expense URLs are denied
+by the page ownership query.
+
 ## Article descriptions
 
 | Subject | App | Lists table | Articles table | Article form |
@@ -25,16 +36,17 @@ The fixed List relation is authorized again on submission. Supplying another
 list UUID in the URL cannot create or reveal an article for an inaccessible
 parent.
 
-## Inventory lending
+## Built-in Inventory template
 
 | Subject | Borrower app | Loan desk app | Inventory and availability | Loans | Loan items | Documents and launchers |
 | --- | --- | --- | --- | --- | --- | --- |
-| Borrower group | Open | None | Read the published catalogue and bounded availability source | Read and update allowed draft fields with `created_by`; create through Form | Read `related_created_by` through Loan | Read allowed runs; execute Finalize and Add item launchers |
-| Loan desk group | Open | Open | Read | Read and update `all` | Read and update `all` | Generate/read; execute approval and return launchers |
+| Borrower group | Open | None | Read the published catalogue | Read `created_by`; create through Form | Read through the loan's allowlisted item relation | Execute the state-scoped cancel launcher |
+| Loan desk group | None | Open | Read | Read and update `all` | Read and update `all` | Generate/read; execute approval, agreement, return, and defect launchers |
 
-The Add item and Finalize workflows re-read the loan, validate its state and
-period, and reject conflicts. Availability windows are maintained by existing
-workflow-owned record changes; the app only reads their bounded GQL result.
+The request, approval, agreement, cancellation, and return workflows re-read
+the loan and reject invalid state transitions. The template's current data
+model requests kits on the loan header; it does not duplicate the richer live
+Equipment installation's Loan Items reservation model.
 
 The loan agreement and damage invoice templates are allowlisted by each Record
 block. Their runs inherit the loan's row scope.

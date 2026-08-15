@@ -9,7 +9,13 @@ const detailedHelpFiles = [
   "grids-custom-app-yaml-cli.help.md",
 ] as const;
 
-const exampleFiles = ["certificate-requests.yaml", "article-entry.yaml", "inventory-borrower.yaml", "inventory-loan-desk.yaml"] as const;
+const exampleFiles = [
+  "certificate-requests.yaml",
+  "certificate-review.yaml",
+  "article-entry.yaml",
+  "reimbursement-requests.yaml",
+  "reimbursement-review.yaml",
+] as const;
 
 type DefinitionNode = {
   id?: unknown;

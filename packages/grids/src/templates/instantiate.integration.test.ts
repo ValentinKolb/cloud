@@ -96,12 +96,20 @@ describe("built-in template instantiation", () => {
           documentNames: ["Asset label", "Loan agreement"],
           emailName: "Loan agreement ready",
           workflows: [
+            { name: "Cancel requested loan", steps: 3 },
+            { name: "Approve equipment loan", steps: 5 },
             { name: "Send approved loan agreement", steps: 11 },
             { name: "Report damaged item", steps: 3 },
             { name: "Mark loan item as returned", steps: 6 },
           ],
-          launchers: ["Choose loan to send agreement", "Scan damaged inventory item", "Return items for one loan"],
-          workflowCapabilities: 1,
+          launchers: [
+            "Cancel requested loan",
+            "Approve equipment loan",
+            "Choose loan to send agreement",
+            "Scan damaged inventory item",
+            "Return items for one loan",
+          ],
+          workflowCapabilities: 3,
           scannerCapabilities: 1,
         },
       ];
@@ -141,7 +149,7 @@ describe("built-in template instantiation", () => {
             FROM grids.workflow_launchers
             WHERE base_id = ${created.data.id}::uuid AND deleted_at IS NULL
           `;
-          const [customApp] = await sql<Array<{ published_definition: unknown; published_capabilities: unknown }>>`
+          const customApps = await sql<Array<{ published_definition: unknown; published_capabilities: unknown }>>`
             SELECT published_definition, published_capabilities
             FROM grids.custom_apps
             WHERE base_id = ${created.data.id}::uuid AND deleted_at IS NULL
@@ -158,9 +166,11 @@ describe("built-in template instantiation", () => {
             WHERE t.base_id = ${created.data.id}::uuid AND r.deleted_at IS NULL
           `;
 
-          const definition = CustomAppDefinitionSchema.parse(customApp?.published_definition);
-          const capabilities = CustomAppCapabilitiesSchema.parse(customApp?.published_capabilities);
-          const blocks = definition.pages.flatMap((page) => page.rows.flatMap((row) => row.columns.flatMap((column) => column.blocks)));
+          const definitions = customApps.map((app) => CustomAppDefinitionSchema.parse(app.published_definition));
+          const capabilities = customApps.map((app) => CustomAppCapabilitiesSchema.parse(app.published_capabilities));
+          const blocks = definitions.flatMap((definition) =>
+            definition.pages.flatMap((page) => page.rows.flatMap((row) => row.columns.flatMap((column) => column.blocks))),
+          );
           expect(sampleData?.record_count).toBeGreaterThan(0);
           expect(documentTemplates.map((item) => item.name).sort()).toEqual([...expected.documentNames].sort());
           for (const documentTemplate of documentTemplates) {
@@ -189,10 +199,10 @@ describe("built-in template instantiation", () => {
           ).toBe(true);
           expect(
             blocks.some((block) => block.type === "actions"),
-            `${expected.templateId} unsupported overview workflow action`,
-          ).toBe(false);
-          expect(capabilities.workflowLaunchers).toHaveLength(expected.workflowCapabilities);
-          expect(capabilities.scannerLaunchers).toHaveLength(expected.scannerCapabilities);
+            `${expected.templateId} workflow actions`,
+          ).toBe(expected.templateId === "inventory");
+          expect(capabilities.flatMap((item) => item.workflowLaunchers)).toHaveLength(expected.workflowCapabilities);
+          expect(capabilities.flatMap((item) => item.scannerLaunchers)).toHaveLength(expected.scannerCapabilities);
           expect(documentAudit?.action).toBe("document_template.created");
           await verifyRuntimeSurfaces(created.data.id, true);
         } finally {
