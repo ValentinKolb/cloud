@@ -25,21 +25,18 @@ export const assistantConversationHref = (currentHref: string, conversationId: s
   return relativeHref(url);
 };
 
-export const assistantProjectHref = (currentHref: string, projectId: string, query?: string): string => {
+export const assistantProjectHref = (currentHref: string, projectId: string): string => {
   const url = new URL(currentHref, URL_BASE);
   url.searchParams.delete("conversation");
   url.searchParams.delete("artifact");
   url.searchParams.set("project", projectId);
-  if (query?.trim()) url.searchParams.set("q", query.trim());
-  else url.searchParams.delete("q");
+  url.searchParams.delete("q");
   return relativeHref(url);
 };
 
 export const assistantConversationIdFromHref = (href: string): string | null => new URL(href, URL_BASE).searchParams.get("conversation");
 
 export const assistantProjectIdFromHref = (href: string): string | null => new URL(href, URL_BASE).searchParams.get("project");
-
-export const assistantProjectQueryFromHref = (href: string): string => new URL(href, URL_BASE).searchParams.get("q")?.trim() ?? "";
 
 export const assistantArtifactHref = (currentHref: string, path: string | null): string => {
   const url = new URL(currentHref, URL_BASE);

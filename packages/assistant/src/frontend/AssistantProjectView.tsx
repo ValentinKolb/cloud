@@ -1,11 +1,11 @@
-import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
+import { Link, type LinkNavigateEvent, navigate } from "@k2b/ssr/nav";
 import { query as solidQuery } from "@k2b/stdlib/solid";
-import { Button, type DropdownItem, FileDropzone, IconButton, Lightbox, Placeholder, prompts, TextInput, toast } from "@k2b/ui";
+import { Button, type DropdownItem, FileDropzone, IconButton, Lightbox, openSpotlightSearch, Placeholder, prompts, toast } from "@k2b/ui";
 import type { AiConversation, AiConversationPage, AiProject, AiProjectKnowledge } from "@valentinkolb/cloud/ai";
 import { openCloudResourcePicker } from "@valentinkolb/cloud/browser/resource-picker";
 import { coreClient } from "@valentinkolb/cloud/clients/core";
 import { formatDateTime } from "@valentinkolb/cloud/shared";
-import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import type { AssistantProjectContextSnapshot } from "../project-context";
 import {
@@ -28,11 +28,10 @@ import {
 import { openAssistantConversationEditor } from "./AssistantConversationEditor";
 import { openAssistantProjectSettingsDialog } from "./AssistantProjectSettingsDialog";
 import { type AssistantLiveInvalidation, matchesAssistantInvalidation, useAssistantLive } from "./assistant-live";
-import { assistantConversationHref, assistantProjectHref } from "./assistant-navigation";
+import { assistantConversationHref } from "./assistant-navigation";
 
 type Props = {
   project: AiProject;
-  initialQuery: string;
   initialPage: AiConversationPage;
   initialContext?: AssistantProjectContextSnapshot | null;
   composer: JSX.Element;
@@ -42,17 +41,12 @@ type Props = {
 const CONTEXT_PREVIEW_LIMIT = 3;
 
 export default function AssistantProjectView(props: Props) {
-  const [query, setQuery] = createSignal(props.initialQuery);
-  const [searchOpen, setSearchOpen] = createSignal(Boolean(props.initialQuery.trim()));
-  const [requestQuery, setRequestQuery] = createSignal(props.initialQuery);
-  const source = () => `${props.project.id}:${requestQuery()}`;
   const chats = solidQuery.createInfinite<string, AiConversationPage, number, AssistantLiveInvalidation>({
-    source,
-    initial: { source: `${props.project.id}:${props.initialQuery}`, pages: [props.initialPage] },
-    loadPage: (requestSource, { cursor, abortSignal }) =>
+    source: () => props.project.id,
+    initial: { source: props.project.id, pages: [props.initialPage] },
+    loadPage: (projectId, { cursor, abortSignal }) =>
       assistantApi.listConversationsPage({
-        projectId: props.project.id,
-        q: requestSource.slice(props.project.id.length + 1).trim() || undefined,
+        projectId,
         page: cursor ?? 1,
         perPage: 20,
         signal: abortSignal,
@@ -78,7 +72,6 @@ export default function AssistantProjectView(props: Props) {
     unregisterContext();
   });
   const chatItems = createMemo(() => chats.pages().flatMap((page) => page.items));
-  let first = true;
   let chatListViewport: HTMLDivElement | undefined;
   let loadMoreSentinel: HTMLDivElement | undefined;
   const [contextAction, setContextAction] = createSignal<string | null>(null);
@@ -319,19 +312,6 @@ export default function AssistantProjectView(props: Props) {
     await openAssistantCloudReference(selected.value.label || `${selected.value.ref.type} · ${selected.value.ref.id}`, selected.value.ref);
   };
 
-  createEffect(() => {
-    const value = query().trim();
-    if (first) {
-      first = false;
-      return;
-    }
-    const timer = setTimeout(async () => {
-      history.replaceState(null, "", assistantProjectHref(window.location.href, props.project.id, value));
-      setRequestQuery(value);
-    }, 180);
-    onCleanup(() => clearTimeout(timer));
-  });
-
   const loadMore = async () => {
     if (!chats.loadingMore() && chats.hasMore()) await chats.loadMore();
   };
@@ -340,6 +320,33 @@ export default function AssistantProjectView(props: Props) {
       if (await props.onOpenConversation(conversationId)) nav.push(undefined, { scroll: "manual" });
     } catch {
       nav.fallback();
+    }
+  };
+  const searchChats = async () => {
+    const selected = await openSpotlightSearch<AiConversation>({
+      title: `Search chats in ${props.project.name}`,
+      icon: "ti ti-search",
+      placeholder: "Search chats…",
+      minQueryLength: 1,
+      noResultsText: "No chats found.",
+      resolve: async ({ query, abortSignal }) => {
+        const conversations = await assistantApi.listConversations({
+          projectId: props.project.id,
+          q: query.trim(),
+          limit: 20,
+          signal: abortSignal,
+        });
+        return conversations.map((conversation) => ({
+          value: conversation,
+          label: conversation.title,
+          desc: conversation.description || formatDateTime(conversation.updatedAt),
+          icon: "ti ti-message-circle",
+        }));
+      },
+    });
+    if (!selected?.value) return;
+    if (await props.onOpenConversation(selected.value.id)) {
+      navigate(assistantConversationHref("/app/assistant", selected.value.id), { scroll: "manual" });
     }
   };
 
@@ -378,29 +385,10 @@ export default function AssistantProjectView(props: Props) {
                   </h2>
                   <span class="text-xs tabular-nums text-dimmed">{chats.pages()[0]?.total ?? chatItems().length}</span>
                 </div>
-                <IconButton
-                  size="xs"
-                  variant="subtle"
-                  label={searchOpen() ? "Close chat search" : "Search Project chats"}
-                  onClick={() => {
-                    if (searchOpen()) setQuery("");
-                    setSearchOpen((value) => !value);
-                  }}
-                >
-                  <i class={`ti ${searchOpen() ? "ti-x" : "ti-search"}`} aria-hidden="true" />
+                <IconButton size="xs" variant="subtle" label={`Search chats in ${props.project.name}`} onClick={() => void searchChats()}>
+                  <i class="ti ti-search" aria-hidden="true" />
                 </IconButton>
               </header>
-              <Show when={searchOpen()}>
-                <TextInput
-                  type="search"
-                  aria-label="Search Project chats"
-                  icon="ti ti-search"
-                  value={query}
-                  onValueChange={setQuery}
-                  placeholder="Search chats…"
-                  clearable
-                />
-              </Show>
               <Show when={chats.error()}>{(error) => <p class="px-2 text-xs text-danger">{error().message}</p>}</Show>
               <div
                 ref={chatListViewport}
@@ -436,7 +424,7 @@ export default function AssistantProjectView(props: Props) {
                   </For>
                 </div>
                 <Show when={!chats.error() && chatItems().length === 0}>
-                  <p class="px-2 py-3 text-sm text-dimmed">{query().trim() ? "No matching chats." : "No Project chats yet."}</p>
+                  <p class="px-2 py-3 text-sm text-dimmed">No Project chats yet.</p>
                 </Show>
                 <div ref={loadMoreSentinel} class="flex min-h-4 items-center justify-center" aria-live="polite">
                   <Show when={chats.loading() || chats.refreshing() || chats.loadingMore()}>

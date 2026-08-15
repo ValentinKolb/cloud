@@ -51,7 +51,6 @@ import {
   assistantConversationIdFromHref,
   assistantProjectHref,
   assistantProjectIdFromHref,
-  assistantProjectQueryFromHref,
 } from "./assistant-navigation";
 import { submitAssistantProjectMessage } from "./assistant-project-chat";
 
@@ -85,14 +84,12 @@ type Props = {
   initialContext: AssistantChatContextSnapshot | null;
   projects: AiProject[];
   initialProject: AiProject | null;
-  initialProjectQuery: string;
   initialProjectChats: AiConversationPage | null;
   initialProjectContext: AssistantProjectContextSnapshot | null;
 };
 
 type ProjectViewState = {
   projectId: string;
-  query: string;
   page: AiConversationPage;
   context: AssistantProjectContextSnapshot;
 };
@@ -124,7 +121,6 @@ export default function AssistantWorkspace(props: Props) {
     props.initialProject && props.initialProjectChats && props.initialProjectContext
       ? {
           projectId: props.initialProject.id,
-          query: props.initialProjectQuery,
           page: props.initialProjectChats,
           context: props.initialProjectContext,
         }
@@ -324,16 +320,16 @@ export default function AssistantWorkspace(props: Props) {
     if (chat.activeConversationId() === conversationId) focusComposer();
     return true;
   };
-  const openProject = async (projectId: string, query = "") => {
+  const openProject = async (projectId: string) => {
     const project = projects().find((item) => item.id === projectId);
     if (!project) throw new Error("Project not found");
     const requestId = ++navigationRequest;
     const [page, context] = await Promise.all([
-      assistantApi.listConversationsPage({ projectId, q: query || undefined, page: 1, perPage: 20 }),
+      assistantApi.listConversationsPage({ projectId, page: 1, perPage: 20 }),
       assistantApi.loadProjectContext(projectId),
     ]);
     if (requestId !== navigationRequest) return false;
-    setProjectView({ projectId, query, page, context });
+    setProjectView({ projectId, page, context });
     return true;
   };
   const filesRefreshKey = createMemo(() => {
@@ -370,7 +366,7 @@ export default function AssistantWorkspace(props: Props) {
       const projectId = assistantProjectIdFromHref(window.location.href);
       const artifactPath = assistantArtifactPathFromHref(window.location.href);
       if (projectId) {
-        void openProject(projectId, assistantProjectQueryFromHref(window.location.href)).catch(() => navigateTo("/app/assistant"));
+        void openProject(projectId).catch(() => navigateTo("/app/assistant"));
         return;
       }
       if (!conversationId) {
@@ -741,7 +737,6 @@ export default function AssistantWorkspace(props: Props) {
                   {(project) => (
                     <AssistantProjectView
                       project={project()}
-                      initialQuery={view.query}
                       initialPage={view.page}
                       initialContext={view.context}
                       composer={<AssistantComposer projectId={project().id} projectName={project().name} />}

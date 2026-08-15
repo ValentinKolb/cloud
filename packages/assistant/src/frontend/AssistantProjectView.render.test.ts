@@ -107,7 +107,6 @@ describe("Assistant Project view", () => {
         get children() {
           return createComponent(AssistantProjectView, {
             project,
-            initialQuery: "",
             initialPage: page,
             initialContext: { projectId: project.id, knowledge: [], files: [], references: [] },
             onOpenConversation: async () => true,
@@ -124,6 +123,8 @@ describe("Assistant Project view", () => {
     expect(html).toContain("Standard composer");
     expect(html).toContain('data-scroll-preserve="assistant-project-chats"');
     expect(html).toContain("Printer issue");
+    expect(html).toContain('aria-label="Search chats in IT support"');
+    expect(html).not.toContain('aria-label="Search Project chats"');
     expect(html.indexOf("Printer issue")).toBeLessThan(html.indexOf("Standard composer"));
     expect(html).not.toContain("k2b-paper");
     expect(html).not.toContain("divide-y");
@@ -159,7 +160,6 @@ describe("Assistant Project view", () => {
         get children() {
           return createComponent(AssistantProjectView, {
             project,
-            initialQuery: "",
             initialPage: page,
             initialContext: projectContext,
             onOpenConversation: async () => true,
@@ -192,7 +192,6 @@ describe("Assistant Project view", () => {
         get children() {
           return createComponent(AssistantProjectView, {
             project,
-            initialQuery: "",
             initialPage: page,
             initialContext: {
               ...projectContext,
@@ -230,7 +229,6 @@ describe("Assistant Project view", () => {
         get children() {
           return createComponent(AssistantProjectView, {
             project: { ...project, permission: "read" },
-            initialQuery: "",
             initialPage: page,
             initialContext: projectContext,
             onOpenConversation: async () => true,

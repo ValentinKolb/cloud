@@ -25,6 +25,8 @@ describe("Assistant frontend contracts", () => {
     expect(allChats).toContain("panelDialogFixedOptions");
     expect(allChatsList).toContain("<Link");
     expect(allChatsList).toContain("assistantConversationHref");
+    expect(conversationEditor).toContain('title="Chat Settings"');
+    expect(conversationEditor).not.toContain('title="General"');
     for (const source of [conversationEditor, preferences, artifacts]) {
       expect(source).not.toContain("h-[86vh]");
       expect(source).toContain("dialog-fixed-frame");
@@ -51,7 +53,9 @@ describe("Assistant frontend contracts", () => {
     expect(projectsDialog).not.toContain("divide-y");
     expect(projectsDialog).not.toContain("rounded-lg border");
     expect(projectsDialog).not.toContain("listProjects");
-    expect(project).toContain("Search Project chats");
+    expect(project).toContain("openSpotlightSearch");
+    expect(project).toContain("Search chats in ${props.project.name}");
+    expect(project).not.toContain("TextInput");
     expect(project).toContain("IntersectionObserver");
     expect(project).toContain("<AssistantContextSection");
     expect(project).not.toContain("<Paper");

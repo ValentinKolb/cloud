@@ -14,7 +14,6 @@ export default ssr<AuthContext>(async (c) => {
   const url = new URL(c.req.raw.url);
   const requestedConversationId = url.searchParams.get("conversation") ?? undefined;
   const requestedProjectId = url.searchParams.get("project") ?? undefined;
-  const projectQuery = url.searchParams.get("q")?.trim() ?? "";
   const initialArtifactPath = url.searchParams.get("artifact");
   const subject = { type: "user" as const, userId: user.id };
   const initialLiveCursor = (await latestAiInvalidationCursor("assistant", user.id)) ?? "0-0";
@@ -33,7 +32,6 @@ export default ssr<AuthContext>(async (c) => {
         appId: "assistant",
         ownerUserId: user.id,
         projectId: activeProjectRecord!.id,
-        search: projectQuery || undefined,
         page: 1,
         perPage: 20,
       })
@@ -95,7 +93,6 @@ export default ssr<AuthContext>(async (c) => {
         initialContext={initialContext}
         projects={projects}
         initialProject={activeProject}
-        initialProjectQuery={projectQuery}
         initialProjectChats={
           projectChats
             ? {

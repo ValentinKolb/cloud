@@ -238,9 +238,9 @@ function EditConversationForm(props: EditConversationFormProps) {
 
   return (
     <div class="dialog-fixed-frame flex min-h-0 flex-col overflow-hidden">
-      <SettingsModal title="Chat settings" onClose={() => void requestClose()} closeLabel="Close chat settings">
+      <SettingsModal title="Chat Settings" onClose={() => void requestClose()} closeLabel="Close chat settings">
         <SettingsModal.Group title="Chat">
-          <SettingsModal.Tab id="general" title="General" icon="ti ti-id" description="Name, description, and list placement.">
+          <SettingsModal.Tab id="general" title="Chat Settings" icon="ti ti-id" description="Name, description, and list placement.">
             <SettingsGroup title="Identity" description="Choose how this chat appears in navigation and search results.">
               <SettingsField
                 label="Name"

@@ -62,6 +62,8 @@ const conversation = (id: string, title: string, projectId: string | null): AiCo
 describe("Assistant sidebar", () => {
   test("opens every Project and caps the icon-free Chats section with See all", () => {
     const [conversations] = createSignal([
+      { ...conversation("chatpinned", "Pinned chat", null), pinnedAt: "2026-08-12T10:00:00.000Z" },
+      { ...conversation("chatprojectpinned", "Pinned project chat", project.id), pinnedAt: "2026-08-12T09:00:00.000Z" },
       conversation("chatproject", "Project chat", project.id),
       ...Array.from({ length: 17 }, (_, index) => conversation(`chat${index + 1}`, `General chat ${index + 1}`, null)),
     ]);
@@ -69,6 +71,11 @@ describe("Assistant sidebar", () => {
 
     expect(html).toContain('aria-expanded="true"');
     expect(html).toContain("Project chat");
+    expect(html).toContain(">Pinned</");
+    expect(html).toContain("Pinned chat");
+    expect(html.match(/title="Pinned chat"/g)).toHaveLength(2);
+    expect(html.match(/title="Pinned project chat"/g)).toHaveLength(2);
+    expect(html.indexOf(">Pinned</")).toBeLessThan(html.indexOf(">Projects</"));
     expect(html).toContain('aria-label="Edit Project chat"');
     expect(html).toContain(">Chats</");
     expect(html).toContain("General chat 15");
@@ -90,8 +97,10 @@ describe("Assistant sidebar", () => {
 
     expect(idle.match(/New Chat|New chat/g)?.length).toBe(pending.match(/New Chat|New chat/g)?.length);
     expect(pending).toContain("ti ti-message-plus");
+    expect(idle).not.toMatch(/k2b-app-workspace__sidebar-icon-action is-active[^>]+aria-label="New chat"/);
     expect(pending).not.toContain("Creating Chat");
     expect(pending).not.toContain("Creating chat");
+    expect(idle).not.toContain(">Pinned</");
   });
 });
 
