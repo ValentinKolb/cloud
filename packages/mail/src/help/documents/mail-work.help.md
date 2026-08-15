@@ -83,7 +83,6 @@ Open an individual message's **Message organization actions** for sender-scoped 
 
 - **Find all from this sender** opens an exact, URL-backed mailbox search.
 - **Create rule from sender**, **Block sender**, and **Block sender domain** open the guided rule editor with the sender already filled in.
-- **Mark all as read** confirms and queues at most 100 unread matching messages through the durable command outbox. Repeat it with a new action only if Mail reports that the limit was reached; retries with the same idempotency key return the original batch.
 - **Manage unsubscribe** appears only when the message supplies standard mailing-list unsubscribe information.
 
 ## Inspect an individual message {icon="file-search"}

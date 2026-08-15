@@ -2402,45 +2402,6 @@ export const incomingAutomationBackfillSchema = z
   .strict();
 export type IncomingAutomationBackfill = z.infer<typeof incomingAutomationBackfillSchema>;
 
-export const markSenderMessagesReadInputSchema = z
-  .object({
-    matchKind: senderMatchKindSchema,
-    matchValue: z.string().trim().min(1).max(320),
-    idempotencyKey: z.string().trim().min(1).max(150),
-  })
-  .strict()
-  .superRefine((value, context) =>
-    validateAutomationScope(
-      {
-        scope: {
-          mode: "matching",
-          conditions: {
-            mode: "all",
-            items: [
-              {
-                field: value.matchKind === "sender" ? "sender_address" : "sender_domain",
-                operator: "is",
-                value: value.matchValue,
-              },
-            ],
-          },
-        },
-      },
-      context,
-    ),
-  );
-export type MarkSenderMessagesReadInput = z.infer<typeof markSenderMessagesReadInputSchema>;
-
-export const markSenderMessagesReadResultSchema = z
-  .object({
-    commandIds: z.array(z.string().uuid()).max(500),
-    messageCount: z.number().int().nonnegative(),
-    applicationLimit: z.number().int().positive(),
-    capped: z.boolean(),
-  })
-  .strict();
-export type MarkSenderMessagesReadResult = z.infer<typeof markSenderMessagesReadResultSchema>;
-
 const internalCommentBodySchema = z
   .string()
   .min(1)

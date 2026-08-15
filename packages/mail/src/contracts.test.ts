@@ -20,7 +20,6 @@ import {
   draftEditableContentInputSchema,
   mailOAuthStartInputSchema,
   mailSearchExpressionSchema,
-  markSenderMessagesReadInputSchema,
   mergeConversationsInputSchema,
   messageStateChangeSchema,
   parseConnectorCapabilities,
@@ -535,15 +534,8 @@ describe("incoming automation contracts", () => {
     ).toBe(false);
   });
 
-  test("requires bounded, explicit inputs for previews and existing-message actions", () => {
+  test("requires bounded, explicit inputs for previews and existing-message backfills", () => {
     expect(previewIncomingAutomationMatchesInputSchema.safeParse({ scope: { mode: "all" } }).success).toBe(true);
-    expect(
-      markSenderMessagesReadInputSchema.safeParse({
-        matchKind: "domain",
-        matchValue: "example.com",
-        idempotencyKey: "mail-cli-action",
-      }).success,
-    ).toBe(true);
     expect(
       startIncomingAutomationBackfillInputSchema.safeParse({
         operationId: "6962b64e-6de0-4e73-838b-f067d805f46e",

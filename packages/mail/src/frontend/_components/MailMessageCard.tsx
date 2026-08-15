@@ -236,7 +236,6 @@ export default function MailMessageCard(props: {
             totalMessageCount={props.context.totalMessageCount}
             identities={props.context.identities}
             primaryActions={messageMenuActions()}
-            onReconcile={props.actions.reconcile}
             onReassignMessage={props.actions.reassign}
             onSplitMessage={props.actions.split}
             onDeriveMessage={props.actions.derive}

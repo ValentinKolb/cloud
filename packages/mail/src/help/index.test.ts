@@ -247,8 +247,7 @@ describe("mailHelp", () => {
     expect(automation).toContain("Reply drafts and internal comments are normal Mail steps");
     expect(automation).toContain("never sends them");
     expect(work).toContain("Find all from this sender");
-    expect(work).toContain("Mark all as read");
-    expect(work).toContain("at most 100 unread matching messages");
+    expect(work).not.toContain("Mark all as read");
     expect(work).toContain("Manage unsubscribe");
     expect(work).toContain("Mailbox tools > Mailing lists");
     expect(work).toContain("Every mailbox reader");
@@ -395,6 +394,7 @@ describe("mailHelp", () => {
     const reference = cliMailReferences.join("\n");
     const commands = await registeredMailCliCommands();
     expect(commands.size).toBeGreaterThanOrEqual(200);
+    expect(commands.has("sender mark-read")).toBe(false);
 
     for (const command of commands.keys()) {
       expect(reference, `CLI reference missing registered command ${command}`).toContain(command);

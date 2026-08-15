@@ -5,7 +5,6 @@ import { z } from "zod";
 import {
   createIncomingAutomationSchema,
   deleteIncomingAutomationSchema,
-  markSenderMessagesReadInputSchema,
   previewIncomingAutomationMatchesInputSchema,
   ResourceShortIdSchema,
   setIncomingAutomationEnabledSchema,
@@ -123,20 +122,6 @@ export default new Hono<MailApiContext>()
         }),
       );
     },
-  )
-  .post(
-    "/mailboxes/:mailboxId/incoming-automations/mark-read",
-    v("param", mailboxParamSchema),
-    v("json", markSenderMessagesReadInputSchema),
-    async (c) =>
-      respondPublic(
-        c,
-        incomingAutomations.markSenderMessagesRead({
-          context: requestContext(c),
-          mailboxId: internalMailboxId(c),
-          input: c.req.valid("json"),
-        }),
-      ),
   )
   .post(
     "/mailboxes/:mailboxId/incoming-automations/:automationId/backfills",

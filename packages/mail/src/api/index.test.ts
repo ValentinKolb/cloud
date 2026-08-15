@@ -41,11 +41,13 @@ describe("Mail API composition", () => {
     );
     for (const path of [
       "/mailboxes/:mailboxId/incoming-automations/preview",
-      "/mailboxes/:mailboxId/incoming-automations/mark-read",
       "/mailboxes/:mailboxId/incoming-automations/:automationId/backfills",
     ]) {
       expect(api.routes.some((route) => route.method === "POST" && route.path === path)).toBe(true);
     }
+    expect(
+      api.routes.some((route) => route.method === "POST" && route.path === "/mailboxes/:mailboxId/incoming-automations/mark-read"),
+    ).toBe(false);
     for (const method of ["GET", "DELETE"]) {
       expect(
         api.routes.some(

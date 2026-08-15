@@ -212,6 +212,33 @@ type MailListPage = {
   error: string | null;
 };
 
+export const searchHitToListItem = (item: search.MessageSearchHit, listMode: MailListMode): MailListItem => {
+  const selectionKind = listMode === "messages" || !item.conversationId ? "message" : "conversation";
+  return {
+    id: listMode === "conversations" && item.conversationId ? item.conversationId : item.id,
+    conversationId: item.conversationId,
+    selectionKind,
+    primaryReference: item.primaryReference,
+    subject: item.subject,
+    participantSummary: item.participantSummary,
+    participantLabels: item.participantLabels,
+    latestMessageAt: item.latestMessageAt,
+    preview: item.snippet,
+    unread: item.unread,
+    activeFolderIds: item.activeFolderIds,
+    flagged: item.flagged,
+    hasAttachments: item.hasAttachments,
+    messageCount: item.messageCount,
+    workStatus: item.workStatus,
+    assigneeUserId: item.assigneeUserId,
+    snoozedUntil: item.snoozedUntil,
+    sourceFolderId: item.sourceFolderId,
+    unreadFolderIds: item.unreadFolderIds,
+    localTags: [],
+    revision: item.revision,
+  };
+};
+
 const attachLocalTags = async (
   context: MailRequestContext,
   mailboxId: string,
@@ -394,29 +421,7 @@ const loadListItems = async (params: {
       groupByConversation: params.listMode === "conversations",
     });
     if (!result.ok) return { items: [], nextCursor: null, error: result.error.message };
-    const items: MailListItem[] = result.data.items.map((item) => ({
-      id: item.id,
-      conversationId: item.conversationId,
-      selectionKind: params.listMode === "messages" ? "message" : item.conversationId ? "conversation" : "message",
-      primaryReference: item.primaryReference,
-      subject: item.subject,
-      participantSummary: item.participantSummary,
-      participantLabels: item.participantLabels,
-      latestMessageAt: item.latestMessageAt,
-      preview: item.snippet,
-      unread: item.unread,
-      activeFolderIds: item.activeFolderIds,
-      flagged: item.flagged,
-      hasAttachments: item.hasAttachments,
-      messageCount: item.messageCount,
-      workStatus: item.workStatus,
-      assigneeUserId: item.assigneeUserId,
-      snoozedUntil: item.snoozedUntil,
-      sourceFolderId: item.sourceFolderId,
-      unreadFolderIds: item.unreadFolderIds,
-      localTags: [],
-      revision: item.revision,
-    }));
+    const items = result.data.items.map((item) => searchHitToListItem(item, params.listMode));
     return attachLocalTags(params.context, params.mailboxId, items, result.data.nextCursor);
   }
 

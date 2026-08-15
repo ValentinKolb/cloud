@@ -160,19 +160,18 @@ The incoming-automation file is strict: unknown fields are rejected. `name` acce
 - An `if` condition references an earlier AI `sourceStepId`: use `equals` for generated text or single classification and `includes` for multi-classification. Its `value` accepts 1–500 characters and must name a declared choice for classification. Both `then` and `else` are step arrays of at most 12 items.
 - A definition starts with 1–20 top-level steps, contains at most 40 steps across branches, has at most 4 branch levels, and makes at most 10 AI calls. One reachable path may contain only one provider message action, one assignment, one status change, and one summary replacement; it cannot add the same local tag twice.
 
-Automations and sender-wide actions apply to incoming mail only; Cloud rejects a mailbox's own active identities. Destructive flows must restrict every possible match to an external sender or domain and reject configured internal domains, subdomains, and unsafe parent domains. `automation get` exposes the exact generated workflow YAML.
+Automations apply to incoming mail only; Cloud rejects a mailbox's own active identities. Destructive flows must restrict every possible match to an external sender or domain and reject configured internal domains, subdomains, and unsafe parent domains. `automation get` exposes the exact generated workflow YAML.
 
 Preview sender-scoped work before changing existing messages:
 
 ```bash
 cld --json mail sender preview --match sender --value news@example.com
-cld --json mail sender mark-read --match domain --value example.com --idempotency-key <stable-key> --yes
 cld --json mail automation backfill start <automation-id> --revision <revision> --yes
 cld --json mail automation backfill status <automation-id> <operation-id>
 cld --json mail automation backfill cancel <automation-id> <operation-id> --yes
 ```
 
-`sender mark-read` is a bounded interactive action for at most 100 matches. It uses the durable command outbox and accepts `--idempotency-key`, so an agent retry returns the original batch. A non-AI automation backfill instead walks every candidate message with a durable cursor and emits targeted events into the same workflow runtime used for new mail. `start` returns an `operationId`; use it with `status` or `cancel`. AI flows intentionally process only future mail. Cancel an active backfill before editing, disabling, or deleting its automation. Mutations require the revision shown by `automation get`; they refuse stale state instead of silently adopting the latest revision.
+A non-AI automation backfill walks every candidate message with a durable cursor and emits targeted events into the same workflow runtime used for new mail. `start` returns an `operationId`; use it with `status` or `cancel`. AI flows intentionally process only future mail. Cancel an active backfill before editing, disabling, or deleting its automation. Mutations require the revision shown by `automation get`; they refuse stale state instead of silently adopting the latest revision.
 
 ## Configure conversation references
 

@@ -26,7 +26,6 @@ export default function MailSenderMessageActions(props: {
   totalMessageCount: number;
   identities: SenderIdentity[];
   primaryActions?: DropdownItem[];
-  onReconcile: () => Promise<void>;
   onReassignMessage: (messageId: string) => void | Promise<void>;
   onSplitMessage: (messageId: string) => void | Promise<void>;
   onDeriveMessage: (kind: DraftDerivationKind, message: MessageDetail) => unknown;
@@ -55,72 +54,6 @@ export default function MailSenderMessageActions(props: {
     });
   };
 
-  const markSenderRead = mutation.create<
-    boolean,
-    { address: string; selectionKey: string | null },
-    SelectionContext & { idempotencyKey: string }
-  >({
-    mutation: async ({ address }, { abortSignal, idempotencyKey }) => {
-      const previewResponse = await apiClient.mailboxes[":mailboxId"]["incoming-automations"].preview.$post(
-        {
-          param: { mailboxId: props.mailboxId },
-          json: {
-            scope: {
-              mode: "matching",
-              conditions: { mode: "all", items: [{ field: "sender_address", operator: "is", value: address }] },
-            },
-          },
-        },
-        { init: { signal: abortSignal } },
-      );
-      if (!previewResponse.ok) throw new Error(await readApiError(previewResponse, "Could not preview sender messages"));
-      const preview = await previewResponse.json();
-      if (preview.messageCount === 0) {
-        toast("No messages from this sender were found", { title: "Nothing to change" });
-        return false;
-      }
-      const confirmed = await prompts.confirm(
-        `Queue a read-state update for unread messages among ${preview.messageCount} matching message${
-          preview.messageCount === 1 ? "" : "s"
-        }? ${preview.capped ? `At most ${preview.applicationLimit} messages are queued per action.` : ""}`,
-        { title: `Mark messages from ${address} as read?`, confirmText: "Mark as read" },
-      );
-      if (!confirmed || abortSignal.aborted) return false;
-      const response = await apiClient.mailboxes[":mailboxId"]["incoming-automations"]["mark-read"].$post(
-        {
-          param: { mailboxId: props.mailboxId },
-          json: { matchKind: "sender", matchValue: address, idempotencyKey },
-        },
-        { init: { signal: abortSignal } },
-      );
-      if (!response.ok) throw new Error(await readApiError(response, "Could not queue sender messages"));
-      const result = await response.json();
-      if (abortSignal.aborted) return false;
-      if (result.messageCount === 0) {
-        toast("All matching messages are already read", { title: "Nothing to change" });
-        return false;
-      }
-      toast.success(
-        `${result.messageCount} message${result.messageCount === 1 ? "" : "s"} queued${
-          result.capped ? `; limited to ${result.applicationLimit}` : ""
-        }`,
-      );
-      return true;
-    },
-    onBefore: ({ selectionKey }) => ({ selectionKey, idempotencyKey: crypto.randomUUID() }),
-    onSuccess: (changed, context) => {
-      if (!changed) return;
-      if (context?.selectionKey === props.selectionKey) {
-        void props
-          .onReconcile()
-          .catch((error) =>
-            prompts.error(error instanceof Error ? error.message : "Mail could not be refreshed", { title: "Update queued" }),
-          );
-      }
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
   const reportPhishing = mutation.create<boolean, SelectionContext>({
     mutation: async (_, { abortSignal }) => {
       const confirmed = await prompts.confirm(
@@ -141,7 +74,7 @@ export default function MailSenderMessageActions(props: {
     onError: (error) => prompts.error(error.message),
   });
 
-  const pending = () => markSenderRead.loading() || reportPhishing.loading();
+  const pending = () => reportPhishing.loading();
   const sender = () => props.message.from[0] ?? null;
   const findSenderHref = () => (sender() ? buildExactSenderSearchHref(new URL(props.requestUrl), sender()!.address) : null);
   const actionVisibility = () =>
@@ -159,14 +92,12 @@ export default function MailSenderMessageActions(props: {
     on(
       () => props.selectionKey,
       () => {
-        markSenderRead.abort();
         reportPhishing.abort();
       },
       { defer: true },
     ),
   );
   onCleanup(() => {
-    markSenderRead.abort();
     reportPhishing.abort();
   });
 
@@ -188,15 +119,6 @@ export default function MailSenderMessageActions(props: {
                           label: "Create automation from sender",
                           icon: "ti ti-filter-plus",
                           action: () => openIncomingAutomation(sender()!.address),
-                        },
-                      ]
-                    : []),
-                  ...(actionVisibility().markSenderRead
-                    ? [
-                        {
-                          label: "Mark all as read",
-                          icon: "ti ti-mail-opened",
-                          action: () => void markSenderRead.mutate({ address: sender()!.address, selectionKey: props.selectionKey }),
                         },
                       ]
                     : []),

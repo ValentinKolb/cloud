@@ -63,7 +63,6 @@ import {
   type MailWorkflow,
   type MailWorkflowDetail,
   type MailWorkflowVersion,
-  type MarkSenderMessagesReadResult,
   type MessageInspector,
   mailSearchExpressionSchema,
   type PlatformMailboxOperationSummary,
@@ -5949,36 +5948,6 @@ export default defineCliCommands({
         ctx.print(
           `${preview.messageCount} messages in ${preview.conversationCount} conversations match${
             preview.capped ? `; bulk actions process at most ${preview.applicationLimit} at a time` : ""
-          }.`,
-        );
-      },
-    }),
-    command("sender mark-read", {
-      summary: "Queue bounded read-state updates for unread messages from one sender or domain",
-      flags: {
-        ...mailboxFlag,
-        match: flag.enum(["sender", "domain"] as const, { required: true, description: "Match one sender address or domain" }),
-        value: flag.string({ required: true, description: "Sender email address or complete domain" }),
-        idempotencyKey: flag.string({ description: "Stable idempotency key for safe retries" }),
-        yes: confirmFlag("Confirm the bounded sender read-state update"),
-      },
-      run: async ({ ctx, flags }) => {
-        if (!flags.yes) throw new Error("Pass --yes to mark matching messages as read.");
-        if (!flags.match || !flags.value) throw new Error("Missing required sender match flags.");
-        const mailbox = await resolveMailbox(ctx, flags.mailbox);
-        const result = await readApi<MarkSenderMessagesReadResult>(
-          ctx,
-          `/mailboxes/${mailbox.id}/incoming-automations/mark-read`,
-          jsonRequest("POST", {
-            matchKind: flags.match,
-            matchValue: flags.value,
-            idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
-          }),
-        );
-        if (printStructured(ctx, result)) return;
-        ctx.print(
-          `${result.messageCount} read-state update${result.messageCount === 1 ? "" : "s"} queued${
-            result.capped ? `; limited to ${result.applicationLimit}` : ""
           }.`,
         );
       },

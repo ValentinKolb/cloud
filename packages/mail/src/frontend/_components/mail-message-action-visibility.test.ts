@@ -15,7 +15,6 @@ describe("resolveMailMessageActionVisibility", () => {
     expect(resolveMailMessageActionVisibility({ ...base, outgoing: false })).toEqual({
       findSender: true,
       createIncomingAutomation: true,
-      markSenderRead: true,
       blockSender: true,
       manageUnsubscribe: true,
       conversationRepair: true,
@@ -27,7 +26,6 @@ describe("resolveMailMessageActionVisibility", () => {
     expect(resolveMailMessageActionVisibility({ ...base, outgoing: true })).toEqual({
       findSender: false,
       createIncomingAutomation: false,
-      markSenderRead: false,
       blockSender: false,
       manageUnsubscribe: false,
       conversationRepair: true,
@@ -46,7 +44,6 @@ describe("resolveMailMessageActionVisibility", () => {
     ).toEqual({
       findSender: true,
       createIncomingAutomation: false,
-      markSenderRead: false,
       blockSender: false,
       manageUnsubscribe: false,
       conversationRepair: false,

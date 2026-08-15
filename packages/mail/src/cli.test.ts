@@ -4356,7 +4356,7 @@ test("automatic reply commands cover list, create, and revision-checked update",
   ]);
 });
 
-test("sender commands cover preview, bounded read updates, and durable existing-message backfills", async () => {
+test("sender commands cover preview and durable existing-message backfills", async () => {
   const operationId = crypto.randomUUID();
   const automation = {
     id: INCOMING_AUTOMATION_ID,
@@ -4385,10 +4385,6 @@ test("sender commands cover preview, bounded read updates, and durable existing-
     if (request.method === "POST" && url.pathname === `${base}/preview`) {
       requests.push({ method: request.method, path: url.pathname, body: (await request.json()) as Record<string, unknown> });
       return api({ messageCount: 6, conversationCount: 4 });
-    }
-    if (request.method === "POST" && url.pathname === `${base}/mark-read`) {
-      requests.push({ method: request.method, path: url.pathname, body: (await request.json()) as Record<string, unknown> });
-      return api({ commandIds: [COMMAND_ID], messageCount: 1, applicationLimit: 100, capped: false });
     }
     if (request.method === "POST" && url.pathname === `${base}/${INCOMING_AUTOMATION_ID}/backfills`) {
       const body = (await request.json()) as Record<string, unknown>;
@@ -4459,21 +4455,6 @@ test("sender commands cover preview, bounded read updates, and durable existing-
     "--value",
     "sender@example.test",
   ]);
-  const markedRead = await runCli(origin, [
-    "--json",
-    "mail",
-    "sender",
-    "mark-read",
-    "--mailbox",
-    MAILBOX_ID,
-    "--match",
-    "domain",
-    "--value",
-    "example.test",
-    "--idempotency-key",
-    "stable-read",
-    "--yes",
-  ]);
   const started = await runCli(origin, [
     "--json",
     "mail",
@@ -4512,9 +4493,8 @@ test("sender commands cover preview, bounded read updates, and durable existing-
     "--yes",
   ]);
 
-  expect([previewed.exitCode, markedRead.exitCode, started.exitCode, status.exitCode, canceled.exitCode]).toEqual([0, 0, 0, 0, 0]);
+  expect([previewed.exitCode, started.exitCode, status.exitCode, canceled.exitCode]).toEqual([0, 0, 0, 0]);
   expect(JSON.parse(previewed.stdout)).toMatchObject({ messageCount: 6, conversationCount: 4 });
-  expect(JSON.parse(markedRead.stdout)).toMatchObject({ messageCount: 1 });
   expect(startedResult).toMatchObject({
     automationId: INCOMING_AUTOMATION_ID,
     state: "queued",
@@ -4522,7 +4502,7 @@ test("sender commands cover preview, bounded read updates, and durable existing-
   });
   expect(JSON.parse(status.stdout)).toMatchObject({ operationId, state: "running", remainingCount: 1 });
   expect(JSON.parse(canceled.stdout)).toMatchObject({ operationId, state: "canceled" });
-  expect(requests).toHaveLength(5);
+  expect(requests).toHaveLength(4);
   expect(requests[0]).toEqual({
     method: "POST",
     path: `/api/mail/mailboxes/${MAILBOX_ID}/incoming-automations/preview`,
@@ -4536,21 +4516,16 @@ test("sender commands cover preview, bounded read updates, and durable existing-
       },
     },
   });
-  expect(requests[1]?.body).toEqual({
-    matchKind: "domain",
-    matchValue: "example.test",
-    idempotencyKey: "stable-read",
-  });
-  expect(requests[2]).toMatchObject({
+  expect(requests[1]).toMatchObject({
     method: "POST",
     path: `/api/mail/mailboxes/${MAILBOX_ID}/incoming-automations/${INCOMING_AUTOMATION_ID}/backfills`,
     body: { expectedRevision: 3, operationId: expect.any(String) },
   });
-  expect(requests[3]).toEqual({
+  expect(requests[2]).toEqual({
     method: "GET",
     path: `/api/mail/mailboxes/${MAILBOX_ID}/incoming-automations/${INCOMING_AUTOMATION_ID}/backfills/${operationId}`,
   });
-  expect(requests[4]).toEqual({
+  expect(requests[3]).toEqual({
     method: "DELETE",
     path: `/api/mail/mailboxes/${MAILBOX_ID}/incoming-automations/${INCOMING_AUTOMATION_ID}/backfills/${operationId}`,
   });
