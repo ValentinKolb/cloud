@@ -2111,6 +2111,19 @@
   background: transparent;
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .k2b-ui .k2b-detail-panel__action-menu-trigger {
+    opacity: 0;
+    transition: opacity 120ms ease-out;
+  }
+
+  .k2b-ui .k2b-detail-panel__action-row:hover .k2b-detail-panel__action-menu-trigger,
+  .k2b-ui .k2b-detail-panel__action-row:focus-within .k2b-detail-panel__action-menu-trigger,
+  .k2b-ui .k2b-detail-panel__action-menu-trigger[aria-expanded="true"] {
+    opacity: 1;
+  }
+}
+
 .k2b-ui .k2b-detail-panel__action > .k2b-button__label {
   width: 100%;
   gap: 0.375rem;

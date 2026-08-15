@@ -71,8 +71,10 @@ color; the row and optional Dots menu trigger stay transparent. When a
 destination has secondary actions, pass declarative
 `menuItems` together with the required accessible `menuLabel`. The primary link
 and the Dots trigger render as sibling controls, so the whole main row remains
-a native destination without nesting a button inside the link. Do not use it
-for static key-value data, comments, history, or form fields.
+a native destination without nesting a button inside the link. On fine-pointer
+devices the Dots trigger appears on row hover, keyboard focus, or while its menu
+is open; it remains visible on touch devices. Do not use it for static key-value
+data, comments, history, or form fields.
 
 ## Accessibility
 

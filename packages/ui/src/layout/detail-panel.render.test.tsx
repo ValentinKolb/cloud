@@ -203,6 +203,9 @@ describe("DetailPanel", () => {
       css.match(/\.k2b-ui \.k2b-button\.k2b-detail-panel__action-menu-trigger:not\(:disabled\):hover,[^{]+\{([^}]*)\}/)?.[1] ?? "";
     expect(menuHoverRule).toContain("color: var(--k2b-detail-panel-accent, var(--k2b-action));");
     expect(menuHoverRule).toContain("background: transparent;");
+    expect(css).toMatch(/@media \(hover: hover\) and \(pointer: fine\)[\s\S]*\.k2b-detail-panel__action-menu-trigger \{[^}]*opacity: 0/);
+    expect(css).toContain(".k2b-detail-panel__action-row:focus-within .k2b-detail-panel__action-menu-trigger");
+    expect(css).toContain('.k2b-detail-panel__action-menu-trigger[aria-expanded="true"]');
     const leadingRule = css.match(/\.k2b-ui \.k2b-detail-panel__action-leading \{([^}]*)\}/)?.[1] ?? "";
     expect(leadingRule).toContain("width: 1rem;");
     expect(leadingRule).toContain("justify-content: flex-start;");
