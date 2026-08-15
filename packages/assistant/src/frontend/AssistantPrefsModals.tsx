@@ -2,6 +2,7 @@ import { Link } from "@k2b/ssr/nav";
 import {
   Button,
   confirmDiscardIfDirty,
+  Dropdown,
   IconButton,
   Placeholder,
   prompts,
@@ -164,7 +165,7 @@ const openAddPersonalizationDialog = (): Promise<{ kind: AiMemoryKind; content: 
             value={content}
             onValueChange={setContent}
             multiline
-            lines={4}
+            lines={8}
             maxLength={MEMORY_MAX_CHARS}
             placeholder="Prefers concise answers in German."
             autofocus
@@ -248,7 +249,7 @@ function MemorySettings(props: { prefs: AiUserPrefs; onDirtyChange: (dirty: bool
           label: false,
           default: memory.content,
           multiline: true,
-          lines: 4,
+          lines: 8,
           maxLength: MEMORY_MAX_CHARS,
         },
       },
@@ -281,12 +282,12 @@ function MemorySettings(props: { prefs: AiUserPrefs; onDirtyChange: (dirty: bool
   };
 
   const removeMemory = async (memory: AiMemory) => {
-    if (!(await prompts.confirm(`Forget "${memory.content}"?`, { title: "Forget personalization", variant: "danger" }))) return;
+    if (!(await prompts.confirm(`Delete "${memory.content}"?`, { title: "Delete personalization", variant: "danger" }))) return;
     setBusyId(memory.id);
     try {
       await assistantApi.deleteMemory(memory.id);
       await refetch();
-      toast.success("Personalization forgotten");
+      toast.success("Personalization deleted");
     } catch (error) {
       await prompts.error(error instanceof Error ? error.message : "Failed to delete personalization");
     } finally {
@@ -347,85 +348,79 @@ function MemorySettings(props: { prefs: AiUserPrefs; onDirtyChange: (dirty: bool
                 />
               }
             >
-              <div class="flex items-center gap-2">
-                <TextInput
-                  class="min-w-0 flex-1"
-                  aria-label="Search personalization"
-                  type="search"
-                  icon="ti ti-search"
-                  value={query}
-                  onValueChange={setQuery}
-                  placeholder="Search personalization"
-                  disabled={Boolean(busyId())}
-                />
-                <IconButton
-                  label="Add personalization"
-                  title="Add personalization"
-                  variant="input"
-                  loading={busyId() === "new"}
-                  disabled={Boolean(busyId())}
-                  onClick={() => void addMemory()}
-                >
-                  <i class="ti ti-plus" aria-hidden="true" />
-                </IconButton>
-              </div>
+              <div class="grid gap-1">
+                <div class="flex items-center gap-2">
+                  <TextInput
+                    class="min-w-0 flex-1"
+                    aria-label="Search personalization"
+                    type="search"
+                    icon="ti ti-search"
+                    value={query}
+                    onValueChange={setQuery}
+                    placeholder="Search personalization"
+                    disabled={Boolean(busyId())}
+                  />
+                  <IconButton
+                    label="Add personalization"
+                    title="Add personalization"
+                    variant="input"
+                    loading={busyId() === "new"}
+                    disabled={Boolean(busyId())}
+                    onClick={() => void addMemory()}
+                  >
+                    <i class="ti ti-plus" aria-hidden="true" />
+                  </IconButton>
+                </div>
 
-              <SettingsCollection
-                title={<span class="sr-only">Personalization entries</span>}
-                class="[&>.k2b-settings-collection__header]:sr-only"
-                empty="No matching personalization. Try a different search."
-              >
-                <For each={memories()}>
-                  {(memory) => (
-                    <SettingsCollection.Item
-                      title={memory.content}
-                      description={`${memory.kind === "preference" ? "Preference" : "Fact"}${
-                        memory.priority === "pinned" ? " · Pinned" : ""
-                      } · Updated ${new Date(memory.updatedAt).toLocaleDateString()}`}
-                      icon={<i class={memory.priority === "pinned" ? "ti ti-pin-filled" : "ti ti-brain"} aria-hidden="true" />}
-                    >
-                      <Show when={memory.sourceConversationId}>
-                        {(conversationId) => (
-                          <SettingsCollection.Item.Status>
-                            <Link href={assistantConversationHref(globalThis.location?.href ?? "/app/assistant", conversationId())}>
-                              Source chat
-                            </Link>
-                          </SettingsCollection.Item.Status>
-                        )}
-                      </Show>
-                      <SettingsCollection.Item.Actions>
-                        <IconButton
-                          label={`${memory.priority === "pinned" ? "Unpin" : "Pin"} personalization`}
-                          title={memory.priority === "pinned" ? "Unpin" : "Pin"}
-                          size="sm"
-                          disabled={Boolean(busyId())}
-                          onClick={() => void togglePinned(memory)}
-                        >
-                          <i class={memory.priority === "pinned" ? "ti ti-pin-off" : "ti ti-pin"} aria-hidden="true" />
-                        </IconButton>
-                        <IconButton
-                          label="Edit personalization"
-                          title="Edit"
-                          size="sm"
-                          disabled={Boolean(busyId())}
-                          onClick={() => void editMemory(memory)}
-                        >
-                          <i class="ti ti-pencil" aria-hidden="true" />
-                        </IconButton>
-                        <IconButton
-                          label="Forget personalization"
-                          title="Forget"
-                          size="sm"
-                          disabled={Boolean(busyId())}
-                          onClick={() => void removeMemory(memory)}
-                        >
-                          <i class="ti ti-trash" aria-hidden="true" />
-                        </IconButton>
-                      </SettingsCollection.Item.Actions>
-                    </SettingsCollection.Item>
-                  )}
-                </For>
-              </SettingsCollection>
+                <SettingsCollection
+                  title={<span class="sr-only">Personalization entries</span>}
+                  class="[&>.k2b-settings-collection__header]:sr-only"
+                  empty="No matching personalization. Try a different search."
+                >
+                  <For each={memories()}>
+                    {(memory) => (
+                      <SettingsCollection.Item
+                        title={memory.content}
+                        description={`${memory.kind === "preference" ? "Preference" : "Fact"}${
+                          memory.priority === "pinned" ? " · Pinned" : ""
+                        } · Updated ${new Date(memory.updatedAt).toLocaleDateString()}`}
+                        icon={<i class={memory.kind === "preference" ? "ti ti-adjustments" : "ti ti-info-circle"} aria-hidden="true" />}
+                      >
+                        <Show when={memory.sourceConversationId}>
+                          {(conversationId) => (
+                            <SettingsCollection.Item.Status>
+                              <Link href={assistantConversationHref(globalThis.location?.href ?? "/app/assistant", conversationId())}>
+                                Source chat
+                              </Link>
+                            </SettingsCollection.Item.Status>
+                          )}
+                        </Show>
+                        <SettingsCollection.Item.Actions>
+                          <Dropdown.Root
+                            position="bottom-left"
+                            width="10rem"
+                            label="Personalization actions"
+                            disabled={Boolean(busyId())}
+                            items={[
+                              { label: "Edit", icon: "ti ti-pencil", action: () => void editMemory(memory) },
+                              {
+                                label: memory.priority === "pinned" ? "Unpin" : "Pin",
+                                icon: memory.priority === "pinned" ? "ti ti-pin-off" : "ti ti-pin",
+                                action: () => void togglePinned(memory),
+                              },
+                              { label: "Delete", icon: "ti ti-trash", variant: "danger", action: () => void removeMemory(memory) },
+                            ]}
+                          >
+                            <Dropdown.Trigger appearance="plain" iconOnly label="Personalization actions" title="Personalization actions">
+                              <i class="ti ti-dots" aria-hidden="true" />
+                            </Dropdown.Trigger>
+                          </Dropdown.Root>
+                        </SettingsCollection.Item.Actions>
+                      </SettingsCollection.Item>
+                    )}
+                  </For>
+                </SettingsCollection>
+              </div>
             </Show>
           </Show>
         </SettingsGroup>
