@@ -249,11 +249,14 @@ describe("@k2b/ui complete settings surfaces", () => {
       .map((match) => match[1])
       .find((rule) => rule?.includes("font-size"));
     const footerRule = css.match(/\.k2b-ui \.k2b-settings__footer\s*\{([^}]+)\}/)?.[1];
+    const bodyRule = css.match(/\.k2b-ui \.k2b-settings__body\s*\{([^}]+)\}/)?.[1];
 
     expect(directFieldRule).toContain("padding: 0");
     expect(fieldRule).toContain("min-width: 0");
     expect(groupHeadingRule).toContain("font-size: 1rem");
     expect(footerRule).toContain("background: var(--k2b-surface)");
+    expect(bodyRule).toContain("overflow-x: hidden");
+    expect(bodyRule).toContain("overflow-y: auto");
   });
 
   test("renders changed fields and sticky or fixed save controls", () => {
