@@ -5,6 +5,7 @@ const item = {
   appId: "inventory",
   appName: "Inventory",
   appIcon: "ti ti-package",
+  readable: true,
   ref: { type: "inventory.item", id: "item-1" },
   title: "Adapter",
 };
