@@ -1,6 +1,8 @@
+import { downloadFileFromContent } from "@k2b/stdlib/browser";
 import {
   Button,
   DetailPanel,
+  type DropdownItem,
   FileBrowserPanel,
   type FileSource,
   type FileTreeEntry,
@@ -73,6 +75,8 @@ export function AssistantContextRow(props: {
   scope?: AssistantContextScope;
   showScope?: boolean;
   onClick?: () => void;
+  menuItems?: readonly DropdownItem[];
+  menuLabel?: string;
   trailing?: JSX.Element;
 }) {
   const leading = () => (props.icon ? <i class={props.icon} aria-hidden="true" /> : undefined);
@@ -84,7 +88,17 @@ export function AssistantContextRow(props: {
       {props.trailing}
     </>
   );
-  return props.onClick ? (
+  return props.onClick && props.menuItems?.length ? (
+    <DetailPanel.Action
+      title={props.title}
+      description={props.description}
+      leading={leading()}
+      trailing={trailing()}
+      onClick={props.onClick}
+      menuItems={props.menuItems}
+      menuLabel={props.menuLabel ?? `Actions for ${props.title}`}
+    />
+  ) : props.onClick ? (
     <DetailPanel.Action
       title={props.title}
       description={props.description}
@@ -216,6 +230,24 @@ export const assistantProjectFileSource = (projectId: string, files: () => reado
   },
   isReadOnly: () => true,
 });
+
+export const downloadAssistantContextFile = async (file: AssistantContextFile): Promise<void> => {
+  const name = file.path.replace(/^.*\//u, "") || "download";
+  const href = file.source.downloadHref?.(file.path);
+  if (href) {
+    const anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.download = name;
+    anchor.click();
+    return;
+  }
+  const content = await file.source.read(file.path);
+  const bytes =
+    content.encoding === "utf8"
+      ? new TextEncoder().encode(content.content)
+      : Uint8Array.from(atob(content.content), (character) => character.charCodeAt(0));
+  downloadFileFromContent(bytes, name, content.mediaType || file.mediaType || "application/octet-stream");
+};
 
 export const openAssistantContextFiles = (files: readonly AssistantContextFile[], selected?: AssistantContextFile) =>
   prompts.dialog<void>(

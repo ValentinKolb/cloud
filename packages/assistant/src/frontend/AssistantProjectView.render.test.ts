@@ -53,6 +53,51 @@ const page = {
   hasNext: false,
 } as AiConversationPage;
 
+const projectContext = {
+  projectId: project.id,
+  knowledge: [
+    {
+      id: "knowledge123",
+      shortId: "knowledge123",
+      projectId: project.id,
+      title: "Printer runbook",
+      content: "# Printer runbook",
+      createdAt: "2026-08-12T08:00:00.000Z",
+      updatedAt: "2026-08-12T08:00:00.000Z",
+    },
+  ],
+  files: [
+    {
+      id: "image123",
+      shortId: "image123",
+      projectId: project.id,
+      path: "printer.png",
+      mediaType: "image/png",
+      size: 42,
+      updatedAt: "2026-08-12T08:00:00.000Z",
+    },
+    {
+      id: "file123",
+      shortId: "file123",
+      projectId: project.id,
+      path: "printer.txt",
+      mediaType: "text/plain",
+      size: 42,
+      updatedAt: "2026-08-12T08:00:00.000Z",
+    },
+  ],
+  references: [
+    {
+      id: "reference123",
+      shortId: "reference123",
+      projectId: project.id,
+      ref: { type: "spaces.item", id: "item123" },
+      label: "Printer incident",
+      createdAt: "2026-08-12T08:00:00.000Z",
+    },
+  ],
+};
+
 describe("Assistant Project view", () => {
   test("places compact recent chats above the bottom composer and renders a quiet context rail", () => {
     const live = createAssistantLiveInvalidationHub({ onApplied: () => undefined });
@@ -112,6 +157,35 @@ describe("Assistant Project view", () => {
     expect(html).toContain('style="font-size:0.75rem;font-weight:400"');
   });
 
+  test("uses one item action menu for Project context management", () => {
+    const live = createAssistantLiveInvalidationHub({ onApplied: () => undefined });
+    const html = renderToString(() =>
+      createComponent(AssistantLiveProvider, {
+        value: live,
+        get children() {
+          return createComponent(AssistantProjectView, {
+            project,
+            initialQuery: "",
+            initialPage: page,
+            initialContext: projectContext,
+            onOpenConversation: async () => true,
+            get composer() {
+              return "Standard composer";
+            },
+          });
+        },
+      }),
+    );
+    live.dispose();
+
+    expect(html).toContain('aria-label="Actions for Printer runbook"');
+    expect(html).toContain('aria-label="Actions for printer.png"');
+    expect(html).toContain('aria-label="Actions for printer.txt"');
+    expect(html).toContain('aria-label="Actions for Printer incident"');
+    expect(html).not.toContain('aria-label="Edit Printer runbook"');
+    expect(html).not.toContain('aria-label="Delete Printer runbook"');
+  });
+
   test("keeps Project context management out of a read-only workspace", () => {
     const live = createAssistantLiveInvalidationHub({ onApplied: () => undefined });
     const html = renderToString(() =>
@@ -122,7 +196,7 @@ describe("Assistant Project view", () => {
             project: { ...project, permission: "read" },
             initialQuery: "",
             initialPage: page,
-            initialContext: { projectId: project.id, knowledge: [], files: [], references: [] },
+            initialContext: projectContext,
             onOpenConversation: async () => true,
             get composer() {
               return "Standard composer";
@@ -138,5 +212,9 @@ describe("Assistant Project view", () => {
     expect(html).not.toContain('aria-label="Add images"');
     expect(html).not.toContain('aria-label="Add files"');
     expect(html).not.toContain('aria-label="Add reference"');
+    expect(html).not.toContain('aria-label="Actions for Printer runbook"');
+    expect(html).not.toContain('aria-label="Actions for Printer incident"');
+    expect(html).toContain('aria-label="Actions for printer.png"');
+    expect(html).toContain('aria-label="Actions for printer.txt"');
   });
 });

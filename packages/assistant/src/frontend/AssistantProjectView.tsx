@@ -1,6 +1,6 @@
 import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
 import { query as solidQuery } from "@k2b/stdlib/solid";
-import { Button, FileDropzone, IconButton, Lightbox, Placeholder, prompts, TextInput, toast } from "@k2b/ui";
+import { Button, type DropdownItem, FileDropzone, IconButton, Lightbox, Placeholder, prompts, TextInput, toast } from "@k2b/ui";
 import type { AiConversation, AiConversationPage, AiProject, AiProjectKnowledge } from "@valentinkolb/cloud/ai";
 import { openCloudResourcePicker } from "@valentinkolb/cloud/browser/resource-picker";
 import { coreClient } from "@valentinkolb/cloud/clients/core";
@@ -15,6 +15,7 @@ import {
   AssistantContextRows,
   AssistantContextSection,
   assistantProjectFileSource,
+  downloadAssistantContextFile,
   isAssistantContextImage,
   loadAssistantContextImages,
   openAssistantCloudReference,
@@ -92,6 +93,7 @@ export default function AssistantProjectView(props: Props) {
     }));
   const imageFiles = () => contextFiles().filter(isAssistantContextImage);
   const regularFiles = () => contextFiles().filter((file) => !isAssistantContextImage(file));
+  const canWrite = () => props.project.permission !== "read";
   const openImages = async (selected?: AssistantContextFile) => {
     try {
       const images = await loadAssistantContextImages(contextFiles());
@@ -215,7 +217,7 @@ export default function AssistantProjectView(props: Props) {
       { title: imagesOnly ? "Add images" : "Add files", icon: imagesOnly ? "ti ti-photo" : "ti ti-files", size: "medium" },
     );
 
-  const deleteFile = async (file: NonNullable<AssistantProjectContextSnapshot["files"]>[number]) => {
+  const deleteFile = async (file: Pick<AssistantContextFile, "id" | "path">) => {
     if (!(await prompts.confirm(`Remove “${file.path}” from this Project?`, { title: "Delete file", variant: "danger" }))) return;
     await runContextAction(`file:${file.id}`, "File deleted", () =>
       coreClient.ai.projects[":projectId"].files[":fileId"].$delete({ param: { projectId: props.project.id, fileId: file.id } }),
@@ -247,6 +249,56 @@ export default function AssistantProjectView(props: Props) {
       }),
     );
   };
+
+  const downloadFile = async (file: AssistantContextFile) => {
+    try {
+      await downloadAssistantContextFile(file);
+    } catch (error) {
+      void prompts.error(error instanceof Error ? error.message : "File could not be downloaded.", { title: "Could not download file" });
+    }
+  };
+
+  const knowledgeMenu = (item: AiProjectKnowledge): DropdownItem[] =>
+    canWrite()
+      ? [
+          { icon: "ti ti-pencil", label: "Edit", action: () => void editKnowledge(item), disabled: Boolean(contextAction()) },
+          {
+            icon: "ti ti-trash",
+            label: "Delete",
+            variant: "danger",
+            action: () => void deleteKnowledge(item),
+            disabled: Boolean(contextAction()),
+          },
+        ]
+      : [];
+
+  const fileMenu = (file: AssistantContextFile): DropdownItem[] => [
+    { icon: "ti ti-download", label: "Download", action: () => void downloadFile(file) },
+    ...(canWrite()
+      ? ([
+          {
+            icon: "ti ti-trash",
+            label: "Delete",
+            variant: "danger",
+            action: () => void deleteFile(file),
+            disabled: Boolean(contextAction()),
+          },
+        ] satisfies DropdownItem[])
+      : []),
+  ];
+
+  const referenceMenu = (reference: NonNullable<AssistantProjectContextSnapshot["references"]>[number]): DropdownItem[] =>
+    canWrite()
+      ? [
+          {
+            icon: "ti ti-trash",
+            label: "Remove from Project",
+            variant: "danger",
+            action: () => void deleteReference(reference),
+            disabled: Boolean(contextAction()),
+          },
+        ]
+      : [];
 
   createEffect(() => {
     const value = query().trim();
@@ -458,33 +510,13 @@ export default function AssistantProjectView(props: Props) {
                       <AssistantContextRows>
                         <For each={value().knowledge.slice(0, 3)}>
                           {(item) => (
-                            <div class="group/row flex min-w-0 items-center gap-1">
-                              <div class="min-w-0 flex-1">
-                                <AssistantContextRow
-                                  icon="ti ti-bulb"
-                                  title={item.title}
-                                  onClick={() => void openAssistantMarkdown(item.title, item.content, "ti ti-bulb")}
-                                />
-                              </div>
-                              <Show when={props.project.permission !== "read"}>
-                                <IconButton
-                                  class="opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100"
-                                  size="xs"
-                                  label={`Edit ${item.title}`}
-                                  onClick={() => void editKnowledge(item)}
-                                >
-                                  <i class="ti ti-pencil" aria-hidden="true" />
-                                </IconButton>
-                                <IconButton
-                                  class="opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100"
-                                  size="xs"
-                                  label={`Delete ${item.title}`}
-                                  onClick={() => void deleteKnowledge(item)}
-                                >
-                                  <i class="ti ti-trash" aria-hidden="true" />
-                                </IconButton>
-                              </Show>
-                            </div>
+                            <AssistantContextRow
+                              icon="ti ti-bulb"
+                              title={item.title}
+                              onClick={() => void openAssistantMarkdown(item.title, item.content, "ti ti-bulb")}
+                              menuItems={knowledgeMenu(item)}
+                              menuLabel={`Actions for ${item.title}`}
+                            />
                           )}
                         </For>
                       </AssistantContextRows>
@@ -509,6 +541,8 @@ export default function AssistantProjectView(props: Props) {
                           icon="ti ti-photo"
                           title={file().path.replace(/^.*\//u, "")}
                           onClick={() => void openImages(file())}
+                          menuItems={fileMenu(file())}
+                          menuLabel={`Actions for ${file().path.replace(/^.*\//u, "")}`}
                         />
                       )}
                     </Show>
@@ -530,28 +564,13 @@ export default function AssistantProjectView(props: Props) {
                       <AssistantContextRows>
                         <For each={regularFiles().slice(0, 3)}>
                           {(file) => (
-                            <div class="group/row flex min-w-0 items-center gap-1">
-                              <div class="min-w-0 flex-1">
-                                <AssistantContextRow
-                                  icon="ti ti-file"
-                                  title={file.path.replace(/^.*\//u, "")}
-                                  onClick={() => void openAssistantContextFiles(regularFiles(), file)}
-                                />
-                              </div>
-                              <Show when={props.project.permission !== "read"}>
-                                <IconButton
-                                  class="opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100"
-                                  size="xs"
-                                  label={`Delete ${file.path}`}
-                                  onClick={() => {
-                                    const projectFile = value().files.find((candidate) => candidate.id === file.id);
-                                    if (projectFile) void deleteFile(projectFile);
-                                  }}
-                                >
-                                  <i class="ti ti-trash" aria-hidden="true" />
-                                </IconButton>
-                              </Show>
-                            </div>
+                            <AssistantContextRow
+                              icon="ti ti-file"
+                              title={file.path.replace(/^.*\//u, "")}
+                              onClick={() => void openAssistantContextFiles(regularFiles(), file)}
+                              menuItems={fileMenu(file)}
+                              menuLabel={`Actions for ${file.path.replace(/^.*\//u, "")}`}
+                            />
                           )}
                         </For>
                       </AssistantContextRows>
@@ -578,25 +597,13 @@ export default function AssistantProjectView(props: Props) {
                           {(reference) => {
                             const label = () => reference.label || `${reference.ref.type} · ${reference.ref.id}`;
                             return (
-                              <div class="group/row flex min-w-0 items-center gap-1">
-                                <div class="min-w-0 flex-1">
-                                  <AssistantContextRow
-                                    icon="ti ti-link"
-                                    title={label()}
-                                    onClick={() => void openAssistantCloudReference(label(), reference.ref)}
-                                  />
-                                </div>
-                                <Show when={props.project.permission !== "read"}>
-                                  <IconButton
-                                    class="opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100"
-                                    size="xs"
-                                    label={`Remove ${label()}`}
-                                    onClick={() => void deleteReference(reference)}
-                                  >
-                                    <i class="ti ti-x" aria-hidden="true" />
-                                  </IconButton>
-                                </Show>
-                              </div>
+                              <AssistantContextRow
+                                icon="ti ti-link"
+                                title={label()}
+                                onClick={() => void openAssistantCloudReference(label(), reference.ref)}
+                                menuItems={referenceMenu(reference)}
+                                menuLabel={`Actions for ${label()}`}
+                              />
                             );
                           }}
                         </For>
