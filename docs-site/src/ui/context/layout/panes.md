@@ -57,7 +57,7 @@ Use `closable` and `onClose` together. The caller must remove the element id and
 
 ## Accessibility
 
-Give each element a concise `title`. Move and close controls receive accessible labels from the title or id.
+Give each element a concise `title`. Drag the tab or single-pane header surface to move it. An optional close control remains a separate target and never starts a drag; `Delete` and `Backspace` close the focused tab when `onClose` is available.
 
 Pane movement is pointer-driven. Do not make a workflow depend on rearranging panes; the initial layout must remain usable.
 

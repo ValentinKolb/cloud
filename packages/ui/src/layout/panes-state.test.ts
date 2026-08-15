@@ -4,6 +4,7 @@ import {
   applyPanesIntent,
   createPanesValue,
   normalizePanesValue,
+  resolvePanesDropIntent,
   resizePanesSplit,
   type PanesValue,
 } from "./panes-state";
@@ -130,7 +131,7 @@ describe("Panes state kernel", () => {
     ]);
   });
 
-  test("creates deterministic nested splits and preserves every element", () => {
+  test("creates deterministic splits and preserves every element", () => {
     const intent = {
       kind: "split",
       elementId: "two",
@@ -140,15 +141,63 @@ describe("Panes state kernel", () => {
     const first = applyPanesIntent(splitValue(), intent);
     const second = applyPanesIntent(splitValue(), intent);
     expect(first).toEqual(second);
-    expect(first.root.type === "split" && first.root.children[0]).toMatchObject({
-      type: "split",
-      id: "split-left",
-      direction: "horizontal",
-      children: [
-        { id: "left", elementIds: ["one"] },
-        { id: "leaf-two", elementIds: ["two"] },
-      ],
+    expect(first.root.type === "split" && first.root.children).toMatchObject([
+      { id: "left", elementIds: ["one"] },
+      { id: "leaf-two", elementIds: ["two"] },
+      { id: "right", elementIds: ["three"] },
+    ]);
+  });
+
+  test("resolves equivalent pane edges to one meaningful drop target", () => {
+    const flat: PanesValue = {
+      root: {
+        type: "split",
+        id: "root",
+        direction: "horizontal",
+        sizes: [33, 34, 33],
+        children: [
+          { type: "leaf", id: "source", elementIds: ["source"], activeElementId: "source" },
+          { type: "leaf", id: "preview", elementIds: ["preview"], activeElementId: "preview" },
+          { type: "leaf", id: "data", elementIds: ["data"], activeElementId: "data" },
+        ],
+      },
+    };
+    const middle = { kind: "insert", elementId: "data", splitId: "root", index: 0, direction: "horizontal" } as const;
+
+    expect(resolvePanesDropIntent(flat, { kind: "split", elementId: "data", leafId: "source", zone: "right" })).toEqual(middle);
+    expect(resolvePanesDropIntent(flat, middle)).toEqual(middle);
+    expect(resolvePanesDropIntent(flat, { kind: "split", elementId: "data", leafId: "preview", zone: "left" })).toEqual(middle);
+
+    const nested: PanesValue = {
+      root: {
+        type: "split",
+        id: "root",
+        direction: "horizontal",
+        sizes: [50, 50],
+        children: [
+          {
+            type: "split",
+            id: "left",
+            direction: "vertical",
+            sizes: [50, 50],
+            children: [
+              { type: "leaf", id: "source", elementIds: ["source"], activeElementId: "source" },
+              { type: "leaf", id: "preview", elementIds: ["preview"], activeElementId: "preview" },
+            ],
+          },
+          { type: "leaf", id: "data", elementIds: ["data"], activeElementId: "data" },
+        ],
+      },
+    };
+
+    expect(resolvePanesDropIntent(nested, { kind: "split", elementId: "data", leafId: "source", zone: "right" })).toEqual({
+      kind: "split",
+      elementId: "data",
+      leafId: "source",
+      zone: "right",
     });
+    expect(resolvePanesDropIntent(nested, middle)).toBeNull();
+    expect(resolvePanesDropIntent(nested, { kind: "split", elementId: "data", leafId: "data", zone: "left" })).toBeNull();
   });
 
   test("inserts a moved leaf at an existing split gap before pruning its source", () => {

@@ -25,6 +25,7 @@ import {
   type PanesSplitZone,
   type PanesValue,
   resizePanesSplit,
+  resolvePanesDropIntent,
 } from "./panes-state";
 import { assertStableUiId, assertUniqueStableUiIds } from "./stable-id";
 
@@ -142,7 +143,7 @@ const panesCollisionDetector = (context: DndCollisionContext<DragMeta, DropMeta,
   return nearestDroppable(pool)?.id ?? null;
 };
 
-const buildIntent = (context: DndBuildIntentContext<DragMeta, DropMeta, PanesDropIntent>): PanesDropIntent | null => {
+const buildRawIntent = (context: DndBuildIntentContext<DragMeta, DropMeta, PanesDropIntent>): PanesDropIntent | null => {
   if (!context.over) return null;
   if (context.over.meta.kind === "split-gap") {
     return {
@@ -221,9 +222,32 @@ const PanesRoot = (props: PanesRootProps) => {
   const canHorizontalSplit = () => readMaybe(props.allowHorizontalSplit, true);
   const canVerticalSplit = () => readMaybe(props.allowVerticalSplit, true);
 
+  const resolveIntent = (rawIntent: PanesDropIntent): PanesDropIntent | null => {
+    if (!canMove()) return null;
+    let intent = rawIntent;
+    if (intent.kind === "split") {
+      const horizontal = intent.zone === "left" || intent.zone === "right";
+      if ((horizontal && !canHorizontalSplit()) || (!horizontal && !canVerticalSplit())) {
+        if (!canReorder()) return null;
+        intent = {
+          kind: "move",
+          elementId: intent.elementId,
+          leafId: intent.leafId,
+        };
+      }
+    }
+    if (intent.kind === "move" && !canReorder()) return null;
+    if (intent.kind === "insert" && intent.direction === "horizontal" && !canHorizontalSplit()) return null;
+    if (intent.kind === "insert" && intent.direction === "vertical" && !canVerticalSplit()) return null;
+    return resolvePanesDropIntent(value(), intent);
+  };
+
   const paneDnd = dnd.create<DragMeta, DropMeta, PanesDropIntent>({
     collisionDetector: panesCollisionDetector,
-    buildIntent,
+    buildIntent: (context) => {
+      const intent = buildRawIntent(context);
+      return intent ? resolveIntent(intent) : null;
+    },
     isSameIntent: sameIntent,
     announcements: {
       dragStart: (active) => `Picked up ${active.meta.label}.`,
@@ -232,23 +256,8 @@ const PanesRoot = (props: PanesRootProps) => {
       cancel: (active) => `Cancelled moving ${active.meta.label}.`,
     },
     onDrop: ({ intent }) => {
-      if (!intent || !canMove()) return;
-      let nextIntent = intent;
-      if (nextIntent.kind === "split") {
-        const horizontal = nextIntent.zone === "left" || nextIntent.zone === "right";
-        if ((horizontal && !canHorizontalSplit()) || (!horizontal && !canVerticalSplit())) {
-          if (!canReorder()) return;
-          nextIntent = {
-            kind: "move",
-            elementId: nextIntent.elementId,
-            leafId: nextIntent.leafId,
-          };
-        }
-      }
-      if (nextIntent.kind === "move" && !canReorder()) return;
-      if (nextIntent.kind === "insert" && nextIntent.direction === "horizontal" && !canHorizontalSplit()) return;
-      if (nextIntent.kind === "insert" && nextIntent.direction === "vertical" && !canVerticalSplit()) return;
-      props.onValueChange(applyPanesIntent(value(), nextIntent, presentation()));
+      if (!intent) return;
+      props.onValueChange(applyPanesIntent(value(), intent, presentation()));
     },
   });
 
@@ -584,52 +593,47 @@ function PanesLeaf(
         fallback={
           <Show when={activeElement()}>
             {(element) => (
-              <div
-                ref={(header) => {
-                  props.dnd.droppable(header, () => ({
-                    id: tabDropId(elementId(element())),
-                    meta: {
-                      kind: "tab",
-                      leafId: props.node().id,
-                      beforeElementId: elementId(element()),
-                      label: `before ${elementTitle(element())}`,
-                    },
-                    disabled: !props.canReorder(),
-                  }));
-                  props.dnd.draggable(header, () => ({
-                    id: draggableId(elementId(element())),
-                    meta: {
-                      elementId: elementId(element()),
-                      label: elementTitle(element()),
-                    },
-                    disabled: !props.canMove(),
-                    focusable: false,
-                    keyboard: true,
-                    handleSelector: "[data-panes-drag-handle]",
-                  }));
-                }}
-                class="k2b-panes__single-header"
-                data-dnd-active={props.dnd.activeId() === draggableId(elementId(element())) ? "true" : undefined}
-              >
-                <Show when={props.canMove()}>
-                  <button
-                    type="button"
-                    data-panes-drag-handle
-                    class="k2b-panes__drag"
-                    tabIndex={-1}
-                    title="Move pane"
-                    aria-label={`Move ${elementTitle(element())}`}
+              <div class="k2b-panes__single-tabs">
+                <div
+                  ref={(header) => {
+                    props.dnd.droppable(header, () => ({
+                      id: tabDropId(elementId(element())),
+                      meta: {
+                        kind: "tab",
+                        leafId: props.node().id,
+                        beforeElementId: elementId(element()),
+                        label: `before ${elementTitle(element())}`,
+                      },
+                      disabled: !props.canReorder(),
+                    }));
+                  }}
+                  class="k2b-panes__single-header"
+                  data-movable={props.canMove() ? "true" : undefined}
+                  data-dnd-active={props.dnd.activeId() === draggableId(elementId(element())) ? "true" : undefined}
+                >
+                  <span
+                    ref={(surface) => {
+                      props.dnd.draggable(surface, () => ({
+                        id: draggableId(elementId(element())),
+                        meta: {
+                          elementId: elementId(element()),
+                          label: elementTitle(element()),
+                        },
+                        disabled: !props.canMove(),
+                        focusable: false,
+                        keyboard: false,
+                      }));
+                    }}
+                    class="k2b-ui k2b-panes__tab-button k2b-panes__drag-preview"
+                    data-dnd-preview
                   >
-                    <i class="ti ti-grip-vertical" aria-hidden="true" />
-                  </button>
-                </Show>
-                <span class="k2b-ui k2b-panes__tab-button k2b-panes__drag-preview" data-dnd-preview>
-                  <i class={`${iconClass(element().props.icon)} k2b-panes__icon`} aria-hidden="true" />
-                  <span title={elementTitle(element())}>{elementTitle(element())}</span>
-                </span>
-                <Show when={elementClosable(element())}>
-                  <CloseButton element={element()} tabIndex={-1} />
-                </Show>
+                    <i class={`${iconClass(element().props.icon)} k2b-panes__icon`} aria-hidden="true" />
+                    <span title={elementTitle(element())}>{elementTitle(element())}</span>
+                  </span>
+                  <Show when={elementClosable(element())}>
+                    <CloseButton element={element()} tabIndex={-1} />
+                  </Show>
+                </div>
               </div>
             )}
           </Show>
@@ -652,17 +656,6 @@ function PanesLeaf(
                       },
                       disabled: !props.canReorder(),
                     }));
-                    props.dnd.draggable(tab, () => ({
-                      id: draggableId(elementId(element)),
-                      meta: {
-                        elementId: elementId(element),
-                        label: elementTitle(element),
-                      },
-                      disabled: !props.canMove(),
-                      focusable: active(),
-                      keyboard: true,
-                      handleSelector: "[data-panes-drag-handle]",
-                    }));
                   }}
                   id={tabId(elementId(element))}
                   class="k2b-panes__tab"
@@ -675,6 +668,7 @@ function PanesLeaf(
                   aria-keyshortcuts={elementClosable(element) ? "Delete Backspace" : undefined}
                   tabIndex={active() ? 0 : -1}
                   title={elementTitle(element)}
+                  data-movable={props.canMove() ? "true" : undefined}
                   data-active={active() ? "true" : undefined}
                   data-dnd-active={props.dnd.activeId() === draggableId(elementId(element)) ? "true" : undefined}
                   onClick={(event) => {
@@ -683,12 +677,22 @@ function PanesLeaf(
                   }}
                   onKeyDown={(event) => onTabKeyDown(event, index(), element)}
                 >
-                  <Show when={props.canMove()}>
-                    <span data-panes-drag-handle class="k2b-panes__drag" title="Move tab" aria-hidden="true">
-                      <i class="ti ti-grip-vertical" aria-hidden="true" />
-                    </span>
-                  </Show>
-                  <span class="k2b-ui k2b-panes__tab-button k2b-panes__drag-preview" data-dnd-preview>
+                  <span
+                    ref={(surface) => {
+                      props.dnd.draggable(surface, () => ({
+                        id: draggableId(elementId(element)),
+                        meta: {
+                          elementId: elementId(element),
+                          label: elementTitle(element),
+                        },
+                        disabled: !props.canMove(),
+                        focusable: false,
+                        keyboard: false,
+                      }));
+                    }}
+                    class="k2b-ui k2b-panes__tab-button k2b-panes__drag-preview"
+                    data-dnd-preview
+                  >
                     <i class={`${iconClass(element.props.icon)} k2b-panes__icon`} aria-hidden="true" />
                     <span>{elementTitle(element)}</span>
                   </span>

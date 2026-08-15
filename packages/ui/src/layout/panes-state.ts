@@ -42,6 +42,12 @@ type ElementLocation = {
   elementIndex: number;
 };
 
+type LeafLocation = {
+  leaf: PanesLeafNode;
+  parent?: PanesSplitNode;
+  childIndex?: number;
+};
+
 const MAX_DEPTH = 12;
 const MAX_NODES = 64;
 /** Longest node or element id `normalizePanesValue` will keep. */
@@ -262,6 +268,20 @@ export const findPanesLeaf = (node: PanesNode, leafId: string): PanesLeafNode | 
   return null;
 };
 
+const findPanesLeafLocation = (
+  node: PanesNode,
+  leafId: string,
+  parent?: PanesSplitNode,
+  childIndex?: number,
+): LeafLocation | null => {
+  if (node.type === "leaf") return node.id === leafId ? { leaf: node, parent, childIndex } : null;
+  for (let index = 0; index < node.children.length; index += 1) {
+    const location = findPanesLeafLocation(node.children[index]!, leafId, node, index);
+    if (location) return location;
+  }
+  return null;
+};
+
 const findPanesSplit = (node: PanesNode, splitId: string): PanesSplitNode | null => {
   if (node.type === "leaf") return null;
   if (node.id === splitId) return node;
@@ -398,18 +418,38 @@ export const resizePanesSplit = (
   }),
 });
 
-export const applyPanesIntent = (value: PanesValue, intent: PanesDropIntent, presentation: PanesLeafPresentation = "tabs"): PanesValue => {
+const canonicalizePanesIntent = (value: PanesValue, intent: PanesDropIntent): PanesDropIntent => {
+  if (intent.kind !== "split") return intent;
+  const target = findPanesLeafLocation(value.root, intent.leafId);
+  if (!target?.parent || target.childIndex === undefined) return intent;
+  const direction = intent.zone === "left" || intent.zone === "right" ? "horizontal" : "vertical";
+  if (target.parent.direction !== direction) return intent;
+
+  const index = intent.zone === "left" || intent.zone === "top" ? target.childIndex - 1 : target.childIndex;
+  if (index < 0 || index >= target.parent.children.length - 1) return intent;
+  return {
+    kind: "insert",
+    elementId: intent.elementId,
+    splitId: target.parent.id,
+    index,
+    direction,
+  };
+};
+
+/** Resolves equivalent edge targets to one intent and removes no-op drops. */
+export const resolvePanesDropIntent = (value: PanesValue, rawIntent: PanesDropIntent): PanesDropIntent | null => {
+  const intent = canonicalizePanesIntent(value, rawIntent);
   const source = findElementLocation(value.root, intent.elementId);
-  if (!source) return value;
-  if (intent.kind === "move" && !findPanesLeaf(value.root, intent.leafId)) return value;
-  if (intent.kind === "insert" && !findPanesSplit(value.root, intent.splitId)) return value;
-  if (intent.kind === "move" && intent.beforeElementId === intent.elementId) return value;
+  if (!source) return null;
+  if (intent.kind === "move" && !findPanesLeaf(value.root, intent.leafId)) return null;
+  if (intent.kind === "insert" && !findPanesSplit(value.root, intent.splitId)) return null;
+  if (intent.kind === "move" && intent.beforeElementId === intent.elementId) return null;
   if (intent.kind === "move" && source.leaf.id === intent.leafId) {
     // Releasing over your own pane body — no tab was hit, so there is no
     // `beforeElementId` — is a no-op, not a "send this tab to the end".
-    if (!intent.beforeElementId) return value;
+    if (!intent.beforeElementId) return null;
     const beforeIndex = source.leaf.elementIds.indexOf(intent.beforeElementId);
-    if (beforeIndex === source.elementIndex || beforeIndex === source.elementIndex + 1) return value;
+    if (beforeIndex === source.elementIndex || beforeIndex === source.elementIndex + 1) return null;
   }
   // Dropping a solo pane into the gap immediately before or after itself asks
   // for the arrangement it already has. Without this the leaf is destroyed and
@@ -422,12 +462,18 @@ export const applyPanesIntent = (value: PanesValue, intent: PanesDropIntent, pre
     source.childIndex !== undefined &&
     (source.childIndex === intent.index || source.childIndex === intent.index + 1)
   ) {
-    return value;
+    return null;
   }
   if (intent.kind === "split") {
     const target = findPanesLeaf(value.root, intent.leafId);
-    if (!target || (target.elementIds.length === 1 && target.elementIds[0] === intent.elementId)) return value;
+    if (!target || (target.elementIds.length === 1 && target.elementIds[0] === intent.elementId)) return null;
   }
+  return intent;
+};
+
+export const applyPanesIntent = (value: PanesValue, rawIntent: PanesDropIntent, presentation: PanesLeafPresentation = "tabs"): PanesValue => {
+  const intent = resolvePanesDropIntent(value, rawIntent);
+  if (!intent) return value;
 
   const withoutElement = removeElement(value.root, intent.elementId);
   let root: PanesNode;

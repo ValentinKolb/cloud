@@ -66,15 +66,24 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     expect(tabs()[1]?.getAttribute("aria-posinset")).toBe("2");
     expect(tabs()[0]?.getAttribute("aria-setsize")).toBe("2");
     expect(tabs()[0]?.parentElement?.getAttribute("role")).toBe("tablist");
+    expect(dom.root.querySelector(".k2b-panes__drag, [data-panes-drag-handle]")).toBeNull();
     expect(
-      Array.from(dom.root.querySelectorAll<HTMLElement>(".k2b-panes__drag, .k2b-panes__close")).every((control) => control.tabIndex === -1),
+      tabs().every(
+        (tab) =>
+          tab.dataset.movable === "true" && tab.querySelector(".k2b-panes__tab-button")?.getAttribute("data-dnd-draggable") === "true",
+      ),
     ).toBe(true);
+    expect(Array.from(dom.root.querySelectorAll<HTMLElement>(".k2b-panes__close")).every((control) => control.tabIndex === -1)).toBe(true);
 
     setTitle("Renamed source");
     setIcon("ti ti-file-text");
     expect(tabs()[0]?.textContent).toContain("Renamed source");
     expect(tabs()[0]?.querySelector(".k2b-panes__icon")?.className).toContain("ti-file-text");
-    expect(dom.root.querySelector(".k2b-panes__close")?.getAttribute("title")).toBe("Close Renamed source");
+    const close = dom.root.querySelector<HTMLElement>(".k2b-panes__close");
+    expect(close?.getAttribute("title")).toBe("Close Renamed source");
+    const dragSurface = tabs()[0]?.querySelector<HTMLElement>("[data-dnd-draggable]");
+    expect(dragSurface).not.toBeNull();
+    expect(dragSurface?.contains(close ?? null)).toBe(false);
 
     tabs()[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
     await Promise.resolve();
@@ -91,7 +100,7 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     dom.cleanup();
   });
 
-  test("keeps single-pane drag and close controls out of the tab order", async () => {
+  test("makes single-pane tab surfaces draggable while keeping close controls separate", async () => {
     const dom = createDomTestHarness();
     const { default: Panes } = await import("../src/layout/Panes");
     const value: PanesValue = {
@@ -147,11 +156,22 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
       dom.root,
     );
 
-    const controls = Array.from(
-      dom.root.querySelectorAll<HTMLElement>(".k2b-panes__single-header .k2b-panes__drag, .k2b-panes__single-header .k2b-panes__close"),
-    );
-    expect(controls).toHaveLength(4);
-    expect(controls.every((control) => control.tabIndex === -1)).toBe(true);
+    const headers = Array.from(dom.root.querySelectorAll<HTMLElement>(".k2b-panes__single-header"));
+    const closeControls = Array.from(dom.root.querySelectorAll<HTMLElement>(".k2b-panes__single-header .k2b-panes__close"));
+    expect(headers).toHaveLength(2);
+    expect(
+      headers.every(
+        (header) =>
+          header.dataset.movable === "true" &&
+          header.querySelector(".k2b-panes__tab-button")?.getAttribute("data-dnd-draggable") === "true",
+      ),
+    ).toBe(true);
+    expect(
+      headers.every((header) => !header.querySelector("[data-dnd-draggable]")?.contains(header.querySelector(".k2b-panes__close"))),
+    ).toBe(true);
+    expect(dom.root.querySelector(".k2b-panes__drag, [data-panes-drag-handle]")).toBeNull();
+    expect(closeControls).toHaveLength(2);
+    expect(closeControls.every((control) => control.tabIndex === -1)).toBe(true);
 
     dispose();
     dom.cleanup();

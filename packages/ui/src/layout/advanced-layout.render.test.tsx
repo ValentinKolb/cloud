@@ -742,23 +742,20 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(rule(".k2b-settings__section-heading h2")).toContain("font-size:1.25rem");
     });
 
-    test("restores Cloud's pane chrome", () => {
-      // Cloud's strip is `h-8` inside a rounded `--ui-radius-control` well with
-      // `padding: .125rem` and `items-stretch`; the port made it a 2.25rem
-      // square-cornered bar.
-      const strip = rule(".k2b-panes__tabs");
-      expect(strip).toContain("height:2rem");
-      expect(strip).toContain("padding:.125rem");
-      expect(strip).toContain("border-radius:var(--k2b-radius-control)");
+    test("uses compact document-style pane tabs", () => {
+      const strip = rule(".k2b-panes__tabs,.k2b-ui .k2b-panes__single-tabs");
+      expect(strip).toContain("height:2.5rem");
+      expect(strip).toContain("padding:.375rem .5rem");
+      expect(strip).toContain("border-bottom:1px solid var(--k2b-border)");
+      expect(strip).toContain("background:var(--k2b-surface)");
 
-      // Cloud: `min-w-32` with `flex-1` and no upper bound.
       const tab = rule(".k2b-panes__tab");
-      expect(tab).toContain("min-width:8rem");
-      expect(tab).not.toContain("max-width");
-      // The active chip's inset hairline ring is Cloud's `.panes-tab-active`.
-      expect(rule(".k2b-panes__tab[data-active=true]")).toContain("inset 0 0 0 1px var(--k2b-border)");
-      // Cloud renders the single-pane header as an active chip, not a bar.
-      expect(rule(".k2b-panes__single-header")).toContain("inset 0 0 0 1px var(--k2b-border)");
+      expect(tab).toContain("min-width:5rem");
+      expect(tab).toContain("max-width:16rem");
+      expect(tab).toContain("flex:0 auto");
+      expect(rule(".k2b-panes__tab[data-active=true]")).toContain("background:var(--k2b-surface-muted)");
+      expect(rule(".k2b-panes__tab[data-active=true]")).not.toContain("box-shadow");
+      expect(rule(".k2b-panes__single-header")).toContain("max-width:16rem");
 
       // Cloud: `w-2`/`h-2` track with a full-width `rounded-full` indicator.
       expect(rule(".k2b-panes__separator[data-direction=horizontal]")).toContain("width:.5rem");
@@ -796,8 +793,8 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       // Cloud paints the highlight only when `canResize()` is true.
       expect(css).toContain(".k2b-panes__separator:not([aria-disabled=true]):hover>span");
       expect(css).not.toMatch(/\.k2b-panes__separator:hover>span/);
-      // Cloud's leaf is `flex-col gap-1`.
-      expect(rule(".k2b-panes__leaf")).toContain("gap:.25rem");
+      // The document-style tab rail meets the pane body without a second gutter.
+      expect(rule(".k2b-panes__leaf")).toContain("gap:0");
     });
   });
 });
