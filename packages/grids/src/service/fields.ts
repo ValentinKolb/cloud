@@ -75,7 +75,16 @@ const ensureUniqueFieldName = async (tableId: string, name: string, exceptFieldI
 };
 
 const validateCombinedCanonicalField = async (tableKind: string, candidate: Field): Promise<Result<void>> => {
+  if (
+    candidate.type === "html_template" &&
+    (candidate.required || candidate.defaultValue !== null || candidate.indexed || candidate.uniqueConstraint || candidate.presentable)
+  ) {
+    return fail(err.badInput("HTML template fields cannot define write constraints, defaults, indexes, uniqueness, or record labels"));
+  }
   if (tableKind !== "federated") return ok();
+  if (candidate.type === "html_template") {
+    return fail(err.badInput("Combined tables do not support HTML template fields"));
+  }
   if (candidate.type === "lookup" || candidate.type === "rollup") {
     return fail(err.badInput(`Combined tables do not support canonical ${candidate.type} fields; use a SQL-stable formula instead`));
   }

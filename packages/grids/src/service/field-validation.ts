@@ -1,6 +1,8 @@
 import { type DateContext, dates, err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { getFieldType, getRecordWritableFieldType } from "../field-types";
+import { collectFieldRefs, parseFormula } from "../formula/parser";
+import { normalizeRefKey } from "../ref-syntax";
 import type { Field } from "./types";
 
 export const validateFieldConfig = (type: string, config: Record<string, unknown>): Result<unknown> => {
@@ -61,6 +63,26 @@ export const validateLinkOrComputedConfig = async (
   config: Record<string, unknown>,
   sourceTableId: string,
 ): Promise<Result<void>> => {
+  if (type === "formula") {
+    const expression = (config as { expression?: unknown }).expression;
+    if (typeof expression !== "string" || !expression.trim()) return ok();
+    const parsed = parseFormula(expression);
+    if (!parsed.ok) return ok();
+    const rows = await sql<Array<{ id: string; short_id: string; name: string; type: string }>>`
+      SELECT id::text, short_id, name, type
+      FROM grids.fields
+      WHERE table_id = ${sourceTableId}::uuid AND deleted_at IS NULL
+    `;
+    const htmlRefs = new Set(
+      rows
+        .filter((field) => field.type === "html_template")
+        .flatMap((field) => [field.id, normalizeRefKey(field.short_id), normalizeRefKey(field.name)]),
+    );
+    if ([...collectFieldRefs(parsed.ast)].some((ref) => htmlRefs.has(ref) || htmlRefs.has(normalizeRefKey(ref)))) {
+      return fail(err.badInput("Formula fields cannot reference HTML template fields"));
+    }
+    return ok();
+  }
   if (type !== "relation" && type !== "lookup" && type !== "rollup") return ok();
 
   // Resolve source table's base scope once.
@@ -104,13 +126,16 @@ export const validateLinkOrComputedConfig = async (
   if (!relTargetTableId) {
     return fail(err.badInput("the chosen relation has no target table configured yet"));
   }
-  const [targetField] = await sql<{ table_id: string }[]>`
-    SELECT table_id::text AS table_id FROM grids.fields
+  const [targetField] = await sql<{ table_id: string; type: string }[]>`
+    SELECT table_id::text AS table_id, type FROM grids.fields
     WHERE id = ${cfg.targetFieldId}::uuid AND deleted_at IS NULL
   `;
   if (!targetField) return fail(err.badInput("targetFieldId not found"));
   if (targetField.table_id !== relTargetTableId) {
     return fail(err.badInput("targetFieldId must belong to the relation's target table"));
+  }
+  if (targetField.type === "html_template") {
+    return fail(err.badInput("HTML template fields cannot be lookup or rollup targets"));
   }
   return ok();
 };

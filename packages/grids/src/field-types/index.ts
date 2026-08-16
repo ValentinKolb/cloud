@@ -1,6 +1,7 @@
 import { booleanHandler } from "./boolean";
 import { dateHandler } from "./date";
 import { formulaHandler } from "./formula";
+import { htmlTemplateHandler } from "./html-template";
 import { numberHandler } from "./number";
 import { principalHandler } from "./principal";
 import { lookupHandler, relationHandler, rollupHandler } from "./relations";
@@ -44,7 +45,7 @@ export const SERVER_GENERATED_FIELD_TYPES: Record<string, ServerGeneratedFieldKi
 };
 
 export const COMPUTED_FIELD_TYPES: Record<string, ComputedFieldKind> = Object.fromEntries(
-  [formulaHandler, lookupHandler, rollupHandler].map((fieldType) => [fieldType.type, fieldType]),
+  [formulaHandler, lookupHandler, rollupHandler, htmlTemplateHandler].map((fieldType) => [fieldType.type, fieldType]),
 );
 
 export const SYSTEM_FIELD_TYPES: Record<string, SystemFieldKind> = Object.fromEntries(

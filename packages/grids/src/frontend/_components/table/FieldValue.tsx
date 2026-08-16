@@ -1,5 +1,5 @@
 import type { DateContext } from "@k2b/stdlib";
-import { MarkdownView, ProgressBar } from "@k2b/ui";
+import { Button, dialogCore, MarkdownView, PanelDialog, ProgressBar, panelDialogOptions, TemplatePreview } from "@k2b/ui";
 import { createMemo, For, type JSX, Show } from "solid-js";
 import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import type { FormatSpec } from "../../../contracts";
@@ -82,6 +82,55 @@ function ProgressValue(props: { intent: Extract<FieldDisplayIntent, { kind: "pro
   );
 }
 
+const openHtmlTemplatePreview = (field: Field, html: string) =>
+  dialogCore.open<void>(
+    (close) => (
+      <PanelDialog>
+        <PanelDialog.Header title={`${field.name} — HTML preview`} icon="ti ti-template" close={() => close()} />
+        <PanelDialog.Body>
+          <TemplatePreview html={html} title={`${field.name} HTML preview`} class="min-h-[28rem]" />
+        </PanelDialog.Body>
+      </PanelDialog>
+    ),
+    panelDialogOptions,
+  );
+
+function HtmlTemplateValue(props: { field: Field; value: unknown; mode: FieldValueMode; empty: JSX.Element | string }) {
+  const html = () => (typeof props.value === "string" ? props.value : "");
+  return (
+    <Show when={html()} fallback={props.empty}>
+      <span class="flex min-w-0 items-center gap-2">
+        <code
+          class={
+            props.mode === "table"
+              ? "block min-w-0 flex-1 truncate text-xs text-dimmed"
+              : "block min-w-0 flex-1 break-all text-xs text-dimmed"
+          }
+        >
+          {html()}
+        </code>
+        <Show
+          when={html() !== "#TEMPLATE_ERROR!"}
+          fallback={<span class="text-xs font-medium text-red-600 dark:text-red-400">Render error</span>}
+        >
+          <Button
+            variant="secondary"
+            size="sm"
+            type="button"
+            class="shrink-0"
+            onClick={(event) => {
+              event.stopPropagation();
+              void openHtmlTemplatePreview(props.field, html());
+            }}
+          >
+            <i class="ti ti-eye" /> Preview
+          </Button>
+        </Show>
+      </span>
+    </Show>
+  );
+}
+
 export function FieldValue(props: FieldValueProps) {
   const mode = () => props.mode ?? "table";
   const emptyValue = () => props.empty ?? defaultEmpty(props.field, mode());
@@ -148,5 +197,15 @@ export function FieldValue(props: FieldValueProps) {
     );
   };
 
-  return <>{props.field.type === "lookup" ? renderLookup() : renderRawValue()}</>;
+  return (
+    <>
+      {props.field.type === "html_template" ? (
+        <HtmlTemplateValue field={props.field} value={props.value} mode={mode()} empty={emptyValue()} />
+      ) : props.field.type === "lookup" ? (
+        renderLookup()
+      ) : (
+        renderRawValue()
+      )}
+    </>
+  );
 }

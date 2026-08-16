@@ -18,6 +18,7 @@ import { listFirstImagePreviews } from "./files";
 import { compileFilter, renderClause } from "./filter-compiler";
 import { compileFormulaPredicateAstToSql } from "./formula-sql-compiler";
 import { compileGroupQuery, type GroupAggregationSpec, type GroupBucket, type GroupHavingRef } from "./group-compiler";
+import { enrichRecordsWithHtmlTemplates, type HtmlTemplateRenderBudget } from "./html-template-fields";
 import { parseJsonbRow } from "./jsonb";
 import { withLookupTargetMetadata } from "./lookup-display";
 import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
@@ -105,6 +106,10 @@ export const list = async (params: {
   computedColumns?: ComputedColumnSpec[];
   filePreviewFieldIds?: string[];
   fields?: Field[];
+  /** Undefined renders every HTML template field. An explicit list lets
+   * bounded consumers such as export opt into only selected templates. */
+  htmlTemplateFieldIds?: string[];
+  htmlTemplateRenderBudget?: HtmlTemplateRenderBudget;
   signal?: AbortSignal;
   dedupeKey?: string;
   recordAccess?: AuthorizedRecordAccess;
@@ -225,6 +230,12 @@ export const list = async (params: {
   enrichRecordsWithComputedColumns(items, fields, params.computedColumns, {
     dateConfig: params.dateConfig,
     skipColumnIds: computedColumnSql.sqlColumnIds,
+  });
+  await enrichRecordsWithHtmlTemplates(items, fieldsWithLookupMeta, {
+    dateConfig: params.dateConfig,
+    ...(params.htmlTemplateFieldIds ? { fieldIds: new Set(params.htmlTemplateFieldIds) } : {}),
+    budget: params.htmlTemplateRenderBudget,
+    signal: params.signal,
   });
 
   // Optional relation expansion. Runs AFTER hydrateRelationsFromLinks

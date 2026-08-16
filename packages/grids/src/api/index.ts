@@ -12,6 +12,7 @@ import fieldsRoutes from "./fields";
 import formsRoutes from "./forms";
 import formulasRoutes from "./formulas";
 import gqlRoutes from "./gql";
+import htmlTemplateFieldRoutes from "./html-template-fields";
 import recordsRoutes from "./records";
 import tablesRoutes from "./tables";
 import templatesRoutes from "./templates";
@@ -35,6 +36,7 @@ const app = new Hono()
   .route("/documents", documentsRoutes)
   .route("/email-templates", emailTemplateRoutes)
   .route("/formulas", formulasRoutes)
+  .route("/html-template-fields", htmlTemplateFieldRoutes)
   .route("/gql", gqlRoutes)
   .route("/workflows", workflowsRoutes)
   .route("/workspace", workspaceRoutes)

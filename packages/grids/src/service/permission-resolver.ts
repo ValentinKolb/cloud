@@ -1,5 +1,6 @@
 import { type AccessSubject, buildAccessPrincipalCondition, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
+import { runBoundedQuery } from "./bounded-query";
 
 const LEVEL_RANK: Record<PermissionLevel, number> = {
   none: 0,
@@ -59,11 +60,14 @@ type DbRow = {
   level: PermissionLevel;
 };
 
+export type PermissionReadOptions = { signal?: AbortSignal; queryTimeoutMs?: number };
+
 const loadExactGrants = async (
   params:
     | { resourceType: "base"; resourceId: string; subject: AccessSubject | null }
     | { resourceType: "customApp"; resourceId: string; subject: AccessSubject | null },
   db: typeof sql = sql,
+  options: PermissionReadOptions = {},
 ): Promise<Grant[]> => {
   const tier = sql`CASE
     WHEN a.service_account_id IS NOT NULL THEN 'serviceAccount'
@@ -82,9 +86,9 @@ const loadExactGrants = async (
     },
   });
 
-  const rows =
+  const query =
     params.resourceType === "base"
-      ? await db<DbRow[]>`
+      ? db<DbRow[]>`
           SELECT 'base'::text AS resource_type,
                  ba.base_id::text AS resource_id,
                  a.permission AS level,
@@ -100,7 +104,7 @@ const loadExactGrants = async (
               OR a.authenticated_only = TRUE
             )
         `
-      : await db<DbRow[]>`
+      : db<DbRow[]>`
           SELECT 'customApp'::text AS resource_type,
                  caa.custom_app_id::text AS resource_id,
                  a.permission AS level,
@@ -109,6 +113,10 @@ const loadExactGrants = async (
           JOIN auth.access a ON a.id = caa.access_id
           WHERE caa.custom_app_id = ${params.resourceId}::uuid AND ${principal}
         `;
+  const rows =
+    options.queryTimeoutMs !== undefined || options.signal
+      ? await runBoundedQuery<DbRow>(query, options.queryTimeoutMs ?? 5_000, options.signal)
+      : await query;
 
   return rows.map((row) => ({
     resourceType: row.resource_type,
@@ -121,9 +129,11 @@ const loadExactGrants = async (
 export const loadBaseGrantsForSubject = (
   params: { baseId: string; subject: AccessSubject | null },
   db: typeof sql = sql,
-): Promise<Grant[]> => loadExactGrants({ resourceType: "base", resourceId: params.baseId, subject: params.subject }, db);
+  options: PermissionReadOptions = {},
+): Promise<Grant[]> => loadExactGrants({ resourceType: "base", resourceId: params.baseId, subject: params.subject }, db, options);
 
 export const loadCustomAppGrantsForSubject = (
   params: { customAppId: string; subject: AccessSubject | null },
   db: typeof sql = sql,
-): Promise<Grant[]> => loadExactGrants({ resourceType: "customApp", resourceId: params.customAppId, subject: params.subject }, db);
+  options: PermissionReadOptions = {},
+): Promise<Grant[]> => loadExactGrants({ resourceType: "customApp", resourceId: params.customAppId, subject: params.subject }, db, options);

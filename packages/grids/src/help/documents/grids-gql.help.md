@@ -41,7 +41,9 @@ from table Books
 
 Then add one concern at a time: a filter, selected fields, and finally a meaningful sort. The editor resolves accessible tables, views, fields, relations, and aliases as you type. Diagnostics identify syntax, unknown names, ambiguity, incompatible operations, and permission failures instead of guessing.
 
-Omitting `select` returns all source fields. This is convenient while exploring. List important fields explicitly when a saved result, document, or integration needs a stable output.
+Omitting `select` returns all ordinary source fields. Expensive post-query fields such as HTML templates require an explicit `select`. List important fields explicitly when a saved result, document, or integration needs a stable output.
+
+An explicitly selected HTML template field is rendered after the bounded primary records have been read. It cannot be used in `where`, `sort`, `group by`, `aggregate`, `having`, or formula expressions because Liquid and CSS are rendered only after the query result is known. Selecting an HTML template from a joined table is also unsupported; create the output field on the primary stored table instead.
 
 ## Common query tasks {icon="search"}
 

@@ -281,6 +281,17 @@ const STORAGE: Record<string, StorageDescriptor> = {
     cursorable: false,
     searchable: false,
   },
+  html_template: {
+    kind: "computed",
+    project: () => null,
+    formatKind: "computed",
+    sortable: false,
+    filterable: false,
+    groupable: false,
+    aggregatable: false,
+    cursorable: false,
+    searchable: false,
+  },
   // ── System (auto-managed columns, NOT JSONB) ─────────────────────
   created_at: {
     kind: "system",

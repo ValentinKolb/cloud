@@ -87,7 +87,7 @@ const iconInputValue = (slug: string | undefined): string | null => (slug ? `ti 
 const iconSlug = (value: string | null): string | undefined => value?.replace(/^ti ti-/, "") || undefined;
 
 const isStarterChartGroupField = (field: Field): boolean =>
-  !["file", "formula", "json", "lookup", "rollup"].includes(field.type) && field.deletedAt === null;
+  !["file", "formula", "html_template", "json", "lookup", "rollup"].includes(field.type) && field.deletedAt === null;
 
 export const customAppStarterGqlSources = (
   catalog: CustomAppCatalog,

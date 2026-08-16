@@ -36,12 +36,17 @@ Date-time display, date-based filters, formulas, exports, and document folders u
 - **Lookup** displays one field from a related record without copying it.
 - **Rollup** summarizes values reached through a relation.
 - **Formula** calculates a value from fields in the current record whenever the record is read.
+- **HTML template** renders Liquid and optional CSS into one HTML string per record. It can use ordinary fields plus lookup, rollup, and formula results. Values are escaped by default; preview the result before using `raw`.
 - **ID** creates a stable generated identifier. Configure it for the identifier style the process needs instead of maintaining counters by hand.
 - **Created at, Created by, Updated at, and Updated by** are system-managed fields. They describe record activity and cannot be entered as ordinary business values.
 
 Choose a relation when the target has its own details or lifecycle. A customer name typed into every invoice is only text; a Customer relation keeps the invoice connected when the customer's details change.
 
 Principal values use the Cloud identity directory without becoming Cloud permissions. Full accounts can select from the directory. Guest accounts can select themselves and their direct or nested groups, but cannot discover other users or group members. The server applies the same visibility check again when saving, so a hidden UUID cannot be guessed through the API.
+
+HTML template fields are read-only output columns, not Documents. Use them when each record needs an email body, article description, product snippet, or export value. Use Documents when the output needs a saved run, snapshot, download, or PDF. Grids shows HTML as escaped source text and opens previews in a sandboxed frame; it never inserts the value directly into the record page.
+
+Templates read stable public field IDs such as `{{ record.data.aB12xZ }}`. The editor shows the matching field name in autocomplete. Other HTML template fields are intentionally unavailable, so templates cannot recurse. HTML template fields are available on stored tables only; they cannot be filtered, sorted, grouped, aggregated, used by formulas, or selected through a relation lookup.
 
 ## Formulas in a table {icon="table"}
 
@@ -89,4 +94,10 @@ The submitted answers are stored with the record history. Grids copies the quest
 
 :::note Model before display
 Field type controls stored meaning. Views and column settings control how that value is presented in a particular context.
+:::
+
+:::note Bounded HTML exports
+Default CSV and JSON exports omit HTML template fields. Select one explicitly and set a query limit of at most 1,000 records when the rendered HTML belongs in an export.
+
+One read or export renders at most 2,000 HTML cells and 32 MB of combined HTML output. Cells beyond that shared budget show a render error instead of exhausting the server; request fewer records or HTML fields.
 :::

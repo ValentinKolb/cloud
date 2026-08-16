@@ -5,6 +5,7 @@ const SYSTEM_OR_COMPUTED_FIELD_TYPES = new Set([
   "formula",
   "lookup",
   "rollup",
+  "html_template",
   "created_at",
   "created_by",
   "updated_at",

@@ -35,7 +35,9 @@
     "decimal.js": "10.6.0",
     "hono": "catalog:",
     "hono-openapi": "catalog:",
+    "juice": "catalog:",
     "lean-qr": "catalog:",
+    "postcss": "catalog:",
     "solid-js": "catalog:",
     "zod": "catalog:",
     "zxing-wasm": "3.1.2"

@@ -2,6 +2,7 @@ import type { DateContext } from "@k2b/stdlib";
 import { sql } from "bun";
 import { type LookupTargetMeta, lookupTargetMeta } from "../lookup-display";
 import { assertFederatedPublication, buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
+import { runBoundedQuery } from "./bounded-query";
 import {
   applyComputedProjections,
   buildComputedProjections,
@@ -10,6 +11,7 @@ import {
   readableComputedTargetRecordAccess,
 } from "./computed-projections";
 import { listByTable as listFields } from "./fields";
+import { enrichRecordsWithHtmlTemplates } from "./html-template-fields";
 import { withLookupTargetMetadata } from "./lookup-display";
 import { liveRecordParentJoinSql } from "./parent-checks";
 import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
@@ -106,7 +108,7 @@ const prepareFormulaLookupPlan = async (
 const enrichFormulaLookupsWithPlan = async (
   records: GridRecord[],
   plan: FormulaLookupPlan,
-  options: { dateConfig?: DateContext } = {},
+  options: { dateConfig?: DateContext; signal?: AbortSignal; queryTimeoutMs?: number } = {},
 ): Promise<void> => {
   if (records.length === 0 || plan.specs.length === 0) return;
 
@@ -124,7 +126,8 @@ const enrichFormulaLookupsWithPlan = async (
     if (ids.size === 0) continue;
     const target = plan.targets.get(tableId);
     if (!target) continue;
-    const rows = await sql<DbRow[]>`
+    options.signal?.throwIfAborted();
+    const query = sql<DbRow[]>`
       SELECT r.*${target.projectionFragments}
       FROM grids.records r
       ${liveRecordParentJoinSql("r", "rt", "rb")}
@@ -133,8 +136,13 @@ const enrichFormulaLookupsWithPlan = async (
         AND r.deleted_at IS NULL
         AND ${recordAccessPredicate(target.recordAccess, "r")}
     `;
+    const rows =
+      options.queryTimeoutMs !== undefined || options.signal
+        ? await runBoundedQuery<DbRow>(query, options.queryTimeoutMs ?? 5_000, options.signal)
+        : await query;
+    options.signal?.throwIfAborted();
     const targetRecords = rows.map(mapRecordRow);
-    await hydrateRelationsFromLinks(targetRecords, target.fields, plan.viewer);
+    await hydrateRelationsFromLinks(targetRecords, target.fields, plan.viewer, options);
     const recordsById = new Map(targetRecords.map((record) => [record.id, record]));
     applyComputedProjections(rows as Array<Record<string, unknown>>, recordsById, target.projections);
     enrichRecordsWithFormulas(targetRecords, target.fields, {
@@ -175,6 +183,9 @@ export type RecordReadOptions = {
   fields?: Field[];
   deleted?: "live" | "include" | "only";
   recordAccess?: AuthorizedRecordAccess;
+  htmlTemplateFieldIds?: readonly string[];
+  signal?: AbortSignal;
+  queryTimeoutMs?: number;
 };
 
 export type RecordReader = {
@@ -200,14 +211,21 @@ const createFederatedReader = async (tableId: string, fields: Field[], opts: Rec
 
   const getMany = async (recordIds: string[]): Promise<GridRecord[]> => {
     if (recordIds.length === 0) return [];
+    opts.signal?.throwIfAborted();
     // Per read, not per reader: the reader outlives the publication it captured.
     await assertFederatedPublication(recordSource);
-    const rows = await sql<DbRow[]>`
+    opts.signal?.throwIfAborted();
+    const query = sql<DbRow[]>`
       SELECT r.*${projectionFragments}
       FROM ${recordSource.relation} r
       WHERE r.id = ANY(${sql.array(recordIds, "UUID")}::uuid[])
         AND ${recordAccessPredicate(opts.recordAccess, "r")}
     `;
+    const rows =
+      opts.queryTimeoutMs !== undefined || opts.signal
+        ? await runBoundedQuery<DbRow>(query, opts.queryTimeoutMs ?? 5_000, opts.signal)
+        : await query;
+    opts.signal?.throwIfAborted();
     const records = rows.map(mapRecordRow);
     const recordsById = new Map(records.map((record) => [record.id, record]));
     applyComputedProjections(rows as Array<Record<string, unknown>>, recordsById, formulaSql);
@@ -244,9 +262,10 @@ export const createReader = async (tableId: string, opts: RecordReadOptions = {}
 
   const getMany = async (recordIds: string[]): Promise<GridRecord[]> => {
     if (recordIds.length === 0) return [];
+    opts.signal?.throwIfAborted();
     const deletedClause =
       opts.deleted === "include" ? sql`TRUE` : opts.deleted === "only" ? sql`r.deleted_at IS NOT NULL` : sql`r.deleted_at IS NULL`;
-    const rows = await sql<DbRow[]>`
+    const query = sql<DbRow[]>`
       SELECT r.*${projectionFragments}
       FROM grids.records r
       JOIN grids.tables t ON t.id = r.table_id AND t.deleted_at IS NULL
@@ -256,15 +275,35 @@ export const createReader = async (tableId: string, opts: RecordReadOptions = {}
         AND ${deletedClause}
         AND ${recordAccessPredicate(opts.recordAccess, "r")}
     `;
+    const rows =
+      opts.queryTimeoutMs !== undefined || opts.signal
+        ? await runBoundedQuery<DbRow>(query, opts.queryTimeoutMs ?? 5_000, opts.signal)
+        : await query;
+    opts.signal?.throwIfAborted();
     const records = rows.map(mapRecordRow);
-    await hydrateRelationsFromLinks(records, fields, opts.viewer);
+    await hydrateRelationsFromLinks(records, fields, opts.viewer, {
+      signal: opts.signal,
+      queryTimeoutMs: opts.queryTimeoutMs,
+    });
+    opts.signal?.throwIfAborted();
     const recordsById = new Map(records.map((record) => [record.id, record]));
     applyComputedProjections(rows as Array<Record<string, unknown>>, recordsById, projections);
-    await enrichFormulaLookupsWithPlan(records, formulaLookupPlan, { dateConfig: opts.dateConfig });
+    await enrichFormulaLookupsWithPlan(records, formulaLookupPlan, {
+      dateConfig: opts.dateConfig,
+      signal: opts.signal,
+      queryTimeoutMs: opts.queryTimeoutMs,
+    });
+    opts.signal?.throwIfAborted();
     enrichRecordsWithFormulas(records, fieldsWithLookupMeta, {
       dateConfig: opts.dateConfig,
       skipFormulaFieldIds: formulaFieldIds,
     });
+    await enrichRecordsWithHtmlTemplates(records, fieldsWithLookupMeta, {
+      dateConfig: opts.dateConfig,
+      ...(opts.htmlTemplateFieldIds ? { fieldIds: new Set(opts.htmlTemplateFieldIds) } : {}),
+      signal: opts.signal,
+    });
+    opts.signal?.throwIfAborted();
     if (opts.includeRelations) {
       await attachRelationExpansion(records, fieldsWithLookupMeta, opts.viewer);
     }

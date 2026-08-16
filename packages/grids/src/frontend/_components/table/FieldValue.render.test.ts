@@ -37,6 +37,14 @@ const record = (data: Record<string, unknown>, expanded?: GridRecord["expanded"]
 });
 
 describe("FieldValue rendering", () => {
+  test("keeps HTML template values escaped and exposes a preview action", () => {
+    const htmlField = field({ id: "html01", name: "Email body", type: "html_template" });
+    const html = renderToString(() => createComponent(FieldValue, { field: htmlField, value: "<strong>Ada</strong>" }));
+    expect(html).toContain("&lt;strong>Ada&lt;/strong>");
+    expect(html).toContain("Preview");
+    expect(html).not.toContain("<strong>Ada</strong>");
+  });
+
   test("renders relation links and label-only relation values", () => {
     const relation = field({ id: "author", name: "Author", type: "relation", config: { targetTableId: "authors" } });
     const linked = renderToString(() =>

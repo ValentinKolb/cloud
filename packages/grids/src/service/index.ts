@@ -14,6 +14,7 @@ import * as files from "./files";
 import { submitForm } from "./form-submission";
 import * as forms from "./forms";
 import * as formulaPreview from "./formula-preview";
+import * as htmlTemplatePreview from "./html-template-preview";
 import * as metadataEvents from "./metadata-events";
 import { getOperationalHealth } from "./operational-health";
 import {
@@ -321,6 +322,9 @@ export const gridsService = {
   },
   formulaPreview: {
     check: formulaPreview.checkFormula,
+  },
+  htmlTemplatePreview: {
+    check: htmlTemplatePreview.checkHtmlTemplate,
   },
   relations: {
     buildLabelCache: relationsModule.buildRelationLabelCache,

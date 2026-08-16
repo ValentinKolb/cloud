@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { csvQuote, formatCellForExport } from "./export";
+import { csvQuote, formatCellForExport, validateHtmlTemplateExportLimit } from "./export";
 import type { Field } from "./types";
 
 const mkField = (overrides: Partial<Field> & Pick<Field, "id" | "type">): Field => ({
@@ -176,5 +176,16 @@ describe("formatCellForExport", () => {
   test("longtext can render markdown as sanitized HTML", () => {
     const md = mkField({ id: "fld-md", type: "longtext" });
     expect(formatCellForExport("**bold**", md, { markdown: "html" })).toContain("<strong>bold</strong>");
+  });
+});
+
+describe("HTML template export limits", () => {
+  const html = mkField({ id: "fld-html", type: "html_template" });
+
+  test("requires an explicit bounded limit only when HTML is selected", () => {
+    expect(validateHtmlTemplateExportLimit([html], {}).ok).toBe(false);
+    expect(validateHtmlTemplateExportLimit([html], { limit: 1_001 }).ok).toBe(false);
+    expect(validateHtmlTemplateExportLimit([html], { limit: 1_000 }).ok).toBe(true);
+    expect(validateHtmlTemplateExportLimit([mkField({ id: "fld-text", type: "text" })], {}).ok).toBe(true);
   });
 });

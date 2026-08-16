@@ -47,7 +47,7 @@ export default function RecordReadView(props: RecordReadViewProps) {
     const format = fieldFormat(field);
     return format?.kind === "barcode" ? format : undefined;
   };
-  const isComputedField = (field: Field) => ["formula", "lookup", "rollup"].includes(field.type);
+  const isComputedField = (field: Field) => ["formula", "lookup", "rollup", "html_template"].includes(field.type);
   const isBarcodeDisplayField = (field: Field, record: GridRecord) => {
     const format = fieldBarcodeFormat(field);
     if (!format) return false;

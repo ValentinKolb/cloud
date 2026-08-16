@@ -1,6 +1,21 @@
-import { Button, CheckboxCard, ColorInput, IconButton, NumberInput, Select, TextInput } from "@k2b/ui";
-import { For, Index, Show } from "solid-js";
+import { timed } from "@k2b/stdlib/solid";
+import {
+  Button,
+  CheckboxCard,
+  ColorInput,
+  IconButton,
+  NoticeCard,
+  NumberInput,
+  Select,
+  TemplateEditor,
+  TemplatePreview,
+  type TemplateVariable,
+  TextInput,
+} from "@k2b/ui";
+import { createEffect, createSignal, For, Index, onCleanup, Show } from "solid-js";
+import { apiClient } from "../../../api/client";
 import type { PublicField as Field } from "../../../api/public-dto";
+import { errorMessage } from "../utils/api-helpers";
 import { FormulaExpressionEditor } from "./FormulaExpressionEditor";
 
 // =============================================================================
@@ -63,6 +78,7 @@ export const TYPE_OPTIONS = [
   { value: "lookup", label: "Lookup (project a field through a relation)" },
   { value: "rollup", label: "Rollup (aggregate over a relation)" },
   { value: "formula", label: "Formula" },
+  { value: "html_template", label: "HTML template" },
 ];
 
 export const TYPE_LABELS: Record<string, string> = Object.fromEntries(TYPE_OPTIONS.map((o) => [o.value, o.label]));
@@ -98,6 +114,8 @@ export const FIELD_TYPE_DESCRIPTIONS: Record<string, string> = {
   rollup: "Summarises values from linked records — count them, add them up, average them, or take the smallest or largest.",
   formula:
     'A computed value, recalculated whenever the row is read. Reference columns by name, quote names with spaces like "Unit price", and use functions like IF, CONCAT, ROUND, AVG.',
+  html_template:
+    "A computed HTML value rendered for every record from Liquid, the other fields, and optional CSS. Use it for email bodies, descriptions, and exports.",
 };
 
 /** Default config blob for a brand-new field of `type`. */
@@ -113,6 +131,8 @@ export const defaultConfigForType = (type: string): FieldConfigState => {
       return { includeTime: false };
     case "file":
       return { maxFiles: 10 };
+    case "html_template":
+      return { template: "", css: "" };
     default:
       return {};
   }
@@ -141,8 +161,8 @@ type EditorProps = {
 /** Field types that can't sensibly serve as a presentable label. Lookup
  *  can target formula fields because the read pipeline resolves them;
  *  rollup stays stricter because aggregation must stay SQL-native. */
-const NON_LOOKUP_TARGET_TYPES = new Set(["relation", "lookup", "rollup", "file"]);
-const NON_ROLLUP_TARGET_TYPES = new Set(["relation", "lookup", "rollup", "formula", "file", "select", "json", "longtext"]);
+const NON_LOOKUP_TARGET_TYPES = new Set(["relation", "lookup", "rollup", "html_template", "file"]);
+const NON_ROLLUP_TARGET_TYPES = new Set(["relation", "lookup", "rollup", "formula", "html_template", "file", "select", "json", "longtext"]);
 
 // Set of types we know how to show a constraint form for. Anything outside
 // this set falls into the "no extra configuration" hint.
@@ -160,6 +180,7 @@ const CONFIGURABLE = new Set([
   "lookup",
   "rollup",
   "formula",
+  "html_template",
   "file",
 ]);
 
@@ -223,6 +244,15 @@ export function FieldConfigEditor(props: EditorProps) {
           currentTableId={props.currentTableId}
           baseId={props.baseId}
           tableId={props.tableId}
+        />
+      </Show>
+      <Show when={props.type === "html_template"}>
+        <HtmlTemplateConstraints
+          config={props.config}
+          onChange={props.onChange}
+          fields={props.fieldsByTable[props.currentTableId] ?? []}
+          currentFieldId={props.currentFieldId}
+          currentTableId={props.currentTableId}
         />
       </Show>
       <Show when={props.type === "file"}>
@@ -992,6 +1022,158 @@ function FormulaConstraints(props: {
       baseId={props.baseId}
       tableId={props.tableId}
     />
+  );
+}
+
+type HtmlTemplatePreviewResponse = {
+  ok: boolean;
+  diagnostics: Array<{ severity: "error" | "info"; message: string }>;
+  rows: Array<{ recordId: string; html: string }>;
+};
+
+function HtmlTemplateConstraints(props: {
+  config: () => FieldConfigState;
+  onChange: (next: FieldConfigState) => void;
+  fields: Field[];
+  currentFieldId?: string;
+  currentTableId: string;
+}) {
+  const cfg = () => props.config();
+  const template = () => (typeof cfg().template === "string" ? (cfg().template as string) : "");
+  const css = () => (typeof cfg().css === "string" ? (cfg().css as string) : "");
+  const update = (patch: FieldConfigState) => props.onChange({ ...cfg(), ...patch });
+  const variables = (): TemplateVariable[] => [
+    { name: "record.id", kind: "string", description: "Public record ID" },
+    { name: "record.tableId", kind: "string", description: "Public table ID" },
+    { name: "record.version", kind: "number" },
+    ...props.fields
+      .filter((field) => field.id !== props.currentFieldId && field.type !== "html_template" && !field.deletedAt)
+      .map((field) => ({
+        name: `record.data.${field.id}`,
+        kind: (["number", "percent", "duration", "rollup"].includes(field.type) ? "number" : "string") as TemplateVariable["kind"],
+        description: `${field.name} · ${TYPE_LABELS[field.type] ?? field.type}`,
+      })),
+    { name: "table.id", kind: "string" },
+    { name: "table.name", kind: "string" },
+    { name: "app.name", kind: "string" },
+    { name: "app.url", kind: "url" },
+    { name: "business.legalName", kind: "string" },
+    { name: "business.address", kind: "string" },
+    { name: "date.iso", kind: "string" },
+    { name: "date.yyyyMMdd", kind: "string" },
+  ];
+  const [preview, setPreview] = createSignal<HtmlTemplatePreviewResponse | null>(null);
+  const [loading, setLoading] = createSignal(false);
+  const [selectedRecordId, setSelectedRecordId] = createSignal<string | null>(null);
+  let token = 0;
+  let previewAbort: AbortController | undefined;
+  const loadPreview = async (next: { template: string; css: string }) => {
+    if (!props.currentFieldId) return;
+    const currentToken = ++token;
+    previewAbort?.abort();
+    const abort = new AbortController();
+    previewAbort = abort;
+    setLoading(true);
+    try {
+      const response = await apiClient["html-template-fields"]["by-table"][":tableId"].check.$post(
+        {
+          param: { tableId: props.currentTableId },
+          json: { ...next, currentFieldId: props.currentFieldId },
+        },
+        { init: { signal: abort.signal } },
+      );
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not preview HTML template."));
+      const data: HtmlTemplatePreviewResponse = await response.json();
+      if (currentToken === token) {
+        setPreview(data);
+        if (!selectedRecordId() || !data.rows.some((row) => row.recordId === selectedRecordId())) {
+          setSelectedRecordId(data.rows[0]?.recordId ?? null);
+        }
+      }
+    } catch (error) {
+      if (currentToken === token) {
+        setPreview({
+          ok: false,
+          diagnostics: [{ severity: "error", message: error instanceof Error ? error.message : "Could not preview HTML template." }],
+          rows: [],
+        });
+        setSelectedRecordId(null);
+      }
+    } finally {
+      if (currentToken === token) {
+        previewAbort = undefined;
+        setLoading(false);
+      }
+    }
+  };
+  const debounced = timed.debounce(loadPreview, 300);
+  createEffect(() => debounced.debouncedFn({ template: template(), css: css() }));
+  onCleanup(() => {
+    token += 1;
+    debounced.cancel();
+    previewAbort?.abort();
+  });
+  const selected = () => preview()?.rows.find((row) => row.recordId === selectedRecordId()) ?? preview()?.rows[0];
+
+  return (
+    <div class="flex flex-col gap-3" aria-busy={loading()}>
+      <TemplateEditor
+        value={template()}
+        onValueChange={(value) => update({ template: value })}
+        variables={variables()}
+        lines={12}
+        aria-label="HTML template"
+        placeholder={"<p>{{ record.data.FIELD_ID }}</p>"}
+      />
+      <TextInput
+        label="CSS (optional)"
+        description="CSS is validated and inlined into each rendered HTML value."
+        value={css}
+        onValueChange={(value) => update({ css: value })}
+        multiline
+        lines={6}
+        placeholder="p { color: #18181b; }"
+      />
+      <div class="flex items-center justify-between gap-2 text-xs">
+        <span class="font-medium text-secondary">Latest-record preview</span>
+        <Show when={loading()}>
+          <span class="text-dimmed" role="status" aria-live="polite">
+            <i class="ti ti-loader-2 animate-spin" /> Rendering
+          </span>
+        </Show>
+      </div>
+      <Show when={!loading() && preview()?.diagnostics.length}>
+        <NoticeCard tone={preview()?.ok ? "info" : "danger"} icon={false} role={preview()?.ok ? "status" : "alert"}>
+          <For each={preview()?.diagnostics}>{(diagnostic) => <div>{diagnostic.message}</div>}</For>
+        </NoticeCard>
+      </Show>
+      <Show when={(preview()?.rows.length ?? 0) > 1}>
+        <div class="flex flex-wrap gap-1.5">
+          <For each={preview()?.rows}>
+            {(row) => (
+              <Button
+                variant={row.recordId === selectedRecordId() ? "primary" : "secondary"}
+                size="sm"
+                type="button"
+                aria-pressed={row.recordId === selectedRecordId()}
+                onClick={() => setSelectedRecordId(row.recordId)}
+              >
+                {row.recordId}
+              </Button>
+            )}
+          </For>
+        </div>
+      </Show>
+      <Show when={!loading() && selected()}>
+        {(row) => <TemplatePreview html={row().html} title={`HTML template preview for record ${row().recordId}`} class="min-h-64" />}
+      </Show>
+      <Show when={!loading() && preview()?.ok && preview()?.diagnostics.length === 0 && preview()?.rows.length === 0}>
+        <p class="text-xs text-dimmed">No records to preview yet.</p>
+      </Show>
+      <p class="text-xs text-dimmed">
+        Values are escaped by default. Use the Liquid <code>raw</code> filter only for trusted HTML.
+      </p>
+    </div>
   );
 }
 

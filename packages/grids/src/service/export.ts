@@ -9,6 +9,7 @@ import { type DslResultCursor, decodeDslResultCursor } from "../query-dsl/result
 import { type FederatedRevisionScope, verifyRevisionScope } from "./federated-tables";
 import { listByTable as listFields } from "./fields";
 import { buildTrustedGqlResolverContext } from "./gql-resolver-context";
+import { createHtmlTemplateRenderBudget, type HtmlTemplateRenderBudget } from "./html-template-fields";
 import { hasAtLeast, loadBaseGrantsForSubject, resolveEffectivePermission } from "./permission-resolver";
 import { projectPublicIds } from "./public-resources";
 import type { AuthorizedRecordAccess } from "./record-access";
@@ -23,11 +24,19 @@ type ExportFormatOptions = { markdown: "raw" | "html"; dateConfig?: DateContext 
 type RelationExportConfig = NonNullable<ExportFieldSpec["relation"]>;
 
 const EXPORT_PAGE_SIZE = 500;
+export const HTML_TEMPLATE_EXPORT_MAX_RECORDS = 1_000;
 const EXPORT_CURSOR_FINGERPRINT = "grids-internal-export";
 const EXPORT_CURSOR_SIGNING_KEY = "grids-internal-export-cursor";
 
 type ExportPage = { items: GridRecord[]; done: boolean; revisionScope?: FederatedRevisionScope };
 type ExportPageReader = () => Promise<Result<ExportPage>>;
+
+export const validateHtmlTemplateExportLimit = (fields: readonly Field[], query: RecordQuery): Result<void> => {
+  if (!fields.some((field) => field.type === "html_template")) return ok();
+  return query.limit !== undefined && query.limit <= HTML_TEMPLATE_EXPORT_MAX_RECORDS
+    ? ok()
+    : fail(err.badInput(`HTML template fields require an explicit export limit of at most ${HTML_TEMPLATE_EXPORT_MAX_RECORDS} records`));
+};
 
 const createStoredPageReader = (params: {
   tableId: string;
@@ -35,6 +44,8 @@ const createStoredPageReader = (params: {
   viewer?: ExpansionViewer;
   dateConfig?: DateContext;
   recordAccess?: AuthorizedRecordAccess;
+  htmlTemplateFieldIds: string[];
+  htmlTemplateRenderBudget: HtmlTemplateRenderBudget;
 }): ExportPageReader => {
   let cursor: string | null = null;
   let returned = 0;
@@ -55,6 +66,8 @@ const createStoredPageReader = (params: {
       viewer: params.viewer,
       dateConfig: params.dateConfig,
       recordAccess: params.recordAccess,
+      htmlTemplateFieldIds: params.htmlTemplateFieldIds,
+      htmlTemplateRenderBudget: params.htmlTemplateRenderBudget,
     });
     if (!page.ok) return fail(page.error);
     returned += page.data.items.length;
@@ -147,6 +160,8 @@ const createExportPageReader = async (params: {
   viewer?: ExpansionViewer;
   dateConfig?: DateContext;
   recordAccess?: AuthorizedRecordAccess;
+  htmlTemplateFieldIds: string[];
+  htmlTemplateRenderBudget: HtmlTemplateRenderBudget;
 }): Promise<Result<ExportPageReader>> => {
   const table = await getTable(params.tableId);
   if (!table) return fail(err.notFound("Table"));
@@ -255,7 +270,9 @@ const pickColumns = async (params: {
 
   const rawSelected = requested?.length
     ? requested.map((spec) => ({ field: byId.get(spec.fieldId), spec }))
-    : aliveFields(params.fields).map((field) => ({ field, spec: undefined }));
+    : aliveFields(params.fields)
+        .filter((field) => field.type !== "html_template")
+        .map((field) => ({ field, spec: undefined }));
 
   const missing = rawSelected.find((entry) => !entry.field || entry.field.deletedAt);
   if (missing) return fail(err.badInput("unknown export field"));
@@ -299,6 +316,9 @@ const pickColumns = async (params: {
     for (const id of ids) {
       const targetField = targetById.get(id);
       if (!targetField) return fail(err.badInput("unknown relation export field"));
+      if (targetField.type === "html_template") {
+        return fail(err.badInput("HTML template fields cannot be expanded through relation exports"));
+      }
       columns.push({
         kind: "relationField",
         relationField: entry.field,
@@ -453,6 +473,11 @@ export const exportRecords = async (params: {
     viewer: params.viewer,
   });
   if (!picked.ok) return fail(picked.error);
+  const htmlLimit = validateHtmlTemplateExportLimit(
+    picked.data.selected.map(({ field }) => field),
+    query,
+  );
+  if (!htmlLimit.ok) return htmlLimit;
   const publicFieldIds = new Map<string, string>();
   const relationFieldIds = new Set<string>();
   for (const field of fields) publicFieldIds.set(field.id, field.shortId);
@@ -469,6 +494,8 @@ export const exportRecords = async (params: {
     viewer: params.viewer,
     dateConfig: params.dateConfig,
     recordAccess: params.recordAccess,
+    htmlTemplateFieldIds: picked.data.selected.filter(({ field }) => field.type === "html_template").map(({ field }) => field.id),
+    htmlTemplateRenderBudget: createHtmlTemplateRenderBudget(),
   });
   if (!pageReader.ok) return fail(pageReader.error);
   const options: ExportFormatOptions = { markdown: params.markdown ?? "raw", dateConfig: params.dateConfig };

@@ -58,7 +58,7 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
     return [...groups.values()];
   });
   const canonicalFields = createMemo(() =>
-    props.targetFields.filter((field) => !field.deletedAt && !["formula", "lookup", "rollup"].includes(field.type)),
+    props.targetFields.filter((field) => !field.deletedAt && !["formula", "lookup", "rollup", "html_template"].includes(field.type)),
   );
   const hiddenSourceCount = createMemo(() => config()?.draft.sources.filter((source) => source.sourceTableId === null).length ?? 0);
 

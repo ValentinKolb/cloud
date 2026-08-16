@@ -10,6 +10,7 @@ import { type FederatedRevisionScope, verifyRevisionScope } from "../service/fed
 import { isMultiSelectField, storageOf } from "../service/field-storage";
 import { buildPrincipalLabelCache, principalReferencesFromValue } from "../service/principal-values";
 import { type AuthorizedRecordAccess, recordAccessPredicate } from "../service/record-access";
+import { createReader } from "../service/record-read";
 import { buildRelationLabelCacheForIds, type ExpansionViewer } from "../service/relations";
 import { compileSearchClause } from "../service/search";
 import type { Field } from "../service/types";
@@ -451,6 +452,42 @@ const labelPreviewValues = async (
   options: DslQueryPreviewOptions,
 ): Promise<DslQueryPreviewRow[]> => labelPrincipalPreviewValues(await labelRelationPreviewValues(rows, columns, options), columns, options);
 
+const hydrateHtmlTemplatePreviewValues = async (
+  rows: DslQueryPreviewRow[],
+  columns: DslQueryPreviewColumn[],
+  plan: DslResolvedSqlQueryPlan,
+  options: DslQueryPreviewOptions,
+): Promise<DslQueryPreviewRow[]> => {
+  const templateColumns = columns.filter(
+    (column) => column.type === "html_template" && !column.joinAlias && column.tableId === plan.tableId && column.fieldId,
+  );
+  if (templateColumns.length === 0) return rows;
+  const ids = [...new Set(rows.flatMap((row) => (row.recordId ? [row.recordId] : [])))];
+  if (ids.length === 0) return rows;
+  const access = options.authorizedRecordAccessByTableId?.get(plan.tableId) ?? options.primaryRecordAccess ?? undefined;
+  const reader = await createReader(plan.tableId, {
+    fields: options.fieldsByTableId[plan.tableId] ?? [],
+    dateConfig: options.timeZone ? { timeZone: options.timeZone } : undefined,
+    viewer: options.viewer,
+    htmlTemplateFieldIds: templateColumns.map((column) => column.fieldId!),
+    signal: options.signal,
+    queryTimeoutMs: 5_000,
+    ...(access ? { recordAccess: access } : {}),
+  });
+  const records = new Map((await reader.getMany(ids)).map((record) => [record.id, record]));
+  return rows.map((row) => {
+    const record = row.recordId ? records.get(row.recordId) : undefined;
+    if (!record) return row;
+    return {
+      ...row,
+      values: {
+        ...row.values,
+        ...Object.fromEntries(templateColumns.map((column) => [column.key, record.data[column.fieldId!] ?? null])),
+      },
+    };
+  });
+};
+
 const joinOr = (parts: unknown[]): unknown => parts.slice(1).reduce((acc, part) => sql`${acc} OR ${part}`, parts[0]!);
 
 const compileDslSearchClause = async (
@@ -859,7 +896,8 @@ export const previewDslQuery = async (
         : {}),
       values: Object.fromEntries(columns.map((column) => [column.key, rowValue(row, column)])),
     }));
-    const displayRows = options.labelRelationValues === false ? previewRows : await labelPreviewValues(previewRows, columns, options);
+    const hydratedRows = await hydrateHtmlTemplatePreviewValues(previewRows, columns, plan, options);
+    const displayRows = options.labelRelationValues === false ? hydratedRows : await labelPreviewValues(hydratedRows, columns, options);
     const bounded = fitPagedResponse(
       rows,
       displayRows,

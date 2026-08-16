@@ -137,6 +137,23 @@ export const compileBaseFieldColumn = (params: {
   computedFieldSql?: Map<string, FormulaSqlExpression>;
   resolveField?: FormulaSqlFieldResolver;
 }): { ok: true; fragment: unknown; column: DslSqlOutputColumn; projection: unknown } | { ok: false; error: string } => {
+  if (params.field.type === "html_template") {
+    const key = safeColumnAlias(params.index);
+    const projection = sql`NULL::text`;
+    return {
+      ok: true,
+      fragment: sql`${projection} AS ${sql.unsafe(key)}`,
+      projection,
+      column: {
+        key,
+        label: params.label ?? params.field.name,
+        tableId: params.tableId,
+        fieldId: params.field.id,
+        type: params.field.type,
+        sqlType: "text",
+      },
+    };
+  }
   const projection = fieldProjection(params.field, params.recordAlias, {
     fields: params.fields,
     timeZone: params.timeZone,

@@ -6,7 +6,7 @@ import { fieldDisplayFormat, formatFieldValueText } from "../table/field-value-f
 export const recordTitleField = (fields: Field[]): Field | undefined => {
   const visible = fields.filter((field) => !field.deletedAt);
   return (
-    visible.find((field) => field.presentable && !["longtext", "json", "file", "relation"].includes(field.type)) ??
+    visible.find((field) => field.presentable && !["longtext", "html_template", "json", "file", "relation"].includes(field.type)) ??
     visible.find((field) => field.type === "text")
   );
 };

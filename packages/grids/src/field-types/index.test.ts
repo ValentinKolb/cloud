@@ -36,6 +36,7 @@ test("registry: covers all field kinds", () => {
     "lookup",
     "rollup",
     "formula",
+    "html_template",
   ];
   for (const t of expected) expect(t in fieldTypeRegistry).toBe(true);
 });
@@ -46,6 +47,7 @@ test("field kind registries separate write policies", () => {
   expect(LINK_FIELD_TYPES.relation?.kind).toBe("link");
   expect(SERVER_GENERATED_FIELD_TYPES.id?.kind).toBe("serverGenerated");
   expect(COMPUTED_FIELD_TYPES.formula?.kind).toBe("computed");
+  expect(COMPUTED_FIELD_TYPES.html_template?.kind).toBe("computed");
   expect(SYSTEM_FIELD_TYPES.created_at?.kind).toBe("system");
   expect(EXTERNAL_FIELD_TYPES.file?.kind).toBe("external");
 });
@@ -56,6 +58,7 @@ test("getFieldType / getRecordWritableFieldType: discriminate by write policy", 
   expect(getRecordWritableFieldType("text")?.kind).toBe("value");
   expect(getRecordWritableFieldType("relation")?.kind).toBe("link");
   expect(getRecordWritableFieldType("formula")).toBeNull();
+  expect(getRecordWritableFieldType("html_template")).toBeNull();
 });
 
 test("isKnownFieldType: discriminates", () => {

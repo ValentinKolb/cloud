@@ -113,6 +113,7 @@ const FIELD_TYPE_EXAMPLES: Record<string, string> = {
   lookup: "Customer email",
   rollup: "Sum order total",
   formula: "price * qty",
+  html_template: "HTML email or product description",
 };
 
 const FIELD_TYPE_PICKER_DESCRIPTIONS: Record<string, string> = {
@@ -132,6 +133,7 @@ const FIELD_TYPE_PICKER_DESCRIPTIONS: Record<string, string> = {
   lookup: "Shows a value from a linked record.",
   rollup: "Aggregates values through a relation.",
   formula: "Computes a value from other fields.",
+  html_template: "Renders Liquid and CSS into an HTML value for every record.",
 };
 
 const CREATE_TYPE_OPTIONS = TYPE_OPTIONS.filter((type) => type.value !== "json");
@@ -144,7 +146,11 @@ const chooseFieldType = (tableKind: TableHeader["kind"]) =>
         <PanelDialog.Body>
           <p class="text-sm text-secondary">Pick the basic data shape first. You can tune details after the field exists.</p>
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            <For each={CREATE_TYPE_OPTIONS.filter((type) => tableKind !== "federated" || !["lookup", "rollup"].includes(type.value))}>
+            <For
+              each={CREATE_TYPE_OPTIONS.filter(
+                (type) => tableKind !== "federated" || !["lookup", "rollup", "html_template"].includes(type.value),
+              )}
+            >
               {(type) => (
                 <button type="button" class="paper p-3 text-left hover:paper-highlighted transition" onClick={() => close(type.value)}>
                   <div class="flex items-start gap-3">
