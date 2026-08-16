@@ -62,7 +62,7 @@ To operate on several conversations, select their checkboxes. Hold Shift while s
 
 Select a conversation row to open its thread. Each message has its own sender, recipients, date, body, and attachments. Expand an older message when you need its full content.
 
-An optional conversation summary appears in a highlighted card above the messages. Use its **Edit summary** button or **More conversation actions > Create summary** to maintain it with Markdown formatting; summaries are shared Mail context and can also be updated by an automation. If the conversation has unfinished drafts, **Continue draft** opens the newest one directly.
+An optional conversation summary appears in a highlighted card above the messages. Use its **Edit summary** button or **More conversation actions > Create summary** to maintain it with Markdown formatting; summaries are shared Mail context and can also be updated by an automation. If the conversation has unfinished drafts, the Reply action shows an indicator. Open **Conversation details** to see who created the newest draft, when it was updated, and continue it.
 
 Opening an unread conversation marks it as read. Use **More conversation actions** to mark it unread again, add or remove a flag, or print the conversation. A conversation that you mark unread stays unread in already open tabs until you deliberately open its row again; a live update alone does not mark it read.
 

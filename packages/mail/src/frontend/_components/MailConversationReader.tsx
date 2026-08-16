@@ -208,12 +208,6 @@ export default function MailConversationReader(props: {
     scheduleReaderScroll({ selectionKey: props.selectionKey, messageId: newest.id, behavior: "smooth" });
   };
 
-  const continueNewestDraft = () => {
-    const draft = props.conversationDrafts[0];
-    if (!draft) return;
-    documentNavigate(mailDraftHref(props.mailboxId, draft.id, props.requestUrl));
-  };
-
   const editConversationSummary = async () => {
     const conversationId = props.selectedConversationId;
     const current = props.conversationSummary;
@@ -704,7 +698,14 @@ export default function MailConversationReader(props: {
     }
     if (id === "reply" || id === "reply_all" || id === "forward") {
       if (!canRespondToLatest()) return null;
-      const label = id === "reply" ? "Reply" : id === "reply_all" ? "Reply all" : "Forward";
+      const label =
+        id === "reply"
+          ? props.conversationDrafts.length > 0
+            ? "Reply, draft available"
+            : "Reply"
+          : id === "reply_all"
+            ? "Reply all"
+            : "Forward";
       const icon = id === "reply" ? "ti ti-arrow-back-up" : id === "reply_all" ? "ti ti-arrow-back-up-double" : "ti ti-arrow-forward-up";
       return {
         id,
@@ -993,32 +994,10 @@ export default function MailConversationReader(props: {
                   </button>
                 </Show>
               </div>
-              <div class="mt-0.5 flex flex-wrap items-center gap-2">
-                <p class="text-xs text-dimmed">
-                  {props.messages.length} message
-                  {props.messages.length === 1 ? "" : "s"}
-                </p>
-                <Show when={props.canWrite && props.conversationDrafts.length > 0}>
-                  <Button
-                    variant="primary"
-                    size="xs"
-                    type="button"
-                    class="mail-compose-action"
-                    title={
-                      props.conversationDrafts.length === 1
-                        ? "Open the conversation draft"
-                        : `Open the newest of ${props.conversationDrafts.length} drafts`
-                    }
-                    onClick={continueNewestDraft}
-                  >
-                    <i class="ti ti-arrow-back-up" aria-hidden="true" />
-                    Continue draft
-                    <Show when={props.conversationDrafts.length > 1}>
-                      <span>{props.conversationDrafts.length}</span>
-                    </Show>
-                  </Button>
-                </Show>
-              </div>
+              <p class="mt-0.5 text-xs text-dimmed">
+                {props.messages.length} message
+                {props.messages.length === 1 ? "" : "s"}
+              </p>
             </div>
             <div class="flex shrink-0 items-center gap-1">
               <div class="hidden max-w-[min(40vw,28rem)] items-center gap-2 overflow-x-auto sm:flex">
@@ -1027,18 +1006,32 @@ export default function MailConversationReader(props: {
                     <div class="flex shrink-0 items-center gap-1" data-mail-toolbar-section={section.id}>
                       <For each={section.actions}>
                         {(action) => (
-                          <Tooltip.Anchor content={action.label}>
-                            <IconButton
-                              type="button"
-                              class="shrink-0"
-                              label={action.label}
-                              data-mail-toolbar-action={action.id}
-                              disabled={action.disabled}
-                              onClick={action.action}
-                            >
-                              <i class={action.icon} aria-hidden="true" />
-                            </IconButton>
-                          </Tooltip.Anchor>
+                          <>
+                            <Show when={action.id === "reply" && props.conversationDrafts.length > 0}>
+                              <span class="hidden whitespace-nowrap text-xs text-dimmed sm:inline" data-mail-draft-label>
+                                Draft available
+                              </span>
+                            </Show>
+                            <Tooltip.Anchor content={action.label}>
+                              <IconButton
+                                type="button"
+                                class="relative shrink-0"
+                                label={action.label}
+                                data-mail-toolbar-action={action.id}
+                                disabled={action.disabled}
+                                onClick={action.action}
+                              >
+                                <i class={action.icon} aria-hidden="true" />
+                                <Show when={action.id === "reply" && props.conversationDrafts.length > 0}>
+                                  <span
+                                    class="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--ui-accent)] sm:hidden"
+                                    data-mail-draft-indicator
+                                    aria-hidden="true"
+                                  />
+                                </Show>
+                              </IconButton>
+                            </Tooltip.Anchor>
+                          </>
                         )}
                       </For>
                     </div>

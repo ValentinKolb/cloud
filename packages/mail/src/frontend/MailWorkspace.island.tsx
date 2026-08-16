@@ -1595,6 +1595,7 @@ export default function MailWorkspace(props: {
               activity={data.activity}
               initialReminder={data.reminder}
               detailErrors={data.detailErrors}
+              conversationDrafts={data.conversationDrafts}
               messages={data.detailMessages}
               subject={data.selectedSubject}
               requestUrl={requestUrl()}

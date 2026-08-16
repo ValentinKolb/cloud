@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createConfig } from "@k2b/ssr";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
+import type { ConversationDraftSummary } from "../../contracts";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent } from "../../service/collaboration";
 import type { ConversationLocalTags, LocalTag } from "../../service/local-tags";
 import type { MessageDetail } from "../../service/messages";
@@ -21,6 +22,15 @@ const { default: MailDetailsPanel } = await import("./MailDetailsPanel.tsx");
 const now = "2026-08-09T10:00:00.000Z";
 const mailboxId = "Box001";
 const conversationId = "Conv01";
+
+const draft: ConversationDraftSummary = {
+  id: "Draft1",
+  intent: "reply",
+  subject: "Re: Quarterly review",
+  bodyPreview: "Thanks for the update.",
+  createdByDisplayName: "Valentin Kolb",
+  updatedAt: now,
+};
 
 const tag: LocalTag = {
   id: "Tag001",
@@ -182,6 +192,7 @@ const renderPanel = (overrides: Partial<Parameters<typeof MailDetailsPanel>[0]> 
       activity: [activity],
       initialReminder: null,
       detailErrors: noDetailErrors,
+      conversationDrafts: [],
       messages: [message],
       subject: message.subject,
       requestUrl: `https://cloud.example.test/app/mail/${mailboxId}`,
@@ -195,6 +206,19 @@ const renderPanel = (overrides: Partial<Parameters<typeof MailDetailsPanel>[0]> 
   );
 
 describe("Mail conversation detail panel", () => {
+  test("surfaces the newest conversation draft before workflow", () => {
+    const html = renderPanel({
+      conversationDrafts: [draft, { ...draft, id: "Draft2", createdByDisplayName: "Mara Klein" }],
+    });
+
+    expect(html).toContain("Drafts available");
+    expect(html).toContain("Continue newest draft");
+    expect(html).toContain("Created by Valentin Kolb · Updated");
+    expect(html).toContain("/compose/Draft1?");
+    expect(html).toContain('class="k2b-detail-panel__group" role="group" aria-label="Draft"');
+    expect(html.indexOf("Drafts available")).toBeLessThan(html.indexOf(">Workflow<"));
+  });
+
   test("composes the inspector from the shared grouped panel contract", () => {
     const html = renderPanel();
     const header = html.slice(0, html.indexOf('class="k2b-detail-panel__body"'));

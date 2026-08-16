@@ -24,6 +24,7 @@ import {
 } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../api/client";
+import type { ConversationDraftSummary } from "../../contracts";
 import type { ConversationCollaboration, ConversationComment, MailActivityEvent, MailAssignableUser } from "../../service/collaboration";
 import type { ConversationLocalTags, LocalTag } from "../../service/local-tags";
 import type { MessageDetail } from "../../service/messages";
@@ -34,6 +35,7 @@ import { readApiError } from "./api-response";
 import MailConversationContext from "./MailConversationContext";
 import { openMailMessageInspector } from "./MailMessageInspectorDialog";
 import { presentMailActivity } from "./mail-activity-presentation";
+import { mailDraftHref } from "./mail-compose-route";
 import { listUnavailableMailDetailSections } from "./mail-detail-availability";
 import {
   applyMailCollaborationPatch,
@@ -72,6 +74,7 @@ export default function MailDetailsPanel(props: {
   activity: MailActivityEvent[];
   initialReminder: ConversationReminder | null;
   detailErrors: MailDetailErrors;
+  conversationDrafts: ConversationDraftSummary[];
   messages: MessageDetail[];
   subject: string;
   requestUrl: string;
@@ -522,6 +525,27 @@ export default function MailDetailsPanel(props: {
             onValueChange={(done) => updateCollaboration({ completion: done ? "done" : "open" })}
             disabled={!props.canWrite}
           />
+
+          <Show when={props.canWrite && props.conversationDrafts[0]}>
+            {(draft) => (
+              <DetailPanel.Group label="Draft">
+                <DetailPanel.Section
+                  title={props.conversationDrafts.length === 1 ? "Draft available" : "Drafts available"}
+                  icon="ti ti-file-pencil"
+                  tone="accent"
+                  meta={props.conversationDrafts.length}
+                >
+                  <DetailPanel.Action
+                    href={mailDraftHref(props.mailboxId, draft().id, props.requestUrl)}
+                    leading={<i class="ti ti-arrow-back-up" aria-hidden="true" />}
+                    title={props.conversationDrafts.length === 1 ? "Continue draft" : "Continue newest draft"}
+                    description={`Created by ${draft().createdByDisplayName} · Updated ${dates.formatDateTimeRelative(draft().updatedAt, props.dateConfig)}`}
+                    trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+                  />
+                </DetailPanel.Section>
+              </DetailPanel.Group>
+            )}
+          </Show>
 
           <DetailPanel.Group label="Workflow">
             <DetailPanel.Section
