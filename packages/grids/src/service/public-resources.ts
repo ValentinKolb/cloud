@@ -1,4 +1,5 @@
 import { err, fail, ok, type Result } from "@k2b/stdlib";
+import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { type SQL, sql } from "bun";
 import { ShortIdSchema } from "../contracts";
 import { listByTable } from "./field-read";
@@ -57,7 +58,7 @@ export const resolvePublicIds = async (
     `SELECT short_id AS "publicId", ${resource.key}::text AS "internalId"
        FROM grids.${resource.table}
       WHERE short_id = ANY($1::text[]) AND ${resource.live}`,
-    [ids],
+    [toPgTextArray(ids)],
   )) as Array<{ publicId: string; internalId: string }>;
   return new Map(rows.map((row) => [row.publicId, row.internalId]));
 };
@@ -75,7 +76,7 @@ export const projectPublicIds = async (
     `SELECT ${resource.key}::text AS "internalId", short_id AS "publicId"
        FROM grids.${resource.table}
       WHERE ${resource.key} = ANY($1::uuid[])`,
-    [ids],
+    [toPgUuidArray(ids)],
   )) as Array<{ internalId: string; publicId: string }>;
   return new Map(rows.map((row) => [row.internalId, row.publicId]));
 };
