@@ -81,7 +81,14 @@ export default function MailComposerEditor(props: {
           </Show>
         }
       >
-        {(value) => <iframe class="h-full min-h-72 w-full border-0 bg-white" sandbox="" srcdoc={value().html} title="Email preview" />}
+        {(value) => (
+          <iframe
+            class="h-full min-h-72 w-full border-0 bg-white"
+            sandbox=""
+            srcdoc={`<style>body{margin:0}</style>${value().html}`}
+            title="Email preview"
+          />
+        )}
       </Show>
       <Show when={props.preview() && props.previewError()}>
         <div class="absolute inset-x-2 top-2 flex items-center gap-2 border border-red-200 bg-white px-2 py-1 text-xs text-red-600 shadow-sm">

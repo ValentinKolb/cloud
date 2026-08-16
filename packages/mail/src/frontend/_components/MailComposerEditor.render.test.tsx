@@ -6,6 +6,7 @@ import { createConfig } from "@k2b/ssr";
 import type { PanesValue } from "@k2b/ui";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
+import type { ComposePreview } from "../../contracts";
 
 const root = mkdtempSync(join(tmpdir(), "mail-composer-editor-render-tests-"));
 const { plugin } = createConfig({ dev: true, rootDir: root });
@@ -25,7 +26,7 @@ const panes = (...elementIds: string[]): PanesValue => ({
   },
 });
 
-const renderEditor = (format: "plain" | "markdown", value: PanesValue, history = false) =>
+const renderEditor = (format: "plain" | "markdown", value: PanesValue, history = false, preview: ComposePreview | null = null) =>
   renderToString(() =>
     createComponent(MailComposerEditor, {
       format: () => format,
@@ -35,7 +36,7 @@ const renderEditor = (format: "plain" | "markdown", value: PanesValue, history =
       completions: () => [],
       panes: () => value,
       onPanesChange: () => undefined,
-      preview: () => null,
+      preview: () => preview,
       previewError: () => undefined,
       onRetryPreview: () => undefined,
       onEditorReady: () => undefined,
@@ -69,5 +70,12 @@ describe("MailComposerEditor", () => {
     expect(html).toContain("History");
     expect(html).toContain("Preparing preview...");
     expect(html).not.toContain("Updating");
+  });
+
+  test("removes the browser body margin from the HTML preview", () => {
+    const html = renderEditor("markdown", panes("preview"), false, { html: "<p>Preview body</p>", text: "Preview body" });
+
+    expect(html).toContain("body{margin:0}");
+    expect(html).toContain("Preview body");
   });
 });
