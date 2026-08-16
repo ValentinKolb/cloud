@@ -69,11 +69,6 @@ export type PublicCombinedAuditPage = z.infer<typeof PublicCombinedAuditPageSche
 
 type ProjectIds = typeof projectPublicIds;
 
-const required = <T>(value: T | null | undefined, resource: string): T => {
-  if (!value) throw new Error(`Cannot project public ${resource}`);
-  return value;
-};
-
 const relationRecordIds = (entries: readonly RecordHistoryEntry[], fieldsById: ReadonlyMap<string, Field>) =>
   entries.flatMap((entry) =>
     Object.entries(entry.diff ?? {}).flatMap(([fieldId, change]) => {
@@ -109,26 +104,29 @@ export const toPublicAuditEntries = async (
   return entries.map((entry) => {
     const diff = entry.diff
       ? Object.fromEntries(
-          Object.entries(entry.diff).map(([fieldId, change]) => {
-            const field = required(fieldsById.get(fieldId), `audit field ${fieldId}`);
+          Object.entries(entry.diff).flatMap(([fieldId, change]) => {
+            const field = fieldsById.get(fieldId);
+            if (!field) return [];
             const projectValue = (value: unknown): unknown => {
               if (field.type !== "relation") return value;
               if (Array.isArray(value)) {
-                return value.map((item) =>
-                  typeof item === "string" ? required(relatedRecords.get(item), `related record ${item}`) : item,
-                );
+                return value.flatMap((item) => {
+                  if (typeof item !== "string") return [item];
+                  const publicId = relatedRecords.get(item);
+                  return publicId ? [publicId] : [];
+                });
               }
-              return typeof value === "string" ? required(relatedRecords.get(value), `related record ${value}`) : value;
+              return typeof value === "string" ? (relatedRecords.get(value) ?? null) : value;
             };
-            return [field.shortId, { old: projectValue(change.old), new: projectValue(change.new) }];
+            return [[field.shortId, { old: projectValue(change.old), new: projectValue(change.new) }]];
           }),
         )
       : null;
     const common = {
       id: entry.id,
-      baseId: entry.baseId ? required(bases.get(entry.baseId), `audit base ${entry.baseId}`) : null,
-      tableId: entry.tableId ? required(tables.get(entry.tableId), `audit table ${entry.tableId}`) : null,
-      recordId: entry.recordId ? required(records.get(entry.recordId), `audit record ${entry.recordId}`) : null,
+      baseId: entry.baseId ? (bases.get(entry.baseId) ?? null) : null,
+      tableId: entry.tableId ? (tables.get(entry.tableId) ?? null) : null,
+      recordId: entry.recordId ? (records.get(entry.recordId) ?? null) : null,
       userId: entry.userId,
       action: entry.action,
       diff,

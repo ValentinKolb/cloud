@@ -8,6 +8,7 @@ import { parseDocumentViewMode } from "../_components/sidebar/GridsSettingsStore
 import GridsWorkspace from "../_components/workspace/GridsWorkspace";
 import { projectPublicWorkspaceState } from "../_components/workspace/workspace-public-state";
 import { loadGridsWorkspaceState } from "../_components/workspace/workspace-state";
+import { serializeWorkspaceState } from "../_components/workspace/workspace-state-serialization";
 
 export default ssr<AuthContext>(async (c) => {
   const user = currentActorUser(c);
@@ -21,19 +22,30 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
   const baseShortId = c.req.param("baseId")!;
-  const loadedState = await loadGridsWorkspaceState({
-    user,
+  const loaded = await serializeWorkspaceState(
     baseShortId,
-    href: c.req.url,
-    activeTableSlug: c.req.param("tableId") ?? null,
-    activeViewSlug: c.req.param("viewId") ?? null,
-    activeWorkflowSlug: c.req.param("workflowId") ?? null,
-    activeDocumentTableSlug: c.req.param("documentTableId") ?? null,
-    activeDocumentTemplateSlug: c.req.param("documentTemplateId") ?? null,
-    activeCustomAppSlug: c.req.param("customAppId") ?? null,
-    initialDocumentViewMode: parseDocumentViewMode(c.req.header("Cookie")),
-    dateConfig: await getDateConfig(c),
-  });
+    async () => {
+      const loadedState = await loadGridsWorkspaceState({
+        user,
+        baseShortId,
+        href: c.req.url,
+        activeTableSlug: c.req.param("tableId") ?? null,
+        activeViewSlug: c.req.param("viewId") ?? null,
+        activeWorkflowSlug: c.req.param("workflowId") ?? null,
+        activeDocumentTableSlug: c.req.param("documentTableId") ?? null,
+        activeDocumentTemplateSlug: c.req.param("documentTemplateId") ?? null,
+        activeCustomAppSlug: c.req.param("customAppId") ?? null,
+        initialDocumentViewMode: parseDocumentViewMode(c.req.header("Cookie")),
+        dateConfig: await getDateConfig(c),
+      });
+      return {
+        loadedState,
+        state: loadedState.kind === "ok" ? await projectPublicWorkspaceState(await withInitialGqlResults(c, loadedState)) : null,
+      };
+    },
+    c.req.raw.signal,
+  );
+  const { loadedState } = loaded;
 
   if (loadedState.kind === "redirect") return c.redirect(loadedState.href, 302);
 
@@ -68,7 +80,8 @@ export default ssr<AuthContext>(async (c) => {
     );
   }
 
-  const state = await projectPublicWorkspaceState(await withInitialGqlResults(c, loadedState));
+  const state = loaded.state;
+  if (!state) throw new Error("Workspace state projection is missing");
 
   return () => (
     <Layout c={c} fullWidth title={state.title}>

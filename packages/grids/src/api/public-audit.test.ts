@@ -10,8 +10,10 @@ const tableId = "22222222-2222-4222-8222-222222222222";
 const recordId = "33333333-3333-4333-8333-333333333333";
 const textFieldId = "44444444-4444-4444-8444-444444444444";
 const relationFieldId = "55555555-5555-4555-8555-555555555555";
+const deletedFieldId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const oldRelatedRecordId = "66666666-6666-4666-8666-666666666666";
 const newRelatedRecordId = "77777777-7777-4777-8777-777777777777";
+const removedRelatedRecordId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const auditEntryId = "88888888-8888-4888-8888-888888888888";
 const actorUserId = "99999999-9999-4999-8999-999999999999";
 const now = "2026-08-15T12:00:00.000Z";
@@ -56,7 +58,8 @@ const storedEntry: RecordHistoryEntry = {
   action: "updated",
   diff: {
     [textFieldId]: { old: "before", new: "after" },
-    [relationFieldId]: { old: [oldRelatedRecordId], new: newRelatedRecordId },
+    [relationFieldId]: { old: [oldRelatedRecordId, removedRelatedRecordId], new: newRelatedRecordId },
+    [deletedFieldId]: { old: "legacy", new: null },
   },
   context: null,
   ip: null,
@@ -80,11 +83,35 @@ describe("public record audit boundary", () => {
       RELA01: { old: ["RECD02"], new: "RECD03" },
     });
     const serialized = JSON.stringify(entry);
-    for (const internalId of [baseId, tableId, recordId, textFieldId, relationFieldId, oldRelatedRecordId, newRelatedRecordId]) {
+    for (const internalId of [
+      baseId,
+      tableId,
+      recordId,
+      textFieldId,
+      relationFieldId,
+      deletedFieldId,
+      oldRelatedRecordId,
+      newRelatedRecordId,
+      removedRelatedRecordId,
+    ]) {
       expect(serialized).not.toContain(internalId);
     }
     expect(serialized).toContain(auditEntryId);
     expect(serialized).toContain(actorUserId);
+  });
+
+  test("keeps history readable when referenced resources no longer exist", async () => {
+    const projectWithoutEntryResources: typeof projectPublicIds = async (type, ids) => {
+      const projected = await projectIds(type, ids);
+      projected.delete(baseId);
+      projected.delete(tableId);
+      projected.delete(recordId);
+      return projected;
+    };
+
+    const [entry] = await toPublicAuditEntries([storedEntry], fields, projectWithoutEntryResources);
+    expect(entry).toMatchObject({ baseId: null, tableId: null, recordId: null });
+    expect(entry?.diff?.RELA01).toEqual({ old: ["RECD02"], new: "RECD03" });
   });
 
   test("projects Combined pages through the same nested boundary", async () => {
