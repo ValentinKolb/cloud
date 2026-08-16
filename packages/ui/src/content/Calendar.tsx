@@ -2,6 +2,7 @@ import { Link, type LinkNavigateEvent } from "@k2b/ssr/nav";
 import { dates as calendar, type DateContext } from "@k2b/stdlib";
 import type { JSX, ParentProps } from "solid-js";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { Button } from "../actions/Button";
 import SegmentedControl from "../actions/SegmentedControl";
 import { layoutCalendarIntervals } from "./calendar-event-layout";
 import { calendarDayIndexAtPoint, calendarMinuteAtPoint, startCalendarPointerSession } from "./calendar-pointer";
@@ -137,6 +138,7 @@ type NormalizedEvent = CalendarEvent & {
 
 type CalendarPreview = CalendarEventTimeChange & {
   id: string;
+  title?: string;
 };
 
 type TimedEventLayout = {
@@ -305,7 +307,7 @@ const previewSegments = (preview: CalendarPreview | null, days: Date[], context?
         [
           {
             id: `preview-${preview.id}`,
-            title: "Preview",
+            title: preview.title ?? "",
             start: preview.start,
             end: preview.end,
             allDay: preview.allDay,
@@ -342,18 +344,14 @@ const EventChip = (props: {
   const dateConfig = createMemo(() => ownerDateConfig(props.owner));
   const color = () => props.event.color ?? "blue";
   const selected = () => Boolean(props.owner.selectedEventId) && props.owner.selectedEventId === props.event.id;
-  const style = () =>
-    props.event.colorHex
-      ? {
-          "background-color": `color-mix(in srgb, ${props.event.colorHex} ${selected() ? 32 : 21}%, var(--k2b-surface-elevated))`,
-          "border-color": `color-mix(in srgb, ${props.event.colorHex} ${selected() ? 88 : 48}%, var(--k2b-border))`,
-          ...(selected() ? { "box-shadow": `0 0 0 2px color-mix(in srgb, ${props.event.colorHex} 78%, transparent)` } : {}),
-        }
-      : undefined;
+  const style = () => (props.event.colorHex ? { "--k2b-calendar-accent": props.event.colorHex } : undefined);
   const isInteractive = () => Boolean(props.owner.onEventActivate);
   const durationHours = () => (props.event.endDate.getTime() - props.event.startDate.getTime()) / 3_600_000;
+  const short = () => Boolean(props.fill && !props.event.allDay && durationHours() < 0.75);
   const showTime = () => !props.event.allDay && !props.compact && durationHours() >= 0.75;
   const showLocation = () => Boolean(props.event.location && !props.compact && durationHours() >= 1.25);
+  const showDescription = () =>
+    Boolean(props.event.description?.trim() && props.fill && !props.event.allDay && !props.compact && durationHours() >= 1.5);
   const timeLabel = () => `${formatTime(props.event.startDate, dateConfig())} - ${formatTime(props.event.endDate, dateConfig())}`;
   const renderedEvent = () =>
     props.owner.renderEvent?.(props.event, {
@@ -373,6 +371,9 @@ const EventChip = (props: {
       </Show>
       <Show when={showLocation()}>
         <span class="k2b-calendar-event__meta">{props.event.location}</span>
+      </Show>
+      <Show when={showDescription()}>
+        <span class="k2b-calendar-event__description">{props.event.description}</span>
       </Show>
     </>
   );
@@ -418,6 +419,7 @@ const EventChip = (props: {
       data-selected={selected() ? "true" : undefined}
       data-compact={props.compact ? "true" : undefined}
       data-fill={props.fill ? "true" : undefined}
+      data-short={short() ? "true" : undefined}
       data-moving={props.moving ? "true" : undefined}
       data-interactive={isInteractive() ? "true" : undefined}
       data-display={props.event.display}
@@ -441,6 +443,7 @@ const EventChip = (props: {
       data-selected={selected() ? "true" : undefined}
       data-compact={props.compact ? "true" : undefined}
       data-fill={props.fill ? "true" : undefined}
+      data-short={short() ? "true" : undefined}
       data-moving={props.moving ? "true" : undefined}
       data-interactive="true"
       data-display={props.event.display}
@@ -462,6 +465,7 @@ const EventChip = (props: {
       data-selected={selected() ? "true" : undefined}
       data-compact={props.compact ? "true" : undefined}
       data-fill={props.fill ? "true" : undefined}
+      data-short={short() ? "true" : undefined}
       data-moving={props.moving ? "true" : undefined}
       data-interactive={undefined}
       data-display={props.event.display}
@@ -504,7 +508,9 @@ type CalendarNavigationLinkProps = ParentProps<{
   anchorProps?: Omit<JSX.AnchorHTMLAttributes<HTMLAnchorElement>, "children" | "href" | "onClick"> & {
     "data-divider"?: string;
     "data-outside"?: string;
+    "data-size"?: string;
     "data-today"?: string;
+    "data-variant"?: string;
   };
 }>;
 
@@ -676,17 +682,26 @@ const CalendarHeader = (props: { date: Date; view: CalendarView; labels: Require
   const todayButton = () => {
     const today = calendar.today(dateConfig());
     const href = props.owner.getDateHref?.(today, props.view);
+    const label = <span class="k2b-button__label">{props.labels.today}</span>;
     return (props.owner.onNavigateHref || props.owner.onNavigate) && href ? (
-      <CalendarNavigationLink owner={props.owner} href={href} anchorProps={{ class: "k2b-calendar-header__today" }}>
-        {props.labels.today}
+      <CalendarNavigationLink
+        owner={props.owner}
+        href={href}
+        anchorProps={{ class: "k2b-button k2b-calendar-header__today", "data-size": "sm", "data-variant": "input" }}
+      >
+        {label}
       </CalendarNavigationLink>
     ) : props.owner.onDateChange ? (
-      <button type="button" class="k2b-calendar-header__today" onClick={() => goDate(today)}>
+      <Button type="button" variant="input" size="sm" class="k2b-calendar-header__today" onClick={() => goDate(today)}>
         {props.labels.today}
-      </button>
+      </Button>
     ) : (
-      <CalendarNavigationLink owner={props.owner} href={href ?? "#"} anchorProps={{ class: "k2b-calendar-header__today" }}>
-        {props.labels.today}
+      <CalendarNavigationLink
+        owner={props.owner}
+        href={href ?? "#"}
+        anchorProps={{ class: "k2b-button k2b-calendar-header__today", "data-size": "sm", "data-variant": "input" }}
+      >
+        {label}
       </CalendarNavigationLink>
     );
   };
@@ -811,6 +826,17 @@ const MonthView = (props: {
                 const dayBadge = props.owner.dayBadges?.[dayKey];
                 const sameMonth = calendar.isSameMonth(day, props.date, dateConfig());
                 const isToday = dayKey === todayKey();
+                const eventStack = createMemo(() => {
+                  const preview = movePreview();
+                  const previewForDay = preview && calendar.formatDateKey(preview.start, dateConfig()) === dayKey ? preview : null;
+                  const candidates = previewForDay ? events.filter((event) => event.id !== previewForDay.id) : events;
+                  const visibleLimit = previewForDay ? 2 : 3;
+                  return {
+                    preview: previewForDay,
+                    visibleEvents: candidates.slice(0, visibleLimit),
+                    hiddenCount: Math.max(0, candidates.length - visibleLimit),
+                  };
+                });
                 return (
                   <div
                     class="k2b-calendar-month__day"
@@ -848,12 +874,12 @@ const MonthView = (props: {
                       </Show>
                     </div>
                     <div class="k2b-calendar-month__events">
-                      <Show when={movePreview() && calendar.formatDateKey(movePreview()!.start, dateConfig()) === dayKey}>
+                      <Show when={eventStack().preview}>
                         <div class="k2b-calendar-preview">
-                          {props.events.find((event) => event.id === movePreview()!.id)?.title ?? "Move event"}
+                          {props.events.find((event) => event.id === eventStack().preview!.id)?.title ?? "Move event"}
                         </div>
                       </Show>
-                      <For each={events.slice(0, 3)}>
+                      <For each={eventStack().visibleEvents}>
                         {(event) => (
                           <EventChip
                             event={event}
@@ -869,9 +895,9 @@ const MonthView = (props: {
                           />
                         )}
                       </For>
-                      <Show when={events.length > 3}>
+                      <Show when={eventStack().hiddenCount > 0}>
                         <CalendarNavigationLink owner={props.owner} href={href ?? "#"} anchorProps={{ class: "k2b-calendar-month__more" }}>
-                          +{events.length - 3} more
+                          +{eventStack().hiddenCount} more
                         </CalendarNavigationLink>
                       </Show>
                     </div>
@@ -971,7 +997,7 @@ const TimeGridView = (props: {
         const pointer = timeAtPoint(clientX, clientY);
         if (!pointer) return null;
         const start = new Date(pointer.getTime() - offsetMinutes * 60_000);
-        return { id: event.id, start, end: new Date(start.getTime() + duration), allDay: false };
+        return { id: event.id, title: event.title, start, end: new Date(start.getTime() + duration), allDay: false };
       },
       onActivate: () => {
         markDragged();
@@ -992,7 +1018,7 @@ const TimeGridView = (props: {
       event: pointerEvent,
       resolve: (clientX, clientY) => {
         const day = dayAtPoint(clientX, clientY);
-        return day ? { id: event.id, ...moveEventTo(event, startOfDay(day, dateConfig()), true, dateConfig()) } : null;
+        return day ? { id: event.id, title: event.title, ...moveEventTo(event, startOfDay(day, dateConfig()), true, dateConfig()) } : null;
       },
       onActivate: () => {
         markDragged();
@@ -1244,13 +1270,20 @@ const TimeGridView = (props: {
                   <For each={previewEvents().filter((event) => event.dayKey === dayKey && !event.allDay)}>
                     {(event) => {
                       const layout = eventLayout(event);
+                      const short = event.endDate.getTime() - event.startDate.getTime() < 60 * 60_000;
                       return (
                         <div
                           class="k2b-calendar-preview k2b-calendar-preview--timed"
+                          data-short={short ? "true" : undefined}
                           style={{ top: `${layout.top}%`, height: `${layout.height}%` }}
                         >
-                          <div class="k2b-calendar-preview__label">
-                            {formatTime(event.startDate, dateConfig())} - {formatTime(event.endDate, dateConfig())}
+                          <div class="k2b-calendar-preview__content">
+                            <Show when={event.title}>
+                              <div class="k2b-calendar-preview__title">{event.title}</div>
+                            </Show>
+                            <div class="k2b-calendar-preview__label">
+                              {formatTime(event.startDate, dateConfig())} - {formatTime(event.endDate, dateConfig())}
+                            </div>
                           </div>
                         </div>
                       );
@@ -1275,7 +1308,7 @@ const TimeGridView = (props: {
                             if (!pointer) return null;
                             const minimumEnd = addMinutes(event.sourceStartDate, 15);
                             const end = pointer > minimumEnd ? pointer : minimumEnd;
-                            return { id: event.id, start: event.sourceStartDate, end, allDay: false };
+                            return { id: event.id, title: event.title, start: event.sourceStartDate, end, allDay: false };
                           },
                           onActivate: () => {
                             suppressSlotClickUntil = performance.now() + 400;
@@ -1322,7 +1355,7 @@ const TimeGridView = (props: {
                                 onPointerDown={resizeStart}
                                 onDragStart={(event) => event.preventDefault()}
                               >
-                                <i class="k2b-calendar-time-grid__resize-icon ti ti-grip-horizontal" />
+                                <span class="k2b-calendar-time-grid__resize-icon" aria-hidden="true" />
                               </button>
                             </Show>
                           </div>

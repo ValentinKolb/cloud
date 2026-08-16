@@ -71,6 +71,7 @@ const toCalendarEvent = (
   return {
     id: item.id,
     title: item.title,
+    description: item.descriptionPreview ?? undefined,
     start: eventStart(item),
     end: eventEnd(item),
     allDay: item.allDay || !item.startsAt,
@@ -556,6 +557,7 @@ export default function Calendar(props: CalendarProps) {
           <Show when={props.canWrite}>
             <Button
               type="button"
+              variant="input"
               size="sm"
               class="shrink-0 whitespace-nowrap"
               disabled={creatingEvent()}

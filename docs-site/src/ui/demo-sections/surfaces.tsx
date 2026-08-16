@@ -2,6 +2,7 @@ import {
   Avatar,
   Button,
   Calendar,
+  type CalendarEvent,
   DataPanel,
   DescriptionList,
   IconButton,
@@ -421,20 +422,93 @@ const notices = [
   );
 };
 
+const calendarDemoDate = () => {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 12, 12));
+};
+
+const calendarDemoEvents = (month: Date): CalendarEvent[] => {
+  const at = (day: number, hour = 0, minute = 0) =>
+    new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth(), day, hour, minute)).toISOString();
+
+  return [
+    { id: "kickoff", title: "Month kickoff", start: at(2), end: at(3), allDay: true, color: "emerald" },
+    {
+      id: "roadmap",
+      title: "Roadmap planning",
+      description: "Align the next milestones, owners, and open product decisions.",
+      start: at(5, 9),
+      end: at(5, 12),
+      color: "violet",
+    },
+    { id: "partner", title: "Partner call", start: at(5, 9, 30), end: at(5, 10, 30), color: "red" },
+    { id: "review", title: "Design review", start: at(5, 10), end: at(5, 11, 30), color: "cyan" },
+    { id: "handover", title: "Ops handover", start: at(9, 8, 30), end: at(9, 9, 15), color: "zinc" },
+    { id: "focus", title: "Focus block", start: at(9, 9), end: at(9, 12), color: "blue" },
+    { id: "checklist", title: "Launch checklist", start: at(12), end: at(13), allDay: true, color: "amber" },
+    { id: "launch", title: "Product launch", start: at(12), end: at(13), allDay: true, color: "red" },
+    { id: "standup", title: "Team stand-up", start: at(12, 9), end: at(12, 10), color: "emerald" },
+    {
+      id: "demo",
+      title: "Customer demo",
+      description: "Walk through the new workspace flow and capture follow-up questions.",
+      start: at(12, 9, 30),
+      end: at(12, 11),
+      color: "cyan",
+    },
+    {
+      id: "lunch",
+      title: "Lunch and learn",
+      description: "A practical tour of accessible interaction patterns.",
+      start: at(12, 10, 30),
+      end: at(12, 12),
+      color: "violet",
+    },
+    {
+      id: "retro",
+      title: "Retrospective",
+      description: "Review what worked, what slowed us down, and one change for next week.",
+      start: at(12, 15),
+      end: at(12, 16, 30),
+      color: "blue",
+    },
+    { id: "release", title: "Release window", start: at(18), end: at(21), allDay: true, color: "amber" },
+    { id: "offsite", title: "Team offsite", start: at(23), end: at(25), allDay: true, color: "emerald" },
+    { id: "brand", title: "Brand review", start: at(24, 9), end: at(24, 10, 30), colorHex: "#ec4899" },
+    { id: "office-hours", title: "Open office hours", start: at(24, 10), end: at(24, 13), color: "cyan" },
+  ];
+};
+
 export const CalendarDemo = () => {
-  const [date, setDate] = createSignal(new Date("2026-07-15T12:00:00Z"));
+  const initialDate = calendarDemoDate();
+  const [date, setDate] = createSignal(initialDate);
   const [view, setView] = createSignal<"day" | "week" | "month" | "year">("month");
   const [selectedEventId, setSelectedEventId] = createSignal<string>();
-  const [events, setEvents] = createSignal([
-    { id: "review", title: "Design review", start: "2026-07-15T09:00:00Z", end: "2026-07-15T10:00:00Z" },
-    { id: "release", title: "Release", start: "2026-07-18T16:00:00Z", end: "2026-07-18T17:00:00Z", allDay: true },
-  ]);
+  const [events, setEvents] = createSignal<CalendarEvent[]>(calendarDemoEvents(initialDate));
+  const changeDate = (next: Date) => {
+    const current = date();
+    if (current.getUTCFullYear() !== next.getUTCFullYear() || current.getUTCMonth() !== next.getUTCMonth()) {
+      setEvents(calendarDemoEvents(next));
+    }
+    setDate(next);
+  };
   return (
     <DemoCard
       id="calendar"
       chip={{ kind: "component", name: "Calendar", from: "@k2b/ui" }}
-      description="A controlled calendar: navigate, switch views, select events, and drag or resize timed entries."
-      code={`const [selectedEventId, setSelectedEventId] = createSignal<string>();
+      description="A controlled calendar with overlapping, crowded, all-day, and multi-day events generated for every visible month."
+      code={`const initialDate = calendarDemoDate();
+const [date, setDate] = createSignal(initialDate);
+const [events, setEvents] = createSignal(calendarDemoEvents(initialDate));
+const [selectedEventId, setSelectedEventId] = createSignal<string>();
+
+const changeDate = (next: Date) => {
+  const current = date();
+  if (next.getUTCFullYear() !== current.getUTCFullYear() || next.getUTCMonth() !== current.getUTCMonth()) {
+    setEvents(calendarDemoEvents(next));
+  }
+  setDate(next);
+};
 
 <Calendar
   date={date()}
@@ -443,7 +517,7 @@ export const CalendarDemo = () => {
   dateConfig={{ timeZone: "UTC", locale: "en" }}
   events={events()}
   selectedEventId={selectedEventId()}
-  onDateChange={setDate}
+  onDateChange={changeDate}
   onViewChange={setView}
   onEventActivate={(event) => setSelectedEventId(event.id)}
   onEventDrop={moveEvent}
@@ -457,24 +531,36 @@ export const CalendarDemo = () => {
         dateConfig={{ timeZone: "UTC", locale: "en" }}
         events={events()}
         selectedEventId={selectedEventId()}
-        onDateChange={setDate}
+        onDateChange={changeDate}
         onViewChange={setView}
         onEventActivate={(event) => setSelectedEventId(event.id)}
         onEventDrop={(event, next) =>
-          setEvents((current) => current.map((item) => item.id === event.id ? {
-            ...item,
-            start: next.start.toISOString(),
-            end: next.end.toISOString(),
-            allDay: next.allDay,
-          } : item))
+          setEvents((current) =>
+            current.map((item) =>
+              item.id === event.id
+                ? {
+                    ...item,
+                    start: next.start.toISOString(),
+                    end: next.end.toISOString(),
+                    allDay: next.allDay,
+                  }
+                : item,
+            ),
+          )
         }
         onEventResize={(event, next) =>
-          setEvents((current) => current.map((item) => item.id === event.id ? {
-            ...item,
-            start: next.start.toISOString(),
-            end: next.end.toISOString(),
-            allDay: next.allDay,
-          } : item))
+          setEvents((current) =>
+            current.map((item) =>
+              item.id === event.id
+                ? {
+                    ...item,
+                    start: next.start.toISOString(),
+                    end: next.end.toISOString(),
+                    allDay: next.allDay,
+                  }
+                : item,
+            ),
+          )
         }
       />
     </DemoCard>

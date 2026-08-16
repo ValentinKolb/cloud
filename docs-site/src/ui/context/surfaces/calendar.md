@@ -40,6 +40,11 @@ Optional event detail includes `meta`, `description`, `location`,
 "background"` renders a non-interactive time range. `href` or
 `getEventHref` makes an event a canonical link.
 
+`description` is optional plain text. The default timed-event card shows up to
+two lines when its duration is at least 90 minutes; compact, all-day, and
+smaller cards omit it. Applications that store Markdown or other rich text
+should pass a short plain-text preview instead of the source markup.
+
 `renderEvent` receives the normalized `CalendarEventRenderContext`, including
 the effective start, end, duration, time label, and compact or fill state.
 Custom output must retain useful visible event text.

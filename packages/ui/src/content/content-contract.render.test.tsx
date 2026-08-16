@@ -39,6 +39,13 @@ describe("@k2b/ui Cloud content contract", () => {
         color: "emerald",
         location: "Studio",
       },
+      {
+        id: "planning",
+        title: "Planning",
+        start: "2026-07-16T09:00:00Z",
+        end: "2026-07-16T10:00:00Z",
+        colorHex: "#0ea5e9",
+      },
     ];
     const html = renderToString(() =>
       createComponent(Calendar, {
@@ -56,14 +63,102 @@ describe("@k2b/ui Cloud content contract", () => {
 
     expect(html).toContain('aria-label="Calendar view"');
     expect(html).toContain('aria-busy="true"');
+    expect(html).toMatch(/class="k2b-button k2b-calendar-header__today[^"]*"[^>]*data-size="sm"[^>]*data-variant="input"/);
+    expect(html).toContain('<span class="k2b-button__label">Today</span>');
     expect(html).toContain("Review");
     expect(html).toContain("Review, 09:00 to 10:00");
     expect(html).toContain("view=day");
-    expect(contentCss).toContain("--k2b-calendar-event-text: #047857");
-    expect(contentCss).toContain("--k2b-calendar-event-surface: #ecfdf5");
-    expect(contentCss).toContain("color: var(--k2b-calendar-event-text, var(--k2b-text))");
-    expect(contentCss).toContain("background: var(--k2b-calendar-event-surface, var(--k2b-surface-muted))");
+    expect(html).toContain("--k2b-calendar-accent:#0ea5e9");
+    expect(html).not.toContain("background-color:color-mix");
+    expect(contentCss).toContain("--k2b-calendar-accent: #10b981");
+    expect(contentCss).not.toContain("--k2b-calendar-event-text");
+    expect(contentCss).toMatch(/\.k2b-calendar-event \{[^}]*border: 0;[^}]*color: var\(--k2b-text\);/s);
+    expect(contentCss).toContain(
+      "background: color-mix(in srgb, var(--k2b-calendar-accent, var(--k2b-text-muted)) 12%, var(--k2b-surface-elevated))",
+    );
+    expect(contentCss).toMatch(/\.k2b-calendar-event__title \{[^}]*font-weight: 500;/s);
     expect(contentCss).toMatch(/\.k2b-calendar-event__title \+ \.k2b-calendar-event__meta \{[^}]*margin-top: 0\.25rem;/s);
+    const shortEventHtml = renderToString(() =>
+      createComponent(Calendar, {
+        date: "2026-07-15T12:00:00Z",
+        events: [{ id: "short", title: "Short event", start: "2026-07-15T09:00:00Z", end: "2026-07-15T09:15:00Z" }],
+        view: "day",
+        timeZone: "UTC",
+      }),
+    );
+    expect(shortEventHtml).toContain('data-short="true"');
+    const describedEventHtml = renderToString(() =>
+      createComponent(Calendar, {
+        date: "2026-07-15T12:00:00Z",
+        events: [
+          {
+            id: "described",
+            title: "Described event",
+            description: "A concise plain-text preview.",
+            start: "2026-07-15T09:00:00Z",
+            end: "2026-07-15T10:30:00Z",
+          },
+        ],
+        view: "day",
+        timeZone: "UTC",
+      }),
+    );
+    const smallerDescribedEventHtml = renderToString(() =>
+      createComponent(Calendar, {
+        date: "2026-07-15T12:00:00Z",
+        events: [
+          {
+            id: "smaller-described",
+            title: "Smaller described event",
+            description: "This preview needs more room.",
+            start: "2026-07-15T09:00:00Z",
+            end: "2026-07-15T10:29:00Z",
+          },
+        ],
+        view: "day",
+        timeZone: "UTC",
+      }),
+    );
+    expect(describedEventHtml).toContain('<span class="k2b-calendar-event__description">A concise plain-text preview.</span>');
+    expect(smallerDescribedEventHtml).not.toContain("k2b-calendar-event__description");
+    expect(contentCss).toMatch(/\.k2b-calendar-event__description \{[^}]*display: -webkit-box;[^}]*-webkit-line-clamp: 2;/s);
+    expect(contentCss).toMatch(
+      /\.k2b-calendar-event\[data-short="true"\] \{[^}]*display: flex;[^}]*align-items: center;[^}]*padding-block: 0;/s,
+    );
+    expect(contentCss).toMatch(/\.k2b-calendar-event\[data-selected="true"\] \.k2b-calendar-event__title \{[^}]*font-weight: 600;/s);
+    expect(contentCss).toContain(
+      "box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--k2b-calendar-accent, var(--k2b-action)) 42%, transparent)",
+    );
+    expect(contentCss).not.toContain("0 0 0 2px color-mix(in srgb, var(--k2b-calendar-accent");
+    expect(contentCss).toMatch(
+      /\.k2b-calendar-event\[data-interactive="true"\]:not\(\[data-selected="true"\]\):hover \{[^}]*box-shadow: 0 1px 2px rgb\(9 9 11 \/ 0\.12\);/s,
+    );
+    expect(contentCss).toMatch(/\.k2b-calendar-time-grid__now \{[^}]*border-top: 2px solid var\(--k2b-danger-500\);/s);
+    expect(contentCss).toMatch(
+      /\.k2b-calendar-time-grid__resize \{[^}]*left: 50%;[^}]*width: 2\.5rem;[^}]*height: 1\.5rem;[^}]*background: transparent;[^}]*transform: translateX\(-50%\);/s,
+    );
+    expect(contentCss).toMatch(
+      /\.k2b-calendar-time-grid__resize-icon \{[^}]*width: 1rem;[^}]*height: 0\.125rem;[^}]*background: currentColor;[^}]*font-size: 0;/s,
+    );
+    expect(contentCss).toMatch(/\.k2b-calendar-preview--timed \{[^}]*right: 0\.25rem;[^}]*left: 0\.25rem;/s);
+    expect(contentCss).toMatch(
+      /\.k2b-calendar-month__events > \.k2b-calendar-preview \{[^}]*padding-block: calc\(0\.25rem - 1px\);[^}]*font-size: 0\.6875rem;[^}]*line-height: 1\.15;/s,
+    );
+    expect(contentCss).toMatch(/\.k2b-calendar-preview__title \{[^}]*font-size: 0\.6875rem;[^}]*font-weight: 600;/s);
+    expect(contentCss).toMatch(
+      /\.k2b-calendar-preview--timed\[data-short="true"\] \.k2b-calendar-preview__content \{[^}]*bottom: calc\(100% \+ 0\.25rem\);[^}]*display: flex;/s,
+    );
+    expect(contentCss).toMatch(/\.k2b-calendar-event\[data-fill="true"\] \{[^}]*width: 100%;[^}]*height: 100%;/s);
+    expect(contentCss).toMatch(/\.k2b-calendar-year \{[^}]*gap: 0\.5rem;/s);
+    expect(contentCss).toMatch(
+      /\.k2b-calendar-year__month:nth-child\(-n \+ 3\) \{[^}]*border-start-start-radius: 0;[^}]*border-start-end-radius: 0;/s,
+    );
+    expect(contentCss).toMatch(
+      /\.k2b-calendar-year__month:nth-child\(3n \+ 1\) \{[^}]*border-start-start-radius: 0;[^}]*border-end-start-radius: 0;/s,
+    );
+    expect(contentCss).toMatch(
+      /\.k2b-calendar-year__month:nth-child\(3n\) \{[^}]*border-start-end-radius: 0;[^}]*border-end-end-radius: 0;/s,
+    );
   });
 
   test("indexes year-view events once instead of rescanning them for every day", () => {

@@ -22,6 +22,7 @@ import type {
 } from "@/contracts";
 import { withShortId } from "../lib/short-id";
 import { buildSpacePrincipalCondition, isSpaceResourceId } from "./access";
+import { descriptionPreview } from "./description-preview";
 import { publishSpaceEvent } from "./events";
 import { insertMany as insertItemResourceReferences } from "./item-resource-references";
 import { rank } from "./rank";
@@ -85,6 +86,7 @@ type DbCalendarItem = {
   space_name: string;
   space_color: string;
   title: string;
+  description: string | null;
   location: string | null;
   url: string | null;
   starts_at: Date | null;
@@ -933,6 +935,7 @@ const mapCalendarRow = (r: DbCalendarItem, tags: SpaceTag[] = []): CalendarItem 
   spaceName: r.space_name,
   spaceColor: r.space_color,
   title: r.title,
+  descriptionPreview: descriptionPreview(r.description),
   location: r.location,
   url: r.url,
   startsAt: r.starts_at?.toISOString() ?? null,
@@ -987,6 +990,7 @@ const expandedToCalendarItem = (event: ExpandedRecurringEvent & { calendarItem?:
       spaceName: "",
       spaceColor: "#3b82f6",
       title: event.title,
+      descriptionPreview: null,
       location: null,
       url: null,
       startsAt: new Date(event.start).toISOString(),
@@ -1881,7 +1885,7 @@ export const listCalendar = async (
         AND ${requestedSpaceMatch}
     )
     SELECT i.id, i.space_id, s.name as space_name, s.color as space_color,
-           i.title, i.location, i.url, i.starts_at, i.ends_at, i.all_day, i.deadline, i.priority,
+           i.title, i.description, i.location, i.url, i.starts_at, i.ends_at, i.all_day, i.deadline, i.priority,
            i.recurrence_rrule, i.recurrence_dtstart, i.recurrence_exdate, i.recurring_event_id, i.recurrence_id
     FROM spaces.items i
     JOIN spaces.spaces s ON i.space_id = s.id

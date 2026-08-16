@@ -154,6 +154,7 @@ export const CalendarItemSchema = z.object({
   spaceName: z.string().describe("Space name"),
   spaceColor: z.string().describe("Space color"),
   title: z.string().describe("Item title"),
+  descriptionPreview: z.string().nullable().describe("Plain-text description preview for calendar cards"),
   location: z.string().nullable().describe("Event location"),
   url: z.string().nullable().describe("Event URL"),
   startsAt: z.string().nullable().describe("Event start time (ISO)"),
