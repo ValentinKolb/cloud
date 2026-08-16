@@ -33,7 +33,7 @@ export type CustomAppRenderedRowAction = {
   endpoint: string;
   confirm?: string;
 };
-export const displayValue = (value: unknown): string => {
+const displayValue = (value: unknown): string => {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
   if (Array.isArray(value)) return value.map(displayValue).join(", ");

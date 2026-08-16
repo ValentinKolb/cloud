@@ -77,7 +77,7 @@ export const chartDataFromPreview = (preview: PreviewSuccess, sourceFields: Fiel
   };
 };
 
-export const valueFormatForField = (field: Field): CustomAppValueFormat | undefined => {
+const valueFormatForField = (field: Field): CustomAppValueFormat | undefined => {
   if (field.type === "percent") {
     const config = field.config as { decimals?: number; range?: "percent" | "fraction" };
     return config.range === "fraction"

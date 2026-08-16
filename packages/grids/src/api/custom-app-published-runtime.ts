@@ -10,7 +10,7 @@ import { gridsService } from "../service";
 import { publishedCustomAppAvailability } from "../service/custom-app-runtime-query";
 import { actorViewerFor, type GridsAccessContext, gateCustomAppAtAccess } from "./permissions";
 
-export type PublishedCustomAppRuntimeInput = {
+type PublishedCustomAppRuntimeInput = {
   access: GridsAccessContext;
   shortId: string;
   pageId?: string;
@@ -134,5 +134,3 @@ export const resolvePublishedCustomAppRuntime = async (input: PublishedCustomApp
     available,
   } as const;
 };
-
-export type PublishedCustomAppRuntime = NonNullable<Awaited<ReturnType<typeof resolvePublishedCustomAppRuntime>>>;

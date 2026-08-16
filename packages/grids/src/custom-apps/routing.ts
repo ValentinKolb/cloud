@@ -10,6 +10,21 @@ import type {
 
 const RecordIdSchema = z.string().uuid();
 
+const querySuffix = (params: Record<string, string>): string => {
+  const search = new URLSearchParams();
+  for (const key of Object.keys(params).sort()) search.set(key, params[key]!);
+  const query = search.toString();
+  return query ? `?${query}` : "";
+};
+
+const customAppRuntimeUrl = (
+  shortId: string,
+  pageId: string,
+  blockId: string,
+  segments: readonly string[],
+  params: Record<string, string>,
+): string => `/api/grids/apps/runtime/${[shortId, pageId, blockId, ...segments].map(encodeURIComponent).join("/")}${querySuffix(params)}`;
+
 export const resolveCustomAppPage = (definition: CustomAppDefinition, requestedPageId?: string): CustomAppPage | null => {
   const pageId = requestedPageId || definition.startPageId;
   return definition.pages.find((page) => page.id === pageId) ?? null;
@@ -36,39 +51,21 @@ export const resolveCustomAppPageParams = (page: CustomAppPage, query: Record<st
 };
 
 export const customAppPageHref = (shortId: string, pageId: string, params: Record<string, string> = {}): string => {
-  const search = new URLSearchParams();
-  for (const key of Object.keys(params).sort()) search.set(key, params[key]!);
-  const query = search.toString();
   const path = `/apps/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}`;
-  return query ? `${path}?${query}` : path;
+  return `${path}${querySuffix(params)}`;
 };
 
-export const customAppFormSubmitUrl = (shortId: string, pageId: string, blockId: string, params: Record<string, string>): string => {
-  const pageHref = customAppPageHref(shortId, pageId, params);
-  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
-  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/submit${query}`;
-};
+export const customAppFormSubmitUrl = (shortId: string, pageId: string, blockId: string, params: Record<string, string>): string =>
+  customAppRuntimeUrl(shortId, pageId, blockId, ["submit"], params);
 
 export const customAppSidebarFormSubmitUrl = (shortId: string, actionId: string): string =>
   `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/sidebar/forms/${encodeURIComponent(actionId)}/submit`;
 
-export const customAppSidebarActionUrl = (shortId: string, actionId: string): string =>
-  `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/sidebar/actions/${encodeURIComponent(actionId)}`;
+export const customAppCommentsUrl = (shortId: string, pageId: string, blockId: string, params: Record<string, string>): string =>
+  customAppRuntimeUrl(shortId, pageId, blockId, ["comments"], params);
 
-export const customAppSidebarActionStatusUrl = (shortId: string, actionId: string, runId: string): string =>
-  `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/sidebar/actions/${encodeURIComponent(actionId)}/runs/${encodeURIComponent(runId)}`;
-
-export const customAppCommentsUrl = (shortId: string, pageId: string, blockId: string, params: Record<string, string>): string => {
-  const pageHref = customAppPageHref(shortId, pageId, params);
-  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
-  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/comments${query}`;
-};
-
-export const customAppRecordUpdateUrl = (shortId: string, pageId: string, blockId: string, params: Record<string, string>): string => {
-  const pageHref = customAppPageHref(shortId, pageId, params);
-  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
-  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/record${query}`;
-};
+export const customAppRecordUpdateUrl = (shortId: string, pageId: string, blockId: string, params: Record<string, string>): string =>
+  customAppRuntimeUrl(shortId, pageId, blockId, ["record"], params);
 
 export const customAppRecordFilesUrl = (
   shortId: string,
@@ -77,9 +74,7 @@ export const customAppRecordFilesUrl = (
   fieldId: string,
   params: Record<string, string>,
 ): string => {
-  const pageHref = customAppPageHref(shortId, pageId, params);
-  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
-  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/record/files/${encodeURIComponent(fieldId)}${query}`;
+  return customAppRuntimeUrl(shortId, pageId, blockId, ["record", "files", fieldId], params);
 };
 
 export const customAppActionUrl = (
@@ -89,9 +84,7 @@ export const customAppActionUrl = (
   actionId: string,
   params: Record<string, string>,
 ): string => {
-  const pageHref = customAppPageHref(shortId, pageId, params);
-  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
-  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/actions/${encodeURIComponent(actionId)}${query}`;
+  return customAppRuntimeUrl(shortId, pageId, blockId, ["actions", actionId], params);
 };
 
 export const customAppRowActionUrl = (
@@ -101,28 +94,11 @@ export const customAppRowActionUrl = (
   actionId: string,
   params: Record<string, string>,
 ): string => {
-  const pageHref = customAppPageHref(shortId, pageId, params);
-  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
-  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/row-actions/${encodeURIComponent(actionId)}${query}`;
+  return customAppRuntimeUrl(shortId, pageId, blockId, ["row-actions", actionId], params);
 };
 
-export const customAppBulkActionUrl = (
-  shortId: string,
-  pageId: string,
-  blockId: string,
-  actionId: string,
-  params: Record<string, string>,
-): string => {
-  const pageHref = customAppPageHref(shortId, pageId, params);
-  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
-  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/bulk-actions/${encodeURIComponent(actionId)}${query}`;
-};
-
-export const customAppRecordsUrl = (shortId: string, pageId: string, blockId: string, params: Record<string, string>): string => {
-  const pageHref = customAppPageHref(shortId, pageId, params);
-  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
-  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/records${query}`;
-};
+export const customAppRecordsUrl = (shortId: string, pageId: string, blockId: string, params: Record<string, string>): string =>
+  customAppRuntimeUrl(shortId, pageId, blockId, ["records"], params);
 
 export const customAppActionStatusUrl = (
   shortId: string,
@@ -132,16 +108,11 @@ export const customAppActionStatusUrl = (
   runId: string,
   params: Record<string, string>,
 ): string => {
-  const pageHref = customAppPageHref(shortId, pageId, params);
-  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
-  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/actions/${encodeURIComponent(actionId)}/runs/${encodeURIComponent(runId)}${query}`;
+  return customAppRuntimeUrl(shortId, pageId, blockId, ["actions", actionId, "runs", runId], params);
 };
 
-export const customAppScannerUrl = (shortId: string, pageId: string, blockId: string, params: Record<string, string>): string => {
-  const pageHref = customAppPageHref(shortId, pageId, params);
-  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
-  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/scanner${query}`;
-};
+export const customAppScannerUrl = (shortId: string, pageId: string, blockId: string, params: Record<string, string>): string =>
+  customAppRuntimeUrl(shortId, pageId, blockId, ["scanner"], params);
 
 export const customAppScannerRunUrl = (
   shortId: string,
@@ -150,9 +121,7 @@ export const customAppScannerRunUrl = (
   runId: string,
   params: Record<string, string>,
 ): string => {
-  const pageHref = customAppPageHref(shortId, pageId, params);
-  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
-  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/scanner/runs/${encodeURIComponent(runId)}${query}`;
+  return customAppRuntimeUrl(shortId, pageId, blockId, ["scanner", "runs", runId], params);
 };
 
 export const customAppDocumentDownloadUrl = (
@@ -162,9 +131,7 @@ export const customAppDocumentDownloadUrl = (
   runId: string,
   params: Record<string, string>,
 ): string => {
-  const pageHref = customAppPageHref(shortId, pageId, params);
-  const query = pageHref.includes("?") ? pageHref.slice(pageHref.indexOf("?")) : "";
-  return `/api/grids/apps/runtime/${encodeURIComponent(shortId)}/${encodeURIComponent(pageId)}/${encodeURIComponent(blockId)}/documents/${encodeURIComponent(runId)}/download${query}`;
+  return customAppRuntimeUrl(shortId, pageId, blockId, ["documents", runId, "download"], params);
 };
 
 export const customAppActionHref = (

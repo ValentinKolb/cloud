@@ -176,4 +176,10 @@ describe("Grids App routing", () => {
       `/api/grids/apps/runtime/abc12/detail/returns/scanner/runs/${uuid(10)}?request_id=${uuid(9)}`,
     );
   });
+
+  test("encodes every runtime path segment and keeps query parameters stable", () => {
+    expect(customAppActionUrl("app/id", "page id", "block?", "run#", { z: "last", a: "first value" })).toBe(
+      "/api/grids/apps/runtime/app%2Fid/page%20id/block%3F/actions/run%23?a=first+value&z=last",
+    );
+  });
 });

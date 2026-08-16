@@ -4,9 +4,9 @@ import { utf8ByteLength, validateLiquidRoots, validateLiquidTemplate } from "../
 import type { ComputedFieldKind } from "./types";
 
 export const HTML_TEMPLATE_TYPE = "html_template";
-export const HTML_TEMPLATE_ROOTS = new Set(["record", "table", "app", "business", "date"]);
-export const HTML_TEMPLATE_MAX_BYTES = 50_000;
-export const HTML_TEMPLATE_CSS_MAX_BYTES = 32_000;
+const HTML_TEMPLATE_ROOTS = new Set(["record", "table", "app", "business", "date"]);
+const HTML_TEMPLATE_MAX_BYTES = 50_000;
+const HTML_TEMPLATE_CSS_MAX_BYTES = 32_000;
 export const HTML_TEMPLATE_RENDER_MAX_BYTES = 300_000;
 export const HTML_TEMPLATE_ERROR = "#TEMPLATE_ERROR!";
 

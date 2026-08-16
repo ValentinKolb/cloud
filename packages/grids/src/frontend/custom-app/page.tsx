@@ -52,8 +52,8 @@ import CustomAppChart from "./Chart";
 import { CustomAppPageLayout } from "./PageLayout";
 import RecordDetails from "./RecordDetails.island";
 import RecordsTable, { type CustomAppRecordsSuccess, type CustomAppRenderedRowAction } from "./RecordsTable.island";
-import Scanner from "./Scanner.island";
 import { RenderedHtml } from "./RenderedHtml";
+import Scanner from "./Scanner.island";
 import SidebarActions, { type CustomAppRenderedSidebarAction } from "./SidebarActions.island";
 import { formatCustomAppValue } from "./value-format";
 
@@ -89,6 +89,38 @@ type FormBlockData =
     }
   | { ok: false; message: string };
 type CustomAppDocumentRun = DocumentRunSummary & { downloadUrl: string };
+type ResolvedPublishedForm = NonNullable<Awaited<ReturnType<typeof resolvePublishedCustomAppForm>>>;
+
+const preparePublishedForm = (
+  resolved: ResolvedPublishedForm,
+  fixedFieldIds: readonly string[],
+): Omit<Extract<FormBlockData, { ok: true }>, "submitUrl"> | null => {
+  const fixed = new Set(fixedFieldIds);
+  const renderable = gridsService.form.toPublicRenderableForm(resolved.form);
+  renderable.config = {
+    ...renderable.config,
+    redirectUrl: null,
+    fields: renderable.config.fields.filter((entry) => !fixed.has(entry.fieldId)),
+  };
+  const visibleFieldIds = new Set(renderable.config.fields.map((entry) => entry.fieldId));
+  const fields = resolved.fields.filter((field) => visibleFieldIds.has(field.id));
+  if (fields.length !== visibleFieldIds.size) return null;
+
+  const fieldsById = new Map(resolved.fields.map((field) => [field.id, field]));
+  const inlineTargetFields: Record<string, Field[]> = {};
+  for (const entry of renderable.config.fields) {
+    if (entry.kind !== "user_input" || !entry.inlineCreate?.enabled) continue;
+    const relationField = fieldsById.get(entry.fieldId);
+    if (relationField?.type !== "relation") continue;
+    const targetTableId = (relationField.config as { targetTableId?: unknown }).targetTableId;
+    if (typeof targetTableId !== "string") continue;
+    const allowedIds = new Set((entry.inlineCreate.fields ?? []).map((field) => field.fieldId));
+    inlineTargetFields[targetTableId] = resolved.inlineTargetFields.filter(
+      (field) => field.tableId === targetTableId && !field.deletedAt && allowedIds.has(field.id),
+    );
+  }
+  return { ok: true, form: renderable, fields, inlineTargetFields };
+};
 
 const availableIdsInBatches = async <T extends { id: string }>(
   items: readonly T[],
@@ -677,40 +709,14 @@ export default ssr<AuthContext>(async (c) => {
       if (!resolvedForm) {
         return [block.id, { ok: false, message: "This form is unavailable." }];
       }
-      const { form, fields: liveFields, inlineTargetFields: securityTargetFields } = resolvedForm;
-      const fixedFieldIds = Object.keys(block.fixedValues).sort();
-      const fixed = new Set(fixedFieldIds);
-      const renderable = gridsService.form.toPublicRenderableForm(form);
-      renderable.config = {
-        ...renderable.config,
-        redirectUrl: null,
-        fields: renderable.config.fields.filter((entry) => !fixed.has(entry.fieldId)),
-      };
-      const visibleFieldIds = new Set(renderable.config.fields.map((entry) => entry.fieldId));
-      const fields = liveFields.filter((field) => visibleFieldIds.has(field.id));
-      if (fields.length !== visibleFieldIds.size) {
+      const prepared = preparePublishedForm(resolvedForm, Object.keys(block.fixedValues));
+      if (!prepared) {
         return [block.id, { ok: false, message: "This form changed after the app was published." }];
-      }
-      const fieldsById = new Map(liveFields.map((field) => [field.id, field]));
-      const inlineTargetFields: Record<string, Field[]> = {};
-      for (const entry of renderable.config.fields) {
-        if (entry.kind !== "user_input" || !entry.inlineCreate?.enabled) continue;
-        const relationField = fieldsById.get(entry.fieldId);
-        if (relationField?.type !== "relation") continue;
-        const targetTableId = (relationField.config as { targetTableId?: unknown }).targetTableId;
-        if (typeof targetTableId !== "string") continue;
-        const allowedIds = new Set((entry.inlineCreate.fields ?? []).map((inlineField) => inlineField.fieldId));
-        inlineTargetFields[targetTableId] = securityTargetFields.filter(
-          (field) => field.tableId === targetTableId && !field.deletedAt && allowedIds.has(field.id),
-        );
       }
       return [
         block.id,
         {
-          ok: true,
-          form: renderable,
-          fields,
-          inlineTargetFields,
+          ...prepared,
           submitUrl: customAppFormSubmitUrl(app.shortId, page.id, block.id, pageParams),
         },
       ];
@@ -721,30 +727,8 @@ export default ssr<AuthContext>(async (c) => {
   for (const action of availableSidebarActions) {
     const resolvedForm = await resolvePublishedCustomAppForm({ surface: action, capabilities });
     if (!resolvedForm) continue;
-    const { form, fields: liveFields, inlineTargetFields: securityTargetFields } = resolvedForm;
-    const fixed = new Set(Object.keys(action.fixedValues));
-    const renderable = gridsService.form.toPublicRenderableForm(form);
-    renderable.config = {
-      ...renderable.config,
-      redirectUrl: null,
-      fields: renderable.config.fields.filter((entry) => !fixed.has(entry.fieldId)),
-    };
-    const visibleFieldIds = new Set(renderable.config.fields.map((entry) => entry.fieldId));
-    const fields = liveFields.filter((field) => visibleFieldIds.has(field.id));
-    if (fields.length !== visibleFieldIds.size) continue;
-    const fieldsById = new Map(liveFields.map((field) => [field.id, field]));
-    const inlineTargetFields: Record<string, Field[]> = {};
-    for (const entry of renderable.config.fields) {
-      if (entry.kind !== "user_input" || !entry.inlineCreate?.enabled) continue;
-      const relationField = fieldsById.get(entry.fieldId);
-      if (relationField?.type !== "relation") continue;
-      const targetTableId = (relationField.config as { targetTableId?: unknown }).targetTableId;
-      if (typeof targetTableId !== "string") continue;
-      const allowedIds = new Set((entry.inlineCreate.fields ?? []).map((field) => field.fieldId));
-      inlineTargetFields[targetTableId] = securityTargetFields.filter(
-        (field) => field.tableId === targetTableId && !field.deletedAt && allowedIds.has(field.id),
-      );
-    }
+    const prepared = preparePublishedForm(resolvedForm, Object.keys(action.fixedValues));
+    if (!prepared) continue;
     sidebarActions.push({
       id: action.id,
       kind: "form",
@@ -752,9 +736,9 @@ export default ssr<AuthContext>(async (c) => {
       icon: action.icon,
       tone: action.tone,
       submitUrl: customAppSidebarFormSubmitUrl(app.shortId, action.id),
-      form: renderable,
-      fields,
-      inlineTargetFields,
+      form: prepared.form,
+      fields: prepared.fields,
+      inlineTargetFields: prepared.inlineTargetFields,
       dateConfig,
     });
   }

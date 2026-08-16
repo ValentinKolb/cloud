@@ -1,7 +1,7 @@
 import { Placeholder, TemplatePreview } from "@k2b/ui";
 import { HTML_TEMPLATE_ERROR } from "../../field-types/html-template";
 
-export type CustomAppHtmlHeight = "compact" | "normal" | "large";
+type CustomAppHtmlHeight = "compact" | "normal" | "large";
 
 const CONTENT_SECURITY_POLICY = [
   "default-src 'none'",

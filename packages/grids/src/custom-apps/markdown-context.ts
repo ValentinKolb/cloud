@@ -3,7 +3,7 @@ import { type DslQueryContextInput, isDslQueryContextKey } from "../query-dsl/pa
 const CONTEXT_REFERENCE = /@([a-z]+(?:\.[a-zA-Z0-9_]+)+)/g;
 
 /** Keep request-owned values as text when they are inserted before Markdown parsing. */
-export const escapeCustomAppMarkdownValue = (value: string): string =>
+const escapeCustomAppMarkdownValue = (value: string): string =>
   value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
