@@ -34,6 +34,88 @@ beforeAll(async () => {
 });
 
 describe("Grids App lifecycle", () => {
+  postgresTest("pins one HTML template field for a record-page Rendered HTML block", async () => {
+    const baseId = testUuid();
+    const baseShortId = testShortId("B");
+    const tableId = testUuid();
+    const tableShortId = testShortId("T");
+    const htmlFieldId = testUuid();
+    const htmlFieldShortId = testShortId("H");
+    const textFieldId = testUuid();
+    const textFieldShortId = testShortId("F");
+    try {
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${baseShortId}, 'Rendered HTML App')`;
+      await sql`
+        INSERT INTO grids.tables (id, short_id, base_id, name)
+        VALUES (${tableId}::uuid, ${tableShortId}, ${baseId}::uuid, 'Equipment')
+      `;
+      await sql`
+        INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
+        VALUES
+          (${htmlFieldId}::uuid, ${htmlFieldShortId}, ${tableId}::uuid, 'Equipment card', 'html_template', ${{ template: "<p>Equipment</p>", css: "" }}::jsonb, 0),
+          (${textFieldId}::uuid, ${textFieldShortId}, ${tableId}::uuid, 'Name', 'text', '{}'::jsonb, 1)
+      `;
+      const definition: CustomAppDefinition = {
+        schemaVersion: 5,
+        kind: "grids.custom-app",
+        id: testShortId("A"),
+        baseId: baseShortId,
+        name: "Equipment cards",
+        startPageId: "home",
+        pages: [
+          {
+            id: "home",
+            title: "Home",
+            navigation: { visible: true },
+            parameters: {},
+            rows: [{ id: "intro", columns: [{ id: "main", span: 12, blocks: [{ id: "intro", type: "markdown", markdown: "Home" }] }] }],
+          },
+          {
+            id: "equipment",
+            title: "Equipment",
+            navigation: { visible: false },
+            parameters: { equipment_id: { type: "record", tableId: tableShortId, required: true } },
+            record: { tableId: tableShortId, id: { source: "PARAMS", path: "equipment_id" } },
+            rows: [
+              {
+                id: "card-row",
+                columns: [
+                  {
+                    id: "card-column",
+                    span: 12,
+                    blocks: [{ id: "equipment-card", type: "html", fieldId: htmlFieldShortId, height: "normal" }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      const compiled = await compile(definition);
+      expect(compiled.ok).toBe(true);
+      if (!compiled.ok) throw new Error(compiled.diagnostics[0]?.message ?? "Compilation failed");
+      expect(compiled.compiled.capabilities.records).toEqual([
+        { pageId: "equipment", tableId, fieldIds: [htmlFieldId], editableFieldIds: [], relationLabels: [] },
+      ]);
+
+      const wrongType = structuredClone(definition);
+      const block = wrongType.pages[1]!.rows[0]!.columns[0]!.blocks[0]!;
+      if (block.type !== "html") throw new Error("Expected Rendered HTML block");
+      block.fieldId = textFieldShortId;
+      const rejected = await compile(wrongType);
+      expect(rejected.ok).toBe(false);
+      if (!rejected.ok) {
+        expect(rejected.diagnostics).toContainEqual({
+          path: ["pages", 1, "rows", 0, "columns", 0, "blocks", 0, "fieldId"],
+          message: `Field ${textFieldId} is not an HTML template field`,
+        });
+      }
+    } finally {
+      await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
+    }
+  });
+
   postgresTest("keeps legacy definitions stored without rewriting and fails published lookup closed", async () => {
     const baseId = testUuid();
     const appId = testUuid();
@@ -143,6 +225,7 @@ describe("Grids App lifecycle", () => {
     const metricViewId = testUuid();
     const fieldId = testUuid();
     const computedFieldId = testUuid();
+    const htmlFieldId = testUuid();
     const relationFieldId = testUuid();
     const formId = testUuid();
     const documentTemplateId = testUuid();
@@ -167,6 +250,18 @@ describe("Grids App lifecycle", () => {
       await sql`
         INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
         VALUES (${computedFieldId}::uuid, ${testShortId("F")}, ${tableId}::uuid, 'Summary', 'formula', ${{ expression: "LEN(Title)" }}::jsonb, 1)
+      `;
+      await sql`
+        INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
+        VALUES (
+          ${htmlFieldId}::uuid,
+          ${testShortId("F")},
+          ${tableId}::uuid,
+          'Request card',
+          'html_template',
+          ${{ template: "<p>{{ record.data.Title }}</p>", css: "" }}::jsonb,
+          2
+        )
       `;
       await sql`
         INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
@@ -285,7 +380,7 @@ describe("Grids App lifecycle", () => {
           await sql<Array<{ id: string; shortId: string }>>`
             SELECT id::text AS id, short_id AS "shortId" FROM grids.bases WHERE id = ${baseId}::uuid
             UNION ALL SELECT id::text, short_id FROM grids.tables WHERE id IN (${tableId}::uuid, ${otherTableId}::uuid)
-            UNION ALL SELECT id::text, short_id FROM grids.fields WHERE id IN (${fieldId}::uuid, ${computedFieldId}::uuid, ${relationFieldId}::uuid, ${otherFieldId}::uuid)
+            UNION ALL SELECT id::text, short_id FROM grids.fields WHERE id IN (${fieldId}::uuid, ${computedFieldId}::uuid, ${htmlFieldId}::uuid, ${relationFieldId}::uuid, ${otherFieldId}::uuid)
             UNION ALL SELECT id::text, short_id FROM grids.views WHERE id IN (${viewId}::uuid, ${metricViewId}::uuid)
             UNION ALL SELECT id::text, short_id FROM grids.forms WHERE id = ${formId}::uuid
             UNION ALL SELECT id::text, short_id FROM grids.document_templates WHERE id IN (${documentTemplateId}::uuid, ${otherDocumentTemplateId}::uuid)
@@ -432,6 +527,7 @@ describe("Grids App lifecycle", () => {
                         editableFieldIds: [publicId(fieldId)],
                         documents: { templateIds: [publicId(documentTemplateId)] },
                       },
+                      { id: "request-card", type: "html", fieldId: publicId(htmlFieldId), height: "normal" },
                       { id: "discussion", type: "comments", title: "Updates" },
                       {
                         id: "actions",
@@ -555,7 +651,7 @@ describe("Grids App lifecycle", () => {
           {
             pageId: "request",
             tableId,
-            fieldIds: [fieldId, relationFieldId].sort(),
+            fieldIds: [fieldId, htmlFieldId, relationFieldId].sort(),
             editableFieldIds: [fieldId],
             relationLabels: [{ fieldId: relationFieldId, targetTableId: tableId, labelFieldIds: [fieldId] }],
           },
@@ -609,6 +705,16 @@ describe("Grids App lifecycle", () => {
       expect(roundTripped).toEqual(created.data.draftDefinition);
       expect((await plan(roundTripped)).action).toBe("noop");
 
+      const wrongHtmlField = structuredClone(definition);
+      const htmlBlock = wrongHtmlField.pages[1]!.rows[0]!.columns[0]!.blocks.find((block) => block.type === "html")!;
+      if (htmlBlock.type !== "html") throw new Error("Expected Rendered HTML block");
+      htmlBlock.fieldId = publicId(fieldId);
+      const wrongHtmlResult = await compile({ ...wrongHtmlField, id: testShortId("A") });
+      expect(wrongHtmlResult.ok).toBe(false);
+      if (!wrongHtmlResult.ok) {
+        expect(wrongHtmlResult.diagnostics.some((diagnostic) => diagnostic.message.includes("not an HTML template field"))).toBe(true);
+      }
+
       const reapplied = await apply(roundTripped);
       expect(reapplied.ok).toBe(true);
       if (!reapplied.ok) return;
@@ -627,8 +733,8 @@ describe("Grids App lifecycle", () => {
       const [authUser] = await sql<Array<{ id: string }>>`SELECT id::text FROM auth.users ORDER BY id LIMIT 1`;
       if (!authUser) throw new Error("Grids App lifecycle test needs one auth user");
       await sql`
-        INSERT INTO grids.records (id, table_id, data)
-        VALUES (${requestRecordId}::uuid, ${tableId}::uuid, ${JSON.stringify({ [fieldId]: authUser.id })}::jsonb)
+        INSERT INTO grids.records (id, short_id, table_id, data)
+        VALUES (${requestRecordId}::uuid, ${testShortId("R")}, ${tableId}::uuid, ${JSON.stringify({ [fieldId]: authUser.id })}::jsonb)
       `;
       const publishedAt = firstPublish.data.publishedAt!;
       const appGrant = await grantAccess({

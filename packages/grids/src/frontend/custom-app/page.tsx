@@ -53,6 +53,7 @@ import { CustomAppPageLayout } from "./PageLayout";
 import RecordDetails from "./RecordDetails.island";
 import RecordsTable, { type CustomAppRecordsSuccess, type CustomAppRenderedRowAction } from "./RecordsTable.island";
 import Scanner from "./Scanner.island";
+import { RenderedHtml } from "./RenderedHtml";
 import SidebarActions, { type CustomAppRenderedSidebarAction } from "./SidebarActions.island";
 import { formatCustomAppValue } from "./value-format";
 
@@ -61,6 +62,7 @@ type MetricsBlock = Extract<CustomAppBlock, { type: "metrics" }>;
 type ChartBlock = Extract<CustomAppBlock, { type: "chart" }>;
 type InsightBlock = MetricsBlock | ChartBlock;
 type RecordBlock = Extract<CustomAppBlock, { type: "record" }>;
+type HtmlBlock = Extract<CustomAppBlock, { type: "html" }>;
 type FormBlock = Extract<CustomAppBlock, { type: "form" }>;
 type CommentsBlock = Extract<CustomAppBlock, { type: "comments" }>;
 type ActionsBlock = Extract<CustomAppBlock, { type: "actions" }>;
@@ -240,6 +242,7 @@ const CustomAppPage = (props: {
   recordUpdateEndpoints: Map<string, string>;
   documentRuns: Map<string, CustomAppDocumentRun[]>;
   pageRecords: Map<string, PageRecord>;
+  renderedHtml: Map<string, { html: unknown; fieldName: string }>;
   dateConfig: ReturnType<typeof getDateConfig>;
   markdownContext: DslQueryContextValues;
   scanners: Map<string, { state: WorkflowScannerState; endpoint: string }>;
@@ -282,6 +285,12 @@ const CustomAppPage = (props: {
             updateEndpoint={props.recordUpdateEndpoints.get(block.id)}
             documentRuns={props.documentRuns.get(block.id) ?? []}
             dateConfig={props.dateConfig}
+          />
+        ) : block.type === "html" ? (
+          <RenderedHtml
+            html={props.renderedHtml.get(block.id)?.html}
+            title={block.title ?? props.renderedHtml.get(block.id)?.fieldName ?? "Rendered HTML"}
+            height={block.height}
           />
         ) : block.type === "comments" ? (
           <RecordComments endpoint={props.commentEndpoints.get(block.id) ?? ""} title={block.title} dateConfig={props.dateConfig} />
@@ -406,6 +415,7 @@ export default ssr<AuthContext>(async (c) => {
 
   let pageRecord: PageRecord | null = null;
   const pageRecords = new Map<string, PageRecord>();
+  const renderedHtml = new Map<string, { html: unknown; fieldName: string }>();
   const recordUpdateEndpoints = new Map<string, string>();
   const documentRuns = new Map<string, CustomAppDocumentRun[]>();
   if (page.record) {
@@ -460,6 +470,15 @@ export default ssr<AuthContext>(async (c) => {
       filesByField,
       fileEndpoints: {},
     };
+    const visibleHtmlBlocks = runtimePage.rows.flatMap((row) =>
+      row.columns.flatMap((column) => column.blocks.filter((candidate): candidate is HtmlBlock => candidate.type === "html")),
+    );
+    const fieldsById = new Map(fields.map((field) => [field.id, field]));
+    for (const block of visibleHtmlBlocks) {
+      const field = fieldsById.get(block.fieldId);
+      if (!field || field.type !== "html_template") return c.notFound();
+      renderedHtml.set(block.id, { html: record.data[field.id], fieldName: field.name });
+    }
     const visibleRecordBlocks = runtimePage.rows.flatMap((row) =>
       row.columns.flatMap((column) => column.blocks.filter((candidate): candidate is RecordBlock => candidate.type === "record")),
     );
@@ -868,6 +887,7 @@ export default ssr<AuthContext>(async (c) => {
         recordUpdateEndpoints={recordUpdateEndpoints}
         documentRuns={documentRuns}
         pageRecords={pageRecords}
+        renderedHtml={renderedHtml}
         dateConfig={dateConfig}
         markdownContext={runtimeContext.query}
         scanners={scanners}

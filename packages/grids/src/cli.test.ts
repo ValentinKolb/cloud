@@ -519,8 +519,23 @@ describe("grids CLI", () => {
         expect.objectContaining({ type: "text", category: "value", writable: "yes" }),
         expect.objectContaining({ type: "relation", category: "link", writable: "yes" }),
         expect.objectContaining({ type: "formula", category: "computed", writable: "no" }),
+        expect.objectContaining({ type: "html_template", category: "computed", writable: "no" }),
       ]),
     );
+  });
+
+  test("shows the HTML template field contract for agents", async () => {
+    const { ctx, jsonValues } = createContext(["fields", "type", "html_template"], {}, [], { output: "json" });
+
+    await gridsCli.run(ctx);
+
+    expect(jsonValues[0]).toMatchObject({
+      type: "html_template",
+      category: "computed",
+      recordWritable: false,
+      recordValue: "(rendered HTML)",
+    });
+    expect(JSON.stringify(jsonValues[0])).toContain("record.data.FIELD1");
   });
 
   test("shows one field type reference as JSON", async () => {

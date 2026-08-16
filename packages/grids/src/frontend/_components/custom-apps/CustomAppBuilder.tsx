@@ -27,6 +27,7 @@ import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "so
 import { apiClient } from "../../../api/client";
 import type { PublicDslQueryPreviewResponse as DslQueryPreviewResponse } from "../../../api/gql-public";
 import type { PublicField as Field, PublicView as View } from "../../../api/public-dto";
+import { customAppPageRecordFieldIds } from "../../../custom-apps/conditions";
 import { customAppContextKeys, customAppGlobalContextKeys } from "../../../custom-apps/context-keys";
 import type {
   CustomAppAction,
@@ -143,6 +144,7 @@ const blockMeta: Record<CustomAppBlock["type"], { icon: string; label: string }>
   chart: { icon: "ti ti-chart-bar", label: "Chart" },
   comments: { icon: "ti ti-messages", label: "Comments" },
   form: { icon: "ti ti-forms", label: "Form" },
+  html: { icon: "ti ti-code", label: "Rendered HTML" },
   markdown: { icon: "ti ti-markdown", label: "Markdown" },
   metrics: { icon: "ti ti-chart-dots", label: "Metrics" },
   record: { icon: "ti ti-id", label: "Record" },
@@ -953,6 +955,16 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     const tableId = pageRecordCandidate()?.tableId;
     return tableId ? (props.catalog.fieldsByTable[tableId] ?? []).filter((field) => field.deletedAt === null).slice(0, 30) : [];
   });
+  const pageHtmlFields = createMemo(() => {
+    const tableId = pageRecordCandidate()?.tableId;
+    return tableId
+      ? (props.catalog.fieldsByTable[tableId] ?? []).filter((field) => field.deletedAt === null && field.type === "html_template")
+      : [];
+  });
+  const addableHtmlFields = createMemo(() => {
+    const exposed = new Set(customAppPageRecordFieldIds(selectedPage()));
+    return exposed.size < 30 ? pageHtmlFields() : pageHtmlFields().filter((field) => exposed.has(field.id));
+  });
   const addRecordBlock = () => {
     const candidate = pageRecordCandidate();
     const fields = pageRecordFields();
@@ -963,6 +975,19 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       fieldIds: fields.map((field) => field.id),
       editableFieldIds: [],
     };
+    patchPage({
+      parameters: { [candidate.parameterId]: { type: "record", tableId: candidate.tableId, required: true } },
+      record: { tableId: candidate.tableId, id: { source: "PARAMS", path: candidate.parameterId } },
+      navigation: { ...selectedPage().navigation, visible: false },
+      rows: rowsWithAddedBlock(block),
+    });
+    selectBlock(block.id);
+  };
+  const addHtmlBlock = () => {
+    const candidate = pageRecordCandidate();
+    const field = addableHtmlFields()[0];
+    if (!candidate || !field) return;
+    const block: CustomAppBlock = { id: localId("html"), type: "html", fieldId: field.id, height: "normal" };
     patchPage({
       parameters: { [candidate.parameterId]: { type: "record", tableId: candidate.tableId, required: true } },
       record: { tableId: candidate.tableId, id: { source: "PARAMS", path: candidate.parameterId } },
@@ -1020,6 +1045,19 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                   : Object.keys(selectedPage().parameters).length > 1
                     ? "A Record block needs exactly one record parameter."
                     : "Add a table with visible fields first.",
+              disabled: true,
+            },
+        pageRecordCandidate() && addableHtmlFields().length > 0
+          ? {
+              icon: "ti ti-code",
+              label: "Rendered HTML",
+              description: "Show one HTML template field for the record in this page URL.",
+              action: addHtmlBlock,
+            }
+          : {
+              icon: "ti ti-code",
+              label: "Rendered HTML",
+              description: "Add an HTML template field to the record table first.",
               disabled: true,
             },
         selectedPage().record
@@ -1102,13 +1140,15 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     const selected = selectedBlock();
     if (!selected || blockCount() === 1) return;
     const removingLastRecord =
-      selected.block.type === "record" &&
+      (selected.block.type === "record" || selected.block.type === "html") &&
       !selectedPage().rows.some((row) =>
-        row.columns.some((column) => column.blocks.some((block) => block.type === "record" && block.id !== selected.block.id)),
+        row.columns.some((column) =>
+          column.blocks.some((block) => (block.type === "record" || block.type === "html") && block.id !== selected.block.id),
+        ),
       );
     const confirmed = await prompts.confirm(
       removingLastRecord
-        ? "Remove this Record block? Comments blocks on this page will also be removed."
+        ? "Remove the last record content block? Comments blocks on this page will also be removed."
         : `Remove "${selected.block.title || blockMeta[selected.block.type].label}" from this page?`,
       {
         title: "Remove block",
@@ -1362,7 +1402,9 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
 
   const updatePageParameterTable = (parameterId: string, tableId: string) => {
     const isPageRecord = selectedPage().record?.id.path === parameterId;
-    const fields = (props.catalog.fieldsByTable[tableId] ?? []).filter((field) => field.deletedAt === null).slice(0, 30);
+    const availableFields = (props.catalog.fieldsByTable[tableId] ?? []).filter((field) => field.deletedAt === null);
+    const fields = availableFields.slice(0, 30);
+    const htmlField = availableFields.find((field) => field.type === "html_template");
     patchPage({
       parameters: { ...selectedPage().parameters, [parameterId]: { type: "record", tableId, required: true } },
       ...(isPageRecord
@@ -1375,7 +1417,9 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                 blocks: column.blocks.map((block) =>
                   block.type === "record"
                     ? { ...block, fieldIds: fields.map((field) => field.id), editableFieldIds: [], documents: undefined }
-                    : block,
+                    : block.type === "html" && htmlField
+                      ? { ...block, fieldId: htmlField.id }
+                      : block,
                 ),
               })),
             })),
@@ -1389,7 +1433,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       setDefinition((definition) => removeCustomAppPageParameter(definition, selectedPage().id, parameterId));
       return;
     }
-    const confirmed = await prompts.confirm("Remove this record parameter? Its Record and Comments blocks will also be removed.", {
+    const confirmed = await prompts.confirm("Remove this record parameter? Its Record, Rendered HTML, and Comments blocks will also be removed.", {
       title: "Remove record parameter",
       icon: "ti ti-unlink",
       confirmText: "Remove parameter",
@@ -1402,7 +1446,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       rows: selectedPage().rows.map((row) => ({
         ...row,
         columns: row.columns.map((column) => {
-          const blocks = column.blocks.filter((block) => block.type !== "record" && block.type !== "comments");
+          const blocks = column.blocks.filter((block) => block.type !== "record" && block.type !== "html" && block.type !== "comments");
           return {
             ...column,
             blocks: blocks.length > 0 ? blocks : [{ id: localId("markdown"), type: "markdown" as const, markdown: "" }],
@@ -2145,7 +2189,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                         return (
                           <div class="flex flex-col gap-3">
                             <Show when={isPageRecord()}>
-                              <StatusBadge tone="ok" icon={null} label="Used by Record and Comments blocks" />
+                              <StatusBadge tone="ok" icon={null} label="Used by record-page blocks" />
                             </Show>
                             <PageParameterIdInput
                               id={parameterId}
@@ -2278,6 +2322,42 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                           }}
                           onValueChange={(markdown) =>
                             updateSelectedBlock((block) => (block.type === "markdown" ? { ...block, markdown } : block))
+                          }
+                        />
+                      </Show>
+                      <Show when={selected().block.type === "html"}>
+                        <Select
+                          label="HTML template field"
+                          searchable
+                          value={() => {
+                            const block = selected().block;
+                            return block.type === "html" ? block.fieldId : null;
+                          }}
+                          options={pageHtmlFields().map((field) => ({
+                            id: field.id,
+                            label: field.name,
+                            description: "HTML template",
+                            icon: field.icon ?? "ti ti-code",
+                          }))}
+                          error={() => diagnosticFor(selected().block.id, "fieldId")}
+                          onValueChange={(fieldId) =>
+                            fieldId && updateSelectedBlock((block) => (block.type === "html" ? { ...block, fieldId } : block))
+                          }
+                        />
+                        <Select
+                          label="Height"
+                          value={() => {
+                            const block = selected().block;
+                            return block.type === "html" ? block.height : null;
+                          }}
+                          options={[
+                            { id: "compact", label: "Compact" },
+                            { id: "normal", label: "Normal" },
+                            { id: "large", label: "Large" },
+                          ]}
+                          onValueChange={(height) =>
+                            (height === "compact" || height === "normal" || height === "large") &&
+                            updateSelectedBlock((block) => (block.type === "html" ? { ...block, height } : block))
                           }
                         />
                       </Show>

@@ -241,6 +241,13 @@ export default function CustomAppBlockPreview(props: {
       title={props.block.title ? undefined : "Scanner"}
       description="Signed-in readers can scan codes here. Open the published app to use the camera."
     />
+  ) : props.block.type === "html" ? (
+    <Placeholder
+      align="left"
+      icon="ti ti-code"
+      title={props.block.title ? undefined : "Rendered HTML"}
+      description="The selected HTML template renders here for the record in the published app."
+    />
   ) : (
     <Placeholder
       align="left"

@@ -3,6 +3,7 @@ import { customAppPageRecordFieldIds } from "./conditions";
 import type { CustomAppPage } from "./contracts";
 
 const fieldId = "11111111-1111-4111-8111-111111111111";
+const htmlFieldId = "22222222-2222-4222-8222-222222222222";
 
 describe("Grids App page record fields", () => {
   test("collects the explicit Record block allowlist", () => {
@@ -22,6 +23,7 @@ describe("Grids App page record fields", () => {
               blocks: [
                 { id: "record", type: "record", fieldIds: [fieldId], editableFieldIds: [] },
                 { id: "duplicate", type: "record", fieldIds: [fieldId], editableFieldIds: [] },
+                { id: "card", type: "html", fieldId: htmlFieldId, height: "normal" },
               ],
             },
           ],
@@ -29,6 +31,6 @@ describe("Grids App page record fields", () => {
       ],
     } as CustomAppPage;
 
-    expect(customAppPageRecordFieldIds(page)).toEqual([fieldId]);
+    expect(customAppPageRecordFieldIds(page)).toEqual([fieldId, htmlFieldId].sort());
   });
 });

@@ -222,6 +222,12 @@ All blocks require a local `id` and `type`. Blocks may support an optional `titl
     templateIds:
       - res601
 
+# Existing HTML template field on the current page record
+- id: equipment-card
+  type: html
+  fieldId: res701
+  height: normal
+
 # Comments on the current page record
 - id: discussion
   type: comments

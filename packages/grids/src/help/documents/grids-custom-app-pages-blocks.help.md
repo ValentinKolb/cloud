@@ -23,7 +23,7 @@ App identity is intentionally restrained to a name and supported icon. Pages and
 
 A page declares every URL parameter before a block can use it. This release supports required Record parameters only. Each parameter declares one table in the same Base; its URL and `@params.<name>` value are record public IDs, and the server verifies that the referenced record belongs to that table before loading page data.
 
-A page may load one **page record** from a Record parameter. In the visual builder, add the parameter ID and Record table under **Route parameters**, then add a Record block; Grids binds that same parameter automatically instead of exposing a second Page Record control. The load is permission-checked and fail-closed. An invalid, missing, deleted, or inaccessible record shows the page's standard unavailable state without disclosing which case occurred.
+A page may load one **page record** from a Record parameter. In the visual builder, add the parameter ID and Record table under **Route parameters**, then add a Record or Rendered HTML block; Grids binds that same parameter automatically instead of exposing a second Page Record control. The load is permission-checked and fail-closed. An invalid, missing, deleted, or inaccessible record shows the page's standard unavailable state without disclosing which case occurred.
 
 A route-only page may instead keep the declared Record parameter as context without rendering that record. Records GQL and Form fixed values can then reuse the same authorized parent ID. Pages with required parameters never appear in navigation and cannot be the app's start page. The visual builder therefore disables **Add record parameter** on the current start page and explains that another parameter-free page must become the start page first.
 
@@ -98,6 +98,12 @@ The Edit action appears only when the publication includes that writable field a
 
 An optional `documents.templateIds` allowlist shows existing generated PDFs linked to the current record. Every template must belong to the page record table when the app is published. The runtime uses the immutable capability and protected document download route. The block does not generate documents or create public links; use a Workflow for generation.
 
+### Rendered HTML
+
+Rendered HTML requires a page record and references exactly one `html_template` field from that record's table. It displays the field's already rendered value without exposing sibling record fields. Choose `compact`, `normal`, or `large` height; the iframe does not resize itself from template content.
+
+The output runs in a sandbox without scripts, forms, popups, parent-page access, or pointer interaction. A deny-by-default content policy also blocks remote images, fonts, media, frames, connections, and navigation; only inline styles and `data:` images are available. Use a Record, Form, or Actions block for interactions. Changing the field type, removing the field, or a template render failure produces a local unavailable state and never falls back to raw HTML in the app page.
+
 ### Comments
 
 Comments requires a page record and a signed-in App reader. It loads a bounded first page only when the block is rendered, then fetches older comments with keyset pagination. The published Comments block and current App grant authorize creating comments without Base or record Write access. Authors may edit and delete their own comments; Base administrators may moderate any comment. Deleted comments remain as a timestamped placeholder so the conversation order stays understandable.
@@ -169,7 +175,7 @@ Only the active page resolves. Within that request, identical authorized resourc
 
 ## Know the deliberate limits {icon="barrier-block"}
 
-The first release has no app-global variables, general expression graph, reusable block definitions, arbitrary external fetch or action targets, cross-base resources, raw queries outside GQL, custom HTML, CSS, JavaScript, Liquid control flow, or domain-specific request, cart, batch, or loan blocks. Sanitized Markdown may still contain ordinary links and the documented request-context placeholders.
+The first release has no app-global variables, general expression graph, reusable block definitions, arbitrary external fetch or action targets, cross-base resources, raw queries outside GQL, inline app-authored HTML, CSS, JavaScript, Liquid control flow, or domain-specific request, cart, batch, or loan blocks. A Rendered HTML block may only select an existing HTML template field; its template and CSS remain owned and validated by that field. Sanitized Markdown may still contain ordinary links and the documented request-context placeholders.
 
 Compose repeated flows from typed page parameters, fixed Form values, bounded sources, navigation, and existing Workflows. If those primitives cannot express a process safely, extend the owning Grids resource rather than adding application-specific behavior to the page runtime.
 

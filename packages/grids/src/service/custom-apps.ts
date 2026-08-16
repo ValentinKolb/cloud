@@ -281,6 +281,8 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
               block.documents.templateIds = block.documents.templateIds.map((id, index) =>
                 resolve("template", id, [...path, "documents", "templateIds", index]),
               );
+          } else if (block.type === "html") {
+            block.fieldId = resolve("field", block.fieldId, [...path, "fieldId"]);
           } else if (block.type === "form") {
             block.formId = resolve("form", block.formId, [...path, "formId"]);
             block.fixedValues = Object.fromEntries(
@@ -492,6 +494,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       const recordBlocks = page.rows.flatMap((row) =>
         row.columns.flatMap((column) => column.blocks.filter((block) => block.type === "record")),
       );
+      const recordFieldIds = new Set(recordBlocks.flatMap((block) => block.fieldIds));
       const fieldIds = customAppPageRecordFieldIds(page);
       const editableFieldIds = [...new Set(recordBlocks.flatMap((block) => block.editableFieldIds))].sort();
       if ((await resolveTableBaseId(page.record.tableId)) !== definition.baseId) {
@@ -507,7 +510,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
         const found = new Set(fields.map((field) => field.id));
         const fieldsById = new Map(fields.map((field) => [field.id, field]));
         for (const fieldId of fieldIds) {
-          if (!found.has(fieldId)) {
+          if (!found.has(fieldId) && recordFieldIds.has(fieldId)) {
             diagnostics.push({
               path: ["pages", pageIndex, "record", "fieldIds"],
               message: `Field ${fieldId} is missing or belongs to another table`,
@@ -521,6 +524,22 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
               path: ["pages", pageIndex, "record", "editableFieldIds"],
               message: `Field ${fieldId} is not a writable record field`,
             });
+          }
+        }
+        for (const [rowIndex, row] of page.rows.entries()) {
+          for (const [columnIndex, column] of row.columns.entries()) {
+            for (const [blockIndex, block] of column.blocks.entries()) {
+              if (block.type !== "html") continue;
+              const field = fieldsById.get(block.fieldId);
+              if (!field || field.type !== "html_template") {
+                diagnostics.push({
+                  path: ["pages", pageIndex, "rows", rowIndex, "columns", columnIndex, "blocks", blockIndex, "fieldId"],
+                  message: field
+                    ? `Field ${block.fieldId} is not an HTML template field`
+                    : `HTML template field ${block.fieldId} is missing or belongs to another table`,
+                });
+              }
+            }
           }
         }
         const targetTableIds = [

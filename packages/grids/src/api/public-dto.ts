@@ -361,10 +361,10 @@ const publicId = (ids: ReadonlyMap<string, string>, internalId: string, resource
   return id;
 };
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const publicFieldKey = (ids: ReadonlyMap<string, string>, key: string): string => {
+export const publicFieldKey = (ids: ReadonlyMap<string, string>, key: string): string | null => {
   const id = ids.get(key);
   if (id) return id;
-  if (UUID_PATTERN.test(key)) throw new Error("Missing public ID for field");
+  if (UUID_PATTERN.test(key)) return null;
   return key;
 };
 
@@ -763,12 +763,13 @@ export const toPublicRecords = async (records: readonly GridRecord[], fields: re
       id: record.shortId,
       tableId: publicId(tableIds, record.tableId, "table"),
       data: Object.fromEntries(
-        Object.entries(record.data).map(([fieldId, value]) => {
+        Object.entries(record.data).flatMap(([fieldId, value]) => {
           const publicFieldId = publicFieldKey(fieldIds, fieldId);
-          if (!relationFieldIds.has(fieldId)) return [publicFieldId, value];
+          if (!publicFieldId) return [];
+          if (!relationFieldIds.has(fieldId)) return [[publicFieldId, value]];
           if (Array.isArray(value))
-            return [publicFieldId, value.map((id) => (typeof id === "string" ? publicId(recordIds, id, "record") : id))];
-          return [publicFieldId, typeof value === "string" ? publicId(recordIds, value, "record") : value];
+            return [[publicFieldId, value.map((id) => (typeof id === "string" ? publicId(recordIds, id, "record") : id))]];
+          return [[publicFieldId, typeof value === "string" ? publicId(recordIds, value, "record") : value]];
         }),
       ),
     };

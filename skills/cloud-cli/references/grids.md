@@ -565,7 +565,7 @@ Commands are `forms list|default|get|create|update|delete|restore|submit`. `--pu
 ## Publish a Grids App
 
 Grids Apps are strict schema-v5 YAML definitions owned by one base. The current contract supports up to 12 pages containing responsive rows and
-columns plus Markdown, Records, Metrics, Chart, Record, Form, Comments, Actions, and Scanner blocks. Records and insight blocks can use a saved view
+columns plus Markdown, Records, Metrics, Chart, Record, Rendered HTML, Form, Comments, Actions, and Scanner blocks. Records and insight blocks can use a saved view
 or GQL. A Records block can navigate its row id or one selected single relation into one required
 record parameter on a detail page. Record and Comments blocks use that page record; Record renders only its explicit field allowlist.
 For signed-in readers, an editable displayed File field exposes App-scoped attachment controls without granting raw Base API access. File validation and limits remain owned by the field and file service. A published Comments block lets signed-in App readers comment without Base access; authors manage their own comments and Base administrators moderate. Form blocks submit existing Grids forms and may carry trusted typed `LITERAL`, `PARAMS`,

@@ -289,6 +289,21 @@ describe("CustomAppBuilder", () => {
     expect(html).toContain("k2b-placeholder");
   });
 
+  test("keeps Rendered HTML contextual in the builder preview", () => {
+    const html = renderToString(() =>
+      createComponent(CustomAppBlockPreview, {
+        block: { id: "equipment-card", type: "html", fieldId: "HTML01", height: "normal" },
+        baseId: app().baseId,
+        appId: app().id,
+        catalog: catalog(),
+      }),
+    );
+
+    expect(html).toContain("Rendered HTML");
+    expect(html).toContain("record in the published app");
+    expect(html).not.toContain("<iframe");
+  });
+
   test("previews configured Records row actions without enabling them", () => {
     const tableId = "TABLE1";
     const fieldId = "FIELD1";

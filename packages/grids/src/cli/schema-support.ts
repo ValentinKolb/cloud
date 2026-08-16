@@ -98,6 +98,12 @@ const FIELD_TYPE_DETAILS: Record<string, FieldReferenceDetails> = {
     recordValue: "(computed)",
     notes: "Read-only computed field. Uses the Grids formula engine.",
   },
+  html_template: {
+    config: '{ "template": "<h2>{{ record.data.FIELD1 }}</h2>", "css": "h2 { color: #1d4ed8; }" }',
+    recordValue: "(rendered HTML)",
+    notes:
+      "Read-only Liquid output rendered from the current record and shared app, business, table, and date context. Reference record fields by public field id.",
+  },
   lookup: {
     config: '{ "relationFieldId": "<field-id>", "targetFieldId": "<field-id>" }',
     recordValue: "(computed)",

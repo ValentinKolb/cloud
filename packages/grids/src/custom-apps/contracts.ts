@@ -355,6 +355,17 @@ export const CustomAppRecordBlockSchema = z
     }
   });
 
+export const CustomAppHtmlBlockSchema = z
+  .object({
+    id: CustomAppLocalIdSchema,
+    type: z.literal("html"),
+    title: z.string().trim().min(1).max(160).optional(),
+    fieldId: CustomAppResourceIdSchema,
+    height: z.enum(["compact", "normal", "large"]).default("normal"),
+    ...CustomAppAvailabilityShape,
+  })
+  .strict();
+
 export const CustomAppCommentsBlockSchema = z
   .object({
     id: CustomAppLocalIdSchema,
@@ -410,6 +421,7 @@ export const CustomAppBlockSchema = z.discriminatedUnion("type", [
   CustomAppMetricsBlockSchema,
   CustomAppChartBlockSchema,
   CustomAppRecordBlockSchema,
+  CustomAppHtmlBlockSchema,
   CustomAppCommentsBlockSchema,
   CustomAppFormBlockSchema,
   CustomAppActionsBlockSchema,
@@ -568,6 +580,9 @@ export const CustomAppDefinitionSchema = z
             if (block.type === "record" && !page.record) {
               ctx.addIssue({ code: "custom", message: "A Record block requires a page record", path: [...blockPath, "type"] });
             }
+            if (block.type === "html" && !page.record) {
+              ctx.addIssue({ code: "custom", message: "A Rendered HTML block requires a page record", path: [...blockPath, "type"] });
+            }
             if (block.type === "comments" && !page.record) {
               ctx.addIssue({ code: "custom", message: "A Comments block requires a page record", path: [...blockPath, "type"] });
             }
@@ -617,13 +632,27 @@ export const CustomAppDefinitionSchema = z
       }
 
       if (page.record) {
-        const hasRecordBlock = page.rows.some((row) =>
-          row.columns.some((column) => column.blocks.some((block) => block.type === "record")),
+        const recordFieldIds = new Set(
+          page.rows.flatMap((row) =>
+            row.columns.flatMap((column) =>
+              column.blocks.flatMap((block) => (block.type === "record" ? block.fieldIds : block.type === "html" ? [block.fieldId] : [])),
+            ),
+          ),
         );
-        if (!hasRecordBlock) {
+        if (recordFieldIds.size > 30) {
           ctx.addIssue({
             code: "custom",
-            message: "A page record requires at least one Record block",
+            message: "A page record may expose at most 30 fields across Record and Rendered HTML blocks",
+            path: ["pages", pageIndex, "record"],
+          });
+        }
+        const hasRecordContent = page.rows.some((row) =>
+          row.columns.some((column) => column.blocks.some((block) => block.type === "record" || block.type === "html")),
+        );
+        if (!hasRecordContent) {
+          ctx.addIssue({
+            code: "custom",
+            message: "A page record requires at least one Record or Rendered HTML block",
             path: ["pages", pageIndex, "record"],
           });
         }

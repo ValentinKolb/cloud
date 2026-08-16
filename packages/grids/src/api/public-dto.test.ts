@@ -9,6 +9,7 @@ import {
   PublicFormSchema,
   PublicTableSchema,
   PublicViewSchema,
+  publicFieldKey,
   resourceTypeForKnownIdKey,
 } from "./public-dto";
 
@@ -16,6 +17,13 @@ const now = "2026-08-15T00:00:00.000Z";
 const uuid = "11111111-1111-4111-8111-111111111111";
 
 describe("Grids public DTO ID boundary", () => {
+  test("omits deleted field UUID keys without hiding computed aliases", () => {
+    const activeFieldId = "22222222-2222-4222-8222-222222222222";
+    expect(publicFieldKey(new Map([[activeFieldId, "FILD01"]]), activeFieldId)).toBe("FILD01");
+    expect(publicFieldKey(new Map(), uuid)).toBeNull();
+    expect(publicFieldKey(new Map(), "computed_total")).toBe("computed_total");
+  });
+
   test("recognizes nested resource ID keys in public configurations", () => {
     expect(
       ["fieldId", "fieldIds", "imageFieldId", "dateFieldId", "leftFieldId", "rightFieldId", "errorFieldId", "relationFieldId"].map(

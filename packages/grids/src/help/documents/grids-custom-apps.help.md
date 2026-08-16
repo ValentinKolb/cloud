@@ -27,6 +27,7 @@ A column may contain:
 - **Metrics**, for named scalar aggregates from a saved view or bounded GQL;
 - **Chart**, for grouped aggregate results rendered as a supported chart;
 - **Record**, for an explicit field allowlist from the current detail record;
+- **Rendered HTML**, for one existing HTML template field from the current detail record;
 - **Comments**, for a signed-in app reader's discussion on the current detail record.
 - **Actions**, for internal navigation or an exact published workflow launcher;
 - **Scanner**, for a signed-in camera or manual-code workflow surface backed by one exact Scanner run option.
@@ -35,7 +36,7 @@ Record detail pages are route-only. They declare one required `record` parameter
 
 A route-only page may also declare a Record parameter without loading it as the page record. This is useful when bounded Records GQL or a Form needs parent context, such as one description list while several related articles are entered.
 
-Scripts, custom HTML and CSS, and arbitrary URLs are not supported. Record blocks may edit only explicitly displayed and allowlisted fields or attachments. Actions compose internal navigation and existing validated workflow launchers instead of mutating records directly.
+Scripts, inline app-authored HTML and CSS, and arbitrary URLs are not supported. A Rendered HTML block may display one separately managed HTML template field in a non-interactive sandbox; it cannot fetch remote resources or access the surrounding app. Record blocks may edit only explicitly displayed and allowlisted fields or attachments. Actions compose internal navigation and existing validated workflow launchers instead of mutating records directly.
 
 ## Build a list and detail app {icon="terminal-2"}
 

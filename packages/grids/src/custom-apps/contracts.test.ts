@@ -4,6 +4,7 @@ import {
   CustomAppCapabilitiesSchema,
   CustomAppCommentsBlockSchema,
   CustomAppDefinitionSchema,
+  CustomAppHtmlBlockSchema,
   parseStoredCustomAppDefinition,
 } from "./contracts";
 import { customAppScannerConfigHash } from "./scanner-capability";
@@ -58,6 +59,34 @@ describe("Grids App definition contract", () => {
   test("accepts strict multi-page list and route-only record detail definitions", () => {
     expect(CustomAppDefinitionSchema.safeParse(definition()).success).toBe(true);
     expect(CustomAppDefinitionSchema.safeParse(CUSTOM_APP_REFERENCE.example).success).toBe(true);
+  });
+
+  test("allows a Rendered HTML field to be the only record-page content", () => {
+    const source = CustomAppDefinitionSchema.parse(definition());
+    source.pages.push({
+      id: "item",
+      title: "Item",
+      navigation: { visible: false },
+      parameters: { item_id: { type: "record", tableId: "TAB001", required: true } },
+      record: { tableId: "TAB001", id: { source: "PARAMS", path: "item_id" } },
+      rows: [
+        {
+          id: "card-row",
+          columns: [{ id: "card-column", span: 12, blocks: [{ id: "card", type: "html", fieldId: "FLD001", height: "normal" }] }],
+        },
+      ],
+    });
+    const parsed = CustomAppDefinitionSchema.safeParse(source);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      const block = parsed.data.pages[1]!.rows[0]!.columns[0]!.blocks[0]!;
+      expect(block.type === "html" && block.height).toBe("normal");
+    }
+    expect(CustomAppHtmlBlockSchema.parse({ id: "card", type: "html", fieldId: "FLD001" }).height).toBe("normal");
+
+    const withoutRecord = structuredClone(source);
+    delete withoutRecord.pages[1]!.record;
+    expect(CustomAppDefinitionSchema.safeParse(withoutRecord).success).toBe(false);
   });
 
   test("derives GQL Records columns from the query but requires saved-view columns", () => {

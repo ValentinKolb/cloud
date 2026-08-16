@@ -123,6 +123,8 @@ export const migrateCustomAppDefinitionV4 = (
             replaceArray(block, "editableFieldIds", "field", [...path, "editableFieldIds"]);
             const documents = object(block.documents);
             if (documents) replaceArray(documents, "templateIds", "documentTemplate", [...path, "documents", "templateIds"]);
+          } else if (block.type === "html") {
+            replace(block, "fieldId", "field", [...path, "fieldId"]);
           } else if (block.type === "form") {
             replace(block, "formId", "form", [...path, "formId"]);
             replaceKeys(block, "fixedValues", "field", [...path, "fixedValues"]);

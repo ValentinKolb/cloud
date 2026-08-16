@@ -48,6 +48,7 @@ const blockLabel: Record<CustomAppBlock["type"], string> = {
   chart: "Chart",
   comments: "Comments",
   form: "Form",
+  html: "Rendered HTML",
   markdown: "Markdown",
   metrics: "Metrics",
   record: "Record",
