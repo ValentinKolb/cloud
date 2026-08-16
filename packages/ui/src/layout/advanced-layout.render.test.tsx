@@ -760,14 +760,25 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       // Cloud: `w-2`/`h-2` track with a full-width `rounded-full` indicator.
       expect(rule(".k2b-panes__separator[data-direction=horizontal]")).toContain("width:.5rem");
       expect(rule(".k2b-panes__separator[data-direction=horizontal]>span")).not.toContain("width:1px");
-      // Cloud: `inset-y-2 w-2` / `inset-x-2 h-2`, `rounded`.
-      expect(rule(".k2b-panes__drop-zone[data-zone=left],.k2b-ui .k2b-panes__drop-zone[data-zone=right]")).toContain("width:.5rem");
-      const merge = rule(".k2b-panes__merge-preview");
-      expect(merge).toContain("height:1.75rem");
-      expect(merge).toContain("min-width:5rem");
-      expect(merge).toContain("max-width:16rem");
-      expect(merge).toContain("border-radius:var(--k2b-radius-control)");
-      expect(merge).toContain("background:var(--k2b-success-surface)");
+      const targets = rule(".k2b-panes__drop-target");
+      expect(targets).toContain("pointer-events:auto");
+      expect(targets).toContain("border-radius:var(--k2b-radius-control)");
+      expect(targets).toContain("background:var(--k2b-success-surface)");
+      expect(rule(".k2b-panes__drop-target[data-active=true]")).toContain("background:var(--k2b-success-500)");
+      expect(rule(".k2b-panes__drop-target[data-disabled=true]")).toContain("pointer-events:none");
+      expect(rule(".k2b-panes__drop-target[data-placement=tab]")).toContain("width:1.25rem");
+      expect(rule(".k2b-panes__drop-target[data-kind=group]")).toContain("min-width:7rem");
+      const targetFrame = rule(".k2b-panes__drop-targets");
+      expect(targetFrame).toContain("--k2b-panes-drop-edge:min(3.5rem,22cqi,22cqb)");
+      expect(targetFrame).toContain("container-type:size");
+      expect(rule(".k2b-panes__drop-target[data-zone=top]")).toContain("height:var(--k2b-panes-drop-edge)");
+      expect(rule(".k2b-panes__drop-target[data-zone=left]")).toContain("width:var(--k2b-panes-drop-edge)");
+      expect(rule(".k2b-panes__drop-target[data-zone=top]")).toContain(
+        "clip-path:polygon(0 0,100% 0,calc(100% - var(--k2b-panes-drop-edge))100%,var(--k2b-panes-drop-edge)100%)",
+      );
+      expect(rule(".k2b-panes__drop-target[data-zone=left]")).toContain(
+        "clip-path:polygon(0 0,100% var(--k2b-panes-drop-edge),100% calc(100% - var(--k2b-panes-drop-edge)),0 100%)",
+      );
 
       // Cloud has no width-based floors on split children.
       expect(css).not.toContain("min-width:16rem");

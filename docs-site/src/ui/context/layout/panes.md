@@ -57,9 +57,9 @@ Use `closable` and `onClose` together. The caller must remove the element id and
 
 ## Accessibility
 
-Give each element a concise `title`. Drag the tab or single-pane header surface to move it. Within a tab strip, the left and right halves place it before or after the target tab. An optional close control remains a separate target and never starts a drag; `Delete` and `Backspace` close the focused tab when `onClose` is available.
+Give each element a concise `title`. Drag the tab or single-pane header surface to move it. Once dragging starts, Panes shows every currently valid destination: insertion slots in tab strips, a target for adding to another tab group, and explicit left, right, top, and bottom add targets. The directional targets form a four-sided frame around each pane; their 45-degree seams assign every edge position to the direction it visually occupies. A directional no-op remains visible but disabled so the four-way layout stays predictable; duplicate destinations are omitted. Drop on one of the enabled targets; releasing elsewhere cancels the move.
 
-Dragging along the tab strip reorders tabs. Dropping on another pane's tab strip joins that group; moving into the pane content releases that intent so its outer edges can split left, right, above, or below. Within the current group, pull a tab deliberately above or below the strip to split the pane in that direction; the split intent remains stable while the pointer crosses the strip edge.
+An optional close control remains a separate target and never starts a drag; `Delete` and `Backspace` close the focused tab when `onClose` is available.
 
 Pane movement is pointer-driven. Do not make a workflow depend on rearranging panes; the initial layout must remain usable.
 

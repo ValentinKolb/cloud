@@ -15,6 +15,7 @@ import {
   PanelDialog,
   PanelHeader,
   Panes,
+  type PanesValue,
   Select,
   SelectChip,
   SettingsCollection,
@@ -215,18 +216,76 @@ const [drawerOpen, setDrawerOpen] = createSignal(true);
   );
 };
 
+const initialEditorLayout = createPanesValue(["source", "outline"]);
+
+const initialPanesLayout: PanesValue = {
+  version: initialEditorLayout.version,
+  root: {
+    type: "split",
+    id: "workspace",
+    direction: "horizontal",
+    sizes: [62, 38],
+    children: [
+      {
+        type: "split",
+        id: "editor-stack",
+        direction: "vertical",
+        sizes: [68, 32],
+        children: [
+          {
+            ...initialEditorLayout.root,
+            id: "editor",
+          },
+          {
+            type: "leaf",
+            id: "console",
+            elementIds: ["console"],
+            activeElementId: "console",
+            presentation: "single",
+          },
+        ],
+      },
+      {
+        type: "split",
+        id: "results",
+        direction: "vertical",
+        sizes: [55, 45],
+        children: [
+          {
+            type: "leaf",
+            id: "preview",
+            elementIds: ["preview"],
+            activeElementId: "preview",
+            presentation: "single",
+          },
+          {
+            type: "leaf",
+            id: "data",
+            elementIds: ["data", "schema"],
+            activeElementId: "data",
+            presentation: "tabs",
+          },
+        ],
+      },
+    ],
+  },
+};
+
 const PanesDemo = () => {
-  const [value, setValue] = createSignal(createPanesValue(["source", "preview", "data"]));
+  const [value, setValue] = createSignal<PanesValue>(initialPanesLayout);
   return (
     <DemoCard
       id="panes"
       chip={{ kind: "component", name: "Panes", from: "@k2b/ui" }}
-      description="A controlled, serializable tree of tabs and splits with resize, reorder, move, split, and close behavior."
-      code={`const [layout, setLayout] = createSignal(createPanesValue(["source", "preview", "data"]));
+      description="A controlled, serializable tree of tabs and splits. Drag a tab to reveal every valid move and add target."
+      code={`const [layout, setLayout] = createSignal<PanesValue>(initialLayout);
 <Panes.Root value={layout()} onValueChange={setLayout} label="Editor panes">
   <Panes.Element id="source" title="Source" icon="ti ti-code">…</Panes.Element>
+  <Panes.Element id="outline" title="Outline" icon="ti ti-list-tree">…</Panes.Element>
+  <Panes.Element id="console" title="Console" icon="ti ti-terminal-2">…</Panes.Element>
   <Panes.Element id="preview" title="Preview" icon="ti ti-eye">…</Panes.Element>
   <Panes.Element id="data" title="Data" icon="ti ti-database">…</Panes.Element>
+  <Panes.Element id="schema" title="Schema" icon="ti ti-table">…</Panes.Element>
 </Panes.Root>`}
     >
       <div class="ui-panes-demo">
@@ -234,6 +293,16 @@ const PanesDemo = () => {
           <Panes.Element id="source" title="Source" icon="ti ti-code">
             <div class="ui-pane-body" data-tone="blue">
               <span>Source</span>
+            </div>
+          </Panes.Element>
+          <Panes.Element id="outline" title="Outline" icon="ti ti-list-tree">
+            <div class="ui-pane-body" data-tone="blue">
+              <span>Outline</span>
+            </div>
+          </Panes.Element>
+          <Panes.Element id="console" title="Console" icon="ti ti-terminal-2">
+            <div class="ui-pane-body" data-tone="violet">
+              <span>Console</span>
             </div>
           </Panes.Element>
           <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
@@ -244,6 +313,11 @@ const PanesDemo = () => {
           <Panes.Element id="data" title="Data" icon="ti ti-database">
             <div class="ui-pane-body" data-tone="emerald">
               <span>Data</span>
+            </div>
+          </Panes.Element>
+          <Panes.Element id="schema" title="Schema" icon="ti ti-table">
+            <div class="ui-pane-body" data-tone="emerald">
+              <span>Schema</span>
             </div>
           </Panes.Element>
         </Panes.Root>

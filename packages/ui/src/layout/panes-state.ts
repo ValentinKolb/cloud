@@ -35,6 +35,23 @@ export type PanesDropIntent =
   | { kind: "split"; elementId: string; leafId: string; zone: PanesSplitZone }
   | { kind: "insert"; elementId: string; splitId: string; index: number; direction: PanesDirection };
 
+export type PanesDropTarget = {
+  id: string;
+  kind: "tab" | "group" | "split";
+  leafId: string;
+  intent: PanesDropIntent;
+  disabled?: boolean;
+  beforeElementId?: string | null;
+  zone?: PanesSplitZone;
+};
+
+export type PanesDropTargetOptions = {
+  allowMove: boolean;
+  allowReorder: boolean;
+  allowHorizontalSplit: boolean;
+  allowVerticalSplit: boolean;
+};
+
 type ElementLocation = {
   leaf: PanesLeafNode;
   parentSplitId?: string;
@@ -501,4 +518,86 @@ export const applyPanesIntent = (
     version: PANES_VALUE_VERSION,
     root: pruneEmptyNodes(root) ?? leafNode("root", [], presentation),
   };
+};
+
+const collectPanesLeaves = (node: PanesNode, leaves: PanesLeafNode[]) => {
+  if (node.type === "leaf") {
+    leaves.push(node);
+    return;
+  }
+  node.children.forEach((child) => collectPanesLeaves(child, leaves));
+};
+
+const dropTargetId = (intent: PanesDropIntent): string => {
+  if (intent.kind === "move") return `move:${intent.elementId}:${intent.leafId}:${intent.beforeElementId ?? "end"}`;
+  if (intent.kind === "insert") return `insert:${intent.elementId}:${intent.splitId}:${intent.index}`;
+  return `split:${intent.elementId}:${intent.leafId}:${intent.zone}`;
+};
+
+/** Enumerates the explicit, valid operations shown while one pane element is dragged. */
+export const getPanesDropTargets = (value: PanesValue, elementId: string, options: PanesDropTargetOptions): PanesDropTarget[] => {
+  if (!options.allowMove) return [];
+  const source = findElementLocation(value.root, elementId);
+  if (!source) return [];
+
+  const leaves: PanesLeafNode[] = [];
+  collectPanesLeaves(value.root, leaves);
+  const targets: PanesDropTarget[] = [];
+  const resultingValues = new Set<string>();
+
+  const add = (target: Omit<PanesDropTarget, "id" | "intent"> & { intent: PanesDropIntent }) => {
+    const intent = resolvePanesDropIntent(value, target.intent);
+    if (!intent) {
+      if (target.kind === "split") targets.push({ ...target, id: dropTargetId(target.intent), intent: target.intent, disabled: true });
+      return;
+    }
+    const result = applyPanesIntent(value, intent);
+    if (result === value) {
+      if (target.kind === "split") targets.push({ ...target, id: dropTargetId(target.intent), intent: target.intent, disabled: true });
+      return;
+    }
+    const resultKey = JSON.stringify(result);
+    if (resultingValues.has(resultKey)) return;
+    resultingValues.add(resultKey);
+    targets.push({ ...target, id: dropTargetId(intent), intent });
+  };
+
+  for (const leaf of leaves) {
+    if (options.allowReorder) {
+      for (const beforeElementId of leaf.elementIds) {
+        add({
+          kind: "tab",
+          leafId: leaf.id,
+          beforeElementId,
+          intent: { kind: "move", elementId, leafId: leaf.id, beforeElementId },
+        });
+      }
+
+      const atEnd = {
+        kind: "move",
+        elementId,
+        leafId: leaf.id,
+        beforeElementId: null,
+      } satisfies PanesDropIntent;
+      if (leaf.id === source.leaf.id) {
+        add({ kind: "tab", leafId: leaf.id, beforeElementId: null, intent: atEnd });
+      } else {
+        add({ kind: "group", leafId: leaf.id, intent: atEnd });
+      }
+    }
+
+    const splitZones: PanesSplitZone[] = ["left", "right", "top", "bottom"];
+    for (const zone of splitZones) {
+      const horizontal = zone === "left" || zone === "right";
+      if ((horizontal && !options.allowHorizontalSplit) || (!horizontal && !options.allowVerticalSplit)) continue;
+      add({
+        kind: "split",
+        leafId: leaf.id,
+        zone,
+        intent: { kind: "split", elementId, leafId: leaf.id, zone },
+      });
+    }
+  }
+
+  return targets;
 };

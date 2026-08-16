@@ -3,6 +3,7 @@ import {
   activatePanesElement,
   applyPanesIntent,
   createPanesValue,
+  getPanesDropTargets,
   normalizePanesValue,
   type PanesValue,
   resizePanesSplit,
@@ -281,6 +282,79 @@ describe("Panes state kernel", () => {
     expect(reordered.root.type === "split" && reordered.root.children[0]).toMatchObject({ elementIds: ["two", "one"] });
     const movedToEnd = applyPanesIntent(value, { kind: "move", elementId: "one", leafId: "left", beforeElementId: null });
     expect(movedToEnd.root.type === "split" && movedToEnd.root.children[0]).toMatchObject({ elementIds: ["two", "one"] });
+  });
+
+  test("enumerates valid explicit tab, group, and split targets", () => {
+    const value = splitValue();
+    const targets = getPanesDropTargets(value, "two", {
+      allowMove: true,
+      allowReorder: true,
+      allowHorizontalSplit: true,
+      allowVerticalSplit: true,
+    });
+
+    expect(new Set(targets.map((target) => target.kind))).toEqual(new Set(["tab", "group", "split"]));
+    expect(targets.some((target) => target.kind === "tab" && target.leafId === "left" && target.beforeElementId === "one")).toBe(true);
+    expect(targets.some((target) => target.kind === "tab" && target.leafId === "left" && target.beforeElementId === "two")).toBe(false);
+    expect(targets.some((target) => target.kind === "tab" && target.leafId === "left" && target.beforeElementId === null)).toBe(false);
+    expect(targets.some((target) => target.kind === "group" && target.leafId === "right")).toBe(true);
+    expect(
+      getPanesDropTargets(value, "two", {
+        allowMove: false,
+        allowReorder: true,
+        allowHorizontalSplit: true,
+        allowVerticalSplit: true,
+      }),
+    ).toEqual([]);
+
+    const disabled = targets.filter((target) => target.disabled);
+    expect(disabled.every((target) => target.kind === "split")).toBe(true);
+
+    const enabled = targets.filter((target) => !target.disabled);
+    const results = enabled.map((target) => applyPanesIntent(value, target.intent));
+    expect(results.every((result) => result !== value)).toBe(true);
+    expect(new Set(results.map((result) => JSON.stringify(result))).size).toBe(results.length);
+  });
+
+  test("honors operation flags and deduplicates nested equivalent edges", () => {
+    const flat: PanesValue = {
+      root: {
+        type: "split",
+        id: "root",
+        direction: "horizontal",
+        sizes: [33, 34, 33],
+        children: [
+          { type: "leaf", id: "source", elementIds: ["source"], activeElementId: "source" },
+          { type: "leaf", id: "preview", elementIds: ["preview"], activeElementId: "preview" },
+          { type: "leaf", id: "data", elementIds: ["data"], activeElementId: "data" },
+        ],
+      },
+    };
+    const targets = getPanesDropTargets(flat, "data", {
+      allowMove: true,
+      allowReorder: false,
+      allowHorizontalSplit: true,
+      allowVerticalSplit: false,
+    });
+
+    expect(targets.every((target) => target.kind === "split" && (target.zone === "left" || target.zone === "right"))).toBe(true);
+    expect(
+      targets.filter(
+        (target) => !target.disabled && target.intent.kind === "insert" && target.intent.splitId === "root" && target.intent.index === 0,
+      ),
+    ).toHaveLength(1);
+    expect(targets.filter((target) => target.leafId === "data")).toEqual([
+      expect.objectContaining({ kind: "split", zone: "left", disabled: true }),
+      expect.objectContaining({ kind: "split", zone: "right", disabled: true }),
+    ]);
+
+    const verticalOnly = getPanesDropTargets(splitValue(), "two", {
+      allowMove: true,
+      allowReorder: false,
+      allowHorizontalSplit: false,
+      allowVerticalSplit: true,
+    });
+    expect(verticalOnly.every((target) => target.kind === "split" && (target.zone === "top" || target.zone === "bottom"))).toBe(true);
   });
 
   test("rejects a persisted layout stamped with a different schema version", () => {
