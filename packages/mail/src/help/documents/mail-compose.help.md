@@ -33,7 +33,7 @@ Open **Message options** and choose the format for the current draft:
 
 Mail sends Markdown as readable HTML with the mailbox email design and a text alternative. Plain text sends no HTML alternative. You can arrange the available panes, and Mail keeps the layout compatible when another draft offers a different set of panes.
 
-History loads only when you open it. Mail keeps the newest message expanded, lets you expand additional messages, and loads earlier summaries in pages. It retrieves a complete message only when you expand it. Links and attachments use the same security protections as in the conversation reader.
+History loads only when you open it. Mail initially expands the newest message, lets you expand or collapse multiple messages independently, and loads earlier summaries in pages. It retrieves a complete message only when you expand it. Links and attachments use the same security protections as in the conversation reader.
 
 Your default format is stored under **Settings > Writing > Compose format**. Changing the default does not rewrite existing drafts.
 

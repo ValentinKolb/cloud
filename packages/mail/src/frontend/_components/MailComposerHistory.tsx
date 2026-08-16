@@ -139,18 +139,14 @@ export default function MailComposerHistory(props: {
   let initializedConversationId: string | null = null;
 
   createEffect(() => {
+    if (initializedConversationId === props.conversationId) return;
     const firstMessageId = messages()[0]?.id;
     if (!firstMessageId) return;
-    if (initializedConversationId !== props.conversationId) {
-      initializedConversationId = props.conversationId;
-      setExpandedMessageIds(new Set([firstMessageId]));
-      return;
-    }
-    setExpandedMessageIds((current) => (current.has(firstMessageId) ? current : new Set(current).add(firstMessageId)));
+    initializedConversationId = props.conversationId;
+    setExpandedMessageIds(new Set([firstMessageId]));
   });
 
   const toggleMessage = (messageId: string) => {
-    if (messageId === messages()[0]?.id) return;
     setExpandedMessageIds((current) => {
       const next = new Set(current);
       if (next.has(messageId)) next.delete(messageId);
@@ -204,7 +200,7 @@ export default function MailComposerHistory(props: {
                 </NoticeCard>
               )}
             </Show>
-            <div>
+            <div class="flex flex-col gap-2">
               <For each={messages()}>
                 {(message) => {
                   const expanded = () => expandedMessageIds().has(message.id);
@@ -215,7 +211,7 @@ export default function MailComposerHistory(props: {
                     <article>
                       <button
                         type="button"
-                        class="grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-3 px-3 py-2.5 text-left hover:bg-[var(--ui-hover)] focus-visible:bg-[var(--ui-hover)]"
+                        class="grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-[var(--ui-radius-surface)] bg-[var(--ui-surface-subtle)] px-3 py-2.5 text-left hover:bg-[var(--ui-hover)] focus-visible:bg-[var(--ui-hover)]"
                         aria-expanded={expanded()}
                         onClick={() => toggleMessage(message.id)}
                       >

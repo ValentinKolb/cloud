@@ -126,6 +126,10 @@ describe("Mail composer history", () => {
 
       const newestButton = Array.from(dom.root.querySelectorAll("button")).find((button) => button.textContent?.includes("Newest subject"));
       const olderButton = Array.from(dom.root.querySelectorAll("button")).find((button) => button.textContent?.includes("Older subject"));
+      expect(newestButton?.className).toContain("rounded-[var(--ui-radius-surface)]");
+      expect(newestButton?.className).toContain("bg-[var(--ui-surface-subtle)]");
+      expect(newestButton?.className).toContain("hover:bg-[var(--ui-hover)]");
+      expect(newestButton?.closest("article")?.parentElement?.className).toContain("gap-2");
       expect(newestButton?.getAttribute("aria-expanded")).toBe("true");
       expect(olderButton).toBeDefined();
       olderButton!.click();
@@ -138,7 +142,7 @@ describe("Mail composer history", () => {
 
       newestButton!.click();
       await settle();
-      expect(newestButton?.getAttribute("aria-expanded")).toBe("true");
+      expect(newestButton?.getAttribute("aria-expanded")).toBe("false");
       expect(olderButton!.getAttribute("aria-expanded")).toBe("true");
 
       const loadEarlier = Array.from(dom.root.querySelectorAll("button")).find((button) =>
