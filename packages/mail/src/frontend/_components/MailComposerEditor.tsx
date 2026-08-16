@@ -20,7 +20,6 @@ export default function MailComposerEditor(props: {
   panes: Accessor<PanesValue>;
   onPanesChange: (value: PanesValue) => void;
   preview: Accessor<ComposePreview | null>;
-  previewLoading: Accessor<boolean>;
   previewError: Accessor<string | undefined>;
   onRetryPreview: () => void;
   onEditorReady: (element: HTMLTextAreaElement) => void;
@@ -91,11 +90,6 @@ export default function MailComposerEditor(props: {
             Retry
           </Button>
         </div>
-      </Show>
-      <Show when={props.previewLoading()}>
-        <span class="absolute right-2 top-2 text-xs text-dimmed">
-          <i class="ti ti-loader-2 animate-spin" aria-hidden="true" /> Updating
-        </span>
       </Show>
     </div>
   );

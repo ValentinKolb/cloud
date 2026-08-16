@@ -226,7 +226,8 @@ export default function MailComposer(props: {
       return await response.json();
     },
   });
-  const previewDebounce = timed.debounce((input: PreviewInput) => setPreviewSource(JSON.stringify(input)), 250);
+  const previewDebounce = timed.debounce((serialized: string) => setPreviewSource(serialized), 150);
+  const stopPreview = () => previewDebounce.cancel();
   const preview = () => previewQuery.data() ?? null;
   const canEditDraft = createMemo(
     () => verifiedIdentities().length > 0 && status() !== "preparing" && status() !== "readonly" && (Boolean(lease()) || !draft()),
@@ -282,10 +283,6 @@ export default function MailComposer(props: {
     } finally {
       composerTransition.release(reservation);
     }
-  };
-
-  const stopPreview = () => {
-    previewDebounce.cancel();
   };
 
   const updateComposerPanes = (value: PanesValue) => {
@@ -380,15 +377,21 @@ export default function MailComposer(props: {
 
   createEffect(() => {
     if (typeof window === "undefined") return;
-    const previewDraft = content();
-    if (format() !== "markdown" || !mailComposerPaneVisible(composerPanes().root, "preview") || !identityId()) {
+    const serialized = JSON.stringify({ draft: content(), conversationId: conversationId() } satisfies PreviewInput);
+    if (format() !== "markdown" || !identityId()) {
       stopPreview();
       return;
     }
-    previewDebounce.debouncedFn({
-      draft: previewDraft,
-      conversationId: conversationId(),
-    });
+    if (!mailComposerPaneVisible(composerPanes().root, "preview")) {
+      stopPreview();
+      setPreviewSource(serialized);
+      return;
+    }
+    if (previewSource() === serialized) {
+      stopPreview();
+      return;
+    }
+    previewDebounce.debouncedFn(serialized);
   });
 
   onCleanup(() => {
@@ -1082,7 +1085,6 @@ export default function MailComposer(props: {
           panes={composerPanes}
           onPanesChange={updateComposerPanes}
           preview={preview}
-          previewLoading={() => previewQuery.loading() || previewQuery.refreshing() || previewDebounce.isPending()}
           previewError={() => previewQuery.error()?.message}
           onRetryPreview={retryPreview}
           onEditorReady={focusFreshEditorAtStart}

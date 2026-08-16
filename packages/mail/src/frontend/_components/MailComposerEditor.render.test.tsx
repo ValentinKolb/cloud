@@ -36,7 +36,6 @@ const renderEditor = (format: "plain" | "markdown", value: PanesValue, history =
       panes: () => value,
       onPanesChange: () => undefined,
       preview: () => null,
-      previewLoading: () => false,
       previewError: () => undefined,
       onRetryPreview: () => undefined,
       onEditorReady: () => undefined,
@@ -68,5 +67,7 @@ describe("MailComposerEditor", () => {
     expect(html).toContain("Write");
     expect(html).toContain("Preview");
     expect(html).toContain("History");
+    expect(html).toContain("Preparing preview...");
+    expect(html).not.toContain("Updating");
   });
 });
