@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { initialConversationMessageId, isNearConversationStart, isOutgoingMessage, newestFirstMessages } from "./mail-conversation-history";
+import {
+  initialConversationMessageId,
+  isNearConversationStart,
+  isOutgoingMessage,
+  mergeLatestMessagePages,
+  newestFirstMessages,
+} from "./mail-conversation-history";
 
 const identities = [{ fromAddress: "me@example.com", status: "verified" }];
 
@@ -26,5 +32,11 @@ describe("mail conversation history", () => {
   test("uses a small top tolerance for live-message following", () => {
     expect(isNearConversationStart({ scrollTop: 40 })).toBeTrue();
     expect(isNearConversationStart({ scrollTop: 120 })).toBeFalse();
+  });
+
+  test("merges latest-first pages without duplicating cursor boundary messages", () => {
+    const pages = [{ items: [{ id: "older" }, { id: "newest" }] }, { items: [{ id: "oldest" }, { id: "older" }] }];
+
+    expect(mergeLatestMessagePages(pages).map((message) => message.id)).toEqual(["newest", "older", "oldest"]);
   });
 });

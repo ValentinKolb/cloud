@@ -27,9 +27,13 @@ An email link can supply To, Cc, Bcc, Subject, and plain-text Body. Cloud shows 
 Open **Message options** and choose the format for the current draft:
 
 :::compare
-- **Markdown** shows **Write** and **Preview** panes. Mail sends readable HTML with the mailbox email design and a text alternative. You can arrange the panes and Mail remembers your pane layout on this device.
-- **Plain text** has no Preview pane and sends no HTML alternative.
+- **Markdown** shows **Write** and **Preview**. When the draft belongs to a conversation, it also shows **History**.
+- **Plain text** has no Preview pane. A standalone message stays in one editor; a conversation draft shows **Write** and **History**.
 :::
+
+Mail sends Markdown as readable HTML with the mailbox email design and a text alternative. Plain text sends no HTML alternative. You can arrange the available panes, and Mail keeps the layout compatible when another draft offers a different set of panes.
+
+History loads only when you open it. Mail loads message summaries in pages and retrieves a complete message only when you expand it. Links and attachments use the same security protections as in the conversation reader.
 
 Your default format is stored under **Settings > Writing > Compose format**. Changing the default does not rewrite existing drafts.
 

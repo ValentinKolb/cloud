@@ -77,17 +77,17 @@ describe("Mail composer pane preferences", () => {
 
     expect(normalizeMailComposerPanes(duplicateNodeIds).root).toMatchObject({
       type: "leaf",
-      elementIds: ["editor", "preview"],
+      elementIds: ["editor", "preview", "history"],
       activeElementId: "editor",
       presentation: "tabs",
     });
     expect(normalizeMailComposerPanes({ root: { type: "split" } }).root).toMatchObject({
       type: "leaf",
-      elementIds: ["editor", "preview"],
+      elementIds: ["editor", "preview", "history"],
     });
   });
 
-  test("rejects unknown or missing elements", () => {
+  test("rejects unknown elements or layouts without the editor", () => {
     expect(
       normalizeMailComposerPanes({
         root: {
@@ -100,7 +100,7 @@ describe("Mail composer pane preferences", () => {
       }).root,
     ).toMatchObject({
       type: "leaf",
-      elementIds: ["editor", "preview"],
+      elementIds: ["editor", "preview", "history"],
       activeElementId: "editor",
       presentation: "tabs",
     });
@@ -109,15 +109,30 @@ describe("Mail composer pane preferences", () => {
         root: {
           type: "leaf",
           id: "compose",
-          elementIds: ["editor"],
-          activeElementId: "editor",
+          elementIds: ["history"],
+          activeElementId: "history",
           presentation: "single",
         },
       }).root,
     ).toMatchObject({
       type: "leaf",
-      elementIds: ["editor", "preview"],
+      elementIds: ["editor", "preview", "history"],
     });
+  });
+
+  test("keeps layouts for the panes available to the current composer", () => {
+    for (const elementIds of [["editor"], ["editor", "preview"], ["editor", "history"]]) {
+      const value = {
+        root: {
+          type: "leaf" as const,
+          id: "compose",
+          elementIds,
+          activeElementId: elementIds[0],
+          presentation: elementIds.length === 1 ? ("single" as const) : ("tabs" as const),
+        },
+      };
+      expect(normalizeMailComposerPanes(value)).toEqual(value);
+    }
   });
 
   test("rejects unsupported split directions and unusably small panes", () => {
@@ -152,7 +167,7 @@ describe("Mail composer pane preferences", () => {
     ]) {
       expect(normalizeMailComposerPanes({ root }).root).toMatchObject({
         type: "leaf",
-        elementIds: ["editor", "preview"],
+        elementIds: ["editor", "preview", "history"],
       });
     }
   });

@@ -1,5 +1,5 @@
-import type { PanesNode, PanesValue } from "@k2b/ui";
 import { cookies } from "@k2b/stdlib/browser";
+import type { PanesNode, PanesValue } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import {
   MAIL_USER_PREFERENCES_COOKIE,
@@ -9,7 +9,8 @@ import {
 } from "./mail-user-preferences";
 
 const COMPOSER_PANES_COOKIE_NAME = "settings-app-mail-composer-panes";
-const COMPOSER_PANE_IDS = ["editor", "preview"] as const;
+const COMPOSER_PANE_IDS = ["editor", "preview", "history"] as const;
+const REQUIRED_COMPOSER_PANE_IDS = ["editor"] as const;
 const MIN_PANE_SIZE = 8;
 
 const defaultComposerPanes = (): PanesValue => ({
@@ -59,7 +60,7 @@ export const normalizeMailComposerPanes = (value: unknown): PanesValue => {
   if (!value || typeof value !== "object" || !("root" in value)) return defaultComposerPanes();
   const seenElementIds = new Set<string>();
   if (!isComposerPanesNode((value as { root: unknown }).root, new Set(), seenElementIds)) return defaultComposerPanes();
-  if (seenElementIds.size !== COMPOSER_PANE_IDS.length || COMPOSER_PANE_IDS.some((id) => !seenElementIds.has(id))) {
+  if (REQUIRED_COMPOSER_PANE_IDS.some((id) => !seenElementIds.has(id))) {
     return defaultComposerPanes();
   }
   return value as PanesValue;

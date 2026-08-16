@@ -37,6 +37,7 @@ import { readApiError } from "./api-response";
 import MailComposerAttachments from "./MailComposerAttachments";
 import { openMailComposerCalendarDialog } from "./MailComposerCalendarDialog";
 import MailComposerEditor, { mailComposerPaneVisible } from "./MailComposerEditor";
+import MailComposerHistory from "./MailComposerHistory";
 import MailRecipientInput from "./MailRecipientInput";
 import { chooseScheduledSendTime } from "./MailScheduleDialog";
 import { readMailComposerPanes, readMailUserPreferences, writeMailComposerPanes } from "./MailSettingsStore";
@@ -205,8 +206,9 @@ export default function MailComposer(props: {
     resumeCurrentLease,
     hasUnsavedChanges,
   } = draftSession;
+  const conversationId = () => draft()?.conversationId ?? initial.conversationId;
   type PreviewInput = { draft: DraftEditableContentInput; conversationId: string | null };
-  const initialPreviewInput: PreviewInput = { draft: content(), conversationId: draft()?.conversationId ?? initial.conversationId };
+  const initialPreviewInput: PreviewInput = { draft: content(), conversationId: conversationId() };
   const [previewSource, setPreviewSource] = createSignal(JSON.stringify(initialPreviewInput));
   const previewQuery = query.create<string, ComposePreview>({
     source: previewSource,
@@ -385,7 +387,7 @@ export default function MailComposer(props: {
     }
     previewDebounce.debouncedFn({
       draft: previewDraft,
-      conversationId: draft()?.conversationId ?? initial.conversationId,
+      conversationId: conversationId(),
     });
   });
 
@@ -939,7 +941,7 @@ export default function MailComposer(props: {
             json: {
               query,
               draft: content(),
-              conversationId: draft()?.conversationId ?? initial.conversationId,
+              conversationId: conversationId(),
             },
           },
           { init: { signal } },
@@ -1084,6 +1086,17 @@ export default function MailComposer(props: {
           previewError={() => previewQuery.error()?.message}
           onRetryPreview={retryPreview}
           onEditorReady={focusFreshEditorAtStart}
+          history={
+            conversationId() ? (
+              <MailComposerHistory
+                mailboxId={props.mailboxId}
+                conversationId={conversationId()!}
+                identities={props.identities}
+                dateConfig={props.dateConfig}
+                active={() => mailComposerPaneVisible(composerPanes().root, "history")}
+              />
+            ) : undefined
+          }
         />
 
         <MailComposerAttachments

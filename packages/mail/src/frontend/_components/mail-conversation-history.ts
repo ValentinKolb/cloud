@@ -19,6 +19,16 @@ export const isOutgoingMessage = (message: Pick<HistoryMessage, "from">, identit
 
 export const newestFirstMessages = <T>(messages: readonly T[]): T[] => [...messages].reverse();
 
+export const mergeLatestMessagePages = <T extends { id: string }>(pages: readonly { items: readonly T[] }[]): T[] => {
+  const messages = new Map<string, T>();
+  for (const page of pages) {
+    for (const message of page.items.toReversed()) {
+      if (!messages.has(message.id)) messages.set(message.id, message);
+    }
+  }
+  return [...messages.values()];
+};
+
 export const initialConversationMessageId = (messages: readonly HistoryMessage[]): string | null => messages.at(-1)?.id ?? null;
 
 export const isNearConversationStart = (metrics: { scrollTop: number }, threshold = 96): boolean => metrics.scrollTop <= threshold;

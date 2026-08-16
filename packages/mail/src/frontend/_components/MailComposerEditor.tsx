@@ -1,6 +1,6 @@
-import { AutocompleteEditor, type Completion, MarkdownEditor, Panes, type PanesNode, type PanesValue, Button, Placeholder } from "@k2b/ui";
-import type { Accessor } from "solid-js";
-import { Show } from "solid-js";
+import { AutocompleteEditor, Button, type Completion, MarkdownEditor, Panes, type PanesNode, type PanesValue, Placeholder } from "@k2b/ui";
+import type { Accessor, JSX } from "solid-js";
+import { children, Show } from "solid-js";
 import type { ComposePreview } from "../../contracts";
 
 export const mailComposerPaneVisible = (node: PanesNode, elementId: string): boolean => {
@@ -24,7 +24,11 @@ export default function MailComposerEditor(props: {
   previewError: Accessor<string | undefined>;
   onRetryPreview: () => void;
   onEditorReady: (element: HTMLTextAreaElement) => void;
+  history?: JSX.Element;
 }) {
+  const history = children(() => props.history);
+  const hasHistory = () => history() !== undefined && history() !== null;
+  const usesPanes = () => props.format() === "markdown" || hasHistory();
   const writeSurface = () => (
     <Show
       when={props.format() === "markdown"}
@@ -98,7 +102,7 @@ export default function MailComposerEditor(props: {
 
   return (
     <div class="min-h-72 flex-1 py-2">
-      <Show when={props.format() === "markdown"} fallback={<div class="h-full min-h-72 overflow-hidden">{writeSurface()}</div>}>
+      <Show when={usesPanes()} fallback={<div class="h-full min-h-72 overflow-hidden">{writeSurface()}</div>}>
         <Panes.Root
           value={props.panes()}
           onValueChange={props.onPanesChange}
@@ -113,9 +117,16 @@ export default function MailComposerEditor(props: {
           <Panes.Element id="editor" title="Write" icon="ti ti-pencil">
             <div class="h-full min-h-0 overflow-hidden">{writeSurface()}</div>
           </Panes.Element>
-          <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
-            {previewSurface()}
-          </Panes.Element>
+          <Show when={props.format() === "markdown"}>
+            <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
+              {previewSurface()}
+            </Panes.Element>
+          </Show>
+          <Show when={hasHistory()}>
+            <Panes.Element id="history" title="History" icon="ti ti-history">
+              {history()}
+            </Panes.Element>
+          </Show>
         </Panes.Root>
       </Show>
     </div>
