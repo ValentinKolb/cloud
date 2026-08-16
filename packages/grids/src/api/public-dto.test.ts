@@ -9,12 +9,30 @@ import {
   PublicFormSchema,
   PublicTableSchema,
   PublicViewSchema,
+  resourceTypeForKnownIdKey,
 } from "./public-dto";
 
 const now = "2026-08-15T00:00:00.000Z";
 const uuid = "11111111-1111-4111-8111-111111111111";
 
 describe("Grids public DTO ID boundary", () => {
+  test("recognizes nested resource ID keys in public configurations", () => {
+    expect(
+      ["fieldId", "fieldIds", "imageFieldId", "dateFieldId", "leftFieldId", "rightFieldId", "errorFieldId", "relationFieldId"].map(
+        resourceTypeForKnownIdKey,
+      ),
+    ).toEqual(Array(8).fill("field"));
+    expect(["tableId", "sourceTableIds", "recordId", "selectedRecordId", "viewId", "formId"].map(resourceTypeForKnownIdKey)).toEqual([
+      "table",
+      "table",
+      "record",
+      "record",
+      "view",
+      "form",
+    ]);
+    expect(["baseId", "fileId", "ownerUserId", "identityProviderId"].map(resourceTypeForKnownIdKey)).toEqual([null, null, null, null]);
+  });
+
   test("models the virtual default form without inventing a public resource id", () => {
     const projected = PublicFormSchema.parse({
       tableId: "TABL01",

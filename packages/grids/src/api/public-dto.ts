@@ -593,18 +593,21 @@ export const toPublicTables = async (tables: readonly Table[]): Promise<PublicTa
 };
 export const toPublicTable = async (table: Table) => (await toPublicTables([table]))[0]!;
 
+type KnownIdResourceType = "table" | "field" | "record" | "view" | "form";
+
+export const resourceTypeForKnownIdKey = (key: string): KnownIdResourceType | null => {
+  if (/tableIds?$/i.test(key)) return "table";
+  if (/fieldIds?$/i.test(key)) return "field";
+  if (/recordIds?$/i.test(key)) return "record";
+  if (/viewIds?$/i.test(key)) return "view";
+  if (/formIds?$/i.test(key)) return "form";
+  return null;
+};
+
 const projectKnownIds = async (value: unknown): Promise<unknown> => {
   const idsByType = new Map<"table" | "field" | "record" | "view" | "form", Set<string>>();
-  const typeForKey = (key: string) => {
-    if (/^(?:source|target)?tableIds?$/.test(key)) return "table" as const;
-    if (/^(?:source|target)?fieldIds?$/.test(key)) return "field" as const;
-    if (/^(?:source|target)?recordIds?$/.test(key)) return "record" as const;
-    if (/^viewIds?$/.test(key)) return "view" as const;
-    if (/^formIds?$/.test(key)) return "form" as const;
-    return null;
-  };
   const collect = (candidate: unknown, key = "") => {
-    const type = typeForKey(key);
+    const type = resourceTypeForKnownIdKey(key);
     if (type && typeof candidate === "string") {
       const ids = idsByType.get(type) ?? new Set<string>();
       ids.add(candidate);
@@ -623,7 +626,7 @@ const projectKnownIds = async (value: unknown): Promise<unknown> => {
   const maps = new Map<string, Map<string, string>>();
   await Promise.all([...idsByType].map(async ([type, ids]) => maps.set(type, await projectPublicIds(type, [...ids]))));
   const replace = (candidate: unknown, key = ""): unknown => {
-    const type = typeForKey(key);
+    const type = resourceTypeForKnownIdKey(key);
     if (type && typeof candidate === "string") return publicId(maps.get(type) ?? new Map(), candidate, type);
     if (Array.isArray(candidate)) return candidate.map((item) => replace(item, key.endsWith("Ids") ? key.slice(0, -1) : key));
     if (candidate && typeof candidate === "object")

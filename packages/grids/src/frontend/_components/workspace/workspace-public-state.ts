@@ -188,14 +188,15 @@ const projectRoute = async (state: OkWorkspaceState, catalog: PublicWorkspaceCat
     const publicDetail = detail ? await projectPublicWorkspaceRecordDetail(detail, route.fields) : null;
     const publicQuery = await toPublicRecordQuery(route.initialState.query, route.fields);
     const publicActiveQuery = route.activeRecordQuery ? await toPublicRecordQuery(route.activeRecordQuery, route.fields) : null;
+    const publicActiveTable = required(activeTable, "active table");
     return {
       ...route,
-      activeTable: required(activeTable, "active table"),
+      activeTable: publicActiveTable,
       activeView: activeView
         ? {
             ...activeView,
             query: await toPublicRecordQuery(route.activeView!.query, route.fields),
-            displayConfig: route.activeView!.displayConfig,
+            displayConfig: activeView.ui.displayConfig ?? { mode: "table" },
           }
         : null,
       fields,
@@ -217,6 +218,7 @@ const projectRoute = async (state: OkWorkspaceState, catalog: PublicWorkspaceCat
         route.searchableFields.some((candidate) => candidate.id === route.fields[index]?.id),
       ),
       activeRecordQuery: publicActiveQuery,
+      displayConfig: activeView?.ui.displayConfig ?? publicActiveTable.displayConfig,
       bulkSelectionLaunchers: launchers.map((launcher, index) => ({
         ...launcher,
         workflowRevision: route.bulkSelectionLaunchers[index]!.workflowRevision,
