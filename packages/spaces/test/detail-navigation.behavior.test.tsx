@@ -126,4 +126,62 @@ describe("Spaces detail navigation", () => {
     dispose();
     dom.cleanup();
   });
+
+  test("keeps the detail panel open while another selected item loads", async () => {
+    const requests: Array<ReturnType<typeof deferred<Response>>> = [];
+    detailGet = () => {
+      const request = deferred<Response>();
+      requests.push(request);
+      return request.promise;
+    };
+    const dom = createDomTestHarness();
+    ItemDetailRoute ??= (await import("../src/frontend/[id]/_components/detail/ItemDetailRoute.island")).default;
+    const initialHref = `${BASE}&item=${SERIES_ID}`;
+    const nextHref = `${BASE}&item=${OVERRIDE_ID}`;
+    dom.window.history.replaceState(null, "", initialHref);
+
+    const dispose = render(
+      () =>
+        createComponent(ItemDetailRoute, {
+          spaceId: SPACE_ID,
+          initialSource: initialHref,
+          currentUserId: "user",
+          columns: [],
+          tags: [],
+          wormholes: [],
+          initialDetail: detail(SERIES_ID),
+          canWrite: false,
+          mailIntegrationAvailable: false,
+        }),
+      dom.root,
+    );
+    const panel = dom.document.getElementById("k2b-workspace-detail-space-detail-panel") as HTMLElement;
+    expect(panel.hidden).toBe(false);
+
+    dom.window.dispatchEvent(
+      new dom.window.CustomEvent("spaces-detail-navigation", {
+        detail: { href: nextHref, history: "push" },
+      }),
+    );
+    await flush();
+
+    expect(requests).toHaveLength(1);
+    expect(panel.hidden).toBe(false);
+    expect(panel.textContent).toContain("Loading item details");
+
+    requests[0]!.resolve(Response.json(detail(OVERRIDE_ID)));
+    await flush();
+    expect(panel.hidden).toBe(false);
+
+    dom.window.dispatchEvent(
+      new dom.window.CustomEvent("spaces-detail-navigation", {
+        detail: { href: BASE, history: "push" },
+      }),
+    );
+    await flush();
+    expect(panel.hidden).toBe(true);
+
+    dispose();
+    dom.cleanup();
+  });
 });

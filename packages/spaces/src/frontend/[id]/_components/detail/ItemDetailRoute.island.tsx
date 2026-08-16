@@ -125,6 +125,7 @@ export default function ItemDetailRoute(props: Props) {
       ),
   });
 
+  const hasDetailSelection = () => detailRequest(source()).itemId !== null;
   const currentDetail = () => {
     const snapshot = detailQuery.data();
     return snapshot?.source === source() && !snapshot.notFound ? snapshot.detail : null;
@@ -223,15 +224,13 @@ export default function ItemDetailRoute(props: Props) {
     `spaces-detail-${props.spaceId}-${detail()?.item.id ?? "empty"}-${detail()?.recurringContext?.recurrenceId ?? "series"}`;
 
   return (
-    <AppWorkspace.Detail id="space-detail-panel" open={Boolean(detail())} viewTransitionName="space-detail-panel-shell">
+    <AppWorkspace.Detail id="space-detail-panel" open={hasDetailSelection()} viewTransitionName="space-detail-panel-shell">
       <div class="h-full min-h-0 flex-1">
         <Show
           when={detail()}
           keyed
           fallback={
-            detailQuery.loading() ? (
-              <Placeholder state="loading" title="Loading item details" />
-            ) : detailQuery.error() ? (
+            detailQuery.error() ? (
               <Placeholder
                 state="error"
                 title="Could not load item details"
@@ -242,6 +241,8 @@ export default function ItemDetailRoute(props: Props) {
                   </Button>
                 }
               />
+            ) : hasDetailSelection() ? (
+              <Placeholder state="loading" title="Loading item details" />
             ) : (
               <Placeholder icon="ti ti-click" description={<>Select an item to view details</>} />
             )
