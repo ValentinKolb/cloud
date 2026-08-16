@@ -483,20 +483,35 @@
   outline-offset: 1px;
 }
 
-/* Merging into an existing group uses the same quiet landing marker as a
-   split. A full tab-shaped preview overstates the operation and shifts the
-   surrounding tabs while the pointer moves. */
+/* Merging into an existing group previews the tab that will be added. */
 .k2b-ui .k2b-panes__merge-preview {
-  width: 0.5rem;
-  min-width: 0.5rem;
-  border: 0;
-  border-radius: 999px;
-  background: var(--k2b-success-500);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--k2b-success-500) 18%, transparent);
+  display: flex;
+  height: 1.75rem;
+  min-width: 5rem;
+  max-width: 16rem;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0 0.625rem;
+  border: 1px solid color-mix(in srgb, var(--k2b-success-500) 42%, var(--k2b-border));
+  border-radius: var(--k2b-radius-control);
+  color: var(--k2b-success-text);
+  background: var(--k2b-success-surface);
+  font-size: 0.75rem;
+  font-weight: 600;
+  overflow: hidden;
+  pointer-events: none;
 }
 
-.k2b-ui .k2b-panes__merge-preview > * {
-  display: none;
+.k2b-ui .k2b-panes__merge-preview > i {
+  flex: none;
+}
+
+.k2b-ui .k2b-panes__merge-preview > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Cloud: `relative min-h-0 flex-1 overflow-hidden` — a plain block. */

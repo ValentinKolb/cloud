@@ -31,7 +31,7 @@ export type PanesValue = {
 };
 
 export type PanesDropIntent =
-  | { kind: "move"; elementId: string; leafId: string; beforeElementId?: string }
+  | { kind: "move"; elementId: string; leafId: string; beforeElementId?: string | null }
   | { kind: "split"; elementId: string; leafId: string; zone: PanesSplitZone }
   | { kind: "insert"; elementId: string; splitId: string; index: number; direction: PanesDirection };
 
@@ -268,12 +268,7 @@ export const findPanesLeaf = (node: PanesNode, leafId: string): PanesLeafNode | 
   return null;
 };
 
-const findPanesLeafLocation = (
-  node: PanesNode,
-  leafId: string,
-  parent?: PanesSplitNode,
-  childIndex?: number,
-): LeafLocation | null => {
+const findPanesLeafLocation = (node: PanesNode, leafId: string, parent?: PanesSplitNode, childIndex?: number): LeafLocation | null => {
   if (node.type === "leaf") return node.id === leafId ? { leaf: node, parent, childIndex } : null;
   for (let index = 0; index < node.children.length; index += 1) {
     const location = findPanesLeafLocation(node.children[index]!, leafId, node, index);
@@ -337,7 +332,7 @@ export const activatePanesElement = (value: PanesValue, elementId: string): Pane
   };
 };
 
-const insertElement = (node: PanesNode, leafId: string, elementId: string, beforeElementId?: string): PanesNode =>
+const insertElement = (node: PanesNode, leafId: string, elementId: string, beforeElementId?: string | null): PanesNode =>
   mapPanesNode(node, leafId, (target) => {
     if (target.type !== "leaf") return target;
     const elementIds = target.elementIds.filter((id) => id !== elementId);
@@ -441,13 +436,18 @@ export const resolvePanesDropIntent = (value: PanesValue, rawIntent: PanesDropIn
   const intent = canonicalizePanesIntent(value, rawIntent);
   const source = findElementLocation(value.root, intent.elementId);
   if (!source) return null;
-  if (intent.kind === "move" && !findPanesLeaf(value.root, intent.leafId)) return null;
+  const moveTarget = intent.kind === "move" ? findPanesLeaf(value.root, intent.leafId) : null;
+  if (intent.kind === "move" && !moveTarget) return null;
+  if (intent.kind === "move" && typeof intent.beforeElementId === "string" && !moveTarget?.elementIds.includes(intent.beforeElementId))
+    return null;
   if (intent.kind === "insert" && !findPanesSplit(value.root, intent.splitId)) return null;
   if (intent.kind === "move" && intent.beforeElementId === intent.elementId) return null;
   if (intent.kind === "move" && source.leaf.id === intent.leafId) {
     // Releasing over your own pane body — no tab was hit, so there is no
-    // `beforeElementId` — is a no-op, not a "send this tab to the end".
-    if (!intent.beforeElementId) return null;
+    // `beforeElementId` property — is a no-op. `null` explicitly means the
+    // end of the tab strip.
+    if (intent.beforeElementId === undefined) return null;
+    if (intent.beforeElementId === null) return source.elementIndex === source.leaf.elementIds.length - 1 ? null : intent;
     const beforeIndex = source.leaf.elementIds.indexOf(intent.beforeElementId);
     if (beforeIndex === source.elementIndex || beforeIndex === source.elementIndex + 1) return null;
   }
@@ -471,7 +471,11 @@ export const resolvePanesDropIntent = (value: PanesValue, rawIntent: PanesDropIn
   return intent;
 };
 
-export const applyPanesIntent = (value: PanesValue, rawIntent: PanesDropIntent, presentation: PanesLeafPresentation = "tabs"): PanesValue => {
+export const applyPanesIntent = (
+  value: PanesValue,
+  rawIntent: PanesDropIntent,
+  presentation: PanesLeafPresentation = "tabs",
+): PanesValue => {
   const intent = resolvePanesDropIntent(value, rawIntent);
   if (!intent) return value;
 

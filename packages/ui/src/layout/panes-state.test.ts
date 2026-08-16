@@ -4,9 +4,9 @@ import {
   applyPanesIntent,
   createPanesValue,
   normalizePanesValue,
-  resolvePanesDropIntent,
-  resizePanesSplit,
   type PanesValue,
+  resizePanesSplit,
+  resolvePanesDropIntent,
 } from "./panes-state";
 
 const splitValue = (): PanesValue => ({
@@ -120,6 +120,17 @@ describe("Panes state kernel", () => {
       activeElementId: "two",
     });
 
+    const movedToEnd = applyPanesIntent(reordered, {
+      kind: "move",
+      elementId: "two",
+      leafId: "left",
+      beforeElementId: null,
+    });
+    expect(movedToEnd.root.type === "split" && movedToEnd.root.children[0]).toMatchObject({
+      elementIds: ["one", "two"],
+      activeElementId: "two",
+    });
+
     const moved = applyPanesIntent(reordered, {
       kind: "move",
       elementId: "two",
@@ -129,6 +140,33 @@ describe("Panes state kernel", () => {
       { elementIds: ["one"] },
       { elementIds: ["three", "two"], activeElementId: "two", presentation: "tabs" },
     ]);
+  });
+
+  test("reorders every slot in a three-tab strip", () => {
+    const value = createPanesValue(["one", "two", "three"]);
+    const movedToStart = applyPanesIntent(value, {
+      kind: "move",
+      elementId: "three",
+      leafId: "root",
+      beforeElementId: "one",
+    });
+    expect(movedToStart.root).toMatchObject({ elementIds: ["three", "one", "two"] });
+
+    const movedToEnd = applyPanesIntent(value, {
+      kind: "move",
+      elementId: "one",
+      leafId: "root",
+      beforeElementId: null,
+    });
+    expect(movedToEnd.root).toMatchObject({ elementIds: ["two", "three", "one"] });
+
+    const movedBetween = applyPanesIntent(value, {
+      kind: "move",
+      elementId: "three",
+      leafId: "root",
+      beforeElementId: "two",
+    });
+    expect(movedBetween.root).toMatchObject({ elementIds: ["one", "three", "two"] });
   });
 
   test("creates deterministic splits and preserves every element", () => {
@@ -235,11 +273,14 @@ describe("Panes state kernel", () => {
     // No `beforeElementId` means the pointer was released over the pane body.
     expect(applyPanesIntent(value, { kind: "move", elementId: "one", leafId: "left" })).toBe(value);
     expect(applyPanesIntent(value, { kind: "move", elementId: "two", leafId: "left" })).toBe(value);
+    expect(applyPanesIntent(value, { kind: "move", elementId: "two", leafId: "left", beforeElementId: null })).toBe(value);
 
     // A real reorder inside the same leaf still applies.
     const reordered = applyPanesIntent(value, { kind: "move", elementId: "two", leafId: "left", beforeElementId: "one" });
     expect(reordered).not.toBe(value);
     expect(reordered.root.type === "split" && reordered.root.children[0]).toMatchObject({ elementIds: ["two", "one"] });
+    const movedToEnd = applyPanesIntent(value, { kind: "move", elementId: "one", leafId: "left", beforeElementId: null });
+    expect(movedToEnd.root.type === "split" && movedToEnd.root.children[0]).toMatchObject({ elementIds: ["two", "one"] });
   });
 
   test("rejects a persisted layout stamped with a different schema version", () => {
@@ -257,6 +298,14 @@ describe("Panes state kernel", () => {
         kind: "move",
         elementId: "one",
         leafId: "gone",
+      }),
+    ).toBe(value);
+    expect(
+      applyPanesIntent(value, {
+        kind: "move",
+        elementId: "one",
+        leafId: "left",
+        beforeElementId: "gone",
       }),
     ).toBe(value);
   });
