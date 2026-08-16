@@ -631,7 +631,11 @@ export default function Calendar(props: CalendarProps) {
         onEventActivate={selectEvent}
         onEventDrop={props.canWrite && !updateEventTime.loading() ? (event, next) => void updateTime(event, next, "move") : undefined}
         onEventResize={props.canWrite && !updateEventTime.loading() ? (event, next) => void updateTime(event, next, "resize") : undefined}
-        onSlotActivate={props.canWrite && !creatingEvent() ? (slot) => void createEventFromSlot(slot) : undefined}
+        onSlotActivate={
+          props.canWrite && !creatingEvent() && (props.view === "day" || props.view === "week")
+            ? (slot) => void createEventFromSlot(slot)
+            : undefined
+        }
       />
     </div>
   );

@@ -163,6 +163,21 @@ describe("Spaces item detail panel", () => {
     expect(html).not.toContain("No comments yet.");
   });
 
+  test("uses the human-readable recurrence summary in event details", () => {
+    const html = renderPanel({
+      item: {
+        ...event,
+        recurrence: {
+          rrule: "FREQ=WEEKLY;BYDAY=MO;UNTIL=20260815T235959Z",
+          dtstart: event.startsAt,
+          exdate: [],
+        },
+      },
+    });
+
+    expect(html).toContain("Repeats every Monday at 12:00 until Sat 15 Aug 2026");
+  });
+
   test("keeps generated occurrences read-only at item level with occurrence-scoped comments", () => {
     const recurrenceId = "2026-08-10T10:00:00.000Z";
     const html = renderPanel({

@@ -33,6 +33,7 @@ import {
   recurrenceFrequencyOptions,
   recurrenceFromFormState,
   recurrenceToFormState,
+  summarizeRecurrenceState,
   weekdayOptions,
 } from "./recurrence";
 import SpaceAssigneePicker from "./SpaceAssigneePicker";
@@ -80,6 +81,19 @@ export default function ItemForm(props: ItemFormProps) {
   const defaultSubmitLabel = () => (isEditMode() ? (isEvent() ? "Save Event" : "Save Task") : isEvent() ? "Create Event" : "Create Task");
   const eventRange = () =>
     allDay() ? dateOnlyRange(startsAt(), endsAt(), props.dateConfig) : { start: startsAt() || null, end: endsAt() || null };
+  const recurrenceSummary = () =>
+    summarizeRecurrenceState(
+      {
+        preset: recurrenceEnabled() ? "custom" : "never",
+        frequency: recurrenceFrequency(),
+        interval: recurrenceInterval() ?? 1,
+        byDay: recurrenceByDay(),
+        endMode: recurrenceEndMode(),
+        until: recurrenceUntil(),
+        count: recurrenceCount(),
+      },
+      { startsAt: startsAt(), allDay: allDay(), dateConfig: props.dateConfig },
+    );
   const columnOptions = () =>
     props.columns.map((c) => ({
       id: c.id,
@@ -349,17 +363,15 @@ export default function ItemForm(props: ItemFormProps) {
                     </div>
                   </div>
                 </Show>
-                <Select
-                  label="Ends"
-                  description={!isEditMode() ? "Limit the series when needed" : undefined}
-                  icon="ti ti-calendar-due"
-                  value={recurrenceEndMode}
-                  onValueChange={(value) => value && setRecurrenceEndMode(value as RecurrenceEndMode)}
-                  options={recurrenceEndOptions}
-                />
-              </Show>
-              <Show when={recurrenceEnabled() && recurrenceEndMode() !== "never"}>
                 <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <Select
+                    label="Ends"
+                    description={!isEditMode() ? "Limit the series when needed" : undefined}
+                    icon="ti ti-calendar-due"
+                    value={recurrenceEndMode}
+                    onValueChange={(value) => value && setRecurrenceEndMode(value as RecurrenceEndMode)}
+                    options={recurrenceEndOptions}
+                  />
                   <Show when={recurrenceEndMode() === "on"}>
                     <DatePicker
                       label="Until"
@@ -383,6 +395,15 @@ export default function ItemForm(props: ItemFormProps) {
                       clearable
                     />
                   </Show>
+                </div>
+                <div
+                  class="flex items-start gap-2 rounded-lg bg-zinc-50 px-3 py-2.5 text-sm text-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300"
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  <i class="ti ti-calendar-repeat mt-0.5 shrink-0 text-blue-600 dark:text-blue-400" aria-hidden="true" />
+                  <span>{recurrenceSummary()}</span>
                 </div>
               </Show>
             </PanelDialog.Section>

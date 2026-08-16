@@ -33,6 +33,29 @@ describe("Spaces calendar toolbar", () => {
     );
 
     expect(html).toMatch(/data-variant="input"[^>]*>.*New event<\/span><\/button>/);
+    expect(html).toMatch(/class="k2b-calendar-month__day-target\s*"/);
+    expect(html).toContain("view=calendar&amp;cv=day");
+    expect(html).not.toContain("Create event on");
+  });
+
+  test("keeps precise empty-slot creation in the day view", () => {
+    const html = renderToString(() =>
+      createComponent(Calendar, {
+        spaceId: "Space1",
+        items: [],
+        columns: [],
+        tags: [],
+        filter: defaultCalendarFilter,
+        view: "day",
+        date: new Date("2026-08-16T00:00:00.000Z"),
+        baseUrl: "/app/spaces/Space1",
+        dateConfig: { locale: "en", timeZone: "UTC", weekStartsOn: 1 },
+        canWrite: true,
+      }),
+    );
+
+    expect(html).toMatch(/class="k2b-calendar-time-grid__slot\s*"/);
+    expect(html).toContain('data-interactive="true"');
   });
 
   test("passes the bounded description preview to large timed event cards", () => {

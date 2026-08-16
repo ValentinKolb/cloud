@@ -439,7 +439,12 @@ export default function ItemDetailPanel(props: Props) {
 
   const isEvent = () => Boolean(props.item.startsAt && props.item.endsAt);
   const isCompleted = () => !!props.item.completedAt;
-  const recurrenceSummary = () => summarizeRecurrence(props.item.recurrence);
+  const recurrenceSummary = () =>
+    summarizeRecurrence(props.item.recurrence, {
+      startsAt: scheduleStart(),
+      allDay: props.recurringContext?.allDay ?? props.item.allDay,
+      dateConfig: props.dateConfig,
+    });
   const itemActions = (): DropdownItem[] => {
     const actions: DropdownItem[] = [
       {

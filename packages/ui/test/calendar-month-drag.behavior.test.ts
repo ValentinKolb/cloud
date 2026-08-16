@@ -73,4 +73,38 @@ describe("@k2b/ui Calendar month drag behavior", () => {
     dispose();
     dom.cleanup();
   });
+
+  test("keeps month navigation and empty-day creation as separate controls", async () => {
+    const dom = createDomTestHarness();
+    const { default: Calendar } = await import("../src/content/Calendar");
+    let activated = 0;
+    const dispose = render(
+      () =>
+        createComponent(Calendar, {
+          date: "2026-08-12T12:00:00Z",
+          view: "month",
+          timeZone: "UTC",
+          events: [],
+          getDateHref: (date, view) => `/calendar?view=${view}&date=${date.toISOString()}`,
+          onSlotActivate: () => {
+            activated += 1;
+          },
+        }),
+      dom.root,
+    );
+
+    const day = dom.root.querySelector<HTMLElement>('[data-calendar-day-key="2026-08-12"]');
+    const createButton = day?.querySelector<HTMLButtonElement>(".k2b-calendar-month__day-target");
+    const dayLink = day?.querySelector<HTMLAnchorElement>(".k2b-calendar-month__day-number");
+    expect(createButton).not.toBeNull();
+    expect(dayLink?.href).toContain("view=day");
+
+    createButton?.click();
+    expect(activated).toBe(1);
+    dayLink?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }) as unknown as Event);
+    expect(activated).toBe(1);
+
+    dispose();
+    dom.cleanup();
+  });
 });

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createConfig } from "@k2b/ssr";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
-import type { SpaceColumn } from "@/contracts";
+import type { Recurrence, SpaceColumn } from "@/contracts";
 
 const root = mkdtempSync(join(tmpdir(), "spaces-item-form-render-tests-"));
 const { plugin } = createConfig({ dev: true, rootDir: root });
@@ -26,7 +26,7 @@ const columns: SpaceColumn[] = [
   },
 ];
 
-const renderForm = (type: "task" | "event") =>
+const renderForm = (type: "task" | "event", recurrence?: Recurrence) =>
   renderToString(() =>
     createComponent(ItemForm, {
       spaceId,
@@ -39,6 +39,7 @@ const renderForm = (type: "task" | "event") =>
           ? {
               startsAt: "2026-08-14T09:00:00.000Z",
               endsAt: "2026-08-14T10:00:00.000Z",
+              recurrence,
             }
           : {}),
       },
@@ -72,5 +73,18 @@ describe("Spaces item form", () => {
     expect(html).not.toContain("More options");
     expect(html).not.toContain("Hide options");
     expect(html).not.toContain("Edit repeat");
+  });
+
+  test("pairs the recurrence end mode with its date field", () => {
+    const html = renderForm("event", {
+      rrule: "FREQ=DAILY;UNTIL=20260815T235959Z",
+      dtstart: "2026-08-14T09:00:00.000Z",
+      exdate: [],
+    });
+
+    expect(html).toContain(">Ends</label>");
+    expect(html).toContain(">Until</label>");
+    expect(html).toContain("15 Aug 2026");
+    expect(html).toContain("Repeats every day at 09:00 until Sat 15 Aug 2026");
   });
 });

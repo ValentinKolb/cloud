@@ -68,6 +68,9 @@ describe("@k2b/ui Cloud content contract", () => {
     expect(html).toContain("Review");
     expect(html).toContain("Review, 09:00 to 10:00");
     expect(html).toContain("view=day");
+    expect(html).toMatch(/class="k2b-calendar-month__day-target\s*"/);
+    expect(html).toContain('aria-label="Open Wednesday, July 1, 2026"');
+    expect(html).not.toContain('class="k2b-calendar-month__day" role="button"');
     expect(html).toContain("--k2b-calendar-accent:#0ea5e9");
     expect(html).not.toContain("background-color:color-mix");
     expect(contentCss).toContain("--k2b-calendar-accent: #10b981");
@@ -77,7 +80,21 @@ describe("@k2b/ui Cloud content contract", () => {
       "background: color-mix(in srgb, var(--k2b-calendar-accent, var(--k2b-text-muted)) 12%, var(--k2b-surface-elevated))",
     );
     expect(contentCss).toMatch(/\.k2b-calendar-event__title \{[^}]*font-weight: 500;/s);
+    expect(contentCss).toMatch(/\.k2b-calendar-month__day-target \{[^}]*position: absolute;[^}]*inset: 0;/s);
     expect(contentCss).toMatch(/\.k2b-calendar-event__title \+ \.k2b-calendar-event__meta \{[^}]*margin-top: 0\.25rem;/s);
+    const createInMonthHtml = renderToString(() =>
+      createComponent(Calendar, {
+        date: "2026-07-15T12:00:00Z",
+        events: [],
+        view: "month",
+        timeZone: "UTC",
+        getDateHref: (date, view) => `/calendar?view=${view}&date=${date.toISOString()}`,
+        onSlotActivate: () => undefined,
+      }),
+    );
+    expect(createInMonthHtml).toMatch(/<button[^>]*class="k2b-calendar-month__day-target\s*"/);
+    expect(createInMonthHtml).toContain('aria-label="Create event on Wednesday, July 1, 2026"');
+    expect(createInMonthHtml).toMatch(/class="k2b-calendar-month__day-number\s*"/);
     const shortEventHtml = renderToString(() =>
       createComponent(Calendar, {
         date: "2026-07-15T12:00:00Z",

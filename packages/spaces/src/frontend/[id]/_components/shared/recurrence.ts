@@ -15,6 +15,12 @@ export type RecurrenceFormState = {
   count: number | null;
 };
 
+export type RecurrenceSummaryOptions = {
+  startsAt?: string | null;
+  allDay?: boolean;
+  dateConfig?: DateContext;
+};
+
 const FREQ_TO_PRESET: Record<string, RecurrencePreset> = {
   DAILY: "daily",
   WEEKLY: "weekly",
@@ -111,19 +117,85 @@ export const recurrenceFromFormState = (state: RecurrenceFormState, startsAt: st
   return { rrule: parts.join(";"), dtstart: startsAt ? new Date(startsAt).toISOString() : null, exdate: [] };
 };
 
-export const summarizeRecurrence = (recurrence: Recurrence | null | undefined): string | null => {
-  const state = recurrenceToFormState(recurrence);
-  if (state.preset === "never") return null;
-  const base =
-    state.preset === "custom"
-      ? `Every ${state.interval > 1 ? `${state.interval} ` : ""}${state.frequency}${state.interval > 1 ? "s" : ""}${
-          state.frequency === "weekly" && state.byDay.length > 0 ? ` on ${state.byDay.join(", ")}` : ""
-        }`
-      : state.preset[0]!.toUpperCase() + state.preset.slice(1);
-  if (state.endMode === "on" && state.until) return `${base}, until ${state.until}`;
-  if (state.endMode === "after" && state.count) return `${base}, ${state.count} times`;
-  return base;
+const joinWords = (values: string[]): string => {
+  if (values.length <= 1) return values[0] ?? "";
+  return `${values.slice(0, -1).join(", ")} and ${values.at(-1)}`;
 };
+
+const validDate = (value: string | null | undefined): Date | null => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatStartTime = (value: string | null | undefined, date: Date, dateConfig?: DateContext): string => {
+  const localTime = dateConfig?.timeZone ? undefined : value?.match(/^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?$/)?.[1];
+  return localTime ?? dates.formatTime(date, dateConfig);
+};
+
+const dateInputInstant = (value: string, dateConfig?: DateContext): Date | null => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  try {
+    return new Date(
+      dateConfig?.timeZone
+        ? dates.zonedDateTimeToInstant(`${value}T12:00:00`, dateConfig.timeZone, { disambiguation: "compatible" })
+        : `${value}T12:00:00.000Z`,
+    );
+  } catch {
+    return null;
+  }
+};
+
+const weekdayLabels = (byDay: string[]): string[] =>
+  byDay.map((value) => weekdayOptions.find((option) => option.id === value)?.fullLabel ?? value);
+
+const formatWeekdayShort = (date: Date, dateConfig?: DateContext): string =>
+  new Intl.DateTimeFormat(dateConfig?.locale ?? "en", {
+    weekday: "short",
+    timeZone: dateConfig?.timeZone ?? "UTC",
+  }).format(date);
+
+const recurrenceBase = (state: RecurrenceFormState, startsAt: Date | null, dateConfig?: DateContext): string => {
+  const interval = Math.max(1, Math.floor(state.interval));
+  if (state.frequency === "daily") return interval === 1 ? "Repeats every day" : `Repeats every ${interval} days`;
+
+  if (state.frequency === "weekly") {
+    const weekdays = weekdayLabels(state.byDay);
+    if (weekdays.length === 0 && startsAt) weekdays.push(dates.formatWeekdayLong(startsAt, dateConfig));
+    if (interval === 1 && weekdays.length > 0) return `Repeats every ${joinWords(weekdays)}`;
+    return `Repeats every ${interval === 1 ? "week" : `${interval} weeks`}${weekdays.length > 0 ? ` on ${joinWords(weekdays)}` : ""}`;
+  }
+
+  if (state.frequency === "monthly") {
+    const day = startsAt ? dates.formatDayNumber(startsAt, dateConfig) : null;
+    return `Repeats every ${interval === 1 ? "month" : `${interval} months`}${day ? ` on day ${day}` : ""}`;
+  }
+
+  const yearlyDate = startsAt
+    ? new Intl.DateTimeFormat(dateConfig?.locale ?? "en", {
+        day: "numeric",
+        month: "long",
+        timeZone: dateConfig?.timeZone ?? "UTC",
+      }).format(startsAt)
+    : null;
+  return `Repeats every ${interval === 1 ? "year" : `${interval} years`}${yearlyDate ? ` on ${yearlyDate}` : ""}`;
+};
+
+export const summarizeRecurrenceState = (state: RecurrenceFormState, options: RecurrenceSummaryOptions = {}): string | null => {
+  if (state.preset === "never") return null;
+  const startsAt = validDate(options.startsAt);
+  const time = !options.allDay && startsAt ? ` at ${formatStartTime(options.startsAt, startsAt, options.dateConfig)}` : "";
+  const until = state.endMode === "on" ? dateInputInstant(state.until, options.dateConfig) : null;
+  const end = until
+    ? ` until ${formatWeekdayShort(until, options.dateConfig)} ${dates.formatDate(until, options.dateConfig)}`
+    : state.endMode === "after" && state.count
+      ? ` for ${state.count} ${state.count === 1 ? "occurrence" : "occurrences"}`
+      : "";
+  return `${recurrenceBase(state, startsAt, options.dateConfig)}${time}${end}`;
+};
+
+export const summarizeRecurrence = (recurrence: Recurrence | null | undefined, options: RecurrenceSummaryOptions = {}): string | null =>
+  summarizeRecurrenceState(recurrenceToFormState(recurrence, options.dateConfig), options);
 
 const compactUtc = (date: Date): string =>
   `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}T${String(

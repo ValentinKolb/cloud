@@ -214,6 +214,24 @@
   background: var(--k2b-surface);
 }
 
+.k2b-ui .k2b-calendar-month__day-target {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-decoration: none;
+}
+
+.k2b-ui .k2b-calendar-month__day-target[data-interactive="true"] {
+  cursor: pointer;
+}
+
+.k2b-ui .k2b-calendar-month__day-target:hover {
+  background: color-mix(in srgb, var(--k2b-action) 5%, transparent);
+}
+
 .k2b-ui .k2b-calendar-month__day[data-outside="true"],
 .k2b-ui .k2b-calendar-time-grid__hour,
 .k2b-ui .k2b-calendar-time-grid__slot[data-outside-business="true"] {
@@ -226,18 +244,21 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--k2b-action) 65%, transparent);
 }
 
-.k2b-ui :is(.k2b-calendar-month__day, .k2b-calendar-time-grid__all-day-cell, .k2b-calendar-time-grid__slot)[data-interactive="true"] {
+.k2b-ui :is(.k2b-calendar-time-grid__all-day-cell, .k2b-calendar-time-grid__slot)[data-interactive="true"] {
   cursor: pointer;
 }
 
-.k2b-ui :is(.k2b-calendar-month__day, .k2b-calendar-time-grid__all-day-cell, .k2b-calendar-time-grid__slot)[data-interactive="true"]:hover {
+.k2b-ui :is(.k2b-calendar-time-grid__all-day-cell, .k2b-calendar-time-grid__slot)[data-interactive="true"]:hover {
   background: color-mix(in srgb, var(--k2b-action) 5%, var(--k2b-surface));
 }
 
 .k2b-ui .k2b-calendar-month__day-header {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  pointer-events: none;
 }
 
 .k2b-ui .k2b-calendar-month__day-number {
@@ -252,6 +273,10 @@
   font-size: 0.75rem;
   font-weight: 600;
   text-decoration: none;
+}
+
+.k2b-ui a.k2b-calendar-month__day-number {
+  pointer-events: auto;
 }
 
 .k2b-ui .k2b-calendar-month__day-number[data-outside="true"] {
@@ -280,10 +305,17 @@
 }
 
 .k2b-ui .k2b-calendar-month__events {
+  position: relative;
+  z-index: 1;
   display: none;
   flex-direction: column;
   gap: 0.25rem;
   margin-top: 0.25rem;
+  pointer-events: none;
+}
+
+.k2b-ui .k2b-calendar-month__events > * {
+  pointer-events: auto;
 }
 
 .k2b-ui .k2b-calendar-month__more {
@@ -299,9 +331,12 @@
 }
 
 .k2b-ui .k2b-calendar-month__dots {
+  position: relative;
+  z-index: 1;
   display: flex;
   gap: 0.125rem;
   margin-top: 0.25rem;
+  pointer-events: none;
 }
 
 .k2b-ui .k2b-calendar-dot,

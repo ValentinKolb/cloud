@@ -477,8 +477,17 @@ const EventChip = (props: {
   );
 };
 
-const slotInteractionProps = (owner: CalendarProps, slot: () => CalendarEventTimeChange, suppressed?: () => boolean) => {
-  const isSlotChild = (event: Event) => event.target instanceof Element && Boolean(event.target.closest("a,button,[data-calendar-event]"));
+const slotInteractionProps = (
+  owner: CalendarProps,
+  slot: () => CalendarEventTimeChange,
+  suppressed?: () => boolean,
+  nativeControl = false,
+) => {
+  const isSlotChild = (event: Event) => {
+    if (!(event.target instanceof Element)) return false;
+    const control = event.target.closest("a,button,[data-calendar-event]");
+    return Boolean(control && control !== event.currentTarget);
+  };
   const interactive = Boolean(owner.onSlotActivate);
   const activate = (event: Event) => {
     if (!owner.onSlotActivate || isSlotChild(event) || suppressed?.()) return;
@@ -486,8 +495,8 @@ const slotInteractionProps = (owner: CalendarProps, slot: () => CalendarEventTim
     owner.onSlotActivate(slot());
   };
   return {
-    role: interactive ? ("button" as const) : undefined,
-    tabIndex: interactive ? 0 : undefined,
+    role: interactive && !nativeControl ? ("button" as const) : undefined,
+    tabIndex: interactive && !nativeControl ? 0 : undefined,
     onClick: (event: MouseEvent) => {
       if (owner.slotActivation === "double") return;
       activate(event);
@@ -496,9 +505,11 @@ const slotInteractionProps = (owner: CalendarProps, slot: () => CalendarEventTim
       if (owner.slotActivation !== "double") return;
       activate(event);
     },
-    onKeyDown: (event: KeyboardEvent) => {
-      if (event.key === "Enter" || event.key === " ") activate(event);
-    },
+    onKeyDown: nativeControl
+      ? undefined
+      : (event: KeyboardEvent) => {
+          if (event.key === "Enter" || event.key === " ") activate(event);
+        },
   };
 };
 
@@ -826,6 +837,13 @@ const MonthView = (props: {
                 const dayBadge = props.owner.dayBadges?.[dayKey];
                 const sameMonth = calendar.isSameMonth(day, props.date, dateConfig());
                 const isToday = dayKey === todayKey();
+                const dayLabel = day.toLocaleDateString(dateConfig().locale ?? "en", {
+                  weekday: "long",
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                  timeZone: dateConfig().timeZone,
+                });
                 const eventStack = createMemo(() => {
                   const preview = movePreview();
                   const previewForDay = preview && calendar.formatDateKey(preview.start, dateConfig()) === dayKey ? preview : null;
@@ -845,25 +863,65 @@ const MonthView = (props: {
                     data-drop-preview={
                       movePreview()?.start && calendar.formatDateKey(movePreview()!.start, dateConfig()) === dayKey ? "true" : undefined
                     }
-                    data-interactive={props.owner.onSlotActivate ? "true" : undefined}
-                    {...slotInteractionProps(
-                      props.owner,
-                      () => {
-                        const start = startOfDay(day, dateConfig());
-                        return { start, end: calendar.addDays(start, 1, dateConfig()), allDay: true };
-                      },
-                      () => performance.now() < suppressSlotClickUntil,
-                    )}
                   >
+                    <Show
+                      when={props.owner.onSlotActivate}
+                      fallback={
+                        <Show when={href}>
+                          {(dayHref) => (
+                            <CalendarNavigationLink
+                              owner={props.owner}
+                              href={dayHref()}
+                              anchorProps={{ class: "k2b-calendar-month__day-target", "aria-label": `Open ${dayLabel}` }}
+                            />
+                          )}
+                        </Show>
+                      }
+                    >
+                      <button
+                        type="button"
+                        class="k2b-calendar-month__day-target"
+                        data-interactive="true"
+                        aria-label={`Create event on ${dayLabel}`}
+                        {...slotInteractionProps(
+                          props.owner,
+                          () => {
+                            const start = startOfDay(day, dateConfig());
+                            return { start, end: calendar.addDays(start, 1, dateConfig()), allDay: true };
+                          },
+                          () => performance.now() < suppressSlotClickUntil,
+                          true,
+                        )}
+                      />
+                    </Show>
                     <div class="k2b-calendar-month__day-header">
-                      <a
-                        href={href ?? "#"}
-                        class="k2b-calendar-month__day-number"
-                        data-today={isToday ? "true" : undefined}
-                        data-outside={!sameMonth ? "true" : undefined}
+                      <Show
+                        when={props.owner.onSlotActivate && href}
+                        fallback={
+                          <span
+                            class="k2b-calendar-month__day-number"
+                            data-today={isToday ? "true" : undefined}
+                            data-outside={!sameMonth ? "true" : undefined}
+                          >
+                            {calendar.formatDayNumber(day, dateConfig())}
+                          </span>
+                        }
                       >
-                        {calendar.formatDayNumber(day, dateConfig())}
-                      </a>
+                        {(dayHref) => (
+                          <CalendarNavigationLink
+                            owner={props.owner}
+                            href={dayHref()}
+                            anchorProps={{
+                              class: "k2b-calendar-month__day-number",
+                              "data-today": isToday ? "true" : undefined,
+                              "data-outside": !sameMonth ? "true" : undefined,
+                              "aria-label": `Open ${dayLabel}`,
+                            }}
+                          >
+                            {calendar.formatDayNumber(day, dateConfig())}
+                          </CalendarNavigationLink>
+                        )}
+                      </Show>
                       <Show when={dayBadge}>
                         {(badge) => (
                           <span class="k2b-calendar-month__badge">

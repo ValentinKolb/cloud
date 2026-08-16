@@ -63,6 +63,11 @@ Limit the switcher with `views`. `getDateHref`, `getViewHref`, and
 `getEventHref` keep navigation functional in the server response.
 `onNavigate` progressively enhances those links after hydration.
 
+In the month view, the empty day surface follows `getDateHref` to the day view
+when `onSlotActivate` is absent. Passing `onSlotActivate` deliberately turns
+that surface into an empty-slot action instead; the day number remains a
+separate navigation link when both contracts are available.
+
 Use `onDateChange`, `onViewChange`, and `onEventActivate` only when client state
 is appropriate. `navigationPending` exposes loading state without replacing
 the canonical links.
