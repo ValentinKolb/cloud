@@ -66,7 +66,7 @@ try {
       throw new Error("public root did not resolve to packed dist/ssr/index.js: " + resolved);
     }
     const ui = await import("@k2b/ui");
-    const required = ["Button", "Chart", "DatePicker", "Panes", "prompts"];
+    const required = ["Button", "Chart", "DatePicker", "Panes", "createPanesLayout", "prompts"];
     const missing = required.filter((name) => ui[name] === undefined);
     if (missing.length) throw new Error("missing representative exports: " + missing.join(", "));
     const { renderToString } = await import("solid-js/web");
@@ -125,7 +125,7 @@ try {
   if (browserOutput.length > 100_000) {
     throw new Error(`packed Button + DatePicker browser build is too large: ${browserOutput.length} bytes`);
   }
-  for (const unusedFamily of ["normalizePanesValue", "FileBrowserPanel", "ChatComposer"]) {
+  for (const unusedFamily of ["reconcilePanesLayout", "FileBrowserPanel", "ChatComposer"]) {
     if (browserOutput.includes(unusedFamily)) {
       throw new Error(`packed browser build retained unused ${unusedFamily} code`);
     }

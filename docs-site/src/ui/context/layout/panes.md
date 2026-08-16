@@ -1,114 +1,131 @@
 # Panes
 
-`Panes` arranges peer tools as tabs, stacks, or resizable splits. The caller owns the complete layout value.
+`Panes` arranges peer tools as tabs and resizable nested splits. The application owns the serializable layout and the runtime item definitions.
 
 ## Use Panes
 
-Use it for query explorers, dashboard editors, report builders, and other workspaces where users move or split tools.
+Use it for code editors, query explorers, dashboard editors, and other workspaces where users open, close, move, or split peer tools.
 
-Use `AppWorkspace.MainPane` for a fixed list-and-reader layout. It provides shared geometry without making the application own a pane model.
+Use `Tabs` for one fixed tab group. Use `AppWorkspace.MainPane` for a fixed list-and-reader layout.
 
 ## Import
 
 ```tsx
 import {
-  activatePanesElement,
-  createPanesValue,
-  normalizePanesValue,
-  PANES_VALUE_VERSION,
+  activatePanesItem,
+  addPanesItem,
+  applyPanesIntent,
+  createPanesLayout,
+  PANES_LAYOUT_VERSION,
+  parsePanesLayout,
   Panes,
-  type PanesValue,
+  reconcilePanesLayout,
+  removePanesItem,
+  resizePanesSplit,
+  type PanesItem,
+  type PanesLayout,
 } from "@k2b/ui";
 ```
 
 ## Own the layout
 
-Create the initial value with `createPanesValue(ids, presentation)`. The presentation is `"tabs"` by default and can also be `"single"` or `"stack"`.
+Create the initial controlled value with `createPanesLayout(itemIds)`. It creates one tab group, or an empty workspace when the list is empty.
 
-Pass the current `PanesValue` to `value` and replace it from `onValueChange`. Keep every `Panes.Element.id` stable.
+Pass the current `PanesLayout` to `layout` and replace it from `onLayoutChange`. A layout is a versioned binary tree:
 
-Call `normalizePanesValue` when the available element ids change. It removes unavailable ids, keeps valid layout state, and adds new elements.
+- a `group` stores a non-empty ordered list of item ids and its active id;
+- a `split` stores its direction, ratio, and two child nodes;
+- `root: null` represents an empty workspace.
 
-Current values emitted by the helpers include
-`version: PANES_VALUE_VERSION`. For source compatibility, `PanesValue` also
-accepts an existing unversioned `{ root }` value. Normalize it before
-persistence or when the available element ids change; the normalized result is
-versioned.
+The tree contains no DOM ids or render functions and can be stored as JSON. Helpers emit `version: PANES_LAYOUT_VERSION`. `parsePanesLayout(value)` accepts only a valid current layout and returns `null` for malformed, unsupported, duplicate, or excessively deep input. Choose an explicit product fallback when persisted input is invalid.
 
-The tree uses `PanesLeafNode` and `PanesSplitNode`. A leaf stores element ids,
-the active id, and its presentation. A split stores direction, normalized
-percentage sizes, and children. Treat these types as serializable state, not as
-DOM geometry.
+Keep item ids stable. `reconcilePanesLayout(layout, desiredOpenIds)` removes other ids and appends missing desired ids to the first group. Use it when the complete desired set should also be open. For workspaces where available items and open items differ, use `addPanesItem` and `removePanesItem` instead.
 
-`activatePanesElement(value, elementId)` returns a new value with that element
-active. It returns the original value when the id is unavailable.
+The pure helpers support the same operations outside the component:
 
-`allowResize`, `allowMove`, `allowReorder`, `allowHorizontalSplit`, and `allowVerticalSplit` default to `true`. Disable only the interactions the product does not support.
+- `activatePanesItem` selects an item;
+- `addPanesItem` opens an item in a target group;
+- `removePanesItem` closes an item and collapses empty split branches;
+- `applyPanesIntent` applies a tab move, reorder, or split;
+- `resizePanesSplit` changes a split ratio;
+- `isPanesItemVisible` reports whether an item is active in its group.
 
-`keepMounted` defaults to `true`. Set it to `false` only when inactive pane content is safe to unmount.
+Each layout-mutating helper returns the original layout when the requested operation is invalid or has no effect.
 
-Persist `PanesValue` only when restoring a user layout is a product requirement.
+## Define runtime items
 
-## Composition
+Pass runtime-only `PanesItem` descriptors separately from the layout:
 
-Render `Panes` inside an edge-to-edge `AppWorkspace.Main`. Put padding and surfaces inside each element.
+```ts
+type PanesItem = {
+  id: string;
+  title: string;
+  icon?: string;
+  render: () => JSX.Element;
+  onClose?: () => void;
+};
+```
 
-Use `closable` and `onClose` together. The caller must remove the element id and normalize the layout after closing it.
+`render` is lazy: Panes invokes it only for the active item in each group. Switching tabs unmounts the previous content. Reordering a group does not recreate its active content.
+
+The presence of `onClose` enables the close control. Its callback only reports intent; the application updates its domain state and layout. The close control overlays the trailing edge on hover or keyboard focus, so it does not reserve label space or start a drag.
+
+Pass `onAddItem` to show a plus control in every group. It receives an item id from the target group, or `null` for an empty workspace. The application chooses or creates the item, then updates the layout with `addPanesItem`.
+
+## Interaction
+
+`movable`, `resizable`, and `split` configure the available operations. `split` accepts `false`, `"horizontal"`, `"vertical"`, or `"both"`; all interactions are enabled by default.
+
+Once dragging starts, Panes shows every valid destination at the same time: exact tab insertion positions, add-to-group targets, and explicit Add left, right, top, and bottom targets. Directional overlays form a frame with 45-degree seams, so their visible shape is also their hit area. Duplicate and no-op destinations are not offered. Releasing elsewhere cancels the move.
 
 ## Accessibility
 
-Give each element a concise `title`. Drag the tab or single-pane header surface to move it. Once dragging starts, Panes shows every currently valid destination: insertion slots in tab strips, a target for adding to another tab group, and explicit left, right, top, and bottom add targets. The directional targets form a four-sided frame around each pane; their 45-degree seams assign every edge position to the direction it visually occupies. A directional no-op remains visible but disabled so the four-way layout stays predictable; duplicate destinations are omitted. Drop on one of the enabled targets; releasing elsewhere cancels the move.
+Give every item a concise title.
 
-An optional close control remains a separate target and never starts a drag; `Delete` and `Backspace` close the focused tab when `onClose` is available.
-
-Pane movement is pointer-driven. Do not make a workflow depend on rearranging panes; the initial layout must remain usable.
+Arrow keys change the active tab. `Delete` and `Backspace` request closing the focused tab when `onClose` is available. Start a focused tab move with Space or Enter, select a visible target with the arrow keys, then confirm with Space or Enter; Escape cancels the move.
 
 ## Runtime
 
-`Panes` is controlled interactive Solid code and must be hydrated. The initial layout and pane contents can render on the server.
+`Panes` is controlled interactive Solid code and must be hydrated. Its initial active contents can render on the server.
+
+Persist only `PanesLayout`. Runtime descriptors contain functions and stay in application code; they never cross the serialization boundary. Use the same deterministic initial layout during SSR and hydration.
 
 ## Example
 
 ```tsx
-const paneIds = ["result", "query", "schema"];
-const [layout, setLayout] = createSignal<PanesValue>(
-  createPanesValue(paneIds),
+const definitions = [
+  { id: "result", title: "Result", icon: "ti ti-table", render: () => <ResultView /> },
+  { id: "query", title: "Query", icon: "ti ti-code", render: () => <QueryEditor /> },
+  { id: "schema", title: "Schema", icon: "ti ti-database", render: () => <SchemaBrowser /> },
+] as const;
+
+const [layout, setLayout] = createSignal<PanesLayout>(
+  createPanesLayout(["result", "query"]),
 );
 
-<Panes
-  value={layout()}
-  onValueChange={setLayout}
-  allowResize
-  allowMove
-  allowReorder
->
-  <Panes.Element id="result" title="Result" icon="ti ti-chart-line">
-    <ResultView />
-  </Panes.Element>
-  <Panes.Element id="query" title="Query" icon="ti ti-code">
-    <QueryEditor />
-  </Panes.Element>
-  <Panes.Element id="schema" title="Schema" icon="ti ti-database">
-    <SchemaBrowser />
-  </Panes.Element>
-</Panes>;
-```
+const items: readonly PanesItem[] = definitions.map((item) => ({
+  ...item,
+  onClose: () => setLayout((current) => removePanesItem(current, item.id)),
+}));
 
-An existing unversioned value remains a valid input:
+const openItem = (targetItemId: string | null) =>
+  setLayout((current) =>
+    addPanesItem(current, { itemId: "schema", targetItemId }),
+  );
 
-```tsx
-const legacyLayout: PanesValue = {
-  root: {
-    type: "leaf",
-    id: "root",
-    elementIds: ["result", "query"],
-    activeElementId: "result",
-    presentation: "tabs",
-  },
+const schemaIsOpen = () => {
+  const contains = (node: PanesNode | null): boolean =>
+    node?.type === "group"
+      ? node.items.includes("schema")
+      : node?.type === "split" && (contains(node.first) || contains(node.second));
+  return contains(layout().root);
 };
 
-const currentLayout = normalizePanesValue(
-  legacyLayout,
-  ["result", "query", "schema"],
-);
+<Panes
+  layout={layout()}
+  onLayoutChange={setLayout}
+  items={items}
+  onAddItem={schemaIsOpen() ? undefined : openItem}
+  ariaLabel="Query workspace"
+/>;
 ```

@@ -1,4 +1,5 @@
 import type { DateContext } from "@k2b/stdlib";
+import type { PanesLayout } from "@k2b/ui";
 import type { MailDraft, MailDraftSeed, SenderIdentity } from "../../contracts";
 import MailComposer from "./MailComposer";
 
@@ -7,6 +8,7 @@ export default function MailComposerPage(props: {
   identities: SenderIdentity[];
   initialDraft?: MailDraft;
   initialSeed?: MailDraftSeed;
+  initialPanes: PanesLayout;
   returnHref: string;
   popout?: boolean;
   dateConfig: DateContext;
@@ -21,6 +23,7 @@ export default function MailComposerPage(props: {
           identities={props.identities}
           initialDraft={props.initialDraft}
           initialSeed={props.initialSeed}
+          initialPanes={props.initialPanes}
           popout={props.popout}
           returnHref={props.returnHref}
           dateConfig={props.dateConfig}

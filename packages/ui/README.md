@@ -213,22 +213,30 @@ package owns tabs, nested splits, resize and drag-and-drop; applications own
 pane content, open and close behavior, routing, and persistence:
 
 ```tsx
-const ids = ["result", "query"];
-const [layout, setLayout] = createSignal(createPanesValue(ids));
+const [layout, setLayout] = createSignal(createPanesLayout(["result", "query"]));
+const items: PanesItem[] = [
+  {
+    id: "result",
+    title: "Result",
+    icon: "ti ti-table",
+    render: () => <ResultView />,
+    onClose: () => setLayout((current) => removePanesItem(current, "result")),
+  },
+  {
+    id: "query",
+    title: "Query",
+    icon: "ti ti-code",
+    render: () => <QueryEditor />,
+  },
+];
 
-<Panes.Root value={layout()} onValueChange={setLayout}>
-  <Panes.Element id="result" title="Result" icon="ti ti-table">
-    <ResultView />
-  </Panes.Element>
-  <Panes.Element id="query" title="Query" icon="ti ti-code">
-    <QueryEditor />
-  </Panes.Element>
-</Panes.Root>;
+<Panes layout={layout()} onLayoutChange={setLayout} items={items} />;
 ```
 
-Pass persisted input through `normalizePanesValue(stored, ids)`. It accepts
-legacy versionless values defensively and always returns the current versioned
-shape.
+Persist only `PanesLayout`, never the runtime item descriptors containing
+render functions. Validate stored input with `parsePanesLayout`; invalid or
+unsupported values require an explicit application fallback. Panes invokes an
+item's `render` function only while that item is active in its tab group.
 
 Cloud applications import portable components directly from `@k2b/ui`.
 Product-owned behavior such as permissions, account routes, stored AI

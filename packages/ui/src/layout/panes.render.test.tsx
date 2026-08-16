@@ -5,160 +5,127 @@ import { resolve } from "node:path";
 import { createConfig } from "@k2b/ssr";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
-import { PANES_VALUE_VERSION, type PanesValue } from "./panes-state";
+import type { PanesLayout } from "./panes-layout";
 
 const root = mkdtempSync(resolve(tmpdir(), "k2b-ui-panes-"));
 const { plugin } = createConfig({ dev: true, rootDir: root });
 Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
-const { default: Panes } = await import("./Panes");
+const { default: Panes, pointerHitsPanesDropTarget } = await import("./Panes");
 
-const value: PanesValue = {
-  version: PANES_VALUE_VERSION,
+const layout: PanesLayout = {
+  version: 2,
   root: {
     type: "split",
-    id: "root",
     direction: "horizontal",
-    sizes: [55, 45],
-    children: [
-      {
-        type: "leaf",
-        id: "editor",
-        elementIds: ["source", "preview"],
-        activeElementId: "source",
-        presentation: "tabs",
-      },
-      {
-        type: "leaf",
-        id: "data",
-        elementIds: ["sample"],
-        activeElementId: "sample",
-        presentation: "single",
-      },
-    ],
+    ratio: 0.55,
+    first: { type: "group", items: ["source", "preview"], active: "source" },
+    second: { type: "group", items: ["sample"], active: "sample" },
   },
 };
 
 describe("@k2b/ui Panes", () => {
-  test("renders nested controlled panes with semantic tabs and separators", () => {
-    const html = renderToString(() =>
-      createComponent(Panes.Root, {
-        value,
-        onValueChange: () => undefined,
-        label: "Template workspace",
-        get children() {
-          return [
-            createComponent(Panes.Element, {
-              id: "source",
-              title: "Source",
-              icon: "ti ti-code",
-              children: "Source editor",
-            }),
-            createComponent(Panes.Element, {
-              id: "preview",
-              title: "Preview",
-              icon: "ti ti-eye",
-              closable: true,
-              onClose: () => undefined,
-              children: "Preview content",
-            }),
-            createComponent(Panes.Element, {
-              id: "sample",
-              title: "Sample data",
-              icon: "ti ti-database",
-              children: "Sample content",
-            }),
-          ];
+  test("matches the visible 45 degree trapezoid seams", () => {
+    const entry = (side: "top" | "right" | "bottom" | "left", width: number, height: number) => ({
+      containsPointer: true,
+      meta: {
+        label: `Add ${side}`,
+        target: {
+          id: `split:${side}`,
+          kind: "split" as const,
+          targetItemId: "target",
+          side,
+          intent: { type: "split" as const, itemId: "source", targetItemId: "target", side },
         },
+      },
+      rect: { x: 0, y: 0, left: 0, top: 0, right: width, bottom: height, width, height, toJSON: () => ({}) },
+    });
+    expect(pointerHitsPanesDropTarget(entry("top", 200, 50), { x: 25, y: 25 })).toBe(true);
+    expect(pointerHitsPanesDropTarget(entry("top", 200, 50), { x: 24, y: 25 })).toBe(false);
+    expect(pointerHitsPanesDropTarget(entry("left", 50, 200), { x: 25, y: 25 })).toBe(true);
+    expect(pointerHitsPanesDropTarget(entry("left", 50, 200), { x: 25, y: 24 })).toBe(false);
+    expect(pointerHitsPanesDropTarget(entry("bottom", 200, 50), { x: 25, y: 25 })).toBe(true);
+    expect(pointerHitsPanesDropTarget(entry("bottom", 200, 50), { x: 24, y: 25 })).toBe(false);
+    expect(pointerHitsPanesDropTarget(entry("right", 50, 200), { x: 25, y: 25 })).toBe(true);
+    expect(pointerHitsPanesDropTarget(entry("right", 50, 200), { x: 25, y: 24 })).toBe(false);
+  });
+
+  test("renders nested SSR tabs, separators, and only active factories", () => {
+    const calls: string[] = [];
+    const html = renderToString(() =>
+      createComponent(Panes, {
+        layout,
+        onLayoutChange: () => undefined,
+        ariaLabel: "Template workspace",
+        items: [
+          { id: "source", title: "Source", render: () => (calls.push("source"), "Source editor") },
+          { id: "preview", title: "Preview", render: () => (calls.push("preview"), "Preview content") },
+          { id: "sample", title: "Sample", render: () => (calls.push("sample"), "Sample content") },
+        ],
       }),
     );
-
     expect(html).toContain("data-k2b-panes");
     expect(html).toContain('aria-label="Template workspace"');
     expect(html).toContain('role="separator"');
-    expect(html).toContain('role="tablist"');
-    expect(html).toContain('role="tab"');
-    expect(html).toContain('aria-selected="true"');
-    expect(html).toContain('role="tabpanel"');
-    expect(html).toContain('title="Close Preview"');
+    expect(html.match(/role="tablist"/g)?.length).toBe(2);
     expect(html).toContain("Source editor");
     expect(html).toContain("Sample content");
+    expect(html).not.toContain("Preview content");
+    expect(calls).toEqual(["source", "sample"]);
   });
 
-  test("keeps inactive content mounted by default and can unmount it", () => {
-    const render = (keepMounted: boolean) =>
-      renderToString(() =>
-        createComponent(Panes.Root, {
-          value: {
-            version: PANES_VALUE_VERSION,
-            root: {
-              type: "leaf",
-              id: "root",
-              elementIds: ["one", "two"],
-              activeElementId: "one",
-              presentation: "tabs",
-            },
-          },
-          onValueChange: () => undefined,
-          keepMounted,
-          get children() {
-            return [
-              createComponent(Panes.Element, { id: "one", title: "One", children: "First" }),
-              createComponent(Panes.Element, { id: "two", title: "Two", children: "Second" }),
-            ];
-          },
-        }),
-      );
-
-    expect(render(true)).toContain("Second");
-    expect(render(false)).not.toContain("Second");
-  });
-
-  test("renders every stack element without tab semantics", () => {
+  test("renders optional close and add actions", () => {
     const html = renderToString(() =>
-      createComponent(Panes.Root, {
-        value: {
-          version: PANES_VALUE_VERSION,
-          root: {
-            type: "leaf",
-            id: "root",
-            elementIds: ["one", "two"],
-            activeElementId: "one",
-            presentation: "stack",
-          },
-        },
-        onValueChange: () => undefined,
-        get children() {
-          return [
-            createComponent(Panes.Element, { id: "one", title: "One", children: "First" }),
-            createComponent(Panes.Element, { id: "two", title: "Two", children: "Second" }),
-          ];
-        },
+      createComponent(Panes, {
+        layout: { version: 2, root: { type: "group", items: ["one"], active: "one" } },
+        onLayoutChange: () => undefined,
+        onAddItem: () => undefined,
+        items: [{ id: "one", title: "One", onClose: () => undefined, render: () => "First" }],
       }),
     );
-
-    expect(html).not.toContain('role="tablist"');
-    expect(html).toContain('data-presentation="stack"');
+    expect(html).toContain('title="Close One"');
+    expect(html).toContain('title="Add pane"');
     expect(html).toContain("First");
-    expect(html).toContain("Second");
   });
 
-  test("rejects invalid and duplicate element ids", () => {
-    const render = (ids: readonly string[]) =>
-      renderToString(() =>
-        createComponent(Panes.Root, {
-          value: {
-            version: PANES_VALUE_VERSION,
-            root: { type: "leaf", id: "root", elementIds: [...ids], activeElementId: ids[0] ?? "", presentation: "tabs" },
-          },
-          onValueChange: () => undefined,
-          get children() {
-            return ids.map((id, index) => createComponent(Panes.Element, { id, title: `Pane ${index}`, children: "Content" }));
-          },
-        }),
-      );
+  test("renders an add action for an empty workspace", () => {
+    const html = renderToString(() =>
+      createComponent(Panes, {
+        layout: { version: 2, root: null },
+        onLayoutChange: () => undefined,
+        onAddItem: () => undefined,
+        items: [],
+      }),
+    );
+    expect(html).toContain("Add pane");
+    expect(html).not.toContain('role="tabpanel"');
+  });
 
-    expect(() => render(["not safe"])).toThrow("Panes.Element id must start with a letter");
-    expect(() => render(["same", "same"])).toThrow('duplicate id "same"');
+  test("rejects invalid, duplicate, and missing item definitions", () => {
+    const valid: PanesLayout = { version: 2, root: { type: "group", items: ["one"], active: "one" } };
+    expect(() =>
+      renderToString(() =>
+        createComponent(Panes, {
+          layout: { ...valid, root: { ...valid.root!, active: "missing" } },
+          onLayoutChange: () => undefined,
+          items: [],
+        }),
+      ),
+    ).toThrow("valid version 2 layout");
+    expect(() =>
+      renderToString(() =>
+        createComponent(Panes, {
+          layout: valid,
+          onLayoutChange: () => undefined,
+          items: [
+            { id: "one", title: "One", render: () => "One" },
+            { id: "one", title: "Duplicate", render: () => "Duplicate" },
+          ],
+        }),
+      ),
+    ).toThrow('duplicate id "one"');
+    expect(() => renderToString(() => createComponent(Panes, { layout: valid, onLayoutChange: () => undefined, items: [] }))).toThrow(
+      'missing item "one"',
+    );
   });
 });

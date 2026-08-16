@@ -1,4 +1,4 @@
-import { AutocompleteEditor, Button, Panes, type PanesValue } from "@k2b/ui";
+import { AutocompleteEditor, Button, Panes, type PanesLayout } from "@k2b/ui";
 import { createMemo, createSignal, For, Show, type Accessor, type Setter } from "solid-js";
 import type {
   PulseDashboard,
@@ -13,11 +13,11 @@ import { pulseDashboardDslHighlight } from "../query-authoring";
 import { dashboardToDsl, openQueryReferenceWindow, quoteDashboardDslString, quoteQueryPart } from "./helpers";
 import { DashboardContent, type DashboardRenderContext } from "./DashboardView";
 import {
-  createDashboardEditorPanesValue,
-  DASHBOARD_EDITOR_ELEMENT_IDS,
+  createDashboardEditorPanesLayout,
+  DASHBOARD_EDITOR_ITEM_IDS,
   DASHBOARD_EDITOR_PANES_KEY,
-  initialPulsePanesValue,
-  persistPulsePanesValue,
+  initialPulsePanesLayout,
+  persistPulsePanesLayout,
 } from "./panes-state";
 
 type ReferenceItem = {
@@ -34,7 +34,7 @@ type DashboardEditorViewProps = {
   dashboardPreviewConfig: Accessor<PulseDashboardConfig | null>;
   dashboardDslDiagnostics: Accessor<PulseDashboardDslCompileResult | null>;
   dashboardDslSaving: Accessor<boolean>;
-  initialPanesValue?: PanesValue | null;
+  initialPanesLayout?: PanesLayout | null;
   sources: Accessor<PulseSource[]>;
   inventory: Accessor<PulseInventory>;
   metrics: Accessor<PulseMetricSummary[]>;
@@ -108,12 +108,12 @@ const ReferenceList = (props: {
 );
 
 export default function DashboardEditorView(props: DashboardEditorViewProps) {
-  const [panesValue, setPanesValue] = createSignal(
-    initialPulsePanesValue(props.initialPanesValue, createDashboardEditorPanesValue(), DASHBOARD_EDITOR_ELEMENT_IDS),
+  const [panesLayout, setPanesLayout] = createSignal(
+    initialPulsePanesLayout(props.initialPanesLayout, createDashboardEditorPanesLayout(), DASHBOARD_EDITOR_ITEM_IDS),
   );
-  const updatePanesValue = (value: PanesValue) => {
-    setPanesValue(value);
-    persistPulsePanesValue(DASHBOARD_EDITOR_PANES_KEY, value);
+  const updatePanesLayout = (layout: PanesLayout) => {
+    setPanesLayout(layout);
+    persistPulsePanesLayout(DASHBOARD_EDITOR_PANES_KEY, layout);
   };
 
   const appendDashboardDslSnippet = (snippet: string) => {
@@ -382,22 +382,27 @@ export default function DashboardEditorView(props: DashboardEditorViewProps) {
       </div>
 
       <div class="min-h-0 flex-1 overflow-hidden">
-        <Panes.Root value={panesValue()} onValueChange={updatePanesValue} class="h-full">
-          <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
-            <div class="h-full overflow-auto bg-zinc-50 p-3 dark:bg-zinc-950">
-              <DashboardContent config={props.dashboardPreviewConfig} context={props.renderContext} />
-            </div>
-          </Panes.Element>
-          <Panes.Element id="editor" title="DSL" icon="ti ti-code">
-            {renderEditorPane()}
-          </Panes.Element>
-          <Panes.Element id="inventory" title="Inventory" icon="ti ti-database-search">
-            {renderInventoryPane()}
-          </Panes.Element>
-          <Panes.Element id="diagnostics" title="Diagnostics" icon="ti ti-alert-circle">
-            {renderDiagnosticsPane()}
-          </Panes.Element>
-        </Panes.Root>
+        <Panes
+          layout={panesLayout()}
+          onLayoutChange={updatePanesLayout}
+          class="h-full"
+          ariaLabel="Dashboard editor panes"
+          items={[
+            {
+              id: "preview",
+              title: "Preview",
+              icon: "ti ti-eye",
+              render: () => (
+                <div class="h-full overflow-auto bg-zinc-50 p-3 dark:bg-zinc-950">
+                  <DashboardContent config={props.dashboardPreviewConfig} context={props.renderContext} />
+                </div>
+              ),
+            },
+            { id: "editor", title: "DSL", icon: "ti ti-code", render: renderEditorPane },
+            { id: "inventory", title: "Inventory", icon: "ti ti-database-search", render: renderInventoryPane },
+            { id: "diagnostics", title: "Diagnostics", icon: "ti ti-alert-circle", render: renderDiagnosticsPane },
+          ]}
+        />
       </div>
     </section>
   );

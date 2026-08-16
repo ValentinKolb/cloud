@@ -1,5 +1,5 @@
 import { clipboard } from "@k2b/stdlib/browser";
-import { AppWorkspace, Button, NoticeCard, Panes, type PanesValue, toast } from "@k2b/ui";
+import { AppWorkspace, Button, NoticeCard, Panes, type PanesLayout, toast } from "@k2b/ui";
 import { createEffect, createSignal, on, Show, untrack } from "solid-js";
 import type { MetricType, PulseDashboard, PulseDashboardConfig, PulseResourceSummary, PulseSource } from "../contracts";
 import { createBaseController } from "./workspace/base-controller";
@@ -12,10 +12,10 @@ import { navigatePulseWorkspace, replacePulseWorkspaceUrl } from "./workspace/na
 import { installNearRealtimeController } from "./workspace/near-realtime-controller";
 import PulseSidebar from "./workspace/PulseSidebar";
 import {
-  createQueryExplorerPanesValue,
-  initialPulsePanesValue,
-  persistPulsePanesValue,
-  QUERY_EXPLORER_ELEMENT_IDS,
+  createQueryExplorerPanesLayout,
+  initialPulsePanesLayout,
+  persistPulsePanesLayout,
+  QUERY_EXPLORER_ITEM_IDS,
   QUERY_EXPLORER_PANES_KEY,
 } from "./workspace/panes-state";
 import { QueryHistoryPane, SavedQueriesPane } from "./workspace/QueryExplorerAuxPanes";
@@ -104,12 +104,12 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
       { defer: true },
     ),
   );
-  const [explorerPanesValue, setExplorerPanesValue] = createSignal(
-    initialPulsePanesValue(props.initialExplorerPanesValue, createQueryExplorerPanesValue(), QUERY_EXPLORER_ELEMENT_IDS),
+  const [explorerPanesLayout, setExplorerPanesLayout] = createSignal(
+    initialPulsePanesLayout(props.initialExplorerPanesLayout, createQueryExplorerPanesLayout(), QUERY_EXPLORER_ITEM_IDS),
   );
-  const updateExplorerPanesValue = (value: PanesValue) => {
-    setExplorerPanesValue(value);
-    persistPulsePanesValue(QUERY_EXPLORER_PANES_KEY, value);
+  const updateExplorerPanesLayout = (layout: PanesLayout) => {
+    setExplorerPanesLayout(layout);
+    persistPulsePanesLayout(QUERY_EXPLORER_PANES_KEY, layout);
   };
   const {
     activeView,
@@ -614,7 +614,7 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
         dashboardPreviewConfig={dashboardEditPreviewConfig}
         dashboardDslDiagnostics={dashboardDslDiagnostics}
         dashboardDslSaving={dashboardDslSaving}
-        initialPanesValue={props.initialDashboardEditorPanesValue}
+        initialPanesLayout={props.initialDashboardEditorPanesLayout}
         sources={sources}
         inventory={inventory}
         metrics={metrics}
@@ -963,30 +963,38 @@ export default function PulseWorkspace(props: PulseWorkspaceProps) {
 
   const renderMetricExplorerView = () => (
     <section class="flex min-h-0 flex-1 overflow-hidden pb-2">
-      <Panes.Root value={explorerPanesValue()} onValueChange={updateExplorerPanesValue} class="h-full min-h-0 w-full">
-        <Panes.Element id="result" title="Result" icon="ti ti-chart-line">
-          {renderExplorerResultPane()}
-        </Panes.Element>
-        <Panes.Element id="editor" title="Query" icon="ti ti-code">
-          {renderQueryEditorPane()}
-        </Panes.Element>
-        <Panes.Element id="browse" title="Browse" icon="ti ti-list-search">
-          {renderBrowseExplorerPane()}
-        </Panes.Element>
-        <Panes.Element id="saved" title="Saved" icon="ti ti-device-floppy">
-          <SavedQueriesPane
-            queries={savedQueries}
-            currentQuery={currentExplorerQuery}
-            loading={loading}
-            onSelect={setQueryText}
-            onSaveCurrent={saveCurrentQuery}
-            onRemove={removeSavedQuery}
-          />
-        </Panes.Element>
-        <Panes.Element id="history" title="History" icon="ti ti-history">
-          <QueryHistoryPane history={queryHistory} dateContext={pulseDateContext} onSelect={setQueryText} />
-        </Panes.Element>
-      </Panes.Root>
+      <Panes
+        layout={explorerPanesLayout()}
+        onLayoutChange={updateExplorerPanesLayout}
+        class="h-full min-h-0 w-full"
+        ariaLabel="Query explorer panes"
+        items={[
+          { id: "result", title: "Result", icon: "ti ti-chart-line", render: renderExplorerResultPane },
+          { id: "editor", title: "Query", icon: "ti ti-code", render: renderQueryEditorPane },
+          { id: "browse", title: "Browse", icon: "ti ti-list-search", render: renderBrowseExplorerPane },
+          {
+            id: "saved",
+            title: "Saved",
+            icon: "ti ti-device-floppy",
+            render: () => (
+              <SavedQueriesPane
+                queries={savedQueries}
+                currentQuery={currentExplorerQuery}
+                loading={loading}
+                onSelect={setQueryText}
+                onSaveCurrent={saveCurrentQuery}
+                onRemove={removeSavedQuery}
+              />
+            ),
+          },
+          {
+            id: "history",
+            title: "History",
+            icon: "ti ti-history",
+            render: () => <QueryHistoryPane history={queryHistory} dateContext={pulseDateContext} onSelect={setQueryText} />,
+          },
+        ]}
+      />
     </section>
   );
 

@@ -1,5 +1,5 @@
 import type { DateContext } from "@k2b/stdlib";
-import type { PanesValue } from "@k2b/ui";
+import type { PanesLayout } from "@k2b/ui";
 import type { ResourceApiKey } from "@valentinkolb/cloud/access/ui";
 import type { PermissionLevel } from "@valentinkolb/cloud/contracts";
 import type {
@@ -112,8 +112,8 @@ export type PulseWorkspaceProps = {
   initialDashboardEvents?: Record<string, PulseRecordedEvent[]>;
   initialDashboardStates?: Record<string, PulseCurrentState[]>;
   initialDashboardMaps?: Record<string, PulseMapSeries[]>;
-  initialExplorerPanesValue?: PanesValue | null;
-  initialDashboardEditorPanesValue?: PanesValue | null;
+  initialExplorerPanesLayout?: PanesLayout | null;
+  initialDashboardEditorPanesLayout?: PanesLayout | null;
   initialDateConfig?: DateContext;
   initialNow?: string;
   initialOrigin?: string;

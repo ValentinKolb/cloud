@@ -1,31 +1,39 @@
 import { describe, expect, test } from "bun:test";
+import { PANES_LAYOUT_VERSION, type PanesLayout } from "@k2b/ui";
 import {
-  createQueryExplorerPanesValue,
-  initialPulsePanesValue,
-  QUERY_EXPLORER_ELEMENT_IDS,
+  createQueryExplorerPanesLayout,
+  initialPulsePanesLayout,
+  QUERY_EXPLORER_ITEM_IDS,
   QUERY_EXPLORER_PANES_KEY,
-  readPulsePanesStateCookie,
+  readPulsePanesLayoutCookie,
 } from "./panes-state";
 
 describe("Pulse panes state", () => {
-  test("reads a valid persisted layout", () => {
-    const value = createQueryExplorerPanesValue();
-    const cookie = `pulse_panes_pulse_query-explorer=${encodeURIComponent(JSON.stringify(value))}`;
-    expect(readPulsePanesStateCookie(cookie, QUERY_EXPLORER_PANES_KEY)).toEqual(value);
+  test("reads a valid version 2 layout", () => {
+    const layout = createQueryExplorerPanesLayout();
+    const cookie = `pulse_panes_pulse_query-explorer=${encodeURIComponent(JSON.stringify(layout))}`;
+    expect(readPulsePanesLayoutCookie(cookie, QUERY_EXPLORER_PANES_KEY)).toEqual(layout);
   });
 
-  test("rejects malformed layouts", () => {
-    const cookie = `pulse_panes_pulse_query-explorer=${encodeURIComponent(JSON.stringify({ root: { type: "split" } }))}`;
-    expect(readPulsePanesStateCookie(cookie, QUERY_EXPLORER_PANES_KEY)).toBeNull();
+  test("rejects malformed and version 1 layouts", () => {
+    const malformed = `pulse_panes_pulse_query-explorer=${encodeURIComponent(JSON.stringify({ version: 2, root: { type: "split" } }))}`;
+    const versionOne = `pulse_panes_pulse_query-explorer=${encodeURIComponent(
+      JSON.stringify({ root: { type: "leaf", id: "old", elementIds: ["editor"] } }),
+    )}`;
+    expect(readPulsePanesLayoutCookie(malformed, QUERY_EXPLORER_PANES_KEY)).toBeNull();
+    expect(readPulsePanesLayoutCookie(versionOne, QUERY_EXPLORER_PANES_KEY)).toBeNull();
   });
 
-  test("restores missing elements from the default layout", () => {
-    const persisted = { root: { type: "leaf" as const, id: "custom", elementIds: ["editor"], activeElementId: "editor" } };
-    const result = initialPulsePanesValue(persisted, createQueryExplorerPanesValue(), QUERY_EXPLORER_ELEMENT_IDS);
-    expect(result.root.type).toBe("leaf");
-    if (result.root.type === "leaf") {
-      expect(result.root.elementIds).toHaveLength(QUERY_EXPLORER_ELEMENT_IDS.length);
-      expect(new Set(result.root.elementIds)).toEqual(new Set(QUERY_EXPLORER_ELEMENT_IDS));
-    }
+  test("reconciles persisted items with the available workspace items", () => {
+    const persisted: PanesLayout = {
+      version: PANES_LAYOUT_VERSION,
+      root: { type: "group", items: ["editor", "removed"], active: "removed" },
+    };
+    const result = initialPulsePanesLayout(persisted, createQueryExplorerPanesLayout(), QUERY_EXPLORER_ITEM_IDS);
+    expect(result.root).toEqual({
+      type: "group",
+      items: ["editor", "result", "browse", "saved", "history"],
+      active: "editor",
+    });
   });
 });

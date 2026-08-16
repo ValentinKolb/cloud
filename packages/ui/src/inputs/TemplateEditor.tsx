@@ -1,5 +1,5 @@
 import { createMemo, For, type JSX } from "solid-js";
-import { PANES_VALUE_VERSION, type PanesValue } from "../layout/panes-state";
+import { PANES_LAYOUT_VERSION, type PanesLayout } from "../layout/panes-layout";
 import { AutocompleteEditor, type AutocompleteEditorProps } from "./AutocompleteEditor";
 import type { Completion, Suggestion } from "./completion";
 import { TextInput } from "./TextInput";
@@ -29,31 +29,16 @@ export type TemplateSampleDataProps = {
   class?: string;
 };
 
-export type TemplateEditorLayoutValue = PanesValue;
+export type TemplateEditorLayout = PanesLayout;
 
-export const createTemplateEditorPanesValue = (): TemplateEditorLayoutValue => ({
-  version: PANES_VALUE_VERSION,
+export const createTemplateEditorPanesLayout = (): TemplateEditorLayout => ({
+  version: PANES_LAYOUT_VERSION,
   root: {
     type: "split",
-    id: "template-editor-root",
     direction: "horizontal",
-    sizes: [50, 50],
-    children: [
-      {
-        type: "leaf",
-        id: "template-editor-source",
-        presentation: "tabs",
-        elementIds: ["html"],
-        activeElementId: "html",
-      },
-      {
-        type: "leaf",
-        id: "template-editor-output",
-        presentation: "tabs",
-        elementIds: ["preview", "sample-data"],
-        activeElementId: "preview",
-      },
-    ],
+    ratio: 0.5,
+    first: { type: "group", items: ["html"], active: "html" },
+    second: { type: "group", items: ["preview", "sample-data"], active: "preview" },
   },
 });
 

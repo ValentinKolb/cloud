@@ -4,6 +4,7 @@ import { ssr } from "../../../../../config";
 import { calendarInvitations, type MailRequestContext, mailboxAccess, mailboxes, senderIdentities } from "../../../../../service";
 import MailDraftSeedComposerPage from "../../../../_components/MailDraftSeedComposerPage.island";
 import { mailDraftReturnHref } from "../../../../_components/mail-compose-route";
+import { readMailComposerPanesFromCookieHeader } from "../../../../_components/mail-composer-panes";
 import { projectComposeData, resolveSsrMailboxId } from "../../../../ssr-public-boundary";
 
 export default ssr<AuthContext>(async (c) => {
@@ -26,12 +27,14 @@ export default ssr<AuthContext>(async (c) => {
   const publicData = await projectComposeData({ mailbox: mailbox.data, identities: identities.ok ? identities.data : [] });
   const returnHref = mailDraftReturnHref(c.req.query("return") ?? "", mailboxShortId);
   const popout = c.req.query("window") === "1";
+  const initialPanes = readMailComposerPanesFromCookieHeader(c.req.header("cookie"));
   return () => (
     <Layout c={c} fullPage focusMode flushCanvas={popout} title={[{ title: "Mail", href: returnHref }, { title: "New message" }]}>
       <MailDraftSeedComposerPage
         mailboxId={mailboxShortId}
         seedId={seedId}
         identities={publicData.identities}
+        initialPanes={initialPanes}
         returnHref={returnHref}
         popout={popout}
         dateConfig={getDateConfig(c)}

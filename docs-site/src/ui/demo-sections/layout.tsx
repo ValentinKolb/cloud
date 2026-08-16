@@ -2,8 +2,8 @@ import {
   AppOverview,
   AppWorkspace,
   Avatar,
+  addPanesItem,
   Button,
-  createPanesValue,
   DataPanel,
   DescriptionList,
   DetailPanel,
@@ -15,7 +15,10 @@ import {
   PanelDialog,
   PanelHeader,
   Panes,
-  type PanesValue,
+  type PanesItem,
+  type PanesLayout,
+  type PanesNode,
+  removePanesItem,
   Select,
   SelectChip,
   SettingsCollection,
@@ -216,111 +219,115 @@ const [drawerOpen, setDrawerOpen] = createSignal(true);
   );
 };
 
-const initialEditorLayout = createPanesValue(["source", "outline"]);
-
-const initialPanesLayout: PanesValue = {
-  version: initialEditorLayout.version,
+const initialPanesLayout: PanesLayout = {
+  version: 2,
   root: {
     type: "split",
-    id: "workspace",
     direction: "horizontal",
-    sizes: [62, 38],
-    children: [
-      {
-        type: "split",
-        id: "editor-stack",
-        direction: "vertical",
-        sizes: [68, 32],
-        children: [
-          {
-            ...initialEditorLayout.root,
-            id: "editor",
-          },
-          {
-            type: "leaf",
-            id: "console",
-            elementIds: ["console"],
-            activeElementId: "console",
-            presentation: "single",
-          },
-        ],
+    ratio: 0.62,
+    first: {
+      type: "split",
+      direction: "vertical",
+      ratio: 0.68,
+      first: {
+        type: "group",
+        items: ["source", "outline", "history"],
+        active: "source",
       },
-      {
-        type: "split",
-        id: "results",
-        direction: "vertical",
-        sizes: [55, 45],
-        children: [
-          {
-            type: "leaf",
-            id: "preview",
-            elementIds: ["preview"],
-            activeElementId: "preview",
-            presentation: "single",
-          },
-          {
-            type: "leaf",
-            id: "data",
-            elementIds: ["data", "schema"],
-            activeElementId: "data",
-            presentation: "tabs",
-          },
-        ],
+      second: {
+        type: "group",
+        items: ["terminal", "problems"],
+        active: "terminal",
       },
-    ],
+    },
+    second: {
+      type: "split",
+      direction: "vertical",
+      ratio: 0.52,
+      first: {
+        type: "group",
+        items: ["preview", "docs"],
+        active: "preview",
+      },
+      second: {
+        type: "group",
+        items: ["data", "schema"],
+        active: "data",
+      },
+    },
   },
 };
 
+const paneDefinitions = [
+  { id: "source", title: "Source", icon: "ti ti-code", tone: "blue" },
+  { id: "outline", title: "Outline", icon: "ti ti-list-tree", tone: "blue" },
+  { id: "history", title: "History", icon: "ti ti-history", tone: "blue" },
+  { id: "terminal", title: "Terminal", icon: "ti ti-terminal-2", tone: "violet" },
+  { id: "problems", title: "Problems", icon: "ti ti-alert-triangle", tone: "violet" },
+  { id: "preview", title: "Preview", icon: "ti ti-eye", tone: "violet" },
+  { id: "docs", title: "Docs", icon: "ti ti-book-2", tone: "violet" },
+  { id: "data", title: "Data", icon: "ti ti-database", tone: "emerald" },
+  { id: "schema", title: "Schema", icon: "ti ti-table", tone: "emerald" },
+  { id: "tests", title: "Tests", icon: "ti ti-test-pipe", tone: "emerald" },
+  { id: "notes", title: "Notes", icon: "ti ti-notes", tone: "blue" },
+  { id: "metrics", title: "Metrics", icon: "ti ti-chart-line", tone: "emerald" },
+] as const;
+
+const layoutContainsItem = (node: PanesNode | null, itemId: string): boolean => {
+  if (!node) return false;
+  if (node.type === "group") return node.items.includes(itemId);
+  return layoutContainsItem(node.first, itemId) || layoutContainsItem(node.second, itemId);
+};
+
 const PanesDemo = () => {
-  const [value, setValue] = createSignal<PanesValue>(initialPanesLayout);
+  const [layout, setLayout] = createSignal<PanesLayout>(initialPanesLayout);
+  const closeItem = (itemId: string) => setLayout((current) => removePanesItem(current, itemId));
+  const items: readonly PanesItem[] = paneDefinitions.map((item) => ({
+    id: item.id,
+    title: item.title,
+    icon: item.icon,
+    onClose: () => closeItem(item.id),
+    render: () => (
+      <div class="ui-pane-body" data-tone={item.tone}>
+        <span>{item.title}</span>
+      </div>
+    ),
+  }));
+  const nextClosedItem = () => paneDefinitions.find((candidate) => !layoutContainsItem(layout().root, candidate.id));
+  const addItem = (targetItemId: string | null) =>
+    setLayout((current) => {
+      const item = paneDefinitions.find((candidate) => !layoutContainsItem(current.root, candidate.id));
+      return item ? addPanesItem(current, { itemId: item.id, targetItemId }) : current;
+    });
   return (
     <DemoCard
       id="panes"
       chip={{ kind: "component", name: "Panes", from: "@k2b/ui" }}
       description="A controlled, serializable tree of tabs and splits. Drag a tab to reveal every valid move and add target."
-      code={`const [layout, setLayout] = createSignal<PanesValue>(initialLayout);
-<Panes.Root value={layout()} onValueChange={setLayout} label="Editor panes">
-  <Panes.Element id="source" title="Source" icon="ti ti-code">…</Panes.Element>
-  <Panes.Element id="outline" title="Outline" icon="ti ti-list-tree">…</Panes.Element>
-  <Panes.Element id="console" title="Console" icon="ti ti-terminal-2">…</Panes.Element>
-  <Panes.Element id="preview" title="Preview" icon="ti ti-eye">…</Panes.Element>
-  <Panes.Element id="data" title="Data" icon="ti ti-database">…</Panes.Element>
-  <Panes.Element id="schema" title="Schema" icon="ti ti-table">…</Panes.Element>
-</Panes.Root>`}
+      code={`const [layout, setLayout] = createSignal<PanesLayout>(initialLayout);
+const items: PanesItem[] = definitions.map((item) => ({
+  ...item,
+  render: () => <PaneContent id={item.id} />,
+  onClose: () => setLayout((current) => removePanesItem(current, item.id)),
+}));
+const nextClosedItem = () => definitions.find((item) => !layoutContainsItem(layout().root, item.id));
+
+<Panes
+  layout={layout()}
+  onLayoutChange={setLayout}
+  items={items}
+  onAddItem={nextClosedItem() ? (targetItemId) => openNextItem(targetItemId) : undefined}
+  ariaLabel="Editor panes"
+/>`}
     >
       <div class="ui-panes-demo">
-        <Panes.Root value={value()} onValueChange={setValue} label="Editor panes">
-          <Panes.Element id="source" title="Source" icon="ti ti-code">
-            <div class="ui-pane-body" data-tone="blue">
-              <span>Source</span>
-            </div>
-          </Panes.Element>
-          <Panes.Element id="outline" title="Outline" icon="ti ti-list-tree">
-            <div class="ui-pane-body" data-tone="blue">
-              <span>Outline</span>
-            </div>
-          </Panes.Element>
-          <Panes.Element id="console" title="Console" icon="ti ti-terminal-2">
-            <div class="ui-pane-body" data-tone="violet">
-              <span>Console</span>
-            </div>
-          </Panes.Element>
-          <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
-            <div class="ui-pane-body" data-tone="violet">
-              <span>Preview</span>
-            </div>
-          </Panes.Element>
-          <Panes.Element id="data" title="Data" icon="ti ti-database">
-            <div class="ui-pane-body" data-tone="emerald">
-              <span>Data</span>
-            </div>
-          </Panes.Element>
-          <Panes.Element id="schema" title="Schema" icon="ti ti-table">
-            <div class="ui-pane-body" data-tone="emerald">
-              <span>Schema</span>
-            </div>
-          </Panes.Element>
-        </Panes.Root>
+        <Panes
+          layout={layout()}
+          onLayoutChange={setLayout}
+          items={items}
+          onAddItem={nextClosedItem() ? addItem : undefined}
+          ariaLabel="Editor panes"
+        />
       </div>
     </DemoCard>
   );

@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConfig } from "@k2b/ssr";
-import type { PanesValue } from "@k2b/ui";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
 import type {
@@ -22,7 +21,7 @@ Bun.plugin(plugin());
 process.once("exit", () => rmSync(ssrRoot, { recursive: true, force: true }));
 
 const { FocusedEventDetail, FocusedMetricSeriesDetail, FocusedStateDetail } = await import("./FocusedSignalDetails");
-const { ResourceSignalDetail } = await import("./ResourceDetailView");
+const { default: ResourceDetailView, ResourceSignalDetail } = await import("./ResourceDetailView");
 const { default: SourceDetailView } = await import("./SourceDetailView");
 
 const now = "2026-08-09T10:00:00.000Z";
@@ -110,17 +109,45 @@ const resource: PulseResourceSummary = {
   dimensions: { region: "eu" },
 };
 
-const tabsValue = (activeElementId: "metrics" | "states" | "events"): PanesValue => ({
-  root: {
-    type: "leaf",
-    id: "signals",
-    elementIds: ["metrics", "states", "events"],
-    activeElementId,
-    presentation: "tabs",
-  },
-});
-
 describe("Pulse detail panels", () => {
+  test("renders resource signal navigation as controlled tabs instead of panes", () => {
+    const selection: ResourceDetailSelection = {
+      activeTab: () => "metrics",
+      setActiveTab: () => {},
+      selectedMetric: () => null,
+      selectedState: () => null,
+      selectedEvent: () => null,
+      selectMetric: () => {},
+      selectState: () => {},
+      selectEvent: () => {},
+      close: () => {},
+      open: () => false,
+    };
+    const html = renderToString(() =>
+      createComponent(ResourceDetailView, {
+        resource,
+        metrics: [resourceMetric],
+        states: [state],
+        events: [event],
+        dateContext,
+        sourceNameById: sourceNames,
+        selection,
+        openSource: () => {},
+        openMetricQuery: () => {},
+        openMetricVariants: () => {},
+        openStateQuery: () => {},
+        openStateVariants: () => {},
+        openEventQuery: () => {},
+        openEventVariants: () => {},
+      }),
+    );
+
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('aria-label="Resource signals"');
+    expect(html).toContain("Metrics 1");
+    expect(html).not.toContain("data-k2b-panes");
+  });
+
   test("renders source identity, actions, facts, and specialized scrape content in one detail body", () => {
     const html = renderToString(() =>
       createComponent(SourceDetailView, {
@@ -196,8 +223,7 @@ describe("Pulse detail panels", () => {
   test("keeps inactive resource signal details mounted while only the active branch is visible", () => {
     const selection: ResourceDetailSelection = {
       activeTab: () => "metrics",
-      panesValue: () => tabsValue("metrics"),
-      updatePanesValue: () => {},
+      setActiveTab: () => {},
       selectedMetric: () => resourceMetric,
       selectedState: () => state,
       selectedEvent: () => event,

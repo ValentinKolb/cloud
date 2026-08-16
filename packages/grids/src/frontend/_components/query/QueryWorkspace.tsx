@@ -1,5 +1,5 @@
 import { mutation as mutations, timed } from "@k2b/stdlib/solid";
-import { Button, NoticeCard, Panes, type PanesValue, prompts, TextInput, Tooltip } from "@k2b/ui";
+import { Button, NoticeCard, Panes, type PanesLayout, prompts, TextInput, Tooltip } from "@k2b/ui";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { PublicDslQueryPreviewResponse } from "../../../api/gql-public";
@@ -64,43 +64,20 @@ export const insertTextAtEditorSelection = (
 
 const isAbortError = (error: unknown): boolean => error instanceof DOMException && error.name === "AbortError";
 
-const createQueryWorkspacePanesValue = (): PanesValue => ({
+const createQueryWorkspacePanesLayout = (): PanesLayout => ({
+  version: 2,
   root: {
     type: "split",
-    id: "gql-query-root",
     direction: "vertical",
-    sizes: [56, 44],
-    children: [
-      {
-        type: "leaf",
-        id: "gql-query-results",
-        elementIds: ["results"],
-        activeElementId: "results",
-        presentation: "single",
-      },
-      {
-        type: "split",
-        id: "gql-query-bottom",
-        direction: "horizontal",
-        sizes: [62, 38],
-        children: [
-          {
-            type: "leaf",
-            id: "gql-query-editor",
-            elementIds: ["query"],
-            activeElementId: "query",
-            presentation: "single",
-          },
-          {
-            type: "leaf",
-            id: "gql-query-sources",
-            elementIds: ["sources"],
-            activeElementId: "sources",
-            presentation: "single",
-          },
-        ],
-      },
-    ],
+    ratio: 0.56,
+    first: { type: "group", items: ["results"], active: "results" },
+    second: {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.62,
+      first: { type: "group", items: ["query"], active: "query" },
+      second: { type: "group", items: ["sources"], active: "sources" },
+    },
   },
 });
 
@@ -231,7 +208,7 @@ export default function QueryWorkspace(props: Props) {
   const [loading, setLoading] = createSignal(false);
   const [pageCursor, setPageCursor] = createSignal<string | null>(props.initialCursor ?? null);
   const [pageHistory, setPageHistory] = createSignal<Array<string | null>>([]);
-  const [panes, setPanes] = createSignal<PanesValue>(createQueryWorkspacePanesValue());
+  const [layout, setLayout] = createSignal(createQueryWorkspacePanesLayout());
   const [sourceSearch, setSourceSearch] = createSignal("");
   const apiSource = createMemo(() => currentSourceForApi(props.currentSource));
   const sourceTables = createMemo(() => props.tables.filter((table) => !table.deletedAt));
@@ -491,158 +468,188 @@ export default function QueryWorkspace(props: Props) {
 
   return (
     <div class="flex min-h-0 flex-1 flex-col bg-[var(--ui-surface-subtle)] p-2" data-scroll-preserve="grids-query-workspace">
-      <Panes.Root value={panes()} onValueChange={setPanes} class="h-full w-full flex-1">
-        <Panes.Element id="results" title="Results" icon="ti ti-table-spark">
-          <QueryPreview
-            preview={preview()}
-            loading={loading()}
-            baseId={props.baseId}
-            tables={props.tables}
-            fieldsByTable={props.fieldsByTable}
-            canGoBack={pageHistory().length > 0 || pageCursor() !== null}
-            backLabel={pageHistory().length > 0 ? "Previous" : "First page"}
-            onPrevious={handlePreviousPage}
-            onNext={handleNextPage}
-          />
-        </Panes.Element>
-
-        <Panes.Element id="query" title="Query" icon="ti ti-code">
-          <section class="flex h-full min-h-0 flex-col overflow-hidden">
-            <div ref={(element) => (queryEditorScope = element)} class="min-h-0 flex-1">
-              <GqlSourceEditor
+      <Panes
+        layout={layout()}
+        onLayoutChange={setLayout}
+        class="h-full w-full flex-1"
+        items={[
+          {
+            id: "results",
+            title: "Results",
+            icon: "ti ti-table-spark",
+            render: () => (
+              <QueryPreview
+                preview={preview()}
+                loading={loading()}
                 baseId={props.baseId}
-                currentSource={apiSource()}
-                value={query}
-                onValueChange={onInput}
-                restoreExpansionOnBackspace={false}
-                variant="paper"
-                fill
-                placeholder={"from table Orders\nwhere Status = 'Open'\nsort CreatedAt desc\nlimit 50\noffset 0"}
-                aria-label="GQL query"
+                tables={props.tables}
+                fieldsByTable={props.fieldsByTable}
+                canGoBack={pageHistory().length > 0 || pageCursor() !== null}
+                backLabel={pageHistory().length > 0 ? "Previous" : "First page"}
+                onPrevious={handlePreviousPage}
+                onNext={handleNextPage}
               />
-            </div>
-            <Show when={queryHref(props.queryPath, query()).length > MAX_SYNCED_QUERY_HREF_LENGTH}>
-              <NoticeCard tone="warning" icon={false} class="mx-3 mt-3">
-                This query is too long for the URL. Results still work, but reload will start with an empty query.
-              </NoticeCard>
-            </Show>
+            ),
+          },
+          {
+            id: "query",
+            title: "Query",
+            icon: "ti ti-code",
+            render: () => (
+              <section class="flex h-full min-h-0 flex-col overflow-hidden">
+                <div ref={(element) => (queryEditorScope = element)} class="min-h-0 flex-1">
+                  <GqlSourceEditor
+                    baseId={props.baseId}
+                    currentSource={apiSource()}
+                    value={query}
+                    onValueChange={onInput}
+                    restoreExpansionOnBackspace={false}
+                    variant="paper"
+                    fill
+                    placeholder={"from table Orders\nwhere Status = 'Open'\nsort CreatedAt desc\nlimit 50\noffset 0"}
+                    aria-label="GQL query"
+                  />
+                </div>
+                <Show when={queryHref(props.queryPath, query()).length > MAX_SYNCED_QUERY_HREF_LENGTH}>
+                  <NoticeCard tone="warning" icon={false} class="mx-3 mt-3">
+                    This query is too long for the URL. Results still work, but reload will start with an empty query.
+                  </NoticeCard>
+                </Show>
 
-            <div class="flex shrink-0 flex-wrap items-center gap-2 pt-2">
-              <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                <For each={examples()}>
-                  {(example) => (
-                    <Button variant="secondary" size="sm" type="button" onClick={() => insertExample(example.code)}>
-                      <i class="ti ti-sparkles" /> {example.label}
-                    </Button>
-                  )}
-                </For>
-              </div>
-              <Button variant="secondary" size="sm" type="button" onClick={openQueryReferenceWindow}>
-                <i class="ti ti-external-link" /> Reference
-              </Button>
-              <Button variant="primary" size="sm" type="button" onClick={handleSave} disabled={!query().trim() || saveViewMut.loading()}>
-                <i class={saveButtonIcon()} /> {saveButtonLabel()}
-              </Button>
-            </div>
-          </section>
-        </Panes.Element>
-
-        <Panes.Element id="sources" title="Sources" icon="ti ti-database">
-          <section class="flex h-full min-h-0 flex-col gap-1 overflow-hidden">
-            <TextInput
-              type="search"
-              icon="ti ti-search"
-              activeIcon="ti ti-search"
-              placeholder="Search sources and fields..."
-              aria-label="Search query sources"
-              value={sourceSearch}
-              onValueChange={setSourceSearch}
-              clearable
-            />
-
-            <div class="min-h-0 flex-1 overflow-auto">
-              <Show
-                when={filteredSourceRows().length > 0}
-                fallback={
-                  <div class="flex h-full items-center justify-center p-6 text-center text-sm text-dimmed">
-                    <div class="flex max-w-xs flex-col items-center gap-2">
-                      <span class="state-placeholder-icon state-placeholder-icon-panel">
-                        <i class="ti ti-database-off text-lg" />
-                      </span>
-                      <span>{sourceSearch().trim() ? "No matching sources." : "No readable sources."}</span>
-                    </div>
+                <div class="flex shrink-0 flex-wrap items-center gap-2 pt-2">
+                  <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                    <For each={examples()}>
+                      {(example) => (
+                        <Button variant="secondary" size="sm" type="button" onClick={() => insertExample(example.code)}>
+                          <i class="ti ti-sparkles" /> {example.label}
+                        </Button>
+                      )}
+                    </For>
                   </div>
-                }
-              >
-                <div class="space-y-2">
-                  <For each={filteredSourceRows()}>
-                    {(source) => {
-                      const visibleSourceFields = () => sourceFieldsForSearch(source.fields, sourceSearch());
-                      const shown = () => visibleSourceFields().shown;
-                      const hidden = () => visibleSourceFields().hidden;
-                      return (
-                        <article class="paper px-2 py-1.5">
-                          <div class="flex items-start justify-between gap-2">
-                            <Tooltip.Anchor content={`Insert ${source.fromLine}`} class="min-w-0 flex-1">
-                              <button
-                                type="button"
-                                class="group flex min-w-0 flex-1 items-center gap-2 text-left"
-                                onClick={() => insertSource(source)}
-                              >
-                                <span class="grid h-5 w-5 shrink-0 place-items-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-xs text-secondary">
-                                  <i class={source.icon} />
-                                </span>
-                                <span class="min-w-0">
-                                  <span class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                                    <span class="truncate text-xs font-medium text-primary group-hover:text-[var(--ui-app-accent-text)]">
-                                      {source.name}
-                                    </span>
-                                    <span class="text-[10px] text-dimmed">{source.metaLabel}</span>
-                                  </span>
-                                  <Show when={source.parent}>
-                                    <span class="block truncate text-[10px] text-dimmed">of {source.parent}</span>
-                                  </Show>
-                                </span>
-                              </button>
-                            </Tooltip.Anchor>
-                            <Tooltip.Anchor content={`Insert ${source.fromLine}`}>
-                              <Button variant="ghost" size="sm" type="button" class="shrink-0 px-2" onClick={() => insertSource(source)}>
-                                from
-                              </Button>
-                            </Tooltip.Anchor>
-                          </div>
+                  <Button variant="secondary" size="sm" type="button" onClick={openQueryReferenceWindow}>
+                    <i class="ti ti-external-link" /> Reference
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    type="button"
+                    onClick={handleSave}
+                    disabled={!query().trim() || saveViewMut.loading()}
+                  >
+                    <i class={saveButtonIcon()} /> {saveButtonLabel()}
+                  </Button>
+                </div>
+              </section>
+            ),
+          },
+          {
+            id: "sources",
+            title: "Sources",
+            icon: "ti ti-database",
+            render: () => (
+              <section class="flex h-full min-h-0 flex-col gap-1 overflow-hidden">
+                <TextInput
+                  type="search"
+                  icon="ti ti-search"
+                  activeIcon="ti ti-search"
+                  placeholder="Search sources and fields..."
+                  aria-label="Search query sources"
+                  value={sourceSearch}
+                  onValueChange={setSourceSearch}
+                  clearable
+                />
 
-                          <div class="mt-1.5 flex flex-wrap gap-1">
-                            <For each={shown()}>
-                              {(field) => (
-                                <Tooltip.Anchor content={field.description || `${field.name} (${field.type})`}>
+                <div class="min-h-0 flex-1 overflow-auto">
+                  <Show
+                    when={filteredSourceRows().length > 0}
+                    fallback={
+                      <div class="flex h-full items-center justify-center p-6 text-center text-sm text-dimmed">
+                        <div class="flex max-w-xs flex-col items-center gap-2">
+                          <span class="state-placeholder-icon state-placeholder-icon-panel">
+                            <i class="ti ti-database-off text-lg" />
+                          </span>
+                          <span>{sourceSearch().trim() ? "No matching sources." : "No readable sources."}</span>
+                        </div>
+                      </div>
+                    }
+                  >
+                    <div class="space-y-2">
+                      <For each={filteredSourceRows()}>
+                        {(source) => {
+                          const visibleSourceFields = () => sourceFieldsForSearch(source.fields, sourceSearch());
+                          const shown = () => visibleSourceFields().shown;
+                          const hidden = () => visibleSourceFields().hidden;
+                          return (
+                            <article class="paper px-2 py-1.5">
+                              <div class="flex items-start justify-between gap-2">
+                                <Tooltip.Anchor content={`Insert ${source.fromLine}`} class="min-w-0 flex-1">
                                   <button
                                     type="button"
-                                    class="inline-flex max-w-full items-baseline gap-1 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-left text-[11px] leading-4 text-secondary hover:bg-[var(--ui-hover)] hover:text-[var(--ui-app-accent-text)]"
-                                    onClick={() => insertField(field)}
+                                    class="group flex min-w-0 flex-1 items-center gap-2 text-left"
+                                    onClick={() => insertSource(source)}
                                   >
-                                    <span class="truncate">{field.name}</span>
-                                    <span class="text-dimmed">{field.type}</span>
+                                    <span class="grid h-5 w-5 shrink-0 place-items-center rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] text-xs text-secondary">
+                                      <i class={source.icon} />
+                                    </span>
+                                    <span class="min-w-0">
+                                      <span class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                                        <span class="truncate text-xs font-medium text-primary group-hover:text-[var(--ui-app-accent-text)]">
+                                          {source.name}
+                                        </span>
+                                        <span class="text-[10px] text-dimmed">{source.metaLabel}</span>
+                                      </span>
+                                      <Show when={source.parent}>
+                                        <span class="block truncate text-[10px] text-dimmed">of {source.parent}</span>
+                                      </Show>
+                                    </span>
                                   </button>
                                 </Tooltip.Anchor>
-                              )}
-                            </For>
-                            <Show when={hidden() > 0}>
-                              <span class="rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-[10px] text-dimmed">
-                                +{hidden()}
-                              </span>
-                            </Show>
-                          </div>
-                        </article>
-                      );
-                    }}
-                  </For>
+                                <Tooltip.Anchor content={`Insert ${source.fromLine}`}>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    type="button"
+                                    class="shrink-0 px-2"
+                                    onClick={() => insertSource(source)}
+                                  >
+                                    from
+                                  </Button>
+                                </Tooltip.Anchor>
+                              </div>
+
+                              <div class="mt-1.5 flex flex-wrap gap-1">
+                                <For each={shown()}>
+                                  {(field) => (
+                                    <Tooltip.Anchor content={field.description || `${field.name} (${field.type})`}>
+                                      <button
+                                        type="button"
+                                        class="inline-flex max-w-full items-baseline gap-1 rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-left text-[11px] leading-4 text-secondary hover:bg-[var(--ui-hover)] hover:text-[var(--ui-app-accent-text)]"
+                                        onClick={() => insertField(field)}
+                                      >
+                                        <span class="truncate">{field.name}</span>
+                                        <span class="text-dimmed">{field.type}</span>
+                                      </button>
+                                    </Tooltip.Anchor>
+                                  )}
+                                </For>
+                                <Show when={hidden() > 0}>
+                                  <span class="rounded-[var(--ui-radius-control)] bg-[var(--ui-surface-subtle)] px-1.5 py-0.5 text-[10px] text-dimmed">
+                                    +{hidden()}
+                                  </span>
+                                </Show>
+                              </div>
+                            </article>
+                          );
+                        }}
+                      </For>
+                    </div>
+                  </Show>
                 </div>
-              </Show>
-            </div>
-          </section>
-        </Panes.Element>
-      </Panes.Root>
+              </section>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

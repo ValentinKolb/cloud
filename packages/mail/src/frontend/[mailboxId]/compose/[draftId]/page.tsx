@@ -4,6 +4,7 @@ import { ssr } from "../../../../config";
 import { calendarInvitations, drafts, type MailRequestContext, mailboxAccess, mailboxes, senderIdentities } from "../../../../service";
 import MailComposerPage from "../../../_components/MailComposerPage.island";
 import { mailDraftReturnHref } from "../../../_components/mail-compose-route";
+import { readMailComposerPanesFromCookieHeader, reconcileMailComposerPanes } from "../../../_components/mail-composer-panes";
 import { projectComposeData, resolveSsrMailboxId, resolveSsrMailboxResourceId } from "../../../ssr-public-boundary";
 
 export default ssr<AuthContext>(async (c) => {
@@ -33,6 +34,11 @@ export default ssr<AuthContext>(async (c) => {
   });
   const returnHref = mailDraftReturnHref(c.req.query("return") ?? "", mailboxShortId);
   const popout = c.req.query("window") === "1";
+  const initialPanes = reconcileMailComposerPanes(
+    readMailComposerPanesFromCookieHeader(c.req.header("cookie")),
+    draft.data.format,
+    Boolean(draft.data.conversationId),
+  );
   return () => (
     <Layout
       c={c}
@@ -45,6 +51,7 @@ export default ssr<AuthContext>(async (c) => {
         mailboxId={mailboxShortId}
         identities={publicData.identities}
         initialDraft={publicData.draft}
+        initialPanes={initialPanes}
         returnHref={returnHref}
         popout={popout}
         dateConfig={getDateConfig(c)}

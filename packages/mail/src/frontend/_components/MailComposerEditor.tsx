@@ -1,15 +1,7 @@
-import { AutocompleteEditor, Button, type Completion, MarkdownEditor, Panes, type PanesNode, type PanesValue, Placeholder } from "@k2b/ui";
+import { AutocompleteEditor, Button, type Completion, MarkdownEditor, Panes, type PanesItem, type PanesLayout, Placeholder } from "@k2b/ui";
 import type { Accessor, JSX } from "solid-js";
-import { children, Show } from "solid-js";
+import { createMemo, Show } from "solid-js";
 import type { ComposePreview } from "../../contracts";
-
-export const mailComposerPaneVisible = (node: PanesNode, elementId: string): boolean => {
-  if (node.type === "split") return node.children.some((child) => mailComposerPaneVisible(child, elementId));
-  if (!node.elementIds.includes(elementId)) return false;
-  if (node.presentation === "stack") return true;
-  const activeElementId = node.elementIds.includes(node.activeElementId ?? "") ? node.activeElementId : node.elementIds[0];
-  return activeElementId === elementId;
-};
 
 export default function MailComposerEditor(props: {
   format: Accessor<"plain" | "markdown">;
@@ -17,16 +9,15 @@ export default function MailComposerEditor(props: {
   onBodyInput: (value: string) => void;
   editable: Accessor<boolean>;
   completions: Accessor<Completion[]>;
-  panes: Accessor<PanesValue>;
-  onPanesChange: (value: PanesValue) => void;
+  panes: Accessor<PanesLayout>;
+  onPanesChange: (value: PanesLayout) => void;
   preview: Accessor<ComposePreview | null>;
   previewError: Accessor<string | undefined>;
   onRetryPreview: () => void;
   onEditorReady: (element: HTMLTextAreaElement) => void;
-  history?: JSX.Element;
+  history?: () => JSX.Element;
 }) {
-  const history = children(() => props.history);
-  const hasHistory = () => history() !== undefined && history() !== null;
+  const hasHistory = () => props.history !== undefined;
   const usesPanes = () => props.format() === "markdown" || hasHistory();
   const writeSurface = () => (
     <Show
@@ -100,35 +91,30 @@ export default function MailComposerEditor(props: {
       </Show>
     </div>
   );
+  const items = createMemo<PanesItem[]>(() => [
+    {
+      id: "editor",
+      title: "Write",
+      icon: "ti ti-pencil",
+      render: () => <div class="h-full min-h-0 overflow-hidden">{writeSurface()}</div>,
+    },
+    ...(props.format() === "markdown" ? [{ id: "preview", title: "Preview", icon: "ti ti-eye", render: previewSurface }] : []),
+    ...(props.history ? [{ id: "history", title: "History", icon: "ti ti-history", render: props.history }] : []),
+  ]);
 
   return (
     <div class="min-h-72 flex-1 py-2">
       <Show when={usesPanes()} fallback={<div class="h-full min-h-72 overflow-hidden">{writeSurface()}</div>}>
-        <Panes.Root
-          value={props.panes()}
-          onValueChange={props.onPanesChange}
+        <Panes
+          layout={props.panes()}
+          onLayoutChange={props.onPanesChange}
+          items={items()}
           class="h-full w-full"
-          keepMounted
-          allowResize
-          allowMove
-          allowReorder
-          allowHorizontalSplit
-          allowVerticalSplit={false}
-        >
-          <Panes.Element id="editor" title="Write" icon="ti ti-pencil">
-            <div class="h-full min-h-0 overflow-hidden">{writeSurface()}</div>
-          </Panes.Element>
-          <Show when={props.format() === "markdown"}>
-            <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
-              {previewSurface()}
-            </Panes.Element>
-          </Show>
-          <Show when={hasHistory()}>
-            <Panes.Element id="history" title="History" icon="ti ti-history">
-              {history()}
-            </Panes.Element>
-          </Show>
-        </Panes.Root>
+          movable
+          resizable
+          split="horizontal"
+          ariaLabel="Message editor panes"
+        />
       </Show>
     </div>
   );

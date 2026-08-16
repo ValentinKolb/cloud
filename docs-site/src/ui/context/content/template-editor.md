@@ -6,17 +6,17 @@
 
 Use it for operator-managed email, document, or PDF templates.
 
-Compose it with `TemplatePreview` and `TemplateSampleData` when editors need to compare source and output. `createTemplateEditorPanesValue()` provides the shared source-and-preview pane layout.
+Compose it with `TemplatePreview` and `TemplateSampleData` when editors need to compare source and output. `createTemplateEditorPanesLayout()` provides the shared source-and-preview pane layout.
 
 ## Import
 
 ```tsx
 import {
-  createTemplateEditorPanesValue,
+  createTemplateEditorPanesLayout,
   TemplateEditor,
   TemplatePreview,
   TemplateSampleData,
-  type TemplateEditorLayoutValue,
+  type TemplateEditorLayout,
   type TemplateEditorProps,
   type TemplatePreviewProps,
   type TemplateSampleDataProps,

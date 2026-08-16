@@ -76,7 +76,7 @@ export { TagsInput } from "./TagsInput";
 export type { TagEditorItem, TagEditorLabels, TagEditorProps, TagEditorValue } from "./TagEditor";
 export { TagEditor } from "./TagEditor";
 export type {
-  TemplateEditorLayoutValue,
+  TemplateEditorLayout,
   TemplateEditorProps,
   TemplatePreviewProps,
   TemplateSampleDataProps,
@@ -84,7 +84,7 @@ export type {
   TemplateVariableKind,
 } from "./TemplateEditor";
 export {
-  createTemplateEditorPanesValue,
+  createTemplateEditorPanesLayout,
   TemplateEditor,
   TemplatePreview,
   TemplateSampleData,

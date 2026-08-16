@@ -43,7 +43,7 @@ import {
   FOCUSED_PAGE_SIZE,
   quoteQueryPart,
 } from "../workspace/helpers";
-import { DASHBOARD_EDITOR_PANES_KEY, QUERY_EXPLORER_PANES_KEY, readPulsePanesStateCookie } from "../workspace/panes-state";
+import { DASHBOARD_EDITOR_PANES_KEY, QUERY_EXPLORER_PANES_KEY, readPulsePanesLayoutCookie } from "../workspace/panes-state";
 import {
   readActivityQueryState,
   readDashboardControlQueryState,
@@ -475,8 +475,8 @@ export async function loadPulseWorkspacePageData<T extends AuthContext>(c: Pulse
       initialActivityQuery: activityQuery,
       initialResourceQuery: publicResourceQuery,
       initialDashboardControlValues: dashboardControlValues,
-      initialExplorerPanesValue: readPulsePanesStateCookie(c.req.header("Cookie"), QUERY_EXPLORER_PANES_KEY),
-      initialDashboardEditorPanesValue: readPulsePanesStateCookie(c.req.header("Cookie"), DASHBOARD_EDITOR_PANES_KEY),
+      initialExplorerPanesLayout: readPulsePanesLayoutCookie(c.req.header("Cookie"), QUERY_EXPLORER_PANES_KEY),
+      initialDashboardEditorPanesLayout: readPulsePanesLayoutCookie(c.req.header("Cookie"), DASHBOARD_EDITOR_PANES_KEY),
       initialDateConfig: getDateConfig(c),
       initialNow: new Date().toISOString(),
       initialOrigin: publicOrigin(appUrl, url.origin),

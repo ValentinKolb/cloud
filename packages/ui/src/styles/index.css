@@ -266,9 +266,7 @@
   inset: 0 0.5rem;
 }
 
-/* Cloud paints the hover/active highlight only when `canResize()` is true.
-   Without the `:not()` a workspace rendered with `allowResize={false}` still
-   lit up a live-looking drag affordance on a separator that cannot move. */
+/* Only interactive separators paint a hover or active affordance. */
 .k2b-ui .k2b-panes__separator:not([aria-disabled="true"]):hover > span,
 .k2b-ui .k2b-panes__separator:not([aria-disabled="true"]):focus-visible > span,
 .k2b-ui .k2b-panes__separator:not([aria-disabled="true"]):active > span {
@@ -284,7 +282,7 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--k2b-focus-ring) 42%, transparent);
 }
 
-.k2b-ui .k2b-panes__leaf {
+.k2b-ui .k2b-panes__group {
   position: relative;
   display: flex;
   height: 100%;
@@ -296,8 +294,7 @@
   overflow: hidden;
 }
 
-.k2b-ui .k2b-panes__tabs,
-.k2b-ui .k2b-panes__single-tabs {
+.k2b-ui .k2b-panes__tabs {
   display: flex;
   height: 2.5rem;
   min-width: 0;
@@ -312,28 +309,8 @@
   scrollbar-width: none;
 }
 
-.k2b-ui .k2b-panes__tabs::-webkit-scrollbar,
-.k2b-ui .k2b-panes__single-tabs::-webkit-scrollbar {
+.k2b-ui .k2b-panes__tabs::-webkit-scrollbar {
   display: none;
-}
-
-.k2b-ui .k2b-panes__single-header {
-  position: relative;
-  display: flex;
-  height: 1.75rem;
-  min-width: 5rem;
-  max-width: 16rem;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0;
-  border: 0;
-  border-radius: var(--k2b-radius-control);
-  color: var(--k2b-text);
-  background: var(--k2b-surface-muted);
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
 }
 
 .k2b-ui .k2b-panes__tab {
@@ -371,18 +348,15 @@
   font-weight: 600;
 }
 
-.k2b-ui .k2b-panes__tab[data-movable="true"],
-.k2b-ui .k2b-panes__single-header[data-movable="true"] {
+.k2b-ui .k2b-panes__tab[data-movable="true"] {
   cursor: grab;
 }
 
-.k2b-ui .k2b-panes__tab[data-dnd-active="true"],
-.k2b-ui .k2b-panes__single-header[data-dnd-active="true"] {
+.k2b-ui .k2b-panes__tab[data-dnd-active="true"] {
   cursor: grabbing;
 }
 
-.k2b-ui .k2b-panes__tab[data-dnd-active="true"],
-.k2b-ui .k2b-panes__single-header[data-dnd-active="true"] {
+.k2b-ui .k2b-panes__tab[data-dnd-active="true"] {
   opacity: 0.4;
 }
 
@@ -405,7 +379,15 @@
   cursor: inherit;
 }
 
-.k2b-ui .k2b-panes__tab-button > span {
+.k2b-ui .k2b-panes__drag-surface {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.k2b-ui .k2b-panes__drag-surface > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -435,7 +417,7 @@
   white-space: nowrap;
 }
 
-.k2b-ui .k2b-panes__tab:focus-visible {
+.k2b-ui .k2b-panes__tab-button:focus-visible {
   outline: 2px solid var(--k2b-focus-ring);
   outline-offset: -2px;
 }
@@ -448,10 +430,13 @@
 }
 
 .k2b-ui .k2b-panes__close {
+  position: absolute;
+  z-index: 2;
+  top: 0.125rem;
+  right: 0.125rem;
   display: inline-flex;
   width: 1.5rem;
   height: 1.5rem;
-  flex: none;
   align-items: center;
   justify-content: center;
   padding: 0;
@@ -459,13 +444,20 @@
   /* Cloud: `rounded`. */
   border-radius: 0.25rem;
   color: var(--k2b-text-muted);
-  background: transparent;
+  background: var(--k2b-surface-muted);
   cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 120ms ease,
+    color 120ms ease;
 }
 
-.k2b-ui .k2b-panes__tab > .k2b-panes__close,
-.k2b-ui .k2b-panes__single-header > .k2b-panes__close {
-  margin-right: 0.25rem;
+.k2b-ui .k2b-panes__tab:hover > .k2b-panes__close,
+.k2b-ui .k2b-panes__tab:focus-within > .k2b-panes__close,
+.k2b-ui .k2b-panes__close:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .k2b-ui .k2b-panes__close:hover,
@@ -488,15 +480,6 @@
   overflow: hidden;
 }
 
-/* `stack` is the package's own presentation; Cloud renders every child in the
-   same block, so only this mode needs a column. */
-.k2b-ui .k2b-panes__body[data-presentation="stack"] {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  overflow: auto;
-}
-
 /* Cloud's panel wrapper is `contents` — it introduces no box and therefore no
    scroll container; the pane's own content owns its scrolling. `overflow: auto`
    here wrapped that content in a second scroller, so a scrollable pane produced
@@ -514,10 +497,47 @@
   display: none;
 }
 
-.k2b-ui .k2b-panes__body[data-presentation="stack"] .k2b-panes__panel {
-  height: auto;
-  min-height: 12rem;
-  flex: 1 0 16rem;
+.k2b-ui .k2b-panes__empty {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+}
+
+.k2b-ui .k2b-panes__add {
+  display: inline-flex;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid var(--k2b-border);
+  border-radius: var(--k2b-radius-control);
+  color: var(--k2b-text-secondary);
+  background: var(--k2b-surface);
+  font: inherit;
+  cursor: pointer;
+}
+
+.k2b-ui .k2b-panes__add:hover {
+  color: var(--k2b-text);
+  background: var(--k2b-hover);
+}
+
+.k2b-ui .k2b-panes__add:focus-visible {
+  outline: 2px solid var(--k2b-focus-ring);
+  outline-offset: 1px;
+}
+
+.k2b-ui .k2b-panes__add--tab {
+  width: 1.75rem;
+  min-height: 1.75rem;
+  flex: none;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
 }
 
 .k2b-ui .k2b-panes__drop-targets {
@@ -565,19 +585,11 @@
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--k2b-success-500) 22%, transparent);
 }
 
-.k2b-ui .k2b-panes__drop-target[data-disabled="true"] {
-  border-color: var(--k2b-border);
-  color: var(--k2b-text-muted);
-  background: var(--k2b-surface-muted);
-  box-shadow: none;
-  opacity: 0.6;
-  pointer-events: none;
-}
-
 .k2b-ui .k2b-panes__drop-target[data-placement="tab"] {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  z-index: 10;
+  top: 0.125rem;
+  bottom: 0.125rem;
   left: 0;
   width: 1.25rem;
   border-radius: 999px;
@@ -614,10 +626,6 @@
   filter: drop-shadow(0 0 0.25rem color-mix(in srgb, var(--k2b-success-500) 45%, transparent));
 }
 
-.k2b-ui .k2b-panes__drop-target[data-kind="split"][data-disabled="true"] {
-  filter: none;
-}
-
 .k2b-ui .k2b-panes__drop-target[data-kind="group"] {
   top: 50%;
   left: 50%;
@@ -637,6 +645,11 @@
   width: var(--k2b-panes-drop-edge);
   flex-direction: column;
   clip-path: polygon(100% 0, 0 var(--k2b-panes-drop-edge), 0 calc(100% - var(--k2b-panes-drop-edge)), 100% 100%);
+}
+
+.k2b-ui .k2b-panes__drop-target[data-zone="left"] > span,
+.k2b-ui .k2b-panes__drop-target[data-zone="right"] > span {
+  display: none;
 }
 
 .k2b-ui .k2b-panes__drop-target[data-zone="top"] {

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConfig } from "@k2b/ssr";
-import type { PanesValue } from "@k2b/ui";
+import type { PanesLayout } from "@k2b/ui";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
 import type { ComposePreview } from "../../contracts";
@@ -16,17 +16,12 @@ process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 const { default: MailComposerEditor } = await import("./MailComposerEditor.tsx");
 const History = () => "Earlier message";
 
-const panes = (...elementIds: string[]): PanesValue => ({
-  root: {
-    type: "leaf",
-    id: "composer",
-    elementIds,
-    activeElementId: elementIds[0],
-    presentation: elementIds.length > 1 ? "tabs" : "single",
-  },
+const panes = (active: string, ...items: string[]): PanesLayout => ({
+  version: 2,
+  root: { type: "group", items, active },
 });
 
-const renderEditor = (format: "plain" | "markdown", value: PanesValue, history = false, preview: ComposePreview | null = null) =>
+const renderEditor = (format: "plain" | "markdown", value: PanesLayout, history = false, preview: ComposePreview | null = null) =>
   renderToString(() =>
     createComponent(MailComposerEditor, {
       format: () => format,
@@ -40,13 +35,13 @@ const renderEditor = (format: "plain" | "markdown", value: PanesValue, history =
       previewError: () => undefined,
       onRetryPreview: () => undefined,
       onEditorReady: () => undefined,
-      history: history ? createComponent(History, {}) : undefined,
+      history: history ? () => createComponent(History, {}) : undefined,
     }),
   );
 
 describe("MailComposerEditor", () => {
   test("adds conversation history beside the plain-text editor", () => {
-    const html = renderEditor("plain", panes("editor", "history"), true);
+    const html = renderEditor("plain", panes("history", "editor", "history"), true);
 
     expect(html).toContain("Write");
     expect(html).toContain("History");
@@ -55,7 +50,7 @@ describe("MailComposerEditor", () => {
   });
 
   test("keeps a standalone plain-text message as a single editor", () => {
-    const html = renderEditor("plain", panes("editor"));
+    const html = renderEditor("plain", panes("editor", "editor"));
 
     expect(html).toContain('aria-label="Message body"');
     expect(html).not.toContain("History");
@@ -63,17 +58,18 @@ describe("MailComposerEditor", () => {
   });
 
   test("keeps preview and adds history for a Markdown conversation", () => {
-    const html = renderEditor("markdown", panes("editor", "preview", "history"), true);
+    const html = renderEditor("markdown", panes("preview", "editor", "preview", "history"), true);
 
     expect(html).toContain("Write");
     expect(html).toContain("Preview");
     expect(html).toContain("History");
     expect(html).toContain("Preparing preview...");
+    expect(html).not.toContain("Earlier message");
     expect(html).not.toContain("Updating");
   });
 
   test("removes the browser body margin from the HTML preview", () => {
-    const html = renderEditor("markdown", panes("preview"), false, { html: "<p>Preview body</p>", text: "Preview body" });
+    const html = renderEditor("markdown", panes("preview", "preview"), false, { html: "<p>Preview body</p>", text: "Preview body" });
 
     expect(html).toContain("body{margin:0}");
     expect(html).toContain("Preview body");

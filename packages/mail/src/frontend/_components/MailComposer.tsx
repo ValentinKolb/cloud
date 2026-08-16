@@ -8,8 +8,9 @@ import {
   Dropdown,
   type DropdownItem,
   IconButton,
+  isPanesItemVisible,
   NoticeCard,
-  type PanesValue,
+  type PanesLayout,
   prompts,
   Select,
   SplitButton,
@@ -36,14 +37,15 @@ import type {
 import { readApiError } from "./api-response";
 import MailComposerAttachments from "./MailComposerAttachments";
 import { openMailComposerCalendarDialog } from "./MailComposerCalendarDialog";
-import MailComposerEditor, { mailComposerPaneVisible } from "./MailComposerEditor";
+import MailComposerEditor from "./MailComposerEditor";
 import MailComposerHistory from "./MailComposerHistory";
 import MailRecipientInput from "./MailRecipientInput";
 import { chooseScheduledSendTime } from "./MailScheduleDialog";
-import { readMailComposerPanes, readMailUserPreferences, writeMailComposerPanes } from "./MailSettingsStore";
+import { readMailUserPreferences, writeMailComposerPanes } from "./MailSettingsStore";
 import { mailDraftHref, mailDraftSeedHref } from "./mail-compose-route";
 import { createMailComposerAttachmentManager } from "./mail-composer-attachment-manager";
 import { focusMailComposerEditorAtStart } from "./mail-composer-editor-focus";
+import { reconcileMailComposerPanes } from "./mail-composer-panes";
 import { createMailComposerTransition } from "./mail-composer-transition";
 import { removeMailDraftSeed } from "./mail-draft-seed-store";
 import { createMailDraftSession } from "./mail-draft-session";
@@ -70,6 +72,7 @@ export default function MailComposer(props: {
   identities: SenderIdentity[];
   initialDraft?: MailDraft;
   initialSeed?: MailDraftSeed;
+  initialPanes: PanesLayout;
   popout?: boolean;
   returnHref: string;
   dateConfig: DateContext;
@@ -126,7 +129,9 @@ export default function MailComposer(props: {
     return options;
   });
   const [showCc, setShowCc] = createSignal(Boolean(initialContent.cc.length || initialContent.bcc.length));
-  const [composerPanes, setComposerPanes] = createSignal<PanesValue>(readMailComposerPanes());
+  const [composerPanes, setComposerPanes] = createSignal(
+    reconcileMailComposerPanes(props.initialPanes, initialContent.format, Boolean(initial.conversationId)),
+  );
   const composerTransition = createMailComposerTransition();
   let recoveryController: AbortController | null = null;
   let disposed = false;
@@ -207,12 +212,13 @@ export default function MailComposer(props: {
     hasUnsavedChanges,
   } = draftSession;
   const conversationId = () => draft()?.conversationId ?? initial.conversationId;
+  const currentComposerPanes = createMemo(() => reconcileMailComposerPanes(composerPanes(), format(), Boolean(conversationId())));
   type PreviewInput = { draft: DraftEditableContentInput; conversationId: string | null };
   const initialPreviewInput: PreviewInput = { draft: content(), conversationId: conversationId() };
   const [previewSource, setPreviewSource] = createSignal(JSON.stringify(initialPreviewInput));
   const previewQuery = query.create<string, ComposePreview>({
     source: previewSource,
-    enabled: () => format() === "markdown" && mailComposerPaneVisible(composerPanes().root, "preview") && Boolean(identityId()),
+    enabled: () => format() === "markdown" && isPanesItemVisible(currentComposerPanes(), "preview") && Boolean(identityId()),
     load: async (serialized, { abortSignal }) => {
       const input = JSON.parse(serialized) as PreviewInput;
       const response = await apiClient.mailboxes[":mailboxId"]["compose-preview"].$post(
@@ -285,7 +291,7 @@ export default function MailComposer(props: {
     }
   };
 
-  const updateComposerPanes = (value: PanesValue) => {
+  const updateComposerPanes = (value: PanesLayout) => {
     setComposerPanes(value);
     if (panePersistenceTimer) clearTimeout(panePersistenceTimer);
     panePersistenceTimer = setTimeout(() => {
@@ -293,6 +299,12 @@ export default function MailComposer(props: {
       panePersistenceTimer = null;
     }, 150);
   };
+
+  createEffect(() => {
+    const current = composerPanes();
+    const next = currentComposerPanes();
+    if (next !== current) updateComposerPanes(next);
+  });
 
   const restoreRecoveryCopy = async () => {
     const currentDraft = draft();
@@ -382,7 +394,7 @@ export default function MailComposer(props: {
       stopPreview();
       return;
     }
-    if (!mailComposerPaneVisible(composerPanes().root, "preview")) {
+    if (!isPanesItemVisible(currentComposerPanes(), "preview")) {
       stopPreview();
       setPreviewSource(serialized);
       return;
@@ -1082,22 +1094,24 @@ export default function MailComposer(props: {
           onBodyInput={setBody}
           editable={editable}
           completions={slashCompletion}
-          panes={composerPanes}
+          panes={currentComposerPanes}
           onPanesChange={updateComposerPanes}
           preview={preview}
           previewError={() => previewQuery.error()?.message}
           onRetryPreview={retryPreview}
           onEditorReady={focusFreshEditorAtStart}
           history={
-            conversationId() ? (
-              <MailComposerHistory
-                mailboxId={props.mailboxId}
-                conversationId={conversationId()!}
-                identities={props.identities}
-                dateConfig={props.dateConfig}
-                active={() => mailComposerPaneVisible(composerPanes().root, "history")}
-              />
-            ) : undefined
+            conversationId()
+              ? () => (
+                  <MailComposerHistory
+                    mailboxId={props.mailboxId}
+                    conversationId={conversationId()!}
+                    identities={props.identities}
+                    dateConfig={props.dateConfig}
+                    active={() => isPanesItemVisible(currentComposerPanes(), "history")}
+                  />
+                )
+              : undefined
           }
         />
 

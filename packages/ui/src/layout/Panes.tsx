@@ -1,110 +1,62 @@
 import { type DndCollisionContext, type DndController, type DndDroppableSnapshot, dnd } from "@k2b/stdlib/solid";
-import { children, createMemo, createSignal, createUniqueId, For, Index, type JSX, onCleanup, Show } from "solid-js";
-import type { MaybeAccessor } from "../inputs/field-contract";
+import { createMemo, createSignal, createUniqueId, For, type JSX, onCleanup, Show } from "solid-js";
 import {
-  activatePanesElement,
+  activatePanesItem,
   applyPanesIntent,
-  findPanesLeaf,
   getPanesDropTargets,
-  normalizePanesSizes,
-  normalizePanesValue,
   PANES_MAX_ID_LENGTH,
-  PANES_MIN_SIZE,
-  type PanesDropIntent,
+  PANES_MIN_RATIO,
   type PanesDropTarget,
-  type PanesLeafNode,
-  type PanesLeafPresentation,
+  type PanesGroup,
+  type PanesIntent,
+  type PanesLayout,
   type PanesNode,
-  type PanesSplitNode,
-  type PanesValue,
+  type PanesPath,
+  type PanesSplit,
+  parsePanesLayout,
   resizePanesSplit,
-  resolvePanesDropIntent,
-} from "./panes-state";
-import { assertStableUiId, assertUniqueStableUiIds } from "./stable-id";
+  samePanesIntent,
+} from "./panes-layout";
+import { assertUniqueStableUiIds } from "./stable-id";
 
-export type {
-  PanesLeafNode,
-  PanesLeafPresentation,
-  PanesNode,
-  PanesSplitNode,
-  PanesValue,
-} from "./panes-state";
-export { createPanesValue, normalizePanesValue } from "./panes-state";
-
-const ELEMENT_SLOT = Symbol("Panes.Element");
-
-type PanesElementSlot = {
-  readonly kind: typeof ELEMENT_SLOT;
-  readonly props: PanesElementProps;
-};
-
-export type PanesRootProps = {
-  value: PanesValue;
-  onValueChange: (value: PanesValue) => void;
-  children: JSX.Element;
-  class?: string;
-  label?: string;
-  keepMounted?: boolean;
-  leafPresentation?: PanesLeafPresentation;
-  allowResize?: MaybeAccessor<boolean>;
-  allowMove?: MaybeAccessor<boolean>;
-  allowReorder?: MaybeAccessor<boolean>;
-  allowHorizontalSplit?: MaybeAccessor<boolean>;
-  allowVerticalSplit?: MaybeAccessor<boolean>;
-};
-
-export type PanesElementProps = {
+export type PanesItem = {
   id: string;
   title: string;
   icon?: string;
-  closable?: MaybeAccessor<boolean>;
+  render: () => JSX.Element;
   onClose?: () => void;
-  children: JSX.Element;
 };
 
-type PanesComponent = ((props: PanesRootProps) => JSX.Element) & {
-  Root: (props: PanesRootProps) => JSX.Element;
-  Element: (props: PanesElementProps) => JSX.Element;
+export type PanesProps = {
+  layout: PanesLayout;
+  onLayoutChange: (layout: PanesLayout) => void;
+  items: readonly PanesItem[];
+  movable?: boolean;
+  resizable?: boolean;
+  split?: false | "horizontal" | "vertical" | "both";
+  onAddItem?: (targetItemId: string | null) => void;
+  ariaLabel?: string;
+  class?: string;
 };
 
-type DragMeta = {
-  elementId: string;
-  label: string;
-};
-
+type DragMeta = { itemId: string; label: string };
 type DropMeta = { target: PanesDropTarget; label: string };
-
-type PaneDnd = DndController<DragMeta, DropMeta, PanesDropIntent>;
-
-const isElementSlot = (value: unknown): value is PanesElementSlot =>
-  !!value && typeof value === "object" && "kind" in value && value.kind === ELEMENT_SLOT;
-
-const collectElementSlots = (value: unknown): PanesElementSlot[] => {
-  if (Array.isArray(value)) return value.flatMap(collectElementSlots);
-  return isElementSlot(value) ? [value] : [];
-};
-
-const readMaybe = (value: MaybeAccessor<boolean> | undefined, fallback: boolean): boolean =>
-  typeof value === "function" ? value() : (value ?? fallback);
-
-const elementId = (element: PanesElementSlot): string => element.props.id;
-const elementTitle = (element: PanesElementSlot): string => element.props.title;
+type PaneDnd = DndController<DragMeta, DropMeta, PanesIntent>;
 
 const iconClass = (icon: string | undefined): string => {
   const value = icon?.trim() || "ti-layout-sidebar-right";
   return value.startsWith("ti ") ? value : `ti ${value}`;
 };
 
-/**
- * `normalizePanesValue` accepts node and element ids up to
- * `PANES_MAX_ID_LENGTH`, so truncating here at a shorter length let two ids
- * that agree on their first N characters produce the same `tabId`/`panelId` —
- * duplicate DOM ids, `aria-controls` pointing at the wrong panel, and
- * `focusTab` focusing the wrong tab.
- */
-const safeDomId = (value: string): string => assertStableUiId(value, "Panes id", PANES_MAX_ID_LENGTH);
-
-const elementClosable = (element: PanesElementSlot): boolean => !!element.props.onClose && readMaybe(element.props.closable, true);
+const collectLayoutItemIds = (node: PanesNode | null, ids: string[] = []): string[] => {
+  if (!node) return ids;
+  if (node.type === "group") ids.push(...node.items);
+  else {
+    collectLayoutItemIds(node.first, ids);
+    collectLayoutItemIds(node.second, ids);
+  }
+  return ids;
+};
 
 const nearestDroppable = (entries: DndDroppableSnapshot<DropMeta>[]): DndDroppableSnapshot<DropMeta> | null =>
   entries.reduce<DndDroppableSnapshot<DropMeta> | null>(
@@ -112,259 +64,211 @@ const nearestDroppable = (entries: DndDroppableSnapshot<DropMeta>[]): DndDroppab
     null,
   );
 
-const pointerHitsSplitTarget = (
-  entry: DndDroppableSnapshot<DropMeta>,
-  pointer: DndCollisionContext<DragMeta, DropMeta, PanesDropIntent>["pointer"],
-) => {
-  if (entry.meta.target.kind !== "split" || !entry.meta.target.zone) return entry.containsPointer;
+export const pointerHitsPanesDropTarget = (
+  entry: Pick<DndDroppableSnapshot<DropMeta>, "containsPointer" | "meta" | "rect">,
+  pointer: { x: number; y: number },
+): boolean => {
+  const side = entry.meta.target.side;
+  if (entry.meta.target.kind !== "split" || !side) return entry.containsPointer;
   if (!entry.containsPointer) return false;
-
   const x = pointer.x - entry.rect.left;
   const y = pointer.y - entry.rect.top;
-  if (entry.meta.target.zone === "top") return x >= y && x <= entry.rect.width - y;
-  if (entry.meta.target.zone === "bottom") {
+  if (side === "top") return x >= y && x <= entry.rect.width - y;
+  if (side === "bottom") {
     const corner = entry.rect.height - y;
     return x >= corner && x <= entry.rect.width - corner;
   }
-  if (entry.meta.target.zone === "left") return y >= x && y <= entry.rect.height - x;
-
+  if (side === "left") return y >= x && y <= entry.rect.height - x;
   const corner = entry.rect.width - x;
   return y >= corner && y <= entry.rect.height - corner;
 };
 
-const panesCollisionDetector = (context: DndCollisionContext<DragMeta, DropMeta, PanesDropIntent>): string | null => {
-  const hits = context.droppables.filter((entry) => pointerHitsSplitTarget(entry, context.pointer));
-  return nearestDroppable(hits)?.id ?? null;
+const panesCollisionDetector = (context: DndCollisionContext<DragMeta, DropMeta, PanesIntent>): string | null =>
+  nearestDroppable(context.droppables.filter((entry) => pointerHitsPanesDropTarget(entry, context.pointer)))?.id ?? null;
+
+const createItemMap = (items: readonly PanesItem[]): Map<string, PanesItem> => {
+  assertUniqueStableUiIds(
+    items.map((item) => item.id),
+    "Panes item id",
+    PANES_MAX_ID_LENGTH,
+  );
+  return new Map(items.map((item) => [item.id, item]));
 };
 
-const sameIntent = (a: PanesDropIntent | null, b: PanesDropIntent | null): boolean => JSON.stringify(a) === JSON.stringify(b);
+const requireItem = (items: Map<string, PanesItem>, id: string): PanesItem => {
+  const item = items.get(id);
+  if (!item) throw new Error(`Panes layout references missing item "${id}".`);
+  return item;
+};
 
-const CloseButton = (props: { element: PanesElementSlot; tabIndex?: number }) => (
-  <button
-    type="button"
-    class="k2b-panes__close"
-    tabIndex={props.tabIndex}
-    title={`Close ${elementTitle(props.element)}`}
-    aria-label={`Close ${elementTitle(props.element)}`}
-    onPointerDown={(event) => event.stopPropagation()}
-    onClick={(event) => {
-      event.stopPropagation();
-      props.element.props.onClose?.();
-    }}
-  >
-    <i class="ti ti-x" aria-hidden="true" />
-  </button>
-);
-
-function PanesElement(props: PanesElementProps): JSX.Element {
-  return {
-    kind: ELEMENT_SLOT,
-    props,
-  } satisfies PanesElementSlot as unknown as JSX.Element;
-}
-
-const PanesRoot = (props: PanesRootProps) => {
+export default function Panes(props: PanesProps): JSX.Element {
   const instanceId = `k2b-panes-${createUniqueId()}`;
-  const resolved = children(() => props.children);
-  const slots = createMemo(() => {
-    const collected = collectElementSlots(resolved.toArray());
-    assertUniqueStableUiIds(collected.map(elementId), "Panes.Element id", PANES_MAX_ID_LENGTH);
-    return collected;
+  const items = createMemo(() => createItemMap(props.items));
+  const layout = createMemo(() => {
+    if (!parsePanesLayout(props.layout)) throw new Error("Panes layout must be a valid version 2 layout.");
+    for (const id of collectLayoutItemIds(props.layout.root)) requireItem(items(), id);
+    return props.layout;
   });
-  const elementById = createMemo(() => new Map(slots().map((slot) => [elementId(slot), slot])));
-  const elementIds = createMemo(() => slots().map(elementId));
-  const presentation = () => props.leafPresentation ?? "tabs";
-  const value = createMemo(() => normalizePanesValue(props.value, elementIds(), presentation()));
-  const canResize = () => readMaybe(props.allowResize, true);
-  const canMove = () => readMaybe(props.allowMove, true);
-  const canReorder = () => readMaybe(props.allowReorder, true);
-  const canHorizontalSplit = () => readMaybe(props.allowHorizontalSplit, true);
-  const canVerticalSplit = () => readMaybe(props.allowVerticalSplit, true);
-  const [draggedElementId, setDraggedElementId] = createSignal<string | null>(null);
+  const canMove = () => props.movable ?? true;
+  const canResize = () => props.resizable ?? true;
+  const split = () => props.split ?? "both";
+  const [draggedItemId, setDraggedItemId] = createSignal<string | null>(null);
   const dropTargets = createMemo(() => {
-    const dragged = draggedElementId();
-    if (!dragged) return [];
-    return getPanesDropTargets(value(), dragged, {
-      allowMove: canMove(),
-      allowReorder: canReorder(),
-      allowHorizontalSplit: canHorizontalSplit(),
-      allowVerticalSplit: canVerticalSplit(),
-    });
+    const itemId = draggedItemId();
+    return itemId ? getPanesDropTargets(layout(), itemId, { movable: canMove(), split: split() }) : [];
   });
-
-  const resolveIntent = (rawIntent: PanesDropIntent): PanesDropIntent | null => {
-    if (!canMove()) return null;
-    const intent = rawIntent;
-    if (intent.kind === "split") {
-      const horizontal = intent.zone === "left" || intent.zone === "right";
-      if ((horizontal && !canHorizontalSplit()) || (!horizontal && !canVerticalSplit())) return null;
-    }
-    if (intent.kind === "move" && !canReorder()) return null;
-    if (intent.kind === "insert" && intent.direction === "horizontal" && !canHorizontalSplit()) return null;
-    if (intent.kind === "insert" && intent.direction === "vertical" && !canVerticalSplit()) return null;
-    return resolvePanesDropIntent(value(), intent);
-  };
-
-  const paneDnd = dnd.create<DragMeta, DropMeta, PanesDropIntent>({
+  const paneDnd = dnd.create<DragMeta, DropMeta, PanesIntent>({
     collisionDetector: panesCollisionDetector,
-    buildIntent: (context) => (context.over && !context.over.meta.target.disabled ? resolveIntent(context.over.meta.target.intent) : null),
-    isSameIntent: sameIntent,
-    onDragStart: ({ active }) => {
-      setDraggedElementId(active.meta.elementId);
-    },
+    buildIntent: ({ over }) => over?.meta.target.intent ?? null,
+    isSameIntent: samePanesIntent,
+    onDragStart: ({ active }) => setDraggedItemId(active.meta.itemId),
     announcements: {
       dragStart: (active) => `Picked up ${active.meta.label}.`,
       dragOver: (active, over) => (over ? `Move ${active.meta.label} to ${over.meta.label}.` : `${active.meta.label} is not over a pane.`),
       drop: (active, over) => (over ? `Moved ${active.meta.label} to ${over.meta.label}.` : `Did not move ${active.meta.label}.`),
       cancel: (active) => `Cancelled moving ${active.meta.label}.`,
     },
-    onDrop: ({ intent }) => {
-      setDraggedElementId(null);
+    onDrop: ({ intent, mode }) => {
+      setDraggedItemId(null);
       if (!intent) return;
-      props.onValueChange(applyPanesIntent(value(), intent, presentation()));
+      const current = layout();
+      const next = applyPanesIntent(current, intent);
+      if (next === current) return;
+      props.onLayoutChange(next);
+      if (mode === "keyboard") queueMicrotask(() => document.getElementById(`${instanceId}-${intent.itemId}-tab`)?.focus());
     },
-    onCancel: () => {
-      setDraggedElementId(null);
-    },
+    onCancel: () => setDraggedItemId(null),
   });
-
-  const setActive = (leafId: string, elementId: string) => {
-    const leaf = findPanesLeaf(value().root, leafId);
-    if (!leaf?.elementIds.includes(elementId)) return;
-    const next = activatePanesElement(value(), elementId);
-    if (next !== value()) props.onValueChange(next);
+  const activate = (itemId: string) => {
+    const current = layout();
+    const next = activatePanesItem(current, itemId);
+    if (next !== current) props.onLayoutChange(next);
   };
-
-  const resize = (splitId: string, index: number, delta: number, baseSizes: number[]) =>
-    props.onValueChange(resizePanesSplit(value(), splitId, index, delta, baseSizes));
+  const requestAdd = (targetItemId: string | null) => props.onAddItem?.(targetItemId);
 
   return (
-    <div class={`k2b-panes ${props.class ?? ""}`} data-k2b-panes role="group" aria-label={props.label ?? "Pane workspace"}>
-      <PanesNodeRenderer
-        node={() => value().root}
-        elementById={elementById()}
-        dnd={paneDnd}
-        dropTargets={dropTargets}
-        instanceId={instanceId}
-        keepMounted={props.keepMounted ?? true}
-        canResize={canResize}
-        canMove={canMove}
-        canReorder={canReorder}
-        onActive={setActive}
-        onResize={resize}
-      />
+    <div class={`k2b-panes ${props.class ?? ""}`} data-k2b-panes role="group" aria-label={props.ariaLabel ?? "Pane workspace"}>
+      <Show
+        when={layout().root}
+        fallback={
+          <div class="k2b-panes__empty">
+            <Show when={props.onAddItem !== undefined}>
+              <button type="button" class="k2b-panes__add" onClick={() => requestAdd(null)} aria-label="Add pane">
+                <i class="ti ti-plus" aria-hidden="true" />
+                <span>Add pane</span>
+              </button>
+            </Show>
+          </div>
+        }
+      >
+        {(root) => (
+          <PanesNodeRenderer
+            node={root}
+            path={[]}
+            layout={layout}
+            itemById={items}
+            dnd={paneDnd}
+            dropTargets={dropTargets}
+            instanceId={instanceId}
+            canMove={canMove}
+            canResize={canResize}
+            addItem={requestAdd}
+            canAdd={() => props.onAddItem !== undefined}
+            onActivate={activate}
+            onLayoutChange={props.onLayoutChange}
+          />
+        )}
+      </Show>
     </div>
   );
-};
+}
 
 type RendererProps = {
   node: () => PanesNode;
-  elementById: Map<string, PanesElementSlot>;
+  path: PanesPath;
+  layout: () => PanesLayout;
+  itemById: () => Map<string, PanesItem>;
   dnd: PaneDnd;
   dropTargets: () => PanesDropTarget[];
   instanceId: string;
-  keepMounted: boolean;
-  canResize: () => boolean;
   canMove: () => boolean;
-  canReorder: () => boolean;
-  onActive: (leafId: string, elementId: string) => void;
-  onResize: (splitId: string, index: number, delta: number, baseSizes: number[]) => void;
+  canResize: () => boolean;
+  addItem: (targetItemId: string | null) => void;
+  canAdd: () => boolean;
+  onActivate: (itemId: string) => void;
+  onLayoutChange: (layout: PanesLayout) => void;
 };
 
-function PanesNodeRenderer(props: RendererProps) {
+function PanesNodeRenderer(props: RendererProps): JSX.Element {
+  const split = createMemo(() => {
+    const node = props.node();
+    return node.type === "split" ? node : null;
+  });
+  const group = createMemo(() => {
+    const node = props.node();
+    return node.type === "group" ? node : null;
+  });
   return (
     <>
-      <Show when={props.node().type === "split"}>
-        <PanesSplit
-          node={() => props.node() as PanesSplitNode}
-          elementById={props.elementById}
-          dnd={props.dnd}
-          dropTargets={props.dropTargets}
-          instanceId={props.instanceId}
-          keepMounted={props.keepMounted}
-          canResize={props.canResize}
-          canMove={props.canMove}
-          canReorder={props.canReorder}
-          onActive={props.onActive}
-          onResize={props.onResize}
-        />
-      </Show>
-      <Show when={props.node().type === "leaf"}>
-        <PanesLeaf
-          node={() => props.node() as PanesLeafNode}
-          elementById={props.elementById}
-          dnd={props.dnd}
-          dropTargets={props.dropTargets}
-          instanceId={props.instanceId}
-          keepMounted={props.keepMounted}
-          canMove={props.canMove}
-          canReorder={props.canReorder}
-          onActive={props.onActive}
-        />
-      </Show>
+      <Show when={split()}>{(node) => <PanesSplitRenderer {...props} node={node} />}</Show>
+      <Show when={group()}>{(node) => <PanesGroupRenderer {...props} node={node} />}</Show>
     </>
   );
 }
 
-function PanesSplit(props: Omit<RendererProps, "node"> & { node: () => PanesSplitNode }) {
+function PanesSplitRenderer(props: Omit<RendererProps, "node"> & { node: () => PanesSplit }): JSX.Element {
   let container: HTMLDivElement | undefined;
   let stopResize: (() => void) | undefined;
   let finishResize: (() => void) | undefined;
-  const direction = () => props.node().direction;
-  const sizes = () => normalizePanesSizes(props.node().sizes, props.node().children.length);
   const stopActiveResize = () => {
     stopResize?.();
     stopResize = undefined;
     finishResize = undefined;
   };
-
   const finishActiveResize = () => {
     finishResize?.();
     stopResize = undefined;
     finishResize = undefined;
   };
-
   onCleanup(stopActiveResize);
-
-  const startResize = (event: PointerEvent, index: number) => {
+  const commitRatio = (ratio: number) => {
+    const current = props.layout();
+    const next = resizePanesSplit(current, props.path, ratio);
+    if (next !== current) props.onLayoutChange(next);
+  };
+  const startResize = (event: PointerEvent) => {
     if (!props.canResize()) return;
     event.preventDefault();
     stopActiveResize();
-    const split = props.node();
     const pointerId = event.pointerId;
     const captureTarget = event.currentTarget as HTMLElement;
-    captureTarget.setPointerCapture?.(pointerId);
-    const baseSizes = normalizePanesSizes(split.sizes, split.children.length);
-    const start = split.direction === "horizontal" ? event.clientX : event.clientY;
+    const startRatio = props.node().ratio;
+    const start = props.node().direction === "horizontal" ? event.clientX : event.clientY;
     const rect = container?.getBoundingClientRect();
-    const extent = Math.max(1, split.direction === "horizontal" ? (rect?.width ?? 1) : (rect?.height ?? 1));
-    let resizeFrame: number | undefined;
-    let pendingDelta: number | undefined;
-    const flushResize = () => {
-      if (resizeFrame !== undefined) {
-        cancelAnimationFrame(resizeFrame);
-        resizeFrame = undefined;
-      }
-      if (pendingDelta === undefined) return;
-      const delta = pendingDelta;
-      pendingDelta = undefined;
-      props.onResize(split.id, index, delta, baseSizes);
+    const extent = Math.max(1, props.node().direction === "horizontal" ? (rect?.width ?? 1) : (rect?.height ?? 1));
+    let frame: number | undefined;
+    let pendingRatio: number | undefined;
+    const flush = () => {
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      frame = undefined;
+      if (pendingRatio === undefined) return;
+      const ratio = pendingRatio;
+      pendingRatio = undefined;
+      commitRatio(ratio);
     };
     const onMove = (move: PointerEvent) => {
       if (move.pointerId !== pointerId) return;
-      const current = split.direction === "horizontal" ? move.clientX : move.clientY;
-      pendingDelta = ((current - start) / extent) * 100;
-      if (resizeFrame !== undefined) return;
-      resizeFrame = requestAnimationFrame(flushResize);
+      const current = props.node().direction === "horizontal" ? move.clientX : move.clientY;
+      pendingRatio = startRatio + (current - start) / extent;
+      if (frame === undefined) frame = requestAnimationFrame(flush);
     };
     const onEnd = (end: PointerEvent) => {
-      if (end.pointerId !== pointerId) return;
-      finishActiveResize();
+      if (end.pointerId === pointerId) finishActiveResize();
     };
     stopResize = () => {
-      if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame);
-      resizeFrame = undefined;
-      pendingDelta = undefined;
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      frame = undefined;
+      pendingRatio = undefined;
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onEnd);
       window.removeEventListener("pointercancel", onEnd);
@@ -372,136 +276,87 @@ function PanesSplit(props: Omit<RendererProps, "node"> & { node: () => PanesSpli
       if (captureTarget.hasPointerCapture?.(pointerId)) captureTarget.releasePointerCapture(pointerId);
     };
     finishResize = () => {
-      flushResize();
+      flush();
       stopResize?.();
     };
+    captureTarget.setPointerCapture?.(pointerId);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onEnd);
     window.addEventListener("pointercancel", onEnd);
     window.addEventListener("blur", finishActiveResize);
   };
-
-  const resizeDelta = (event: KeyboardEvent, index: number): number | null => {
-    if (!props.canResize()) return null;
-    const split = props.node();
-    const baseSizes = normalizePanesSizes(split.sizes, split.children.length);
-    const current = baseSizes[index] ?? 0;
-    const next = baseSizes[index + 1] ?? 0;
-    const step = event.shiftKey ? 8 : 2;
-    if (event.key === "Home") return -current + PANES_MIN_SIZE;
-    if (event.key === "End") return next - PANES_MIN_SIZE;
-    if (split.direction === "horizontal") {
-      if (event.key === "ArrowLeft") return -step;
-      if (event.key === "ArrowRight") return step;
-    } else {
-      if (event.key === "ArrowUp") return -step;
-      if (event.key === "ArrowDown") return step;
-    }
-    return null;
-  };
-
-  const onResizeKeyDown = (event: KeyboardEvent, index: number) => {
-    const delta = resizeDelta(event, index);
-    if (delta === null) return;
+  const onResizeKeyDown = (event: KeyboardEvent) => {
+    if (!props.canResize()) return;
+    const step = event.shiftKey ? 0.08 : 0.02;
+    let ratio: number | null = null;
+    if (event.key === "Home") ratio = PANES_MIN_RATIO;
+    if (event.key === "End") ratio = 1 - PANES_MIN_RATIO;
+    if (props.node().direction === "horizontal" && event.key === "ArrowLeft") ratio = props.node().ratio - step;
+    if (props.node().direction === "horizontal" && event.key === "ArrowRight") ratio = props.node().ratio + step;
+    if (props.node().direction === "vertical" && event.key === "ArrowUp") ratio = props.node().ratio - step;
+    if (props.node().direction === "vertical" && event.key === "ArrowDown") ratio = props.node().ratio + step;
+    if (ratio === null) return;
     event.preventDefault();
-    const split = props.node();
-    props.onResize(split.id, index, delta, normalizePanesSizes(split.sizes, split.children.length));
+    commitRatio(ratio);
   };
-
   return (
-    <div ref={container} class="k2b-panes__split" data-direction={direction()}>
-      <Index each={props.node().children}>
-        {(child, index) => (
-          <>
-            <div class="k2b-panes__split-child" style={{ flex: `${sizes()[index] ?? 0} 1 0` }}>
-              <PanesNodeRenderer
-                node={child}
-                elementById={props.elementById}
-                dnd={props.dnd}
-                dropTargets={props.dropTargets}
-                instanceId={props.instanceId}
-                keepMounted={props.keepMounted}
-                canResize={props.canResize}
-                canMove={props.canMove}
-                canReorder={props.canReorder}
-                onActive={props.onActive}
-                onResize={props.onResize}
-              />
-            </div>
-            <Show when={index < props.node().children.length - 1}>
-              <button
-                type="button"
-                role="separator"
-                aria-orientation={direction() === "horizontal" ? "vertical" : "horizontal"}
-                aria-valuemin={PANES_MIN_SIZE}
-                aria-valuemax={100 - PANES_MIN_SIZE}
-                aria-valuenow={Math.round(sizes()[index] ?? 0)}
-                aria-disabled={!props.canResize()}
-                tabIndex={props.canResize() ? 0 : -1}
-                class="k2b-panes__separator"
-                data-direction={direction()}
-                aria-label="Resize panes"
-                onPointerDown={(event) => startResize(event, index)}
-                onKeyDown={(event) => onResizeKeyDown(event, index)}
-              >
-                <span aria-hidden="true" />
-              </button>
-            </Show>
-          </>
-        )}
-      </Index>
+    <div ref={container} class="k2b-panes__split" data-direction={props.node().direction}>
+      <div class="k2b-panes__split-child" style={{ flex: `${props.node().ratio} 1 0` }}>
+        <PanesNodeRenderer {...props} node={() => props.node().first} path={[...props.path, "first"]} />
+      </div>
+      <button
+        type="button"
+        role="separator"
+        aria-orientation={props.node().direction === "horizontal" ? "vertical" : "horizontal"}
+        aria-valuemin={Math.round(PANES_MIN_RATIO * 100)}
+        aria-valuemax={Math.round((1 - PANES_MIN_RATIO) * 100)}
+        aria-valuenow={Math.round(props.node().ratio * 100)}
+        aria-disabled={!props.canResize()}
+        tabIndex={props.canResize() ? 0 : -1}
+        class="k2b-panes__separator"
+        data-direction={props.node().direction}
+        aria-label="Resize panes"
+        onPointerDown={startResize}
+        onKeyDown={onResizeKeyDown}
+      >
+        <span aria-hidden="true" />
+      </button>
+      <div class="k2b-panes__split-child" style={{ flex: `${1 - props.node().ratio} 1 0` }}>
+        <PanesNodeRenderer {...props} node={() => props.node().second} path={[...props.path, "second"]} />
+      </div>
     </div>
   );
 }
 
-function PanesLeaf(
-  props: Omit<RendererProps, "node" | "canResize" | "onResize"> & {
-    node: () => PanesLeafNode;
-  },
-) {
+function ActivePane(props: { itemId: string; itemById: () => Map<string, PanesItem> }): JSX.Element {
+  return requireItem(props.itemById(), props.itemId).render();
+}
+
+function PanesGroupRenderer(props: Omit<RendererProps, "node"> & { node: () => PanesGroup }): JSX.Element {
   const dndInstanceId = createUniqueId();
-  const draggableId = (id: string) => `panes-element:${dndInstanceId}:${id}`;
-  const elements = createMemo(() => props.node().elementIds.flatMap((id) => props.elementById.get(id) ?? []));
-  const activeId = createMemo(() =>
-    props.node().elementIds.includes(props.node().activeElementId ?? "") ? props.node().activeElementId : props.node().elementIds[0],
-  );
-  const presentation = () => props.node().presentation ?? "tabs";
-  const activeElement = () => props.elementById.get(activeId() ?? "");
-  const activeElementTitle = () => {
-    const element = activeElement();
-    return element ? elementTitle(element) : props.node().id;
-  };
-  const leafTargets = createMemo(() => props.dropTargets().filter((target) => target.leafId === props.node().id));
-  const tabTargetBefore = (id: string) => leafTargets().find((target) => target.kind === "tab" && target.beforeElementId === id);
-  const endTabTarget = () => leafTargets().find((target) => target.kind === "tab" && target.beforeElementId === null);
-  const bodyTargets = createMemo(() => leafTargets().filter((target) => target.kind !== "tab"));
-  const targetLabel = (target: PanesDropTarget) => {
-    if (target.kind === "group") return `Add to ${activeElementTitle()}`;
-    if (target.kind === "tab") {
-      const before = target.beforeElementId ? props.elementById.get(target.beforeElementId) : null;
-      return before ? `Insert before ${elementTitle(before)}` : "Insert at end";
-    }
-    return `Add ${target.zone}`;
-  };
-  const showTabs = () => presentation() === "tabs" && elements().length > 1;
-  const tabId = (elementId: string) => `${props.instanceId}-${safeDomId(props.node().id)}-${safeDomId(elementId)}-tab`;
-  const panelId = (elementId: string) => `${props.instanceId}-${safeDomId(props.node().id)}-${safeDomId(elementId)}-panel`;
-
+  const draggableId = (id: string) => `panes-item:${dndInstanceId}:${id}`;
+  const itemIds = createMemo(() => props.node().items);
+  const groupTargets = createMemo(() => props.dropTargets().filter((target) => props.node().items.includes(target.targetItemId)));
+  const targetBefore = (itemId: string) => groupTargets().find((target) => target.kind === "tab" && target.beforeItemId === itemId);
+  const targetAtEnd = () => groupTargets().find((target) => target.kind === "tab" && target.beforeItemId === null);
+  const bodyTargets = createMemo(() => groupTargets().filter((target) => target.kind !== "tab"));
+  const tabId = (itemId: string) => `${props.instanceId}-${itemId}-tab`;
+  const panelId = (itemId: string) => `${props.instanceId}-${itemId}-panel`;
   const focusTab = (index: number) => {
-    const element = elements()[index];
-    if (!element) return;
-    props.onActive(props.node().id, elementId(element));
-    queueMicrotask(() => document.getElementById(tabId(elementId(element)))?.focus());
+    const itemId = itemIds()[index];
+    if (!itemId) return;
+    props.onActivate(itemId);
+    queueMicrotask(() => document.getElementById(tabId(itemId))?.focus());
   };
-
-  const onTabKeyDown = (event: KeyboardEvent, index: number, element: PanesElementSlot) => {
-    if ((event.key === "Delete" || event.key === "Backspace") && elementClosable(element)) {
+  const onTabKeyDown = (event: KeyboardEvent, index: number, itemId: string) => {
+    if (props.dnd.activeId() === draggableId(itemId)) return;
+    const item = requireItem(props.itemById(), itemId);
+    if ((event.key === "Delete" || event.key === "Backspace") && item.onClose) {
       event.preventDefault();
-      element.props.onClose?.();
+      item.onClose();
       return;
     }
-    const count = elements().length;
-    if (count < 2) return;
+    const count = itemIds().length;
     let next: number | null = null;
     if (event.key === "ArrowLeft") next = (index - 1 + count) % count;
     if (event.key === "ArrowRight") next = (index + 1) % count;
@@ -511,143 +366,103 @@ function PanesLeaf(
     event.preventDefault();
     focusTab(next);
   };
-
+  const targetLabel = (target: PanesDropTarget): string => {
+    const targetItem = requireItem(props.itemById(), target.targetItemId);
+    if (target.kind === "group") return `Add to ${targetItem.title}`;
+    if (target.kind === "tab") {
+      const before = target.beforeItemId ? requireItem(props.itemById(), target.beforeItemId) : null;
+      return before ? `Insert before ${before.title}` : "Insert at end";
+    }
+    return `Add ${target.side} of ${targetItem.title}`;
+  };
   return (
-    <section class="k2b-panes__leaf" data-presentation={presentation()}>
-      <Show
-        when={showTabs()}
-        fallback={
-          <Show when={activeElement()}>
-            {(element) => (
-              <div class="k2b-panes__single-tabs">
-                <div
-                  class="k2b-panes__single-header"
-                  data-movable={props.canMove() ? "true" : undefined}
-                  data-dnd-active={props.dnd.activeId() === draggableId(elementId(element())) ? "true" : undefined}
-                >
-                  <Show when={tabTargetBefore(elementId(element()))}>
-                    {(target) => <PanesDropTargetView target={target()} label={targetLabel(target())} dnd={props.dnd} placement="tab" />}
-                  </Show>
-                  <span
-                    ref={(surface) => {
-                      props.dnd.draggable(surface, () => ({
-                        id: draggableId(elementId(element())),
-                        meta: {
-                          elementId: elementId(element()),
-                          label: elementTitle(element()),
-                        },
-                        disabled: !props.canMove(),
-                        focusable: false,
-                        keyboard: false,
-                      }));
-                    }}
-                    class="k2b-ui k2b-panes__tab-button k2b-panes__drag-preview"
-                    data-dnd-preview
-                  >
-                    <i class={`${iconClass(element().props.icon)} k2b-panes__icon`} aria-hidden="true" />
-                    <span title={elementTitle(element())}>{elementTitle(element())}</span>
-                  </span>
-                  <Show when={elementClosable(element())}>
-                    <CloseButton element={element()} tabIndex={-1} />
-                  </Show>
-                </div>
-              </div>
-            )}
-          </Show>
-        }
-      >
-        <div class="k2b-panes__tabs" role="tablist" aria-label="Pane tabs" aria-orientation="horizontal">
-          <For each={elements()}>
-            {(element, index) => {
-              const active = () => activeId() === elementId(element);
-              return (
-                <div
-                  id={tabId(elementId(element))}
-                  class="k2b-panes__tab"
-                  role="tab"
-                  aria-label={elementTitle(element)}
-                  aria-selected={active()}
-                  aria-controls={panelId(elementId(element))}
-                  aria-posinset={index() + 1}
-                  aria-setsize={elements().length}
-                  aria-keyshortcuts={elementClosable(element) ? "Delete Backspace" : undefined}
-                  tabIndex={active() ? 0 : -1}
-                  title={elementTitle(element)}
-                  data-movable={props.canMove() ? "true" : undefined}
-                  data-active={active() ? "true" : undefined}
-                  data-dnd-active={props.dnd.activeId() === draggableId(elementId(element)) ? "true" : undefined}
-                  onClick={(event) => {
-                    if ((event.target as Element).closest(".k2b-panes__close")) return;
-                    props.onActive(props.node().id, elementId(element));
-                  }}
-                  onKeyDown={(event) => onTabKeyDown(event, index(), element)}
-                >
-                  <Show when={tabTargetBefore(elementId(element))}>
-                    {(target) => <PanesDropTargetView target={target()} label={targetLabel(target())} dnd={props.dnd} placement="tab" />}
-                  </Show>
-                  <span
-                    ref={(surface) => {
-                      props.dnd.draggable(surface, () => ({
-                        id: draggableId(elementId(element)),
-                        meta: {
-                          elementId: elementId(element),
-                          label: elementTitle(element),
-                        },
-                        disabled: !props.canMove(),
-                        focusable: false,
-                        keyboard: false,
-                      }));
-                    }}
-                    class="k2b-ui k2b-panes__tab-button k2b-panes__drag-preview"
-                    data-dnd-preview
-                  >
-                    <i class={`${iconClass(element.props.icon)} k2b-panes__icon`} aria-hidden="true" />
-                    <span>{elementTitle(element)}</span>
-                  </span>
-                  <Show when={elementClosable(element)}>
-                    <span
-                      class="k2b-panes__close"
-                      title={`Close ${elementTitle(element)}`}
-                      aria-hidden="true"
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onPointerUp={(event) => {
-                        event.stopPropagation();
-                        element.props.onClose?.();
-                      }}
-                    >
-                      <i class="ti ti-x" aria-hidden="true" />
-                    </span>
-                  </Show>
-                </div>
-              );
-            }}
-          </For>
-          <Show when={endTabTarget()}>
-            {(target) => <PanesDropTargetView target={target()} label={targetLabel(target())} dnd={props.dnd} placement="tab-end" />}
-          </Show>
-        </div>
-      </Show>
-
-      <div class="k2b-panes__body" data-presentation={presentation()}>
-        <For each={elements()}>
-          {(element) => {
-            const visible = () => activeId() === elementId(element) || presentation() === "stack";
+    <section class="k2b-panes__group">
+      <div class="k2b-panes__tabs" role="tablist" aria-label="Pane tabs" aria-orientation="horizontal">
+        <For each={itemIds()}>
+          {(itemId, index) => {
+            const item = () => requireItem(props.itemById(), itemId);
+            const active = () => props.node().active === itemId;
             return (
-              // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the runtime role is always tabpanel or region.
               <div
-                id={panelId(elementId(element))}
-                class="k2b-panes__panel"
-                role={showTabs() ? "tabpanel" : "region"}
-                aria-labelledby={showTabs() ? tabId(elementId(element)) : undefined}
-                aria-label={!showTabs() ? elementTitle(element) : undefined}
-                hidden={!visible()}
-                data-active={visible() ? "true" : undefined}
+                ref={(surface) =>
+                  props.dnd.draggable(surface, () => ({
+                    id: draggableId(itemId),
+                    meta: { itemId, label: item().title },
+                    disabled: !props.canMove(),
+                    focusable: false,
+                    keyboard: true,
+                    handleSelector: ".k2b-panes__tab-button",
+                  }))
+                }
+                class="k2b-panes__tab"
+                data-active={active() ? "true" : undefined}
+                data-movable={props.canMove() ? "true" : undefined}
+                data-dnd-active={props.dnd.activeId() === draggableId(itemId) ? "true" : undefined}
               >
-                <Show when={props.keepMounted || visible()}>{element.props.children}</Show>
+                <Show when={targetBefore(itemId)}>
+                  {(target) => <PanesDropTargetView target={target()} label={targetLabel(target())} dnd={props.dnd} placement="tab" />}
+                </Show>
+                <button
+                  id={tabId(itemId)}
+                  type="button"
+                  class="k2b-panes__tab-button"
+                  role="tab"
+                  aria-label={item().title}
+                  aria-selected={active()}
+                  aria-controls={active() ? panelId(itemId) : undefined}
+                  aria-posinset={index() + 1}
+                  aria-setsize={itemIds().length}
+                  aria-keyshortcuts={item().onClose ? "Delete Backspace" : undefined}
+                  tabIndex={active() ? 0 : -1}
+                  title={item().title}
+                  onClick={() => props.onActivate(itemId)}
+                  onKeyDown={(event) => onTabKeyDown(event, index(), itemId)}
+                >
+                  <span class="k2b-ui k2b-panes__drag-surface k2b-panes__drag-preview" data-dnd-preview>
+                    <i class={`${iconClass(item().icon)} k2b-panes__icon`} aria-hidden="true" />
+                    <span>{item().title}</span>
+                  </span>
+                </button>
+                <Show when={item().onClose !== undefined}>
+                  <button
+                    type="button"
+                    class="k2b-panes__close"
+                    title={`Close ${item().title}`}
+                    aria-label={`Close ${item().title}`}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      item().onClose?.();
+                    }}
+                  >
+                    <i class="ti ti-x" aria-hidden="true" />
+                  </button>
+                </Show>
               </div>
             );
           }}
         </For>
+        <Show when={targetAtEnd()}>
+          {(target) => <PanesDropTargetView target={target()} label={targetLabel(target())} dnd={props.dnd} placement="tab-end" />}
+        </Show>
+        <Show when={props.canAdd()}>
+          <button
+            type="button"
+            class="k2b-panes__add k2b-panes__add--tab"
+            aria-label="Add pane"
+            title="Add pane"
+            onClick={() => props.addItem(props.node().active)}
+          >
+            <i class="ti ti-plus" aria-hidden="true" />
+          </button>
+        </Show>
+      </div>
+      <div class="k2b-panes__body">
+        <div id={panelId(props.node().active)} class="k2b-panes__panel" role="tabpanel" aria-labelledby={tabId(props.node().active)}>
+          <Show when={props.node().active} keyed>
+            {(itemId) => <ActivePane itemId={itemId} itemById={props.itemById} />}
+          </Show>
+        </div>
       </div>
       <Show when={bodyTargets().length > 0}>
         <div class="k2b-panes__drop-targets" aria-hidden="true">
@@ -660,43 +475,40 @@ function PanesLeaf(
   );
 }
 
-function PanesDropTargetView(props: { target: PanesDropTarget; label: string; dnd: PaneDnd; placement: "tab" | "tab-end" | "body" }) {
+function PanesDropTargetView(props: {
+  target: PanesDropTarget;
+  label: string;
+  dnd: PaneDnd;
+  placement: "tab" | "tab-end" | "body";
+}): JSX.Element {
   const icon = () => {
     if (props.target.kind === "group") return "ti ti-plus";
     if (props.target.kind === "tab") return "ti ti-caret-down-filled";
-    if (props.target.zone === "top") return "ti ti-row-insert-top";
-    if (props.target.zone === "bottom") return "ti ti-row-insert-bottom";
-    if (props.target.zone === "left") return "ti ti-column-insert-left";
+    if (props.target.side === "top") return "ti ti-row-insert-top";
+    if (props.target.side === "bottom") return "ti ti-row-insert-bottom";
+    if (props.target.side === "left") return "ti ti-column-insert-left";
     return "ti ti-column-insert-right";
   };
   return (
     <div
-      ref={(element) => {
+      ref={(element) =>
         props.dnd.droppable(element, () => ({
           id: `panes-target:${props.target.id}`,
           meta: { target: props.target, label: props.label },
-          disabled: props.target.disabled,
-        }));
-      }}
+        }))
+      }
       class="k2b-panes__drop-target"
       data-kind={props.target.kind}
       data-placement={props.placement}
-      data-zone={props.target.zone}
-      data-disabled={props.target.disabled ? "true" : undefined}
+      data-zone={props.target.side}
       data-active={props.dnd.overId() === `panes-target:${props.target.id}` ? "true" : undefined}
-      title={props.target.disabled ? `${props.label} — already in this position` : props.label}
+      title={props.label}
       aria-hidden="true"
     >
-      <i class={icon()} />
+      <i class={icon()} aria-hidden="true" />
       <Show when={props.target.kind !== "tab"}>
         <span>{props.label}</span>
       </Show>
     </div>
   );
 }
-
-const Panes = PanesRoot as PanesComponent;
-Panes.Root = PanesRoot;
-Panes.Element = PanesElement;
-
-export default Panes;

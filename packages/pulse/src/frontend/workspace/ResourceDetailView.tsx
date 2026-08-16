@@ -5,10 +5,9 @@ import {
   DetailPanel,
   IconButton,
   isStructuredDataValue,
-  Panes,
-  type PanesValue,
   StructuredDataPreview,
   type StructuredDataValue,
+  Tabs,
   Tooltip,
 } from "@k2b/ui";
 import { type Accessor, createEffect, createMemo, createSignal, type JSX, Show } from "solid-js";
@@ -111,25 +110,6 @@ const eventColumns: DataTableColumn<PulseRecordedEvent>[] = [
   { id: "time", header: "Time", cellClass: "w-44 whitespace-nowrap" },
 ];
 
-const createResourceTabsValue = (): PanesValue => ({
-  root: {
-    type: "leaf",
-    id: "signals",
-    elementIds: ["metrics", "states", "events"],
-    activeElementId: "metrics",
-    presentation: "tabs",
-  },
-});
-
-const findLeafActiveElement = (node: PanesValue["root"], leafId: string): string | undefined => {
-  if (node.type === "leaf") return node.id === leafId ? (node.activeElementId ?? node.elementIds[0]) : undefined;
-  for (const child of node.children) {
-    const activeElement = findLeafActiveElement(child, leafId);
-    if (activeElement) return activeElement;
-  }
-  return undefined;
-};
-
 const resourceStateId = (state: PulseCurrentState) =>
   `${state.key}:${state.sourceId ?? ""}:${state.entityId}:${JSON.stringify(state.dimensions)}`;
 
@@ -226,8 +206,7 @@ const ResourceDimensions = (props: Pick<ResourceDetailProps, "resource">) => (
 
 export type ResourceDetailSelection = {
   activeTab: Accessor<ResourceSignalTab>;
-  panesValue: Accessor<PanesValue>;
-  updatePanesValue: (value: PanesValue) => void;
+  setActiveTab: (tab: ResourceSignalTab) => void;
   selectedMetric: Accessor<PulseResourceMetric | null>;
   selectedState: Accessor<PulseCurrentState | null>;
   selectedEvent: Accessor<PulseRecordedEvent | null>;
@@ -244,7 +223,6 @@ export const createResourceDetailSelection = (props: {
   events: Accessor<PulseRecordedEvent[]>;
 }): ResourceDetailSelection => {
   const [activeTab, setActiveTab] = createSignal<ResourceSignalTab>("metrics");
-  const [panesValue, setPanesValue] = createSignal<PanesValue>(createResourceTabsValue());
   const [selectedMetricId, setSelectedMetricId] = createSignal("");
   const [selectedStateId, setSelectedStateId] = createSignal("");
   const [selectedEventId, setSelectedEventId] = createSignal("");
@@ -259,11 +237,6 @@ export const createResourceDetailSelection = (props: {
   const selectedState = createMemo(() => props.states().find((state) => resourceStateId(state) === selectedStateId()) ?? null);
   const selectedEvent = createMemo(() => props.events().find((event) => event.id === selectedEventId()) ?? null);
 
-  const updatePanesValue = (value: PanesValue) => {
-    setPanesValue(value);
-    const activeElement = findLeafActiveElement(value.root, "signals");
-    if (activeElement === "metrics" || activeElement === "states" || activeElement === "events") setActiveTab(activeElement);
-  };
   const close = () => {
     if (activeTab() === "metrics") setSelectedMetricId("");
     if (activeTab() === "states") setSelectedStateId("");
@@ -272,8 +245,7 @@ export const createResourceDetailSelection = (props: {
 
   return {
     activeTab,
-    panesValue,
-    updatePanesValue,
+    setActiveTab,
     selectedMetric,
     selectedState,
     selectedEvent,
@@ -302,18 +274,15 @@ type ResourceSignalPanesProps = ResourceDetailProps & {
   selection: ResourceDetailSelection;
 };
 
-const ResourceSignalPanes = (props: ResourceSignalPanesProps) => (
+const ResourceSignalTabs = (props: ResourceSignalPanesProps) => (
   <section class="h-[min(68vh,54rem)] min-h-[32rem] shrink-0 overflow-hidden">
-    <Panes.Root
-      value={props.selection.panesValue()}
-      onValueChange={props.selection.updatePanesValue}
-      class="h-full min-h-0"
-      allowMove={false}
-      allowReorder={false}
-      allowHorizontalSplit={false}
-      allowVerticalSplit={false}
+    <Tabs
+      value={props.selection.activeTab}
+      onValueChange={props.selection.setActiveTab}
+      ariaLabel="Resource signals"
+      class="h-full min-h-0 gap-0 [&_.k2b-tabs__list]:shrink-0 [&_.k2b-tabs__panel]:min-h-0 [&_.k2b-tabs__panel]:flex-1 [&_.k2b-tabs__panel]:overflow-hidden"
     >
-      <Panes.Element id="metrics" title={`Metrics ${props.metrics.length}`} icon="ti-chart-dots">
+      <Tabs.Item value="metrics" label={`Metrics ${props.metrics.length}`} icon="ti ti-chart-dots">
         <div class="flex h-full min-h-0 flex-col overflow-hidden">
           <DataTable
             rows={props.metrics}
@@ -329,9 +298,9 @@ const ResourceSignalPanes = (props: ResourceSignalPanesProps) => (
             renderCell={({ row, col, render }) => renderMetricCell(row, col, render, props)}
           />
         </div>
-      </Panes.Element>
+      </Tabs.Item>
 
-      <Panes.Element id="states" title={`States ${props.states.length}`} icon="ti-toggle-right">
+      <Tabs.Item value="states" label={`States ${props.states.length}`} icon="ti ti-toggle-right">
         <div class="flex h-full min-h-0 flex-col overflow-hidden">
           <DataTable
             rows={props.states}
@@ -347,9 +316,9 @@ const ResourceSignalPanes = (props: ResourceSignalPanesProps) => (
             renderCell={({ row, col, render }) => renderStateCell(row, col, render, props)}
           />
         </div>
-      </Panes.Element>
+      </Tabs.Item>
 
-      <Panes.Element id="events" title={`Events ${props.events.length}`} icon="ti-bolt">
+      <Tabs.Item value="events" label={`Events ${props.events.length}`} icon="ti ti-bolt">
         <div class="flex h-full min-h-0 flex-col overflow-hidden">
           <DataTable
             rows={props.events}
@@ -365,8 +334,8 @@ const ResourceSignalPanes = (props: ResourceSignalPanesProps) => (
             renderCell={({ row, col, render }) => renderEventCell(row, col, render, props)}
           />
         </div>
-      </Panes.Element>
-    </Panes.Root>
+      </Tabs.Item>
+    </Tabs>
   </section>
 );
 
@@ -519,7 +488,7 @@ export default function ResourceDetailView(props: ResourceDetailProps & { select
     <section class="flex min-h-0 flex-1 flex-col gap-2">
       <ResourceHeader resource={props.resource} dateContext={props.dateContext} />
       <ResourceDimensions resource={props.resource} />
-      <ResourceSignalPanes {...props} />
+      <ResourceSignalTabs {...props} />
     </section>
   );
 }

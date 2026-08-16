@@ -1,5 +1,5 @@
-import { Panes, type PanesValue, PdfPreview, TemplateEditor, type TemplateVariable } from "@k2b/ui";
-import { type Accessor, createMemo, createSignal, For } from "solid-js";
+import { Panes, type PanesLayout, PdfPreview, TemplateEditor, type TemplateVariable } from "@k2b/ui";
+import { type Accessor, createSignal } from "solid-js";
 import type { DocumentPreviewResponse } from "../../../contracts";
 import { DocumentDataTree, RenderedDocumentSource } from "./DocumentTemplatePreviewData";
 
@@ -30,34 +30,20 @@ type Props = {
   previewPdf: () => Promise<Response>;
 };
 
-const createPanesValue = (): PanesValue => ({
+const createPanesLayout = (): PanesLayout => ({
+  version: 2,
   root: {
     type: "split",
-    id: "document-template-split",
     direction: "horizontal",
-    sizes: [58, 42],
-    children: [
-      {
-        type: "leaf",
-        id: "document-template-html",
-        elementIds: ["html", "header", "footer", "css"],
-        activeElementId: "html",
-        presentation: "tabs",
-      },
-      {
-        type: "leaf",
-        id: "document-template-preview",
-        elementIds: ["preview", "data", "source"],
-        activeElementId: "preview",
-        presentation: "tabs",
-      },
-    ],
+    ratio: 0.58,
+    first: { type: "group", items: ["html", "header", "footer", "css"], active: "html" },
+    second: { type: "group", items: ["preview", "data", "source"], active: "preview" },
   },
 });
 
 export function DocumentTemplateEditorPanes(props: Props) {
-  const [panes, setPanes] = createSignal<PanesValue>(createPanesValue());
-  const snippets = createMemo<TemplateSnippet[]>(() => [
+  const [layout, setLayout] = createSignal(createPanesLayout());
+  const snippets: TemplateSnippet[] = [
     {
       id: "html",
       title: "Body",
@@ -90,37 +76,29 @@ export function DocumentTemplateEditorPanes(props: Props) {
       onInput: props.setPageCss,
       placeholder: "@page { size: A4; margin: 28mm 14mm 22mm; }",
     },
-  ]);
-
-  return (
-    <Panes.Root
-      value={panes()}
-      onValueChange={setPanes}
-      class="min-h-[24rem] w-full flex-1"
-      allowResize
-      allowMove={false}
-      allowReorder={false}
-      allowHorizontalSplit={false}
-      allowVerticalSplit={false}
-      leafPresentation="single"
-    >
-      <For each={snippets()}>
-        {(snippet) => (
-          <Panes.Element id={snippet.id} title={snippet.title} icon={snippet.icon}>
-            <section class="flex h-full min-h-0 flex-col overflow-hidden">
-              <TemplateEditor
-                value={snippet.value}
-                onValueChange={snippet.onInput}
-                variables={props.templateVariables()}
-                fill
-                placeholder={snippet.placeholder}
-              />
-            </section>
-          </Panes.Element>
-        )}
-      </For>
-
-      <Panes.Element id="preview" title="Preview" icon="ti ti-file-type-pdf">
+  ];
+  const items = [
+    ...snippets.map((snippet) => ({
+      id: snippet.id,
+      title: snippet.title,
+      icon: snippet.icon,
+      render: () => (
+        <section class="flex h-full min-h-0 flex-col overflow-hidden">
+          <TemplateEditor
+            value={snippet.value}
+            onValueChange={snippet.onInput}
+            variables={props.templateVariables()}
+            fill
+            placeholder={snippet.placeholder}
+          />
+        </section>
+      ),
+    })),
+    {
+      id: "preview",
+      title: "Preview",
+      icon: "ti ti-file-type-pdf",
+      render: () => (
         <section class="flex h-full min-h-0 flex-col overflow-hidden">
           <PdfPreview
             title="Gotenberg PDF preview"
@@ -131,8 +109,13 @@ export function DocumentTemplateEditorPanes(props: Props) {
             request={props.previewPdf}
           />
         </section>
-      </Panes.Element>
-      <Panes.Element id="data" title="Data" icon="ti ti-list-tree">
+      ),
+    },
+    {
+      id: "data",
+      title: "Data",
+      icon: "ti ti-list-tree",
+      render: () => (
         <section class="flex h-full min-h-0 flex-col overflow-hidden">
           <DocumentDataTree
             data={() => props.previewData()?.data ?? null}
@@ -140,8 +123,13 @@ export function DocumentTemplateEditorPanes(props: Props) {
             error={props.previewDataError}
           />
         </section>
-      </Panes.Element>
-      <Panes.Element id="source" title="Source" icon="ti ti-code">
+      ),
+    },
+    {
+      id: "source",
+      title: "Source",
+      icon: "ti ti-code",
+      render: () => (
         <section class="flex h-full min-h-0 flex-col overflow-hidden">
           <RenderedDocumentSource
             source={() => props.previewData()?.source ?? null}
@@ -149,7 +137,11 @@ export function DocumentTemplateEditorPanes(props: Props) {
             error={props.previewDataError}
           />
         </section>
-      </Panes.Element>
-    </Panes.Root>
+      ),
+    },
+  ];
+
+  return (
+    <Panes layout={layout()} onLayoutChange={setLayout} items={items} class="min-h-[24rem] w-full flex-1" movable={false} split={false} />
   );
 }

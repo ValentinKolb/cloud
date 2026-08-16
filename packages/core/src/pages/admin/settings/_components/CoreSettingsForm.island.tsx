@@ -16,7 +16,7 @@ import {
   Button,
   ButtonLink,
   CheckboxCard,
-  createTemplateEditorPanesValue,
+  createTemplateEditorPanesLayout,
   DataTable,
   type DataTableColumn,
   dialogCore,
@@ -2083,7 +2083,7 @@ function TemplateSettingInput(props: FieldInputProps) {
     const result = await prompts.dialog<string>(
       (close) => {
         const [draft, setDraft] = createSignal(initialValue);
-        const [panes, setPanes] = createSignal(createTemplateEditorPanesValue());
+        const [layout, setLayout] = createSignal(createTemplateEditorPanesLayout());
         const [sampleData, setSampleData] = createSignal<Record<string, string>>(createTemplateSampleData(variables()));
         const renderedPreview = createMemo(() => renderTemplatePreview(draft(), variables(), sampleData()));
         const setSampleValue = (name: string, value: string) => {
@@ -2102,25 +2102,44 @@ function TemplateSettingInput(props: FieldInputProps) {
             </p>
 
             <div class="h-[min(62vh,46rem)] min-h-[34rem] min-w-0 overflow-hidden rounded-lg bg-zinc-100 p-2 dark:bg-zinc-900">
-              <Panes.Root value={panes()} onValueChange={setPanes} class="h-full w-full" allowResize={false}>
-                <Panes.Element id="html" title="HTML" icon="ti ti-code">
-                  <div class="h-full min-h-0 overflow-auto">
-                    <TemplateEditor
-                      value={draft}
-                      onValueChange={setDraft}
-                      variables={templateVariables()}
-                      placeholder={props.entry.placeholder ?? props.entry.label}
-                      fill
-                    />
-                  </div>
-                </Panes.Element>
-                <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
-                  <TemplatePreview html={renderedPreview()} />
-                </Panes.Element>
-                <Panes.Element id="sample-data" title="Sample data" icon="ti ti-database">
-                  <TemplateSampleData variables={templateVariables()} values={sampleData()} onValueChange={setSampleValue} />
-                </Panes.Element>
-              </Panes.Root>
+              <Panes
+                layout={layout()}
+                onLayoutChange={setLayout}
+                class="h-full w-full"
+                resizable={false}
+                items={[
+                  {
+                    id: "html",
+                    title: "HTML",
+                    icon: "ti ti-code",
+                    render: () => (
+                      <div class="h-full min-h-0 overflow-auto">
+                        <TemplateEditor
+                          value={draft}
+                          onValueChange={setDraft}
+                          variables={templateVariables()}
+                          placeholder={props.entry.placeholder ?? props.entry.label}
+                          fill
+                        />
+                      </div>
+                    ),
+                  },
+                  {
+                    id: "preview",
+                    title: "Preview",
+                    icon: "ti ti-eye",
+                    render: () => <TemplatePreview html={renderedPreview()} />,
+                  },
+                  {
+                    id: "sample-data",
+                    title: "Sample data",
+                    icon: "ti ti-database",
+                    render: () => (
+                      <TemplateSampleData variables={templateVariables()} values={sampleData()} onValueChange={setSampleValue} />
+                    ),
+                  },
+                ]}
+              />
             </div>
 
             <div class="flex justify-end gap-2">

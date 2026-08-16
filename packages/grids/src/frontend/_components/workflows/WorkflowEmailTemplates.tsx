@@ -3,7 +3,7 @@ import {
   Button,
   CheckboxCard,
   confirmDiscardIfDirty,
-  createTemplateEditorPanesValue,
+  createTemplateEditorPanesLayout,
   dialogCore,
   IconButton,
   PanelDialog,
@@ -119,7 +119,7 @@ function EmailTemplateEditor(props: { baseId: string; template?: PublicEmailTemp
   const [subject, setSubject] = createSignal(cleanDraft.subject);
   const [html, setHtml] = createSignal(cleanDraft.html);
   const [enabled, setEnabled] = createSignal(cleanDraft.enabled);
-  const [panes, setPanes] = createSignal(createTemplateEditorPanesValue());
+  const [layout, setLayout] = createSignal(createTemplateEditorPanesLayout());
   const cleanSampleDataSource = JSON.stringify(cleanDraft.sampleData, null, 2);
   const [sampleDataSource, setSampleDataSource] = createSignal(cleanSampleDataSource);
   const [systemSampleData, setSystemSampleData] = createSignal<Record<string, string>>(createEmailTemplateSystemSampleData());
@@ -228,47 +228,66 @@ function EmailTemplateEditor(props: { baseId: string; template?: PublicEmailTemp
             Type {"{{"} for values, {"{%"} for Liquid logic, or {"<"} for HTML snippets. Use sample data to change preview values.
           </p>
           <div class="min-h-[30rem] min-w-0 flex-1 overflow-hidden">
-            <Panes.Root value={panes()} onValueChange={setPanes} class="h-full w-full" allowResize={false}>
-              <Panes.Element id="html" title="HTML" icon="ti ti-code">
-                <div class="h-full min-h-0 overflow-auto">
-                  <TemplateEditor
-                    value={html}
-                    onValueChange={setHtml}
-                    variables={variables()}
-                    fill
-                    placeholder="<p>Hello {{ business.legalName | default: app.name }}</p>"
-                  />
-                </div>
-              </Panes.Element>
-              <Panes.Element id="preview" title="Preview" icon="ti ti-eye">
-                <TemplatePreview html={renderedPreview()} />
-              </Panes.Element>
-              <Panes.Element id="sample-data" title="Sample data" icon="ti ti-database">
-                <div class="flex h-full min-h-0 flex-col gap-2 overflow-auto">
-                  <TextInput
-                    label="Workflow data"
-                    description="JSON available under data in the subject and HTML preview."
-                    value={sampleDataSource}
-                    onValueChange={setSampleDataSource}
-                    error={() => {
-                      const parsed = parsedSampleData();
-                      return parsed.ok ? undefined : parsed.error;
-                    }}
-                    icon="ti ti-braces"
-                    multiline
-                    monospace
-                    lines={14}
-                    spellcheck={false}
-                    autocapitalize="off"
-                  />
-                  <TemplateSampleData
-                    variables={EMAIL_TEMPLATE_SYSTEM_VARIABLES}
-                    values={systemSampleData()}
-                    onValueChange={setSystemSampleValue}
-                  />
-                </div>
-              </Panes.Element>
-            </Panes.Root>
+            <Panes
+              layout={layout()}
+              onLayoutChange={setLayout}
+              class="h-full w-full"
+              resizable={false}
+              items={[
+                {
+                  id: "html",
+                  title: "HTML",
+                  icon: "ti ti-code",
+                  render: () => (
+                    <div class="h-full min-h-0 overflow-auto">
+                      <TemplateEditor
+                        value={html}
+                        onValueChange={setHtml}
+                        variables={variables()}
+                        fill
+                        placeholder="<p>Hello {{ business.legalName | default: app.name }}</p>"
+                      />
+                    </div>
+                  ),
+                },
+                {
+                  id: "preview",
+                  title: "Preview",
+                  icon: "ti ti-eye",
+                  render: () => <TemplatePreview html={renderedPreview()} />,
+                },
+                {
+                  id: "sample-data",
+                  title: "Sample data",
+                  icon: "ti ti-database",
+                  render: () => (
+                    <div class="flex h-full min-h-0 flex-col gap-2 overflow-auto">
+                      <TextInput
+                        label="Workflow data"
+                        description="JSON available under data in the subject and HTML preview."
+                        value={sampleDataSource}
+                        onValueChange={setSampleDataSource}
+                        error={() => {
+                          const parsed = parsedSampleData();
+                          return parsed.ok ? undefined : parsed.error;
+                        }}
+                        icon="ti ti-braces"
+                        multiline
+                        monospace
+                        lines={14}
+                        spellcheck={false}
+                        autocapitalize="off"
+                      />
+                      <TemplateSampleData
+                        variables={EMAIL_TEMPLATE_SYSTEM_VARIABLES}
+                        values={systemSampleData()}
+                        onValueChange={setSystemSampleValue}
+                      />
+                    </div>
+                  ),
+                },
+              ]}
+            />
           </div>
         </div>
       </PanelDialog.Body>

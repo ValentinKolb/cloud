@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeMailComposerPanes, normalizeMailUserPreferences } from "./MailSettingsStore";
+import { normalizeMailUserPreferences } from "./MailSettingsStore";
+import {
+  createDefaultMailComposerPanesLayout,
+  normalizeMailComposerPanes,
+  readMailComposerPanesFromCookieHeader,
+  reconcileMailComposerPanes,
+} from "./mail-composer-panes";
 import { readMailUserPreferencesFromCookieHeader } from "./mail-user-preferences";
 
 describe("Mail reading preferences", () => {
@@ -32,170 +38,60 @@ describe("Mail reading preferences", () => {
 });
 
 describe("Mail composer pane preferences", () => {
-  test("keeps a valid split layout", () => {
+  test("keeps a valid v2 horizontal split layout", () => {
     const value = {
+      version: 2 as const,
       root: {
         type: "split" as const,
-        id: "compose-root",
         direction: "horizontal" as const,
-        sizes: [60, 40],
-        children: [
-          {
-            type: "leaf" as const,
-            id: "compose-editor",
-            elementIds: ["editor"],
-            activeElementId: "editor",
-            presentation: "single" as const,
-          },
-          {
-            type: "leaf" as const,
-            id: "compose-preview",
-            elementIds: ["preview"],
-            activeElementId: "preview",
-            presentation: "single" as const,
-          },
-        ],
+        ratio: 0.6,
+        first: { type: "group" as const, items: ["editor"], active: "editor" },
+        second: { type: "group" as const, items: ["preview"], active: "preview" },
       },
     };
 
     expect(normalizeMailComposerPanes(value)).toEqual(value);
   });
 
-  test("falls back from malformed or colliding pane trees", () => {
-    const duplicateNodeIds = {
-      root: {
-        type: "split",
-        id: "duplicate",
-        direction: "horizontal",
-        sizes: [50, 50],
-        children: [
-          { type: "leaf", id: "duplicate", elementIds: ["editor"] },
-          { type: "leaf", id: "preview", elementIds: ["preview"] },
-        ],
-      },
-    };
-
-    expect(normalizeMailComposerPanes(duplicateNodeIds).root).toMatchObject({
-      type: "leaf",
-      elementIds: ["editor", "preview", "history"],
-      activeElementId: "editor",
-      presentation: "tabs",
-    });
-    expect(normalizeMailComposerPanes({ root: { type: "split" } }).root).toMatchObject({
-      type: "leaf",
-      elementIds: ["editor", "preview", "history"],
-    });
-  });
-
-  test("rejects unknown elements or layouts without the editor", () => {
-    expect(
-      normalizeMailComposerPanes({
-        root: {
-          type: "leaf",
-          id: "compose",
-          elementIds: ["unknown", "preview"],
-          activeElementId: "unknown",
-          presentation: "tabs",
-        },
-      }).root,
-    ).toMatchObject({
-      type: "leaf",
-      elementIds: ["editor", "preview", "history"],
-      activeElementId: "editor",
-      presentation: "tabs",
-    });
-    expect(
-      normalizeMailComposerPanes({
-        root: {
-          type: "leaf",
-          id: "compose",
-          elementIds: ["history"],
-          activeElementId: "history",
-          presentation: "single",
-        },
-      }).root,
-    ).toMatchObject({
-      type: "leaf",
-      elementIds: ["editor", "preview", "history"],
-    });
-  });
-
-  test("keeps layouts for the panes available to the current composer", () => {
-    for (const elementIds of [["editor"], ["editor", "preview"], ["editor", "history"]]) {
-      const value = {
-        root: {
-          type: "leaf" as const,
-          id: "compose",
-          elementIds,
-          activeElementId: elementIds[0],
-          presentation: elementIds.length === 1 ? ("single" as const) : ("tabs" as const),
-        },
-      };
-      expect(normalizeMailComposerPanes(value)).toEqual(value);
-    }
-  });
-
-  test("rejects unsupported split directions and unusably small panes", () => {
-    for (const root of [
+  test("rejects v1, malformed, vertical, unknown, and editor-less layouts", () => {
+    const fallback = createDefaultMailComposerPanesLayout();
+    for (const value of [
+      { root: { type: "leaf", elementIds: ["editor"] } },
+      { version: 2, root: { type: "split" } },
       {
-        type: "split",
-        id: "vertical",
-        direction: "vertical",
-        sizes: [50, 50],
-        children: [
-          { type: "leaf", id: "editor", elementIds: ["editor"] },
-          { type: "leaf", id: "preview", elementIds: ["preview"] },
-        ],
+        version: 2,
+        root: {
+          type: "split",
+          direction: "vertical",
+          ratio: 0.5,
+          first: { type: "group", items: ["editor"], active: "editor" },
+          second: { type: "group", items: ["preview"], active: "preview" },
+        },
       },
-      {
-        type: "split",
-        id: "tiny",
-        direction: "horizontal",
-        sizes: [8, 1_000],
-        children: [
-          { type: "leaf", id: "editor", elementIds: ["editor"] },
-          { type: "leaf", id: "preview", elementIds: ["preview"] },
-        ],
-      },
-      {
-        type: "leaf",
-        id: "hidden-preview",
-        elementIds: ["editor", "preview"],
-        activeElementId: "editor",
-        presentation: "single",
-      },
+      { version: 2, root: { type: "group", items: ["editor", "unknown"], active: "editor" } },
+      { version: 2, root: { type: "group", items: ["history"], active: "history" } },
+      { version: 2, root: null },
     ]) {
-      expect(normalizeMailComposerPanes({ root }).root).toMatchObject({
-        type: "leaf",
-        elementIds: ["editor", "preview", "history"],
-      });
+      expect(normalizeMailComposerPanes(value)).toEqual(fallback);
     }
   });
 
-  test("accepts proportional split weights after normalization", () => {
-    const value = {
-      root: {
-        type: "split" as const,
-        id: "weighted",
-        direction: "horizontal" as const,
-        sizes: [1, 1],
-        children: [
-          {
-            type: "leaf" as const,
-            id: "editor",
-            elementIds: ["editor"],
-            presentation: "single" as const,
-          },
-          {
-            type: "leaf" as const,
-            id: "preview",
-            elementIds: ["preview"],
-            presentation: "single" as const,
-          },
-        ],
-      },
-    };
+  test("reads the strict v2 layout from an SSR cookie header", () => {
+    const value = { version: 2 as const, root: { type: "group" as const, items: ["editor", "history"], active: "history" } };
+    const encoded = encodeURIComponent(JSON.stringify(value));
+    expect(readMailComposerPanesFromCookieHeader(`other=1; settings-app-mail-composer-panes=${encoded}`)).toEqual(value);
+    expect(readMailComposerPanesFromCookieHeader("settings-app-mail-composer-panes=%7Bbroken")).toEqual(
+      createDefaultMailComposerPanesLayout(),
+    );
+  });
 
-    expect(normalizeMailComposerPanes(value)).toEqual(value);
+  test("reconciles the persisted layout with the current composer inventory", () => {
+    const all = createDefaultMailComposerPanesLayout();
+    const plain = reconcileMailComposerPanes(all, "plain", false);
+    expect(plain).toEqual({ version: 2, root: { type: "group", items: ["editor"], active: "editor" } });
+    expect(reconcileMailComposerPanes(plain, "markdown", true)).toEqual({
+      version: 2,
+      root: { type: "group", items: ["editor", "preview", "history"], active: "editor" },
+    });
   });
 });

@@ -1,5 +1,6 @@
-import { Placeholder, ButtonLink } from "@k2b/ui";
 import type { DateContext } from "@k2b/stdlib";
+import type { PanesLayout } from "@k2b/ui";
+import { ButtonLink, Placeholder } from "@k2b/ui";
 import { createSignal, onMount, Show } from "solid-js";
 import type { MailDraftSeed, SenderIdentity } from "../../contracts";
 import MailComposerPage from "./MailComposerPage.island";
@@ -9,6 +10,7 @@ export default function MailDraftSeedComposerPage(props: {
   mailboxId: string;
   seedId: string;
   identities: SenderIdentity[];
+  initialPanes: PanesLayout;
   returnHref: string;
   popout?: boolean;
   dateConfig: DateContext;
@@ -46,6 +48,7 @@ export default function MailDraftSeedComposerPage(props: {
             mailboxId={props.mailboxId}
             identities={props.identities}
             initialSeed={value()}
+            initialPanes={props.initialPanes}
             returnHref={props.returnHref}
             popout={props.popout}
             dateConfig={props.dateConfig}

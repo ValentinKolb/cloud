@@ -743,7 +743,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     });
 
     test("uses compact document-style pane tabs", () => {
-      const strip = rule(".k2b-panes__tabs,.k2b-ui .k2b-panes__single-tabs");
+      const strip = rule(".k2b-panes__tabs");
       expect(strip).toContain("height:2.5rem");
       expect(strip).toContain("padding:.375rem .5rem .375rem 0");
       expect(strip).not.toContain("border-bottom");
@@ -755,7 +755,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(tab).toContain("flex:0 auto");
       expect(rule(".k2b-panes__tab[data-active=true]")).toContain("background:var(--k2b-surface-muted)");
       expect(rule(".k2b-panes__tab[data-active=true]")).not.toContain("box-shadow");
-      expect(rule(".k2b-panes__single-header")).toContain("max-width:16rem");
+      expect(css).not.toContain(".k2b-panes__single-header");
 
       // Cloud: `w-2`/`h-2` track with a full-width `rounded-full` indicator.
       expect(rule(".k2b-panes__separator[data-direction=horizontal]")).toContain("width:.5rem");
@@ -765,8 +765,12 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(targets).toContain("border-radius:var(--k2b-radius-control)");
       expect(targets).toContain("background:var(--k2b-success-surface)");
       expect(rule(".k2b-panes__drop-target[data-active=true]")).toContain("background:var(--k2b-success-500)");
-      expect(rule(".k2b-panes__drop-target[data-disabled=true]")).toContain("pointer-events:none");
+      expect(css).not.toContain(".k2b-panes__drop-target[data-disabled=true]");
       expect(rule(".k2b-panes__drop-target[data-placement=tab]")).toContain("width:1.25rem");
+      const tabTarget = rule(".k2b-panes__drop-target[data-placement=tab]");
+      expect(tabTarget).toContain("top:.125rem");
+      expect(tabTarget).toContain("bottom:.125rem");
+      expect(tabTarget).not.toContain("translate");
       expect(rule(".k2b-panes__drop-target[data-kind=group]")).toContain("min-width:7rem");
       const targetFrame = rule(".k2b-panes__drop-targets");
       expect(targetFrame).toContain("--k2b-panes-drop-edge:min(3.5rem,22cqi,22cqb)");
@@ -779,9 +783,20 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(rule(".k2b-panes__drop-target[data-zone=left]")).toContain(
         "clip-path:polygon(0 0,100% var(--k2b-panes-drop-edge),100% calc(100% - var(--k2b-panes-drop-edge)),0 100%)",
       );
+      expect(css).toContain(
+        ".k2b-panes__drop-target[data-zone=left]>span,.k2b-ui .k2b-panes__drop-target[data-zone=right]>span{display:none}",
+      );
 
       // Cloud has no width-based floors on split children.
       expect(css).not.toContain("min-width:16rem");
+
+      const close = rule(".k2b-panes__close");
+      expect(close).toContain("position:absolute");
+      expect(close).toContain("opacity:0");
+      expect(close).toContain("pointer-events:none");
+      expect(css).toContain(".k2b-panes__tab:hover>.k2b-panes__close");
+      expect(css).toContain(".k2b-panes__tab:focus-within>.k2b-panes__close");
+      expect(css).toContain("pointer-events:auto");
     });
 
     test("never nests a scroll container inside a pane", () => {
@@ -807,7 +822,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(css).toContain(".k2b-panes__separator:not([aria-disabled=true]):hover>span");
       expect(css).not.toMatch(/\.k2b-panes__separator:hover>span/);
       // The document-style tab rail meets the pane body without a second gutter.
-      expect(rule(".k2b-panes__leaf")).toContain("gap:0");
+      expect(rule(".k2b-panes__group")).toContain("gap:0");
     });
   });
 });

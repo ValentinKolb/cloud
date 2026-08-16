@@ -120,25 +120,32 @@ export {
 } from "./PanelDialog";
 export type { PanelHeaderProps } from "./PanelHeader";
 export { PanelHeader } from "./PanelHeader";
-export type {
-  PanesElementProps,
-  PanesRootProps,
-} from "./Panes";
+export type { PanesItem, PanesProps } from "./Panes";
 export { default as Panes } from "./Panes";
 export type {
+  AddPanesItemOptions,
   PanesDirection,
-  PanesLeafNode,
-  PanesLeafPresentation,
+  PanesGroup,
+  PanesIntent,
+  PanesLayout,
   PanesNode,
-  PanesSplitNode,
-  PanesValue,
-} from "./panes-state";
+  PanesPath,
+  PanesPathSegment,
+  PanesSide,
+  PanesSplit,
+} from "./panes-layout";
 export {
-  activatePanesElement,
-  createPanesValue,
-  normalizePanesValue,
-  PANES_VALUE_VERSION,
-} from "./panes-state";
+  activatePanesItem,
+  addPanesItem,
+  applyPanesIntent,
+  createPanesLayout,
+  isPanesItemVisible,
+  PANES_LAYOUT_VERSION,
+  parsePanesLayout,
+  reconcilePanesLayout,
+  removePanesItem,
+  resizePanesSplit,
+} from "./panes-layout";
 export type {
   SettingsFieldControlProps,
   SettingsFieldProps,
