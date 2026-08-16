@@ -26,12 +26,13 @@ const columns: SpaceColumn[] = [
   },
 ];
 
-const renderForm = (type: "task" | "event", recurrence?: Recurrence) =>
+const renderForm = (type: "task" | "event", recurrence?: Recurrence, quickCreate = false) =>
   renderToString(() =>
     createComponent(ItemForm, {
       spaceId,
       columns,
       tags: [],
+      quickCreate,
       defaults: {
         type,
         columnId: columns[0]!.id,
@@ -52,6 +53,8 @@ describe("Spaces item form", () => {
   test("always renders task organization without an options toggle", () => {
     const html = renderForm("task");
 
+    expect(html).toContain(">General</h3>");
+    expect(html).toContain("Core details and timing.");
     expect(html).toContain(">Organize</h3>");
     expect(html).toContain(">Status<span");
     expect(html).toContain(">Priority</label>");
@@ -67,12 +70,29 @@ describe("Spaces item form", () => {
   test("always renders event recurrence, details, and organization", () => {
     const html = renderForm("event");
 
+    expect(html).toContain(">General</h3>");
+    expect(html).toContain("Core details and timing.");
     expect(html).toContain(">Repeat</h3>");
     expect(html).toContain(">Event details</h3>");
     expect(html).toContain(">Organize</h3>");
     expect(html).not.toContain("More options");
     expect(html).not.toContain("Hide options");
     expect(html).not.toContain("Edit repeat");
+  });
+
+  test("renders a focused quick-create form for a new event", () => {
+    const html = renderForm("event", undefined, true);
+
+    expect(html).toContain('placeholder="Event title"');
+    expect(html).toContain(">Schedule<span");
+    expect(html).toContain("All-day event");
+    expect(html).toContain(">Repeat</label>");
+    expect(html).toContain("Add description");
+    expect(html).toContain("Add location or link");
+    expect(html).toContain("More options");
+    expect(html).not.toContain(">General</h3>");
+    expect(html).not.toContain(">Event details</h3>");
+    expect(html).not.toContain(">Organize</h3>");
   });
 
   test("pairs the recurrence end mode with its date field", () => {

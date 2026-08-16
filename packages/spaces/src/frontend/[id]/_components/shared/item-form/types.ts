@@ -23,6 +23,7 @@ export type ItemFormData = {
 export type ItemFormProps = {
   spaceId: string;
   item?: SpaceItem;
+  quickCreate?: boolean;
   defaults?: Partial<ItemFormData> & { type?: ItemType };
   columns: SpaceColumn[];
   tags?: SpaceTag[];

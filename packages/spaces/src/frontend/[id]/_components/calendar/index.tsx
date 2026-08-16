@@ -509,6 +509,7 @@ export default function Calendar(props: CalendarProps) {
             spaceId={props.spaceId}
             columns={props.columns}
             tags={props.tags}
+            quickCreate
             defaults={{
               type: "event",
               startsAt: slot.start.toISOString(),
