@@ -14,7 +14,6 @@ export default function MailConversationSummaryCard(props: {
       aria-labelledby="mail-conversation-summary-title"
       data-mail-conversation-summary
     >
-      <span class="absolute inset-y-0 left-0 w-1 bg-[var(--app-accent)]" aria-hidden="true" />
       <div class="mb-2 flex items-center gap-2">
         <h2 id="mail-conversation-summary-title" class="min-w-0 flex-1 text-sm font-semibold text-[var(--app-accent)]">
           Conversation summary

@@ -27,7 +27,7 @@ describe("MailConversationSummaryCard", () => {
     expect(html).not.toContain('data-elevated="true"');
     expect(html).toContain("Conversation summary");
     expect(html).toContain("text-[var(--app-accent)]");
-    expect(html).toContain("bg-[var(--app-accent)]");
+    expect(html).not.toContain("bg-[var(--app-accent)]");
     expect(html).toContain('aria-label="Edit summary"');
     expect(html).not.toContain("Show more");
     expect(html).not.toContain("line-clamp");

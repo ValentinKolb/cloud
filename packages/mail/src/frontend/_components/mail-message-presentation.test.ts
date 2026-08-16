@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { attachmentPreviewSignatureMatches } from "../../attachment-preview-policy";
 import {
   attachmentPreviewKind,
+  formatMailMessageDateTime,
   messageDeliveryAllowsResponses,
   messageDeliveryControlLabel,
   messageDeliveryPresentation,
@@ -18,6 +19,15 @@ import {
 } from "./mail-message-presentation";
 
 describe("mail message presentation", () => {
+  test("shows message time and date in the configured timezone", () => {
+    expect(
+      formatMailMessageDateTime("2026-08-06T14:30:00.000Z", {
+        locale: "en",
+        timeZone: "Europe/Berlin",
+      }),
+    ).toBe("16:30 06 Aug 2026");
+  });
+
   test("keeps plain content and quoted history in ordered segments", () => {
     expect(splitPlainMessageSegments("Answer\n\n> Older line\n>\n> Older detail\n\nClosing")).toEqual([
       { kind: "content", text: "Answer\n" },

@@ -117,16 +117,29 @@ describe("Mail composer history", () => {
       expect(requests.some((url) => url.includes("/messages/Old001"))).toBeFalse();
       expect(dom.root.textContent).toContain("Newest subject");
       expect(dom.root.textContent).toContain("Older subject");
+      expect(dom.root.textContent).toContain("12:00 16 Aug 2026");
+      expect(dom.root.textContent).toContain("12:00 15 Aug 2026");
       expect(dom.root.textContent).toContain("https://unsafe.example.test");
       expect(dom.root.querySelector('a[href="https://unsafe.example.test"]')).toBeNull();
+      expect(dom.root.querySelector("[class~='border-t']")).toBeNull();
       expect(dom.root.textContent).not.toContain("invoice.pdf");
 
+      const newestButton = Array.from(dom.root.querySelectorAll("button")).find((button) => button.textContent?.includes("Newest subject"));
       const olderButton = Array.from(dom.root.querySelectorAll("button")).find((button) => button.textContent?.includes("Older subject"));
+      expect(newestButton?.getAttribute("aria-expanded")).toBe("true");
       expect(olderButton).toBeDefined();
       olderButton!.click();
       await settle();
       expect(requests.some((url) => url.includes("/messages/Old001"))).toBeTrue();
       expect(dom.root.textContent).toContain("invoice.pdf");
+      expect(dom.root.textContent).toContain("https://unsafe.example.test");
+      expect(newestButton?.getAttribute("aria-expanded")).toBe("true");
+      expect(olderButton!.getAttribute("aria-expanded")).toBe("true");
+
+      newestButton!.click();
+      await settle();
+      expect(newestButton?.getAttribute("aria-expanded")).toBe("true");
+      expect(olderButton!.getAttribute("aria-expanded")).toBe("true");
 
       const loadEarlier = Array.from(dom.root.querySelectorAll("button")).find((button) =>
         button.textContent?.includes("Load earlier messages"),

@@ -1,3 +1,4 @@
+import { type DateContext, dates } from "@k2b/stdlib";
 import type { StatusTone } from "@k2b/ui";
 import type { CloudTheme } from "@valentinkolb/cloud/shared";
 import type { MessageDeliveryState } from "../../service/messages";
@@ -13,6 +14,9 @@ export type PlainTextLinkSegment = { kind: "text"; text: string } | { kind: "lin
 export type MessageBodyFormat = "html" | "plain";
 
 export { attachmentPreviewKind } from "../../attachment-preview-policy";
+
+export const formatMailMessageDateTime = (input: string | Date, context: DateContext): string =>
+  `${dates.formatTime(input, context)} ${dates.formatDate(input, context)}`;
 
 const QUOTED_LINE = /^\s*>/u;
 const PLAIN_WEB_URL = /\bhttps?:\/\/[^\s<>"'`]+/giu;

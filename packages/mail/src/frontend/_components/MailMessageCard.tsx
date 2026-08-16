@@ -1,4 +1,4 @@
-import { type DateContext, dates } from "@k2b/stdlib";
+import type { DateContext } from "@k2b/stdlib";
 import { type DropdownItem, Placeholder, StatusBadge } from "@k2b/ui";
 import type { CloudTheme } from "@valentinkolb/cloud/shared";
 import { createMemo, createSignal, Show } from "solid-js";
@@ -12,6 +12,7 @@ import MailSenderMessageActions from "./MailSenderMessageActions";
 import { formatMailAddress, forwardMessageBody } from "./mail-compose-derivation";
 import { isOutgoingMessage } from "./mail-conversation-history";
 import {
+  formatMailMessageDateTime,
   type MessageBodyFormat,
   messageDeliveryAllowsResponses,
   messageDeliveryControlLabel,
@@ -219,7 +220,7 @@ export default function MailMessageCard(props: {
           </span>
           <span class="flex h-6 shrink-0 items-center gap-2">
             <time class="shrink-0 text-xs text-dimmed" dateTime={props.message.internalDate}>
-              {dates.formatDateTimeRelative(props.message.internalDate, props.context.dateConfig)}
+              {formatMailMessageDateTime(props.message.internalDate, props.context.dateConfig)}
             </time>
             <i class={`ti ${props.expanded ? "ti-chevron-up" : "ti-chevron-down"} text-dimmed`} aria-hidden="true" />
           </span>

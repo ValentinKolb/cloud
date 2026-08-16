@@ -746,7 +746,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       const strip = rule(".k2b-panes__tabs,.k2b-ui .k2b-panes__single-tabs");
       expect(strip).toContain("height:2.5rem");
       expect(strip).toContain("padding:.375rem .5rem .375rem 0");
-      expect(strip).toContain("border-bottom:1px solid var(--k2b-border)");
+      expect(strip).not.toContain("border-bottom");
       expect(strip).toContain("background:var(--k2b-surface)");
 
       const tab = rule(".k2b-panes__tab");

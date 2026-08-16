@@ -11,6 +11,7 @@ import MailMessageAttachments from "./MailMessageAttachments";
 import MailMessageBody from "./MailMessageBody";
 import { formatMailAddress } from "./mail-compose-derivation";
 import { isOutgoingMessage, mergeLatestMessagePages } from "./mail-conversation-history";
+import { formatMailMessageDateTime } from "./mail-message-presentation";
 
 type MessagePage = { items: MessageSummary[]; nextCursor: string | null };
 
@@ -34,7 +35,7 @@ const MailComposerHistoryBody = (props: { mailboxId: string; message: MessageSum
 
   return (
     <Show when={props.expanded}>
-      <div class="border-t border-[var(--ui-border)] px-3 py-3">
+      <div class="px-3 py-3">
         <Show
           when={current()}
           fallback={
@@ -134,14 +135,29 @@ export default function MailComposerHistory(props: {
     getNextCursor: (page) => page.nextCursor,
   });
   const messages = createMemo(() => mergeLatestMessagePages(history.pages()));
-  const [expandedMessageId, setExpandedMessageId] = createSignal<string | null>(null);
+  const [expandedMessageIds, setExpandedMessageIds] = createSignal<Set<string>>(new Set());
   let initializedConversationId: string | null = null;
 
   createEffect(() => {
-    if (initializedConversationId === props.conversationId || messages().length === 0) return;
-    initializedConversationId = props.conversationId;
-    setExpandedMessageId(messages()[0]?.id ?? null);
+    const firstMessageId = messages()[0]?.id;
+    if (!firstMessageId) return;
+    if (initializedConversationId !== props.conversationId) {
+      initializedConversationId = props.conversationId;
+      setExpandedMessageIds(new Set([firstMessageId]));
+      return;
+    }
+    setExpandedMessageIds((current) => (current.has(firstMessageId) ? current : new Set(current).add(firstMessageId)));
   });
+
+  const toggleMessage = (messageId: string) => {
+    if (messageId === messages()[0]?.id) return;
+    setExpandedMessageIds((current) => {
+      const next = new Set(current);
+      if (next.has(messageId)) next.delete(messageId);
+      else next.add(messageId);
+      return next;
+    });
+  };
 
   return (
     <section class="flex h-full min-h-72 flex-col overflow-hidden bg-[var(--ui-surface)]" aria-label="Conversation history">
@@ -191,7 +207,7 @@ export default function MailComposerHistory(props: {
             <div>
               <For each={messages()}>
                 {(message) => {
-                  const expanded = () => expandedMessageId() === message.id;
+                  const expanded = () => expandedMessageIds().has(message.id);
                   const outgoing = () => isOutgoingMessage(message, props.identities);
                   const sender = () => message.from.map(formatMailAddress).join(", ") || "Unknown sender";
                   const recipients = () => message.to.map(formatMailAddress).join(", ") || "undisclosed recipients";
@@ -201,7 +217,7 @@ export default function MailComposerHistory(props: {
                         type="button"
                         class="grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-3 px-3 py-2.5 text-left hover:bg-[var(--ui-hover)] focus-visible:bg-[var(--ui-hover)]"
                         aria-expanded={expanded()}
-                        onClick={() => setExpandedMessageId(expanded() ? null : message.id)}
+                        onClick={() => toggleMessage(message.id)}
                       >
                         <span class="min-w-0">
                           <span class="flex min-w-0 items-center gap-2">
@@ -216,7 +232,7 @@ export default function MailComposerHistory(props: {
                         </span>
                         <span class="flex items-center gap-2 text-xs text-dimmed">
                           <time dateTime={message.internalDate} title={dates.formatDateTime(message.internalDate, props.dateConfig)}>
-                            {dates.formatDateTimeRelative(message.internalDate, props.dateConfig)}
+                            {formatMailMessageDateTime(message.internalDate, props.dateConfig)}
                           </time>
                           <i class={`ti ${expanded() ? "ti-chevron-up" : "ti-chevron-down"}`} aria-hidden="true" />
                         </span>
