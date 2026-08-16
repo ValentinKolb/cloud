@@ -63,6 +63,7 @@ describe("@k2b/ui Cloud content contract", () => {
     expect(contentCss).toContain("--k2b-calendar-event-surface: #ecfdf5");
     expect(contentCss).toContain("color: var(--k2b-calendar-event-text, var(--k2b-text))");
     expect(contentCss).toContain("background: var(--k2b-calendar-event-surface, var(--k2b-surface-muted))");
+    expect(contentCss).toMatch(/\.k2b-calendar-event__title \+ \.k2b-calendar-event__meta \{[^}]*margin-top: 0\.25rem;/s);
   });
 
   test("indexes year-view events once instead of rescanning them for every day", () => {

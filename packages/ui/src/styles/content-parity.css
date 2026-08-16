@@ -459,6 +459,10 @@
   font-weight: 600;
 }
 
+.k2b-ui .k2b-calendar-event__title + .k2b-calendar-event__meta {
+  margin-top: 0.25rem;
+}
+
 .k2b-ui .k2b-calendar-event__meta {
   font-size: 0.625rem;
   opacity: 0.7;
