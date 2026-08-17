@@ -632,7 +632,7 @@ const DocsDemo = () => (
 );
 
 const MarkdownDemo = (props: { html: string }) => {
-  const [value, setValue] = createSignal("# Edit Markdown");
+  const [value, setValue] = createSignal("# Hello @auth.name");
   return (
     <DemoCard
       id="markdown"
@@ -640,15 +640,15 @@ const MarkdownDemo = (props: { html: string }) => {
         { kind: "component", name: "MarkdownView", from: "@k2b/ui" },
         { kind: "component", name: "MarkdownEditor", from: "@k2b/ui" },
       ]}
-      description="Untrusted Markdown is safe by default. Already-rendered HTML crosses an explicit caller-owned trust boundary."
-      code={`<MarkdownView markdown={value()} headingScale="compact" />
+      description="Untrusted Markdown is safe by default. Known authoring tokens can be emphasized without crossing the trusted-HTML boundary."
+      code={`<MarkdownView markdown={value()} inlineTokens={["@auth.name"]} headingScale="compact" />
 <MarkdownView markdown={value()} />
 <MarkdownView markdown={value()} headingScale="large" />
 <MarkdownView trustedHtml={trustedHtml} />
 <MarkdownEditor value={value()} onValueChange={setValue} aria-label="Markdown source" />`}
     >
       <section aria-label="Rendered untrusted Markdown">
-        <MarkdownView markdown={value()} headingScale="large" />
+        <MarkdownView markdown={value()} inlineTokens={["@auth.name"]} headingScale="large" />
       </section>
       <section aria-label="Rendered trusted HTML">
         <MarkdownView trustedHtml={props.html} />

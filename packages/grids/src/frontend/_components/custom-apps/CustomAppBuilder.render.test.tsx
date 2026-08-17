@@ -269,6 +269,20 @@ describe("CustomAppBuilder", () => {
     expect(html).toContain("k2b-placeholder");
   });
 
+  test("highlights available Markdown placeholders in the builder preview", () => {
+    const preview = app();
+    const block = preview.draftDefinition!.pages[0]!.rows[0]!.columns[0]!.blocks[0]!;
+    if (block.type !== "markdown") throw new Error("Expected Markdown fixture");
+    block.markdown = "# Hello @auth.name and support@example.test";
+
+    const html = renderToString(() =>
+      createComponent(CustomAppBuilder, { app: preview, baseId: "BASE01", catalog: catalog(), editMode: true }),
+    );
+
+    expect(html).toContain('<span class="k2b-content-markdown__inline-token">@auth.name</span>');
+    expect(html).toContain("support@example.test");
+  });
+
   test("previews Scanner blocks without activating the camera", () => {
     const html = renderToString(() =>
       createComponent(CustomAppBlockPreview, {
@@ -604,6 +618,9 @@ describe("CustomAppBuilder", () => {
 
   test("renders a clean app preview outside Edit mode", () => {
     const preview = app();
+    const block = preview.draftDefinition!.pages[0]!.rows[0]!.columns[0]!.blocks[0]!;
+    if (block.type !== "markdown") throw new Error("Expected Markdown fixture");
+    block.markdown += "\n\n@auth.name";
     preview.draftDefinition!.sidebar = {
       actions: [
         {
@@ -634,6 +651,7 @@ describe("CustomAppBuilder", () => {
     expect(html).not.toContain("New page");
     expect(html).not.toContain("New action");
     expect(html).not.toContain('aria-label="Select and move Markdown"');
+    expect(html).not.toContain("k2b-content-markdown__inline-token");
     expect(html).not.toContain("custom-app-drop-indicator");
     expect(html).toMatch(/<aside id="k2b-workspace-detail-custom-app-inspector"[^>]* hidden/);
     expect(html).not.toContain("Draft only");

@@ -561,6 +561,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     selectedAction()?.owner === "rows" ? (selectedRecordsBlock()?.rowActions?.length ?? 0) : (selectedActionsBlock()?.actions.length ?? 0),
   );
   const contextKeys = createMemo(() => customAppContextKeys(selectedPage()));
+  const markdownInlineTokens = createMemo(() => contextKeys().filter((key) => key !== "auth.subjects").map((key) => `@${key}`));
   const blockCount = createMemo(() =>
     selectedPage().rows.reduce((total, row) => total + row.columns.reduce((sum, column) => sum + column.blocks.length, 0), 0),
   );
@@ -1900,6 +1901,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                   baseId={draft.draft().baseId}
                   appId={app().id}
                   catalog={props.catalog}
+                  markdownInlineTokens={props.editMode ? markdownInlineTokens() : undefined}
                   dateConfig={props.dateConfig}
                   onPreviewResult={(blockId, result) => setPreviewResults((current) => ({ ...current, [blockId]: result }))}
                 />

@@ -33,6 +33,24 @@ sanitized, trusted HTML, cross the boundary explicitly with
 Use `renderSafeMarkdown(markdownSource)` only when a non-component boundary
 needs the same escaped HTML output. `MarkdownView` remains the normal UI API.
 
+### Highlight known inline tokens
+
+Pass exact `inlineTokens` when an authoring preview needs to distinguish known
+variables or placeholders from ordinary prose:
+
+```tsx
+<MarkdownView
+  markdown="Hello @auth.name"
+  inlineTokens={["@auth.name"]}
+/>
+```
+
+The safe renderer decorates matching standalone text tokens while parsing the
+Markdown. It does not rewrite rendered HTML, inline code, code blocks, link
+destinations, or trusted HTML. Callers must provide the complete allowlist;
+unknown text stays ordinary Markdown. Use
+`renderSafeMarkdown(source, { inlineTokens })` at non-component boundaries.
+
 The component does not impose a reading width. The parent owns width, scrolling, and surrounding layout.
 
 Set `headingScale` to `"compact"`, `"normal"`, or `"large"`. Compact headings fit embedded content such as comments and dialogs, normal is the default prose hierarchy, and large gives standalone pages a stronger hierarchy. The scale changes presentation only; Markdown heading levels remain intact. Use `class` for other context-specific text sizing.

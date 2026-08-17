@@ -163,6 +163,7 @@ describe("@k2b/ui content style coverage", () => {
     const markdown = renderToString(() =>
       createComponent(MarkdownView, {
         markdown: '<img src=x onerror="alert(1)">\n\n[unsafe](javascript:alert(1))',
+        inlineTokens: ['<img src=x onerror="alert(1)">', "unsafe"],
       }),
     );
     const trusted = renderToString(() => createComponent(MarkdownView, { trustedHtml: "<strong>Trusted</strong>" }));
@@ -171,8 +172,25 @@ describe("@k2b/ui content style coverage", () => {
     expect(code).toContain("&lt;img");
     expect(markdown).not.toContain('<img src="x"');
     expect(markdown).not.toContain('href="javascript:');
-    expect(markdown).toContain("unsafe");
+    expect(markdown).toContain('<span class="k2b-content-markdown__inline-token">unsafe</span>');
     expect(trusted).toContain("<strong>Trusted</strong>");
+  });
+
+  test("highlights only configured standalone Markdown text tokens", () => {
+    const html = renderToString(() =>
+      createComponent(MarkdownView, {
+        markdown:
+          "Hello @auth.name. Email support@auth.name or ignore @auth.name.extra and \\@auth.name. `@auth.name` [profile](/users/@auth.name) [@auth.name](/profile)",
+        inlineTokens: ["@auth", "@auth.name"],
+      }),
+    );
+
+    expect(html.match(/class="k2b-content-markdown__inline-token"/g)).toHaveLength(2);
+    expect(html).toContain('<span class="k2b-content-markdown__inline-token">@auth.name</span>.');
+    expect(html).toContain("support@auth.name");
+    expect(html).toContain("@auth.name.extra");
+    expect(html).toContain("<code>@auth.name</code>");
+    expect(html).toContain('href="/users/@auth.name"');
   });
 });
 

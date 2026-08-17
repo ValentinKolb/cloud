@@ -104,6 +104,8 @@ standalone SSR, behavior, styling, and migration checks:
 
 `MarkdownView` renders escaped Markdown by default. Pre-rendered HTML requires
 the explicit `trustedHtml` prop and stays an application-owned trust boundary.
+Authoring previews may pass an exact `inlineTokens` allowlist to emphasize
+standalone placeholders during safe Markdown parsing.
 
 ## Field contract
 

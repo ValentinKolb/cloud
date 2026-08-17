@@ -161,6 +161,7 @@ export default function CustomAppBlockPreview(props: {
   baseId: string;
   appId: string;
   catalog: CustomAppCatalog;
+  markdownInlineTokens?: readonly string[];
   dateConfig?: DateContext;
   initialResult?: DslQueryPreviewResponse;
   onPreviewResult?: (blockId: string, result: DslQueryPreviewResponse) => void;
@@ -197,7 +198,7 @@ export default function CustomAppBlockPreview(props: {
         />
       }
     >
-      <MarkdownView markdown={props.block.markdown} headingScale="large" />
+      <MarkdownView markdown={props.block.markdown} inlineTokens={props.markdownInlineTokens} headingScale="large" />
     </Show>
   ) : props.block.type === "records" || props.block.type === "metrics" || props.block.type === "chart" ? (
     <SourcePreview

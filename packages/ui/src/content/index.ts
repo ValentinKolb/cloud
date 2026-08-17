@@ -62,7 +62,7 @@ export { default as Lightbox } from "./Lightbox";
 
 export type { LogTableEntry } from "./LogEntriesTable";
 export { default as LogEntriesTable } from "./LogEntriesTable";
-export { default as MarkdownView, renderSafeMarkdown, type MarkdownViewProps } from "./MarkdownView";
+export { default as MarkdownView, renderSafeMarkdown, type MarkdownRenderOptions, type MarkdownViewProps } from "./MarkdownView";
 
 export { Pagination, type PaginationProps } from "./Pagination";
 export type { PdfPreviewProps, PdfPreviewRequest } from "./PdfPreview";

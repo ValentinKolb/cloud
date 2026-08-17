@@ -1746,6 +1746,18 @@
   font-size: 0.8571429em;
 }
 
+.k2b-ui .k2b-content-markdown__inline-token {
+  display: inline-block;
+  padding-inline: 0.3em;
+  border-radius: 0.3em;
+  background: color-mix(in srgb, var(--k2b-success-text) 12%, transparent);
+  color: var(--k2b-success-text);
+  font-family: var(--k2b-font-mono);
+  font-size: 0.82em;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
 .k2b-ui .k2b-content-markdown pre code {
   color: inherit;
   font-size: inherit;
