@@ -47,6 +47,7 @@ Cancellation returns `false`, `null`, or `undefined` according to the method. Ha
 | --- | --- |
 | `title`, `icon` | Name the dialog and add a Tabler icon. |
 | `confirmText`, `cancelText` | Override action labels. `cancelText: false` hides the cancel button in `prompts.form`. |
+| `confirmationPhrase` | Requires an exact typed phrase before `prompts.confirm` can confirm. |
 | `variant` | Selects `primary`, `success`, or `danger` action treatment. |
 | `size` | Selects `small`, `medium`, `large`, or `wide`. |
 | `surface` | Uses the standard panel or a caller-owned `bare` surface. |
@@ -54,6 +55,27 @@ Cancellation returns `false`, `null`, or `undefined` according to the method. Ha
 | `cancelBehavior` | `prompts.alert` can use `"ignore"` to keep Escape and backdrop clicks from closing it. |
 
 Use `surface: "bare"` with `header: false` only when the custom content supplies complete visible panel structure and a close control.
+
+## Typed confirmation
+
+Use a non-empty, single-line `confirmationPhrase` for unusually consequential actions where an ordinary confirm-or-cancel decision does not provide enough friction. Empty, whitespace-only, multiline, and tab-containing phrases are rejected. The confirmation input receives focus, and the primary action remains disabled until the value matches the configured phrase exactly, including capitalization and spaces. Cancellation does not require entering the phrase.
+
+`confirmText` continues to label the action button; it does not configure the phrase.
+
+```tsx
+const confirmed = await prompts.confirm(
+  "Delete Project Atlas and all stored data?",
+  {
+    title: "Delete project",
+    confirmText: "Delete project",
+    confirmationPhrase: "Project Atlas",
+    variant: "danger",
+  },
+);
+
+if (!confirmed) return;
+await deleteProject("atlas");
+```
 
 ## Forms
 

@@ -181,6 +181,91 @@ describe("@k2b/ui feedback runtime", () => {
     dom.cleanup();
   });
 
+  test("requires an exact confirmation phrase before submitting", async () => {
+    const dom = createDomTestHarness();
+    dom.root.className = "k2b-ui";
+    const { prompts } = await import("../src/feedback/prompts");
+
+    const result = prompts.confirm("Delete Project Atlas and all stored data?", {
+      title: "Delete project",
+      confirmText: "Delete project",
+      confirmationPhrase: "Project Atlas",
+      variant: "danger",
+    });
+    await settle();
+
+    const input = dom.document.querySelector<HTMLInputElement>(".k2b-dialog__body input");
+    const submit = dom.document.querySelector<HTMLButtonElement>(".k2b-dialog__actions button[type='submit']");
+    const form = dom.document.querySelector<HTMLFormElement>(".k2b-dialog__panel");
+    expect(dom.document.activeElement).toBe(input);
+    expect(input?.labels?.[0]?.textContent).toContain("Type Project Atlas to confirm");
+    expect(input?.closest(".k2b-text-input")?.getAttribute("data-monospace")).toBe("true");
+    expect(input?.autocomplete).toBe("off");
+    expect(input?.getAttribute("spellcheck")).toBe("false");
+    expect(submit?.disabled).toBe(true);
+
+    if (!input || !form) throw new Error("Expected confirmation phrase controls");
+    input.value = "project atlas";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await Promise.resolve();
+    expect(submit?.disabled).toBe(true);
+
+    input.value = "Project Atlas ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await Promise.resolve();
+    expect(submit?.disabled).toBe(true);
+
+    input.value = "Project Atlas";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await Promise.resolve();
+    expect(submit?.disabled).toBe(false);
+
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    expect(await result).toBe(true);
+    dom.cleanup();
+  });
+
+  test("preserves plain confirmation results", async () => {
+    const dom = createDomTestHarness();
+    dom.root.className = "k2b-ui";
+    const { prompts } = await import("../src/feedback/prompts");
+
+    const plainResult = prompts.confirm("Continue?");
+    await settle();
+    expect(dom.document.querySelector(".k2b-dialog__body input")).toBeNull();
+    const plainConfirm = dom.document.querySelector<HTMLButtonElement>(".k2b-dialog__actions button[data-variant='primary']");
+    expect(plainConfirm?.type).toBe("button");
+    expect(plainConfirm?.disabled).toBe(false);
+    const confirmClick = (plainConfirm as (HTMLButtonElement & { $$click?: () => void }) | null)?.$$click;
+    expect(confirmClick).toBeFunction();
+    confirmClick?.();
+    expect(await plainResult).toBe(true);
+    dom.cleanup();
+  });
+
+  test("cancels a typed confirmation without requiring the phrase", async () => {
+    const dom = createDomTestHarness();
+    dom.root.className = "k2b-ui";
+    const { prompts } = await import("../src/feedback/prompts");
+
+    expect(() => prompts.confirm("Delete everything?", { confirmationPhrase: "  " })).toThrow(
+      "confirmationPhrase must be non-empty, visible, and single-line",
+    );
+    expect(() => prompts.confirm("Delete everything?", { confirmationPhrase: "DELETE\nEVERYTHING" })).toThrow(
+      "confirmationPhrase must be non-empty, visible, and single-line",
+    );
+
+    const typedResult = prompts.confirm("Delete everything?", { confirmationPhrase: "DELETE" });
+    await settle();
+    const cancel = dom.document.querySelector<HTMLButtonElement>(".k2b-dialog__actions button[type='button']");
+    expect(cancel?.textContent).toContain("Cancel");
+    const cancelClick = (cancel as (HTMLButtonElement & { $$click?: () => void }) | null)?.$$click;
+    expect(cancelClick).toBeFunction();
+    cancelClick?.();
+    expect(await typedResult).toBe(false);
+    dom.cleanup();
+  });
+
   test("dismisses a pointer-opened tooltip with document Escape", async () => {
     const dom = createDomTestHarness();
     dom.root.className = "k2b-ui";

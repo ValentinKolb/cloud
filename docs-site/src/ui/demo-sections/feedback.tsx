@@ -207,10 +207,17 @@ const PromptsDemo = () => {
     <DemoCard
       id="prompts"
       chip={{ kind: "component", name: "prompts", from: "@k2b/ui" }}
-      description="Browser-only alert, decision, search, form, and custom-dialog flows, including a safe nested bare-surface example."
+      description="Browser-only alert, ordinary and typed confirmation, search, form, and custom-dialog flows, including a safe nested bare-surface example."
       code={`const confirmed = await prompts.confirm("Publish this release?", {
   title: "Publish release",
   confirmText: "Publish",
+});
+
+const deleted = await prompts.confirm("Delete Project Atlas?", {
+  title: "Delete project",
+  confirmText: "Delete project",
+  confirmationPhrase: "Project Atlas",
+  variant: "danger",
 });
 
 const selected = await prompts.search(resolveProjects, {
@@ -240,6 +247,19 @@ await prompts.dialog((close) => <MySurface close={close} />, {
           onClick={() => void prompts.confirm("Publish this release?", { title: "Publish release", confirmText: "Publish" })}
         >
           Confirm
+        </Button>
+        <Button
+          variant="danger"
+          onClick={() =>
+            void prompts.confirm("Delete Project Atlas and all stored data?", {
+              title: "Delete project",
+              confirmText: "Delete project",
+              confirmationPhrase: "Project Atlas",
+              variant: "danger",
+            })
+          }
+        >
+          Typed confirm
         </Button>
         <Button
           variant="secondary"

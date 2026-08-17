@@ -24,6 +24,10 @@ export interface DialogOptions {
   cancelBehavior?: OpenDialogOptions["cancelBehavior"];
 }
 
+export interface ConfirmOptions extends DialogOptions {
+  confirmationPhrase?: string;
+}
+
 type PromptContent = string | HTMLElement | JSX.Element;
 
 export type PromptSearchItem<T = unknown> = {
@@ -699,29 +703,82 @@ export const prompts = {
       icon: options?.icon ?? "ti ti-check",
     }),
 
-  confirm: (content: PromptContent, options?: DialogOptions): Promise<boolean | undefined> =>
-    dialogCore.open<boolean>(
-      (close) => (
-        <div class="k2b-dialog__panel">
-          <DialogHeader title={options?.title} icon={options?.icon} close={() => close(false)} />
-          <div class="k2b-dialog__body">{content}</div>
-          <footer class="k2b-dialog__actions">
-            <button type="button" class="k2b-button" data-variant="secondary" onClick={() => close(false)}>
-              {options?.cancelText || "Cancel"}
-            </button>
-            <button type="button" class="k2b-button" data-variant={options?.variant ?? "primary"} onClick={() => close(true)}>
-              {options?.confirmText || "Confirm"}
-            </button>
-          </footer>
-        </div>
-      ),
+  confirm: (content: PromptContent, options?: ConfirmOptions): Promise<boolean | undefined> => {
+    const confirmationPhrase = options?.confirmationPhrase;
+    if (confirmationPhrase !== undefined && (confirmationPhrase.trim().length === 0 || /[\r\n\t]/.test(confirmationPhrase))) {
+      throw new Error("confirmationPhrase must be non-empty, visible, and single-line");
+    }
+    let confirmationInput: HTMLInputElement | undefined;
+
+    return dialogCore.open<boolean>(
+      (close) => {
+        if (!confirmationPhrase) {
+          return (
+            <div class="k2b-dialog__panel">
+              <DialogHeader title={options?.title} icon={options?.icon} close={() => close(false)} />
+              <div class="k2b-dialog__body">{content}</div>
+              <footer class="k2b-dialog__actions">
+                <button type="button" class="k2b-button" data-variant="secondary" onClick={() => close(false)}>
+                  {options?.cancelText || "Cancel"}
+                </button>
+                <button type="button" class="k2b-button" data-variant={options?.variant ?? "primary"} onClick={() => close(true)}>
+                  {options?.confirmText || "Confirm"}
+                </button>
+              </footer>
+            </div>
+          );
+        }
+
+        const [confirmationValue, setConfirmationValue] = createSignal("");
+        const canConfirm = () => confirmationValue() === confirmationPhrase;
+        const submit = (event: SubmitEvent) => {
+          event.preventDefault();
+          if (canConfirm()) close(true);
+        };
+
+        return (
+          <form class="k2b-dialog__panel" onSubmit={submit}>
+            <DialogHeader title={options?.title} icon={options?.icon} close={() => close(false)} />
+            <div class="k2b-dialog__body k2b-prompt-form">
+              <div class="k2b-prompt-copy">{content}</div>
+              <TextInput
+                ref={(element) => {
+                  confirmationInput = element;
+                }}
+                label={
+                  <>
+                    Type <code class="k2b-confirmation-phrase">{confirmationPhrase}</code> to confirm
+                  </>
+                }
+                value={confirmationValue}
+                onValueChange={setConfirmationValue}
+                autocomplete="off"
+                autocapitalize="off"
+                spellcheck={false}
+                monospace
+                required
+              />
+            </div>
+            <footer class="k2b-dialog__actions">
+              <button type="button" class="k2b-button" data-variant="secondary" onClick={() => close(false)}>
+                {options?.cancelText || "Cancel"}
+              </button>
+              <button type="submit" class="k2b-button" data-variant={options?.variant ?? "primary"} disabled={!canConfirm()}>
+                {options?.confirmText || "Confirm"}
+              </button>
+            </footer>
+          </form>
+        );
+      },
       {
         panelClassName: panelClass(options),
         contentClassName: contentClass(options?.surface),
+        initialFocus: confirmationPhrase ? () => confirmationInput ?? null : undefined,
         cancelBehavior: options?.cancelBehavior,
         ariaLabel: options?.ariaLabel ?? options?.title ?? "Confirmation",
       },
-    ),
+    );
+  },
 
   prompt: promptText,
   promptNumber,

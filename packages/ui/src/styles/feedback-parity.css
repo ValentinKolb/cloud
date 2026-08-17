@@ -238,6 +238,21 @@
   font-size: 0.875rem;
 }
 
+.k2b-ui .k2b-confirmation-phrase {
+  padding: 0.0625rem 0.25rem;
+  border-radius: 0.25rem;
+  color: inherit;
+  background: var(--k2b-neutral-200);
+  font-family: var(--k2b-font-mono);
+  font-size: 0.95em;
+  font-weight: inherit;
+  white-space: break-spaces;
+}
+
+.dark .k2b-ui .k2b-confirmation-phrase {
+  background: var(--k2b-surface-canvas);
+}
+
 /* --------------------------------------------------------- prompt search */
 
 .k2b-ui .k2b-dialog--search {

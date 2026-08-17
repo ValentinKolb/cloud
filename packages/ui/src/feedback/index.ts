@@ -3,6 +3,7 @@ export { dialogCore } from "./dialog-core";
 export type { InlineGuidanceProps } from "./InlineGuidance";
 export { default as InlineGuidance } from "./InlineGuidance";
 export type {
+  ConfirmOptions,
   DialogOptions,
   FieldSchema,
   PromptFieldBase,
