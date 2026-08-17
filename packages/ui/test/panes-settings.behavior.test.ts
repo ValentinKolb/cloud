@@ -74,6 +74,177 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     dom.cleanup();
   });
 
+  test("mounts a persisted nested layout without changing its active contents", async () => {
+    const dom = createDomTestHarness();
+    const { default: Panes } = await import("../src/layout/Panes");
+    const persisted: PanesLayout = {
+      version: 2,
+      root: {
+        type: "split",
+        direction: "horizontal",
+        ratio: 0.6,
+        first: { type: "group", items: ["source", "preview"], active: "preview" },
+        second: { type: "group", items: ["history"], active: "history" },
+      },
+    };
+    const items = [
+      { id: "source", title: "Source", render: () => "Source editor" },
+      { id: "preview", title: "Preview", render: () => "Preview content" },
+      { id: "history", title: "History", render: () => "History content" },
+    ];
+    const [layout, setLayout] = createSignal(persisted);
+    const dispose = render(
+      () =>
+        createComponent(Panes, {
+          get layout() {
+            return layout();
+          },
+          onLayoutChange: setLayout,
+          items,
+          ariaLabel: "Persisted panes",
+        }),
+      dom.root,
+    );
+    expect(dom.root.textContent).toContain("Preview content");
+    expect(dom.root.textContent).toContain("History content");
+    expect(dom.root.textContent).not.toContain("Source editor");
+    const source = dom.root.querySelector<HTMLButtonElement>('[role="tab"][aria-label="Source"]');
+    const activateSource = (source as HTMLButtonElement & { $$click?: () => void } | null)?.$$click;
+    expect(typeof activateSource).toBe("function");
+    activateSource?.();
+    await Promise.resolve();
+    const activatedRoot = layout().root;
+    expect(activatedRoot?.type).toBe("split");
+    if (activatedRoot?.type !== "split" || activatedRoot.first.type !== "group") throw new Error("Expected a split with a first group");
+    expect(activatedRoot.first.active).toBe("source");
+    expect(dom.root.textContent).toContain("Source editor");
+    expect(dom.root.textContent).not.toContain("Preview content");
+    dispose();
+    dom.cleanup();
+  });
+
+  test("overlays a scrollbar without changing the tab-row geometry", async () => {
+    const dom = createDomTestHarness();
+    const { default: Panes } = await import("../src/layout/Panes");
+    const itemIds = Array.from({ length: 12 }, (_, index) => `item${index}`);
+    const [showAdd, setShowAdd] = createSignal(false);
+    const dispose = render(
+      () =>
+        createComponent(Panes, {
+          layout: { version: 2, root: { type: "group", items: itemIds, active: itemIds[0]! } },
+          onLayoutChange: () => undefined,
+          items: itemIds.map((id) => ({ id, title: id, render: () => id })),
+          get onAddItem() {
+            return showAdd() ? () => undefined : undefined;
+          },
+        }),
+      dom.root,
+    );
+    const tablist = dom.root.querySelector<HTMLDivElement>(".k2b-panes__tabs");
+    if (!tablist) throw new Error(dom.root.innerHTML);
+    Object.defineProperties(tablist, {
+      clientWidth: { configurable: true, value: 200 },
+      scrollWidth: { configurable: true, value: 400 },
+      scrollLeft: { configurable: true, writable: true, value: 100 },
+    });
+    tablist.dispatchEvent(new Event("scroll"));
+    await Promise.resolve();
+    const scrollbar = dom.root.querySelector<HTMLElement>(".k2b-panes__tabs-scrollbar");
+    expect(scrollbar?.getAttribute("aria-hidden")).toBe("true");
+    expect(scrollbar?.querySelector("span")?.getAttribute("style")).toContain("--k2b-panes-scroll-left: 50px");
+    expect(scrollbar?.querySelector("span")?.getAttribute("style")).toContain("--k2b-panes-scroll-width: 100px");
+    const initialStyle = scrollbar?.querySelector("span")?.getAttribute("style");
+    Object.defineProperty(tablist, "scrollWidth", { configurable: true, value: 600 });
+    setShowAdd(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(scrollbar?.querySelector("span")?.getAttribute("style")).not.toBe(initialStyle);
+    dispose();
+    dom.cleanup();
+  });
+
+  test("keeps rounded split-target hit testing inside the clipped element", async () => {
+    const dom = createDomTestHarness();
+    const { pointerHitsPanesDropTarget } = await import("../src/layout/Panes");
+    const element = dom.root.ownerDocument.createElement("div");
+    const visibleChild = dom.root.ownerDocument.createElement("span");
+    const clippedCorner = dom.root.ownerDocument.createElement("span");
+    element.append(visibleChild);
+    const entry = {
+      containsPointer: true,
+      element,
+      meta: {
+        label: "Add top",
+        target: {
+          id: "split:top",
+          kind: "split" as const,
+          targetItemId: "preview",
+          side: "top" as const,
+          intent: { type: "split" as const, itemId: "source", targetItemId: "preview", side: "top" as const },
+        },
+      },
+      rect: rect(0, 0, 200, 50),
+    };
+    expect(pointerHitsPanesDropTarget(entry, { x: 100, y: 25 }, visibleChild)).toBe(true);
+    expect(pointerHitsPanesDropTarget(entry, { x: 100, y: 25 }, clippedCorner)).toBe(false);
+    dom.cleanup();
+  });
+
+  test("resizes a persisted split with the complete separator keyboard contract", async () => {
+    const dom = createDomTestHarness();
+    const { default: Panes } = await import("../src/layout/Panes");
+    const [layout, setLayout] = createSignal<PanesLayout>({
+      version: 2,
+      root: {
+        type: "split",
+        direction: "horizontal",
+        ratio: 0.5,
+        first: { type: "group", items: ["source"], active: "source" },
+        second: { type: "group", items: ["preview"], active: "preview" },
+      },
+    });
+    const dispose = render(
+      () =>
+        createComponent(Panes, {
+          get layout() {
+            return layout();
+          },
+          onLayoutChange: setLayout,
+          items: [
+            { id: "source", title: "Source", render: () => "Source" },
+            { id: "preview", title: "Preview", render: () => "Preview" },
+          ],
+        }),
+      dom.root,
+    );
+    const separator = dom.root.querySelector<HTMLButtonElement>('[role="separator"]');
+    if (!separator) throw new Error(dom.root.innerHTML);
+    const resizeKeyDown = (separator as HTMLButtonElement & { $$keydown?: (event: KeyboardEvent) => void }).$$keydown;
+    expect(typeof resizeKeyDown).toBe("function");
+    expect(separator.getAttribute("aria-orientation")).toBe("vertical");
+    resizeKeyDown?.(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    await Promise.resolve();
+    const resizedRoot = layout().root;
+    expect(resizedRoot?.type).toBe("split");
+    if (resizedRoot?.type !== "split") throw new Error("Expected a split layout");
+    expect(resizedRoot.ratio).toBe(0.52);
+    expect(separator.getAttribute("aria-valuenow")).toBe("52");
+    resizeKeyDown?.(new KeyboardEvent("keydown", { key: "ArrowLeft", shiftKey: true, bubbles: true }));
+    await Promise.resolve();
+    const shiftedRoot = layout().root;
+    expect(shiftedRoot?.type).toBe("split");
+    if (shiftedRoot?.type !== "split") throw new Error("Expected a split layout");
+    expect(shiftedRoot.ratio).toBe(0.44);
+    resizeKeyDown?.(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+    await Promise.resolve();
+    expect(separator.getAttribute("aria-valuenow")).toBe("8");
+    resizeKeyDown?.(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+    await Promise.resolve();
+    expect(separator.getAttribute("aria-valuenow")).toBe("92");
+    dispose();
+    dom.cleanup();
+  });
+
   test("passes group and empty-workspace add targets to the consumer", async () => {
     const dom = createDomTestHarness();
     const { default: Panes } = await import("../src/layout/Panes");
@@ -192,6 +363,11 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     const source = tabs[0]!.parentElement;
     if (!source?.matches("[data-dnd-draggable]")) throw new Error("Expected draggable source tab");
     source.getBoundingClientRect = () => rect(0, 0, 120, 40);
+    const previewSource = source.querySelector<HTMLElement>("[data-dnd-preview]");
+    if (!previewSource) throw new Error("Expected a dedicated tab drag preview");
+    previewSource.getBoundingClientRect = () => rect(8, 6, 92, 28);
+    previewSource.style.borderRadius = "8px";
+    previewSource.style.overflow = "hidden";
     tabs[0]!.dispatchEvent(
       new dom.window.PointerEvent("pointerdown", {
         bubbles: true,
@@ -213,6 +389,15 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
       }),
     );
     await Promise.resolve();
+    const pointerPreview = dom.window.document.body.querySelector(
+      ".k2b-panes__drag-preview[aria-hidden='true']",
+    ) as HTMLElement | null;
+    expect(pointerPreview).not.toBeNull();
+    expect(pointerPreview).not.toBe(previewSource);
+    expect(pointerPreview?.style.width).toBe("92px");
+    expect(pointerPreview?.style.height).toBe("28px");
+    expect(pointerPreview?.style.borderRadius).toBe("8px");
+    expect(pointerPreview?.style.overflow).toBe("hidden");
     const targets = Array.from(dom.root.querySelectorAll<HTMLElement>(".k2b-panes__drop-target"));
     if (targets.length === 0) throw new Error(dom.root.innerHTML);
     expect(targets.some((target) => target.dataset.kind === "group")).toBe(true);
@@ -220,6 +405,9 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     expect(targets.some((target) => target.dataset.disabled)).toBe(false);
     const groupTarget = groups[1]!.querySelector<HTMLElement>('[data-kind="group"]');
     if (!groupTarget) throw new Error("Expected group target");
+    expect(groupTarget.title).toBe("Add to Preview");
+    expect(groupTarget.querySelector("i")).not.toBeNull();
+    expect(groupTarget.querySelector("span")).toBeNull();
     groupTarget.getBoundingClientRect = () => rect(80, 240, 140, 48);
     dom.window.dispatchEvent(
       new dom.window.PointerEvent("pointermove", {
@@ -244,6 +432,7 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     await Promise.resolve();
     expect(layout().root).toEqual({ type: "group", items: ["preview", "source"], active: "source" });
     expect(dom.root.querySelector(".k2b-panes__drop-target")).toBeNull();
+    expect(dom.window.document.body.querySelector(".k2b-panes__drag-preview[aria-hidden='true']")).toBeNull();
     dispose();
     dom.cleanup();
   });
@@ -274,8 +463,13 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
         await Promise.resolve();
       }
       expect(wanted.dataset.active).toBe("true");
+      const liveRegions = dom.window.document.body.querySelectorAll('[role="status"]');
+      const liveRegion = liveRegions.item(liveRegions.length - 1);
+      await Promise.resolve();
+      expect(liveRegion?.textContent).toContain("Move Source to");
       press(source, " ");
       await Promise.resolve();
+      expect(liveRegion?.textContent).toContain("Moved Source to");
     };
 
     const [layout, setLayout] = createSignal<PanesLayout>({
@@ -341,6 +535,14 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     const endTab = dom.root.querySelector<HTMLButtonElement>('[role="tab"][aria-label="End"]');
     if (!sourceTab || !endTab) throw new Error(dom.root.innerHTML);
     sourceTab.parentElement!.getBoundingClientRect = () => rect(0, 0, 120, 40);
+    press(sourceTab, " ");
+    await Promise.resolve();
+    const betweenTabsTarget = dom.root.querySelector<HTMLElement>('[data-kind="tab"][data-placement="tab"]');
+    const tabEndTarget = dom.root.querySelector<HTMLElement>('[data-kind="tab"][data-placement="tab-end"]');
+    expect(betweenTabsTarget?.querySelector("i")?.classList.contains("ti-spacing-horizontal")).toBe(true);
+    expect(tabEndTarget?.querySelector("i")).toBeNull();
+    press(sourceTab, "Escape");
+    await Promise.resolve();
     await chooseTarget(sourceTab, () => endTab.parentElement?.querySelector<HTMLElement>('[data-placement="tab"]') ?? null);
     expect(tabsLayout().root).toEqual({ type: "group", items: ["middle", "source", "end"], active: "source" });
     disposeTabs();

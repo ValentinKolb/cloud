@@ -231,7 +231,7 @@ const initialPanesLayout: PanesLayout = {
       ratio: 0.68,
       first: {
         type: "group",
-        items: ["source", "outline", "history"],
+        items: ["source", "outline", "history", "tests", "notes", "metrics", "logs", "debugger"],
         active: "source",
       },
       second: {
@@ -271,6 +271,9 @@ const paneDefinitions = [
   { id: "tests", title: "Tests", icon: "ti ti-test-pipe", tone: "emerald" },
   { id: "notes", title: "Notes", icon: "ti ti-notes", tone: "blue" },
   { id: "metrics", title: "Metrics", icon: "ti ti-chart-line", tone: "emerald" },
+  { id: "logs", title: "Logs", icon: "ti ti-file-text", tone: "violet" },
+  { id: "debugger", title: "Debugger", icon: "ti ti-bug", tone: "blue" },
+  { id: "variables", title: "Variables", icon: "ti ti-braces", tone: "emerald" },
 ] as const;
 
 const layoutContainsItem = (node: PanesNode | null, itemId: string): boolean => {
@@ -294,7 +297,7 @@ const PanesDemo = () => {
     ),
   }));
   const nextClosedItem = () => paneDefinitions.find((candidate) => !layoutContainsItem(layout().root, candidate.id));
-  const addItem = (targetItemId: string | null) =>
+  const addNextItem = (targetItemId: string | null) =>
     setLayout((current) => {
       const item = paneDefinitions.find((candidate) => !layoutContainsItem(current.root, candidate.id));
       return item ? addPanesItem(current, { itemId: item.id, targetItemId }) : current;
@@ -311,12 +314,17 @@ const items: PanesItem[] = definitions.map((item) => ({
   onClose: () => setLayout((current) => removePanesItem(current, item.id)),
 }));
 const nextClosedItem = () => definitions.find((item) => !layoutContainsItem(layout().root, item.id));
+const addNextItem = (targetItemId: string | null) =>
+  setLayout((current) => {
+    const item = definitions.find((candidate) => !layoutContainsItem(current.root, candidate.id));
+    return item ? addPanesItem(current, { itemId: item.id, targetItemId }) : current;
+  });
 
 <Panes
   layout={layout()}
   onLayoutChange={setLayout}
   items={items}
-  onAddItem={nextClosedItem() ? (targetItemId) => openNextItem(targetItemId) : undefined}
+  onAddItem={nextClosedItem() ? addNextItem : undefined}
   ariaLabel="Editor panes"
 />`}
     >
@@ -325,7 +333,7 @@ const nextClosedItem = () => definitions.find((item) => !layoutContainsItem(layo
           layout={layout()}
           onLayoutChange={setLayout}
           items={items}
-          onAddItem={nextClosedItem() ? addItem : undefined}
+          onAddItem={nextClosedItem() ? addNextItem : undefined}
           ariaLabel="Editor panes"
         />
       </div>

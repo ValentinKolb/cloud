@@ -237,6 +237,9 @@ Persist only `PanesLayout`, never the runtime item descriptors containing
 render functions. Validate stored input with `parsePanesLayout`; invalid or
 unsupported values require an explicit application fallback. Panes invokes an
 item's `render` function only while that item is active in its tab group.
+Tab rows remain one line and scroll horizontally when needed. Dragging exposes
+separate tab-insertion, group, and directional split targets while the pointer
+preview retains the source tab's compact pill treatment.
 
 Cloud applications import portable components directly from `@k2b/ui`.
 Product-owned behavior such as permissions, account routes, stored AI

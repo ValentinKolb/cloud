@@ -5,13 +5,13 @@ import { resolve } from "node:path";
 import { createConfig } from "@k2b/ssr";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
-import type { PanesLayout } from "./panes-layout";
+import { createPanesLayout, getPanesDropTargets, type PanesLayout } from "./panes-layout";
 
 const root = mkdtempSync(resolve(tmpdir(), "k2b-ui-panes-"));
 const { plugin } = createConfig({ dev: true, rootDir: root });
 Bun.plugin(plugin());
 process.once("exit", () => rmSync(root, { recursive: true, force: true }));
-const { default: Panes, pointerHitsPanesDropTarget } = await import("./Panes");
+const { default: Panes, indexPanesDropTargets, pointerHitsPanesDropTarget } = await import("./Panes");
 
 const layout: PanesLayout = {
   version: 2,
@@ -25,7 +25,7 @@ const layout: PanesLayout = {
 };
 
 describe("@k2b/ui Panes", () => {
-  test("matches the visible 45 degree trapezoid seams", () => {
+  test("matches the visible 45 degree trapezoid hit areas", () => {
     const entry = (side: "top" | "right" | "bottom" | "left", width: number, height: number) => ({
       containsPointer: true,
       meta: {
@@ -48,6 +48,20 @@ describe("@k2b/ui Panes", () => {
     expect(pointerHitsPanesDropTarget(entry("bottom", 200, 50), { x: 24, y: 25 })).toBe(false);
     expect(pointerHitsPanesDropTarget(entry("right", 50, 200), { x: 25, y: 25 })).toBe(true);
     expect(pointerHitsPanesDropTarget(entry("right", 50, 200), { x: 25, y: 24 })).toBe(false);
+  });
+
+  test("indexes large tab-group targets once for direct rendering lookups", () => {
+    const itemIds = Array.from({ length: 256 }, (_, index) => `item${index}`);
+    const targets = getPanesDropTargets(createPanesLayout(itemIds), "item128", { movable: true, split: false });
+    const index = indexPanesDropTargets(targets);
+    const group = index.get("item0");
+    expect(index.size).toBe(1);
+    expect(group?.body).toEqual([]);
+    expect(group?.tabs.size).toBe(targets.length);
+    for (const target of targets) {
+      if (target.kind !== "tab") throw new Error("Expected only tab targets");
+      expect(group?.tabs.get(target.beforeItemId ?? null)).toBe(target);
+    }
   });
 
   test("renders nested SSR tabs, separators, and only active factories", () => {

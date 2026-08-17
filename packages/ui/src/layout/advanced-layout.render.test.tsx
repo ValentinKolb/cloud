@@ -745,9 +745,19 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     test("uses compact document-style pane tabs", () => {
       const strip = rule(".k2b-panes__tabs");
       expect(strip).toContain("height:2.5rem");
-      expect(strip).toContain("padding:.375rem .5rem .375rem 0");
+      expect(strip).toContain("padding:.375rem .5rem .375rem .75rem");
       expect(strip).not.toContain("border-bottom");
       expect(strip).toContain("background:var(--k2b-surface)");
+      expect(strip).toContain("overflow-x:auto");
+      expect(strip).toContain("scrollbar-width:none");
+      expect(css).toContain(".k2b-panes__tabs::-webkit-scrollbar{display:none}");
+      const tabsScrollbar = rule(".k2b-panes__tabs-scrollbar");
+      expect(tabsScrollbar).toContain("position:absolute");
+      expect(tabsScrollbar).toContain("top:2.125rem");
+      expect(tabsScrollbar).toContain("opacity:0");
+      expect(tabsScrollbar).toContain("pointer-events:none");
+      expect(css).toContain(".k2b-panes__tabs:focus-within+.k2b-panes__tabs-scrollbar");
+      expect(rule(".k2b-panes__tabs-scrollbar>span")).toContain("width:var(--k2b-panes-scroll-width)");
 
       const tab = rule(".k2b-panes__tab");
       expect(tab).toContain("min-width:5rem");
@@ -760,32 +770,76 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       // Cloud: `w-2`/`h-2` track with a full-width `rounded-full` indicator.
       expect(rule(".k2b-panes__separator[data-direction=horizontal]")).toContain("width:.5rem");
       expect(rule(".k2b-panes__separator[data-direction=horizontal]>span")).not.toContain("width:1px");
+      const activeSeparator = rule(".k2b-panes__separator:not([aria-disabled=true]):active>span");
+      expect(activeSeparator).toContain("background:var(--k2b-success-500)");
+      expect(rule(".k2b-panes__separator:not([aria-disabled=true]):focus-visible>span")).toContain(
+        "background:var(--k2b-success-600)",
+      );
+      expect(rule(".k2b-panes__separator:focus-visible>span")).toContain("var(--k2b-success-600)");
       const targets = rule(".k2b-panes__drop-target");
       expect(targets).toContain("pointer-events:auto");
+      expect(targets).toContain("border:0");
+      expect(targets).toContain("box-shadow:none");
       expect(targets).toContain("border-radius:var(--k2b-radius-control)");
       expect(targets).toContain("background:var(--k2b-success-surface)");
       expect(rule(".k2b-panes__drop-target[data-active=true]")).toContain("background:var(--k2b-success-500)");
       expect(css).not.toContain(".k2b-panes__drop-target[data-disabled=true]");
-      expect(rule(".k2b-panes__drop-target[data-placement=tab]")).toContain("width:1.25rem");
+      expect(rule(".k2b-panes__drop-target[data-placement=tab]")).toContain("width:1.5rem");
       const tabTarget = rule(".k2b-panes__drop-target[data-placement=tab]");
       expect(tabTarget).toContain("top:.125rem");
       expect(tabTarget).toContain("bottom:.125rem");
+      expect(tabTarget).toContain("left:-.75rem");
+      const leadingInset = Number(strip.match(/padding:[^;]* ([\d.]+)rem/)?.[1]);
+      const insertionOffset = Number(tabTarget.match(/left:-([\d.]+)rem/)?.[1]);
+      const insertionWidth = Number(tabTarget.match(/width:([\d.]+)rem/)?.[1]);
+      expect(leadingInset).toBe(insertionOffset);
+      expect(insertionOffset * 2).toBe(insertionWidth);
       expect(tabTarget).not.toContain("translate");
-      expect(rule(".k2b-panes__drop-target[data-kind=group]")).toContain("min-width:7rem");
+      expect(tabTarget).toContain("border-radius:var(--k2b-radius-control)");
+      const activeTabTarget = rule(
+        ".k2b-panes__drop-target[data-placement=tab][data-active=true],.k2b-ui .k2b-panes__drop-target[data-placement=tab-end][data-active=true]",
+      );
+      expect(activeTabTarget).toContain("background:var(--k2b-success-500)");
+      expect(activeTabTarget).toContain("transform:scale(1.08)");
+      const groupTarget = rule(".k2b-panes__drop-target[data-kind=group]");
+      expect(groupTarget).toContain("min-width:0");
+      expect(groupTarget).toContain("border-radius:.375rem");
+      expect(groupTarget).not.toContain("transform");
       const targetFrame = rule(".k2b-panes__drop-targets");
       expect(targetFrame).toContain("--k2b-panes-drop-edge:min(3.5rem,22cqi,22cqb)");
+      expect(targetFrame).toContain("--k2b-panes-drop-gap:.375rem");
       expect(targetFrame).toContain("container-type:size");
       expect(rule(".k2b-panes__drop-target[data-zone=top]")).toContain("height:var(--k2b-panes-drop-edge)");
-      expect(rule(".k2b-panes__drop-target[data-zone=left]")).toContain("width:var(--k2b-panes-drop-edge)");
       expect(rule(".k2b-panes__drop-target[data-zone=top]")).toContain(
-        "clip-path:polygon(0 0,100% 0,calc(100% - var(--k2b-panes-drop-edge))100%,var(--k2b-panes-drop-edge)100%)",
+        "calc(var(--k2b-panes-drop-gap) + var(--k2b-panes-drop-gap))",
+      );
+      expect(rule(".k2b-panes__drop-target[data-zone=left]")).toContain("width:var(--k2b-panes-drop-edge)");
+      const splitTarget = rule(".k2b-panes__drop-target[data-kind=split]");
+      expect(splitTarget).not.toContain("border:");
+      expect(splitTarget).not.toContain("box-shadow:");
+      expect(css).not.toContain(".k2b-panes__drop-target[data-kind=split]:before");
+      expect(rule(".k2b-panes__drop-target[data-zone=top]")).toContain(
+        "clip-path:polygon(round .375rem,0 0,100% 0,calc(100% - var(--k2b-panes-drop-edge))100%,var(--k2b-panes-drop-edge)100%)",
       );
       expect(rule(".k2b-panes__drop-target[data-zone=left]")).toContain(
-        "clip-path:polygon(0 0,100% var(--k2b-panes-drop-edge),100% calc(100% - var(--k2b-panes-drop-edge)),0 100%)",
+        "clip-path:polygon(round .375rem,0 0,100% var(--k2b-panes-drop-edge),100% calc(100% - var(--k2b-panes-drop-edge)),0 100%)",
       );
       expect(css).toContain(
         ".k2b-panes__drop-target[data-zone=left]>span,.k2b-ui .k2b-panes__drop-target[data-zone=right]>span{display:none}",
       );
+      const dragSurface =
+        css.match(/\.k2b-ui \.k2b-panes__drag-surface,\.k2b-ui\.k2b-panes__drag-surface\{([^}]*)\}/)?.[1] ?? "";
+      expect(dragSurface).toContain("background:0 0");
+      expect(dragSurface).toContain("font:inherit");
+      expect(dragSurface).toContain("width:100%");
+      expect(dragSurface).toContain("height:100%");
+      expect(dragSurface).toContain("padding:0 .625rem");
+      expect(dragSurface).toContain("border-radius:inherit");
+      expect(dragSurface).toContain("overflow:hidden");
+      const dragPreview = css.match(/\.k2b-ui\.k2b-panes__drag-preview\[aria-hidden=true\]\{([^}]*)\}/)?.[1] ?? "";
+      expect(dragPreview).toContain("height:1.75rem");
+      expect(dragPreview).toContain("border-radius:var(--k2b-radius-control,.5rem)");
+      expect(dragPreview).toContain("box-shadow:var(--k2b-shadow-float");
 
       // Cloud has no width-based floors on split children.
       expect(css).not.toContain("min-width:16rem");

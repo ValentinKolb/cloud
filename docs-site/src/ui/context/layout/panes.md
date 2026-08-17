@@ -24,6 +24,7 @@ import {
   resizePanesSplit,
   type PanesItem,
   type PanesLayout,
+  type PanesNode,
 } from "@k2b/ui";
 ```
 
@@ -76,7 +77,11 @@ Pass `onAddItem` to show a plus control in every group. It receives an item id f
 
 `movable`, `resizable`, and `split` configure the available operations. `split` accepts `false`, `"horizontal"`, `"vertical"`, or `"both"`; all interactions are enabled by default.
 
-Once dragging starts, Panes shows every valid destination at the same time: exact tab insertion positions, add-to-group targets, and explicit Add left, right, top, and bottom targets. Directional overlays form a frame with 45-degree seams, so their visible shape is also their hit area. Duplicate and no-op destinations are not offered. Releasing elsewhere cancels the move.
+Tab groups stay on one line and scroll horizontally when their tabs no longer fit. A thin overlay scrollbar appears while the tab row is hovered or contains keyboard focus without changing the row height.
+
+Once dragging starts, Panes shows every valid destination at the same time: exact tab insertion positions, add-to-group targets, and explicit Add left, right, top, and bottom targets. The four directional trapezoids are separated by neutral gaps around an icon-only add-to-group area, so each action reads as its own destination. Their visible shape is also their hit area. Duplicate and no-op destinations are not offered. Releasing elsewhere cancels the move.
+
+Tab insertion targets use compact slots between tabs. The pointer preview follows the same pill shape, icon, label spacing, and truncation as the source tab.
 
 ## Accessibility
 

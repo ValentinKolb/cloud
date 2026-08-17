@@ -1,5 +1,5 @@
 import { type DndCollisionContext, type DndController, type DndDroppableSnapshot, dnd } from "@k2b/stdlib/solid";
-import { createMemo, createSignal, createUniqueId, For, type JSX, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, createUniqueId, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import {
   activatePanesItem,
   applyPanesIntent,
@@ -43,6 +43,25 @@ type DragMeta = { itemId: string; label: string };
 type DropMeta = { target: PanesDropTarget; label: string };
 type PaneDnd = DndController<DragMeta, DropMeta, PanesIntent>;
 
+type IndexedPanesDropTargets = {
+  tabs: ReadonlyMap<string | null, PanesDropTarget>;
+  body: readonly PanesDropTarget[];
+};
+
+export const indexPanesDropTargets = (targets: readonly PanesDropTarget[]): ReadonlyMap<string, IndexedPanesDropTargets> => {
+  const mutable = new Map<string, { tabs: Map<string | null, PanesDropTarget>; body: PanesDropTarget[] }>();
+  for (const target of targets) {
+    let indexed = mutable.get(target.targetItemId);
+    if (!indexed) {
+      indexed = { tabs: new Map(), body: [] };
+      mutable.set(target.targetItemId, indexed);
+    }
+    if (target.kind === "tab") indexed.tabs.set(target.beforeItemId ?? null, target);
+    else indexed.body.push(target);
+  }
+  return mutable;
+};
+
 const iconClass = (icon: string | undefined): string => {
   const value = icon?.trim() || "ti-layout-sidebar-right";
   return value.startsWith("ti ") ? value : `ti ${value}`;
@@ -65,9 +84,12 @@ const nearestDroppable = (entries: DndDroppableSnapshot<DropMeta>[]): DndDroppab
   );
 
 export const pointerHitsPanesDropTarget = (
-  entry: Pick<DndDroppableSnapshot<DropMeta>, "containsPointer" | "meta" | "rect">,
+  entry: Pick<DndDroppableSnapshot<DropMeta>, "containsPointer" | "meta" | "rect"> &
+    Partial<Pick<DndDroppableSnapshot<DropMeta>, "element">>,
   pointer: { x: number; y: number },
+  hitElement?: Element | null,
 ): boolean => {
+  if (hitElement !== undefined && !entry.element?.contains(hitElement)) return false;
   const side = entry.meta.target.side;
   if (entry.meta.target.kind !== "split" || !side) return entry.containsPointer;
   if (!entry.containsPointer) return false;
@@ -83,8 +105,14 @@ export const pointerHitsPanesDropTarget = (
   return y >= corner && y <= entry.rect.height - corner;
 };
 
-const panesCollisionDetector = (context: DndCollisionContext<DragMeta, DropMeta, PanesIntent>): string | null =>
-  nearestDroppable(context.droppables.filter((entry) => pointerHitsPanesDropTarget(entry, context.pointer)))?.id ?? null;
+const panesCollisionDetector = (
+  context: DndCollisionContext<DragMeta, DropMeta, PanesIntent>,
+  mode: "pointer" | "keyboard" | null,
+): string | null => {
+  const document = mode === "pointer" ? context.droppables[0]?.element.ownerDocument : undefined;
+  const hitElement = document?.elementFromPoint(context.pointer.x, context.pointer.y) ?? undefined;
+  return nearestDroppable(context.droppables.filter((entry) => pointerHitsPanesDropTarget(entry, context.pointer, hitElement)))?.id ?? null;
+};
 
 const createItemMap = (items: readonly PanesItem[]): Map<string, PanesItem> => {
   assertUniqueStableUiIds(
@@ -113,15 +141,20 @@ export default function Panes(props: PanesProps): JSX.Element {
   const canResize = () => props.resizable ?? true;
   const split = () => props.split ?? "both";
   const [draggedItemId, setDraggedItemId] = createSignal<string | null>(null);
+  const [dragMode, setDragMode] = createSignal<"pointer" | "keyboard" | null>(null);
   const dropTargets = createMemo(() => {
     const itemId = draggedItemId();
     return itemId ? getPanesDropTargets(layout(), itemId, { movable: canMove(), split: split() }) : [];
   });
+  const dropTargetIndex = createMemo(() => indexPanesDropTargets(dropTargets()));
   const paneDnd = dnd.create<DragMeta, DropMeta, PanesIntent>({
-    collisionDetector: panesCollisionDetector,
+    collisionDetector: (context) => panesCollisionDetector(context, dragMode()),
     buildIntent: ({ over }) => over?.meta.target.intent ?? null,
     isSameIntent: samePanesIntent,
-    onDragStart: ({ active }) => setDraggedItemId(active.meta.itemId),
+    onDragStart: ({ active, mode }) => {
+      setDragMode(mode);
+      setDraggedItemId(active.meta.itemId);
+    },
     announcements: {
       dragStart: (active) => `Picked up ${active.meta.label}.`,
       dragOver: (active, over) => (over ? `Move ${active.meta.label} to ${over.meta.label}.` : `${active.meta.label} is not over a pane.`),
@@ -129,6 +162,7 @@ export default function Panes(props: PanesProps): JSX.Element {
       cancel: (active) => `Cancelled moving ${active.meta.label}.`,
     },
     onDrop: ({ intent, mode }) => {
+      setDragMode(null);
       setDraggedItemId(null);
       if (!intent) return;
       const current = layout();
@@ -137,7 +171,10 @@ export default function Panes(props: PanesProps): JSX.Element {
       props.onLayoutChange(next);
       if (mode === "keyboard") queueMicrotask(() => document.getElementById(`${instanceId}-${intent.itemId}-tab`)?.focus());
     },
-    onCancel: () => setDraggedItemId(null),
+    onCancel: () => {
+      setDragMode(null);
+      setDraggedItemId(null);
+    },
   });
   const activate = (itemId: string) => {
     const current = layout();
@@ -168,7 +205,7 @@ export default function Panes(props: PanesProps): JSX.Element {
             layout={layout}
             itemById={items}
             dnd={paneDnd}
-            dropTargets={dropTargets}
+            dropTargetIndex={dropTargetIndex}
             instanceId={instanceId}
             canMove={canMove}
             canResize={canResize}
@@ -189,7 +226,7 @@ type RendererProps = {
   layout: () => PanesLayout;
   itemById: () => Map<string, PanesItem>;
   dnd: PaneDnd;
-  dropTargets: () => PanesDropTarget[];
+  dropTargetIndex: () => ReadonlyMap<string, IndexedPanesDropTargets>;
   instanceId: string;
   canMove: () => boolean;
   canResize: () => boolean;
@@ -333,13 +370,66 @@ function ActivePane(props: { itemId: string; itemById: () => Map<string, PanesIt
 }
 
 function PanesGroupRenderer(props: Omit<RendererProps, "node"> & { node: () => PanesGroup }): JSX.Element {
+  let tabsElement: HTMLDivElement | undefined;
+  let scrollbarDragOffset = 0;
   const dndInstanceId = createUniqueId();
   const draggableId = (id: string) => `panes-item:${dndInstanceId}:${id}`;
   const itemIds = createMemo(() => props.node().items);
-  const groupTargets = createMemo(() => props.dropTargets().filter((target) => props.node().items.includes(target.targetItemId)));
-  const targetBefore = (itemId: string) => groupTargets().find((target) => target.kind === "tab" && target.beforeItemId === itemId);
-  const targetAtEnd = () => groupTargets().find((target) => target.kind === "tab" && target.beforeItemId === null);
-  const bodyTargets = createMemo(() => groupTargets().filter((target) => target.kind !== "tab"));
+  const groupTargets = createMemo<IndexedPanesDropTargets | null>(() => {
+    const index = props.dropTargetIndex();
+    for (const itemId of itemIds()) {
+      const indexed = index.get(itemId);
+      if (indexed) return indexed;
+    }
+    return null;
+  });
+  const targetBefore = (itemId: string) => groupTargets()?.tabs.get(itemId);
+  const targetAtEnd = () => groupTargets()?.tabs.get(null);
+  const bodyTargets = () => groupTargets()?.body ?? [];
+  const [scrollbar, setScrollbar] = createSignal({ overflow: false, left: 0, width: 0 });
+  const syncScrollbar = () => {
+    if (!tabsElement) return;
+    const { clientWidth, scrollLeft, scrollWidth } = tabsElement;
+    if (scrollWidth <= clientWidth || clientWidth <= 0) {
+      setScrollbar({ overflow: false, left: 0, width: 0 });
+      return;
+    }
+    const width = Math.min(clientWidth, Math.max(24, (clientWidth * clientWidth) / scrollWidth));
+    const left = (scrollLeft / (scrollWidth - clientWidth)) * (clientWidth - width);
+    setScrollbar({ overflow: true, left, width });
+  };
+  const scrollFromPointer = (event: PointerEvent & { currentTarget: HTMLDivElement }) => {
+    if (!tabsElement) return;
+    const track = event.currentTarget;
+    const { left, width } = scrollbar();
+    const rect = track.getBoundingClientRect();
+    const available = Math.max(1, rect.width - width);
+    const thumbLeft = Math.min(available, Math.max(0, event.clientX - rect.left - scrollbarDragOffset));
+    tabsElement.scrollLeft = (thumbLeft / available) * (tabsElement.scrollWidth - tabsElement.clientWidth);
+    syncScrollbar();
+  };
+  const startScrollbarDrag = (event: PointerEvent & { currentTarget: HTMLDivElement }) => {
+    event.preventDefault();
+    const track = event.currentTarget;
+    const current = scrollbar();
+    scrollbarDragOffset =
+      event.target === track ? current.width / 2 : Math.min(current.width, Math.max(0, event.clientX - track.getBoundingClientRect().left - current.left));
+    track.setPointerCapture(event.pointerId);
+    scrollFromPointer(event);
+  };
+  onMount(() => {
+    syncScrollbar();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(syncScrollbar);
+    if (tabsElement) observer?.observe(tabsElement);
+    onCleanup(() => observer?.disconnect());
+  });
+  createEffect(() => {
+    itemIds().length;
+    props.itemById();
+    groupTargets();
+    props.canAdd();
+    queueMicrotask(syncScrollbar);
+  });
   const tabId = (itemId: string) => `${props.instanceId}-${itemId}-tab`;
   const panelId = (itemId: string) => `${props.instanceId}-${itemId}-panel`;
   const focusTab = (index: number) => {
@@ -377,7 +467,14 @@ function PanesGroupRenderer(props: Omit<RendererProps, "node"> & { node: () => P
   };
   return (
     <section class="k2b-panes__group">
-      <div class="k2b-panes__tabs" role="tablist" aria-label="Pane tabs" aria-orientation="horizontal">
+      <div
+        ref={tabsElement}
+        class="k2b-panes__tabs"
+        role="tablist"
+        aria-label="Pane tabs"
+        aria-orientation="horizontal"
+        onScroll={syncScrollbar}
+      >
         <For each={itemIds()}>
           {(itemId, index) => {
             const item = () => requireItem(props.itemById(), itemId);
@@ -457,6 +554,25 @@ function PanesGroupRenderer(props: Omit<RendererProps, "node"> & { node: () => P
           </button>
         </Show>
       </div>
+      <Show when={scrollbar().overflow}>
+        <div
+          class="k2b-panes__tabs-scrollbar"
+          aria-hidden="true"
+          onPointerDown={startScrollbarDrag}
+          onPointerMove={(event) => {
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) scrollFromPointer(event);
+          }}
+          onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)}
+          onPointerCancel={(event) => event.currentTarget.releasePointerCapture(event.pointerId)}
+        >
+          <span
+            style={{
+              "--k2b-panes-scroll-left": `${scrollbar().left}px`,
+              "--k2b-panes-scroll-width": `${scrollbar().width}px`,
+            }}
+          />
+        </div>
+      </Show>
       <div class="k2b-panes__body">
         <div id={panelId(props.node().active)} class="k2b-panes__panel" role="tabpanel" aria-labelledby={tabId(props.node().active)}>
           <Show when={props.node().active} keyed>
@@ -483,7 +599,7 @@ function PanesDropTargetView(props: {
 }): JSX.Element {
   const icon = () => {
     if (props.target.kind === "group") return "ti ti-plus";
-    if (props.target.kind === "tab") return "ti ti-caret-down-filled";
+    if (props.target.kind === "tab") return props.placement === "tab" ? "ti ti-spacing-horizontal" : null;
     if (props.target.side === "top") return "ti ti-row-insert-top";
     if (props.target.side === "bottom") return "ti ti-row-insert-bottom";
     if (props.target.side === "left") return "ti ti-column-insert-left";
@@ -505,8 +621,10 @@ function PanesDropTargetView(props: {
       title={props.label}
       aria-hidden="true"
     >
-      <i class={icon()} aria-hidden="true" />
-      <Show when={props.target.kind !== "tab"}>
+      <Show when={icon()} keyed>
+        {(iconClass) => <i class={iconClass} aria-hidden="true" />}
+      </Show>
+      <Show when={props.target.kind === "split"}>
         <span>{props.label}</span>
       </Show>
     </div>
