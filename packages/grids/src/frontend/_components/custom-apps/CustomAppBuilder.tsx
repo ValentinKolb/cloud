@@ -5,8 +5,6 @@ import {
   Button,
   ButtonLink,
   DetailPanel,
-  Dropdown,
-  type DropdownItem,
   dialogCore,
   IconButton,
   IconInput,
@@ -14,6 +12,8 @@ import {
   MultiSelectInput,
   NoticeCard,
   NumberInput,
+  PanelDialog,
+  panelDialogOptions,
   panelDialogWorkspaceOptions,
   prompts,
   Select,
@@ -55,6 +55,7 @@ import {
   selectCustomAppBlockDropTarget,
 } from "./custom-app-builder-dnd";
 import {
+  appendCustomAppBlockRow,
   customAppPageParameterUsage,
   moveCustomAppPage,
   removeCustomAppPageParameter,
@@ -84,6 +85,13 @@ type CustomAppWorkflowLauncher = CustomAppCatalog["workflowLaunchers"][number] &
 type CustomAppScannerLauncher = CustomAppCatalog["workflowLaunchers"][number] & {
   config: Extract<CustomAppCatalog["workflowLaunchers"][number]["config"], { kind: "scanner" }>;
 };
+type AddBlockOptionBase = {
+  icon: string;
+  label: string;
+  description: string;
+};
+type AddBlockOption = AddBlockOptionBase & ({ action: () => void; disabled?: false } | { action?: never; disabled: true });
+type AddBlockSection = { id: string; label: string; options: readonly AddBlockOption[] };
 const iconInputValue = (slug: string | undefined): string | null => (slug ? `ti ti-${slug}` : null);
 const iconSlug = (value: string | null): string | undefined => value?.replace(/^ti ti-/, "") || undefined;
 
@@ -466,6 +474,7 @@ type CustomAppBuilderProps = {
   app: PublicCustomApp;
   baseId: string;
   catalog: CustomAppCatalog;
+  editMode: boolean;
   dateConfig?: DateContext;
   initialInspectorMode?: "app" | "page";
 };
@@ -489,7 +498,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
   const [selectedBlockId, setSelectedBlockId] = createSignal<string | null>(null);
   const [selectedActionId, setSelectedActionId] = createSignal<string | null>(null);
   const [previewResults, setPreviewResults] = createSignal<Record<string, DslQueryPreviewResponse>>({});
-  const [inspectorOpen, setInspectorOpen] = createSignal(true);
+  const [inspectorOpen, setInspectorOpen] = createSignal(props.editMode);
   const [inspectorMode, setInspectorMode] = createSignal<"app" | "page" | "block" | "action">(props.initialInspectorMode ?? "page");
   const selectedPage = createMemo(() => draft.draft().pages.find((page) => page.id === selectedPageId()) ?? draft.draft().pages[0]!);
   const alternateStartPage = createMemo(() =>
@@ -661,6 +670,8 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
         ],
       },
     }));
+    setInspectorMode("app");
+    setInspectorOpen(true);
   };
   const formBindingOptions = (formId: string) => {
     const form = formsById().get(formId);
@@ -799,6 +810,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     setSelectedPageId(pageId);
     setSelectedBlockId(null);
     setSelectedActionId(null);
+    if (!props.editMode) return;
     setInspectorMode("page");
     setInspectorOpen(true);
   };
@@ -866,11 +878,10 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
   };
 
   const rowsWithAddedBlock = (block: CustomAppBlock): CustomAppPage["rows"] => {
-    const targetColumnId = selectedBlock()?.column.id ?? selectedPage().rows[0]!.columns[0]!.id;
-    return selectedPage().rows.map((row) => ({
-      ...row,
-      columns: row.columns.map((column) => (column.id === targetColumnId ? { ...column, blocks: [...column.blocks, block] } : column)),
-    }));
+    return appendCustomAppBlockRow(selectedPage().rows, block, {
+      rowId: localId("row"),
+      columnId: localId("column"),
+    });
   };
 
   const addBlock = (block: CustomAppBlock) => {
@@ -1015,10 +1026,11 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     const launcher = scannerLaunchers()[0];
     if (launcher) addBlock({ id: localId("scanner"), type: "scanner", launcherId: launcher.id });
   };
-  const addBlockItems = createMemo<readonly DropdownItem[]>(() => [
+  const addBlockSections = createMemo<readonly AddBlockSection[]>(() => [
     {
-      sectionLabel: "Content",
-      items: [
+      id: "content",
+      label: "Content",
+      options: [
         { icon: "ti ti-markdown", label: "Markdown", description: "Add formatted text and context placeholders.", action: addTextBlock },
         readyViews().length > 0 || starterGqlSources().records
           ? { icon: "ti ti-table", label: "Records", description: "Show records from a saved view or GQL query.", action: addRecordsBlock }
@@ -1029,8 +1041,9 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       ],
     },
     {
-      sectionLabel: "Record page",
-      items: [
+      id: "record-page",
+      label: "Record page",
+      options: [
         pageRecordCandidate() && pageRecordFields().length > 0
           ? { icon: "ti ti-id", label: "Record", description: "Show fields for the record in this page URL.", action: addRecordBlock }
           : {
@@ -1065,8 +1078,9 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       ],
     },
     {
-      sectionLabel: "Insights and actions",
-      items: [
+      id: "insights-and-actions",
+      label: "Insights and actions",
+      options: [
         starterGqlSources().metrics || readyViews().length > 0
           ? { icon: "ti ti-chart-dots", label: "Metrics", description: "Summarize data with aggregate GQL.", action: addMetricsBlock }
           : { icon: "ti ti-chart-dots", label: "Metrics", description: "Create a table with fields first.", disabled: true },
@@ -1095,6 +1109,61 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       ],
     },
   ]);
+  const openBlockPicker = () =>
+    dialogCore.open<void>(
+      (close) => (
+        <PanelDialog>
+          <PanelDialog.Header title="Choose block type" icon="ti ti-plus" close={() => close()} />
+          <PanelDialog.Body>
+            <p class="text-sm text-secondary">Choose what this page should show. You can configure it after adding it.</p>
+            <div class="flex flex-col gap-5">
+              <For each={addBlockSections()}>
+                {(section) => (
+                  <section aria-labelledby={`custom-app-block-section-${section.id}`}>
+                    <h3 id={`custom-app-block-section-${section.id}`} class="mb-2 text-xs font-semibold uppercase tracking-wide text-dimmed">
+                      {section.label}
+                    </h3>
+                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      <For each={section.options}>
+                        {(option) => (
+                          <button
+                            type="button"
+                            class="paper p-3 text-left transition hover:paper-highlighted disabled:cursor-not-allowed"
+                            disabled={option.disabled}
+                            onClick={() => {
+                              if (option.disabled) return;
+                              option.action();
+                              close();
+                            }}
+                          >
+                            <div class="flex items-start gap-3">
+                              <span class="thumbnail flex h-8 w-8 shrink-0 items-center justify-center bg-[var(--ui-surface-subtle)]">
+                                <i class={`${option.icon} text-base text-dimmed ${option.disabled ? "opacity-50" : ""}`} aria-hidden="true" />
+                              </span>
+                              <div class="min-w-0">
+                                <div class={`text-sm font-semibold ${option.disabled ? "text-dimmed" : "text-primary"}`}>{option.label}</div>
+                                <p
+                                  class={`mt-1 text-xs leading-snug ${
+                                    option.disabled ? "text-[var(--k2b-warning-text)]" : "text-dimmed"
+                                  }`}
+                                >
+                                  {option.description}
+                                </p>
+                              </div>
+                            </div>
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                  </section>
+                )}
+              </For>
+            </div>
+          </PanelDialog.Body>
+        </PanelDialog>
+      ),
+      panelDialogOptions,
+    );
 
   const newLayoutIds = (): CustomAppLayoutIds => ({
     rowIds: [localId("row"), localId("row")],
@@ -1680,31 +1749,89 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                         <span class="text-[9px] uppercase tracking-wider text-dimmed">start</span>
                       </AppWorkspace.SidebarItemMeta>
                     )}
-                    <AppWorkspace.SidebarItemAction
-                      icon="ti ti-settings"
-                      label={`Settings for ${page.title}`}
-                      onSelect={() => selectPage(page.id)}
-                    />
+                    <Show when={props.editMode}>
+                      <AppWorkspace.SidebarItemAction
+                        icon="ti ti-settings"
+                        label={`Settings for ${page.title}`}
+                        onSelect={() => selectPage(page.id)}
+                      />
+                    </Show>
                   </AppWorkspace.SidebarItem>
                 )}
               </For>
-              <AppWorkspace.SidebarItem
-                tone="success"
-                onClick={addPage}
-                disabled={draft.draft().pages.length >= 12}
-                title={draft.draft().pages.length >= 12 ? "Apps support up to 12 pages." : "Add a page"}
-              >
-                <AppWorkspace.SidebarItemIcon icon="ti ti-plus" />
-                <AppWorkspace.SidebarItemLabel>New page</AppWorkspace.SidebarItemLabel>
-                <Show when={draft.draft().pages.length >= 12}>
-                  <AppWorkspace.SidebarItemMeta>12 / 12</AppWorkspace.SidebarItemMeta>
-                </Show>
-              </AppWorkspace.SidebarItem>
+              <Show when={props.editMode}>
+                <AppWorkspace.SidebarItem
+                  tone="success"
+                  onClick={addPage}
+                  disabled={draft.draft().pages.length >= 12}
+                  title={draft.draft().pages.length >= 12 ? "Apps support up to 12 pages." : "Add a page"}
+                >
+                  <AppWorkspace.SidebarItemIcon icon="ti ti-plus" />
+                  <AppWorkspace.SidebarItemLabel>New page</AppWorkspace.SidebarItemLabel>
+                  <Show when={draft.draft().pages.length >= 12}>
+                    <AppWorkspace.SidebarItemMeta>12 / 12</AppWorkspace.SidebarItemMeta>
+                  </Show>
+                </AppWorkspace.SidebarItem>
+              </Show>
             </AppWorkspace.SidebarSection>
+            <Show when={sidebarActions().length > 0 || props.editMode}>
+              <AppWorkspace.SidebarSection title="Actions">
+                <For each={sidebarActions()}>
+                  {(action) => (
+                    <AppWorkspace.SidebarItem
+                      icon={`ti ti-${action.icon ?? "forms"}`}
+                      tone={action.tone}
+                      onClick={
+                        props.editMode
+                          ? () => {
+                              setInspectorMode("app");
+                              setInspectorOpen(true);
+                            }
+                          : undefined
+                      }
+                    >
+                      <AppWorkspace.SidebarItemLabel>{action.label}</AppWorkspace.SidebarItemLabel>
+                      <AppWorkspace.SidebarItemMeta>Form</AppWorkspace.SidebarItemMeta>
+                      <Show when={props.editMode}>
+                        <AppWorkspace.SidebarItemAction
+                          icon="ti ti-settings"
+                          label={`Settings for ${action.label}`}
+                          onSelect={() => {
+                            setInspectorMode("app");
+                            setInspectorOpen(true);
+                          }}
+                        />
+                      </Show>
+                    </AppWorkspace.SidebarItem>
+                  )}
+                </For>
+                <Show when={props.editMode}>
+                  <AppWorkspace.SidebarItem
+                    tone="success"
+                    onClick={addSidebarForm}
+                    disabled={forms().length === 0 || sidebarActions().length >= 12}
+                    title={
+                      forms().length === 0
+                        ? "Create an active Form first."
+                        : sidebarActions().length >= 12
+                          ? "Apps support up to 12 global actions."
+                          : "Add a global Form action"
+                    }
+                  >
+                    <AppWorkspace.SidebarItemIcon icon="ti ti-plus" />
+                    <AppWorkspace.SidebarItemLabel>New action</AppWorkspace.SidebarItemLabel>
+                    <Show when={sidebarActions().length >= 12}>
+                      <AppWorkspace.SidebarItemMeta>12 / 12</AppWorkspace.SidebarItemMeta>
+                    </Show>
+                  </AppWorkspace.SidebarItem>
+                </Show>
+              </AppWorkspace.SidebarSection>
+            </Show>
           </AppWorkspace.SidebarBody>
           <Show
             when={
-              !app().publishedAt || app().hasUnpublishedChanges || draft.dirty() || saveState() === "error" || saveState() === "invalid"
+              props.editMode &&
+              (!app().publishedAt || app().hasUnpublishedChanges || draft.dirty() || saveState() === "error" || saveState() === "invalid")
             }
           >
             <AppWorkspace.SidebarFooter class="p-2">
@@ -1744,70 +1871,29 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
         </AppWorkspace.MainPane>
 
         <section class="flex min-h-0 min-w-0 flex-1 flex-col bg-base" aria-label="App canvas">
-          <Toolbar label="App builder" class="p-2" wrap>
-            <Toolbar.Group class="min-w-0">
-              <div class="flex min-w-0 items-center gap-2 px-1">
-                <i class={draft.draft().icon ? `ti ti-${draft.draft().icon}` : "ti ti-app-window"} aria-hidden="true" />
-                <strong class="truncate text-sm">{draft.draft().name}</strong>
-                <StatusBadge
-                  tone={
-                    saveState() === "error" || saveState() === "invalid"
-                      ? "error"
-                      : app().publishedAt && !app().hasUnpublishedChanges && !draft.dirty()
-                        ? "ok"
-                        : app().publishedAt
-                          ? "warning"
-                          : "neutral"
-                  }
-                  icon={app().publishedAt || saveState() === "error" || saveState() === "invalid" ? undefined : null}
-                  variant="text"
-                  label={
-                    saveState() === "error" || saveState() === "invalid"
-                      ? "Draft needs attention"
-                      : app().publishedAt && !app().hasUnpublishedChanges && !draft.dirty()
-                        ? "Live"
-                        : app().publishedAt
-                          ? "Unpublished changes"
-                          : "Draft only"
-                  }
-                />
-              </div>
-            </Toolbar.Group>
-            <Toolbar.Spacer />
-            <Toolbar.Group>
-              <Dropdown.Root items={addBlockItems()} position="bottom-right" width="16rem" label="Add content block">
-                <Dropdown.Trigger size="xs" variant="secondary">
-                  <i class="ti ti-plus" aria-hidden="true" /> Add block
-                </Dropdown.Trigger>
-              </Dropdown.Root>
-            </Toolbar.Group>
-          </Toolbar>
-
           <div class="min-h-0 flex-1 overflow-auto bg-[var(--ui-surface)]">
             <CustomAppPageLayout
               definition={draft.draft()}
               page={selectedPage()}
               appId={app().id}
-              hasSidebarActions={sidebarActions().length > 0}
-              sidebarActions={
-                <For each={sidebarActions()}>
-                  {(action) => (
-                    <AppWorkspace.SidebarItem
-                      icon={`ti ti-${action.icon ?? (action.kind === "form" ? "forms" : "bolt")}`}
-                      tone={action.tone}
-                      disabled
-                    >
-                      <AppWorkspace.SidebarItemLabel>{action.label}</AppWorkspace.SidebarItemLabel>
-                    </AppWorkspace.SidebarItem>
-                  )}
-                </For>
+              showSidebar={false}
+              editor={
+                props.editMode
+                  ? {
+                      selectedBlockId,
+                      onSelectBlock: selectBlock,
+                      onSelectPage: selectPage,
+                      dnd: blockDnd,
+                      addBlockControl: (
+                        <div class="flex justify-center">
+                          <Button size="md" variant="success" onClick={() => void openBlockPicker()}>
+                            <i class="ti ti-plus" aria-hidden="true" /> Add block
+                          </Button>
+                        </div>
+                      ),
+                    }
+                  : undefined
               }
-              editor={{
-                selectedBlockId,
-                onSelectBlock: selectBlock,
-                onSelectPage: selectPage,
-                dnd: blockDnd,
-              }}
               renderBlock={(block) => (
                 <CustomAppBlockPreview
                   block={block}
@@ -1823,7 +1909,14 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
         </section>
       </AppWorkspace.Main>
 
-      <AppWorkspace.Detail id="custom-app-inspector" open={inspectorOpen()} width="md" resizable minWidth={280} maxWidth={520}>
+      <AppWorkspace.Detail
+        id="custom-app-inspector"
+        open={props.editMode && inspectorOpen()}
+        width="md"
+        resizable={props.editMode}
+        minWidth={280}
+        maxWidth={520}
+      >
         <DetailPanel>
           <DetailPanel.Header
             icon={

@@ -41,6 +41,7 @@ type EditorProps = {
   onSelectBlock: (blockId: string) => void;
   onSelectPage: (pageId: string) => void;
   dnd: DndController<CustomAppBlockDragMeta, CustomAppBlockDropMeta, CustomAppBlockDropIntent>;
+  addBlockControl: JSX.Element;
 };
 
 const blockLabel: Record<CustomAppBlock["type"], string> = {
@@ -73,6 +74,7 @@ export function CustomAppPageLayout(props: {
   renderBlock: (block: CustomAppBlock) => JSX.Element;
   sidebarActions?: JSX.Element;
   hasSidebarActions?: boolean;
+  showSidebar?: boolean;
   editor?: EditorProps;
 }) {
   const navigation = () => props.definition.pages.map((page, index) => ({ page, index })).filter(({ page }) => page.navigation.visible);
@@ -93,7 +95,7 @@ export function CustomAppPageLayout(props: {
     props.editor.onSelectBlock(blockId);
   };
 
-  const hasSidebar = () => navigation().length > 1 || Boolean(props.hasSidebarActions);
+  const hasSidebar = () => props.showSidebar !== false && (navigation().length > 1 || Boolean(props.hasSidebarActions));
   const PageItems = () => (
     <For each={navigation()}>
       {({ page }) => (
@@ -400,6 +402,7 @@ export function CustomAppPageLayout(props: {
                   );
                 }}
               </For>
+              {props.editor?.addBlockControl}
             </div>
           </div>
         </AppWorkspace.Main>

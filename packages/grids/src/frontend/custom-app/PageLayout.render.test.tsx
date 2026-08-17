@@ -90,6 +90,28 @@ describe("CustomAppPageLayout", () => {
     expect(html).toContain("ti-chart-bar");
   });
 
+  test("can omit its navigation when an editor already owns page selection", () => {
+    const withNavigation = {
+      ...definition,
+      pages: [
+        ...definition.pages,
+        { ...definition.pages[0]!, id: "reports", title: "Reports", navigation: { visible: true, icon: "chart-bar" } },
+      ],
+    };
+    const html = renderToString(() =>
+      createComponent(CustomAppPageLayout, {
+        definition: withNavigation,
+        page: withNavigation.pages[0]!,
+        appId: "APP001",
+        showSidebar: false,
+        renderBlock: () => "Rendered content",
+      }),
+    );
+
+    expect(html).not.toContain("k2b-app-workspace__sidebar");
+    expect(html).not.toContain("Reports");
+  });
+
   test("keeps a single-page app sidebar when it contains a global action", () => {
     const html = renderToString(() =>
       createComponent(CustomAppPageLayout, {

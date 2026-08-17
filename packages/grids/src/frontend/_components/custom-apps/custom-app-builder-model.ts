@@ -14,6 +14,18 @@ const renameMappingKey = <T>(mapping: Record<string, T>, from: string, to: strin
 const renameContextParameter = (source: string, from: string, to: string): string =>
   source.replace(new RegExp(`@params\\.${from}(?![a-zA-Z0-9_])`, "g"), `@params.${to}`);
 
+export const appendCustomAppBlockRow = (
+  rows: CustomAppPage["rows"],
+  block: CustomAppBlock,
+  ids: { rowId: string; columnId: string },
+): CustomAppPage["rows"] => [
+  ...rows,
+  {
+    id: ids.rowId,
+    columns: [{ id: ids.columnId, span: 12, blocks: [block] }],
+  },
+];
+
 export const renameCustomAppPage = (definition: CustomAppDefinition, from: string, to: string): CustomAppDefinition => ({
   ...definition,
   startPageId: definition.startPageId === from ? to : definition.startPageId,

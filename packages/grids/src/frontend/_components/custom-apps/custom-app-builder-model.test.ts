@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CustomAppDefinition } from "../../../custom-apps/contracts";
 import {
+  appendCustomAppBlockRow,
   customAppPageParameterUsage,
   moveCustomAppPage,
   removeCustomAppPageParameter,
@@ -126,6 +127,20 @@ const definition = (): CustomAppDefinition => ({
 });
 
 describe("App builder model", () => {
+  test("appends a new block in its own full-width row", () => {
+    const rows = definition().pages[0]!.rows;
+    const block = { id: "notes", type: "markdown" as const, markdown: "Notes" };
+
+    const next = appendCustomAppBlockRow(rows, block, { rowId: "notes-row", columnId: "notes-column" });
+
+    expect(next).toHaveLength(rows.length + 1);
+    expect(next[0]).toBe(rows[0]);
+    expect(next.at(-1)).toEqual({
+      id: "notes-row",
+      columns: [{ id: "notes-column", span: 12, blocks: [block] }],
+    });
+  });
+
   test("renames a page and every navigation reference", () => {
     const renamed = renameCustomAppPage(definition(), "loan", "loan-detail");
     expect(renamed.pages.map((page) => page.id)).toEqual(["home", "loan-detail"]);
