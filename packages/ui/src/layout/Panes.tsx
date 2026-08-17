@@ -478,6 +478,9 @@ function ActivePane(props: { itemId: string; itemById: () => Map<string, PanesIt
 function PanesGroupRenderer(props: Omit<RendererProps, "node"> & { node: () => PanesGroup }): JSX.Element {
   let tabsElement: HTMLDivElement | undefined;
   let scrollbarDragOffset = 0;
+  let stopTabPress: (() => void) | undefined;
+  let suppressedPointerClick: string | null = null;
+  let clearSuppressedPointerClick: number | undefined;
   const dndInstanceId = createUniqueId();
   const draggableId = (id: string) => `panes-item:${dndInstanceId}:${id}`;
   const itemIds = createMemo(() => props.node().items);
@@ -492,6 +495,43 @@ function PanesGroupRenderer(props: Omit<RendererProps, "node"> & { node: () => P
   const targetBefore = (itemId: string) => groupTargets()?.tabs.get(itemId);
   const targetAtEnd = () => groupTargets()?.tabs.get(null);
   const bodyTargets = () => groupTargets()?.body ?? [];
+  const startTabPress = (event: PointerEvent & { currentTarget: HTMLButtonElement }, itemId: string) => {
+    if (event.button !== 0 || event.isPrimary === false) return;
+    stopTabPress?.();
+    const pointerId = event.pointerId;
+    const button = event.currentTarget;
+    const ownerWindow = window;
+    const stop = () => {
+      ownerWindow.removeEventListener("pointerup", onPointerUp, true);
+      ownerWindow.removeEventListener("pointercancel", onPointerCancel, true);
+      if (stopTabPress === stop) stopTabPress = undefined;
+    };
+    const onPointerUp = (up: PointerEvent) => {
+      if (up.pointerId !== pointerId) return;
+      const rect = button.getBoundingClientRect();
+      const releasedInside = up.clientX >= rect.left && up.clientX <= rect.right && up.clientY >= rect.top && up.clientY <= rect.bottom;
+      const shouldActivate = releasedInside && !props.dnd.isDragging();
+      stop();
+      if (!shouldActivate) return;
+      suppressedPointerClick = itemId;
+      if (clearSuppressedPointerClick !== undefined) ownerWindow.clearTimeout(clearSuppressedPointerClick);
+      clearSuppressedPointerClick = ownerWindow.setTimeout(() => {
+        if (suppressedPointerClick === itemId) suppressedPointerClick = null;
+        clearSuppressedPointerClick = undefined;
+      }, 0);
+      props.onActivate(itemId);
+    };
+    const onPointerCancel = (cancel: PointerEvent) => {
+      if (cancel.pointerId === pointerId) stop();
+    };
+    stopTabPress = stop;
+    ownerWindow.addEventListener("pointerup", onPointerUp, true);
+    ownerWindow.addEventListener("pointercancel", onPointerCancel, true);
+  };
+  onCleanup(() => {
+    stopTabPress?.();
+    if (clearSuppressedPointerClick !== undefined) window.clearTimeout(clearSuppressedPointerClick);
+  });
   const [scrollbar, setScrollbar] = createSignal({ overflow: false, left: 0, width: 0 });
   const syncScrollbar = () => {
     if (!tabsElement) return;
@@ -599,6 +639,7 @@ function PanesGroupRenderer(props: Omit<RendererProps, "node"> & { node: () => P
                 }
                 class="k2b-panes__tab"
                 data-active={active() ? "true" : undefined}
+                data-closable={item().onClose !== undefined ? "true" : undefined}
                 data-movable={props.canMove() ? "true" : undefined}
                 data-dnd-active={props.dnd.activeId() === draggableId(itemId) ? "true" : undefined}
               >
@@ -618,7 +659,18 @@ function PanesGroupRenderer(props: Omit<RendererProps, "node"> & { node: () => P
                   aria-keyshortcuts={item().onClose ? "Delete Backspace" : undefined}
                   tabIndex={active() ? 0 : -1}
                   title={item().title}
-                  onClick={() => props.onActivate(itemId)}
+                  onPointerDown={(event) => startTabPress(event, itemId)}
+                  onClick={(event) => {
+                    if (event?.detail > 0 && suppressedPointerClick === itemId) {
+                      suppressedPointerClick = null;
+                      if (clearSuppressedPointerClick !== undefined) {
+                        window.clearTimeout(clearSuppressedPointerClick);
+                        clearSuppressedPointerClick = undefined;
+                      }
+                      return;
+                    }
+                    props.onActivate(itemId);
+                  }}
                   onKeyDown={(event) => onTabKeyDown(event, index(), itemId)}
                 >
                   <span class="k2b-ui k2b-panes__drag-surface k2b-panes__drag-preview" data-dnd-preview>

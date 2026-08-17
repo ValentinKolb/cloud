@@ -846,10 +846,14 @@ describe("@k2b/ui complete advanced layout migrations", () => {
 
       const close = rule(".k2b-panes__close");
       expect(close).toContain("position:absolute");
+      expect(close).toContain("background:0 0");
+      expect(close).not.toContain("background:var(--k2b-surface-muted)");
       expect(close).toContain("opacity:0");
       expect(close).toContain("pointer-events:none");
       expect(css).toContain(".k2b-panes__tab:hover>.k2b-panes__close");
       expect(css).toContain(".k2b-panes__tab:focus-within>.k2b-panes__close");
+      expect(css).toContain('.k2b-panes__tab[data-closable=true]:hover>.k2b-panes__tab-button .k2b-panes__drag-surface');
+      expect(css).toContain("padding-right:1.5rem");
       expect(css).toContain("pointer-events:auto");
     });
 

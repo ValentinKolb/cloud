@@ -47,6 +47,7 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
 
     const tabs = () => Array.from(dom.root.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
     expect(tabs()).toHaveLength(2);
+    expect(tabs()[0]?.parentElement?.dataset.closable).toBe("true");
     expect(tabs().filter((tab) => tab.tabIndex === 0)).toHaveLength(1);
     expect(tabs()[0]?.getAttribute("aria-controls")).toBeTruthy();
     expect(tabs()[1]?.hasAttribute("aria-controls")).toBe(false);
@@ -57,18 +58,210 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     expect(closes).toHaveLength(2);
     expect(closes.every((close) => close.parentElement?.querySelector('[role="tab"]') !== close)).toBe(true);
     expect(tabs()[0]?.contains(closes[0] ?? null)).toBe(false);
+    const previewTab = tabs()[1];
+    if (!previewTab) throw new Error("Expected preview tab");
+    previewTab.getBoundingClientRect = () => rect(80, 0, 100, 40);
 
-    tabs()[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    previewTab.dispatchEvent(
+      new dom.window.PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        clientX: 100,
+        clientY: 20,
+        pointerId: 2,
+        pointerType: "mouse",
+        isPrimary: true,
+      }) as unknown as Event,
+    );
+    dom.window.dispatchEvent(
+      new dom.window.PointerEvent("pointermove", {
+        clientX: 102,
+        clientY: 21,
+        pointerId: 2,
+        pointerType: "mouse",
+        isPrimary: true,
+      }),
+    );
+    tabs()[1]?.parentElement?.dispatchEvent(
+      new dom.window.PointerEvent("pointerup", {
+        bubbles: true,
+        clientX: 102,
+        clientY: 21,
+        pointerId: 2,
+        pointerType: "mouse",
+        isPrimary: true,
+      }) as unknown as Event,
+    );
     await Promise.resolve();
     expect(tabs()[1]?.getAttribute("aria-selected")).toBe("true");
-    expect(tabs()[0]?.hasAttribute("aria-controls")).toBe(false);
-    expect(tabs()[1]?.getAttribute("aria-controls")).toBeTruthy();
     expect(dom.root.textContent).toContain("Preview content");
-    expect(dom.root.textContent).not.toContain("Source editor");
+
+    tabs()[1]?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    await Promise.resolve();
+    expect(tabs()[0]?.getAttribute("aria-selected")).toBe("true");
+    expect(tabs()[1]?.hasAttribute("aria-controls")).toBe(false);
+    expect(tabs()[0]?.getAttribute("aria-controls")).toBeTruthy();
+    expect(dom.root.textContent).toContain("Source editor");
+    expect(dom.root.textContent).not.toContain("Preview content");
+    tabs()[0]?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    await Promise.resolve();
     tabs()[1]?.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
     expect(closed).toEqual(["preview"]);
     closes[0]?.click();
     expect(closed).toEqual(["preview", "source"]);
+
+    dispose();
+    dom.cleanup();
+  });
+
+  test("activates a non-movable tab exactly once and clears cancelled pointer presses", async () => {
+    const dom = createDomTestHarness();
+    const { default: Panes } = await import("../src/layout/Panes");
+    const changes: PanesLayout[] = [];
+    const dispose = render(
+      () =>
+        createComponent(Panes, {
+          layout: { version: 2, root: { type: "group", items: ["source", "preview"], active: "source" } },
+          onLayoutChange: (next) => changes.push(next),
+          movable: false,
+          items: [
+            { id: "source", title: "Source", render: () => "Source editor" },
+            { id: "preview", title: "Preview", render: () => "Preview content" },
+          ],
+        }),
+      dom.root,
+    );
+    const preview = dom.root.querySelector<HTMLButtonElement>('[role="tab"][aria-label="Preview"]');
+    if (!preview) throw new Error(dom.root.innerHTML);
+    preview.getBoundingClientRect = () => rect(80, 0, 100, 40);
+    const pressPreview = (preview as HTMLButtonElement & {
+      $$pointerdown?: (event: PointerEvent & { currentTarget: HTMLButtonElement }) => void;
+      $$click?: (event?: MouseEvent) => void;
+    }).$$pointerdown;
+    const clickPreview = (preview as HTMLButtonElement & { $$click?: (event?: MouseEvent) => void }).$$click;
+    if (!pressPreview || !clickPreview) throw new Error("Expected preview pointer handlers");
+
+    pressPreview({ button: 0, isPrimary: true, pointerId: 3, currentTarget: preview } as PointerEvent & {
+      currentTarget: HTMLButtonElement;
+    });
+    dom.window.dispatchEvent(
+      new dom.window.PointerEvent("pointerup", {
+        clientX: 300,
+        clientY: 20,
+        pointerId: 3,
+        pointerType: "mouse",
+        isPrimary: true,
+      }),
+    );
+    dom.window.dispatchEvent(
+      new dom.window.PointerEvent("pointerup", {
+        clientX: 100,
+        clientY: 20,
+        pointerId: 3,
+        pointerType: "mouse",
+        isPrimary: true,
+      }),
+    );
+    expect(changes).toHaveLength(0);
+
+    pressPreview({ button: 0, isPrimary: true, pointerId: 4, currentTarget: preview } as PointerEvent & {
+      currentTarget: HTMLButtonElement;
+    });
+    dom.window.dispatchEvent(
+      new dom.window.PointerEvent("pointercancel", {
+        pointerId: 99,
+        pointerType: "touch",
+        isPrimary: false,
+      }),
+    );
+    dom.window.dispatchEvent(
+      new dom.window.PointerEvent("pointerup", {
+        clientX: 102,
+        clientY: 21,
+        pointerId: 4,
+        pointerType: "mouse",
+        isPrimary: true,
+      }),
+    );
+    await Promise.resolve();
+    clickPreview(new dom.window.MouseEvent("click", { bubbles: true, detail: 1 }) as unknown as MouseEvent);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.root).toEqual({ type: "group", items: ["source", "preview"], active: "preview" });
+
+    dispose();
+    dom.cleanup();
+  });
+
+  test("does not activate an inactive tab once its pointer gesture becomes a drag", async () => {
+    const dom = createDomTestHarness();
+    const { default: Panes } = await import("../src/layout/Panes");
+    const [layout, setLayout] = createSignal<PanesLayout>({
+      version: 2,
+      root: { type: "group", items: ["source", "preview"], active: "source" },
+    });
+    const dispose = render(
+      () =>
+        createComponent(Panes, {
+          get layout() {
+            return layout();
+          },
+          onLayoutChange: setLayout,
+          items: [
+            { id: "source", title: "Source", render: () => "Source editor" },
+            { id: "preview", title: "Preview", render: () => "Preview content" },
+          ],
+        }),
+      dom.root,
+    );
+    const preview = dom.root.querySelector<HTMLButtonElement>('[role="tab"][aria-label="Preview"]');
+    const surface = preview?.parentElement;
+    if (!preview || !surface) throw new Error(dom.root.innerHTML);
+    preview.getBoundingClientRect = () => rect(80, 0, 100, 40);
+    surface.getBoundingClientRect = () => rect(80, 0, 100, 40);
+    const pressPreview = (preview as HTMLButtonElement & {
+      $$pointerdown?: (event: PointerEvent & { currentTarget: HTMLButtonElement }) => void;
+    }).$$pointerdown;
+    if (!pressPreview) throw new Error("Expected preview pointer handler");
+    dom.document.addEventListener(
+      "pointerdown",
+      () =>
+        pressPreview({ button: 0, isPrimary: true, pointerId: 5, currentTarget: preview } as PointerEvent & {
+          currentTarget: HTMLButtonElement;
+        }),
+      { once: true },
+    );
+    preview.dispatchEvent(
+      new dom.window.PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        clientX: 100,
+        clientY: 20,
+        pointerId: 5,
+        pointerType: "mouse",
+        isPrimary: true,
+      }) as unknown as Event,
+    );
+    dom.window.dispatchEvent(
+      new dom.window.PointerEvent("pointermove", {
+        clientX: 120,
+        clientY: 20,
+        pointerId: 5,
+        pointerType: "mouse",
+        isPrimary: true,
+      }),
+    );
+    expect(dom.window.document.body.querySelector('.k2b-panes__drag-preview[aria-hidden="true"]')).not.toBeNull();
+    dom.window.dispatchEvent(
+      new dom.window.PointerEvent("pointerup", {
+        clientX: 120,
+        clientY: 20,
+        pointerId: 5,
+        pointerType: "mouse",
+        isPrimary: true,
+      }),
+    );
+    await Promise.resolve();
+    expect(layout().root).toEqual({ type: "group", items: ["source", "preview"], active: "source" });
 
     dispose();
     dom.cleanup();

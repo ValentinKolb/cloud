@@ -501,7 +501,7 @@
   /* Cloud: `rounded`. */
   border-radius: 0.25rem;
   color: var(--k2b-text-muted);
-  background: var(--k2b-surface-muted);
+  background: transparent;
   cursor: pointer;
   opacity: 0;
   pointer-events: none;
@@ -515,6 +515,11 @@
 .k2b-ui .k2b-panes__close:focus-visible {
   opacity: 1;
   pointer-events: auto;
+}
+
+.k2b-ui .k2b-panes__tab[data-closable="true"]:hover > .k2b-panes__tab-button .k2b-panes__drag-surface,
+.k2b-ui .k2b-panes__tab[data-closable="true"]:focus-within > .k2b-panes__tab-button .k2b-panes__drag-surface {
+  padding-right: 1.5rem;
 }
 
 .k2b-ui .k2b-panes__close:hover,
