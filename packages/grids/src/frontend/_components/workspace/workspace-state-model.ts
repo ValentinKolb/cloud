@@ -191,7 +191,6 @@ export type WorkspaceCustomAppRoute = {
   kind: "customApp";
   app: CustomApp;
   initialInspectorMode: "app" | "page";
-  initialPreviewResults?: Record<string, DslQueryPreviewResponse>;
 };
 
 export type GridsWorkspaceRoute =

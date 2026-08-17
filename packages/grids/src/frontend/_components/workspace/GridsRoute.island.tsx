@@ -45,7 +45,6 @@ export default function GridsRoute(props: { state: PublicOkWorkspaceState }) {
         baseId={state.base.id}
         catalog={state.catalog}
         dateConfig={state.dateConfig}
-        initialPreviewResults={route.initialPreviewResults}
         initialInspectorMode={route.initialInspectorMode}
       />
     );

@@ -60,17 +60,16 @@ const projectCatalog = async (catalog: WorkspaceCatalog): Promise<PublicWorkspac
       [...templates, ...catalog.sidebarDocumentTemplates.map((item) => item.template)].map((template) => [template.id, template]),
     ).values(),
   ];
-  const [allPublicTables, publicFields, publicViews, allPublicForms, allPublicTemplates, customApps, workflows, workflowLaunchers] =
-    await Promise.all([
-      toPublicTables(allTables),
-      toPublicFields(fields),
-      toPublicViews(views),
-      toPublicForms(allForms),
-      projectDocumentTemplateSummaries(allTemplates),
-      projectCustomAppSummaries(catalog.customApps),
-      toPublicWorkflows(catalog.workflows),
-      toPublicWorkflowLaunchers(catalog.workflowLaunchers),
-    ]);
+  // These projections share Bun's default SQL pool. Keeping the small indexed
+  // reads sequential avoids pool saturation leaving completed queries pending.
+  const allPublicTables = await toPublicTables(allTables);
+  const publicFields = await toPublicFields(fields);
+  const publicViews = await toPublicViews(views);
+  const allPublicForms = await toPublicForms(allForms);
+  const allPublicTemplates = await projectDocumentTemplateSummaries(allTemplates);
+  const customApps = await projectCustomAppSummaries(catalog.customApps);
+  const workflows = await toPublicWorkflows(catalog.workflows);
+  const workflowLaunchers = await toPublicWorkflowLaunchers(catalog.workflowLaunchers);
   const tableIds = new Map(allTables.map((table, index) => [table.id, allPublicTables[index]!.id]));
   const workflowIds = new Map(catalog.workflows.map((workflow, index) => [workflow.id, workflows[index]!.id]));
   const templateIds = await projectPublicIds(
@@ -155,32 +154,21 @@ const projectRoute = async (state: OkWorkspaceState, catalog: PublicWorkspaceCat
     return {
       ...route,
       app: await projectCustomApp(route.app),
-      ...(route.initialPreviewResults
-        ? {
-            initialPreviewResults: Object.fromEntries(
-              await Promise.all(
-                Object.entries(route.initialPreviewResults).map(async ([key, value]) => [key, await toPublicGqlResponse(value)]),
-              ),
-            ),
-          }
-        : {}),
     };
   }
   if (route.kind === "records") {
     const [activeTable] = await toPublicTables([route.activeTable]);
     const [activeView] = route.activeView ? await toPublicViews([route.activeView]) : [null];
-    const [fields, forms, initialData, records, templates, launchers, otherTableIds] = await Promise.all([
-      toPublicFields(route.fields),
-      toPublicForms(route.formsForTable),
-      toPublicTableQueryResponse(route.initialData, route.fields),
-      toPublicRecords(route.initialSelectedRecord ? [route.initialSelectedRecord] : [], route.fields),
-      projectDocumentTemplateSummaries(route.documentTemplates),
-      toPublicWorkflowLaunchers(route.bulkSelectionLaunchers),
-      projectPublicIds(
-        "table",
-        route.otherTables.map((table) => table.id),
-      ),
-    ]);
+    const fields = await toPublicFields(route.fields);
+    const forms = await toPublicForms(route.formsForTable);
+    const initialData = await toPublicTableQueryResponse(route.initialData, route.fields);
+    const records = await toPublicRecords(route.initialSelectedRecord ? [route.initialSelectedRecord] : [], route.fields);
+    const templates = await projectDocumentTemplateSummaries(route.documentTemplates);
+    const launchers = await toPublicWorkflowLaunchers(route.bulkSelectionLaunchers);
+    const otherTableIds = await projectPublicIds(
+      "table",
+      route.otherTables.map((table) => table.id),
+    );
     const selectedRecordId = route.initialState.selectedRecordId
       ? required(await projectPublicId("record", route.initialState.selectedRecordId), "selected record")
       : null;

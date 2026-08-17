@@ -467,7 +467,6 @@ type CustomAppBuilderProps = {
   baseId: string;
   catalog: CustomAppCatalog;
   dateConfig?: DateContext;
-  initialPreviewResults?: Record<string, DslQueryPreviewResponse>;
   initialInspectorMode?: "app" | "page";
 };
 
@@ -489,7 +488,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
   const [selectedPageId, setSelectedPageId] = createSignal(props.initialDefinition.startPageId);
   const [selectedBlockId, setSelectedBlockId] = createSignal<string | null>(null);
   const [selectedActionId, setSelectedActionId] = createSignal<string | null>(null);
-  const [previewResults, setPreviewResults] = createSignal<Record<string, DslQueryPreviewResponse>>(props.initialPreviewResults ?? {});
+  const [previewResults, setPreviewResults] = createSignal<Record<string, DslQueryPreviewResponse>>({});
   const [inspectorOpen, setInspectorOpen] = createSignal(true);
   const [inspectorMode, setInspectorMode] = createSignal<"app" | "page" | "block" | "action">(props.initialInspectorMode ?? "page");
   const selectedPage = createMemo(() => draft.draft().pages.find((page) => page.id === selectedPageId()) ?? draft.draft().pages[0]!);
@@ -1433,12 +1432,15 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       setDefinition((definition) => removeCustomAppPageParameter(definition, selectedPage().id, parameterId));
       return;
     }
-    const confirmed = await prompts.confirm("Remove this record parameter? Its Record, Rendered HTML, and Comments blocks will also be removed.", {
-      title: "Remove record parameter",
-      icon: "ti ti-unlink",
-      confirmText: "Remove parameter",
-      variant: "danger",
-    });
+    const confirmed = await prompts.confirm(
+      "Remove this record parameter? Its Record, Rendered HTML, and Comments blocks will also be removed.",
+      {
+        title: "Remove record parameter",
+        icon: "ti ti-unlink",
+        confirmText: "Remove parameter",
+        variant: "danger",
+      },
+    );
     if (!confirmed) return;
     patchPage({
       parameters: Object.fromEntries(Object.entries(selectedPage().parameters).filter(([id]) => id !== parameterId)),
@@ -1813,7 +1815,6 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                   appId={app().id}
                   catalog={props.catalog}
                   dateConfig={props.dateConfig}
-                  initialResult={props.initialPreviewResults?.[block.id]}
                   onPreviewResult={(blockId, result) => setPreviewResults((current) => ({ ...current, [blockId]: result }))}
                 />
               )}

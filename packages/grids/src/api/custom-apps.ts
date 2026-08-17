@@ -301,19 +301,16 @@ const projectCapabilities = async (capabilities: CustomApp["draftCapabilities"])
     (["table", "field", "view", "form", "documentTemplate", "workflowLauncher", "workflow"] as const).map((type) => [type, new Set()]),
   );
   collectCapabilityIds(capabilities, ids);
-  const maps = new Map<PublicResourceType, Map<string, string>>(
-    await Promise.all([...ids].map(async ([type, values]) => [type, await projectPublicIds(type, [...values])] as const)),
-  );
+  const maps = new Map<PublicResourceType, Map<string, string>>();
+  for (const [type, values] of ids) maps.set(type, await projectPublicIds(type, [...values]));
   projectCapabilityIds(projected, maps);
   return projected;
 };
 
 export const projectCustomApp = async (app: CustomApp) => {
-  const [baseId, draftCapabilities, publishedCapabilities] = await Promise.all([
-    requiredPublicId("base", app.baseId),
-    projectCapabilities(app.draftCapabilities),
-    projectCapabilities(app.publishedCapabilities),
-  ]);
+  const baseId = await requiredPublicId("base", app.baseId);
+  const draftCapabilities = await projectCapabilities(app.draftCapabilities);
+  const publishedCapabilities = await projectCapabilities(app.publishedCapabilities);
   return {
     id: app.shortId,
     baseId,
@@ -1527,7 +1524,9 @@ export const createCustomAppsApi = (
       const baseId = internalIdParam(c, "baseId")!;
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json(await Promise.all((await gridsService.customApp.listByBase(baseId)).map(projectCustomApp)));
+      const projected: Awaited<ReturnType<typeof projectCustomApp>>[] = [];
+      for (const app of await gridsService.customApp.listByBase(baseId)) projected.push(await projectCustomApp(app));
+      return c.json(projected);
     })
     .post("/by-base/:baseId", requirePublicIdParam("baseId", "base", "Base"), v("json", CustomAppCreateSchema), async (c) => {
       const baseId = internalIdParam(c, "baseId")!;

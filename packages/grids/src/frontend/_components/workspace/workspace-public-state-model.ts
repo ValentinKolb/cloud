@@ -139,7 +139,6 @@ export type PublicWorkspaceRoute =
       kind: "customApp";
       app: PublicCustomApp;
       initialInspectorMode: "app" | "page";
-      initialPreviewResults?: Record<string, PublicDslQueryPreviewResponse>;
     }
   | PublicWorkspaceRecordsRoute
   | PublicWorkspaceQueryResultViewRoute

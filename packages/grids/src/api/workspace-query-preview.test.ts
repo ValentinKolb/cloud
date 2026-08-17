@@ -7,7 +7,6 @@ import { withInitialGqlResults } from "./workspace-query-preview";
 
 const baseId = "11111111-1111-4111-8111-111111111111";
 const viewId = "22222222-2222-4222-8222-222222222222";
-const appPublicId = "APP001";
 let savedViewCalls: Array<{ baseId: string; viewId: string; options: unknown }> = [];
 let gqlCalls: Array<{ baseId: string; input: unknown; limits: unknown }> = [];
 const context = {
@@ -44,7 +43,7 @@ const customAppState = (): GridsWorkspaceState =>
       kind: "customApp",
       app: {
         id: "33333333-3333-4333-8333-333333333333",
-        shortId: appPublicId,
+        shortId: "APP001",
         name: "Preview App",
         draftDefinition: {
           startPageId: "home",
@@ -132,31 +131,12 @@ describe("workspace initial GQL results", () => {
     ]);
   });
 
-  test("resolves the initial Grids App draft page before hydration", async () => {
-    const state = await withInitialGqlResults(context, customAppState());
+  test("leaves Grids App previews to the browser", async () => {
+    const initial = customAppState();
+    const state = await withInitialGqlResults(context, initial);
 
-    expect(savedViewCalls).toHaveLength(1);
-    expect(gqlCalls).toHaveLength(1);
-    expect(gqlCalls[0]).toMatchObject({
-      baseId,
-      input: { query: "aggregate count(*) as items", limit: 1, pageSize: 1, surface: "ssr" },
-      limits: {
-        maxRows: 1,
-        operation: "initial-preview",
-        context: {
-          "auth.id": null,
-          "auth.name": null,
-          "auth.username": null,
-          "auth.email": null,
-          "app.id": appPublicId,
-          "page.id": "home",
-          "base.id": baseId,
-          "time.timeZone": "UTC",
-        },
-      },
-    });
-    expect(state.kind).toBe("ok");
-    if (state.kind !== "ok" || state.route.kind !== "customApp") return;
-    expect(state.route.initialPreviewResults).toEqual({ records: aggregateResult, metrics: aggregateResult });
+    expect(savedViewCalls).toHaveLength(0);
+    expect(gqlCalls).toHaveLength(0);
+    expect(state).toBe(initial);
   });
 });
