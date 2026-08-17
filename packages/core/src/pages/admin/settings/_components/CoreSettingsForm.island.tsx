@@ -136,6 +136,7 @@ type AiModelProfileDraft = {
   temperature?: number;
   maxOutputTokens?: number;
   maxLoadedCapabilities?: number;
+  maxToolRounds?: number;
   creditsPerInputToken?: number;
   creditsPerOutputToken?: number;
 } & Record<string, unknown>;
@@ -799,6 +800,7 @@ const normalizeAiProfile = (value: unknown): AiModelProfileDraft | null => {
         : undefined,
     maxLoadedCapabilities:
       typeof raw.maxLoadedCapabilities === "number" && Number.isInteger(raw.maxLoadedCapabilities) ? raw.maxLoadedCapabilities : undefined,
+    maxToolRounds: typeof raw.maxToolRounds === "number" && Number.isInteger(raw.maxToolRounds) ? raw.maxToolRounds : undefined,
     creditsPerInputToken: typeof raw.creditsPerInputToken === "number" ? raw.creditsPerInputToken : undefined,
     creditsPerOutputToken: typeof raw.creditsPerOutputToken === "number" ? raw.creditsPerOutputToken : undefined,
   };
@@ -1533,6 +1535,9 @@ async function openAiProfileDialog(input: {
         ? input.profile.maxLoadedCapabilities
         : null,
     );
+    const [maxToolRounds, setMaxToolRounds] = createSignal<number | null>(
+      typeof input.profile?.maxToolRounds === "number" && input.profile.maxToolRounds > 0 ? input.profile.maxToolRounds : null,
+    );
     const [image, setImage] = createSignal<string | null>(input.profile?.image ?? null);
     const [formError, setFormError] = createSignal<string | undefined>();
 
@@ -1618,6 +1623,10 @@ async function openAiProfileDialog(input: {
       const loadedLimit = maxLoadedCapabilities();
       if (typeof loadedLimit === "number") nextProfile.maxLoadedCapabilities = Math.trunc(loadedLimit);
       else delete nextProfile.maxLoadedCapabilities;
+
+      const toolRoundLimit = maxToolRounds();
+      if (typeof toolRoundLimit === "number") nextProfile.maxToolRounds = Math.trunc(toolRoundLimit);
+      else delete nextProfile.maxToolRounds;
 
       close(nextProfile);
     };
@@ -1753,6 +1762,17 @@ async function openAiProfileDialog(input: {
                 description="Maximum capability tools retained per conversation. Empty or 0 means unlimited."
                 value={maxLoadedCapabilities}
                 onValueChange={setMaxLoadedCapabilities}
+                min={0}
+                clearable
+                showSteppers={false}
+                placeholder="Unlimited"
+              />
+
+              <NumberInput
+                label="Tool round limit"
+                description="Maximum tool-using model rounds per chat before one final answer without tools. Empty or 0 means unlimited."
+                value={maxToolRounds}
+                onValueChange={setMaxToolRounds}
                 min={0}
                 clearable
                 showSteppers={false}

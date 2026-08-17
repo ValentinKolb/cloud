@@ -5,7 +5,7 @@ section: AI
 order: 1020
 description: Configure models and providers without exposing credentials to application clients.
 tags: [ai, models, providers]
-updated: 2026-08-02
+updated: 2026-08-17
 ---
 
 # Models and providers
@@ -53,6 +53,10 @@ A locked policy needs `modelId`. A selectable policy may set
 | `temperature` | Optional profile default |
 | `maxOutputTokens` | Optional output limit |
 | `maxLoadedCapabilities` | Loaded capability names retained per conversation; missing, `0`, or negative is unlimited, while a positive value keeps the newest names and evicts the oldest |
+| `maxToolRounds` | Tool-using model rounds allowed per chat turn; missing, `0`, or negative is unlimited, while a positive value reserves one additional tool-free model round for the final answer |
+
+Turn deadlines, cancellation, provider failures, and exhausted credits can still
+end a chat independently of the tool-round policy.
 
 Model responses sent to the browser omit credentials and private
 configuration.

@@ -268,12 +268,13 @@ export const createCloudAiWebSearchTool = (config: FirecrawlToolConfig = {}) =>
   defineAiTool({
     name: "web_search",
     description:
-      "Search the web for current sources. Input only a plain natural-language query. Use this to find sources, not to answer directly.",
+      "Search the web for current sources. Input only a plain natural-language query. Search again with a focused query when the first results are incomplete, outdated, or conflicting.",
     inputSchema: CloudAiWebSearchInputSchema,
     outputSchema: CloudAiWebSearchOutputSchema,
     approval: "never",
     timeoutMs: 90_000,
-    promptHint: "search the web for current facts, docs, and anything after your training data.",
+    promptHint:
+      "search the web for current facts and sources; use additional focused searches when the evidence is incomplete or conflicting.",
     toHistoricalResult: ({ output }) =>
       output.map((result) => ({
         ...result,
@@ -284,12 +285,14 @@ export const createCloudAiWebSearchTool = (config: FirecrawlToolConfig = {}) =>
 export const createCloudAiWebExtractTool = (config: FirecrawlToolConfig = {}) =>
   defineAiTool({
     name: "web_extract",
-    description: "Read one web page by URL and return clean text. Use after web_search on one relevant result.",
+    description:
+      "Read one web page by URL and return clean text. Inspect the relevant pages needed to support the answer; for research or comparison, prefer primary sources and read more than one useful source when warranted.",
     inputSchema: CloudAiWebExtractInputSchema,
     outputSchema: CloudAiWebExtractOutputSchema,
     approval: "never",
     timeoutMs: 90_000,
-    promptHint: "read one web page by URL and extract its content — usually after web_search.",
+    promptHint:
+      "read relevant pages found by web_search; for research or comparison, inspect multiple useful sources and prefer primary sources.",
     toHistoricalResult: ({ output }) => {
       const content = truncateMiddle(output.content, WEB_EXTRACT_HISTORY_CONTENT_CHARS);
       return {

@@ -49,11 +49,14 @@ describe("AI settings model registry", () => {
     if (state.ok) expect(state.profiles[0]?.id).toBe("openrouter-fast");
   });
 
-  test("keeps maxLoadedCapabilities optional and accepts zero or negative as unlimited", async () => {
-    for (const maxLoadedCapabilities of [undefined, 0, -1, 12]) {
-      const state = await resolve({ profilesJson: profilesJson([{ maxLoadedCapabilities }]) });
+  test("keeps profile limits optional and accepts zero or negative as unlimited", async () => {
+    for (const limit of [undefined, 0, -1, 12]) {
+      const state = await resolve({ profilesJson: profilesJson([{ maxLoadedCapabilities: limit, maxToolRounds: limit }]) });
       expect(state.ok).toBe(true);
-      if (state.ok) expect(state.profiles[0]?.maxLoadedCapabilities).toBe(maxLoadedCapabilities);
+      if (state.ok) {
+        expect(state.profiles[0]?.maxLoadedCapabilities).toBe(limit);
+        expect(state.profiles[0]?.maxToolRounds).toBe(limit);
+      }
     }
   });
 

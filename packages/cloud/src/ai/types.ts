@@ -47,6 +47,8 @@ export type AiModelProfile = {
   maxOutputTokens?: number;
   /** Maximum capabilities retained per conversation. Missing or <= 0 keeps all loaded capabilities. */
   maxLoadedCapabilities?: number;
+  /** Tool-using model rounds per chat turn. Missing or <= 0 is unlimited. */
+  maxToolRounds?: number;
   creditsPerInputToken?: number;
   creditsPerOutputToken?: number;
 };

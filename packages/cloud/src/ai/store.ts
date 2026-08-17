@@ -2389,6 +2389,7 @@ export const aiConversations: AiConversationService = {
         AND lease_owner = ${input.leaseOwner}
         AND status = 'running'
         AND cancel_requested_at IS NULL
+        AND (deadline IS NULL OR deadline > now())
       RETURNING id
     `;
     return Boolean(rows[0]);

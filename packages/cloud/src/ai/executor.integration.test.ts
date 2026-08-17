@@ -81,6 +81,23 @@ const fakeValidateToolTurn: typeof validateAiTurnRequest = async () => {
   };
 };
 
+const fakeValidateBoundedToolTurn: typeof validateAiTurnRequest = async () => {
+  const profile: AiModelProfile = { ...mockProfile(), capabilities: ["streaming", "tools"], maxToolRounds: 1 };
+  return {
+    settings: {
+      ok: true,
+      enabled: true,
+      defaultModelId: MODEL_ID,
+      globalInstructions: "",
+      compactionInstructions: "",
+      maxToolResultChars: 2_000,
+      firecrawlConfigured: false,
+      profiles: [profile],
+    },
+    resolved: { profile, provider: createAiProvider(profile, "test") },
+  };
+};
+
 const fakeValidateVisionTurn: typeof validateAiTurnRequest = async () => {
   const profile: AiModelProfile = { ...mockProfile(), capabilities: ["streaming", "vision"] };
   return {
@@ -572,7 +589,7 @@ suite("AI executor integration", () => {
         runBudgetMs: 60_000,
       });
 
-      await createExecutor("project-files-capabilities-exec", undefined, fakeValidateToolTurn).run({
+      await createExecutor("project-files-capabilities-exec", undefined, fakeValidateBoundedToolTurn).run({
         conversationId: conversation.id,
         turnId: turn.id,
         claim: claim!,
@@ -591,6 +608,8 @@ suite("AI executor integration", () => {
         throw new Error("Expected list_files result");
       }
       expect(JSON.parse(toolMessage.content)).toMatchObject({ files: [{ path: "/project/guide.md", origin: "project" }] });
+      expect("tools" in secondRequest ? secondRequest.tools : undefined).toBeUndefined();
+      expect(JSON.stringify(secondRequest)).toContain("no more tools are available");
       expect((await aiConversations.getTurn({ conversationId: conversation.id, turnId: turn.id }))?.status).toBe("completed");
     } finally {
       completionQueue = [];

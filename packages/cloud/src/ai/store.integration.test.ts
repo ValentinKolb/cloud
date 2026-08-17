@@ -425,6 +425,17 @@ suite("AI conversation store integration", () => {
         }),
       ).toBe(true);
 
+      // A healthy owner may not extend an already exhausted run budget.
+      await sql`UPDATE ai.turns SET deadline = now() - interval '1 second' WHERE id = ${turn.id}`;
+      expect(
+        await aiConversations.heartbeatTurn({
+          conversationId: conversation.id,
+          turnId: turn.id,
+          leaseOwner: "worker-b",
+          leaseMs: 30_000,
+        }),
+      ).toBe(false);
+
       // Attempt cap blocks further claims.
       await sql`UPDATE ai.turns SET lease_expires_at = now() - interval '1 second' WHERE id = ${turn.id}`;
       const capped = await aiConversations.claimTurn({

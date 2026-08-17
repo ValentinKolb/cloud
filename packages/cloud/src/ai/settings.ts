@@ -93,6 +93,7 @@ const ModelProfileSchema = z
     temperature: z.number().min(0).max(2).optional(),
     maxOutputTokens: z.number().int().positive().optional(),
     maxLoadedCapabilities: z.number().int().optional(),
+    maxToolRounds: z.number().int().optional(),
     creditsPerInputToken: z.number().nonnegative().optional(),
     creditsPerOutputToken: z.number().nonnegative().optional(),
   })
