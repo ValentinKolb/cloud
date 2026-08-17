@@ -16,6 +16,7 @@ import {
   addPanesItem,
   applyPanesIntent,
   createPanesLayout,
+  isPanesItemVisible,
   PANES_LAYOUT_VERSION,
   parsePanesLayout,
   Panes,
@@ -69,7 +70,7 @@ type PanesItem = {
 
 `render` is lazy: Panes invokes it only for the active item in each group. Switching tabs unmounts the previous content. Reordering a group does not recreate its active content.
 
-The presence of `onClose` enables the close control. Its callback only reports intent; the application updates its domain state and layout. The close control overlays the trailing edge on hover or keyboard focus, so it does not reserve label space or start a drag.
+The presence of `onClose` enables the close control. Its callback only reports intent; the application updates its domain state and layout. The icon-only control overlays the trailing edge on hover or keyboard focus and has no separate background. It reserves no label space while hidden; while visible, a long label truncates with an ellipsis instead of overlapping the control. Pressing it does not start a drag.
 
 Pass `onAddItem` to show a plus control in every group. It receives an item id from the target group, or `null` for an empty workspace. The application chooses or creates the item, then updates the layout with `addPanesItem`.
 
@@ -87,9 +88,11 @@ While resizing, a separator snaps to a nearby separator of the same direction in
 
 ## Accessibility
 
-Give every item a concise title.
+Give every item a concise title. Set `ariaLabel` when the surrounding context does not already identify the workspace clearly; it defaults to `"Pane workspace"`.
 
-Arrow keys change the active tab. `Delete` and `Backspace` request closing the focused tab when `onClose` is available. Start a focused tab move with Space or Enter, select a visible target with the arrow keys, then confirm with Space or Enter; Escape cancels the move.
+Clicking or tapping a tab activates it. Left and Right Arrow move through the tabs; Home and End select the first and last tab. `Delete` and `Backspace` request closing the focused tab when `onClose` is available.
+
+Start a focused tab move with Space or Enter, select a visible target with the arrow keys, then confirm with Space or Enter; Escape cancels the move. Focus a separator and use the arrow keys for its orientation to resize the panes. Hold Shift for a larger step; Home and End move to the minimum and maximum supported ratio.
 
 ## Runtime
 
