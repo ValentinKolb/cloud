@@ -1602,6 +1602,7 @@ export default function MailWorkspace(props: {
               dateConfig={props.dateConfig}
               onCollaborationChange={applyCollaborationState}
               onConversationTagsChange={applyConversationTags}
+              onClose={() => setDetailsVisible(false)}
               onOpenHref={openWorkspaceHref}
               onReconcile={reconcileWorkspace}
             />

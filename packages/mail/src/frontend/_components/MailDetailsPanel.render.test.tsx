@@ -199,6 +199,7 @@ const renderPanel = (overrides: Partial<Parameters<typeof MailDetailsPanel>[0]> 
       dateConfig: { locale: "en", timeZone: "Europe/Berlin" },
       onCollaborationChange: () => {},
       onConversationTagsChange: () => {},
+      onClose: () => {},
       onOpenHref: () => {},
       onReconcile: () => {},
       ...overrides,
@@ -230,6 +231,8 @@ describe("Mail conversation detail panel", () => {
     expect(header).not.toContain("1 attachment");
     expect(header).toContain('class="k2b-detail-panel__meta"');
     expect(header).toContain("Needs action");
+    expect(header).toContain('aria-label="Close conversation details"');
+    expect(header).toContain("lg:hidden");
     expect(html).toContain('class="k2b-detail-panel__group" role="group" aria-label="Workflow"');
     expect(html).not.toContain(">Active collaborators<");
     expect(html).not.toContain("Here now");

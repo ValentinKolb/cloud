@@ -33,7 +33,7 @@ import MailConversationSummaryCard from "./MailConversationSummaryCard";
 import { openMailConversationToolbarDialog } from "./MailConversationToolbarDialog";
 import MailMessageCard from "./MailMessageCard";
 import { getMailAction, type MailActionId } from "./mail-actions";
-import { deriveReplyIdentityId, forwardMessageBody, forwardSubject, replySubject } from "./mail-compose-derivation";
+import { deriveReplyIdentityId, deriveReplyRecipients, forwardMessageBody, forwardSubject, replySubject } from "./mail-compose-derivation";
 import { mailDraftHref, mailDraftSeedHref } from "./mail-compose-route";
 import { initialConversationMessageId, isNearConversationStart, newestFirstMessages } from "./mail-conversation-history";
 import { MAIL_CONVERSATION_TOOLBAR_SECTIONS, type MailConversationToolbarActionId } from "./mail-conversation-toolbar";
@@ -684,6 +684,11 @@ export default function MailConversationReader(props: {
     return !message.delivery || messageDeliveryAllowsResponses(message.delivery.state);
   };
 
+  const canReplyAllToLatest = () => {
+    const message = latestMessage();
+    return Boolean(message && deriveReplyRecipients(message, "reply_all", props.identities).cc.length > 0);
+  };
+
   const canSplitConversation = () => props.canWrite && (props.totalMessageCount > 1 || props.messages.length > 1);
 
   const respondToLatest = (intent: Extract<DraftIntent, "reply" | "reply_all" | "forward">) => {
@@ -698,6 +703,7 @@ export default function MailConversationReader(props: {
     }
     if (id === "reply" || id === "reply_all" || id === "forward") {
       if (!canRespondToLatest()) return null;
+      if (id === "reply_all" && !canReplyAllToLatest()) return null;
       const label =
         id === "reply"
           ? props.conversationDrafts.length > 0
@@ -796,11 +802,15 @@ export default function MailConversationReader(props: {
             icon: "ti ti-arrow-back-up",
             action: () => respondToLatest("reply"),
           },
-          {
-            label: "Reply all",
-            icon: "ti ti-arrow-back-up-double",
-            action: () => respondToLatest("reply_all"),
-          },
+          ...(canReplyAllToLatest()
+            ? [
+                {
+                  label: "Reply all",
+                  icon: "ti ti-arrow-back-up-double",
+                  action: () => respondToLatest("reply_all"),
+                },
+              ]
+            : []),
           {
             label: "Forward",
             icon: "ti ti-arrow-forward-up",

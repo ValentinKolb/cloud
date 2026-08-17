@@ -23,7 +23,7 @@ const message: MessageDetail = {
   internalDate: now,
   sentAt: now,
   from: [{ name: "Ada Lovelace", address: "ada@example.com" }],
-  to: [{ name: "Support", address: "support@example.com" }],
+  to: [],
   replyTo: [],
   cc: [],
   flags: [],
@@ -58,8 +58,12 @@ const draft: ConversationDraftSummary = {
   updatedAt: now,
 };
 
-const renderReader = (conversationDrafts: ConversationDraftSummary[]) =>
-  renderToString(() =>
+const renderReader = (
+  conversationDrafts: ConversationDraftSummary[],
+  options: { messages?: MessageDetail[]; selectedMessageId?: string | null } = {},
+) => {
+  const messages = options.messages ?? [message];
+  return renderToString(() =>
     createComponent(MailConversationReader, {
       mailboxId: "Box001",
       requestUrl: "https://cloud.example.test/app/mail/Box001?conversation=Conv01",
@@ -68,16 +72,16 @@ const renderReader = (conversationDrafts: ConversationDraftSummary[]) =>
       identities: [],
       selectionKey: "Conv01",
       selectedConversationId: "Conv01",
-      selectedMessageId: null,
+      selectedMessageId: options.selectedMessageId ?? null,
       unread: false,
       flagged: false,
       inJunk: false,
       reference: null,
       subject: message.subject,
-      messages: [message],
+      messages,
       conversationSummary: null,
       conversationDrafts,
-      totalMessageCount: 1,
+      totalMessageCount: messages.length,
       error: null,
       dateConfig: { locale: "en", timeZone: "Europe/Berlin" },
       readingFormat: "automatic",
@@ -85,7 +89,7 @@ const renderReader = (conversationDrafts: ConversationDraftSummary[]) =>
       calendarIntegrationAvailable: false,
       listCollapsed: false,
       detailsOpen: false,
-      toolbarActions: ["reply"],
+      toolbarActions: ["reply", "reply_all"],
       onRestoreList: () => undefined,
       onToggleDetails: () => undefined,
       onToolbarActionsChange: () => undefined,
@@ -102,6 +106,7 @@ const renderReader = (conversationDrafts: ConversationDraftSummary[]) =>
       onClose: () => undefined,
     }),
   );
+};
 
 describe("Mail conversation reader", () => {
   test("marks Reply when the conversation has a draft without rendering a header CTA", () => {
@@ -121,7 +126,35 @@ describe("Mail conversation reader", () => {
     const html = renderReader([]);
 
     expect(html).toContain('aria-label="Reply"');
+    expect(html).not.toContain('data-mail-toolbar-action="reply_all"');
+    expect(html).not.toContain("Reply all");
     expect(html).not.toContain("data-mail-draft-label");
     expect(html).not.toContain("data-mail-draft-indicator");
+  });
+
+  test("shows Reply all when it adds an original recipient", () => {
+    const groupMessage = {
+      ...message,
+      cc: [{ name: "Stakeholder", address: "stakeholder@example.com" }],
+    };
+    const html = renderReader([], { messages: [groupMessage] });
+
+    expect(html).toContain('data-mail-toolbar-action="reply_all"');
+    expect(html).toContain('aria-label="Reply all"');
+  });
+
+  test("keeps an expanded older message body outside the muted header surface", () => {
+    const older = { ...message, id: "MsgOld", internalDate: "2026-08-16T11:00:00.000Z", sentAt: "2026-08-16T11:00:00.000Z" };
+    const html = renderReader([], { messages: [older, message], selectedMessageId: older.id });
+    const articleStart = html.lastIndexOf("<article", html.indexOf('data-mail-message-id="MsgOld"'));
+    const articleEnd = html.indexOf("</article>", articleStart);
+    const olderArticle = html.slice(articleStart, articleEnd);
+    const articleOpen = olderArticle.slice(0, olderArticle.indexOf(">") + 1);
+
+    expect(articleOpen).not.toContain("bg-[var(--ui-surface-subtle)]");
+    expect(olderArticle).toContain(
+      'class="flex items-start gap-1 rounded-[var(--ui-radius-surface)] p-1 transition-colors bg-[var(--ui-surface-subtle)]',
+    );
+    expect(olderArticle).toContain('aria-expanded="true"');
   });
 });

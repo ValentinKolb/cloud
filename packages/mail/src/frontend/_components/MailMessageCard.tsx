@@ -9,7 +9,7 @@ import MailMessageAttachments from "./MailMessageAttachments";
 import MailMessageBody from "./MailMessageBody";
 import MailMessageDeliveryControl from "./MailMessageDeliveryControl";
 import MailSenderMessageActions from "./MailSenderMessageActions";
-import { formatMailAddress, forwardMessageBody } from "./mail-compose-derivation";
+import { deriveReplyRecipients, formatMailAddress, forwardMessageBody } from "./mail-compose-derivation";
 import { isOutgoingMessage } from "./mail-conversation-history";
 import {
   formatMailMessageDateTime,
@@ -94,6 +94,7 @@ export default function MailMessageCard(props: {
     const delivery = props.message.delivery;
     return delivery ? !messageDeliveryAllowsResponses(delivery.state) : false;
   };
+  const canReplyAll = () => deriveReplyRecipients(props.message, "reply_all", props.context.identities).cc.length > 0;
   const bodyFormat = createMemo(() =>
     resolveMessageBodyFormat(
       props.context.readingFormat,
@@ -114,11 +115,15 @@ export default function MailMessageCard(props: {
                 icon: "ti ti-arrow-back-up",
                 action: () => props.actions.compose("reply", props.message),
               },
-              {
-                label: "Reply all",
-                icon: "ti ti-arrow-back-up-double",
-                action: () => props.actions.compose("reply_all", props.message),
-              },
+              ...(canReplyAll()
+                ? [
+                    {
+                      label: "Reply all",
+                      icon: "ti ti-arrow-back-up-double",
+                      action: () => props.actions.compose("reply_all", props.message),
+                    },
+                  ]
+                : []),
               {
                 label: "Forward",
                 icon: "ti ti-arrow-forward-up",
@@ -163,15 +168,16 @@ export default function MailMessageCard(props: {
 
   return (
     <article
-      class={`group min-w-0 scroll-mt-3 py-1 transition-colors ${
-        props.isLatest ? "" : "rounded-[var(--ui-radius-surface)] hover:bg-[var(--ui-hover)] focus-within:bg-[var(--ui-hover)]"
-      }`}
-      classList={{ "bg-[var(--ui-surface-subtle)]": props.expanded && !props.isLatest }}
+      class="group min-w-0 scroll-mt-3 py-1"
       data-mail-message-id={props.message.id}
       data-mail-direction={outgoing() ? "outgoing" : "incoming"}
       style={`view-transition-name: mail-message-${props.message.id}`}
     >
-      <div class="flex items-start gap-1 p-1">
+      <div
+        class={`flex items-start gap-1 rounded-[var(--ui-radius-surface)] p-1 transition-colors ${
+          props.isLatest ? "" : "bg-[var(--ui-surface-subtle)] hover:bg-[var(--ui-hover)] focus-within:bg-[var(--ui-hover)]"
+        }`}
+      >
         <button
           type="button"
           class="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-start gap-2 rounded-[var(--ui-radius-control)] p-2 text-left"

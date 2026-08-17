@@ -81,6 +81,7 @@ export default function MailDetailsPanel(props: {
   dateConfig: DateContext;
   onCollaborationChange: (state: ConversationCollaboration) => void;
   onConversationTagsChange: (state: ConversationLocalTags) => void;
+  onClose: () => void;
   onOpenHref: (href: string) => void | Promise<void>;
   onReconcile: () => void | Promise<void>;
 }) {
@@ -496,6 +497,13 @@ export default function MailDetailsPanel(props: {
                     : "ti ti-message-reply"
               }
             />
+          }
+          actions={
+            <Tooltip.Anchor content="Close details">
+              <IconButton type="button" class="lg:hidden" label="Close conversation details" onClick={props.onClose}>
+                <i class="ti ti-x" aria-hidden="true" />
+              </IconButton>
+            </Tooltip.Anchor>
           }
         />
 
