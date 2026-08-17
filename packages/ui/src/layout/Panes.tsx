@@ -48,6 +48,62 @@ type IndexedPanesDropTargets = {
   body: readonly PanesDropTarget[];
 };
 
+type PanesSeparatorGeometry = {
+  coordinate: number;
+  crossStart: number;
+  crossEnd: number;
+};
+
+const PANES_RESIZE_SNAP_DISTANCE = 8;
+const PANES_RESIZE_UNSNAP_DISTANCE = 12;
+const PANES_RESIZE_NEIGHBOR_GAP = 16;
+
+const intervalGap = (left: PanesSeparatorGeometry, right: PanesSeparatorGeometry): number =>
+  left.crossEnd < right.crossStart
+    ? right.crossStart - left.crossEnd
+    : right.crossEnd < left.crossStart
+      ? left.crossStart - right.crossEnd
+      : 0;
+
+export const resolvePanesResizeSnap = (
+  coordinate: number,
+  source: PanesSeparatorGeometry,
+  candidates: readonly PanesSeparatorGeometry[],
+  options: { activeCoordinate?: number | null; previousCoordinate?: number } = {},
+): { coordinate: number; snappedTo: number | null } => {
+  const neighbors = candidates.filter((candidate) => {
+    const gap = intervalGap(source, candidate);
+    return gap > 0 && gap <= PANES_RESIZE_NEIGHBOR_GAP;
+  });
+  const activeCoordinate = options.activeCoordinate;
+  const active =
+    activeCoordinate === null || activeCoordinate === undefined
+      ? null
+      : neighbors.find((candidate) => Math.abs(candidate.coordinate - activeCoordinate) < 0.5);
+  if (active && Math.abs(coordinate - active.coordinate) <= PANES_RESIZE_UNSNAP_DISTANCE) {
+    return { coordinate: active.coordinate, snappedTo: active.coordinate };
+  }
+
+  const previous = options.previousCoordinate;
+  let winner: PanesSeparatorGeometry | null = null;
+  let winnerDistance = Number.POSITIVE_INFINITY;
+  for (const candidate of neighbors) {
+    if (previous !== undefined && Math.abs(candidate.coordinate - previous) < 0.5) continue;
+    const distanceToRange =
+      previous === undefined ||
+      candidate.coordinate < Math.min(previous, coordinate) ||
+      candidate.coordinate > Math.max(previous, coordinate)
+        ? Math.abs(candidate.coordinate - coordinate)
+        : 0;
+    const distanceToCoordinate = Math.abs(candidate.coordinate - coordinate);
+    if (distanceToRange <= PANES_RESIZE_SNAP_DISTANCE && distanceToCoordinate < winnerDistance) {
+      winner = candidate;
+      winnerDistance = distanceToCoordinate;
+    }
+  }
+  return winner ? { coordinate: winner.coordinate, snappedTo: winner.coordinate } : { coordinate, snappedTo: null };
+};
+
 export const indexPanesDropTargets = (targets: readonly PanesDropTarget[]): ReadonlyMap<string, IndexedPanesDropTargets> => {
   const mutable = new Map<string, { tabs: Map<string | null, PanesDropTarget>; body: PanesDropTarget[] }>();
   for (const target of targets) {
@@ -255,6 +311,7 @@ function PanesNodeRenderer(props: RendererProps): JSX.Element {
 
 function PanesSplitRenderer(props: Omit<RendererProps, "node"> & { node: () => PanesSplit }): JSX.Element {
   let container: HTMLDivElement | undefined;
+  let separatorElement: HTMLButtonElement | undefined;
   let stopResize: (() => void) | undefined;
   let finishResize: (() => void) | undefined;
   const stopActiveResize = () => {
@@ -273,16 +330,49 @@ function PanesSplitRenderer(props: Omit<RendererProps, "node"> & { node: () => P
     const next = resizePanesSplit(current, props.path, ratio);
     if (next !== current) props.onLayoutChange(next);
   };
+  const resizeGeometry = (separator: HTMLElement | undefined) => {
+    if (!separator) return null;
+    const direction = props.node().direction;
+    const containerRect = container?.getBoundingClientRect();
+    const separatorRect = separator.getBoundingClientRect();
+    const extent = direction === "horizontal" ? (containerRect?.width ?? 0) : (containerRect?.height ?? 0);
+    const separatorExtent = direction === "horizontal" ? separatorRect.width : separatorRect.height;
+    const availableExtent = extent - separatorExtent;
+    if (!containerRect || availableExtent <= 0 || separatorRect.width <= 0 || separatorRect.height <= 0) return null;
+    const geometry = (rect: DOMRect): PanesSeparatorGeometry =>
+      direction === "horizontal"
+        ? { coordinate: rect.left + rect.width / 2, crossStart: rect.top, crossEnd: rect.bottom }
+        : { coordinate: rect.top + rect.height / 2, crossStart: rect.left, crossEnd: rect.right };
+    const panes = separator.closest<HTMLElement>("[data-k2b-panes]");
+    const candidates = panes
+      ? Array.from(panes.querySelectorAll<HTMLElement>(`.k2b-panes__separator[data-direction="${direction}"]`))
+          .filter((candidate) => candidate !== separator && candidate.closest("[data-k2b-panes]") === panes)
+          .map((candidate) => candidate.getBoundingClientRect())
+          .filter((rect) => rect.width > 0 && rect.height > 0)
+          .map(geometry)
+      : [];
+    const origin = direction === "horizontal" ? containerRect.left + separatorExtent / 2 : containerRect.top + separatorExtent / 2;
+    return {
+      source: geometry(separatorRect),
+      candidates,
+      coordinateForRatio: (ratio: number) => origin + availableExtent * ratio,
+      ratioForCoordinate: (coordinate: number) => (coordinate - origin) / availableExtent,
+    };
+  };
   const startResize = (event: PointerEvent) => {
     if (!props.canResize()) return;
     event.preventDefault();
     stopActiveResize();
     const pointerId = event.pointerId;
-    const captureTarget = event.currentTarget as HTMLElement;
-    const startRatio = props.node().ratio;
+    const captureTarget = (event.currentTarget as HTMLElement | null) ?? separatorElement;
+    if (!captureTarget) return;
     const start = props.node().direction === "horizontal" ? event.clientX : event.clientY;
+    const geometry = resizeGeometry(captureTarget);
+    const startRatio = props.node().ratio;
+    const startCoordinate = geometry?.source.coordinate;
     const rect = container?.getBoundingClientRect();
     const extent = Math.max(1, props.node().direction === "horizontal" ? (rect?.width ?? 1) : (rect?.height ?? 1));
+    let snappedTo: number | null = null;
     let frame: number | undefined;
     let pendingRatio: number | undefined;
     const flush = () => {
@@ -296,7 +386,15 @@ function PanesSplitRenderer(props: Omit<RendererProps, "node"> & { node: () => P
     const onMove = (move: PointerEvent) => {
       if (move.pointerId !== pointerId) return;
       const current = props.node().direction === "horizontal" ? move.clientX : move.clientY;
-      pendingRatio = startRatio + (current - start) / extent;
+      if (geometry && startCoordinate !== undefined) {
+        const snapped = resolvePanesResizeSnap(startCoordinate + current - start, geometry.source, geometry.candidates, {
+          activeCoordinate: snappedTo,
+        });
+        snappedTo = snapped.snappedTo;
+        pendingRatio = geometry.ratioForCoordinate(snapped.coordinate);
+      } else {
+        pendingRatio = startRatio + (current - start) / extent;
+      }
       if (frame === undefined) frame = requestAnimationFrame(flush);
     };
     const onEnd = (end: PointerEvent) => {
@@ -334,6 +432,13 @@ function PanesSplitRenderer(props: Omit<RendererProps, "node"> & { node: () => P
     if (props.node().direction === "vertical" && event.key === "ArrowDown") ratio = props.node().ratio + step;
     if (ratio === null) return;
     event.preventDefault();
+    const geometry = resizeGeometry((event.currentTarget as HTMLElement | null) ?? separatorElement);
+    if (geometry) {
+      const snapped = resolvePanesResizeSnap(geometry.coordinateForRatio(ratio), geometry.source, geometry.candidates, {
+        previousCoordinate: geometry.source.coordinate,
+      });
+      ratio = geometry.ratioForCoordinate(snapped.coordinate);
+    }
     commitRatio(ratio);
   };
   return (
@@ -342,6 +447,7 @@ function PanesSplitRenderer(props: Omit<RendererProps, "node"> & { node: () => P
         <PanesNodeRenderer {...props} node={() => props.node().first} path={[...props.path, "first"]} />
       </div>
       <button
+        ref={separatorElement}
         type="button"
         role="separator"
         aria-orientation={props.node().direction === "horizontal" ? "vertical" : "horizontal"}

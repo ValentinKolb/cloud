@@ -83,6 +83,8 @@ Once dragging starts, Panes shows every valid destination at the same time: exac
 
 Tab insertion targets use compact slots between tabs. The pointer preview follows the same pill shape, icon, label spacing, and truncation as the source tab.
 
+While resizing, a separator snaps to a nearby separator of the same direction in a neighboring pane. This aligns adjacent pane heights or widths without adding alignment metadata to the persisted layout. Pointer and keyboard resizing use the same visible geometry.
+
 ## Accessibility
 
 Give every item a concise title.

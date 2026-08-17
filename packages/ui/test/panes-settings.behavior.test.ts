@@ -245,6 +245,202 @@ describe("@k2b/ui Panes and SettingsModal behavior", () => {
     dom.cleanup();
   });
 
+  test("snaps neighboring nested split separators without changing the layout model", async () => {
+    const dom = createDomTestHarness();
+    const { default: Panes, resolvePanesResizeSnap } = await import("../src/layout/Panes");
+    const source = { coordinate: 100, crossStart: 0, crossEnd: 100 };
+    const neighbor = { coordinate: 108, crossStart: 116, crossEnd: 216 };
+    expect(resolvePanesResizeSnap(104, source, [neighbor])).toEqual({ coordinate: 108, snappedTo: 108 });
+    expect(resolvePanesResizeSnap(119, source, [neighbor], { activeCoordinate: 108 })).toEqual({ coordinate: 108, snappedTo: 108 });
+    expect(resolvePanesResizeSnap(121, source, [neighbor], { activeCoordinate: 108 })).toEqual({ coordinate: 121, snappedTo: null });
+    expect(resolvePanesResizeSnap(104, source, [{ ...neighbor, crossStart: 117, crossEnd: 217 }])).toEqual({
+      coordinate: 104,
+      snappedTo: null,
+    });
+    expect(resolvePanesResizeSnap(104, source, [{ ...neighbor, crossStart: 50, crossEnd: 150 }])).toEqual({
+      coordinate: 104,
+      snappedTo: null,
+    });
+    expect(resolvePanesResizeSnap(120, source, [neighbor, { ...neighbor, coordinate: 112 }], { previousCoordinate: 100 })).toEqual({
+      coordinate: 112,
+      snappedTo: 112,
+    });
+
+    const [layout, setLayout] = createSignal<PanesLayout>({
+      version: 2,
+      root: {
+        type: "split",
+        direction: "horizontal",
+        ratio: 0.5,
+        first: {
+          type: "split",
+          direction: "vertical",
+          ratio: 0.5,
+          first: { type: "group", items: ["left-top"], active: "left-top" },
+          second: { type: "group", items: ["left-bottom"], active: "left-bottom" },
+        },
+        second: {
+          type: "split",
+          direction: "vertical",
+          ratio: 0.51,
+          first: { type: "group", items: ["right-top"], active: "right-top" },
+          second: { type: "group", items: ["right-bottom"], active: "right-bottom" },
+        },
+      },
+    });
+    const ids = ["left-top", "left-bottom", "right-top", "right-bottom"];
+    const dispose = render(
+      () =>
+        createComponent(Panes, {
+          get layout() {
+            return layout();
+          },
+          onLayoutChange: setLayout,
+          items: ids.map((id) => ({ id, title: id, render: () => id })),
+        }),
+      dom.root,
+    );
+    const verticalSplits = Array.from(dom.root.querySelectorAll<HTMLElement>('.k2b-panes__split[data-direction="vertical"]'));
+    if (verticalSplits.length !== 2) throw new Error(dom.root.innerHTML);
+    const leftSeparator = verticalSplits[0]!.querySelector<HTMLElement>(":scope > .k2b-panes__separator");
+    const rightSeparator = verticalSplits[1]!.querySelector<HTMLElement>(":scope > .k2b-panes__separator");
+    if (!leftSeparator || !rightSeparator) throw new Error("Expected neighboring horizontal separators");
+    verticalSplits[0]!.getBoundingClientRect = () => rect(0, 0, 496, 600);
+    verticalSplits[1]!.getBoundingClientRect = () => rect(504, 0, 496, 600);
+    leftSeparator.getBoundingClientRect = () => rect(0, 296, 496, 8);
+    rightSeparator.getBoundingClientRect = () => rect(504, 302, 496, 8);
+    const resizeKeyDown = (rightSeparator as HTMLElement & { $$keydown?: (event: KeyboardEvent) => void }).$$keydown;
+    expect(typeof resizeKeyDown).toBe("function");
+    resizeKeyDown?.(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+    await Promise.resolve();
+    const snappedRoot = layout().root;
+    if (snappedRoot?.type !== "split" || snappedRoot.second.type !== "split") throw new Error("Expected nested split layout");
+    expect(snappedRoot.second.ratio).toBe(0.5);
+    resizeKeyDown?.(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    await Promise.resolve();
+    const releasedRoot = layout().root;
+    if (releasedRoot?.type !== "split" || releasedRoot.second.type !== "split") throw new Error("Expected nested split layout");
+    expect(releasedRoot.second.ratio).toBe(0.52);
+    setLayout({ version: 2, root: { ...releasedRoot, second: { ...releasedRoot.second, ratio: 0.51 } } });
+    await Promise.resolve();
+    const resizePointerDown = (rightSeparator as HTMLElement & { $$pointerdown?: (event: PointerEvent) => void }).$$pointerdown;
+    expect(typeof resizePointerDown).toBe("function");
+    resizePointerDown?.(
+      new dom.window.PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        clientX: 750,
+        clientY: 306,
+        pointerId: 9,
+        pointerType: "mouse",
+        isPrimary: true,
+      }) as unknown as PointerEvent,
+    );
+    dom.window.dispatchEvent(
+      new dom.window.PointerEvent("pointermove", {
+        clientX: 750,
+        clientY: 305,
+        pointerId: 9,
+        pointerType: "mouse",
+        isPrimary: true,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    dom.window.dispatchEvent(
+      new dom.window.PointerEvent("pointerup", {
+        clientX: 750,
+        clientY: 305,
+        pointerId: 9,
+        pointerType: "mouse",
+        isPrimary: true,
+      }),
+    );
+    await Promise.resolve();
+    const pointerSnappedRoot = layout().root;
+    if (pointerSnappedRoot?.type !== "split" || pointerSnappedRoot.second.type !== "split") throw new Error("Expected nested split layout");
+    expect(pointerSnappedRoot.second.ratio).toBe(0.5);
+    dispose();
+    dom.cleanup();
+  });
+
+  test("snaps neighboring nested split widths on the same runtime geometry", async () => {
+    const dom = createDomTestHarness();
+    const { default: Panes } = await import("../src/layout/Panes");
+    const [layout, setLayout] = createSignal<PanesLayout>({
+      version: 2,
+      root: {
+        type: "split",
+        direction: "vertical",
+        ratio: 0.5,
+        first: {
+          type: "split",
+          direction: "horizontal",
+          ratio: 0.5,
+          first: { type: "group", items: ["top-left"], active: "top-left" },
+          second: { type: "group", items: ["top-right"], active: "top-right" },
+        },
+        second: {
+          type: "split",
+          direction: "horizontal",
+          ratio: 0.51,
+          first: { type: "group", items: ["bottom-left"], active: "bottom-left" },
+          second: { type: "group", items: ["bottom-right"], active: "bottom-right" },
+        },
+      },
+    });
+    const ids = ["top-left", "top-right", "bottom-left", "bottom-right"];
+    const dispose = render(
+      () =>
+        createComponent(Panes, {
+          get layout() {
+            return layout();
+          },
+          onLayoutChange: setLayout,
+          items: ids.map((id) => ({ id, title: id, render: () => id })),
+        }),
+      dom.root,
+    );
+    const horizontalSplits = Array.from(dom.root.querySelectorAll<HTMLElement>('.k2b-panes__split[data-direction="horizontal"]'));
+    if (horizontalSplits.length !== 2) throw new Error(dom.root.innerHTML);
+    const topSeparator = horizontalSplits[0]!.querySelector<HTMLElement>(":scope > .k2b-panes__separator");
+    const bottomSeparator = horizontalSplits[1]!.querySelector<HTMLElement>(":scope > .k2b-panes__separator");
+    if (!topSeparator || !bottomSeparator) throw new Error("Expected neighboring vertical separators");
+    horizontalSplits[0]!.getBoundingClientRect = () => rect(0, 0, 1000, 296);
+    horizontalSplits[1]!.getBoundingClientRect = () => rect(0, 304, 1000, 296);
+    topSeparator.getBoundingClientRect = () => rect(496, 0, 8, 296);
+    bottomSeparator.getBoundingClientRect = () => rect(506, 304, 8, 296);
+    const resizePointerDown = (bottomSeparator as HTMLElement & { $$pointerdown?: (event: PointerEvent) => void }).$$pointerdown;
+    if (!resizePointerDown) throw new Error("Expected pointer resize handler");
+    resizePointerDown(
+      new dom.window.PointerEvent("pointerdown", {
+        bubbles: true,
+        button: 0,
+        clientX: 510,
+        clientY: 450,
+        pointerId: 10,
+        pointerType: "mouse",
+        isPrimary: true,
+      }) as unknown as PointerEvent,
+    );
+    dom.window.dispatchEvent(
+      new dom.window.PointerEvent("pointermove", {
+        clientX: 505,
+        clientY: 450,
+        pointerId: 10,
+        pointerType: "mouse",
+        isPrimary: true,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    dom.window.dispatchEvent(new dom.window.PointerEvent("pointerup", { pointerId: 10, pointerType: "mouse", isPrimary: true }));
+    await Promise.resolve();
+    const snappedRoot = layout().root;
+    if (snappedRoot?.type !== "split" || snappedRoot.second.type !== "split") throw new Error("Expected nested split layout");
+    expect(snappedRoot.second.ratio).toBe(0.5);
+    dispose();
+    dom.cleanup();
+  });
+
   test("passes group and empty-workspace add targets to the consumer", async () => {
     const dom = createDomTestHarness();
     const { default: Panes } = await import("../src/layout/Panes");
