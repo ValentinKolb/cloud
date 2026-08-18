@@ -3,8 +3,10 @@ import { ChatActivity, ChatContextUsage, ChatMessage } from "./ChatPrimitives";
 import { ChatRoot } from "./ChatRoot";
 import { ChatTimeline } from "./ChatTimeline";
 
-export type { ChatCommand, ChatCommandContext, ChatComposerProps, ChatFileSelection } from "./ChatComposer";
+export type { ChatCommand, ChatCommandContext, ChatComposerProps, ChatFileSelection, ChatPasteHandler } from "./ChatComposer";
 export type { ChatActivityProps, ChatContextUsageProps, ChatMessageProps } from "./ChatPrimitives";
+export { formatChatTokens } from "./ChatPrimitives";
+export type { ChatRootProps } from "./ChatRoot";
 export type { ChatActivityItem, ChatMessageItem, ChatTimelineItem, ChatTimelineProps } from "./ChatTimeline";
 export type {
   ChatAction,
@@ -19,9 +21,6 @@ export type {
   ChatSubmitIntent,
   ChatUsage,
 } from "./types";
-export { formatChatTokens } from "./ChatPrimitives";
-
-export type { ChatRootProps } from "./ChatRoot";
 
 /**
  * Portable, controlled chat surface. Applications own storage, streaming,

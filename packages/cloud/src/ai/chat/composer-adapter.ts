@@ -15,6 +15,11 @@ import {
 
 export type { AiComposerAttachment } from "./message-utils";
 
+export const AI_PASTED_TEXT_ATTACHMENT_THRESHOLD = 8_000;
+export const AI_COMPOSER_TEXT_MAX_CHARS = 20_000;
+const AI_COMPOSER_TEXT_MAX_BYTES = AI_COMPOSER_TEXT_MAX_CHARS * 4;
+const AI_PASTED_TEXT_FILE_NAME = /^pasted-(?:text|[a-f0-9]{8})(?:-\d+)?\.txt$/i;
+
 export type AiComposerSendInput = {
   message?: string;
   content?: AiUserContentPart[];
@@ -41,17 +46,51 @@ export const aiChatModelOptions = (profiles: readonly AiPublicModelProfile[]): C
     capabilities: profile.capabilities,
   }));
 
-export const aiChatAttachments = (attachments: readonly AiComposerAttachment[]): ChatAttachment[] =>
+const isTextAttachment = (
+  attachment: AiComposerAttachment,
+): attachment is Extract<AiComposerAttachment, { kind: "file" | "stored-file" }> =>
+  (attachment.kind === "file" || attachment.kind === "stored-file") &&
+  (attachment.mediaType.startsWith("text/") || ["application/json", "application/xml", "application/yaml"].includes(attachment.mediaType));
+
+const attachmentName = (attachment: AiComposerAttachment): string =>
+  isTextAttachment(attachment) && AI_PASTED_TEXT_FILE_NAME.test(attachment.name) ? "Pasted text" : attachment.name;
+
+export const aiChatAttachments = (
+  attachments: readonly AiComposerAttachment[],
+  options: { onShowText?: (attachment: AiComposerAttachment) => void | Promise<void> } = {},
+): ChatAttachment[] =>
   attachments.map((attachment) => ({
     id: attachment.id,
-    name: attachment.name,
+    name: attachmentName(attachment),
     size: "size" in attachment ? attachment.size : undefined,
     kind: attachment.kind === "image" ? "image" : attachment.kind === "resource" ? "resource" : "file",
-    icon: attachment.kind === "image" ? "ti ti-photo" : attachment.icon.startsWith("ti ") ? attachment.icon : `ti ${attachment.icon}`,
+    icon:
+      attachment.kind === "image"
+        ? "ti ti-photo"
+        : isTextAttachment(attachment)
+          ? "ti ti-file-text"
+          : attachment.icon.startsWith("ti ")
+            ? attachment.icon
+            : `ti ${attachment.icon}`,
     href: attachment.kind === "resource" ? attachment.href : undefined,
     previewUrl: attachment.kind === "image" ? imageSrc(attachment) : undefined,
     data: attachment,
+    action:
+      options.onShowText && isTextAttachment(attachment) && attachment.size <= AI_COMPOSER_TEXT_MAX_BYTES
+        ? {
+            id: "show-text",
+            label: "Show in text field",
+            icon: "ti ti-text-plus",
+            onSelect: () => options.onShowText?.(attachment),
+          }
+        : undefined,
   }));
+
+export const createAiPastedTextFile = (text: string): File =>
+  new File([text], `pasted-${crypto.randomUUID().replaceAll("-", "").slice(0, 8)}.txt`, { type: "text/plain" });
+
+export const shouldAttachAiPastedText = (text: string, currentTextLength = 0): boolean =>
+  text.length >= AI_PASTED_TEXT_ATTACHMENT_THRESHOLD || currentTextLength + text.length > AI_COMPOSER_TEXT_MAX_CHARS;
 
 const isAiComposerAttachment = (value: unknown): value is AiComposerAttachment => {
   if (!value || typeof value !== "object") return false;

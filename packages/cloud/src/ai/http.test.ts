@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { AiCreateConversationInputSchema, AiSteerInputSchema, AiTurnInputSchema, aiTurnInputToContent } from "./http";
+import { AI_TURN_ATTACHMENT_MAX_ITEMS } from "./limits";
 
 describe("AI HTTP input helpers", () => {
   test("keeps the message when content contains only file references", () => {
@@ -35,6 +36,26 @@ describe("AI HTTP input helpers", () => {
         content: [{ type: "file", mediaType: "image/svg+xml", data: "abc123" }],
       }),
     ).toThrow();
+  });
+
+  test("accepts sixteen attachments and rejects a seventeenth", () => {
+    const attachment = (index: number) => ({
+      type: "attachment" as const,
+      path: `/file-${index}.txt`,
+      mediaType: "text/plain",
+      size: 1,
+    });
+    expect(
+      AiTurnInputSchema.parse({
+        message: "Review these files",
+        content: Array.from({ length: AI_TURN_ATTACHMENT_MAX_ITEMS }, (_, index) => attachment(index)),
+      }).content,
+    ).toHaveLength(AI_TURN_ATTACHMENT_MAX_ITEMS);
+    expect(() =>
+      AiTurnInputSchema.parse({
+        content: Array.from({ length: AI_TURN_ATTACHMENT_MAX_ITEMS + 1 }, (_, index) => attachment(index)),
+      }),
+    ).toThrow(`A turn can attach at most ${AI_TURN_ATTACHMENT_MAX_ITEMS} files`);
   });
 
   test("accepts a project only when creating a conversation", () => {
@@ -81,13 +102,23 @@ describe("AI HTTP input helpers", () => {
     expect(() =>
       AiCreateConversationInputSchema.parse({
         draft: {
-          content: Array.from({ length: 9 }, (_, index) => ({
+          content: Array.from({ length: AI_TURN_ATTACHMENT_MAX_ITEMS + 1 }, (_, index) => ({
             type: "resource",
             ref: { type: "mail.draft", id: `Draft${index}` },
           })),
         },
       }),
     ).toThrow();
+    expect(
+      AiCreateConversationInputSchema.parse({
+        draft: {
+          content: Array.from({ length: AI_TURN_ATTACHMENT_MAX_ITEMS }, (_, index) => ({
+            type: "resource" as const,
+            ref: { type: "mail.draft", id: `Allowed${index}` },
+          })),
+        },
+      }).draft?.content,
+    ).toHaveLength(AI_TURN_ATTACHMENT_MAX_ITEMS);
   });
 
   test("accepts only the predefined optional local client tool", () => {

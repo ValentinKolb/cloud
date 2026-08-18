@@ -34,6 +34,14 @@ Every structured chat action declares exactly one behavior: `onSelect` for an
 application callback or `copyText` for clipboard content. The same contract is
 used by message, menu, and context actions.
 
+Pasted files use the same `fileSelection.onSelect` callback as the file picker
+and drag-and-drop. Use the generic `onPaste` seam only for non-file content;
+call `preventDefault()` synchronously only when the application replaces the
+native paste. Attachments may expose one compact application-owned action such
+as moving a text attachment back into the message field. Composer attachments
+stay on one horizontally scrollable row, and the controlled text field grows
+up to approximately fifteen visible lines.
+
 `Chat.Timeline` follows new messages while the reader remains near the bottom. Set `hasMore` and `onLoadOlder` to load history while preserving the visible scroll position.
 
 On hover-capable fine pointers, the timeline keeps its scrollbar thumb hidden
@@ -56,7 +64,9 @@ User metadata appears on hover or keyboard focus and remains visible on devices 
 
 Initial messages render on the server. Editing, commands, scrolling, file selection, menus, model changes, and submission require hydration.
 
-Raw files are handed to `fileSelection.onSelect`. The package never uploads, persists, streams, authorizes, retries, or executes tools.
+Raw files selected, dropped, or pasted are handed to
+`fileSelection.onSelect`. The package never uploads, persists, streams,
+authorizes, retries, or executes tools.
 
 The family uses `--k2b-ai-accent`, `--k2b-ai-accent-hover`, `--k2b-ai-border`, and `--k2b-ai-surface`, which can be themed independently from the general accent stack.
 

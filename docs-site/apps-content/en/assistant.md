@@ -19,7 +19,11 @@ available when the work continues later.
 - Start a chat from a suggested task or write your own request. Before the first
   message, optionally choose a Project below the composer to use its shared
   context.
-- Attach source files when the answer must use material beyond the message.
+- Attach source files or Cloud resources when the answer must use material
+  beyond the message. Files and screenshots can also be pasted directly into
+  the composer. A long plain-text paste becomes a durable **Pasted text** attachment;
+  **Show in text field** moves a bounded text attachment back into the draft.
+  Up to 16 attachments remain in one horizontally scrollable row.
 - Return to saved work through the 15 general chats in the sidebar, Project branches, search, or **See all** for the full chat list.
 - Fork a useful point when another direction should not replace the existing
   conversation.

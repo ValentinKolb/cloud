@@ -59,13 +59,19 @@ afterEach(() => {
 describe("Cloud resource clipboard browser adapter", () => {
   it("writes the resource format and a plain-text fallback together", async () => {
     const ref = { type: "grids.record", id: "A8vcaK" };
-    await writeCloudResourceClipboard({ ref, fallbackText: "https://cloud.example/app/grids?record=A8vcaK" });
+    await writeCloudResourceClipboard({
+      cloudUrl: "https://cloud.example",
+      ref,
+      fallbackText: "https://cloud.example/app/grids?record=A8vcaK",
+    });
 
     expect(writtenItems).toHaveLength(1);
     const item = writtenItems[0]?.[0];
     expect(item?.types).toEqual([CLOUD_RESOURCE_CLIPBOARD_WEB_FORMAT, "text/plain"]);
     expect((await item?.getType(CLOUD_RESOURCE_CLIPBOARD_WEB_FORMAT))?.type).toBe(CLOUD_RESOURCE_CLIPBOARD_MIME_TYPE);
-    expect(await (await item?.getType(CLOUD_RESOURCE_CLIPBOARD_WEB_FORMAT))?.text()).toBe(serializeCloudResourceClipboard(ref));
+    expect(await (await item?.getType(CLOUD_RESOURCE_CLIPBOARD_WEB_FORMAT))?.text()).toBe(
+      serializeCloudResourceClipboard({ cloudUrl: "https://cloud.example", ref }),
+    );
     expect(await (await item?.getType("text/plain"))?.text()).toBe("https://cloud.example/app/grids?record=A8vcaK");
     expect(writtenText).toEqual([]);
   });
@@ -74,6 +80,7 @@ describe("Cloud resource clipboard browser adapter", () => {
     TestClipboardItem.supported = false;
 
     await writeCloudResourceClipboard({
+      cloudUrl: "https://cloud.example",
       ref: { type: "grids.record", id: "A8vcaK" },
       fallbackText: "https://cloud.example/app/grids?record=A8vcaK",
     });
@@ -85,15 +92,19 @@ describe("Cloud resource clipboard browser adapter", () => {
   it("reads only the exact structured format", async () => {
     const ref = { type: "grids.record", id: "A8vcaK" };
     const item = new TestClipboardItem({
-      [CLOUD_RESOURCE_CLIPBOARD_WEB_FORMAT]: new Blob([serializeCloudResourceClipboard(ref)], {
+      [CLOUD_RESOURCE_CLIPBOARD_WEB_FORMAT]: new Blob([serializeCloudResourceClipboard({ cloudUrl: "https://cloud.example", ref })], {
         type: CLOUD_RESOURCE_CLIPBOARD_MIME_TYPE,
       }),
       "text/plain": new Blob(["Camera"], { type: "text/plain" }),
     });
 
-    expect(await readCloudResourceClipboard([item])).toEqual(ref);
+    expect(await readCloudResourceClipboard("https://cloud.example", [item])).toEqual(ref);
     expect(
-      await readCloudResourceClipboard([new TestClipboardItem({ "text/plain": new Blob([serializeCloudResourceClipboard(ref)]) })]),
+      await readCloudResourceClipboard("https://cloud.example", [
+        new TestClipboardItem({
+          "text/plain": new Blob([serializeCloudResourceClipboard({ cloudUrl: "https://cloud.example", ref })]),
+        }),
+      ]),
     ).toBeNull();
   });
 
@@ -104,6 +115,41 @@ describe("Cloud resource clipboard browser adapter", () => {
       }),
     });
 
-    expect(await readCloudResourceClipboard([item])).toBeNull();
+    expect(await readCloudResourceClipboard("https://cloud.example", [item])).toBeNull();
+  });
+
+  it("rejects references copied from another configured Cloud URL", async () => {
+    const item = new TestClipboardItem({
+      [CLOUD_RESOURCE_CLIPBOARD_WEB_FORMAT]: new Blob(
+        [
+          serializeCloudResourceClipboard({
+            cloudUrl: "https://other.cloud.example",
+            ref: { type: "grids.record", id: "A8vcaK" },
+          }),
+        ],
+        { type: CLOUD_RESOURCE_CLIPBOARD_MIME_TYPE },
+      ),
+    });
+
+    expect(await readCloudResourceClipboard("https://cloud.example", [item])).toBeNull();
+  });
+
+  it("falls back to plain text when ClipboardItem.supports is unavailable", async () => {
+    Object.defineProperty(TestClipboardItem, "supports", { configurable: true, writable: true, value: undefined });
+
+    await writeCloudResourceClipboard({
+      cloudUrl: "https://cloud.example",
+      ref: { type: "grids.record", id: "A8vcaK" },
+      fallbackText: "https://cloud.example/app/grids?record=A8vcaK",
+    });
+
+    expect(writtenItems).toEqual([]);
+    expect(writtenText).toEqual(["https://cloud.example/app/grids?record=A8vcaK"]);
+
+    Object.defineProperty(TestClipboardItem, "supports", {
+      configurable: true,
+      writable: true,
+      value: (_type: string) => TestClipboardItem.supported,
+    });
   });
 });

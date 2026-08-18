@@ -1,15 +1,88 @@
 import { describe, expect, test } from "bun:test";
 import {
+  AI_COMPOSER_TEXT_MAX_CHARS,
+  AI_PASTED_TEXT_ATTACHMENT_THRESHOLD,
   type AiComposerAttachment,
   aiChatAttachments,
   aiChatModelOptions,
   aiComposerAttachmentRecords,
   aiComposerFileAccept,
   aiComposerSendInput,
+  createAiPastedTextFile,
   readAiComposerFiles,
+  shouldAttachAiPastedText,
 } from "./composer-adapter";
 
 describe("Cloud chat composer adapter", () => {
+  test("promotes long or overflowing pasted text to one plain-text file", () => {
+    expect(shouldAttachAiPastedText("short", 0)).toBe(false);
+    expect(shouldAttachAiPastedText("x".repeat(AI_PASTED_TEXT_ATTACHMENT_THRESHOLD), 0)).toBe(true);
+    expect(shouldAttachAiPastedText("extra", AI_COMPOSER_TEXT_MAX_CHARS - 2)).toBe(true);
+    const file = createAiPastedTextFile("long text");
+    expect(file.name).toMatch(/^pasted-[a-f0-9]{8}\.txt$/);
+    expect(createAiPastedTextFile("another paste").name).not.toBe(file.name);
+    expect({ type: file.type, size: file.size }).toEqual({ type: "text/plain;charset=utf-8", size: 9 });
+  });
+
+  test("offers a reversible text-field action for bounded text attachments", () => {
+    let selected = "";
+    const file = createAiPastedTextFile("long text");
+    const [attachment] = aiChatAttachments(
+      [
+        {
+          kind: "file",
+          id: "paste",
+          name: file.name,
+          size: file.size,
+          mediaType: file.type,
+          file,
+          icon: "ti ti-file-text",
+        },
+      ],
+      {
+        onShowText: (item) => {
+          selected = item.id;
+        },
+      },
+    );
+
+    expect(attachment?.name).toBe("Pasted text");
+    expect(attachment?.action?.label).toBe("Show in text field");
+    expect(attachment?.icon).toBe("ti ti-file-text");
+    if (attachment?.action?.onSelect) attachment.action.onSelect();
+    expect(selected).toBe("paste");
+  });
+
+  test("keeps pasted text labels stable after older uploads reload", () => {
+    const attachment = aiChatAttachments([
+      {
+        kind: "stored-file",
+        id: "stored-paste",
+        name: "pasted-text-3.txt",
+        path: "/pasted-text-3.txt",
+        size: 9,
+        mediaType: "text/plain",
+        version: 1,
+        icon: "ti ti-file-text",
+      },
+    ])[0];
+    const ordinary = aiChatAttachments([
+      {
+        kind: "stored-file",
+        id: "notes",
+        name: "notes.txt",
+        path: "/notes.txt",
+        size: 9,
+        mediaType: "text/plain",
+        version: 1,
+        icon: "ti ti-file-text",
+      },
+    ])[0];
+
+    expect(attachment?.name).toBe("Pasted text");
+    expect(ordinary?.name).toBe("notes.txt");
+  });
+
   test("maps model profiles without leaking the Cloud profile contract", () => {
     expect(
       aiChatModelOptions([

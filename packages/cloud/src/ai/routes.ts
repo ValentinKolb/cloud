@@ -930,29 +930,21 @@ export const aiRoutes = (() => {
           return respond(c, fail(err.badInput(`File exceeds the ${Math.floor(AI_FILES_MAX_FILE_BYTES_DEFAULT / (1024 * 1024))} MB limit`)));
         }
         const name = (file.name || "upload").replaceAll("/", "_").replaceAll("\\", "_").replaceAll("\0", "").slice(0, 160) || "upload";
-        let path = normalizeAiFilePath(`/${name}`);
+        const path = normalizeAiFilePath(`/${name}`);
         if (!path) return respond(c, fail(err.badInput("Invalid file name")));
         if (aiProjectFilePathFromMount(path) !== null) return respond(c, fail(err.badInput("The /project namespace is reserved.")));
-        // Keep multiple same-named uploads apart: report.csv → report-2.csv.
-        for (let attempt = 2; (await aiFileStore.stat({ conversationId: conversation.id, path })) && attempt < 100; attempt++) {
-          const dot = name.lastIndexOf(".");
-          const suffixed = dot > 0 ? `${name.slice(0, dot)}-${attempt}${name.slice(dot)}` : `${name}-${attempt}`;
-          path = normalizeAiFilePath(`/${suffixed}`) ?? path;
-        }
 
         try {
-          await aiFileStore.write({
+          const stat = await aiFileStore.createUserUpload({
             conversationId: conversation.id,
             path,
             bytes: new Uint8Array(await file.arrayBuffer()),
             mediaType: file.type || guessAiMediaType(path),
-            origin: "user",
           });
+          return respond(c, ok({ file: stat }));
         } catch (error) {
           return respond(c, fail(err.badInput(error instanceof Error ? error.message : "Upload failed")));
         }
-        const stat = await aiFileStore.stat({ conversationId: conversation.id, path });
-        return respond(c, ok({ file: stat }));
       })
       .get("/conversations/:conversationId/files/content", v("query", FilePathQuerySchema), async (c) => {
         const ctx = await resolveContext(c);

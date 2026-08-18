@@ -82,14 +82,26 @@ export const AiClientToolIdSchema = z.enum(["local_bash"] satisfies [AiClientToo
 export const AiTurnInputSchema = z
   .object({
     message: z.string().trim().max(20000).optional(),
-    content: z.array(AiUserContentPartSchema).min(1).max(12).optional(),
+    content: z
+      .array(AiUserContentPartSchema)
+      .min(1)
+      .max(AI_TURN_ATTACHMENT_MAX_ITEMS + 1)
+      .optional(),
     modelProfileId: z.string().trim().min(1).optional(),
     clientToolIds: z.array(AiClientToolIdSchema).max(1).optional(),
   })
   .refine((input) => Boolean(input.message?.trim() || input.content?.length), {
     message: "Message or content is required.",
     path: ["message"],
-  });
+  })
+  .refine(
+    (input) =>
+      (input.content?.filter((part) => typeof part !== "string" && part.type === "attachment").length ?? 0) <= AI_TURN_ATTACHMENT_MAX_ITEMS,
+    {
+      message: `A turn can attach at most ${AI_TURN_ATTACHMENT_MAX_ITEMS} files`,
+      path: ["content"],
+    },
+  );
 
 export type AiTurnInput = z.infer<typeof AiTurnInputSchema>;
 
@@ -113,11 +125,24 @@ export type AiCompactionInput = z.infer<typeof AiCompactionInputSchema>;
 export const AiMessageRetryModeSchema = z.enum(["retry", "details", "concise"]);
 export type AiMessageRetryMode = z.infer<typeof AiMessageRetryModeSchema>;
 
-export const AiMessageRetryInputSchema = z.object({
-  mode: AiMessageRetryModeSchema.default("retry"),
-  content: z.array(AiUserContentPartSchema).min(1).max(12).optional(),
-  modelProfileId: z.string().trim().min(1).optional(),
-});
+export const AiMessageRetryInputSchema = z
+  .object({
+    mode: AiMessageRetryModeSchema.default("retry"),
+    content: z
+      .array(AiUserContentPartSchema)
+      .min(1)
+      .max(AI_TURN_ATTACHMENT_MAX_ITEMS + 1)
+      .optional(),
+    modelProfileId: z.string().trim().min(1).optional(),
+  })
+  .refine(
+    (input) =>
+      (input.content?.filter((part) => typeof part !== "string" && part.type === "attachment").length ?? 0) <= AI_TURN_ATTACHMENT_MAX_ITEMS,
+    {
+      message: `A retry can attach at most ${AI_TURN_ATTACHMENT_MAX_ITEMS} files`,
+      path: ["content"],
+    },
+  );
 
 export type AiMessageRetryInput = z.infer<typeof AiMessageRetryInputSchema>;
 

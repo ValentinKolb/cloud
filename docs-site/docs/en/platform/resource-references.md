@@ -28,10 +28,17 @@ Use the browser-only resource clipboard entry point:
 import { cloudResourceClipboard } from "@valentinkolb/cloud/browser/resource-clipboard";
 
 await cloudResourceClipboard.write({
+  cloudUrl,
   ref: { type: "inventory.item", id: item.id },
-  fallbackText: new URL(`/app/inventory/items/${item.id}`, location.origin).href,
+  fallbackText: new URL(`/app/inventory/items/${item.id}`, cloudUrl).href,
 });
 ```
+
+`cloudUrl` is the canonical public origin derived on the server from the Core
+setting `app.url`, for example with `publicCloudOrigin(await
+coreSettings.get<string>("app.url"))`, and passed into the island. Never derive
+it from `window.location`: gateway aliases and another Cloud installation may
+serve the same application route.
 
 Cloud writes the versioned JSON representation as
 `web application/vnd.k2b.cloud-resource-ref+json` and writes `fallbackText` as
@@ -44,6 +51,7 @@ The version 1 custom representation contains exactly this JSON shape:
 ```json
 {
   "version": 1,
+  "cloudUrl": "https://cloud.example",
   "ref": {
     "type": "inventory.item",
     "id": "k3P9xQ"
@@ -51,9 +59,12 @@ The version 1 custom representation contains exactly this JSON shape:
 }
 ```
 
-Do not add titles, URLs, snapshots, permissions, or reader names to this
-payload. They either become stale or duplicate the live capability manifest.
-The separate `text/plain` representation owns the human-usable fallback.
+`cloudUrl` scopes the identity to one configured Cloud installation. A reader
+accepts the structured reference only when it matches its own configured
+`app.url`; cross-installation paste retains the normal URL fallback. Do not add
+titles, resource URLs, snapshots, permissions, or reader names to this payload.
+They either become stale or duplicate the live capability manifest. The
+separate `text/plain` representation owns the human-usable fallback.
 
 Solid islands can use the generic stdlib writer for transient success and
 error state without creating an application-local timer:
@@ -68,6 +79,7 @@ const resourceCopy = clipboard.createWriter({
 });
 
 await resourceCopy.copy({
+  cloudUrl,
   ref: { type: "inventory.item", id: item.id },
   fallbackText: itemUrl,
 });
@@ -79,7 +91,7 @@ resourceCopy.error(); // the latest Clipboard API failure, if any
 ## Read a reference
 
 ```ts
-const ref = await cloudResourceClipboard.read();
+const ref = await cloudResourceClipboard.read(cloudUrl);
 if (ref) await attachResource(ref);
 ```
 
@@ -89,7 +101,7 @@ as identity. A paste surface may pass already-read `ClipboardItem` objects to
 avoid a second read:
 
 ```ts
-const ref = await cloudResourceClipboard.read(items);
+const ref = await cloudResourceClipboard.read(cloudUrl, items);
 ```
 
 Use `parse()` and `serialize()` only when code already owns the raw custom
@@ -101,42 +113,31 @@ Do not install a global paste interceptor. Resource-aware editors and pickers
 should opt into recognition; ordinary text controls retain normal paste
 behavior.
 
-The asynchronous Clipboard API may require permission and returns after the
-browser's synchronous `paste` event has continued. A text-based editor that
-wants automatic recognition must therefore prevent its own paste immediately,
-try the structured read, and explicitly restore the captured plain text when
-the custom format is absent or cannot be read:
+Prefer the synchronous `clipboardData` supplied by the user-initiated paste
+event. Only prevent the default paste after the exact custom representation was
+read and accepted for the configured Cloud URL. Normal text keeps the browser's
+native cursor, selection, and undo behavior:
 
 ```ts
-import type { CloudResourceRef } from "@valentinkolb/cloud/contracts";
 import { cloudResourceClipboard } from "@valentinkolb/cloud/browser/resource-clipboard";
 
-const onPaste = async (event: ClipboardEvent) => {
+const onPaste = (event: ClipboardEvent) => {
   const clipboardData = event.clipboardData;
-  if (!clipboardData?.types.includes("text/plain")) return;
-
-  const fallbackText = clipboardData.getData("text/plain");
+  if (!clipboardData?.types.includes(cloudResourceClipboard.webFormat)) return;
+  const ref = cloudResourceClipboard.parse(
+    clipboardData.getData(cloudResourceClipboard.webFormat),
+    cloudUrl,
+  );
+  if (!ref) return;
   event.preventDefault();
-
-  let ref: CloudResourceRef | null = null;
-  try {
-    ref = await cloudResourceClipboard.read();
-  } catch {
-    // An unavailable or denied structured read keeps normal text paste.
-  }
-
-  if (ref) {
-    await attachResource(ref);
-    return;
-  }
-
-  insertPlainTextAtSelection(fallbackText);
+  void attachResource(ref);
 };
 ```
 
-`attachResource()` and `insertPlainTextAtSelection()` are editor-owned
-operations in this example. A rich-text editor must restore its own normal
-paste representations instead of reducing them to plain text.
+Browsers may omit custom representations from the paste event. Resource-aware
+surfaces should therefore offer an explicit **Paste Cloud resource** action
+that calls `read(cloudUrl)` from the user gesture. Do not invoke the
+permission-controlled asynchronous read for every ordinary text paste.
 
 Recognizing the payload establishes identity only. Treat it as untrusted input,
 resolve the current canonical reader from the live manifest, and let the owning

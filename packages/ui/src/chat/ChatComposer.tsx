@@ -5,7 +5,7 @@ import { ChatContextUsage as ContextUsage } from "./ChatPrimitives";
 import { executeChatAction, filterChatCommands, nextChatCommandIndex, reportChatFailure, runChatSubmission } from "./chat-behavior";
 import type { ChatAction, ChatAttachment, ChatComposerState, ChatContextUsageData, ChatModelOption, ChatSubmitInput } from "./types";
 
-const composerMaxInputHeight = 384;
+const composerMaxInputHeight = 309;
 
 export type ChatCommandContext = {
   setValue: (value: string) => void;
@@ -29,6 +29,8 @@ export type ChatFileSelection = {
   label?: string;
 };
 
+export type ChatPasteHandler = (event: ClipboardEvent & { currentTarget: HTMLTextAreaElement; target: Element }) => void;
+
 export type ChatComposerProps = {
   value: string;
   onValueChange: (value: string) => void;
@@ -41,6 +43,8 @@ export type ChatComposerProps = {
   attachments?: readonly ChatAttachment[];
   onAttachmentsChange?: (attachments: readonly ChatAttachment[]) => void;
   fileSelection?: ChatFileSelection;
+  /** Handle non-file clipboard content. Pasted files already use `fileSelection`. */
+  onPaste?: ChatPasteHandler;
   menuActions?: readonly ChatAction[];
   models?: readonly ChatModelOption[];
   selectedModelId?: string | null;
@@ -61,13 +65,6 @@ export type ChatComposerProps = {
 
 const attachmentIcon = (attachment: ChatAttachment): string =>
   attachment.icon ?? (attachment.kind === "image" ? "ti ti-photo" : attachment.kind === "resource" ? "ti ti-link" : "ti ti-file");
-
-const formatBytes = (bytes: number | undefined): string | null => {
-  if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes < 0) return null;
-  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
-  if (bytes >= 1_000) return `${Math.round(bytes / 1_000)} KB`;
-  return `${Math.round(bytes)} B`;
-};
 
 export function ChatComposer(props: ChatComposerProps): JSX.Element {
   const commandListId = `k2b-chat-commands-${createUniqueId().replace(/[^A-Za-z0-9_-]/g, "-")}`;
@@ -145,6 +142,11 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   });
 
   createEffect(() => {
+    props.value;
+    queueMicrotask(autoResize);
+  });
+
+  createEffect(() => {
     props.focusToken;
     if (props.focusToken !== undefined) queueMicrotask(focus);
   });
@@ -166,6 +168,12 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   });
 
   const setAttachments = (next: readonly ChatAttachment[]) => props.onAttachmentsChange?.(next);
+
+  const renderAttachmentCopy = (attachment: ChatAttachment) => (
+    <span>
+      <strong title={attachment.name}>{attachment.name}</strong>
+    </span>
+  );
 
   const runFiles = async (files: FileList | readonly File[]) => {
     if (!canSelectFiles()) return;
@@ -295,51 +303,64 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
       </Show>
 
       <Show when={attachments().length > 0}>
-        <div class="k2b-chat-composer__attachments" role="list" aria-label="Attachments">
+        <div class="k2b-chat-composer__attachments" role="list" aria-label="Attachments" tabIndex={0}>
           <For each={attachments()}>
             {(attachment) => (
               <div class="k2b-chat-composer__attachment" role="listitem">
-                <Show
-                  when={attachment.href}
-                  fallback={
-                    <>
-                      <Show
-                        when={attachment.kind === "image" && attachment.previewUrl}
-                        fallback={<i class={attachmentIcon(attachment)} aria-hidden="true" />}
-                      >
-                        <img src={attachment.previewUrl} alt={attachment.alt ?? ""} />
-                      </Show>
-                      <span>
-                        <strong title={attachment.name}>{attachment.name}</strong>
-                        <Show when={formatBytes(attachment.size)}>{(size) => <small>{size()}</small>}</Show>
-                      </span>
-                    </>
-                  }
+                <div
+                  class="k2b-chat-composer__attachment-content"
+                  classList={{ "k2b-chat-composer__attachment-content--action": Boolean(attachment.action) }}
                 >
-                  {(href) => (
-                    <a
-                      class="k2b-chat-composer__attachment-link"
-                      href={href()}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={`Open ${attachment.name} in a new tab`}
-                    >
-                      <Show
-                        when={attachment.kind === "image" && attachment.previewUrl}
-                        fallback={<i class={attachmentIcon(attachment)} aria-hidden="true" />}
+                  <Show
+                    when={attachment.href}
+                    fallback={
+                      <div class="k2b-chat-composer__attachment-identity">
+                        <Show
+                          when={attachment.kind === "image" && attachment.previewUrl}
+                          fallback={<i class={attachmentIcon(attachment)} aria-hidden="true" />}
+                        >
+                          <img src={attachment.previewUrl} alt={attachment.alt ?? ""} />
+                        </Show>
+                        {renderAttachmentCopy(attachment)}
+                      </div>
+                    }
+                  >
+                    {(href) => (
+                      <a
+                        class="k2b-chat-composer__attachment-link"
+                        href={href()}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={`Open ${attachment.name} in a new tab`}
                       >
-                        <img src={attachment.previewUrl} alt={attachment.alt ?? ""} />
-                      </Show>
-                      <span>
-                        <strong title={attachment.name}>{attachment.name}</strong>
-                        <Show when={formatBytes(attachment.size)}>{(size) => <small>{size()}</small>}</Show>
-                      </span>
-                    </a>
-                  )}
-                </Show>
+                        <Show
+                          when={attachment.kind === "image" && attachment.previewUrl}
+                          fallback={<i class={attachmentIcon(attachment)} aria-hidden="true" />}
+                        >
+                          <img src={attachment.previewUrl} alt={attachment.alt ?? ""} />
+                        </Show>
+                        {renderAttachmentCopy(attachment)}
+                      </a>
+                    )}
+                  </Show>
+                  <Show when={attachment.action}>
+                    {(action) => (
+                      <button
+                        type="button"
+                        class="k2b-chat-composer__attachment-action"
+                        disabled={blocked() || action().disabled}
+                        onClick={() => reportChatFailure(() => executeChatAction(action()), props.onError)}
+                      >
+                        <Show when={action().icon}>{(icon) => <i class={icon()} aria-hidden="true" />}</Show>
+                        {action().label}
+                      </button>
+                    )}
+                  </Show>
+                </div>
                 <Show when={props.onAttachmentsChange}>
                   <button
                     type="button"
+                    class="k2b-chat-composer__attachment-remove"
                     aria-label={`Remove ${attachment.name}`}
                     disabled={blocked()}
                     onClick={() => setAttachments(attachments().filter((candidate) => candidate.id !== attachment.id))}
@@ -398,6 +419,15 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
           onInput={(event) => {
             props.onValueChange(event.currentTarget.value);
             autoResize();
+          }}
+          onPaste={(event) => {
+            const clipboardData = event.clipboardData;
+            if (canSelectFiles() && clipboardData?.files.length) {
+              event.preventDefault();
+              void runFiles(clipboardData.files);
+              return;
+            }
+            props.onPaste?.(event);
           }}
           onKeyDown={onKeyDown}
         />

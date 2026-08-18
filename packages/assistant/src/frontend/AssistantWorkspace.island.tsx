@@ -13,6 +13,7 @@ import type {
 import { type AiLiveServerMessage, parseAiLiveServerMessage } from "@valentinkolb/cloud/ai/live-events";
 import { createAiChatController } from "@valentinkolb/cloud/ai/solid";
 import {
+  AI_COMPOSER_TEXT_MAX_CHARS,
   AI_TURN_ATTACHMENT_MAX_ITEMS,
   AiChatActionsProvider,
   AiChatTurnNavigator,
@@ -25,9 +26,12 @@ import {
   aiComposerSendInput,
   aiLatestUsageSnapshot,
   createAiChatTimeline,
+  createAiPastedTextFile,
   readAiComposerFiles,
+  shouldAttachAiPastedText,
 } from "@valentinkolb/cloud/ai/ui";
 import { createLiveWebSocket, type LiveWebSocket } from "@valentinkolb/cloud/browser/live";
+import { cloudResourceClipboard } from "@valentinkolb/cloud/browser/resource-clipboard";
 import { openCloudResourcePicker } from "@valentinkolb/cloud/browser/resource-picker";
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
@@ -37,6 +41,7 @@ import type { AssistantSidebarSnapshot } from "../sidebar";
 import { openAssistantFilesDialog } from "./AssistantArtifactDetail";
 import { AssistantChatContextPanel, assistantChatContextHasPanel, openAssistantChatContextDialog } from "./AssistantChatContext";
 import { assistantMessageAnchorSeq, openAssistantChatMessageSearch } from "./AssistantChatMessageSearch";
+import { resolveAssistantCloudResource } from "./AssistantContextContent";
 import AssistantEmptyChat, { type AssistantStarterAction } from "./AssistantEmptyChat";
 import { openAssistantCreateProjectDialog } from "./AssistantProjectsDialog";
 import AssistantProjectView from "./AssistantProjectView";
@@ -76,6 +81,7 @@ type InitialDetail = {
 };
 
 type Props = {
+  cloudUrl: string;
   status: Status;
   models: AiPublicModelProfile[];
   /** Model of the user's most recent turn (any chat) — preselected for new chats. */
@@ -671,7 +677,102 @@ export default function AssistantWorkspace(props: Props) {
     }));
   };
 
+  const composerAttachmentsBlocked = (sessionKey: string) => chat.activeConversationId() === sessionKey && chat.running();
+
+  const requireComposerAttachmentsAvailable = (sessionKey: string) => {
+    if (!composerAttachmentsBlocked(sessionKey)) return true;
+    chat.setError("Attachments can be added after the current response finishes.");
+    return false;
+  };
+
+  const addResolvedComposerResource = async (sessionKey: string, ref: { type: string; id: string }) => {
+    if (!requireComposerAttachmentsAvailable(sessionKey)) return;
+    const current = composerAttachmentsFor(sessionKey);
+    if (current.some((item) => item.kind === "resource" && item.ref.type === ref.type && item.ref.id === ref.id)) {
+      chat.setError("This Cloud resource is already attached.");
+      return;
+    }
+    if (current.length >= AI_TURN_ATTACHMENT_MAX_ITEMS) {
+      chat.setError(`A message can attach at most ${AI_TURN_ATTACHMENT_MAX_ITEMS} items.`);
+      return;
+    }
+    const resource = await resolveAssistantCloudResource(ref);
+    const latest = composerAttachmentsFor(sessionKey);
+    if (latest.some((item) => item.kind === "resource" && item.ref.type === ref.type && item.ref.id === ref.id)) {
+      chat.setError("This Cloud resource is already attached.");
+      return;
+    }
+    if (latest.length >= AI_TURN_ATTACHMENT_MAX_ITEMS) {
+      chat.setError(`A message can attach at most ${AI_TURN_ATTACHMENT_MAX_ITEMS} items.`);
+      return;
+    }
+    setComposerAttachmentsFor(sessionKey, [
+      ...latest,
+      {
+        kind: "resource",
+        id: `resource:${resource.ref.type}:${resource.ref.id}`,
+        name: resource.title,
+        ref: resource.ref,
+        icon: resource.icon,
+        href: resource.href,
+      },
+    ]);
+  };
+
+  const showComposerTextAttachment = async (sessionKey: string, attachment: AiComposerAttachment) => {
+    let text: string;
+    if (attachment.kind === "file") {
+      text = await attachment.file.text();
+    } else if (attachment.kind === "stored-file") {
+      const conversationId = chat.activeConversationId();
+      if (!conversationId) throw new Error("Open the chat before showing this text attachment.");
+      const query = new URLSearchParams({ path: attachment.path });
+      const response = await fetch(`/api/ai/conversations/${encodeURIComponent(conversationId)}/files/content?${query}`);
+      if (!response.ok) throw new Error("The text attachment could not be loaded.");
+      text = await response.text();
+    } else {
+      return;
+    }
+    const currentText = composerDraft(sessionKey);
+    const nextText = currentText ? `${currentText}\n\n${text}` : text;
+    if (nextText.length > AI_COMPOSER_TEXT_MAX_CHARS) throw new Error("The text is too long to show in the message field.");
+    setComposerDraft(sessionKey, nextText);
+    setComposerAttachmentsFor(
+      sessionKey,
+      composerAttachmentsFor(sessionKey).filter((candidate) => candidate.id !== attachment.id),
+    );
+    focusComposer();
+  };
+
+  const pasteComposerContent = (sessionKey: string, event: ClipboardEvent) => {
+    const structured = [cloudResourceClipboard.webFormat, cloudResourceClipboard.mimeType]
+      .map((type) => event.clipboardData?.getData(type) ?? "")
+      .find(Boolean);
+    const ref = structured ? cloudResourceClipboard.parse(structured, props.cloudUrl) : null;
+    if (ref) {
+      event.preventDefault();
+      if (!requireComposerAttachmentsAvailable(sessionKey)) return;
+      void addResolvedComposerResource(sessionKey, ref).catch((error) =>
+        chat.setError(error instanceof Error ? error.message : "The Cloud resource could not be attached."),
+      );
+      return;
+    }
+    const text = event.clipboardData?.getData("text/plain") ?? "";
+    if (!text || !shouldAttachAiPastedText(text, composerDraft(sessionKey).length)) return;
+    event.preventDefault();
+    if (!requireComposerAttachmentsAvailable(sessionKey)) return;
+    void addComposerFiles(sessionKey, [createAiPastedTextFile(text)]);
+  };
+
+  const pasteComposerResource = async (sessionKey: string) => {
+    if (!requireComposerAttachmentsAvailable(sessionKey)) return;
+    const ref = await cloudResourceClipboard.read(props.cloudUrl);
+    if (!ref) throw new Error("The clipboard does not contain a resource from this Cloud installation.");
+    await addResolvedComposerResource(sessionKey, ref);
+  };
+
   const addComposerResource = async (sessionKey: string) => {
+    if (!requireComposerAttachmentsAvailable(sessionKey)) return;
     if (composerAttachmentsFor(sessionKey).length >= AI_TURN_ATTACHMENT_MAX_ITEMS) {
       chat.setError(`A message can attach at most ${AI_TURN_ATTACHMENT_MAX_ITEMS} items.`);
       return;
@@ -715,8 +816,11 @@ export default function AssistantWorkspace(props: Props) {
         <Chat.Composer
           value={composerDraft(sessionKey())}
           onValueChange={(value) => setComposerDraft(sessionKey(), value)}
-          attachments={aiChatAttachments(composerAttachmentsFor(sessionKey()))}
+          attachments={aiChatAttachments(composerAttachmentsFor(sessionKey()), {
+            onShowText: (attachment) => showComposerTextAttachment(sessionKey(), attachment),
+          })}
           onAttachmentsChange={(next) => setComposerAttachmentsFor(sessionKey(), aiComposerAttachmentRecords(next))}
+          onPaste={(event) => pasteComposerContent(sessionKey(), event)}
           fileSelection={{
             onSelect: (files) => addComposerFiles(sessionKey(), files),
             accept: aiComposerFileAccept,
@@ -769,43 +873,47 @@ export default function AssistantWorkspace(props: Props) {
               : undefined
           }
           onError={(error) => chat.setError(error instanceof Error ? error.message : "Chat action failed.")}
-          menuActions={
-            projectComposer()
-              ? []
-              : [
+          menuActions={[
+            {
+              id: "attach-resource",
+              label: "Attach Cloud resource",
+              icon: "ti ti-cloud-plus",
+              disabled: composerAttachmentsBlocked(sessionKey()),
+              onSelect: () => addComposerResource(sessionKey()),
+            },
+            {
+              id: "paste-resource",
+              label: "Paste Cloud resource",
+              icon: "ti ti-clipboard-plus",
+              disabled: composerAttachmentsBlocked(sessionKey()),
+              onSelect: () => pasteComposerResource(sessionKey()),
+            },
+            ...(!projectComposer() && activeConversation()
+              ? [
                   {
-                    id: "attach-resource",
-                    label: "Attach Cloud resource",
-                    icon: "ti ti-cloud-plus",
-                    onSelect: () => addComposerResource(sessionKey()),
+                    id: "search-chat",
+                    label: "Search this chat",
+                    icon: "ti ti-search",
+                    onSelect: async () => {
+                      const conversation = activeConversation();
+                      if (!conversation) return;
+                      const message = await openAssistantChatMessageSearch(conversation.id);
+                      if (message) await revealMessage(message);
+                    },
                   },
-                  ...(activeConversation()
-                    ? [
-                        {
-                          id: "search-chat",
-                          label: "Search this chat",
-                          icon: "ti ti-search",
-                          onSelect: async () => {
-                            const conversation = activeConversation();
-                            if (!conversation) return;
-                            const message = await openAssistantChatMessageSearch(conversation.id);
-                            if (message) await revealMessage(message);
-                          },
-                        },
-                        {
-                          id: "compact-context",
-                          label: "Compact context",
-                          icon: "ti ti-package",
-                          disabled: chat.running(),
-                          onSelect: async () => {
-                            if (!chat.activeConversationId()) return;
-                            await chat.compactConversation({ modelProfileId: selectedModelId() || undefined });
-                          },
-                        },
-                      ]
-                    : []),
+                  {
+                    id: "compact-context",
+                    label: "Compact context",
+                    icon: "ti ti-package",
+                    disabled: chat.running(),
+                    onSelect: async () => {
+                      if (!chat.activeConversationId()) return;
+                      await chat.compactConversation({ modelProfileId: selectedModelId() || undefined });
+                    },
+                  },
                 ]
-          }
+              : []),
+          ]}
           contextActions={[]}
           contextUsage={
             projectComposer()

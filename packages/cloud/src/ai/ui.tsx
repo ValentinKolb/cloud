@@ -1,6 +1,8 @@
 import { latestLoopUsage, latestUsage, latestUsageSnapshot, textFromMessage } from "./chat/message-utils";
 
 export {
+  AI_COMPOSER_TEXT_MAX_CHARS,
+  AI_PASTED_TEXT_ATTACHMENT_THRESHOLD,
   type AiComposerAttachment,
   type AiComposerFileResult,
   type AiComposerSendInput,
@@ -9,7 +11,9 @@ export {
   aiComposerAttachmentRecords,
   aiComposerFileAccept,
   aiComposerSendInput,
+  createAiPastedTextFile,
   readAiComposerFiles,
+  shouldAttachAiPastedText,
 } from "./chat/composer-adapter";
 export type {
   AiChatActions,

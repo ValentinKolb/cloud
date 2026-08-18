@@ -130,6 +130,22 @@ preserves the resource attachment while copy actions expose only the visible
 user text. Retrying a message while its turn waits for an approval or another
 user action aborts that pending turn and replaces the conversation branch.
 
+The Assistant composer accepts files and screenshots from paste through the
+same bounded attachment pipeline as selection and drag-and-drop. Short text
+keeps native textarea paste behavior. A paste of at least 8,000 characters, or
+one that would exceed the 20,000-character message limit, becomes a normal
+`text/plain` conversation file with a unique internal `pasted-<short-id>.txt`
+name. The composer presents these files as **Pasted text** instead of exposing
+that storage name. Bounded text files expose **Show in text field** and remain
+recoverable after draft autosave or reload. Resource-aware
+paste accepts only the versioned clipboard payload for the canonical Cloud URL
+derived from the configured `app.url`; it then resolves the current capability
+reader and authorization before attaching the resource.
+
+A turn can attach up to 16 files or Cloud resources. The composer keeps them
+on one horizontal row and scrolls that row instead of growing into multiple
+attachment rows. Repeated same-named uploads receive distinct durable paths.
+
 `Chat.Composer` submits a draft entered during an active response as `steer` by
 default. Set `runningSubmitIntent="queue"` when the application owns a local or
 durable follow-up queue, then handle the `queue` intent in `onSubmit`. The

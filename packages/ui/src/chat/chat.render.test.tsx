@@ -30,7 +30,16 @@ describe("@k2b/ui portable chat family", () => {
         onSubmit: () => undefined,
         onStop: () => undefined,
         state: "running",
-        attachments: [{ id: "brief", name: "brief.pdf", size: 12_000, kind: "file", href: "/files/brief" }],
+        attachments: [
+          {
+            id: "brief",
+            name: "brief.pdf",
+            size: 12_000,
+            kind: "file",
+            href: "/files/brief",
+            action: { id: "show", label: "Show in text field", icon: "ti ti-text-plus", onSelect: () => undefined },
+          },
+        ],
         onAttachmentsChange: () => undefined,
         fileSelection: { onSelect: () => undefined },
         models: [
@@ -62,13 +71,16 @@ describe("@k2b/ui portable chat family", () => {
     expect(html).toContain("/clear");
     expect(html).toContain("brief.pdf");
     expect(html).toContain('href="/files/brief"');
-    expect(html).toContain("12 KB");
+    expect(html).not.toContain("12 KB");
     expect(html).toContain("Fast model");
     expect(html).toContain('src="https://example.test/provider.svg"');
     expect(html).toContain('aria-label="Steer response"');
     expect(html).toContain("15%");
     expect(html).toContain('aria-label="Add to chat"');
     expect(html).toContain('aria-label="Remove brief.pdf"');
+    expect(html).toContain('aria-label="Attachments" tabindex="0"');
+    expect(html).toContain("Show in text field");
+    expect(html).toContain("ti ti-text-plus");
     expect(html).toContain('role="option"');
     expect(html).toContain('role="menuitemradio"');
     expect(html).toContain("k2b-dropdown__copy");
@@ -490,6 +502,17 @@ describe("@k2b/ui portable chat family", () => {
     }
   });
 
+  test("routes pasted files through the generic file seam and leaves other paste policy to the host", async () => {
+    const source = await Bun.file(resolve(import.meta.dir, "ChatComposer.tsx")).text();
+
+    expect(source).toContain("clipboardData?.files.length");
+    expect(source).toContain("void runFiles(clipboardData.files)");
+    expect(source).toContain("props.onPaste?.(event)");
+    expect(source).toContain("props.value;");
+    expect(source).toContain("queueMicrotask(autoResize)");
+    expect(source).not.toContain("CloudResource");
+  });
+
   test("does not retain the superseded experimental ai surface", async () => {
     const manifest = await Bun.file(resolve(import.meta.dir, "../../package.json")).json();
     const barrel = await Bun.file(resolve(import.meta.dir, "../index.ts")).text();
@@ -502,13 +525,24 @@ describe("@k2b/ui portable chat family", () => {
 
   test("focuses the composer as one AI-themed surface", () => {
     const css = readFileSync(resolve(import.meta.dir, "../styles/index.css"), "utf8");
+    const attachmentActionRule = css.match(/\.k2b-ui \.k2b-chat-composer__attachment-action \{([^}]+)\}/)?.[1] ?? "";
+    const attachmentIconRule = css.match(
+      /\.k2b-ui \.k2b-chat-composer__attachment > i,([\s\S]+?)\.k2b-ui \.k2b-chat-message__attachment > i \{([^}]+)\}/,
+    );
 
     expect(css).toContain("--k2b-ai-accent:");
     expect(css).toContain(".k2b-ui .k2b-chat-composer:focus-within");
     expect(css).toContain("border-color: var(--k2b-ai-border);");
     expect(css).toContain("border-radius: calc(var(--k2b-radius-surface) + 0.25rem);");
     expect(css).toContain("box-shadow: var(--k2b-shadow-surface);");
-    expect(css).toContain("max-height: 24rem;");
+    expect(css).toContain("max-height: 19.3125rem;");
+    expect(css).toContain("overflow-x: auto;");
+    expect(css).toContain("flex-wrap: nowrap;");
+    expect(css).toContain("grid-row: 1 / 3;");
+    expect(attachmentActionRule).toContain("text-decoration: none;");
+    expect(attachmentIconRule?.[1]).toContain(".k2b-chat-composer__attachment-identity > i");
+    expect(attachmentIconRule?.[2]).toContain("display: inline-flex;");
+    expect(attachmentIconRule?.[2]).toContain("font-size: 1rem;");
     expect(css).not.toContain("--k2b-ai-focus-ring");
     expect(css).not.toContain(".k2b-ui .k2b-chat-composer textarea:focus-visible");
   });

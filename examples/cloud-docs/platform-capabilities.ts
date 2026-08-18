@@ -1,11 +1,14 @@
 import { ok } from "@k2b/stdlib";
 import { defineCapabilities } from "@valentinkolb/cloud";
+import { cloudResourceClipboard } from "@valentinkolb/cloud/browser/resource-clipboard";
 import { openCloudResourcePicker } from "@valentinkolb/cloud/browser/resource-picker";
 import { invokeCapabilityWithDataSchema as invokeCapabilityInBrowser } from "@valentinkolb/cloud/capabilities";
 import { type CapabilityCaller, invokeCapabilityWithDataSchema as invokeCapabilityOnServer } from "@valentinkolb/cloud/capabilities/server";
 import { assertCapabilityManifestEvolution, compileCapabilityManifest } from "@valentinkolb/cloud/capabilities/testing";
 import { type AccessSubject, UniversalSearchDataSchema, UniversalSearchInputSchema } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
+
+export const inventoryResourceClipboard = cloudResourceClipboard;
 
 type Item = {
   id: string;

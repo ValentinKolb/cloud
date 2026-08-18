@@ -64,7 +64,7 @@ const routeClientState = (state: PublicOkWorkspaceState): PublicOkWorkspaceState
   return { ...state, catalog };
 };
 
-export default function GridsWorkspace(props: { state: PublicOkWorkspaceState }) {
+export default function GridsWorkspace(props: { state: PublicOkWorkspaceState; cloudUrl: string }) {
   return (
     <>
       <RememberGridsPath path={props.state.rememberPath} />
@@ -72,7 +72,7 @@ export default function GridsWorkspace(props: { state: PublicOkWorkspaceState })
       <AppWorkspace class={workspaceRootClass(props.state.adminModeRequested)}>
         <GridsSidebar state={props.state} />
         <AppWorkspace.Content>
-          <GridsRoute state={routeClientState(props.state)} />
+          <GridsRoute state={routeClientState(props.state)} cloudUrl={props.cloudUrl} />
         </AppWorkspace.Content>
       </AppWorkspace>
     </>

@@ -85,8 +85,9 @@ describe("Assistant frontend contracts", () => {
   });
 
   test("keeps Assistant composer actions in one contextual Plus menu", async () => {
-    const [workspace, messageSearch] = await Promise.all([
+    const [workspace, page, messageSearch] = await Promise.all([
       read("./AssistantWorkspace.island.tsx"),
+      read("./page.tsx"),
       read("./AssistantChatMessageSearch.ts"),
     ]);
 
@@ -95,7 +96,13 @@ describe("Assistant frontend contracts", () => {
     expect(workspace).not.toContain("commands={");
     expect(workspace).not.toContain("type / ...");
     expect(workspace).toContain('id: "attach-resource"');
+    expect(workspace).toContain('id: "paste-resource"');
     expect(workspace).toContain("openCloudResourcePicker");
+    expect(workspace).toContain("cloudResourceClipboard.parse(structured, props.cloudUrl)");
+    expect(workspace).toContain("createAiPastedTextFile(text)");
+    expect(workspace).toContain("onShowText:");
+    expect(page).toContain('coreSettings.get<string>("app.url")');
+    expect(page).toContain("cloudUrl={publicCloudOrigin(appUrl)}");
     expect(workspace).toContain("composerAttachmentsFor(sessionKey).length >= AI_TURN_ATTACHMENT_MAX_ITEMS");
     expect(workspace).toContain('id: "search-chat"');
     expect(workspace).toContain('id: "compact-context"');

@@ -36,6 +36,14 @@ const record = (data: Record<string, unknown>): GridRecord =>
   }) as GridRecord;
 
 describe("RecordReadView", () => {
+  test("uses only the configured Cloud URL for copied resource identity and fallback links", async () => {
+    const source = await Bun.file(new URL("./RecordReadView.tsx", import.meta.url)).text();
+
+    expect(source).toContain("cloudUrl: props.cloudUrl");
+    expect(source).toContain("new URL(recordHref(), props.cloudUrl)");
+    expect(source).not.toContain("window.location");
+  });
+
   test("renders a compact DetailPanel with titled icon sections and omits empty long-form sections", () => {
     const name = field({ id: "name", name: "Name", type: "text", presentable: true });
     const room = field({ id: "room", name: "Room", type: "text" });
@@ -43,6 +51,7 @@ describe("RecordReadView", () => {
 
     const html = renderToString(() =>
       createComponent(RecordReadView, {
+        cloudUrl: "https://cloud.example",
         baseId: "base",
         tableId: "table",
         tableName: "Locations",
@@ -80,6 +89,7 @@ describe("RecordReadView", () => {
     });
     const html = renderToString(() =>
       createComponent(RecordReadView, {
+        cloudUrl: "https://cloud.example",
         baseId: "base",
         tableId: "table",
         tableName: "Loans",

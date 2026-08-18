@@ -23,6 +23,7 @@ import RecordVersions from "./RecordVersions.island";
 import { recordDisplayTitle } from "./record-display";
 
 type Props = {
+  cloudUrl: string;
   baseId: string;
   tableId: string;
   tableName: string;
@@ -268,6 +269,7 @@ export default function RecordDetailPanel(props: Props) {
     <Show when={record()} fallback={null} keyed>
       {(rec) => (
         <RecordReadView
+          cloudUrl={props.cloudUrl}
           baseId={props.baseId}
           tableId={props.tableId}
           tableName={props.tableName}
@@ -386,6 +388,7 @@ export default function RecordDetailPanel(props: Props) {
             )}
           </Show>
           <RecordDocumentsSection
+            cloudUrl={props.cloudUrl}
             tableId={props.tableId}
             recordId={rec.id}
             live={mode() === "live"}

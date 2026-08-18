@@ -15,6 +15,7 @@ import { fieldDisplayFormatForView, recordDisplayTitle, recordTitleField } from 
 type RecordReadViewMode = "live" | "trash" | "snapshot";
 
 type RecordReadViewProps = {
+  cloudUrl: string;
   baseId: string;
   tableId: string;
   tableName: string;
@@ -108,8 +109,9 @@ export default function RecordReadView(props: RecordReadViewProps) {
     `/app/grids/${encodeURIComponent(props.baseId)}/table/${encodeURIComponent(props.tableId)}?record=${encodeURIComponent(props.record.id)}`;
   const copyRecord = () =>
     recordClipboard.copy({
-      ref: { type: "grids.record", id: props.record.id },
-      fallbackText: new URL(recordHref(), window.location.origin).href,
+      cloudUrl: props.cloudUrl,
+      ref: { type: "grids.record" as const, id: props.record.id },
+      fallbackText: new URL(recordHref(), props.cloudUrl).href,
     });
   const copyRecordLabel = () => {
     if (recordClipboard.error()) return "Could not copy record reference";

@@ -1,5 +1,7 @@
 import { NotFoundState } from "@k2b/ui";
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
+import { coreSettings } from "@valentinkolb/cloud/services";
+import { publicCloudOrigin } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { currentActorUser } from "../../api/permissions";
 import { withInitialGqlResults } from "../../api/workspace-query-preview";
@@ -82,10 +84,11 @@ export default ssr<AuthContext>(async (c) => {
 
   const state = loaded.state;
   if (!state) throw new Error("Workspace state projection is missing");
+  const cloudUrl = publicCloudOrigin(await coreSettings.get<string>("app.url"));
 
   return () => (
     <Layout c={c} fullWidth title={state.title}>
-      <GridsWorkspace state={state} />
+      <GridsWorkspace state={state} cloudUrl={cloudUrl} />
     </Layout>
   );
 });

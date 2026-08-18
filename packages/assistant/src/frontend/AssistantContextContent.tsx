@@ -172,29 +172,54 @@ export const confirmOpenAssistantLink = async (title: string, href: string) => {
   if (confirmed) window.open(destination.href, "_blank", "noopener,noreferrer");
 };
 
-export const openAssistantCloudReference = async (title: string, ref: CloudResourceRef) => {
+export type ResolvedAssistantCloudResource = {
+  ref: CloudResourceRef;
+  title: string;
+  icon: string;
+  href?: string;
+};
+
+export const resolveAssistantCloudResource = async (ref: CloudResourceRef): Promise<ResolvedAssistantCloudResource> => {
   const appId = cloudResourceRefAppId(ref);
   let cursor: string | undefined;
   do {
     const catalog = await listCapabilityCatalog({ cursor, limit: 25 });
-    if (!catalog.ok) return void prompts.error(catalog.error.message, { title: "Could not open reference" });
+    if (!catalog.ok) throw new Error(catalog.error.message);
     const app = catalog.data.apps.find((candidate) => candidate.appId === appId);
     if (app) {
       const reader = resolveCapabilityResourceReader(app.manifest, ref);
-      if (!reader) return void prompts.error("This Cloud resource has no reader.", { title: "Could not open reference" });
+      if (!reader) throw new Error("This Cloud resource has no reader.");
       const result = await invokeCapability({ appId, capabilityId: reader.localId, kind: "query", input: { id: ref.id } });
-      if (!result.ok) return void prompts.error(result.error.message, { title: "Could not open reference" });
+      if (!result.ok) throw new Error(result.error.message);
       const resource = CloudResourceViewSchema.safeParse(result.data.data);
+      if (!resource.success || resource.data.ref.type !== ref.type || resource.data.ref.id !== ref.id) {
+        throw new Error("The resource reader returned an invalid resource.");
+      }
       const href =
-        result.data.links?.find((link) => link.rel === "open")?.href ??
-        (resource.success ? resource.data.links.find((link) => link.rel === "open")?.href : undefined);
-      return href
-        ? confirmOpenAssistantLink(title, href)
-        : void prompts.error("This Cloud resource has no open link.", { title: "Could not open reference" });
+        result.data.links?.find((link) => link.rel === "open")?.href ?? resource.data.links.find((link) => link.rel === "open")?.href;
+      return {
+        ref: resource.data.ref,
+        title: resource.data.title,
+        icon: resource.data.icon ?? app.appIcon,
+        href,
+      };
     }
     cursor = catalog.data.page.hasMore ? catalog.data.page.nextCursor : undefined;
   } while (cursor);
-  return void prompts.error("The application for this reference is unavailable.", { title: "Could not open reference" });
+  throw new Error("The application for this reference is unavailable.");
+};
+
+export const openAssistantCloudReference = async (title: string, ref: CloudResourceRef) => {
+  try {
+    const resource = await resolveAssistantCloudResource(ref);
+    return resource.href
+      ? confirmOpenAssistantLink(title, resource.href)
+      : void prompts.error("This Cloud resource has no open link.", { title: "Could not open reference" });
+  } catch (error) {
+    return void prompts.error(error instanceof Error ? error.message : "The Cloud resource could not be resolved.", {
+      title: "Could not open reference",
+    });
+  }
 };
 
 const virtualPath = (file: AssistantContextFile): string =>

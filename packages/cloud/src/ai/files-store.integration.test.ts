@@ -43,6 +43,30 @@ suite("normalizeAiFilePath", () => {
 });
 
 suite("aiFileStore integration", () => {
+  test("allocates distinct paths for concurrent same-named user uploads", async () => {
+    const userId = await insertUser();
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
+
+    try {
+      const uploads = await Promise.all(
+        Array.from({ length: 3 }, (_, index) =>
+          aiFileStore.createUserUpload({
+            conversationId: conversation.id,
+            path: "/pasted-text.txt",
+            bytes: bytes(`paste ${index}`),
+            mediaType: "text/plain",
+          }),
+        ),
+      );
+
+      expect(uploads.map((file) => file.path).sort()).toEqual(["/pasted-text-2.txt", "/pasted-text-3.txt", "/pasted-text.txt"]);
+      expect(uploads.every((file) => file.origin === "user")).toBe(true);
+    } finally {
+      await sql`DELETE FROM ai.conversations WHERE id = ${conversation.id}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    }
+  });
+
   test("write, stat, slice reads, rename, remove, totals", async () => {
     const userId = await insertUser();
     const conversation = await aiConversations.createConversation({ ownerUserId: userId });

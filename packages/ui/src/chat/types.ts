@@ -28,6 +28,8 @@ export type ChatAttachment = {
   href?: string;
   /** Opaque application-owned payload returned unchanged with ChatSubmitInput. */
   data?: unknown;
+  /** Optional application-owned action presented below the attachment label. */
+  action?: ChatAction;
 };
 
 export type ChatUsage = {

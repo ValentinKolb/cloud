@@ -63,6 +63,7 @@ type RuntimeView = View & {
 };
 
 type Props = {
+  cloudUrl: string;
   /** UUID of the base — for API calls. */
   baseId: string;
   /** UUID of the active table — for API calls (POST /api/grids/.../by-table/<uuid>). */
@@ -825,6 +826,7 @@ export default function RecordsView(props: Props) {
       <AppWorkspace.Detail id="record" open={hasOpenDetail()} width="lg" viewTransitionName="grids-record-detail">
         <Show when={selectedRecordId() || selectedGroup()}>
           <RecordsDetailSurface
+            cloudUrl={props.cloudUrl}
             baseId={props.baseId}
             tableId={props.tableId}
             tableName={tableName()}

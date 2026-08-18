@@ -32,7 +32,7 @@ const limitedAccessEmptyText = (formCount: number, documentCount: number) => {
   return `You have access to ${parts.join(" and ")}. Choose one in the sidebar.`;
 };
 
-export default function GridsRoute(props: { state: PublicOkWorkspaceState }) {
+export default function GridsRoute(props: { state: PublicOkWorkspaceState; cloudUrl: string }) {
   const state = props.state;
   const route = state.route;
   const [selectedWorkflowRunId, setSelectedWorkflowRunId] = createSignal(route.kind === "workflows" ? route.selectedRunId : null);
@@ -77,6 +77,7 @@ export default function GridsRoute(props: { state: PublicOkWorkspaceState }) {
     const records = route as PublicWorkspaceRecordsRoute;
     return (
       <RecordsView
+        cloudUrl={props.cloudUrl}
         baseId={state.base.id}
         tableId={records.activeTable.id}
         tableKind={records.activeTable.kind}

@@ -10,6 +10,7 @@ import type { GroupBucket } from "../table/GroupedTable";
 import type { PublicWorkspaceRecordDetail as WorkspaceRecordDetail } from "../workspace/workspace-public-state-model";
 
 type Props = {
+  cloudUrl: string;
   baseId: string;
   tableId: string;
   tableName: string;
@@ -71,6 +72,7 @@ export default function RecordsDetailSurface(props: Props) {
             fallback={<Placeholder state="loading" surface="paper" variant="panel" title="Loading record" class="m-3" />}
           >
             <RecordDetailPanel
+              cloudUrl={props.cloudUrl}
               baseId={props.baseId}
               tableId={props.tableId}
               tableName={props.tableName}

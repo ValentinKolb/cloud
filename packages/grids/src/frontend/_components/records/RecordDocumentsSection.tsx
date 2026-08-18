@@ -135,6 +135,7 @@ function DocumentGenerationReviewDialog(props: {
 }
 
 export default function RecordDocumentsSection(props: {
+  cloudUrl: string;
   tableId: string;
   recordId: string;
   live: boolean;
@@ -218,6 +219,7 @@ export default function RecordDocumentsSection(props: {
         () => (
           <div class="h-[70vh] min-h-0">
             <RecordReadView
+              cloudUrl={props.cloudUrl}
               baseId={snapshot.baseId}
               tableId={snapshot.tableId}
               tableName={snapshotTableName(snapshot)}

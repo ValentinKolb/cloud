@@ -1,11 +1,20 @@
-import { aiConversations, aiProjects, aiUserPrefs, listAiModels, loadAiStreamState, toPublicAiSettingsState } from "@valentinkolb/cloud/ai";
+import {
+  aiConversations,
+  aiProjects,
+  aiUserPrefs,
+  listAiModels,
+  loadAiStreamState,
+  personalAiModelPolicy,
+  toPublicAiSettingsState,
+} from "@valentinkolb/cloud/ai";
 import { latestAiInvalidationCursor } from "@valentinkolb/cloud/ai/live";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { expectUserBackedActor } from "@valentinkolb/cloud/server";
+import { coreSettings } from "@valentinkolb/cloud/services";
+import { publicCloudOrigin } from "@valentinkolb/cloud/shared";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { loadAssistantChatContextSnapshot } from "../chat-context";
 import { ssr } from "../config";
-import { personalAiModelPolicy } from "@valentinkolb/cloud/ai";
 import { loadAssistantProjectContextSnapshot } from "../project-context";
 import { loadAssistantSidebarSnapshot } from "../sidebar";
 import AssistantWorkspace from "./AssistantWorkspace.island";
@@ -18,11 +27,12 @@ export default ssr<AuthContext>(async (c) => {
   const initialArtifactPath = url.searchParams.get("artifact");
   const subject = { type: "user" as const, userId: user.id };
   const initialLiveCursor = (await latestAiInvalidationCursor(user.id)) ?? "0-0";
-  const [status, models, prefs, sidebar] = await Promise.all([
+  const [status, models, prefs, sidebar, appUrl] = await Promise.all([
     toPublicAiSettingsState(),
     listAiModels(personalAiModelPolicy),
     aiUserPrefs.get(user.id),
     loadAssistantSidebarSnapshot(user.id),
+    coreSettings.get<string>("app.url"),
   ]);
   const { conversations, projects } = sidebar;
   const activeProject = requestedProjectId ? (projects.find((project) => project.shortId === requestedProjectId) ?? null) : null;
@@ -71,6 +81,7 @@ export default ssr<AuthContext>(async (c) => {
   return () => (
     <Layout c={c} fullPage title={[{ title: "Start", href: "/" }, { title: "Assistant" }]}>
       <AssistantWorkspace
+        cloudUrl={publicCloudOrigin(appUrl)}
         status={status}
         models={models}
         lastModelId={prefs.lastModelId}
