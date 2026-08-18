@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { MailDraftSeed } from "../../contracts";
-import { createSerializedDraftMutationQueue, draftSeedContentChanged } from "./mail-draft-session";
+import {
+  createSerializedDraftMutationQueue,
+  draftSeedContentChanged,
+  reconcileDraftSessionAfterLiveInvalidation,
+} from "./mail-draft-session";
 
 const seed: MailDraftSeed = {
   id: "10000000-0000-4000-8000-000000000001",
@@ -100,5 +104,27 @@ describe("draft seed changes", () => {
         subject: seed.content.subject,
       }),
     ).toBe(false);
+  });
+});
+
+describe("live draft reconciliation", () => {
+  test("checks the active lease immediately after refreshing an editable draft", async () => {
+    const calls: string[] = [];
+    await reconcileDraftSessionAfterLiveInvalidation({
+      refreshLifecycle: async () => void calls.push("lifecycle"),
+      hasLifecycleTransition: () => false,
+      resumeLease: async () => void calls.push("lease"),
+    });
+    expect(calls).toEqual(["lifecycle", "lease"]);
+  });
+
+  test("does not reacquire a lease after the draft was sent or discarded", async () => {
+    const calls: string[] = [];
+    await reconcileDraftSessionAfterLiveInvalidation({
+      refreshLifecycle: async () => void calls.push("lifecycle"),
+      hasLifecycleTransition: () => true,
+      resumeLease: async () => void calls.push("lease"),
+    });
+    expect(calls).toEqual(["lifecycle"]);
   });
 });

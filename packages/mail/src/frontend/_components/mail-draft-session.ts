@@ -52,6 +52,15 @@ const draftEditableContent = (draft: MailDraft): DraftEditableContent => ({
 export const draftSeedContentChanged = (seed: MailDraftSeed, content: DraftEditableContent): boolean =>
   JSON.stringify(content) !== JSON.stringify(seed.content);
 
+export const reconcileDraftSessionAfterLiveInvalidation = async (operations: {
+  refreshLifecycle: () => Promise<void>;
+  hasLifecycleTransition: () => boolean;
+  resumeLease: () => Promise<void>;
+}): Promise<void> => {
+  await operations.refreshLifecycle();
+  if (!operations.hasLifecycleTransition()) await operations.resumeLease();
+};
+
 export const createMailDraftSession = (options: {
   mailboxId: string;
   initialDraft?: MailDraft;
@@ -507,7 +516,12 @@ export const createMailDraftSession = (options: {
         const conversationId = draft()?.conversationId;
         return Boolean(conversationId && invalidation.conversationIds.has(conversationId));
       },
-      invalidate: refreshDraftLifecycle,
+      invalidate: () =>
+        reconcileDraftSessionAfterLiveInvalidation({
+          refreshLifecycle: refreshDraftLifecycle,
+          hasLifecycleTransition: () => Boolean(lifecycleTransition()),
+          resumeLease: resumeCurrentLease,
+        }),
     });
     const live = createLiveWebSocket<MailLiveServerMessage>({
       url: "/api/mail/ws",

@@ -1647,7 +1647,7 @@ export const getDraft = async (context: MailRequestContext, mailboxId: string, d
       lifecycle.conversation_id AS lifecycle_conversation_id,
       CASE d.last_editor_kind
         WHEN 'user' THEN COALESCE(editor_user.display_name, 'Former user')
-        WHEN 'service_account' THEN COALESCE(editor_service.display_name, 'Former service account')
+        WHEN 'service_account' THEN COALESCE(editor_service.name, 'Former service account')
         WHEN 'workflow' THEN 'Workflow'
         ELSE 'Mail provider'
       END AS last_editor_display_name

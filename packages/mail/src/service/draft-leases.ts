@@ -5,6 +5,7 @@ import type { AcquiredDraftLease, DraftLease, DraftLeaseHolder } from "../contra
 import { requireMailboxPermission } from "./access";
 import type { MailRequestContext } from "./auth";
 import { hasCurrentMailboxUserPermission } from "./collaborators";
+import { notifyMailInvalidations } from "./events";
 
 const DRAFT_LEASE_TTL_MS = 30_000;
 const DRAFT_LEASE_STATE_TTL_MS = 30_000;
@@ -167,7 +168,7 @@ export const acquireDraftLease = async (params: {
         value: { holder, token, lock, acquiredAt },
       });
       stored = true;
-      if (current && !sameHolder(current.value.holder, holder)) {
+      if (current) {
         await sql`
           INSERT INTO mail.activity_events (
             mailbox_id, actor_kind, actor_id, action, outcome, target_type, target_id, metadata
@@ -182,6 +183,7 @@ export const acquireDraftLease = async (params: {
             ${{ previousHolder: current.value.holder }}::jsonb
           )
         `;
+        await notifyMailInvalidations();
       }
       return ok({ ...mapLease(entry), token });
     } catch (error) {
