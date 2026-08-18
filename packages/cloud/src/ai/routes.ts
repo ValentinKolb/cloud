@@ -9,25 +9,25 @@ import {
   err,
   fail,
   ok,
-  rateLimit,
   type RequestActor,
+  rateLimit,
   respond,
   v,
 } from "../server";
 import { coreSettings } from "../services/settings/api";
-import { buildAiCapabilityCatalog } from "./capabilities";
 import type { AiToolApprovalContext } from "./approvals";
+import { buildAiCapabilityCatalog } from "./capabilities";
 import { createConfiguredDefaultCloudAiTools } from "./default-tools";
 import { aiProjectFilePathFromMount } from "./file-mount";
 import { AI_FILES_MAX_FILE_BYTES_DEFAULT, aiFileStore, decodeAiFileContent, guessAiMediaType, normalizeAiFilePath } from "./files-store";
 import {
   AiCompactionInputSchema,
   AiCreateConversationInputSchema,
-  AiSaveConversationDraftInputSchema,
-  AiSubmitConversationDraftInputSchema,
   AiMessageForkInputSchema,
   AiMessageRetryInputSchema,
+  AiSaveConversationDraftInputSchema,
   AiSteerInputSchema,
+  AiSubmitConversationDraftInputSchema,
   aiInputToUserMessage,
   aiTurnInputToContent,
   toAiActionFailureResponse,
@@ -36,10 +36,11 @@ import {
 import { aiMaintenanceJobs } from "./maintenance";
 import { AI_MEMORY_CONTENT_MAX_CHARS, aiMemories } from "./memories";
 import { createCloudAiMemoryTool } from "./memory-tool";
-import { aiActorUser, aiPrefsUserId, aiUserPrefs } from "./prefs";
 import { personalAiModelPolicy, personalAiSystemPrompt } from "./personal-agent";
+import { aiActorUser, aiPrefsUserId, aiUserPrefs } from "./prefs";
 import { aiProjects } from "./projects";
 import { projectPublicAiStoredMessages, publicAiStoredMessages } from "./public-projection";
+import { aiResourceMarker } from "./resource-markers";
 import { isConversationResourceCursor } from "./resource-refs";
 import {
   AiTurnActionSchema,
@@ -53,7 +54,6 @@ import { listAiModels, readAiSettingsState, selectAiModelProfile, toPublicAiSett
 import { AI_SHORT_ID_PATTERN } from "./short-id";
 import { aiConversations } from "./store";
 import { createAiConversationStreamResponse, loadAiStreamState } from "./stream";
-import { aiResourceMarker } from "./resource-markers";
 import { composeAiSystemPrompt } from "./system-prompt";
 import { aiToolPromptHints } from "./tools";
 import type { AiConversation, AiModelPolicy, AiTurn } from "./types";
@@ -214,6 +214,17 @@ const publicPendingAction = (
   conversationId: string,
   turnId: string,
 ) => ({ ...action, conversationId, turnId });
+
+const prepareConversationForMessageRetry = async (conversationId: string): Promise<"ready" | "busy"> => {
+  const active = await aiConversations.getActiveTurn({ conversationId });
+  if (!active) return "ready";
+  if (active.turn.status !== "waiting_for_action") return "busy";
+  await abortAiTurn({ conversationId, turnId: active.turn.id });
+  return (await aiConversations.getActiveTurn({ conversationId })) ? "busy" : "ready";
+};
+
+export const __aiRoutesTest = { prepareConversationForMessageRetry };
+
 export const aiRoutes = (() => {
   const loadConversation = async (c: Context<AuthContext>, ctx: AiChatRequestContext, archived = false): Promise<AiConversation | null> => {
     const conversationId = c.req.param("conversationId");
@@ -741,6 +752,9 @@ export const aiRoutes = (() => {
         if (originalProject && !currentProject) return respond(c, fail(err.notFound("Project")));
 
         try {
+          if ((await prepareConversationForMessageRetry(conversation.id)) === "busy") {
+            return respond(c, fail(err.conflict("Stop the active response before trying a message again.")));
+          }
           const result = await submitAiChatTurn({
             conversationId: conversation.id,
             input,

@@ -12,9 +12,9 @@ import {
   CommentListDataSchema,
   ConversationGetDataSchema,
   ConversationListDataSchema,
-  ConversationRelatedDataSchema,
   ConversationMarkInputSchema,
   ConversationMoveInputSchema,
+  ConversationRelatedDataSchema,
   DraftCreateInputSchema,
   DraftListDataSchema,
   DraftSendInputSchema,
@@ -26,6 +26,7 @@ import {
 } from "./capability-contracts";
 import {
   collaboration,
+  composeSafety,
   conversationContext,
   conversationSummaries,
   drafts,
@@ -395,6 +396,56 @@ describe("mail capabilities", () => {
     expect(proposedBody.startsWith(preview?.value ?? "")).toBeTrue();
     expect(preview?.value).not.toBe(proposedBody);
     expect(CapabilityActionReviewSchema.safeParse(review.data).success).toBeTrue();
+  });
+
+  test("shows the current body directly in the send approval", async () => {
+    spyOn(mailboxAccess, "requireMailboxPermission").mockResolvedValue({ ok: true, data: "write" });
+    spyOn(drafts, "getDraft").mockResolvedValue({
+      ok: true,
+      data: {
+        id: internalDraftId,
+        mailboxId: internalMailboxId,
+        conversationId: null,
+        intent: "new",
+        sourceMessageId: null,
+        derivedFromMessageId: null,
+        derivationKind: null,
+        senderIdentityId: internalConversationId,
+        to: [{ name: "Ada", address: "ada@example.test" }],
+        cc: [],
+        bcc: [],
+        subject: "Release follow-up",
+        body: "Hello Ada,\n\nThe release is ready.",
+        format: "markdown",
+        priority: "normal",
+        requestDeliveryReceipt: false,
+        requestReadReceipt: false,
+        attachments: [],
+        createdBy: { kind: "user", userId },
+        lastEditedBy: { kind: "user", userId },
+        lastEditedByDisplayName: "Ada",
+        recoveryCopyCount: 0,
+        revision: 2,
+        state: "draft",
+        deliveryClass: "normal",
+        createdAt: "2026-08-18T10:00:00.000Z",
+        updatedAt: "2026-08-18T10:00:00.000Z",
+      },
+    } as never);
+    spyOn(composeSafety, "reviewDraftComposeSafety").mockResolvedValue({ ok: true, data: { warnings: [] } } as never);
+
+    const review = await mailCapabilities.actions["draft.send"].review(
+      DraftSendInputSchema.parse({ mailboxId, draftId, senderIdentityId, expectedRevision: 2 }),
+      context,
+    );
+
+    if (!review.ok) throw new Error("Expected a send review");
+    const parsedReview = CapabilityActionReviewSchema.parse(review.data);
+    expect(parsedReview.details).toContainEqual({
+      label: "Body",
+      value: "Hello Ada,\n\nThe release is ready.",
+      display: "block",
+    });
   });
 
   test("keeps remote conversation subjects inside the review envelope", async () => {

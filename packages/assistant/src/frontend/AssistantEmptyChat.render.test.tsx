@@ -69,5 +69,6 @@ describe("Assistant empty chat", () => {
 
     expect(html).toContain("No Project");
     expect(html).toContain("ti ti-folder");
+    expect(html).toContain("text-[0.6875rem]");
   });
 });

@@ -112,6 +112,13 @@ const reconcileSteerBlocks = (blocks: AiTurnBlock[], localId: string, steer: AiT
 const failSteerBlock = (blocks: AiTurnBlock[], blockId: string): AiTurnBlock[] =>
   blocks.map((block) => (block.id === blockId && block.kind === "steer_message" ? { ...block, status: "failed" } : block));
 
+const completeFrontendToolBlock = (blocks: AiTurnBlock[], callId: string, result: unknown): AiTurnBlock[] =>
+  blocks.map((block) =>
+    block.kind === "tool" && block.callId === callId && block.status === "awaiting_client"
+      ? { ...block, status: "completed", result }
+      : block,
+  );
+
 const isActiveConversationLoading = (activeConversationId: string | null, loadingConversationId: string | null): boolean =>
   activeConversationId !== null && loadingConversationId === activeConversationId;
 
@@ -681,7 +688,12 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
         ...savedDraft.content.flatMap((part) => {
           if (part.type === "text") return [{ type: "text" as const, text: part.text }];
           if (part.type === "file") return [{ type: "text" as const, text: aiAttachmentMarker(part) }];
-          return [{ type: "text" as const, text: aiResourceMarker(part) }];
+          return [
+            {
+              type: "text" as const,
+              text: aiResourceMarker({ ref: part.ref, title: part.title, icon: part.icon, href: part.href }),
+            },
+          ];
         }),
       ];
 
@@ -912,7 +924,12 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     } = {},
   ) => {
     const conversationId = activeConversationId();
-    if (!conversationId || running()) return false;
+    if (!conversationId) return false;
+    const status = runStatus();
+    if (status === "streaming" || status === "stopping") {
+      setConversationError(conversationId, "Stop the current response before trying a message again.");
+      return false;
+    }
     setRunStatusRaw("streaming");
     clearErrors();
     try {
@@ -1004,8 +1021,21 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
   const respondToApproval = (request: { turnId: string; callId: string }, input: { approved: boolean; remember?: "always" }) =>
     submitTurnAction(request.turnId, request.callId, { type: "approval_response", approved: input.approved, remember: input.remember });
 
-  const submitFrontendToolResult = (request: { turnId: string; callId: string }, result: unknown) =>
-    submitTurnAction(request.turnId, request.callId, { type: "tool_result", result });
+  const submitFrontendToolResult = async (request: { turnId: string; callId: string }, result: unknown) => {
+    const conversationId = activeConversationId();
+    if (!conversationId) return false;
+    clearErrors();
+    const submitted = await submitTurnActionForConversation(conversationId, request.turnId, request.callId, {
+      type: "tool_result",
+      result,
+    });
+    if (!submitted || !isActiveConversation(conversationId) || state.activeTurn?.turnId !== request.turnId) return submitted;
+    setState("activeTurn", (current) =>
+      current ? { ...current, blocks: completeFrontendToolBlock(current.blocks, request.callId, result) } : current,
+    );
+    cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
+    return true;
+  };
 
   if (options.initialConversationId) {
     if (options.initialDetail) setHasMore(options.initialConversationId, options.initialDetail.hasMoreMessages ?? false);
@@ -1065,6 +1095,7 @@ const isComposerDraftSendable = (input: ComposerDraftInput): boolean =>
 
 export const __aiControllerTest = {
   claimFrontendCall,
+  completeFrontendToolBlock,
   conversationRunError,
   failSteerBlock,
   projectionForConversationOpen,

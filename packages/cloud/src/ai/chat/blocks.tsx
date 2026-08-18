@@ -172,37 +172,104 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
   return (
     <div class="w-full">
       <section
-        class={`w-full rounded-xl border p-4 text-sm text-primary ${appAccent() ? "app-accent-scope" : ""}`}
-        style={{
-          "--app-accent": appAccent(),
-          "border-color": appAccent() ? "color-mix(in srgb, var(--app-accent) 42%, var(--k2b-border))" : "var(--k2b-ai-border)",
-          background: appAccent()
-            ? "color-mix(in srgb, var(--app-accent) 7%, var(--k2b-surface))"
-            : "color-mix(in srgb, var(--k2b-ai-surface) 62%, var(--k2b-surface))",
-        }}
+        class={`w-full overflow-hidden rounded-xl border border-[var(--k2b-border)] bg-[var(--k2b-surface)] text-sm text-primary ${appAccent() ? "app-accent-scope" : ""}`}
+        style={{ "--app-accent": appAccent() }}
         aria-label={`Approval required: ${title()}`}
       >
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div class="p-4">
           <div class="flex min-w-0 items-center gap-3">
             <span
-              class="inline-flex size-6 shrink-0 items-center justify-center text-lg leading-none"
-              style={{ color: appAccent() ? "var(--ui-app-accent-text)" : "var(--k2b-ai-accent)" }}
+              class="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-base leading-none"
+              style={{
+                color: appAccent() ? "var(--ui-app-accent-text)" : "var(--k2b-ai-accent)",
+                background: appAccent()
+                  ? "color-mix(in srgb, var(--app-accent) 10%, var(--k2b-surface))"
+                  : "color-mix(in srgb, var(--k2b-ai-accent) 10%, var(--k2b-surface))",
+              }}
               aria-hidden="true"
             >
               <i class={`${aiToolIcon(props.block.name, props.block.presentation?.appIcon)} leading-none`} />
             </span>
-            <h3 class="min-w-0 text-sm font-semibold leading-5 text-primary">{ownerName()}</h3>
+            <div class="min-w-0">
+              <h3 class="truncate text-sm font-semibold leading-5 text-primary">
+                {ownerName()} · {title()}
+              </h3>
+              <p class="text-xs text-dimmed">Action</p>
+            </div>
           </div>
-          <Show
-            when={pending()}
-            fallback={
-              <span class="text-xs font-medium text-secondary">
-                {title()} · {props.block.status === "rejected" ? "Rejected" : "Approved"}
-              </span>
-            }
-          >
-            <Show when={actions.onApproval} fallback={<span class="text-xs font-medium text-secondary">Approval unavailable</span>}>
-              <div class="shrink-0">
+          <Show when={reviewLines().length > 0}>
+            <div class="mt-4 flex flex-col gap-1 text-xs leading-5 text-secondary">
+              <For each={reviewLines()}>
+                {(line) => (
+                  <p class="whitespace-pre-wrap">
+                    <Show when={line.label}>{(label) => <strong class="font-semibold text-primary">{label()}: </strong>}</Show>
+                    {line.value}
+                  </p>
+                )}
+              </For>
+            </div>
+          </Show>
+          <Show when={props.block.approval?.review}>
+            <div class="mt-4 flex flex-col gap-4 text-xs leading-5 text-secondary">
+              <p class="whitespace-pre-wrap">{description()}</p>
+              <Show when={inlineReviewDetails().length > 0}>
+                <dl class="grid gap-x-5 gap-y-1.5 border-y border-[var(--k2b-border)] py-3 sm:grid-cols-[max-content_minmax(0,1fr)]">
+                  <For each={inlineReviewDetails()}>
+                    {(detail) => (
+                      <>
+                        <dt class="font-semibold text-primary">{detail.label}</dt>
+                        <dd class="min-w-0 whitespace-pre-wrap break-words">{detail.value}</dd>
+                      </>
+                    )}
+                  </For>
+                </dl>
+              </Show>
+              <For each={blockReviewDetails()}>
+                {(detail) => (
+                  <section class="min-w-0" aria-label={detail.label}>
+                    <h4 class="mb-1.5 font-semibold text-primary">{detail.label}</h4>
+                    <pre
+                      class="max-h-72 overflow-auto whitespace-pre-wrap break-words pr-2 font-sans text-xs leading-5 text-secondary"
+                      role="region"
+                      tabIndex={0}
+                      aria-label={`${detail.label} content`}
+                    >
+                      {detail.value}
+                    </pre>
+                  </section>
+                )}
+              </For>
+              <Show when={reviewLinks().length > 0}>
+                <nav class="flex flex-wrap gap-x-3 gap-y-1" aria-label={`${title()} links`}>
+                  <For each={reviewLinks()}>
+                    {(link) => (
+                      <a class="font-medium text-link underline-offset-2 hover:underline" href={link.href}>
+                        {link.title ?? reviewLinkTitle(link.rel)}
+                      </a>
+                    )}
+                  </For>
+                </nav>
+              </Show>
+            </div>
+          </Show>
+        </div>
+        <footer
+          class="flex min-h-12 items-center gap-3 border-t border-[var(--k2b-border)] bg-[var(--k2b-surface-subtle)] px-4 py-2.5"
+          data-ai-approval-footer
+        >
+          <Show when={approval.error()}>
+            <p class="text-xs text-red-700 dark:text-red-300">Could not submit. Try again.</p>
+          </Show>
+          <div class="ml-auto shrink-0">
+            <Show
+              when={pending()}
+              fallback={
+                <span class="text-xs font-medium text-secondary">
+                  {title()} · {props.block.status === "rejected" ? "Rejected" : "Approved"}
+                </span>
+              }
+            >
+              <Show when={actions.onApproval} fallback={<span class="text-xs font-medium text-secondary">Approval unavailable</span>}>
                 <Show
                   when={!actionDisabled()}
                   fallback={
@@ -221,113 +288,42 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
                       </span>
                     }
                   >
-                    <div class="flex flex-wrap gap-1">
+                    <div class="flex flex-wrap justify-end gap-1">
                       <Button size="xs" variant="ghost" onClick={() => submit({ approved: false })}>
                         Reject
                       </Button>
-                      <Show
-                        when={props.block.approval?.allowAlways}
-                        fallback={
-                          <Button size="xs" variant="ai" onClick={() => submit({ approved: true })}>
-                            {title()}
-                          </Button>
-                        }
+                      <SplitButton
+                        size="xs"
+                        variant="ai"
+                        onClick={() => submit({ approved: true })}
+                        menuLabel={`More options for ${title()}`}
+                        menuPosition="bottom-right"
+                        items={[
+                          {
+                            label: detailsOpen() ? "Hide details" : "Details",
+                            icon: detailsOpen() ? "ti ti-eye-off" : "ti ti-eye",
+                            action: () => setDetailsOpen((open) => !open),
+                          },
+                          ...(props.block.approval?.allowAlways
+                            ? [
+                                {
+                                  label: "Always approve",
+                                  icon: "ti ti-shield-check",
+                                  action: () => submit({ approved: true, remember: "always" }),
+                                },
+                              ]
+                            : []),
+                        ]}
                       >
-                        <SplitButton
-                          size="xs"
-                          variant="ai"
-                          onClick={() => submit({ approved: true })}
-                          menuLabel={`More approval options for ${title()}`}
-                          menuPosition="bottom-right"
-                          items={[
-                            {
-                              label: "Always approve",
-                              icon: "ti ti-shield-check",
-                              action: () => submit({ approved: true, remember: "always" }),
-                            },
-                          ]}
-                        >
-                          {title()}
-                        </SplitButton>
-                      </Show>
+                        {title()}
+                      </SplitButton>
                     </div>
                   </Show>
                 </Show>
-                <Show when={approval.error()}>
-                  <p class="mt-1 text-xs text-red-700 dark:text-red-300">Could not submit. Try again.</p>
-                </Show>
-              </div>
-            </Show>
-          </Show>
-        </div>
-        <Show when={reviewLines().length > 0}>
-          <div class="mt-3 flex flex-col gap-1 text-xs leading-5 text-secondary">
-            <For each={reviewLines()}>
-              {(line) => (
-                <p class="whitespace-pre-wrap">
-                  <Show when={line.label}>{(label) => <strong class="font-semibold text-primary">{label()}: </strong>}</Show>
-                  {line.value}
-                </p>
-              )}
-            </For>
-          </div>
-        </Show>
-        <Show when={props.block.approval?.review}>
-          <div class="mt-3 flex flex-col gap-3 text-xs leading-5 text-secondary">
-            <p class="whitespace-pre-wrap">{description()}</p>
-            <Show when={inlineReviewDetails().length > 0}>
-              <dl class="grid gap-x-3 gap-y-1 sm:grid-cols-[max-content_minmax(0,1fr)]">
-                <For each={inlineReviewDetails()}>
-                  {(detail) => (
-                    <>
-                      <dt class="font-semibold text-primary">{detail.label}</dt>
-                      <dd class="min-w-0 whitespace-pre-wrap break-words">{detail.value}</dd>
-                    </>
-                  )}
-                </For>
-              </dl>
-            </Show>
-            <For each={blockReviewDetails()}>
-              {(detail) => (
-                <section class="min-w-0" aria-label={detail.label}>
-                  <h4 class="mb-1 font-semibold text-primary">{detail.label}</h4>
-                  <pre
-                    class="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-white/55 p-2 font-sans text-xs leading-5 text-secondary [box-shadow:var(--ui-control-recess)] dark:bg-black/20"
-                    role="region"
-                    tabIndex={0}
-                    aria-label={`${detail.label} content`}
-                  >
-                    {detail.value}
-                  </pre>
-                </section>
-              )}
-            </For>
-            <Show when={reviewLinks().length > 0}>
-              <nav class="flex flex-wrap gap-x-3 gap-y-1" aria-label={`${title()} links`}>
-                <For each={reviewLinks()}>
-                  {(link) => (
-                    <a class="font-medium text-link underline-offset-2 hover:underline" href={link.href}>
-                      {link.title ?? reviewLinkTitle(link.rel)}
-                    </a>
-                  )}
-                </For>
-              </nav>
+              </Show>
             </Show>
           </div>
-        </Show>
-        <button
-          type="button"
-          class="mt-3 inline-flex min-h-6 cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[11px] font-medium text-secondary transition-colors hover:text-primary"
-          aria-expanded={detailsOpen()}
-          aria-controls={detailsId}
-          onClick={() => setDetailsOpen((open) => !open)}
-        >
-          Details
-          <i
-            class={`ti ti-chevron-right text-xs leading-none transition-transform ${detailsOpen() ? "rotate-90" : ""}`}
-            aria-hidden="true"
-          />
-        </button>
+        </footer>
       </section>
       <Show when={detailsOpen()}>
         <div id={detailsId} class="mt-2 w-full" role="region" aria-label={`${title()} details`}>

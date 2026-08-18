@@ -1248,6 +1248,7 @@ export default function MailComposer(props: {
 
       <footer class="flex shrink-0 items-center gap-2 bg-[var(--ui-surface-subtle)] px-3 py-2">
         <SplitButton
+          class="mail-compose-action"
           size="sm"
           type="button"
           loading={send.loading()}

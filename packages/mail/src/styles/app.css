@@ -277,15 +277,10 @@
 }
 
 @layer utilities {
-  .mail-compose-action {
-    border-color: color-mix(in srgb, var(--app-accent) 68%, black);
-    background: color-mix(in srgb, var(--app-accent) 80%, black);
-    color: white;
-  }
-
-  .mail-compose-action:hover {
-    border-color: color-mix(in srgb, var(--app-accent) 76%, black);
-    background: color-mix(in srgb, var(--app-accent) 88%, black);
+  .mail-compose-action,
+  .mail-compose-action + .k2b-split-button__menu-trigger {
+    --k2b-action-solid: color-mix(in srgb, var(--app-accent) 80%, black);
+    --k2b-action-solid-hover: color-mix(in srgb, var(--app-accent) 88%, black);
   }
 }
 

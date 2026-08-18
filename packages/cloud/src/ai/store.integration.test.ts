@@ -14,6 +14,7 @@ import { migrateCloudAi } from "./migrate";
 import { aiProjects } from "./projects";
 import { AI_SHORT_ID_PATTERN, createAiShortId } from "./short-id";
 import { aiConversations } from "./store";
+import { loadAiStreamState } from "./stream";
 
 const canUseAiDatabase = async () => {
   try {
@@ -525,6 +526,9 @@ suite("AI conversation store integration", () => {
       expect(active?.turn.status).toBe("waiting_for_action");
       expect(active?.liveBlocks).toEqual(blocks);
       expect(active?.liveSeq).toBe(7);
+      const reopened = await loadAiStreamState(conversation);
+      expect(reopened.activeTurn?.status).toBe("waiting_for_action");
+      expect(reopened.activeTurn?.blocks).toEqual(blocks);
       expect(await aiConversations.listPendingTurnActions({ conversationId: conversation.id, turnId: turn.id })).toEqual([
         {
           type: "approval_request",

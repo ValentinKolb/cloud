@@ -114,6 +114,34 @@ describe("nessi block event mapping", () => {
     });
   });
 
+  test("custom approval keeps the review from its parent tool call", () => {
+    const mapper = createEventMapper(1, []);
+    const review = {
+      message: "Update the draft.",
+      details: [{ label: "Proposed body", value: "Hello Ada", display: "block" as const }],
+    };
+    mapper.setApprovalReviews(new Map([["call-9", review]]));
+
+    const ops = mapper.translate({
+      ...turn,
+      type: "tool_action_request",
+      kind: "custom_approval",
+      callId: "call-9-approval-0",
+      name: "mail__action__draft_dot_update",
+      args: { draft: { body: "Hello Ada" } },
+      message: review.message,
+    } as OutboundEvent);
+
+    expect(ops[0]).toMatchObject({
+      type: "block_set",
+      block: {
+        callId: "call-9-approval-0",
+        status: "awaiting_approval",
+        approval: { message: review.message, review },
+      },
+    });
+  });
+
   test("capability presentation follows a live call through completion", () => {
     const mapper = createEventMapper(1, []);
     const presentation = {

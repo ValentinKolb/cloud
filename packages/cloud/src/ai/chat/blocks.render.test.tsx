@@ -14,6 +14,7 @@ process.once("exit", () => rmSync(root, { recursive: true, force: true }));
 
 const { AiTurnBlockView } = await import("./blocks");
 const { AiChatActionsProvider } = await import("./message-actions");
+const { CloudSurveyBlock } = await import("./visual-tools");
 
 const block = (status: "running" | "awaiting_approval" | "completed" | "failed"): AiTurnBlock => ({
   id: "tool-call-1",
@@ -104,7 +105,7 @@ describe("capability tool presentation", () => {
         }),
       );
     const html = renderApproval(block("awaiting_approval"));
-    expect(html).toContain(">Contacts</h3>");
+    expect(html).toContain(">Contacts · List contacts</h3>");
     expect(html).toContain("List contacts");
     expect(html).toContain('data-variant="ai"');
     expect(html).toContain('<span class="k2b-button__label">List contacts</span>');
@@ -115,7 +116,14 @@ describe("capability tool presentation", () => {
     expect(html).toContain("ti-address-book");
     expect(html).toContain("--app-accent:#0f766e");
     expect(html).toContain("app-accent-scope");
+    expect(html).toContain("border-[var(--k2b-border)]");
+    expect(html).toContain("bg-[var(--k2b-surface)]");
+    expect(html).toContain("data-ai-approval-footer");
     expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain("k2b-split-button");
+    expect(html).toContain("Details");
+    expect(html).toContain("ti-eye");
+    expect(html).toContain("More options for List contacts");
     expect(html).not.toContain("k2b-content-structured-data");
 
     const rememberable = block("awaiting_approval");
@@ -124,7 +132,7 @@ describe("capability tool presentation", () => {
     const rememberableHtml = renderApproval(rememberable);
     expect(rememberableHtml).toContain("k2b-split-button");
     expect(rememberableHtml).toContain("Always approve");
-    expect(rememberableHtml).toContain("More approval options for List contacts");
+    expect(rememberableHtml).toContain("More options for List contacts");
     expect(rememberableHtml).not.toContain("Always allow");
 
     const customReview = block("awaiting_approval");
@@ -141,6 +149,7 @@ describe("capability tool presentation", () => {
     };
     const customHtml = renderApproval(customReview);
     expect(customHtml).toContain("The draft includes an external recipient.");
+    expect(customHtml.indexOf("The draft includes an external recipient.")).toBeLessThan(customHtml.indexOf("data-ai-approval-footer"));
     expect(customHtml).toContain('<dt class="font-semibold text-primary">Subject</dt>');
     expect(customHtml).toContain('<dd class="min-w-0 whitespace-pre-wrap break-words">Release follow-up</dd>');
     expect(customHtml).toContain('<dt class="font-semibold text-primary">Recipients</dt>');
@@ -152,5 +161,40 @@ describe("capability tool presentation", () => {
     expect(customHtml).not.toContain("<strong>Ada</strong>");
     expect(customHtml).toContain('href="/app/mail/MbA123/drafts/DrG789"');
     expect(customHtml).toContain("Edit draft</a>");
+  });
+});
+
+describe("survey presentation", () => {
+  test("uses a neutral action sheet with vertical choices and a bottom action footer", () => {
+    const html = renderToString(() =>
+      createComponent(CloudSurveyBlock, {
+        args: {
+          title: "Choose a follow-up time",
+          description: "When should I remind you?",
+          questions: [
+            {
+              id: "timing",
+              type: "single",
+              label: "Reminder",
+              required: true,
+              options: [
+                { label: "Tomorrow morning", value: "tomorrow" },
+                { label: "Friday afternoon", value: "friday" },
+              ],
+            },
+          ],
+        },
+        onSubmit: async () => undefined,
+      }),
+    );
+
+    expect(html).toContain("Choose a follow-up time");
+    expect(html).toContain('class="mt-2 grid gap-1.5"');
+    expect(html).toContain('type="radio"');
+    expect(html).toContain("Tomorrow morning");
+    expect(html).toContain("Friday afternoon");
+    expect(html).toContain("border-t border-[var(--k2b-border)]");
+    expect(html).toContain("k2b-button ml-auto");
+    expect(html).toContain("Submit");
   });
 });

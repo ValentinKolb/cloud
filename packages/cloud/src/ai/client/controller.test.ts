@@ -159,6 +159,93 @@ describe("AI controller draft submission", () => {
     expect(requests).toEqual(["PUT:Sent", "POST", "PUT:empty"]);
     dispose();
   });
+
+  test("submits a Cloud resource without leaking the draft discriminator into its marker", async () => {
+    let savedContent: AiConversation["draft"]["content"] = [];
+    globalThis.fetch = Object.assign(
+      async (request: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(request);
+        if (init?.headers && new Headers(init.headers).get("Accept") === "text/event-stream") {
+          return new Response(new ReadableStream());
+        }
+        if (path.endsWith("/draft") && init?.method === "PUT") {
+          const body = JSON.parse(String(init.body)) as { content: AiConversation["draft"]["content"] };
+          savedContent = body.content;
+          return Response.json({ content: body.content, revision: 1, updatedAt: null });
+        }
+        if (path.endsWith("/turns") && init?.method === "POST") {
+          return Response.json({
+            turn: {
+              id: "turn-resource",
+              shortId: "tRn234",
+              conversationId: "resource-chat",
+              status: "running",
+              attempt: 0,
+              modelProfileId: null,
+              createdAt: "2026-07-11T00:00:00.000Z",
+              completedAt: null,
+              error: null,
+            },
+            message: {
+              id: "message-resource",
+              shortId: "mSg234",
+              conversationId: "resource-chat",
+              seq: 1,
+              kind: "message",
+              message: { role: "user", content: [{ type: "text", text: "Resource attached" }] },
+              loopId: null,
+              modelProfileId: null,
+              providerModel: null,
+              usage: null,
+              stopReason: null,
+              loopAggregate: null,
+              loopDoneReason: null,
+              compactedAt: null,
+              meta: null,
+              createdAt: "2026-07-11T00:00:00.000Z",
+            },
+          });
+        }
+        if (path.endsWith("/timeline")) return Response.json([]);
+        return Response.json({});
+      },
+      { preconnect: originalFetch.preconnect },
+    );
+
+    let dispose!: () => void;
+    const current = conversation("resource-chat");
+    const controller = createRoot((rootDispose) => {
+      dispose = rootDispose;
+      return createAiChatController({
+        baseUrl: "/api/ai",
+        initialConversationId: current.id,
+        initialDetail: { conversation: current, messages: [], activeTurn: null },
+      });
+    });
+
+    expect(
+      await controller.send({
+        resources: [
+          {
+            ref: { type: "mail.draft", id: "qw273Q" },
+            title: "Draft",
+            icon: "ti ti-file-pencil",
+            href: "/app/mail/5guDsC/compose/qw273Q",
+          },
+        ],
+      }),
+    ).toBe(true);
+    expect(savedContent).toEqual([
+      {
+        type: "resource",
+        ref: { type: "mail.draft", id: "qw273Q" },
+        title: "Draft",
+        icon: "ti ti-file-pencil",
+        href: "/app/mail/5guDsC/compose/qw273Q",
+      },
+    ]);
+    dispose();
+  });
 });
 
 const conversation = (id: string): AiConversation => ({
@@ -196,6 +283,82 @@ describe("AI controller conversation transitions", () => {
   test("reuses an exact cached projection without an empty transition", () => {
     const cached: AiChatProjection = { conversation: conversation("cached"), messages: [], activeTurn: null };
     expect(projectionForConversationOpen(cached, cached.conversation)).toBe(cached);
+  });
+
+  test("retries a user message while its turn waits for an action", async () => {
+    let retryCalls = 0;
+    globalThis.fetch = Object.assign(
+      async (request: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(request);
+        if (init?.headers && new Headers(init.headers).get("Accept") === "text/event-stream") {
+          return new Response(new ReadableStream());
+        }
+        if (path.endsWith("/messages/message-ja/retry") && init?.method === "POST") {
+          retryCalls += 1;
+          return Response.json({
+            turn: {
+              id: "turn-retry",
+              shortId: "tRn234",
+              conversationId: "waiting",
+              status: "queued",
+              attempt: 0,
+              modelProfileId: null,
+              createdAt: "2026-07-11T00:00:00.000Z",
+              completedAt: null,
+              error: null,
+            },
+            message: {
+              id: "message-retry",
+              shortId: "mSg234",
+              conversationId: "waiting",
+              seq: 1,
+              kind: "message",
+              message: { role: "user", content: [{ type: "text", text: "ja" }] },
+              loopId: "turn-retry",
+              modelProfileId: null,
+              providerModel: null,
+              usage: null,
+              stopReason: null,
+              loopAggregate: null,
+              loopDoneReason: null,
+              compactedAt: null,
+              meta: null,
+              createdAt: "2026-07-11T00:00:00.000Z",
+            },
+          });
+        }
+        if (path.endsWith("/timeline")) return Response.json([]);
+        return Response.json({});
+      },
+      { preconnect: originalFetch.preconnect },
+    );
+
+    let dispose!: () => void;
+    const current = conversation("waiting");
+    const controller = createRoot((rootDispose) => {
+      dispose = rootDispose;
+      return createAiChatController({
+        baseUrl: "/api/ai",
+        initialConversationId: current.id,
+        initialDetail: {
+          conversation: current,
+          messages: [],
+          activeTurn: {
+            turnId: "turn-waiting",
+            attempt: 1,
+            status: "waiting_for_action",
+            seq: 1,
+            blocks: [],
+            modelProfileId: null,
+            createdAt: "2026-07-11T00:00:00.000Z",
+          },
+        },
+      });
+    });
+
+    expect(await controller.retryUserMessage("message-ja")).toBe(true);
+    expect(retryCalls).toBe(1);
+    dispose();
   });
 });
 
@@ -264,6 +427,38 @@ describe("AI controller frontend tool deduplication", () => {
     claimFrontendCall(handled, inFlight, "turn:retry");
     settleFrontendCall(handled, inFlight, "turn:retry", false);
     expect(claimFrontendCall(handled, inFlight, "turn:retry")).toBe(true);
+  });
+
+  test("keeps an accepted survey answer visible while the assistant continues", () => {
+    const result = { submitted: true, answers: { timing: "tomorrow" } };
+    expect(
+      __aiControllerTest.completeFrontendToolBlock(
+        [
+          {
+            id: "survey-call",
+            kind: "tool",
+            callId: "call-1",
+            name: "survey",
+            args: { title: "When?" },
+            status: "awaiting_client",
+            frontendMode: "client_interaction",
+          },
+        ],
+        "call-1",
+        result,
+      ),
+    ).toEqual([
+      {
+        id: "survey-call",
+        kind: "tool",
+        callId: "call-1",
+        name: "survey",
+        args: { title: "When?" },
+        status: "completed",
+        frontendMode: "client_interaction",
+        result,
+      },
+    ]);
   });
 });
 

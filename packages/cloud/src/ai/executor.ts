@@ -260,6 +260,16 @@ type BlockOp = BlockSetOp | BlockDeltaOp;
 
 type ToolBlockPatch = Partial<Extract<AiTurnBlock, { kind: "tool" }>> & { name?: string; clearApproval?: boolean };
 
+const approvalReviewForCallId = (
+  reviews: ReadonlyMap<string, CapabilityActionReview>,
+  callId: string,
+): CapabilityActionReview | undefined => {
+  const direct = reviews.get(callId);
+  if (direct) return direct;
+  const parentCallId = /^(.*)-approval-\d+$/.exec(callId)?.[1];
+  return parentCallId ? reviews.get(parentCallId) : undefined;
+};
+
 /**
  * Map nessi's canonical block/tool events to Cloud wire ops. nessi owns block
  * structure and whitespace hygiene; the mapper only (a) scopes stream block ids
@@ -357,7 +367,7 @@ const createEventMapper = (attempt: number, seedBlocks: AiTurnBlock[]) => {
             approval:
               event.kind === "client_tool"
                 ? undefined
-                : { message: event.message, review: approvalReviews.get(event.callId), allowAlways: false },
+                : { message: event.message, review: approvalReviewForCallId(approvalReviews, event.callId), allowAlways: false },
             frontendMode: event.kind === "client_tool" ? (frontendModes.get(event.name) ?? "client") : undefined,
           }),
         ];
@@ -1028,7 +1038,7 @@ export class AiTurnExecutor {
       name: event.name,
       args: event.args,
       message: event.message,
-      review: event.kind === "custom_approval" ? capabilityActionReviews.get(event.callId) : undefined,
+      review: event.kind === "custom_approval" ? approvalReviewForCallId(capabilityActionReviews, event.callId) : undefined,
       approvalScope,
       allowAlways,
       frontendMode,

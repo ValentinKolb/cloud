@@ -120,5 +120,6 @@ describe("Mail sidebar", () => {
     expect(mailSection).toContain(">7<");
     expect(mailSection.slice(mailSection.indexOf("Sent"), mailSection.indexOf("More"))).not.toContain(">2<");
     expect(mailSection).toContain("Trash");
+    expect(desktop).toContain("mail-compose-action");
   });
 });

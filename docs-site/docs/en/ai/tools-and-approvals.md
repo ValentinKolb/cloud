@@ -215,7 +215,9 @@ The review is UI-only. Cloud renders its bounded message, details, and
 same-origin link paths as escaped plain text above the validated Action
 arguments. It is never added to model context or returned as a tool result.
 The app name, icon, Action title, and risk treatment continue to come from the
-live registry and manifest.
+live registry and manifest. Once presented, the resolved review is stored with
+the pending action and active-turn snapshot; reconnecting or reopening the chat
+must render that same snapshot rather than recomputing or degrading it.
 
 If no review is advertised, the approval shows the validated Action arguments.
 If an advertised review fails, Cloud does not silently fall back to the weaker
@@ -234,10 +236,14 @@ The stream exposes pending actions. The shared controller provides:
 - `respondToApproval({ turnId, callId }, { approved, remember })`;
 - `submitFrontendToolResult({ turnId, callId }, result)`.
 
-Show the tool name, requested inputs, and consequence before approval.
-Capability Actions currently expose only one-time approval. For tools that do
-allow a remembered choice, use a split approval button so approving once stays
-the primary action and **Always approve** remains an explicit secondary choice.
+Show the tool name, requested inputs, and consequence before approval. The
+primary action uses a split button; its **Details** item toggles the complete
+validated arguments for technical verification. Do not require ordinary users
+to read that raw representation: every value needed for an informed decision
+belongs directly in the review card. Capability Actions currently expose only
+one-time approval. For tools that do allow a remembered choice, approving once
+stays the primary action and **Always approve** remains an explicit secondary
+choice.
 When a Capability review is available, show it instead of making the user
 interpret opaque IDs in the raw arguments. Review details default to the
 compact `inline` presentation; `display: "block"` gives long plain-text values

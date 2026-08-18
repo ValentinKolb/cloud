@@ -1,6 +1,6 @@
 import { mutation } from "@k2b/stdlib/solid";
 import { Button } from "@k2b/ui";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, createUniqueId, For, Show } from "solid-js";
 import { isRecord, jsonPreview } from "./message-utils";
 
 const toneClass = (tone: unknown) => {
@@ -80,6 +80,7 @@ export function CloudSurveyBlock(props: {
 }) {
   const survey = () => (isRecord(props.args) ? props.args : null);
   const questions = () => (Array.isArray(survey()?.questions) ? (survey()!.questions as unknown[]).filter(isRecord) : []);
+  const surveyId = createUniqueId();
   const [answers, setAnswers] = createSignal<Record<string, unknown>>({});
   const [error, setError] = createSignal<string | null>(null);
   const [submitted, setSubmitted] = createSignal(false);
@@ -113,16 +114,23 @@ export function CloudSurveyBlock(props: {
   const disabled = () => Boolean(props.disabled || submitted() || submission.loading() || !props.onSubmit);
 
   return (
-    <div class="max-w-xl rounded-md border border-zinc-200 bg-white/80 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-      <div class="flex items-start gap-2">
-        <i class="ti ti-forms mt-0.5 shrink-0 text-base leading-none text-dimmed" aria-hidden="true" />
-        <div class="min-w-0 flex-1">
-          <p class="text-xs font-medium text-primary">{String(survey()?.title ?? "Survey")}</p>
+    <div class="max-w-xl overflow-hidden rounded-xl border border-[var(--k2b-border)] bg-[var(--k2b-surface)]">
+      <div class="p-4">
+        <div class="flex items-center gap-3">
+          <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--k2b-ai-accent)_10%,var(--k2b-surface))] text-base text-[var(--k2b-ai-accent)]">
+            <i class="ti ti-forms" aria-hidden="true" />
+          </span>
+          <div class="min-w-0">
+            <p class="truncate text-sm font-semibold text-primary">{String(survey()?.title ?? "Survey")}</p>
+            <p class="text-xs text-dimmed">Survey</p>
+          </div>
+        </div>
+        <div class="min-w-0">
           <Show when={typeof survey()?.description === "string"}>
-            <p class="mt-1 text-xs text-dimmed">{String(survey()?.description)}</p>
+            <p class="mt-4 text-xs text-secondary">{String(survey()?.description)}</p>
           </Show>
 
-          <div class="mt-3 space-y-3">
+          <div class="mt-4 space-y-4">
             <For each={questions()}>
               {(question) => {
                 const id = () => String(question.id ?? "");
@@ -136,31 +144,48 @@ export function CloudSurveyBlock(props: {
                       </Show>
                     </p>
                     <Show when={question.type === "single"}>
-                      <div class="mt-1 flex flex-wrap gap-1.5">
+                      <div class="mt-2 grid gap-1.5">
                         <For each={options()}>
                           {(option) => (
-                            <Button
-                              type="button"
-                              size="xs"
-                              variant={answers()[id()] === option.value ? "primary" : "secondary"}
-                              disabled={disabled()}
-                              onClick={() => setAnswer(id(), option.value)}
+                            <label
+                              class="flex min-h-9 cursor-pointer items-center gap-2.5 rounded-lg border border-[var(--k2b-border)] px-3 py-2 text-xs text-secondary transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--k2b-focus-ring)]"
+                              classList={{
+                                "border-[var(--k2b-ai-accent)] text-primary": answers()[id()] === option.value,
+                                "cursor-not-allowed opacity-60": disabled(),
+                              }}
                             >
+                              <input
+                                type="radio"
+                                name={`${surveyId}-${id()}`}
+                                value={String(option.value ?? "")}
+                                checked={answers()[id()] === option.value}
+                                disabled={disabled()}
+                                class="accent-[var(--k2b-ai-accent)]"
+                                onChange={() => setAnswer(id(), option.value)}
+                              />
                               {String(option.label ?? option.value ?? "")}
-                            </Button>
+                            </label>
                           )}
                         </For>
                       </div>
                     </Show>
                     <Show when={question.type === "multiple"}>
-                      <div class="mt-1 flex flex-wrap gap-1.5">
+                      <div class="mt-2 grid gap-1.5">
                         <For each={options()}>
                           {(option) => (
-                            <label class="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 px-2 py-1 text-xs text-secondary dark:border-zinc-800">
+                            <label
+                              class="flex min-h-9 cursor-pointer items-center gap-2.5 rounded-lg border border-[var(--k2b-border)] px-3 py-2 text-xs text-secondary transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--k2b-focus-ring)]"
+                              classList={{
+                                "border-[var(--k2b-ai-accent)] text-primary":
+                                  Array.isArray(answers()[id()]) && (answers()[id()] as string[]).includes(String(option.value)),
+                                "cursor-not-allowed opacity-60": disabled(),
+                              }}
+                            >
                               <input
                                 type="checkbox"
                                 disabled={disabled()}
                                 checked={Array.isArray(answers()[id()]) && (answers()[id()] as string[]).includes(String(option.value))}
+                                class="accent-[var(--k2b-ai-accent)]"
                                 onChange={(event) => toggleAnswer(id(), String(option.value), event.currentTarget.checked)}
                               />
                               {String(option.label ?? option.value ?? "")}
@@ -198,23 +223,35 @@ export function CloudSurveyBlock(props: {
           <Show when={error()}>
             <p class="mt-2 text-xs text-red-600 dark:text-red-300">{error()}</p>
           </Show>
-          <Show
-            when={!props.disabled && !submitted() && props.onSubmit}
-            fallback={
-              <p class="mt-3 text-xs text-dimmed">
-                {submitted() ? "Submitted" : (props.disabledLabel ?? "Waiting for the assistant to continue.")}
-              </p>
-            }
-          >
-            <Button variant="ai" size="sm" class="mt-3" disabled={submission.loading()} onClick={() => void submit()}>
-              <Show when={submission.loading()}>
-                <i class="ti ti-loader-2 animate-spin" aria-hidden="true" />
-              </Show>
-              {submission.loading() ? "Submitting" : String(survey()?.submitLabel ?? "Submit")}
-            </Button>
-          </Show>
         </div>
       </div>
+      <footer class="flex min-h-12 items-center gap-3 border-t border-[var(--k2b-border)] bg-[var(--k2b-surface-subtle)] px-4 py-2.5">
+        <Show when={submitted()}>
+          <span class="inline-flex items-center gap-1.5 text-xs font-medium text-secondary">
+            <i class="ti ti-check text-[var(--k2b-ai-accent)]" aria-hidden="true" />
+            Answer submitted. Assistant is continuing…
+          </span>
+        </Show>
+        <Show
+          when={!props.disabled && !submitted() && props.onSubmit}
+          fallback={
+            <Show when={!submitted()}>
+              <p class="ml-auto text-xs text-dimmed">{props.disabledLabel ?? "Waiting for the assistant to continue."}</p>
+            </Show>
+          }
+        >
+          <Button
+            variant="ai"
+            size="sm"
+            class="ml-auto"
+            loading={submission.loading()}
+            loadingLabel="Submitting"
+            onClick={() => void submit()}
+          >
+            {String(survey()?.submitLabel ?? "Submit")}
+          </Button>
+        </Show>
+      </footer>
     </div>
   );
 }

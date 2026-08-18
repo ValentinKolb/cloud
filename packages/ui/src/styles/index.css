@@ -6033,6 +6033,15 @@
   object-fit: cover;
 }
 
+.k2b-ui .k2b-chat-composer__attachment > i,
+.k2b-ui .k2b-chat-composer__attachment-link > i,
+.k2b-ui .k2b-chat-message__attachment > i {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
 .k2b-ui .k2b-chat-composer__attachment-link > span {
   display: grid;
   min-width: 0;

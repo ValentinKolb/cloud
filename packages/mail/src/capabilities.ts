@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import {
+  type CapabilityActionReview,
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
   type CapabilityResult,
@@ -137,6 +138,18 @@ const truncateText = (value: string, maxBytes: number): { text: string; truncate
     bytes += characterBytes;
   }
   return { text: chunks.join(""), truncated: true };
+};
+
+const bodyReviewDetails = (input: {
+  body: string;
+  label: string;
+  truncatedMessage: string;
+}): NonNullable<CapabilityActionReview["details"]> => {
+  const preview = truncateText(input.body, 10_000);
+  return [
+    ...(preview.truncated ? [{ label: "Preview warning", value: input.truncatedMessage }] : []),
+    { label: input.label, value: preview.text, display: "block" as const },
+  ];
 };
 
 const boundedText = (value: string | null, maxBytes: number): { text: string | null; truncated: boolean } =>
@@ -1554,22 +1567,17 @@ const actionDefinitions = {
       const current = await requireDraftForReview(input.mailboxId, input.draftId, context);
       if (!current.ok) return current;
       if (current.data.revision !== input.expectedRevision) return fail(err.conflict("Draft changed before review"));
-      const proposedBodyPreview = truncateText(input.draft.body, 10_000);
       return ok({
         message: `Replace the editable content of draft ${reviewSubject(current.data.subject)}.`,
         details: [
           { label: "Current subject", value: reviewSubject(current.data.subject) },
           { label: "New subject", value: input.draft.subject || "(no subject)" },
           { label: "Recipients", value: recipientSummary(input.draft) || "None" },
-          ...(proposedBodyPreview.truncated
-            ? [
-                {
-                  label: "Preview warning",
-                  value: "This preview is truncated to 10 KB. Review the full proposed body in Details before approving.",
-                },
-              ]
-            : []),
-          { label: "Proposed body preview", value: proposedBodyPreview.text, display: "block" as const },
+          ...bodyReviewDetails({
+            body: input.draft.body,
+            label: "Proposed body preview",
+            truncatedMessage: "This preview is truncated to 10 KB. Review the full proposed body in Details before approving.",
+          }),
         ],
         links: [editLink(draftHref(input.mailboxId, input.draftId))],
       });
@@ -1728,6 +1736,11 @@ const actionDefinitions = {
           { label: "Recipients", value: recipientSummary(draft.data) || "None" },
           { label: "Delivery", value: input.scheduledAt ?? `After a ${input.undoSeconds}-second undo window` },
           ...safety.data.warnings.map((warning) => ({ label: warning.title, value: warning.description })),
+          ...bodyReviewDetails({
+            body: draft.data.body,
+            label: "Body",
+            truncatedMessage: "This preview is truncated to 10 KB. Open the draft to review the complete body before sending.",
+          }),
         ],
         links: [editLink(draftHref(input.mailboxId, input.draftId))],
       });

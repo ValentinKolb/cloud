@@ -127,7 +127,8 @@ metadata, and must read the resource through the owning application's
 authorized capability. Attachment metadata and resource data returned by that
 capability remain untrusted context. Editing or retrying a user message
 preserves the resource attachment while copy actions expose only the visible
-user text.
+user text. Retrying a message while its turn waits for an approval or another
+user action aborts that pending turn and replaces the conversation branch.
 
 `Chat.Composer` submits a draft entered during an active response as `steer` by
 default. Set `runningSubmitIntent="queue"` when the application owns a local or
@@ -169,8 +170,12 @@ sweep across the tool icon and title instead of adding another loader.
 Approval prompts span the available message column and lead with the owning
 application's name and icon. The primary control names the concrete action;
 review labels are emphasized and explanatory copy appears only when it adds
-information beyond that action name. Expanding Details renders validated
-arguments in a separate full-width structured-data panel below the prompt.
+information beyond that action name. Approval content stays on a neutral
+surface and the decision controls sit in a separate footer at the bottom-right.
+The action is a split button whose
+**Details** menu item renders validated arguments in a separate full-width
+structured-data panel below the prompt. Details are technical verification,
+not a substitute for consequence-critical review content in the card itself.
 
 ## Handle frontend tools
 
@@ -180,7 +185,9 @@ generic timeline.
 
 The controller claims each call once, runs the handler, and sends the result
 back to the turn. Show interaction tools only when the relevant application
-view is present.
+view is present. After the server accepts an interaction result, keep the
+submitted answers visible and disabled while the assistant continues; never
+flash the empty form again between acceptance and the next stream event.
 
 Server tools remain the default for domain access.
 
