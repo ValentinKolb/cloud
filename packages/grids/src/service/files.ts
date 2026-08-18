@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
 import { logAudit, type SqlClient } from "./audit";
+import { captureRecordRevision, lockDurableHistoryMutationBoundary, prepareRecordMutation } from "./durable-history";
 import { type FederatedRevisionScope, getActive, verifyRevisionScope } from "./federated-tables";
 import { insertWithShortIdForDb } from "./short-id";
 import { get as getTable } from "./tables";
@@ -415,7 +416,9 @@ export const upload = async (params: {
   const maxFiles = target.data.config.maxFiles;
 
   return sql.begin(async (tx) => {
+    await lockDurableHistoryMutationBoundary(tx, params.tableId);
     await lockMutationTarget(tx, params.recordId, params.fieldId);
+    await prepareRecordMutation(tx, params.tableId, params.recordId);
 
     if (typeof maxFiles === "number" && Number.isInteger(maxFiles) && maxFiles > 0) {
       const [countRow] = await tx<{ count: number }[]>`
@@ -464,6 +467,13 @@ export const upload = async (params: {
       VALUES (${row.id}::uuid, ${params.recordId}::uuid, ${params.fieldId}::uuid, ${row.position}, ${params.userId}::uuid)
     `;
     const file = mapRow(row);
+    await captureRecordRevision(tx, {
+      tableId: params.tableId,
+      recordId: params.recordId,
+      action: "file.added",
+      changedFieldIds: [params.fieldId],
+      actorId: params.userId,
+    });
     await logAudit(
       {
         tableId: params.tableId,
@@ -497,7 +507,9 @@ export const replace = async (params: {
   }
 
   return sql.begin(async (tx): Promise<Result<GridFile>> => {
+    await lockDurableHistoryMutationBoundary(tx, params.tableId);
     await lockMutationTarget(tx, params.recordId, params.fieldId);
+    await prepareRecordMutation(tx, params.tableId, params.recordId);
     const [existingRow] = await tx<DbRow[]>`
       SELECT file.id::text AS id, file.short_id, attachment.record_id::text AS record_id,
              attachment.field_id::text AS field_id, attachment.position, file.filename, file.mime_type,
@@ -537,6 +549,13 @@ export const replace = async (params: {
     `;
     const previous = mapRow(existingRow);
     const next = mapRow(nextRow);
+    await captureRecordRevision(tx, {
+      tableId: params.tableId,
+      recordId: params.recordId,
+      action: "file.replaced",
+      changedFieldIds: [params.fieldId],
+      actorId: params.userId,
+    });
     await logAudit(
       {
         tableId: params.tableId,
@@ -602,7 +621,9 @@ export const remove = async (params: {
   const target = await verifyTarget(params.tableId, params.recordId, params.fieldId);
   if (!target.ok) return target;
   return sql.begin(async (tx): Promise<Result<void>> => {
+    await lockDurableHistoryMutationBoundary(tx, params.tableId);
     await lockMutationTarget(tx, params.recordId, params.fieldId);
+    await prepareRecordMutation(tx, params.tableId, params.recordId);
     const [row] = await tx<DbRow[]>`
       SELECT file.id::text AS id, file.short_id, attachment.record_id::text AS record_id,
              attachment.field_id::text AS field_id, attachment.position, file.filename, file.mime_type,
@@ -617,6 +638,13 @@ export const remove = async (params: {
     if (!row) return fail(err.notFound("File"));
     const file = mapRow(row);
     await tx`DELETE FROM grids.file_attachments WHERE file_id = ${params.fileId}::uuid`;
+    await captureRecordRevision(tx, {
+      tableId: params.tableId,
+      recordId: params.recordId,
+      action: "file.removed",
+      changedFieldIds: [params.fieldId],
+      actorId: params.userId ?? null,
+    });
     await logAudit(
       {
         tableId: params.tableId,

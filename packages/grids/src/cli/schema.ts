@@ -1,4 +1,5 @@
 import { arg, command, confirmFlag, flag, paginationFlags } from "@valentinkolb/cloud/cli";
+import type { PublicDurableHistoryStatus } from "../api/durable-history";
 import type {
   PublicFederatedRevisionView as FederatedRevisionView,
   PublicFederatedSourcePublication as FederatedSourcePublication,
@@ -176,6 +177,57 @@ export const tableCommands = [
         ctx.print(`kind: ${table.kind === "federated" ? "combined" : "stored"}`);
         ctx.print(`fields: ${table.columns.length}`);
       }
+    },
+  }),
+  command("tables history", {
+    summary: "Show a table's durable history status",
+    args: tableArgs,
+    flags: { ...baseFlag, ...tableFlag },
+    async run({ ctx, args, flags }) {
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
+      const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
+      const status = await readApi<PublicDurableHistoryStatus>(ctx, `/tables/${encodeURIComponent(table.id)}/durable-history`);
+      if (!printCliStructured(ctx, status)) {
+        if (!status.enabled) ctx.print(`Durable history is not enabled for ${table.name} (${table.id}).`);
+        else {
+          ctx.print(`Durable history is ${status.status} for ${table.name} (${table.id}).`);
+          ctx.print(`baseline: ${status.baseline.captured}/${status.baseline.total}`);
+          ctx.print(`enabled: ${status.activatedAt}`);
+        }
+      }
+    },
+  }),
+  command("tables history enable", {
+    summary: "Irreversibly enable durable history and capture its baseline",
+    description:
+      "Enables append-only record versions permanently. The command continues the initial baseline in bounded server-side batches until it is complete.",
+    args: tableArgs,
+    flags: { ...baseFlag, ...tableFlag, yes: confirmFlag("Permanently enable durable history for this table") },
+    examples: [
+      "cld grids tables history enable Bookshop Authors --yes",
+      "cld grids tables history enable --base Bookshop --table Authors --yes --json",
+    ],
+    async run({ ctx, args, flags }) {
+      if (!flags.yes) throw new Error("Pass --yes to permanently enable durable history.");
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
+      const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
+      let status = await readApi<PublicDurableHistoryStatus>(
+        ctx,
+        `/tables/${encodeURIComponent(table.id)}/durable-history/enable`,
+        jsonRequest("POST"),
+      );
+      while (status.enabled && status.status === "activating") {
+        const captured = status.baseline.captured;
+        status = await readApi<PublicDurableHistoryStatus>(
+          ctx,
+          `/tables/${encodeURIComponent(table.id)}/durable-history/continue`,
+          jsonRequest("POST"),
+        );
+        if (status.enabled && status.status === "activating" && status.baseline.captured <= captured) {
+          throw new Error("Durable history baseline did not make progress. Run the command again to continue safely.");
+        }
+      }
+      printJsonOrMessage(ctx, status, `Enabled durable history for ${table.name} (${table.id}).`);
     },
   }),
   command("tables create", {

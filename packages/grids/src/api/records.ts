@@ -10,6 +10,7 @@ import { DEFAULT_MAX_FILE_SIZE_MB, getMaxFileSizeBytes } from "../service/file-l
 import { fromPublicRecordValues, resolvePublicId } from "../service/public-resources";
 import { validateRecordQueryForTable } from "../service/query-validation";
 import { ALL_RECORD_ACCESS } from "../service/record-access";
+import { PublicRecordRevisionPageSchema, toPublicRecordRevisionPage } from "./durable-history";
 import { currentActorUserId, currentActorViewer, gateAt } from "./permissions";
 import {
   PublicCombinedAuditPageSchema,
@@ -66,6 +67,13 @@ const ReferencedByQuerySchema = z
   })
   .strict();
 
+const DurableHistoryQuerySchema = z
+  .object({
+    cursor: ShortIdSchema.optional(),
+    limit: z.coerce.number().int().min(1).max(50).optional(),
+  })
+  .strict();
+
 const CombinedAuditQuerySchema = z.object({
   recordId: ShortIdSchema.optional(),
   sourceRef: z.string().max(20).optional(),
@@ -82,6 +90,77 @@ const app = new Hono<AuthContext>()
   // Record listing is served by the unified table query endpoint so
   // list, search, filter, sort, group, and aggregate reads share one
   // backend contract.
+
+  .get(
+    "/:tableId/:recordId/versions",
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
+    describeRoute({
+      tags: ["Grids:Record"],
+      summary: "List durable record versions",
+      responses: {
+        200: jsonResponse(PublicRecordRevisionPageSchema, "Durable record versions"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid cursor"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Record not found"),
+      },
+    }),
+    v("query", DurableHistoryQuerySchema),
+    async (c) => {
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const visibleRecord = await gridsService.record.get(tableId, recordId, { recordAccess: ALL_RECORD_ACCESS });
+      if (!visibleRecord) return c.json({ message: "Record not found" }, 404);
+      const query = c.req.valid("query");
+      const result = await gridsService.record.durableHistory.list({ tableId, recordId, ...query });
+      return result.ok ? c.json(await toPublicRecordRevisionPage(result.data)) : respond(c, () => Promise.resolve(result));
+    },
+  )
+
+  .get(
+    "/:tableId/:recordId/versions/:revisionId/files/:fileId",
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
+    requirePublicIdParam("fileId", "file", "File"),
+    describeRoute({
+      tags: ["Grids:Record"],
+      summary: "Download a file retained by a durable record version",
+      responses: {
+        200: { description: "Exact historical file bytes" },
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Historical file not found"),
+      },
+    }),
+    async (c) => {
+      const revisionId = ShortIdSchema.safeParse(c.req.param("revisionId"));
+      if (!revisionId.success) return c.json({ message: "Historical file not found" }, 404);
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const visibleRecord = await gridsService.record.get(tableId, recordId, { recordAccess: ALL_RECORD_ACCESS });
+      if (!visibleRecord) return c.json({ message: "Record not found" }, 404);
+      const result = await gridsService.record.durableHistory.getFileContent({
+        tableId,
+        recordId,
+        revisionShortId: revisionId.data,
+        fileId: internalIdParam(c, "fileId")!,
+      });
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      c.header("Content-Type", result.data.mimeType);
+      c.header("Content-Length", String(result.data.sizeBytes));
+      c.header("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(result.data.filename)}`);
+      c.header("ETag", `\"${result.data.sha256}\"`);
+      c.header("Cache-Control", "private, no-store");
+      return c.body(Uint8Array.from(result.data.bytes).buffer);
+    },
+  )
 
   .get(
     "/:tableId/:recordId/referenced-by",

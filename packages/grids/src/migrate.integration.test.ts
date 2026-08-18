@@ -79,11 +79,21 @@ describe("grids schema migration", () => {
           WHERE table_schema = 'grids'
             AND table_type = 'BASE TABLE'
         `;
-        // workflow_profile and workflow_run_profile arrived; grids.workflows,
-        // workflow_revisions, workflow_runs and workflow_step_runs moved into
-        // the kernel, taking workflow_effect_intents with them. Grids Apps add
-        // custom_apps and custom_app_access to the current Grids schema.
-        expect(row?.tableCount).toBe(36);
+        // Durable History adds its activation, schema-revision, and
+        // record-revision owners without replacing the lightweight live rows.
+        expect(row?.tableCount).toBe(39);
+        const historyTables = await database<Array<{ tableName: string }>>`
+          SELECT table_name AS "tableName"
+          FROM information_schema.tables
+          WHERE table_schema = 'grids'
+            AND table_name IN ('durable_history_activations', 'record_revisions', 'table_schema_revisions')
+          ORDER BY table_name
+        `;
+        expect(historyTables.map((item) => item.tableName)).toEqual([
+          "durable_history_activations",
+          "record_revisions",
+          "table_schema_revisions",
+        ]);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
         expect(String(cast?.value)).toBe("12.5");
 

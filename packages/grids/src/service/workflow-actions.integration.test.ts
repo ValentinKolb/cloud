@@ -17,6 +17,8 @@ import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integ
 import { migrate } from "../migrate";
 import type { GridsWorkflowPrincipal } from "../workflows/contracts";
 import { gridsWorkflows } from "../workflows/module";
+import { enable as enableDurableHistory, listRecordRevisions } from "./durable-history";
+import { provisionFieldNumberSeries } from "./number-series";
 import { GRIDS_APP_ID, gridsAuthorizationSnapshot } from "./workflow-runs";
 import { dryRunGridsWorkflowRun, runGridsWorkflowRun } from "./workflow-runtime";
 import { deleteTestWorkflowScope, insertTestWorkflow, publishTestWorkflowVersion } from "./workflow-test-fixture";
@@ -67,10 +69,12 @@ const insertFixture = async (fixture: Fixture): Promise<void> => {
       (${fixture.nameFieldId}::uuid, ${shortId("F")}, ${fixture.tableId}::uuid, 'Name', 'text', '{}'::jsonb, 1),
       (${fixture.statusFieldId}::uuid, ${shortId("F")}, ${fixture.tableId}::uuid, 'Status', 'text', '{}'::jsonb, 2)
   `;
+  await provisionFieldNumberSeries(sql, fixture.assetIdFieldId, { strategy: "sequence", prefix: "ITEM-", padding: 4 });
   await sql`
-    INSERT INTO grids.records (id, table_id, data, created_by, updated_by)
+    INSERT INTO grids.records (id, short_id, table_id, data, created_by, updated_by)
     VALUES (
       ${fixture.recordId}::uuid,
+      ${shortId("R")},
       ${fixture.tableId}::uuid,
       ${{ [fixture.assetIdFieldId]: "ITEM-0001", [fixture.nameFieldId]: "Draft task", [fixture.statusFieldId]: "Open" }}::jsonb,
       ${fixture.actorId}::uuid,
@@ -110,6 +114,9 @@ const insertFixture = async (fixture: Fixture): Promise<void> => {
 };
 
 const cleanupFixture = async (fixture: Fixture): Promise<void> => {
+  await sql`DELETE FROM grids.record_revisions WHERE table_id = ${fixture.tableId}::uuid`;
+  await sql`DELETE FROM grids.durable_history_activations WHERE table_id = ${fixture.tableId}::uuid`;
+  await sql`DELETE FROM grids.table_schema_revisions WHERE table_id = ${fixture.tableId}::uuid`;
   await sql`DELETE FROM grids.audit_log WHERE base_id = ${fixture.baseId}::uuid`;
   await deleteTestWorkflowScope(fixture.baseId);
   await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
@@ -188,8 +195,11 @@ const queueRun = async (fixture: Fixture, input: QueuedRun): Promise<string> => 
     occurredAt: new Date(),
   });
   await sql`
-    INSERT INTO grids.workflow_run_profile (run_id, base_id, workflow_id, channel, actor_user_id, request_fingerprint)
-    VALUES (${runId}::uuid, ${fixture.baseId}::uuid, ${fixture.workflowId}::uuid, 'api', ${fixture.actorId}::uuid, ${runId})
+    INSERT INTO grids.workflow_run_profile (run_id, short_id, base_id, workflow_id, channel, actor_user_id, request_fingerprint)
+    VALUES (
+      ${runId}::uuid, ${shortId("R")}, ${fixture.baseId}::uuid, ${fixture.workflowId}::uuid,
+      'api', ${fixture.actorId}::uuid, ${runId}
+    )
   `;
   return runId;
 };
@@ -296,6 +306,8 @@ describe("declared Grids workflow actions", () => {
     const fixture = createFixture();
     try {
       await insertFixture(fixture);
+      const activated = await enableDurableHistory(fixture.tableId, fixture.actorId);
+      expect(activated.ok).toBe(true);
       const runId = await queueRun(fixture, {
         plan: boundPlan([actionStep(0, "updateRecord", { record: "inputs.record", set: { Status: "Approved" } })], {
           "steps.0.updateRecord.set.Status": fixture.statusFieldId,
@@ -312,6 +324,8 @@ describe("declared Grids workflow actions", () => {
       expect(data.Status).toBeUndefined();
       expect(data[fixture.assetIdFieldId]).toBe("ITEM-0001");
       expect(data[fixture.nameFieldId]).toBe("Draft task");
+      const revisions = await listRecordRevisions({ tableId: fixture.tableId, recordId: fixture.recordId });
+      expect(revisions.ok && revisions.data.items.map((revision) => revision.action)).toEqual(["updated", "baseline"]);
 
       const [step] = await stepRuns(runId);
       expect(step).toMatchObject({ step_key: "steps.0", state: "completed", effect_state: "succeeded" });

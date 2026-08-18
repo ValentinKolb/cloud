@@ -3,6 +3,7 @@ import { sql } from "bun";
 import type { RecordMutationAudit } from "../contracts";
 import { getRecordWritableFieldType, isRecordWritableFieldType } from "../field-types";
 import { logAudit, type SqlClient } from "./audit";
+import { captureRecordRevision, lockDurableHistoryMutationBoundary, prepareRecordMutation } from "./durable-history";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import { generatedIdRequiresRetry, generateIdValue, isGeneratedIdUniqueCollision } from "./generated-ids";
 import { bindFieldNumberAllocations } from "./number-series";
@@ -212,6 +213,7 @@ export const createInTransaction = async (
 ): Promise<Result<CreateRecordInTransactionResult>> => {
   const writable = await requireStoredTableWritable(tableId, client);
   if (!writable.ok) return writable;
+  await lockDurableHistoryMutationBoundary(client, tableId);
 
   if (!opts.bypassDirectInsertCheck) {
     const [row] = await client<{ disable_direct_insert: boolean }[]>`
@@ -302,6 +304,15 @@ export const createInTransaction = async (
   for (const [fieldId, toIds] of split.relations) {
     await writeRecordLinks(id, fieldId, toIds, client);
   }
+
+  await captureRecordRevision(client, {
+    tableId,
+    recordId: id,
+    action: "created",
+    changedFieldIds: Object.keys(validated.data),
+    actorId,
+    schemaFields: fields,
+  });
 
   await captureRecordEventSnapshot(client, {
     snapshotId: row.outbox_id as string,
@@ -429,6 +440,7 @@ export const updateInTransaction = async (
 ): Promise<Result<UpdateRecordInTransactionResult>> => {
   const writable = await requireStoredTableWritable(tableId, client);
   if (!writable.ok) return writable;
+  await lockDurableHistoryMutationBoundary(client, tableId);
   const fields = await listFields(tableId, false, client);
   const existing = await loadStoredRecordForUpdate(client, tableId, recordId, fields, opts.recordAccess);
   if (!existing || existing.deletedAt) return fail(err.notFound("Record"));
@@ -461,6 +473,7 @@ export const updateInTransaction = async (
   const auditContext = buildRecordAuditContext(auditPolicy.data, "update", Object.keys(diff), opts.audit);
   if (!auditContext.ok) return auditContext;
   if (Object.keys(diff).length === 0) return ok({ record: existing, outboxId: null });
+  await prepareRecordMutation(client, tableId, recordId);
   const eventPayload = {
     v: 1,
     type: "record.updated",
@@ -487,6 +500,14 @@ export const updateInTransaction = async (
   for (const [fieldId, toIds] of split.relations) {
     await writeRecordLinks(recordId, fieldId, toIds, client);
   }
+  await captureRecordRevision(client, {
+    tableId,
+    recordId,
+    action: "updated",
+    changedFieldIds: Object.keys(diff),
+    actorId,
+    schemaFields: fields,
+  });
   await captureRecordEventSnapshot(client, {
     snapshotId: row.outbox_id as string,
     tableId,
@@ -559,10 +580,12 @@ export const softDelete = async (
   };
   const deleted = await sql
     .begin(async (tx): Promise<Result<string>> => {
+      await lockDurableHistoryMutationBoundary(tx, tableId);
       const auditPolicy = await loadTableAuditPolicy(tx, tableId);
       if (!auditPolicy.ok) return auditPolicy;
       const auditContext = buildRecordAuditContext(auditPolicy.data, "delete", [], audit);
       if (!auditContext.ok) return auditContext;
+      await prepareRecordMutation(tx, tableId, recordId);
       const [row] = await tx<Array<{ outbox_id: string }>>`
         UPDATE grids.records
         SET deleted_at = now(), updated_by = ${actorId}::uuid, updated_at = now()
@@ -583,6 +606,13 @@ export const softDelete = async (
         tableId,
         recordId,
         eventType: "record.deleted",
+      });
+      await captureRecordRevision(tx, {
+        tableId,
+        recordId,
+        action: "deleted",
+        changedFieldIds: Object.keys(existing.data),
+        actorId,
       });
       await logAudit({ tableId, recordId, userId: actorId, action: "deleted", context: auditContext.data }, tx);
       return ok(row.outbox_id);
@@ -615,10 +645,12 @@ export const restore = async (
     .begin(async (tx): Promise<Result<string>> => {
       const writable = await requireStoredTableWritable(tableId, tx);
       if (!writable.ok) return writable;
+      await lockDurableHistoryMutationBoundary(tx, tableId);
       const auditPolicy = await loadTableAuditPolicy(tx, tableId);
       if (!auditPolicy.ok) return auditPolicy;
       const auditContext = buildRecordAuditContext(auditPolicy.data, "restore", [], audit);
       if (!auditContext.ok) return auditContext;
+      await prepareRecordMutation(tx, tableId, recordId);
       const [row] = await tx<Array<{ outbox_id: string }>>`
         UPDATE grids.records
         SET deleted_at = NULL, updated_by = ${actorId}::uuid, updated_at = now()
@@ -633,6 +665,7 @@ export const restore = async (
         recordId,
         eventType: "record.restored",
       });
+      await captureRecordRevision(tx, { tableId, recordId, action: "restored", actorId });
       await logAudit({ tableId, recordId, userId: actorId, action: "restored", context: auditContext.data }, tx);
       return ok(row.outbox_id);
     })

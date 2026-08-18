@@ -7,6 +7,7 @@ import {
   dialogCore,
   IconButton,
   IconInput,
+  NoticeCard,
   PanelDialog,
   Placeholder,
   panelDialogOptions,
@@ -16,6 +17,7 @@ import {
 } from "@k2b/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import type { PublicDurableHistoryStatus } from "../../../api/durable-history";
 import type { PublicFederatedSourcePublication, PublicField, PublicForm, PublicTable } from "../../../api/public-dto";
 import { createDraft } from "../editor-draft";
 import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "../fields/field-config-editor";
@@ -256,6 +258,13 @@ function TableSettingsBody(props: {
   const disableDirectInsert = () => draft.draft().disableDirectInsert;
   const [publications, setPublications] = createSignal<PublicFederatedSourcePublication[]>([]);
   const [publicationsLoading, setPublicationsLoading] = createSignal(false);
+  const [historyStatus, setHistoryStatus] = createSignal<PublicDurableHistoryStatus | null>(null);
+  const enabledHistoryStatus = () => {
+    const status = historyStatus();
+    return status?.enabled ? status : null;
+  };
+  const [historyLoading, setHistoryLoading] = createSignal(false);
+  const [historyLoadError, setHistoryLoadError] = createSignal<string | null>(null);
 
   const loadPublications = async () => {
     if (props.table.kind !== "stored" || !props.canManageBase) return;
@@ -270,7 +279,57 @@ function TableSettingsBody(props: {
       setPublicationsLoading(false);
     }
   };
-  onMount(() => void loadPublications());
+  const loadHistoryStatus = async () => {
+    if (props.table.kind !== "stored" || !props.canManageBase) return;
+    setHistoryLoading(true);
+    setHistoryLoadError(null);
+    try {
+      const response = await apiClient.tables[":tableId"]["durable-history"].$get({ param: { tableId: props.table.id } });
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not load durable history status"));
+      setHistoryStatus(await response.json());
+    } catch (error) {
+      setHistoryLoadError(error instanceof Error ? error.message : "Could not load durable history status");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+  onMount(() => {
+    void loadPublications();
+    void loadHistoryStatus();
+  });
+
+  const historyMut = mutations.create<PublicDurableHistoryStatus, "enable" | "continue">({
+    mutation: async (operation) => {
+      let response =
+        operation === "enable"
+          ? await apiClient.tables[":tableId"]["durable-history"].enable.$post({ param: { tableId: props.table.id } })
+          : await apiClient.tables[":tableId"]["durable-history"].continue.$post({ param: { tableId: props.table.id } });
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not activate durable history"));
+      let status = await response.json();
+      setHistoryStatus(status);
+      while (status.enabled && status.status === "activating") {
+        const captured = status.baseline.captured;
+        response = await apiClient.tables[":tableId"]["durable-history"].continue.$post({ param: { tableId: props.table.id } });
+        if (!response.ok) throw new Error(await errorMessage(response, "Could not continue the history baseline"));
+        status = await response.json();
+        setHistoryStatus(status);
+        if (status.enabled && status.status === "activating" && status.baseline.captured <= captured) {
+          throw new Error("The baseline is waiting for records that are currently changing. Try Continue baseline again.");
+        }
+      }
+      return status;
+    },
+    onSuccess: setHistoryStatus,
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const enableHistory = async () => {
+    const confirmed = await prompts.confirm(
+      "History starts with a baseline of the records that exist now. Earlier changes are not reconstructed. Future versions and their files are retained permanently, storage use increases, and this cannot be disabled.",
+      { title: "Enable durable history?", confirmText: "Enable durable history" },
+    );
+    if (confirmed) historyMut.mutate("enable");
+  };
 
   const revokePublication = async (publication: PublicFederatedSourcePublication) => {
     const confirmed = await prompts.confirm(
@@ -477,6 +536,76 @@ function TableSettingsBody(props: {
               </span>
               <i class="ti ti-chevron-right text-dimmed" aria-hidden="true" />
             </button>
+          </PanelDialog.Section>
+        </Show>
+
+        <Show when={props.table.kind === "stored" && props.canManageBase}>
+          <PanelDialog.Section
+            title="History and protection"
+            subtitle="Keep an append-only version of every future record change."
+            icon="ti ti-history"
+          >
+            <Show when={!historyLoading()} fallback={<Placeholder state="loading" align="left" title="Loading history status…" />}>
+              <Show
+                when={!historyLoadError()}
+                fallback={
+                  <NoticeCard tone="danger" icon={false} bodyClass="flex flex-col items-start gap-3">
+                    <span>{historyLoadError()}</span>
+                    <Button variant="secondary" size="sm" type="button" onClick={() => void loadHistoryStatus()}>
+                      Retry
+                    </Button>
+                  </NoticeCard>
+                }
+              >
+                <Show
+                  when={enabledHistoryStatus()}
+                  fallback={
+                    <NoticeCard tone="info" icon={false} bodyClass="flex flex-col items-start gap-3">
+                      <span>
+                        Existing tables stay lightweight until you enable this. The first baseline records the current state; it does not
+                        claim earlier history.
+                      </span>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        type="button"
+                        onClick={() => void enableHistory()}
+                        loading={historyMut.loading()}
+                        loadingLabel="Enabling durable history"
+                      >
+                        <i class="ti ti-history" aria-hidden="true" /> Enable durable history
+                      </Button>
+                    </NoticeCard>
+                  }
+                >
+                  {(status) => (
+                    <NoticeCard
+                      tone={status().status === "active" ? "success" : "warning"}
+                      icon={false}
+                      bodyClass="flex flex-col items-start gap-3"
+                    >
+                      <span>
+                        {status().status === "active"
+                          ? `Durable history has been active since ${new Date(status().activatedAt).toLocaleString()}. It cannot be disabled.`
+                          : `Baseline in progress: ${status().baseline.captured} of ${status().baseline.total} records protected.`}
+                      </span>
+                      <Show when={status().status === "activating"}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          type="button"
+                          onClick={() => historyMut.mutate("continue")}
+                          loading={historyMut.loading()}
+                          loadingLabel="Protecting records"
+                        >
+                          Continue baseline
+                        </Button>
+                      </Show>
+                    </NoticeCard>
+                  )}
+                </Show>
+              </Show>
+            </Show>
           </PanelDialog.Section>
         </Show>
 

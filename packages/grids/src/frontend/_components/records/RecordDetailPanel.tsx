@@ -18,6 +18,7 @@ import RecordHistorySection from "./RecordHistorySection";
 import RecordReadView from "./RecordReadView";
 import RecordReferencedBy from "./RecordReferencedBy.island";
 import { openRecordUpsertDialog } from "./RecordUpsertDialog";
+import RecordVersions from "./RecordVersions.island";
 import { recordDisplayTitle } from "./record-display";
 
 type Props = {
@@ -335,6 +336,9 @@ export default function RecordDetailPanel(props: Props) {
               endpoint={`/api/grids/records/${encodeURIComponent(props.tableId)}/${encodeURIComponent(rec.id)}/comments`}
               dateConfig={props.dateConfig}
             />
+          </Show>
+          <Show when={mode() === "live" && !props.detail()?.combinedOrigin}>
+            <RecordVersions tableId={props.tableId} recordId={rec.id} />
           </Show>
           <RecordHistorySection entries={props.detail()?.auditEntries ?? []} fields={props.fields} dateConfig={props.dateConfig} />
         </RecordReadView>

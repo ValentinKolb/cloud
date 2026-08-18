@@ -50,6 +50,7 @@ export type AuditAction =
   | "file.added"
   | "file.replaced"
   | "file.removed"
+  | "durable_history.enabled"
   | "access.granted"
   | "access.updated"
   | "access.revoked"

@@ -13,6 +13,7 @@ const PUBLIC_ID_RESOURCES = [
   { table: "tables", key: "id", parent: "base_id", index: "idx_grids_tables_short_id" },
   { table: "fields", key: "id", parent: "table_id", index: "idx_grids_fields_short_id" },
   { table: "records", key: "id", parent: "table_id", index: "idx_grids_records_short_id" },
+  { table: "record_revisions", key: "id", parent: "table_id", index: "idx_grids_record_revisions_short_id" },
   { table: "record_comments", key: "id", parent: "record_id", index: "idx_grids_record_comments_short_id" },
   { table: "files", key: "id", parent: null, index: "idx_grids_files_short_id" },
   { table: "views", key: "id", parent: "table_id", index: "idx_grids_views_short_id" },
@@ -801,6 +802,71 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
   `.simple();
   await sql`DROP INDEX IF EXISTS grids.idx_grids_record_links_reverse`.simple();
   console.log("  ✓ grids.record_links");
+};
+
+const migrateDurableHistory = async (sql: SQL): Promise<void> => {
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.table_schema_revisions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE RESTRICT,
+      schema_hash TEXT NOT NULL,
+      fields JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (table_id, schema_hash)
+    )
+  `.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.durable_history_activations (
+      table_id UUID PRIMARY KEY REFERENCES grids.tables(id) ON DELETE RESTRICT,
+      baseline_schema_revision_id UUID NOT NULL REFERENCES grids.table_schema_revisions(id) ON DELETE RESTRICT,
+      status TEXT NOT NULL DEFAULT 'activating',
+      activated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      activated_at TIMESTAMPTZ NOT NULL,
+      baseline_completed_at TIMESTAMPTZ,
+      CONSTRAINT durable_history_activations_status_chk CHECK (status IN ('activating', 'active'))
+    )
+  `.simple();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.record_revisions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
+      table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE RESTRICT,
+      record_id UUID NOT NULL,
+      schema_revision_id UUID NOT NULL REFERENCES grids.table_schema_revisions(id) ON DELETE RESTRICT,
+      revision_no INT NOT NULL,
+      action TEXT NOT NULL,
+      record_version INT NOT NULL,
+      data JSONB NOT NULL,
+      relations JSONB NOT NULL DEFAULT '{}'::jsonb,
+      files JSONB NOT NULL DEFAULT '[]'::jsonb,
+      changed_field_ids UUID[] NOT NULL DEFAULT '{}',
+      deleted_at TIMESTAMPTZ,
+      actor_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      actor_display_name TEXT,
+      actor_avatar_hash TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT record_revisions_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$'),
+      CONSTRAINT record_revisions_action_chk CHECK (
+        action IN ('baseline', 'created', 'updated', 'deleted', 'restored', 'file.added', 'file.replaced', 'file.removed')
+      ),
+      UNIQUE (table_id, record_id, revision_no)
+    )
+  `.simple();
+  await sql`ALTER TABLE grids.record_revisions ADD COLUMN IF NOT EXISTS actor_display_name TEXT`.simple();
+  await sql`ALTER TABLE grids.record_revisions ADD COLUMN IF NOT EXISTS actor_avatar_hash TEXT`.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_record_revisions_short_id
+    ON grids.record_revisions(short_id)
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_record_revisions_baseline
+    ON grids.record_revisions(table_id, record_id)
+    WHERE action = 'baseline'
+  `.simple();
+  await sql`DROP INDEX IF EXISTS grids.idx_grids_record_revisions_record_page`.simple();
+  console.log("  ✓ grids durable history");
 };
 
 const migrateViews = async (sql: SQL): Promise<void> => {
@@ -2152,6 +2218,7 @@ export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
     await migrateSchema(connection);
     await migrateSafeCastHelpers(connection);
     await migrateCoreRecords(connection);
+    await migrateDurableHistory(connection);
     await migrateViews(connection);
     await migrateDocumentTemplates(connection);
     await migrateDocumentArtifacts(connection);

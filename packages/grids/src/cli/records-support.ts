@@ -1,3 +1,4 @@
+import type { PublicRecordRevisionPage } from "../api/durable-history";
 import type { PublicGridRecord as GridRecord, PublicGridFile } from "../api/public-dto";
 import type { CombinedAuditPage } from "../service";
 import { displayValue } from "./views-gql-support";
@@ -5,6 +6,7 @@ import { displayValue } from "./views-gql-support";
 export type RecordAuditResponse = { items: unknown[] };
 export type CombinedAuditResponse = CombinedAuditPage;
 export type GridFile = PublicGridFile;
+export type RecordRevisionPage = PublicRecordRevisionPage;
 
 export type PublicRecordSnapshotSummary = {
   id: string;
@@ -48,6 +50,18 @@ export const recordRows = (items: GridRecord[]) =>
     version: record.version,
     updatedAt: record.updatedAt,
     ...Object.fromEntries(Object.entries(record.data).map(([key, value]) => [key, displayValue(value)])),
+  }));
+
+export const recordRevisionRows = (items: RecordRevisionPage["items"]) =>
+  items.map((revision) => ({
+    id: revision.id,
+    revision: revision.revision,
+    action: revision.action,
+    recordVersion: revision.recordVersion,
+    changedFields: revision.changedFieldIds.length,
+    files: revision.files.length,
+    actor: revision.actorDisplayName ?? "",
+    createdAt: revision.createdAt,
   }));
 
 export const combinedAuditRows = (items: CombinedAuditPage["items"]) =>

@@ -29,6 +29,9 @@ documents, and workflows without splitting the domain across unrelated tools.
 - Replace or remove a record attachment without rewriting file history. Removal
   detaches it from the current record; protected revisions or artifacts can
   retain exact bytes, while unprotected files can be cleaned up.
+- Irreversibly enable Durable History for a stored table when every future
+  Record, Relation, and File state must remain inspectable from an honest
+  activation baseline. Existing tables stay unchanged until an admin opts in.
 - Open a record's **Referenced by** section to page through permission-aware
   incoming Relations, or pin the same relationship as a Referenced records
   block in a Custom App.

@@ -14,6 +14,7 @@ import {
 import { gridsService } from "../service";
 import { projectPublicIds, resolvePublicIds } from "../service/public-resources";
 import { ALL_RECORD_ACCESS } from "../service/record-access";
+import { PublicDurableHistoryStatusSchema, toPublicDurableHistoryStatus } from "./durable-history";
 import { currentAccessSubject, currentActorUserId, currentCredentialPermission, currentResourceBoundBaseId, gateAt } from "./permissions";
 import {
   fromPublicCreateTable,
@@ -393,6 +394,78 @@ const app = new Hono<AuthContext>()
         currentActorUserId(c),
       );
       return result.ok ? c.json(await toPublicTable(result.data), 201) : c.json({ message: result.error.message }, result.error.status);
+    },
+  )
+
+  .get(
+    "/:tableId/durable-history",
+    requirePublicIdParam("tableId", "table", "Table"),
+    describeRoute({
+      tags: ["Grids:Table"],
+      summary: "Get durable history activation status",
+      responses: {
+        200: jsonResponse(PublicDurableHistoryStatusSchema, "Durable history status"),
+        400: jsonResponse(ErrorResponseSchema, "Unsupported table"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const tableId = internalIdParam(c, "tableId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.table.durableHistory.getStatus(tableId);
+      return result.ok ? c.json(toPublicDurableHistoryStatus(result.data)) : c.json({ message: result.error.message }, result.error.status);
+    },
+  )
+
+  .post(
+    "/:tableId/durable-history/enable",
+    requirePublicIdParam("tableId", "table", "Table"),
+    describeRoute({
+      tags: ["Grids:Table"],
+      summary: "Irreversibly enable durable history",
+      responses: {
+        200: jsonResponse(PublicDurableHistoryStatusSchema, "Durable history activation status"),
+        400: jsonResponse(ErrorResponseSchema, "Unsupported table"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const tableId = internalIdParam(c, "tableId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.table.durableHistory.enable(tableId, currentActorUserId(c));
+      return result.ok ? c.json(toPublicDurableHistoryStatus(result.data)) : c.json({ message: result.error.message }, result.error.status);
+    },
+  )
+
+  .post(
+    "/:tableId/durable-history/continue",
+    requirePublicIdParam("tableId", "table", "Table"),
+    describeRoute({
+      tags: ["Grids:Table"],
+      summary: "Continue a durable history baseline",
+      responses: {
+        200: jsonResponse(PublicDurableHistoryStatusSchema, "Durable history activation status"),
+        400: jsonResponse(ErrorResponseSchema, "Not enabled"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const tableId = internalIdParam(c, "tableId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.table.durableHistory.continueActivation(tableId);
+      return result.ok ? c.json(toPublicDurableHistoryStatus(result.data)) : c.json({ message: result.error.message }, result.error.status);
     },
   )
 

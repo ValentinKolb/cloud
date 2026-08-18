@@ -375,7 +375,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(144);
+    expect(commands).toHaveLength(148);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {
@@ -857,6 +857,116 @@ describe("grids CLI", () => {
     expect(calls[2]?.init?.method).toBe("POST");
     expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ [fieldId]: "Octavia Butler" });
     expect(lines).toEqual([`Created record ${recordId}.`]);
+  });
+
+  test("shows and fully enables durable table history", async () => {
+    const disabled = createContext(
+      ["tables", "history", baseId, "Authors"],
+      {},
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse({ enabled: false })],
+      { output: "json" },
+    );
+
+    await gridsCli.run(disabled.ctx);
+
+    expect(disabled.calls.at(-1)?.path).toBe(`/api/grids/tables/${tableId}/durable-history`);
+    expect(disabled.jsonValues).toEqual([{ enabled: false }]);
+
+    const activating = {
+      enabled: true,
+      status: "activating",
+      activatedAt: "2026-07-20T10:00:00.000Z",
+      baselineCompletedAt: null,
+      baseline: { captured: 100, total: 125 },
+    };
+    const active = {
+      ...activating,
+      status: "active",
+      baselineCompletedAt: "2026-07-20T10:01:00.000Z",
+      baseline: { captured: 125, total: 125 },
+    };
+    const enabled = createContext(
+      ["tables", "history", "enable", baseId, "Authors"],
+      { yes: true },
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse(activating), jsonResponse(active)],
+      { output: "json" },
+    );
+
+    await gridsCli.run(enabled.ctx);
+
+    expect(enabled.calls.slice(2).map((call) => [call.path, call.init?.method])).toEqual([
+      [`/api/grids/tables/${tableId}/durable-history/enable`, "POST"],
+      [`/api/grids/tables/${tableId}/durable-history/continue`, "POST"],
+    ]);
+    expect(enabled.jsonValues).toEqual([active]);
+  });
+
+  test("lists durable record versions and downloads retained files", async () => {
+    const revisionId = "rev001";
+    const revisionPage = {
+      status: {
+        enabled: true,
+        status: "active",
+        activatedAt: "2026-07-20T10:00:00.000Z",
+        baselineCompletedAt: "2026-07-20T10:01:00.000Z",
+        baseline: { captured: 1, total: 1 },
+      },
+      items: [
+        {
+          id: revisionId,
+          revision: 2,
+          action: "updated",
+          recordVersion: 2,
+          data: { [fieldId]: "Octavia E. Butler" },
+          files: [
+            {
+              id: fileId,
+              fieldId,
+              position: 0,
+              filename: "cover.txt",
+              mimeType: "text/plain",
+              sizeBytes: 5,
+              sha256: "abc123",
+            },
+          ],
+          changedFieldIds: [fieldId],
+          deletedAt: null,
+          actorDisplayName: "Ada",
+          actorAvatarHash: null,
+          createdAt: "2026-07-20T10:02:00.000Z",
+          fields: [],
+        },
+      ],
+      nextCursor: "rev000",
+    };
+    const listed = createContext(
+      ["records", "versions", baseId, "Authors", recordId],
+      { limit: "10", cursor: "rev010" },
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse(revisionPage)],
+      { output: "json" },
+    );
+
+    await gridsCli.run(listed.ctx);
+
+    expect(listed.calls.at(-1)?.path).toBe(`/api/grids/records/${tableId}/${recordId}/versions?cursor=rev010&limit=10`);
+    expect(listed.jsonValues).toEqual([revisionPage]);
+
+    const dir = await mkdtemp(join(tmpdir(), "grids-cli-version-"));
+    const out = join(dir, "cover.txt");
+    try {
+      const downloaded = createContext(["records", "versions", "download", baseId, "Authors", recordId, revisionId, fileId], { out }, [
+        jsonResponse(basePage),
+        jsonResponse([table]),
+        new Response("hello"),
+      ]);
+
+      await gridsCli.run(downloaded.ctx);
+
+      expect(downloaded.calls.at(-1)?.path).toBe(`/api/grids/records/${tableId}/${recordId}/versions/${revisionId}/files/${fileId}`);
+      expect(await readFile(out, "utf8")).toBe("hello");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test("loads a deleted record explicitly", async () => {

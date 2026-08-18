@@ -11,8 +11,10 @@ import {
   gridFileRows,
   normalizeRecordImportBody,
   type RecordAuditResponse,
+  type RecordRevisionPage,
   type PublicRecordSnapshot as RecordSnapshot,
   type RecordSnapshotListResponse,
+  recordRevisionRows,
   recordRows,
   snapshotRows,
 } from "./records-support";
@@ -416,6 +418,71 @@ export const recordCommands = [
         { key: "deleted", label: "DELETED" },
       ]);
       if (ctx.options.output !== "json" && payload.nextCursor) ctx.print(`next cursor: ${payload.nextCursor}`);
+    },
+  }),
+  command("records versions", {
+    summary: "List durable versions of one record",
+    args: tableArgs,
+    flags: {
+      ...baseFlag,
+      ...tableFlag,
+      record: flag.string({ description: "Record public id" }),
+      cursor: flag.string({ description: "Pagination cursor" }),
+      limit: flag.int({ min: 1, max: 50, description: "Versions per page (default: 20)" }),
+    },
+    examples: [
+      "cld grids records versions Bookshop Authors <record-id>",
+      "cld grids records versions --base Bookshop --table Authors --record <record-id> --json",
+    ],
+    async run({ ctx, args, flags }) {
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? (flags.record ? 0 : 1) : 2);
+      const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
+      const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
+      const payload = await readApi<RecordRevisionPage>(
+        ctx,
+        `/records/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}/versions${queryString({
+          cursor: flags.cursor,
+          limit: flags.limit,
+        })}`,
+      );
+      printJsonOrTable(ctx, payload, recordRevisionRows(payload.items), [
+        { key: "revision", label: "REV" },
+        { key: "action", label: "ACTION" },
+        { key: "recordVersion", label: "RECORD VERSION" },
+        { key: "changedFields", label: "FIELDS" },
+        { key: "files", label: "FILES" },
+        { key: "actor", label: "ACTOR" },
+        { key: "createdAt", label: "CREATED" },
+        { key: "id", label: "ID" },
+      ]);
+      if (ctx.options.output !== "json" && payload.nextCursor) ctx.print(`next cursor: ${payload.nextCursor}`);
+    },
+  }),
+  command("records versions download", {
+    summary: "Download a file retained by a durable record version",
+    args: tableArgs,
+    flags: {
+      ...baseFlag,
+      ...tableFlag,
+      record: flag.string({ description: "Record public id" }),
+      revision: flag.string({ description: "Record revision public id" }),
+      file: flag.string({ description: "File public id from the version" }),
+      out: flag.string({ description: "Output file path" }),
+    },
+    async run({ ctx, args, flags }) {
+      const missingTrailingArgs = [flags.table, flags.record, flags.revision, flags.file].filter((value) => value === undefined).length;
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, missingTrailingArgs);
+      const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
+      const offset = flags.table ? 0 : 1;
+      const recordId = requirePublicId(flags.record ?? requireRestArg(rest, offset, "record"), "Record id");
+      const revisionId = requirePublicId(flags.revision ?? requireRestArg(rest, offset + 1, "revision"), "Revision id");
+      const fileId = requirePublicId(flags.file ?? requireRestArg(rest, offset + 2, "file"), "File id");
+      await writeApiFile(
+        ctx,
+        `/records/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}/versions/${encodeURIComponent(revisionId)}/files/${encodeURIComponent(fileId)}`,
+        undefined,
+        flags.out,
+      );
     },
   }),
   command("records files list", {

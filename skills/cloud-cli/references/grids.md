@@ -124,7 +124,7 @@ Built-in templates create complete example bases with schema, views, Grids Apps,
 records are included by default; pass `--empty` to keep the complete configuration without those records. Commands are
 `templates list|instantiate`.
 
-Base commands are `list`, `use`, `current`, and `bases list|get|create|update|delete|restore|trash`. Table commands are `tables list|get|create|update|delete|restore`.
+Base commands are `list`, `use`, `current`, and `bases list|get|create|update|delete|restore|trash`. Table commands are `tables list|get|create|update|delete|restore|history|history enable`.
 
 Pass `--kind stored` for a normal table or `--kind federated` for a user-facing Combined table. Stored is the default.
 
@@ -198,11 +198,25 @@ cld grids records export Authors --format csv --out authors.csv
 cld grids records audit Authors <record-id> --json
 ```
 
+Durable history is an irreversible opt-in for a stored table. Inspect the current status first, then enable it explicitly. The enable command
+continues the initial baseline in bounded server-side batches until every existing record has been captured.
+
+```bash
+cld grids tables history Authors --json
+cld grids tables history enable Authors --yes --json
+cld grids records versions Authors <record-id> --limit 20 --json
+cld grids records versions download Authors <record-id> <revision-id> <file-id> --out historical-file.bin
+```
+
+`records versions` returns append-only states captured after opt-in, including the baseline and exact retained file metadata. The download
+command reads bytes only through the selected record version. This feature increases storage use, cannot be disabled, and does not by itself
+provide legal or regulatory compliance.
+
 `records audit` shows one stored or Combined record's history. `records audit list` browses the published lifecycle history across an
 entire Combined table and accepts record, source, action, time-range, cursor, and limit filters. Combined audit entries expose only
 canonical included fields, declared audit answers such as required deletion comments, and safe source labels.
 
-Record commands are `records shape|list|query|get|create|import|export|update|delete|restore|audit|audit list`.
+Record commands are `records shape|list|query|get|create|import|export|update|delete|restore|audit|audit list|versions|versions download`.
 
 ### Files and snapshots
 

@@ -5,6 +5,7 @@ import * as bases from "./bases";
 import * as combinedAudit from "./combined-audit";
 import * as customApps from "./custom-apps";
 import * as documents from "./documents";
+import * as durableHistory from "./durable-history";
 import * as emailTemplates from "./email-templates";
 import * as exporter from "./export";
 import * as federatedTables from "./federated-tables";
@@ -81,6 +82,11 @@ export const gridsService = {
     update: tables.update,
     remove: tables.remove,
     restore: tables.restore,
+    durableHistory: {
+      getStatus: durableHistory.getStatus,
+      enable: durableHistory.enable,
+      continueActivation: durableHistory.continueActivation,
+    },
     federation: {
       getDraft: federatedTables.getDraft,
       getCurrent: federatedTables.getCurrent,
@@ -128,6 +134,11 @@ export const gridsService = {
     aggregate: records.aggregate,
     group: records.group,
     listReferencedBy: referencedBy.listReferencedBy,
+    durableHistory: {
+      list: durableHistory.listRecordRevisions,
+      get: durableHistory.getRevision,
+      getFileContent: durableHistory.getRevisionFileContent,
+    },
     comments: {
       list: recordComments.list,
       create: recordComments.create,
