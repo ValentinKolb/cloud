@@ -194,6 +194,7 @@ export const gridsService = {
   document: {
     listTemplatesForTable: documents.listTemplatesForTable,
     getTemplate: documents.getTemplate,
+    getStoredTemplate: documents.getStoredTemplate,
     getTemplateByShortId: documents.getTemplateByShortId,
     getTemplateByShortIdForTable: documents.getTemplateByShortIdForTable,
     summarizeTemplate: documents.summarizeTemplate,
@@ -201,6 +202,7 @@ export const gridsService = {
     updateTemplate: documents.updateTemplate,
     reorderTemplates: documents.reorderTemplates,
     removeTemplate: documents.removeTemplate,
+    restoreTemplate: documents.restoreTemplate,
     createRecordSnapshot: documents.createRecordSnapshot,
     createRecordSnapshotDraft: documents.createRecordSnapshotDraft,
     filterSnapshotRelatedRecords: documents.filterSnapshotRelatedRecords,

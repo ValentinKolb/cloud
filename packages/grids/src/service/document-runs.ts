@@ -4,6 +4,7 @@ import { sql } from "bun";
 import type { DocumentRun, DocumentTemplate, UpdateDocumentRunMetadataInput } from "../contracts";
 import { logAudit } from "./audit";
 import { type DocumentRunReadAuthorizer, loadReadableWorkflowRunDocumentScopes, workflowRunDocumentAccessWhere } from "./document-browse";
+import { documentNumberFor } from "./document-liquid";
 import { type DocumentDbRow, mapDocumentRun } from "./document-mappers";
 import { buildDocumentRunRenderData, buildLiveRenderData, renderRunPdf } from "./document-rendering";
 import { normalizeDocumentTags, safePdfFilename } from "./document-run-values";
@@ -13,6 +14,7 @@ import {
   type RecordSnapshotDraft,
   type SnapshotRecordAccessResolver,
 } from "./document-snapshots";
+import { allocateNumber, bindNumberAllocation } from "./number-series";
 import type { AuthorizedRecordAccess } from "./record-access";
 import { get as getRecord } from "./records";
 import type { ExpansionViewer } from "./relation-access";
@@ -141,6 +143,23 @@ const createDocumentRunInternal = async (
   };
   try {
     const created = await insertWithShortId<{ row: DocumentDbRow; pdf: RenderHtmlToPdfResult | null }>(async (shortId) => {
+      const allocation = await allocateNumber({
+        owner: { kind: "document_template", id: params.template.id },
+        now: generatedAt,
+        dateConfig: params.dateConfig,
+        renderDocument: (value, seriesShortId) => {
+          const rendered = documentNumberFor({
+            template: params.template,
+            runShortId: shortId,
+            generatedAt,
+            dateConfig: params.dateConfig,
+            data: params.renderData,
+            series: { id: seriesShortId, value },
+          });
+          if (!rendered.ok) throw rendered.error;
+          return rendered.data;
+        },
+      });
       const built = await buildDocumentRunRenderData({
         template: params.template,
         renderData: params.renderData,
@@ -149,6 +168,8 @@ const createDocumentRunInternal = async (
         dateConfig: params.dateConfig,
         filename: params.filename,
         tags: params.tags,
+        documentNumber: allocation.renderedValue,
+        numberSeries: { id: allocation.seriesShortId, value: allocation.value },
       });
       if (!built.ok) throw built.error;
       const candidate: DocumentRun = {
@@ -201,6 +222,7 @@ const createDocumentRunInternal = async (
           RETURNING *
         `;
         if (!inserted) throw new Error("insert returned no row");
+        await bindNumberAllocation(tx, allocation.id, { kind: "document_run", id: runId });
         const run = mapDocumentRun(inserted);
         if (!params.workflowRunId) {
           await logAudit(

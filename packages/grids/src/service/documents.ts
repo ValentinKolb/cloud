@@ -63,12 +63,14 @@ export {
 } from "./document-snapshots";
 export {
   createTemplate,
+  getStoredTemplate,
   getTemplate,
   getTemplateByShortId,
   getTemplateByShortIdForTable,
   listTemplatesForTable,
   removeTemplate,
   reorderTemplates,
+  restoreTemplate,
   updateTemplate,
   validateTemplateWrite,
 } from "./document-templates";

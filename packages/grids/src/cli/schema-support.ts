@@ -91,7 +91,7 @@ const FIELD_TYPE_DETAILS: Record<string, FieldReferenceDetails> = {
     config: '{ "strategy": "date_sequence", "prefix": "INV-", "padding": 5, "period": "year" }',
     recordValue: "(server generated)",
     notes:
-      "Generated on record create. Strategies: sequence, date_sequence, short_code, random_code, uuid, uuidv7, and ulid. Do not send id fields in record payloads.",
+      "Generated on record create. Sequence values use a durable atomic series, are never reused, and may have technical gaps. Strategies: sequence, date_sequence, short_code, random_code, uuid, uuidv7, and ulid. Do not send id fields in record payloads.",
   },
   formula: {
     config: '{ "expression": "LEN(Name)" }',

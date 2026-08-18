@@ -398,15 +398,20 @@ export const buildDocumentRunRenderData = async (params: {
   dateConfig?: DateContext;
   filename?: string | null;
   tags?: string[];
+  documentNumber?: string;
+  numberSeries?: { id: string; value: number };
 }): Promise<Result<{ documentNumber: string; filename: string; tags: string[]; data: Record<string, unknown> }>> => {
   const generatedAt = params.generatedAt ?? new Date();
-  const documentNumber = documentNumberFor({
-    template: params.template,
-    runShortId: params.runShortId,
-    generatedAt,
-    dateConfig: params.dateConfig,
-    data: params.renderData,
-  });
+  const documentNumber = params.documentNumber
+    ? ok(params.documentNumber)
+    : documentNumberFor({
+        template: params.template,
+        runShortId: params.runShortId,
+        generatedAt,
+        dateConfig: params.dateConfig,
+        data: params.renderData,
+        series: params.numberSeries,
+      });
   if (!documentNumber.ok) return fail(documentNumber.error);
 
   const tags = normalizeDocumentTags(params.tags);
@@ -415,6 +420,7 @@ export const buildDocumentRunRenderData = async (params: {
     template: templatePatternContext(params.template),
     run: runPatternContext(params.runShortId),
     date: datePatternContext(generatedAt, params.dateConfig),
+    series: params.numberSeries ?? { id: "draft", value: 0 },
     document: {
       ...((typeof params.renderData.document === "object" && params.renderData.document !== null
         ? params.renderData.document

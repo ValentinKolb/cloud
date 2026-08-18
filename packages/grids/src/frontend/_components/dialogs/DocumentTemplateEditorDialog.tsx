@@ -353,6 +353,11 @@ function DocumentTemplateEditorDialog(props: {
                 placeholder={defaultDocumentNumberTemplate}
                 required
               />
+              <NoticeCard tone={template?.numberSeries.migrationNote ? "warning" : "info"} icon={false} class="mt-2" role="status">
+                {template
+                  ? `Number series ${template.numberSeries.id} · Last allocated ${template.numberSeries.lastValue}. Technical gaps can occur; pattern changes apply only to future documents.`
+                  : "A durable number series is created automatically when this template is saved. Technical gaps can occur."}
+              </NoticeCard>
             </div>
             <div>
               <TextInput

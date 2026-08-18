@@ -1,5 +1,7 @@
 import { toPgTextArray, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql as defaultSql, type SQL } from "bun";
+import { parseJsonbRow } from "./service/jsonb";
+import { numberSeriesFormatForField, numberSeriesSequenceName } from "./service/number-series";
 import { migratePersistedPublicIdReferences } from "./service/public-id-source-migration";
 import { newShortId, SHORT_ID_REGEX } from "./service/short-id";
 import { migrateGridsWorkflowTables } from "./workflows/migrate";
@@ -16,6 +18,7 @@ const PUBLIC_ID_RESOURCES = [
   { table: "views", key: "id", parent: "table_id", index: "idx_grids_views_short_id" },
   { table: "forms", key: "id", parent: "table_id", index: "idx_grids_forms_short_id" },
   { table: "document_templates", key: "id", parent: "table_id", index: "idx_grids_document_templates_short_id" },
+  { table: "number_series", key: "id", parent: null, index: "idx_grids_number_series_short_id" },
   { table: "email_templates", key: "id", parent: "base_id", index: "idx_grids_email_templates_short_id" },
   { table: "record_snapshots", key: "id", parent: "table_id", index: "idx_grids_record_snapshots_short_id" },
   { table: "document_runs", key: "id", parent: "table_id", index: "idx_grids_document_runs_short_id" },
@@ -1140,6 +1143,276 @@ const migrateDocumentArtifacts = async (sql: SQL): Promise<void> => {
   console.log("  ✓ grids.document_links");
 };
 
+const migrateNumberSeries = async (sql: SQL): Promise<void> => {
+  const allocateSeriesShortId = async (): Promise<string> => {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const candidate = newShortId();
+      const [used] = await sql<Array<{ used: boolean }>>`
+        SELECT true AS used FROM grids.number_series WHERE short_id = ${candidate}
+      `;
+      if (!used) return candidate;
+    }
+    throw new Error("number series migration could not allocate a public id");
+  };
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.number_series (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
+      owner_kind TEXT NOT NULL CHECK (owner_kind IN ('field', 'document_template')),
+      field_id UUID UNIQUE REFERENCES grids.fields(id) ON DELETE CASCADE,
+      document_template_id UUID UNIQUE REFERENCES grids.document_templates(id) ON DELETE CASCADE,
+      assignment TEXT NOT NULL DEFAULT 'creation' CHECK (assignment IN ('creation', 'finalization')),
+      current_version INT NOT NULL DEFAULT 1 CHECK (current_version >= 1),
+      baseline_floor BIGINT NOT NULL DEFAULT 0 CHECK (baseline_floor >= 0),
+      migration_status TEXT NOT NULL DEFAULT 'native',
+      migration_note TEXT,
+      archived_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT number_series_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$'),
+      CONSTRAINT number_series_owner_chk CHECK (
+        (owner_kind = 'field' AND field_id IS NOT NULL AND document_template_id IS NULL)
+        OR (owner_kind = 'document_template' AND document_template_id IS NOT NULL AND field_id IS NULL)
+      )
+    )
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_number_series_short_id
+    ON grids.number_series(short_id)
+  `.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.number_series_versions (
+      series_id UUID NOT NULL REFERENCES grids.number_series(id) ON DELETE CASCADE,
+      version INT NOT NULL CHECK (version >= 1),
+      strategy TEXT NOT NULL CHECK (strategy IN ('sequence', 'date_sequence', 'document')),
+      prefix TEXT NOT NULL DEFAULT '',
+      padding INT NOT NULL DEFAULT 1 CHECK (padding BETWEEN 1 AND 16),
+      period TEXT CHECK (period IN ('year', 'month', 'day')),
+      number_template TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (series_id, version)
+    )
+  `.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.number_series_scopes (
+      series_id UUID NOT NULL REFERENCES grids.number_series(id) ON DELETE CASCADE,
+      scope TEXT NOT NULL,
+      sequence_name TEXT NOT NULL UNIQUE,
+      baseline BIGINT NOT NULL DEFAULT 0 CHECK (baseline >= 0),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (series_id, scope)
+    )
+  `.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.number_allocations (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      series_id UUID NOT NULL REFERENCES grids.number_series(id) ON DELETE CASCADE,
+      version INT NOT NULL,
+      scope TEXT NOT NULL,
+      value BIGINT NOT NULL CHECK (value >= 1),
+      rendered_value TEXT NOT NULL,
+      consumer_kind TEXT CHECK (consumer_kind IN ('record', 'document_run')),
+      consumer_id UUID,
+      allocated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      FOREIGN KEY (series_id, version) REFERENCES grids.number_series_versions(series_id, version) ON DELETE CASCADE,
+      CONSTRAINT number_allocations_consumer_chk CHECK (
+        (consumer_kind IS NULL AND consumer_id IS NULL) OR (consumer_kind IS NOT NULL AND consumer_id IS NOT NULL)
+      ),
+      UNIQUE (series_id, scope, value),
+      UNIQUE (series_id, rendered_value)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_number_allocations_consumer
+    ON grids.number_allocations(consumer_kind, consumer_id)
+    WHERE consumer_id IS NOT NULL
+  `.simple();
+
+  const fields = await sql<Array<{ id: string; config: Record<string, unknown>; deletedAt: Date | null }>>`
+    SELECT id::text, config, deleted_at AS "deletedAt"
+    FROM grids.fields
+    WHERE type = 'id'
+    ORDER BY id
+  `;
+  for (const field of fields) {
+    const format = numberSeriesFormatForField(parseJsonbRow(field.config, {}));
+    if (!format) continue;
+    let [series] = await sql<Array<{ id: string }>>`
+      SELECT id::text FROM grids.number_series WHERE field_id = ${field.id}::uuid
+    `;
+    if (!series) {
+      const seriesId = Bun.randomUUIDv7();
+      const seriesShortId = await allocateSeriesShortId();
+      [series] = await sql<Array<{ id: string }>>`
+        INSERT INTO grids.number_series (id, short_id, owner_kind, field_id, archived_at, migration_status)
+        VALUES (${seriesId}::uuid, ${seriesShortId}, 'field', ${field.id}::uuid, ${field.deletedAt}, 'pending')
+        RETURNING id::text
+      `;
+      await sql`
+        INSERT INTO grids.number_series_versions (series_id, version, strategy, prefix, padding, period)
+        VALUES (
+          ${seriesId}::uuid,
+          1,
+          ${format.strategy},
+          ${format.prefix ?? ""},
+          ${format.padding ?? 1},
+          ${format.period ?? null}
+        )
+      `;
+    }
+    if (!series) throw new Error(`number series migration could not create field series ${field.id}`);
+    const [{ count: scopeCount } = { count: 0 }] = await sql<Array<{ count: number }>>`
+      SELECT count(*)::int AS count FROM grids.number_series_scopes WHERE series_id = ${series.id}::uuid
+    `;
+    if (scopeCount > 0) continue;
+
+    const legacyPrefix = `grids_id_${field.id.replaceAll("-", "")}`;
+    const legacy = await sql<Array<{ sequenceName: string; lastValue: bigint | number | string | null }>>`
+      SELECT sequencename AS "sequenceName", last_value AS "lastValue"
+      FROM pg_sequences
+      WHERE schemaname = 'grids' AND sequencename LIKE ${`${legacyPrefix}%`}
+      ORDER BY sequencename
+    `;
+    let diagnostic = "active_sequence";
+    let note: string | null = null;
+    let conservativeFloor = 0;
+    const scopes = new Map<string, number>();
+    for (const row of legacy) {
+      const suffix = row.sequenceName.slice(legacyPrefix.length).replace(/^_/, "");
+      scopes.set(suffix || "global", Number(row.lastValue ?? 0));
+      conservativeFloor = Math.max(conservativeFloor, Number(row.lastValue ?? 0));
+    }
+    const hasLegacySequences = scopes.size > 0;
+    if (!hasLegacySequences) {
+      const values = await sql<Array<{ value: string }>>`
+        SELECT data->>${field.id} AS value
+        FROM grids.records
+        WHERE data ? ${field.id}
+      `;
+      const prefix = format.prefix ?? "";
+      const paddingPattern = "([0-9]+)";
+      const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const matcher =
+        format.strategy === "date_sequence"
+          ? new RegExp(`^${escapedPrefix}([0-9]{4}|[0-9]{6}|[0-9]{8})-${paddingPattern}$`)
+          : new RegExp(`^${escapedPrefix}${paddingPattern}$`);
+      let ambiguous = false;
+      for (const row of values) {
+        const trailing = row.value.match(/([0-9]+)$/)?.[1];
+        if (trailing) conservativeFloor = Math.max(conservativeFloor, Number(trailing));
+        const match = row.value.match(matcher);
+        if (!match) {
+          ambiguous = true;
+          continue;
+        }
+        const scope = format.strategy === "date_sequence" ? match[1]! : "global";
+        const value = Number(match[format.strategy === "date_sequence" ? 2 : 1]);
+        if (!Number.isSafeInteger(value) || value < 1) {
+          ambiguous = true;
+          continue;
+        }
+        scopes.set(scope, Math.max(scopes.get(scope) ?? 0, value));
+      }
+      if (scopes.size === 0) scopes.set("global", 0);
+      diagnostic = ambiguous ? "inferred_with_unmatched_values" : values.length > 0 ? "inferred_from_values" : "inferred_empty";
+      note = ambiguous ? "Some legacy values did not match the current format; matching high-water marks were preserved." : null;
+    }
+    for (const [scope, baseline] of scopes) {
+      const safeBaseline = hasLegacySequences ? baseline : Math.max(baseline, conservativeFloor);
+      const sequenceName = numberSeriesSequenceName(series.id, scope);
+      await sql.unsafe(`CREATE SEQUENCE IF NOT EXISTS grids.${sequenceName} AS BIGINT INCREMENT 1 MINVALUE 1`);
+      if (safeBaseline > 0) await sql.unsafe(`SELECT setval('grids.${sequenceName}', $1, true)`, [safeBaseline]);
+      await sql`
+        INSERT INTO grids.number_series_scopes (series_id, scope, sequence_name, baseline)
+        VALUES (${series.id}::uuid, ${scope}, ${sequenceName}, ${safeBaseline})
+        ON CONFLICT (series_id, scope) DO NOTHING
+      `;
+    }
+    await sql`
+      UPDATE grids.number_series
+      SET migration_status = ${diagnostic}, migration_note = ${note}, baseline_floor = ${conservativeFloor}, updated_at = now()
+      WHERE id = ${series.id}::uuid
+    `;
+  }
+
+  const templates = await sql<Array<{ id: string; numberTemplate: string; deletedAt: Date | null; runCount: number }>>`
+    SELECT dt.id::text, dt.number_template AS "numberTemplate", dt.deleted_at AS "deletedAt", count(dr.id)::int AS "runCount"
+    FROM grids.document_templates dt
+    LEFT JOIN grids.document_runs dr ON dr.template_id = dt.id
+    GROUP BY dt.id, dt.number_template, dt.deleted_at
+    ORDER BY dt.id
+  `;
+  for (const template of templates) {
+    let [series] = await sql<Array<{ id: string }>>`
+      SELECT id::text FROM grids.number_series WHERE document_template_id = ${template.id}::uuid
+    `;
+    if (!series) {
+      const seriesId = Bun.randomUUIDv7();
+      const seriesShortId = await allocateSeriesShortId();
+      [series] = await sql<Array<{ id: string }>>`
+        INSERT INTO grids.number_series (
+          id, short_id, owner_kind, document_template_id, archived_at, migration_status, migration_note
+        )
+        VALUES (
+          ${seriesId}::uuid,
+          ${seriesShortId},
+          'document_template',
+          ${template.id}::uuid,
+          ${template.deletedAt},
+          'inferred_from_document_runs',
+          'Legacy document runs did not store allocations; the run count is the conservative baseline.'
+        )
+        RETURNING id::text
+      `;
+      await sql`UPDATE grids.number_series SET baseline_floor = ${template.runCount} WHERE id = ${seriesId}::uuid`;
+      await sql`
+        INSERT INTO grids.number_series_versions (series_id, version, strategy, number_template)
+        VALUES (${seriesId}::uuid, 1, 'document', ${template.numberTemplate})
+      `;
+    }
+    if (!series) throw new Error(`number series migration could not create document series ${template.id}`);
+    const [scope] = await sql<Array<{ exists: boolean }>>`
+      SELECT true AS exists FROM grids.number_series_scopes WHERE series_id = ${series.id}::uuid AND scope = 'global'
+    `;
+    if (!scope) {
+      const sequenceName = numberSeriesSequenceName(series.id, "global");
+      await sql.unsafe(`CREATE SEQUENCE IF NOT EXISTS grids.${sequenceName} AS BIGINT INCREMENT 1 MINVALUE 1`);
+      if (template.runCount > 0) await sql.unsafe(`SELECT setval('grids.${sequenceName}', $1, true)`, [template.runCount]);
+      await sql`
+        INSERT INTO grids.number_series_scopes (series_id, scope, sequence_name, baseline)
+        VALUES (${series.id}::uuid, 'global', ${sequenceName}, ${template.runCount})
+      `;
+    }
+  }
+
+  await sql`ALTER TABLE grids.number_series ALTER COLUMN short_id SET NOT NULL`.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'grids.number_series'::regclass
+          AND conname = 'number_series_short_id_format_chk'
+      ) THEN
+        ALTER TABLE grids.number_series
+          ADD CONSTRAINT number_series_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$');
+      END IF;
+    END $$
+  `.simple();
+
+  const legacySequences = await sql<Array<{ sequenceName: string }>>`
+    SELECT sequencename AS "sequenceName"
+    FROM pg_sequences
+    WHERE schemaname = 'grids' AND sequencename LIKE 'grids_id_%'
+  `;
+  for (const sequence of legacySequences) {
+    if (!/^grids_id_[a-f0-9_]+$/i.test(sequence.sequenceName)) throw new Error("unsafe legacy number sequence name");
+    await sql.unsafe(`DROP SEQUENCE grids.${sequence.sequenceName}`);
+  }
+  console.log("  ✓ grids durable number series");
+};
+
 // Intentional alpha hard cut: these surfaces predate canonical GQL views and
 // HTML-only workflow email templates. They are removed instead of migrated so
 // the runtime has one query and one email-template representation.
@@ -1756,6 +2029,7 @@ export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
     await migrateViews(connection);
     await migrateDocumentTemplates(connection);
     await migrateDocumentArtifacts(connection);
+    await migrateNumberSeries(connection);
     await cleanupAlphaSchema(connection);
     await migrateFormsAndEvents(connection);
     await migrateCustomApps(connection);

@@ -1,8 +1,7 @@
+import { crypto, type DateContext } from "@k2b/stdlib";
 import { isUniqueViolation } from "@valentinkolb/cloud/services";
-import { crypto, type DateContext, dates } from "@k2b/stdlib";
-import { sql } from "bun";
-import type { SqlClient } from "./audit";
-import { fieldUniqueIndexName, nextGeneratedIdSequenceValue } from "./field-indexes";
+import { fieldUniqueIndexName } from "./field-indexes";
+import { allocateNumber } from "./number-series";
 import type { Field } from "./types";
 
 type IdStrategy = "sequence" | "date_sequence" | "short_code" | "random_code" | "uuid" | "uuidv7" | "ulid";
@@ -18,7 +17,6 @@ type IdConfig = {
 };
 
 const prefixOf = (config: IdConfig): string => config.prefix ?? "";
-const pad = (value: number, width = 1): string => String(value).padStart(Math.max(1, width), "0");
 
 export const generatedIdRequiresRetry = (field: Field): boolean => {
   if (field.type !== "id") return false;
@@ -29,18 +27,6 @@ export const generatedIdRequiresRetry = (field: Field): boolean => {
 export const isGeneratedIdUniqueCollision = (error: unknown, fields: Field[]): boolean =>
   fields.some((field) => generatedIdRequiresRetry(field) && isUniqueViolation(error, fieldUniqueIndexName(field.id)));
 
-const dateScope = (now: Date, config: IdConfig, dateConfig?: DateContext): string => {
-  const key = dates.formatDateKey(now, dateConfig);
-  switch (config.period ?? "year") {
-    case "day":
-      return key.replace(/-/g, "");
-    case "month":
-      return key.slice(0, 7).replace("-", "");
-    case "year":
-      return key.slice(0, 4);
-  }
-};
-
 const randomCode = (config: IdConfig): string => {
   const groups = config.groups ?? 2;
   const segmentLength = config.segmentLength ?? 4;
@@ -50,26 +36,35 @@ const randomCode = (config: IdConfig): string => {
 export const generateIdValue = async (
   field: Field,
   options: {
-    client?: SqlClient;
     dateConfig?: DateContext;
     now?: Date;
+    allocator?: typeof allocateNumber;
   } = {},
 ): Promise<string> => {
   const config = field.config as IdConfig;
   const strategy = config.strategy ?? "sequence";
   const prefix = prefixOf(config);
-  const client = options.client ?? sql;
   const now = options.now ?? new Date();
+  const allocator = options.allocator ?? allocateNumber;
 
   switch (strategy) {
     case "sequence": {
-      const next = await nextGeneratedIdSequenceValue(field.id, undefined, client);
-      return `${prefix}${pad(next, config.padding ?? 1)}`;
+      return (
+        await allocator({
+          owner: { kind: "field", id: field.id },
+          now,
+          dateConfig: options.dateConfig,
+        })
+      ).renderedValue;
     }
     case "date_sequence": {
-      const scope = dateScope(now, config, options.dateConfig);
-      const next = await nextGeneratedIdSequenceValue(field.id, scope, client);
-      return `${prefix}${scope}-${pad(next, config.padding ?? 4)}`;
+      return (
+        await allocator({
+          owner: { kind: "field", id: field.id },
+          now,
+          dateConfig: options.dateConfig,
+        })
+      ).renderedValue;
     }
     case "short_code":
       return `${prefix}${crypto.common.readableId(config.length ?? 5)}`;

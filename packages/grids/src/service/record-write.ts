@@ -5,6 +5,7 @@ import { getRecordWritableFieldType, isRecordWritableFieldType } from "../field-
 import { logAudit, type SqlClient } from "./audit";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import { generatedIdRequiresRetry, generateIdValue, isGeneratedIdUniqueCollision } from "./generated-ids";
+import { bindFieldNumberAllocations } from "./number-series";
 import { requireStoredTableWritable } from "./parent-checks";
 import { validatePrincipalValuesForActor } from "./principal-values";
 import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
@@ -100,7 +101,6 @@ const validateForCreate = async (
   for (const field of fields) {
     if (field.type === "id") {
       out[field.id] = await generateIdValue(field, {
-        client: options.client,
         dateConfig: options.dateConfig,
       });
       continue;
@@ -288,6 +288,16 @@ export const createInTransaction = async (
   if (!row && hasRetryGeneratedId) return fail(err.conflict("Could not generate a unique ID. Try again."));
   if (!row) throw new Error("insert returned no row");
   if (!validated?.ok || !split) throw new Error("record create validation state missing");
+
+  await bindFieldNumberAllocations(
+    client,
+    id,
+    fields.flatMap((field) =>
+      field.type === "id" && typeof validated.data[field.id] === "string"
+        ? [{ fieldId: field.id, renderedValue: validated.data[field.id] as string }]
+        : [],
+    ),
+  );
 
   for (const [fieldId, toIds] of split.relations) {
     await writeRecordLinks(id, fieldId, toIds, client);

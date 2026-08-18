@@ -803,6 +803,12 @@ function IdConstraints(props: { config: () => FieldConfigState; onChange: (next:
           />
         </div>
       </Show>
+      <Show when={strategy() === "sequence" || strategy() === "date_sequence"}>
+        <NoticeCard tone="info" icon={false} role="status">
+          Grids assigns the number when the record is created. Numbers increase atomically and are never reused, but rollbacks and technical
+          failures can leave gaps. Prefix and format changes apply only to future records.
+        </NoticeCard>
+      </Show>
       <Show when={strategy() === "uuid" || strategy() === "uuidv7" || strategy() === "ulid"}>
         <PrefixInput />
       </Show>

@@ -24,10 +24,15 @@ const field = (config: Record<string, unknown>): Field => ({
   updatedAt: "2026-01-01T00:00:00.000Z",
 });
 
-const fakeSequenceClient = (next: number) =>
-  ({
-    unsafe: async (statement: string) => (statement.startsWith("SELECT nextval") ? [{ next }] : []),
-  }) as any;
+const fakeAllocator = (renderedValue: string) => async () => ({
+  id: "019f0c1a-90f8-7000-a2f3-768748d8c0f1",
+  seriesId: "019f0c1a-90f8-7000-a2f3-768748d8c0f2",
+  seriesShortId: "SER001",
+  version: 1,
+  scope: "global",
+  value: 42,
+  renderedValue,
+});
 
 const uniqueViolation = (constraintName: string) => {
   const e = new Error("duplicate key value violates unique constraint") as Error & {
@@ -49,19 +54,28 @@ describe("generated ID field config", () => {
     expect(IdFieldConfigSchema.safeParse({ strategy: "random_code", groups: 8 }).success).toBe(false);
     expect(IdFieldConfigSchema.safeParse({ strategy: "date_sequence", period: "week" }).success).toBe(false);
   });
+
+  test("models finalization assignment without activating a second allocator", () => {
+    expect(IdFieldConfigSchema.parse({ strategy: "sequence", assignment: "finalization" })).toEqual({
+      strategy: "sequence",
+      assignment: "finalization",
+    });
+  });
 });
 
 describe("generateIdValue", () => {
   test("generates padded sequence IDs with prefix", async () => {
     await expect(
-      generateIdValue(field({ strategy: "sequence", prefix: "INV-", padding: 5 }), { client: fakeSequenceClient(42) }),
+      generateIdValue(field({ strategy: "sequence", prefix: "INV-", padding: 5 }), {
+        allocator: fakeAllocator("INV-00042"),
+      }),
     ).resolves.toBe("INV-00042");
   });
 
   test("generates date sequence IDs scoped to the configured period", async () => {
     await expect(
       generateIdValue(field({ strategy: "date_sequence", prefix: "LOAN-", period: "month", padding: 3 }), {
-        client: fakeSequenceClient(7),
+        allocator: fakeAllocator("LOAN-202606-007"),
         now: new Date("2026-06-07T21:30:00.000Z"),
         dateConfig: { timeZone: "Europe/Berlin" },
       }),

@@ -19,6 +19,7 @@ const Empty = z.object({});
 
 const Prefix = z.string().max(32).optional();
 const Padding = z.number().int().min(1).max(16).optional();
+const Assignment = z.enum(["creation", "finalization"]).optional();
 
 export const IdFieldConfigSchema = z.preprocess(
   (raw) => {
@@ -32,12 +33,14 @@ export const IdFieldConfigSchema = z.preprocess(
       strategy: z.literal("sequence"),
       prefix: Prefix,
       padding: Padding,
+      assignment: Assignment,
     }),
     z.object({
       strategy: z.literal("date_sequence"),
       prefix: Prefix,
       padding: Padding,
       period: z.enum(["year", "month", "day"]).optional(),
+      assignment: Assignment,
     }),
     z.object({
       strategy: z.literal("short_code"),

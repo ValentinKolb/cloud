@@ -37,7 +37,7 @@ Date-time display, date-based filters, formulas, exports, and document folders u
 - **Rollup** summarizes values reached through a relation.
 - **Formula** calculates a value from fields in the current record whenever the record is read.
 - **HTML template** renders Liquid and optional CSS into one HTML string per record. It can use ordinary fields plus lookup, rollup, and formula results. Values are escaped by default; preview the result before using `raw`.
-- **ID** creates a stable generated identifier. Configure it for the identifier style the process needs instead of maintaining counters by hand.
+- **ID** creates a stable generated identifier. Sequence and date-sequence IDs use a durable number series that Grids assigns when the record is created. Values increase atomically and are never reused; rollbacks and technical failures can leave gaps. Changing the prefix or format affects only future records.
 - **Created at, Created by, Updated at, and Updated by** are system-managed fields. They describe record activity and cannot be entered as ordinary business values.
 
 Choose a relation when the target has its own details or lifecycle. A customer name typed into every invoice is only text; a Customer relation keeps the invoice connected when the customer's details change.

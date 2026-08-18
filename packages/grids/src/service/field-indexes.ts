@@ -20,11 +20,6 @@ export const fieldReverseSortIndexName = (fieldId: string): string => `idx_grids
 export const fieldPlannerStatisticsName = (fieldId: string): string => `st_grids_data_${fieldId.replace(/-/g, "")}`;
 const trgmIndexName = (fieldId: string): string => `idx_grids_trgm_${fieldId.replace(/-/g, "")}`;
 export const fieldUniqueIndexName = (fieldId: string): string => `uq_grids_data_${fieldId.replace(/-/g, "")}`;
-const generatedIdSeqPrefix = (fieldId: string): string => `grids_id_${fieldId.replace(/-/g, "")}`;
-const generatedIdSeqName = (fieldId: string, scope?: string): string => {
-  const suffix = scope ? `_${scope.replace(/[^a-zA-Z0-9_]/g, "")}` : "";
-  return `${generatedIdSeqPrefix(fieldId)}${suffix}`;
-};
 const dynamicFieldIndexPattern = /^(?:idx_grids_data_rev_|idx_grids_data_|idx_grids_trgm_|uq_grids_data_)([a-f0-9]{32})$/;
 const dynamicFieldStatisticsPattern = /^st_grids_data_([a-f0-9]{32})$/;
 
@@ -515,51 +510,4 @@ export const findUniqueConflicts = async (fieldId: string, tableId: string): Pro
      HAVING COUNT(*) > 1`,
   );
   return (rows as Array<{ v: string }>).map((r) => r.v);
-};
-
-// =============================================================================
-// Generated ID sequences
-// =============================================================================
-// Sequence-style generated IDs are backed by Postgres sequences, lazily
-// created on first use. nextval() is atomic.
-
-/**
- * Lazy CREATE SEQUENCE IF NOT EXISTS on first use. Idempotent. Safe
- * inside a regular transaction (sequences in Postgres survive rollback,
- * which is the desired property: rolled-back inserts still consume a
- * sequence value, ensuring monotonicity even under failures).
- */
-const ensureGeneratedIdSequence = async (fieldId: string, scope?: string, client = sql): Promise<string | null> => {
-  if (!isSafeFieldId(fieldId)) return null;
-  const seq = generatedIdSeqName(fieldId, scope);
-  await client.unsafe(`CREATE SEQUENCE IF NOT EXISTS grids.${seq} AS BIGINT INCREMENT 1 MINVALUE 1`);
-  return seq;
-};
-
-/** Atomically returns the next value. Creates the sequence if missing. */
-export const nextGeneratedIdSequenceValue = async (fieldId: string, scope?: string, client = sql): Promise<number> => {
-  const seq = await ensureGeneratedIdSequence(fieldId, scope, client);
-  if (!seq) return 1;
-  const rows = await client.unsafe(`SELECT nextval('grids.${seq}') AS next`);
-  const next = (rows as Array<{ next: bigint | string | number }>)[0]?.next;
-  return Number(next ?? 1);
-};
-
-export const dropGeneratedIdSequences = async (fieldId: string): Promise<void> => {
-  if (!isSafeFieldId(fieldId)) return;
-  try {
-    const rows = await sql<{ sequence_name: string }[]>`
-      SELECT sequence_name
-      FROM information_schema.sequences
-      WHERE sequence_schema = 'grids'
-        AND sequence_name LIKE ${`${generatedIdSeqPrefix(fieldId)}%`}
-    `;
-    for (const row of rows) {
-      if (/^[a-zA-Z0-9_]+$/.test(row.sequence_name)) {
-        await sql.unsafe(`DROP SEQUENCE IF EXISTS grids.${row.sequence_name}`);
-      }
-    }
-  } catch (e) {
-    log.error("Failed to drop generated ID sequence", { fieldId, error: String(e) });
-  }
 };

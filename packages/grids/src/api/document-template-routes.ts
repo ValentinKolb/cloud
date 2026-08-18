@@ -22,7 +22,7 @@ import {
   RecordLookupQuerySchema,
 } from "./documents-api-shared";
 import { currentActorUserId, gateAt } from "./permissions";
-import { resolvePublicIdParam } from "./route-params";
+import { resolvePublicIdParam, resolveStoredPublicIdParam } from "./route-params";
 
 export const createDocumentTemplateRoutes = () =>
   new Hono<AuthContext>()
@@ -185,6 +185,32 @@ export const createDocumentTemplateRoutes = () =>
         const result = await gridsService.document.removeTemplate(loaded.template.id, currentActorUserId(c));
         if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
         return c.body(null, 204);
+      },
+    )
+
+    .post(
+      "/templates/:templateId/restore",
+      describeRoute({
+        tags: ["Grids:Document"],
+        summary: "Restore a soft-deleted document template",
+        responses: {
+          200: jsonResponse(PublicDocumentTemplateSchema, "Restored document template"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Not found"),
+        },
+      }),
+      async (c) => {
+        const templateId = await resolveStoredPublicIdParam(c, "templateId", "documentTemplate");
+        if (!templateId) return c.json({ message: "Document template not found" }, 404);
+        const template = await gridsService.document.getStoredTemplate(templateId);
+        if (!template) return c.json({ message: "Document template not found" }, 404);
+        const table = await gridsService.table.get(template.tableId);
+        if (!table) return c.json({ message: "Table not found" }, 404);
+        const gate = await gateAt(c, { baseId: table.baseId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const restored = await gridsService.document.restoreTemplate(templateId, currentActorUserId(c));
+        if (!restored.ok) return c.json({ message: restored.error.message }, restored.error.status);
+        return c.json((await projectDocumentTemplates([restored.data]))[0]!);
       },
     )
 

@@ -29,6 +29,9 @@ documents, and workflows without splitting the domain across unrelated tools.
 - Keep relationships between compatible Form inputs, such as a start date that
   must not follow its due date, in server-enforced cross-field validation.
 - Generate documents or PDFs from reviewed templates and record data.
+- Use automatically provisioned durable number series for sequential ID fields
+  and numbered Documents. Allocations are atomic and never reused; technical
+  gaps are possible, and formatting changes affect future values only.
 - Generate a per-record HTML value from Liquid and inline CSS when an email body, product description, or bounded export column should stay attached to the row rather than become a Document artifact.
 - Run typed, versioned workflows for repeatable record changes, document
   generation, email delivery, and bounded HTTP calls.

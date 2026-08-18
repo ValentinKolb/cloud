@@ -4,9 +4,11 @@ import { z } from "zod";
 import { type DocumentTemplateSummary, ShortIdSchema } from "../contracts";
 import { gridsService } from "../service";
 import { decodeDocumentRunCursor } from "../service/document-run-values";
+import { loadDocumentNumberSeries } from "../service/number-series";
 import { projectPublicIds, resolvePublicIds } from "../service/public-resources";
 import { ALL_RECORD_ACCESS } from "../service/record-access";
 import { pdfResponse } from "./download-response";
+import { PublicNumberSeriesSummarySchema, toPublicNumberSeries } from "./number-series-dto";
 import { currentActorViewer, gateAt } from "./permissions";
 
 export const PublicDocumentTemplateSchema = z.object({
@@ -28,6 +30,7 @@ export const PublicDocumentTemplateSchema = z.object({
   deletedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  numberSeries: PublicNumberSeriesSummarySchema,
 });
 export const PublicDocumentTemplateListSchema = z.array(PublicDocumentTemplateSchema);
 export const PublicDocumentTemplateSummarySchema = PublicDocumentTemplateSchema.pick({
@@ -203,15 +206,23 @@ type InternalRecordSnapshot = NonNullable<Awaited<ReturnType<typeof gridsService
 type InternalRecordSnapshotSummary = Awaited<ReturnType<typeof gridsService.document.listSnapshotsForRecord>>[number];
 
 export const projectDocumentTemplates = async (templates: InternalDocumentTemplate[]) => {
-  const tableIds = await projectPublicIds(
-    "table",
-    templates.map((template) => template.tableId),
-  );
-  return templates.map(({ id: _id, shortId, tableId, ...template }) => ({
-    ...template,
-    id: shortId,
-    tableId: requiredPublicId(tableIds, tableId, "table"),
-  }));
+  const [tableIds, numberSeries] = await Promise.all([
+    projectPublicIds(
+      "table",
+      templates.map((template) => template.tableId),
+    ),
+    loadDocumentNumberSeries(templates.map((template) => template.id)),
+  ]);
+  return templates.map(({ id: _id, shortId, tableId, ...template }) => {
+    const series = numberSeries.get(_id);
+    if (!series) throw new Error(`Grids document template ${_id} is missing its durable number series.`);
+    return {
+      ...template,
+      id: shortId,
+      tableId: requiredPublicId(tableIds, tableId, "table"),
+      numberSeries: toPublicNumberSeries(series),
+    };
+  });
 };
 
 export const projectDocumentTemplateSummaries = async (templates: readonly DocumentTemplateSummary[]) => {

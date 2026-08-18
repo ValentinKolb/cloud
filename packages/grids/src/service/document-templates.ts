@@ -11,6 +11,7 @@ import {
   validateDocumentLiquidTemplate,
 } from "./document-liquid";
 import { type DocumentDbRow, mapDocumentTemplate } from "./document-mappers";
+import { provisionDocumentNumberSeries, setNumberSeriesArchived, syncNumberSeriesFormat } from "./number-series";
 import { insertWithShortId } from "./short-id";
 import { get as getTable } from "./tables";
 
@@ -39,6 +40,17 @@ export const getTemplate = async (templateId: string): Promise<DocumentTemplate 
     JOIN grids.tables t ON t.id = dt.table_id AND t.deleted_at IS NULL
     JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
     WHERE dt.id = ${templateId}::uuid AND dt.deleted_at IS NULL
+  `;
+  return row ? mapDocumentTemplate(row) : null;
+};
+
+export const getStoredTemplate = async (templateId: string): Promise<DocumentTemplate | null> => {
+  const [row] = await sql<DocumentDbRow[]>`
+    SELECT dt.*
+    FROM grids.document_templates dt
+    JOIN grids.tables t ON t.id = dt.table_id AND t.deleted_at IS NULL
+    JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
+    WHERE dt.id = ${templateId}::uuid
   `;
   return row ? mapDocumentTemplate(row) : null;
 };
@@ -157,6 +169,7 @@ export const createTemplate = async (
           RETURNING *
         `;
         if (!created) throw new Error("insert returned no row");
+        await provisionDocumentNumberSeries(tx, created.id as string, numberTemplate);
         await logAudit(
           {
             baseId: table.baseId,
@@ -184,25 +197,39 @@ export const updateTemplate = async (
   const valid = validateTemplateWrite(input);
   if (!valid.ok) return valid;
 
-  const [row] = await sql<DocumentDbRow[]>`
-    UPDATE grids.document_templates
-    SET
-      name = COALESCE(${input.name?.trim() || null}, name),
-      description = ${input.description === undefined ? sql`description` : input.description},
-      source = COALESCE(${input.source?.trim() || null}, source),
-      html = COALESCE(${input.html?.trim() || null}, html),
-      header_html = ${input.headerHtml === undefined ? sql`header_html` : input.headerHtml?.trim() || null},
-      footer_html = ${input.footerHtml === undefined ? sql`footer_html` : input.footerHtml?.trim() || null},
-      page_css = ${input.pageCss === undefined ? sql`page_css` : input.pageCss?.trim() || null},
-      number_template = COALESCE(${input.numberTemplate?.trim() || null}, number_template),
-      filename_template = COALESCE(${input.filenameTemplate?.trim() || null}, filename_template),
-      enabled = COALESCE(${input.enabled ?? null}, enabled),
-      position = COALESCE(${input.position ?? null}, position),
-      updated_by = ${actorId}::uuid,
-      updated_at = now()
-    WHERE id = ${templateId}::uuid AND deleted_at IS NULL
-    RETURNING *
-  `;
+  const [row] = await sql.begin(async (tx) => {
+    const rows = await tx<DocumentDbRow[]>`
+      UPDATE grids.document_templates
+      SET
+        name = COALESCE(${input.name?.trim() || null}, name),
+        description = ${input.description === undefined ? sql`description` : input.description},
+        source = COALESCE(${input.source?.trim() || null}, source),
+        html = COALESCE(${input.html?.trim() || null}, html),
+        header_html = ${input.headerHtml === undefined ? sql`header_html` : input.headerHtml?.trim() || null},
+        footer_html = ${input.footerHtml === undefined ? sql`footer_html` : input.footerHtml?.trim() || null},
+        page_css = ${input.pageCss === undefined ? sql`page_css` : input.pageCss?.trim() || null},
+        number_template = COALESCE(${input.numberTemplate?.trim() || null}, number_template),
+        filename_template = COALESCE(${input.filenameTemplate?.trim() || null}, filename_template),
+        enabled = COALESCE(${input.enabled ?? null}, enabled),
+        position = COALESCE(${input.position ?? null}, position),
+        updated_by = ${actorId}::uuid,
+        updated_at = now()
+      WHERE id = ${templateId}::uuid AND deleted_at IS NULL
+      RETURNING *
+    `;
+    const updated = rows[0];
+    if (updated) {
+      await syncNumberSeriesFormat(
+        tx,
+        { kind: "document_template", id: templateId },
+        {
+          strategy: "document",
+          numberTemplate: updated.number_template as string,
+        },
+      );
+    }
+    return rows;
+  });
   return row ? ok(mapDocumentTemplate(row)) : fail(err.notFound("Document template"));
 };
 
@@ -245,11 +272,32 @@ export const reorderTemplates = async (tableId: string, templateIds: string[], a
 };
 
 export const removeTemplate = async (templateId: string, actorId: string | null): Promise<Result<void>> => {
-  const [row] = await sql<DocumentDbRow[]>`
-    UPDATE grids.document_templates
-    SET deleted_at = now(), updated_by = ${actorId}::uuid, updated_at = now()
-    WHERE id = ${templateId}::uuid AND deleted_at IS NULL
-    RETURNING id
-  `;
+  const [row] = await sql.begin(async (tx) => {
+    const rows = await tx<DocumentDbRow[]>`
+      UPDATE grids.document_templates
+      SET deleted_at = now(), updated_by = ${actorId}::uuid, updated_at = now()
+      WHERE id = ${templateId}::uuid AND deleted_at IS NULL
+      RETURNING id
+    `;
+    if (rows[0]) await setNumberSeriesArchived(tx, { kind: "document_template", id: templateId }, true);
+    return rows;
+  });
   return row ? ok() : fail(err.notFound("Document template"));
+};
+
+export const restoreTemplate = async (templateId: string, actorId: string | null): Promise<Result<DocumentTemplate>> => {
+  const existing = await getStoredTemplate(templateId);
+  if (!existing) return fail(err.notFound("Document template"));
+  if (existing.deletedAt === null) return ok(existing);
+  const [row] = await sql.begin(async (tx) => {
+    const rows = await tx<DocumentDbRow[]>`
+      UPDATE grids.document_templates
+      SET deleted_at = NULL, updated_by = ${actorId}::uuid, updated_at = now()
+      WHERE id = ${templateId}::uuid AND deleted_at IS NOT NULL
+      RETURNING *
+    `;
+    if (rows[0]) await setNumberSeriesArchived(tx, { kind: "document_template", id: templateId }, false);
+    return rows;
+  });
+  return row ? ok(mapDocumentTemplate(row)) : fail(err.notFound("Document template"));
 };

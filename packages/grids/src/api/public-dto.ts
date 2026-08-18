@@ -22,9 +22,11 @@ import {
   ViewSchema,
 } from "../contracts";
 import type { Form } from "../service/forms";
+import { isSequentialNumberSeriesConfig, loadFieldNumberSeries } from "../service/number-series";
 import { projectPublicIds, resolvePublicIds } from "../service/public-resources";
 import type { RecordComment } from "../service/record-comments";
 import type { GridFile } from "../service/types";
+import { PublicNumberSeriesSummarySchema, toPublicNumberSeries } from "./number-series-dto";
 
 export const PublicBaseSchema = BaseSchema.omit({ id: true, shortId: true }).extend({ id: ShortIdSchema });
 const PublicRecordDisplayConfigSchema = z.object({
@@ -78,6 +80,7 @@ export const PublicFieldSchema = FieldSchema.omit({ id: true, shortId: true, tab
   .extend({
     id: ShortIdSchema,
     tableId: ShortIdSchema,
+    numberSeries: PublicNumberSeriesSummarySchema.nullable().optional(),
   })
   .superRefine(validatePublicFieldReferences);
 
@@ -639,7 +642,7 @@ const projectKnownIds = async (value: unknown): Promise<unknown> => {
 export const toPublicFields = async (fields: readonly Field[]): Promise<PublicField[]> => {
   const relationFields = fields.filter((field) => field.type === "relation");
   const computedFields = fields.filter((field) => field.type === "lookup" || field.type === "rollup");
-  const [tableIds, relationTargetTableIds, computedFieldIds, relationDefaultRecordIds] = await Promise.all([
+  const [tableIds, relationTargetTableIds, computedFieldIds, relationDefaultRecordIds, numberSeries] = await Promise.all([
     projectPublicIds(
       "table",
       fields.map((field) => field.tableId),
@@ -658,6 +661,7 @@ export const toPublicFields = async (fields: readonly Field[]): Promise<PublicFi
       "record",
       relationFields.flatMap((field) => publicRelationRecordIds(field.defaultValue)),
     ),
+    loadFieldNumberSeries(fields.filter((field) => field.type === "id").map((field) => field.id)),
   ]);
   const projected = fields.map((field) => {
     let config = field.config;
@@ -689,12 +693,17 @@ export const toPublicFields = async (fields: readonly Field[]): Promise<PublicFi
         : Array.isArray(field.defaultValue)
           ? field.defaultValue.map((id) => publicId(relationDefaultRecordIds, String(id), "record"))
           : publicId(relationDefaultRecordIds, String(field.defaultValue), "record");
+    const fieldNumberSeries = numberSeries.get(field.id);
+    if (field.type === "id" && isSequentialNumberSeriesConfig(field.config) && !fieldNumberSeries) {
+      throw new Error(`Grids field ${field.id} is missing its durable number series.`);
+    }
     return {
       ...omitShortId(field),
       id: field.shortId,
       tableId: publicId(tableIds, field.tableId, "table"),
       config,
       defaultValue,
+      ...(field.type === "id" ? { numberSeries: fieldNumberSeries ? toPublicNumberSeries(fieldNumberSeries) : null } : {}),
     };
   });
   return projected.map((field) => PublicFieldSchema.parse(field));

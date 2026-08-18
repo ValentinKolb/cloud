@@ -10,7 +10,6 @@ import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
 import {
   dropFieldIndex,
   dropFieldUniqueIndex,
-  dropGeneratedIdSequences,
   ensureFieldIndex,
   ensureFieldUniqueIndex,
   findUniqueConflicts,
@@ -21,6 +20,7 @@ import { cleanupPreparedUniqueIndex } from "./field-unique-index-lifecycle";
 import { materializeFieldDefault, validateDefaultValue, validateFieldConfig, validateLinkOrComputedConfig } from "./field-validation";
 import { emitTableMetadataEvent } from "./metadata-events";
 import { namedResourceConflict, writeNamedResource } from "./named-resource-conflict";
+import { numberSeriesFormatForField, provisionFieldNumberSeries, setNumberSeriesArchived, syncNumberSeriesFormat } from "./number-series";
 import { rewriteFieldNameReferences } from "./reference-renames";
 import { insertWithShortId } from "./short-id";
 import type { CreateFieldInput, Field, UpdateFieldInput } from "./types";
@@ -121,6 +121,9 @@ const validateFieldCreateValues = async (input: CreateFieldInput, name: string):
   const configResult = validateFieldConfig(input.type, input.config ?? {});
   if (!configResult.ok) return configResult;
   const config = configResult.data as Record<string, unknown>;
+  if (input.type === "id" && config.assignment === "finalization") {
+    return fail(err.badInput("Assign on finalization becomes available when Finalization is enabled for the table."));
+  }
   const linkResult = await validateLinkOrComputedConfig(input.type, config, input.tableId);
   if (!linkResult.ok) return linkResult;
   const defaultResult = validateDefaultValue(input.type, config, input.defaultValue);
@@ -220,6 +223,7 @@ const insertPreparedField = async (state: FieldCreateState, actorId: string | nu
     );
     if (!created.ok) return created;
     const inserted = mapFieldRow(created.data);
+    if (inserted.type === "id") await provisionFieldNumberSeries(tx, inserted.id, inserted.config);
     await logAudit(
       {
         tableId: inserted.tableId,
@@ -290,6 +294,9 @@ const validateFieldUpdate = async (existing: Field, input: UpdateFieldInput, tab
   const cfgValidation = validateFieldConfig(existing.type, rawConfig);
   if (!cfgValidation.ok) return cfgValidation;
   const config = cfgValidation.data as Record<string, unknown>;
+  if (existing.type === "id" && config.assignment === "finalization") {
+    return fail(err.badInput("Assign on finalization becomes available when Finalization is enabled for the table."));
+  }
   // Same-base + cross-table consistency on every update path. Important:
   // the user can't change `tableId` after creation, so the source-table
   // scope is stable, but config keys (targetTableId / relationFieldId /
@@ -394,6 +401,9 @@ const compensateUniqueConstraintDisable = async (existing: Field, field: Field, 
     const restored = await sql.begin(async (tx) => {
       const restoredResult = await persistFieldUpdate(field.id, fieldUpdateState(existing), tx);
       if (!restoredResult.ok) throw new Error(restoredResult.error.message);
+      if (existing.type === "id") {
+        await syncNumberSeriesFormat(tx, { kind: "field", id: existing.id }, numberSeriesFormatForField(existing.config));
+      }
       await logFieldUpdateDiff(field, fieldUpdateState(existing), actorId, tx);
       if (field.name !== existing.name) {
         await rewriteFieldNameReferences({ tableId: field.tableId, oldName: field.name, newName: existing.name }, tx);
@@ -497,6 +507,9 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
         const fieldResult = await persistFieldUpdate(id, nextResult.data, tx);
         if (!fieldResult.ok) throw fieldResult;
         const field = fieldResult.data;
+        if (field.type === "id") {
+          await syncNumberSeriesFormat(tx, { kind: "field", id: field.id }, numberSeriesFormatForField(field.config));
+        }
 
         await logFieldUpdateDiff(existing, nextResult.data, actorId, tx);
 
@@ -645,6 +658,7 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
               RETURNING *
             `;
             if (!row) throw new Error("restore failed");
+            if (existing.type === "id") await setNumberSeriesArchived(sp, { kind: "field", id }, false);
             return mapFieldRow(row);
           }),
         "idx_grids_fields_live_name",
@@ -705,6 +719,7 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
       RETURNING id
     `;
     if (!deleted) throw err.notFound("Field");
+    if (existing.type === "id") await setNumberSeriesArchived(tx, { kind: "field", id }, true);
     await logAudit({ tableId: existing.tableId, userId: actorId, action: "deleted" }, tx);
     // Auto-cleanup: strip the soft-deleted field id from every form's
     // config.fields[] in the same table. Views/forms see a stripped column
@@ -733,7 +748,6 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
   // Drop any expression index since the field is gone.
   if (existing.indexed) void dropFieldIndex(id);
   if (existing.uniqueConstraint) await dropFieldUniqueIndex(id);
-  if (existing.type === "id") void dropGeneratedIdSequences(id);
   await emitTableMetadataEvent(existing.tableId, {
     type: "field.deleted",
     resource: { kind: "field", id, tableId: existing.tableId },

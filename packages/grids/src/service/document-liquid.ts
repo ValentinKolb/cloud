@@ -27,7 +27,7 @@ const DOCUMENT_TEMPLATE_ROOTS = new Set([
   "date",
 ]);
 export const DOCUMENT_SOURCE_ROOTS = new Set(["record", "table", "app", "business", "template", "date"]);
-export const DOCUMENT_NUMBER_ROOTS = new Set(["record", "table", "template", "run", "date", "app", "business"]);
+export const DOCUMENT_NUMBER_ROOTS = new Set(["record", "table", "template", "run", "series", "date", "app", "business"]);
 
 const LIQUID_KEYWORDS = new Set([
   "and",
@@ -238,6 +238,7 @@ export const documentNumberFor = (params: {
   generatedAt?: Date;
   dateConfig?: DateContext;
   data?: Record<string, unknown>;
+  series?: { id: string; value: number };
 }): Result<string> => {
   const template = params.template.numberTemplate?.trim() || DEFAULT_DOCUMENT_NUMBER_TEMPLATE;
   const valid = validateDocumentLiquidTemplate(template, "document number pattern", DOCUMENT_NUMBER_ROOTS);
@@ -249,6 +250,7 @@ export const documentNumberFor = (params: {
         ...(params.data ?? {}),
         template: templatePatternContext(params.template),
         run: runPatternContext(params.runShortId),
+        series: params.series ?? { id: "draft", value: 0 },
         date: datePatternContext(params.generatedAt ?? new Date(), params.dateConfig),
       },
       { filters: documentLiquidFilters },

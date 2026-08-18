@@ -19,6 +19,23 @@ const templatePublicId = "TMPL01";
 const disabledTemplatePublicId = "TMPL02";
 const excludedRecordPublicId = "RECD01";
 const lookupRecordPublicId = "RECD02";
+const numberSeriesId = "88888888-8888-4888-8888-888888888888";
+const numberSeriesPublicId = "SER001";
+
+const numberSeries = {
+  id: numberSeriesId,
+  shortId: numberSeriesPublicId,
+  assignment: "creation" as const,
+  state: "active" as const,
+  currentVersion: 1,
+  lastValue: 12,
+  preview: null,
+  migrationStatus: "native",
+  migrationNote: null,
+};
+mock.module("../service/number-series", () => ({
+  loadDocumentNumberSeries: async (ids: string[]) => new Map(ids.map((id) => [id, numberSeries])),
+}));
 
 const publicToInternal = new Map([
   [basePublicId, baseId],
@@ -31,6 +48,7 @@ const publicToInternal = new Map([
 const internalToPublic = new Map([...publicToInternal].map(([publicId, internalId]) => [internalId, publicId]));
 mock.module("../service/public-resources", () => ({
   resolvePublicId: async (_type: string, publicId: string) => publicToInternal.get(publicId) ?? null,
+  resolveStoredPublicId: async (_type: string, publicId: string) => publicToInternal.get(publicId) ?? null,
   resolvePublicIds: async (_type: string, publicIds: string[]) =>
     new Map(publicIds.flatMap((publicId) => (publicToInternal.has(publicId) ? [[publicId, publicToInternal.get(publicId)!]] : []))),
   projectPublicIds: async (_type: string, internalIds: string[]) =>
@@ -117,7 +135,21 @@ const summary = (row: typeof template) => ({
 });
 const publicTemplate = (row: typeof template) => {
   const { shortId, ...value } = row;
-  return { ...value, id: shortId, tableId: tablePublicId };
+  return {
+    ...value,
+    id: shortId,
+    tableId: tablePublicId,
+    numberSeries: {
+      id: numberSeriesPublicId,
+      assignment: "creation",
+      state: "active",
+      currentVersion: 1,
+      lastValue: 12,
+      preview: null,
+      migrationStatus: "native",
+      migrationNote: null,
+    },
+  };
 };
 
 const forbiddenResponse = {
@@ -135,6 +167,7 @@ let createInput: unknown;
 let updateInput: unknown;
 let reorderInput: unknown;
 let removeInput: unknown;
+let restoreInput: unknown;
 let lookupInput: unknown;
 
 const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
@@ -179,6 +212,7 @@ describe("document template routes", () => {
     updateInput = undefined;
     reorderInput = undefined;
     removeInput = undefined;
+    restoreInput = undefined;
     lookupInput = undefined;
 
     spyOn(gridsService.table, "get").mockImplementation(async (id) => {
@@ -188,6 +222,10 @@ describe("document template routes", () => {
     spyOn(gridsService.document, "getTemplateByShortId").mockImplementation(async (id) => {
       templateGetInputs.push(id);
       return (id === templatePublicId ? currentTemplate : null) as never;
+    });
+    spyOn(gridsService.document, "getStoredTemplate").mockImplementation(async (id) => {
+      templateGetInputs.push(id);
+      return (id === templateId ? currentTemplate : null) as never;
     });
     spyOn(gridsService.document, "listTemplatesForTable").mockImplementation(async (id) => {
       listInputs.push(id);
@@ -209,6 +247,10 @@ describe("document template routes", () => {
     spyOn(gridsService.document, "removeTemplate").mockImplementation(async (id, actorId) => {
       removeInput = { templateId: id, actorId };
       return { ok: true, data: undefined };
+    });
+    spyOn(gridsService.document, "restoreTemplate").mockImplementation(async (id, actorId) => {
+      restoreInput = { templateId: id, actorId };
+      return { ok: true, data: template } as never;
     });
     spyOn(gridsService.relations, "lookup").mockImplementation(async (input) => {
       lookupInput = input;
@@ -232,6 +274,7 @@ describe("document template routes", () => {
       ["get", "/documents/templates/{templateId}", "Get a document template", ["200", "403"]],
       ["patch", "/documents/templates/{templateId}", "Update a document template", ["200", "403"]],
       ["delete", "/documents/templates/{templateId}", "Delete a document template", ["204", "403"]],
+      ["post", "/documents/templates/{templateId}/restore", "Restore a soft-deleted document template", ["200", "403", "404"]],
       ["get", "/documents/templates/{templateId}/records/lookup", "Search records for a document template", ["200", "403"]],
     ] as const) {
       const operation = paths[operationPath]?.[method];
@@ -248,6 +291,7 @@ describe("document template routes", () => {
     ["GET", `/templates/${templatePublicId}`, undefined],
     ["PATCH", `/templates/${templatePublicId}`, updateBody],
     ["DELETE", `/templates/${templatePublicId}`, undefined],
+    ["POST", `/templates/${templatePublicId}/restore`, undefined],
     ["GET", `/templates/${templatePublicId}/records/lookup`, undefined],
   ] as const) {
     test(`parent auth protects ${method} ${suffix}`, async () => {
@@ -396,6 +440,19 @@ describe("document template routes", () => {
     expect(response.status).toBe(204);
     expect(await response.text()).toBe("");
     expect(removeInput).toEqual({ templateId, actorId: userId });
+  });
+
+  test("restores a template with base admin access and forwards the audit actor", async () => {
+    baseLevel = "write";
+    await expectForbidden(await app().request(path(`/templates/${templatePublicId}/restore`), { method: "POST" }));
+    expect(restoreInput).toBeUndefined();
+
+    baseLevel = "admin";
+    const response = await app().request(path(`/templates/${templatePublicId}/restore`), { method: "POST" });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(publicTemplate(template));
+    expect(restoreInput).toEqual({ templateId, actorId: userId });
   });
 
   test("looks up records with base write access and forwards the normalized query", async () => {

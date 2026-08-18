@@ -466,6 +466,19 @@ function FieldEditor(props: {
             otherTables={props.otherTables}
             fieldsByTable={props.fieldsByTable}
           />
+          <Show when={props.field.type === "id" && props.field.numberSeries} keyed>
+            {(series) => (
+              <NoticeCard tone={series.migrationNote ? "warning" : "info"} icon={false} role="status">
+                <p>
+                  Number series <strong>{series.id}</strong> · Assign on record creation · Last allocated {series.lastValue}
+                  {series.preview ? ` · Next preview ${series.preview}` : ""}
+                </p>
+                <Show when={series.migrationNote}>
+                  <p class="mt-1 text-xs">{series.migrationNote}</p>
+                </Show>
+              </NoticeCard>
+            )}
+          </Show>
         </PanelDialog.Section>
       </PanelDialog.Body>
 

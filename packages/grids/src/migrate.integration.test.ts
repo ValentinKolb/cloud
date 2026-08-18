@@ -71,7 +71,7 @@ describe("grids schema migration", () => {
         // workflow_revisions, workflow_runs and workflow_step_runs moved into
         // the kernel, taking workflow_effect_intents with them. Grids Apps add
         // custom_apps and custom_app_access to the current Grids schema.
-        expect(row?.tableCount).toBe(30);
+        expect(row?.tableCount).toBe(34);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
         expect(String(cast?.value)).toBe("12.5");
 
@@ -126,6 +126,70 @@ describe("grids schema migration", () => {
           FROM grids.operational_health
         `;
         expect(health).toEqual({ status: "ok", outboxPending: 0 });
+      });
+    },
+    30_000,
+  );
+
+  postgresTest(
+    "migrates active sequence high-water marks and marks uncertain deleted fields conservatively",
+    async () => {
+      await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
+        await migrate(database);
+        const baseId = uuid();
+        const tableId = uuid();
+        const activeFieldId = uuid();
+        const deletedFieldId = uuid();
+        await database`
+          INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${shortId("B")}, 'Series migration')
+        `;
+        await database`
+          INSERT INTO grids.tables (id, short_id, base_id, name)
+          VALUES (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Entries')
+        `;
+        await database`
+          INSERT INTO grids.fields (id, short_id, table_id, name, type, config, unique_constraint, deleted_at)
+          VALUES
+            (${activeFieldId}::uuid, ${shortId("F")}, ${tableId}::uuid, 'Active number', 'id',
+             ${JSON.stringify({ strategy: "sequence", prefix: "A-", padding: 4 })}::jsonb, TRUE, NULL),
+            (${deletedFieldId}::uuid, ${shortId("F")}, ${tableId}::uuid, 'Deleted number', 'id',
+             ${JSON.stringify({ strategy: "sequence", prefix: "LEG-", padding: 4 })}::jsonb, TRUE, now())
+        `;
+        const legacyName = `grids_id_${activeFieldId.replaceAll("-", "")}`;
+        await database.unsafe(`CREATE SEQUENCE grids.${legacyName} AS BIGINT INCREMENT 1 MINVALUE 1`);
+        await database.unsafe(`SELECT setval('grids.${legacyName}', 41, true)`);
+        await database`
+          INSERT INTO grids.records (id, short_id, table_id, data)
+          VALUES
+            (${uuid()}::uuid, ${shortId("R")}, ${tableId}::uuid,
+             jsonb_build_object(${deletedFieldId}::text, 'LEG-0007')),
+            (${uuid()}::uuid, ${shortId("R")}, ${tableId}::uuid,
+             jsonb_build_object(${deletedFieldId}::text, 'legacy-manual-value'))
+        `;
+
+        await migrate(database);
+
+        const series = await database<
+          Array<{ fieldId: string; archived: boolean; migrationStatus: string; baseline: number; sequenceName: string }>
+        >`
+          SELECT ns.field_id::text AS "fieldId", ns.archived_at IS NOT NULL AS archived,
+                 ns.migration_status AS "migrationStatus", scope.baseline::int, scope.sequence_name AS "sequenceName"
+          FROM grids.number_series ns
+          JOIN grids.number_series_scopes scope ON scope.series_id = ns.id
+          WHERE ns.field_id IN (${activeFieldId}::uuid, ${deletedFieldId}::uuid)
+          ORDER BY ns.field_id
+        `;
+        const active = series.find((row) => row.fieldId === activeFieldId)!;
+        const deleted = series.find((row) => row.fieldId === deletedFieldId)!;
+        expect(active).toMatchObject({ archived: false, migrationStatus: "active_sequence", baseline: 41 });
+        expect(deleted).toMatchObject({ archived: true, migrationStatus: "inferred_with_unmatched_values", baseline: 7 });
+        const [next] = await database.unsafe(`SELECT nextval('grids.${active.sequenceName}')::int AS next`);
+        expect((next as { next: number }).next).toBe(42);
+        const [legacy] = await database<Array<{ exists: boolean }>>`
+          SELECT to_regclass(${`grids.${legacyName}`}) IS NOT NULL AS exists
+        `;
+        expect(legacy?.exists).toBe(false);
       });
     },
     30_000,
@@ -301,11 +365,17 @@ describe("grids schema migration", () => {
         expect(records?.source).not.toHaveProperty("maxRows");
 
         const once = JSON.stringify(migrated?.draft);
+        // Simulate an installation that completed the Custom App v5 hard cut
+        // before number_series became a public-ID resource. The incremental
+        // resource migration must not replay the one-shot v4 -> v5 migration.
+        await database`ALTER TABLE grids.number_series DROP CONSTRAINT number_series_short_id_format_chk`.simple();
+        await database`ALTER TABLE grids.number_series ALTER COLUMN short_id DROP NOT NULL`.simple();
         await migrate(database);
         const [rerun] = await database<Array<{ draft: unknown }>>`
           SELECT draft_definition AS draft FROM grids.custom_apps WHERE id = ${appId}::uuid
         `;
         expect(JSON.stringify(rerun?.draft)).toBe(once);
+        expect(await gridsPublicIdsReady(database)).toBe(true);
       });
     },
     30_000,

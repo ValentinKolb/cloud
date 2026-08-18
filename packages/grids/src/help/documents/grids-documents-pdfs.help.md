@@ -123,9 +123,9 @@ limit 100
 
 ## Numbers and filenames {icon="paperclip"}
 
-A generated document has a stable `document.number` and a PDF filename. The number pattern is rendered first. The filename pattern can then use `{{ document.number }}`. This keeps business identifiers separate from the downloadable file name.
+A generated document has a stable `document.number` and a PDF filename. Every template owns a durable number series, created automatically with the template. The number pattern is rendered first. The filename pattern can then use `{{ document.number }}`. This keeps business identifiers separate from the downloadable file name.
 
-The default number pattern is non-sequential and designed to stay unique: `{{ template.id }}-{{ date.yyyyMMdd }}-{{ run.id }}`. It avoids internal database IDs and app-wide prefixes. If a business process needs legally consecutive invoice numbers, use a dedicated generated ID field on the source record instead of hand-writing counters in Liquid.
+The default number pattern remains `{{ template.id }}-{{ date.yyyyMMdd }}-{{ run.id }}` so existing templates keep their current output. A custom pattern may use the allocated `{{ series.value }}`. Allocations increase atomically and are never reused, but rollbacks and technical failures can leave gaps. Grids does not claim that a number pattern alone establishes legal compliance.
 
 **Default number**
 
@@ -145,6 +145,12 @@ The default number pattern is non-sequential and designed to stay unique: `{{ te
 INV-{{ date.yyyy }}-{{ run.id }}
 ```
 
+**Sequential number**
+
+```text
+INV-{{ date.yyyy }}-{{ series.value }}
+```
+
 **Readable filename**
 
 ```text
@@ -152,7 +158,7 @@ invoice-{{ record.data.Name | default: document.number }}-{{ document.number }}.
 ```
 
 :::reference
-- **Number pattern context:** May use `record`, `table`, `template`, `run`, `date`, `app`, and `business`. It may not use `document`, because the document number does not exist yet.
+- **Number pattern context:** May use `record`, `table`, `template`, `run`, `series`, `date`, `app`, and `business`. `series.id` is the public series ID and `series.value` is the allocated number. It may not use `document`, because the document number does not exist yet.
 - **Filename pattern context:** May use the full rendered data tree, including `{{ document.number }}`. The final filename is cleaned for filesystem-safe PDF downloads.
 - **Validation:** Unknown top-level Liquid variables, invalid tags, unsupported filters, empty patterns, and oversized patterns fail when the template is saved.
 :::
@@ -410,10 +416,10 @@ To share one generated PDF without a Cloud login, create a public link for 1, 7,
 Generating a PDF creates a recursive snapshot of the root record and related records reached through relation fields. A snapshot includes at most four relation levels and 500 records. Grids keeps the template, data, stable document number, and generation time used for that document. Redownloading reproduces it from this saved state even after live records or the template change.
 
 :::reference
-- **Document numbers:** Each run receives a stable document number from the template's number pattern. The number is unique across generated documents.
+- **Document numbers:** Each run receives one durable series allocation and a stable document number from the template's current pattern. Allocations are never reused; technical gaps are expected. Pattern changes affect future runs only.
 - **Template edits:** Changing a template affects future generations. Existing runs redownload from the template snapshot and data captured for that run.
 - **Manual snapshots:** The record detail panel also has a Snapshot button for capturing a record state without generating a PDF.
-- **Deleted templates:** Deleting a template removes it from the active list, but existing generated documents remain available through their runs.
+- **Deleted templates:** Deleting a template archives its number series and removes it from the active list. Restoring the template reconnects the same series and high-water mark. Existing generated documents remain available through their runs.
 :::
 
 ## Practical limits {icon="point"}
