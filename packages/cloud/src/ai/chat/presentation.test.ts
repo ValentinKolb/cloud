@@ -15,11 +15,13 @@ test("uses the shared message streaming state before the first model block", () 
   expect(blocksSource).toContain('label="Show reasoning"');
 });
 
-test("uses the full message width while an approval is pending", () => {
+test("uses the full message width for approvals and showcase tools, including persisted messages", () => {
   const presentationSource = readFileSync(resolve(import.meta.dir, "presentation.tsx"), "utf8");
   const cloudStyles = readFileSync(resolve(import.meta.dir, "../../styles/effects.css"), "utf8");
 
-  expect(presentationSource).toContain('class: hasApproval ? "ai-chat-message-wide" : undefined');
+  expect(presentationSource).toContain("const isWideBlock");
+  expect(presentationSource).toContain('class: item.blocks.some(isWideBlock) ? "ai-chat-message-wide" : undefined');
+  expect(presentationSource).toContain('class: blocks.some(isWideBlock) ? "ai-chat-message-wide" : undefined');
   expect(cloudStyles).toMatch(/\.k2b-chat-message\.ai-chat-message-wide\s*\{\s*width:\s*100%;/);
 });
 

@@ -7,7 +7,7 @@ import type { AiConversationSource } from "@valentinkolb/cloud/ai";
 import { createComponent } from "solid-js";
 import { renderToString } from "solid-js/web";
 import type { AssistantChatContextSnapshot } from "../chat-context";
-import { assistantChatContextFor, splitAssistantConversationSources } from "./assistant-context";
+import { assistantChatContextFor, assistantReferenceTitle, splitAssistantConversationSources } from "./assistant-context";
 
 const root = mkdtempSync(resolve(tmpdir(), "assistant-chat-context-"));
 const serovalLink = resolve(import.meta.dir, "../../node_modules/seroval");
@@ -50,6 +50,15 @@ test("Assistant chat context never reuses the previous chat snapshot while a new
 });
 
 describe("Assistant chat context", () => {
+  test("does not expose raw resource types and IDs as reference titles", () => {
+    const item = source("resource", "mail.message:MsG123");
+    item.ref = { type: "mail.message", id: "MsG123" };
+    item.title = "mail.message MsG123";
+
+    expect(assistantReferenceTitle(item)).toBe("Mail message");
+    expect(assistantReferenceTitle({ ...item, title: "Quarterly update" })).toBe("Quarterly update");
+  });
+
   test("keeps used sources, Cloud references, and files in distinct user-facing groups", () => {
     const split = splitAssistantConversationSources([
       source("web", "docs"),

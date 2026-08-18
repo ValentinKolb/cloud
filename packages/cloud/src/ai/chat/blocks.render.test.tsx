@@ -182,6 +182,13 @@ describe("survey presentation", () => {
                 { label: "Friday afternoon", value: "friday" },
               ],
             },
+            {
+              id: "confidence",
+              type: "rating",
+              label: "Confidence",
+              min: 1,
+              max: 5,
+            },
           ],
         },
         onSubmit: async () => undefined,
@@ -189,8 +196,11 @@ describe("survey presentation", () => {
     );
 
     expect(html).toContain("Choose a follow-up time");
+    expect(html).toContain('class="w-full min-w-0 overflow-hidden');
     expect(html).toContain('class="mt-2 grid gap-1.5"');
     expect(html).toContain('type="radio"');
+    expect(html).toContain('class="k2b-slider"');
+    expect(html).toContain("var(--k2b-surface-muted)");
     expect(html).toContain("Tomorrow morning");
     expect(html).toContain("Friday afternoon");
     expect(html).toContain("border-t border-[var(--k2b-border)]");

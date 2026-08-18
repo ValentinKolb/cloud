@@ -1,11 +1,10 @@
 import { query } from "@k2b/stdlib/solid";
 import { Button, Lightbox, Placeholder, prompts, StatusBadge } from "@k2b/ui";
-import type { AiConversationSource, AiProject } from "@valentinkolb/cloud/ai";
+import type { AiConversationSource, AiProject, AiChatTaskView as AssistantChatTask } from "@valentinkolb/cloud/ai";
 import { conversationFileSource } from "@valentinkolb/cloud/ai/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import type { AssistantChatContextSnapshot } from "../chat-context";
-import type { AiChatTaskView as AssistantChatTask } from "@valentinkolb/cloud/ai";
 import type { AssistantProjectContextSnapshot } from "../project-context";
 import { AssistantChatContextSurface } from "./AssistantChatContextSurfaces";
 import {
@@ -25,7 +24,7 @@ import {
   openAssistantMarkdown,
 } from "./AssistantContextContent";
 import { AssistantTasksView, formatAssistantTaskSchedule } from "./AssistantTasksDialog";
-import { assistantChatContextFor, splitAssistantConversationSources } from "./assistant-context";
+import { assistantChatContextFor, assistantReferenceTitle, splitAssistantConversationSources } from "./assistant-context";
 import {
   type AssistantLiveHub,
   type AssistantLiveInvalidation,
@@ -197,7 +196,7 @@ function AssistantChatContextView(props: { state: AssistantChatContextState }) {
         const references = () => [
           ...value().chat.references.map((source) => ({
             kind: "source" as const,
-            title: source.title,
+            title: assistantReferenceTitle(source),
             description: source.preview ?? undefined,
             icon: source.icon,
             source,
@@ -313,7 +312,9 @@ function AssistantChatContextView(props: { state: AssistantChatContextState }) {
                             ? () => void openAssistantCloudReference(reference.title, reference.reference.ref)
                             : reference.source.href
                               ? () => void confirmOpenAssistantLink(reference.title, reference.source.href!)
-                              : undefined
+                              : reference.source.ref
+                                ? () => void openAssistantCloudReference(reference.title, reference.source.ref!)
+                                : undefined
                         }
                       />
                     )}

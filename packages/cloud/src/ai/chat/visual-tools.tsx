@@ -1,5 +1,5 @@
 import { mutation } from "@k2b/stdlib/solid";
-import { Button } from "@k2b/ui";
+import { Button, Slider } from "@k2b/ui";
 import { createSignal, createUniqueId, For, Show } from "solid-js";
 import { isRecord, jsonPreview } from "./message-utils";
 
@@ -114,7 +114,7 @@ export function CloudSurveyBlock(props: {
   const disabled = () => Boolean(props.disabled || submitted() || submission.loading() || !props.onSubmit);
 
   return (
-    <div class="max-w-xl overflow-hidden rounded-xl border border-[var(--k2b-border)] bg-[var(--k2b-surface)]">
+    <div class="w-full min-w-0 overflow-hidden rounded-xl border border-[var(--k2b-border)] bg-[var(--k2b-surface)]">
       <div class="p-4">
         <div class="flex items-center gap-3">
           <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--k2b-ai-accent)_10%,var(--k2b-surface))] text-base text-[var(--k2b-ai-accent)]">
@@ -204,14 +204,14 @@ export function CloudSurveyBlock(props: {
                       />
                     </Show>
                     <Show when={question.type === "rating"}>
-                      <input
-                        class="mt-2 w-full accent-cyan-500"
-                        type="range"
+                      <Slider
+                        class="mt-2"
                         disabled={disabled()}
                         min={typeof question.min === "number" ? question.min : 1}
                         max={typeof question.max === "number" ? question.max : 5}
-                        value={Number(answers()[id()] ?? question.min ?? 1)}
-                        onInput={(event) => setAnswer(id(), Number(event.currentTarget.value))}
+                        value={() => Number(answers()[id()] ?? question.min ?? 1)}
+                        showValue={false}
+                        onValueChange={(value) => setAnswer(id(), value)}
                       />
                     </Show>
                   </div>

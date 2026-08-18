@@ -27,6 +27,9 @@ export { type AiChatActions, AiChatActionsProvider };
 const isShowcaseBlock = (block: AiAssistantTimelineItem["blocks"][number]) =>
   block.kind === "tool" && (isCardToolName(block.name) || isSurveyToolName(block.name) || block.name === "present");
 
+const isWideBlock = (block: AiAssistantTimelineItem["blocks"][number]) =>
+  isShowcaseBlock(block) || (block.kind === "tool" && (block.status === "awaiting_approval" || block.status === "rejected"));
+
 function AiAssistantContent(props: { item: AiAssistantTimelineItem }): JSX.Element {
   const renderable = createMemo(() => props.item.blocks.filter(isRenderableTurnBlock));
   const worked = () => renderable().filter((block) => block.kind !== "text" && !isShowcaseBlock(block));
@@ -127,6 +130,7 @@ const storedItems = (messages: readonly AiStoredMessage[], actions: AiChatAction
       id: item.id,
       role: "assistant",
       createdAt: actionEntry?.createdAt ?? item.entries.at(-1)?.createdAt,
+      class: item.blocks.some(isWideBlock) ? "ai-chat-message-wide" : undefined,
       content: <AiAssistantContent item={item} />,
       actions: actionEntry
         ? createAssistantMessageActions({
@@ -171,15 +175,12 @@ const activeItems = (turn: AiActiveTurn | null, actions: AiChatActions): ChatTim
     }
 
     const blocks = (segment as Extract<AiActiveTurnSegment, { type: "assistant" }>).blocks;
-    const hasApproval = blocks.some(
-      (block) => block.kind === "tool" && (block.status === "awaiting_approval" || block.status === "rejected"),
-    );
     return {
       kind: "message",
       id: `${turn.turnId}-assistant-${index}`,
       role: "assistant",
       status: turn.status === "running" && index === segments.length - 1 ? "streaming" : "complete",
-      class: hasApproval ? "ai-chat-message-wide" : undefined,
+      class: blocks.some(isWideBlock) ? "ai-chat-message-wide" : undefined,
       content: (
         <AiTurnBlockList blocks={blocks} turnId={turn.turnId} streaming={turn.status === "running" && index === segments.length - 1} />
       ),

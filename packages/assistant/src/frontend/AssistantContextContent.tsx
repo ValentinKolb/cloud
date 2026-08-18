@@ -185,7 +185,9 @@ export const openAssistantCloudReference = async (title: string, ref: CloudResou
       const result = await invokeCapability({ appId, capabilityId: reader.localId, kind: "query", input: { id: ref.id } });
       if (!result.ok) return void prompts.error(result.error.message, { title: "Could not open reference" });
       const resource = CloudResourceViewSchema.safeParse(result.data.data);
-      const href = resource.success ? resource.data.links.find((link) => link.rel === "open")?.href : undefined;
+      const href =
+        result.data.links?.find((link) => link.rel === "open")?.href ??
+        (resource.success ? resource.data.links.find((link) => link.rel === "open")?.href : undefined);
       return href
         ? confirmOpenAssistantLink(title, href)
         : void prompts.error("This Cloud resource has no open link.", { title: "Could not open reference" });
