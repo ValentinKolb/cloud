@@ -36,7 +36,7 @@ import {
   recurrenceToFormState,
   summarizeRecurrenceState,
   weekdayOptions,
-} from "./recurrence";
+} from "@/presentation/recurrence";
 import SpaceAssigneePicker from "./SpaceAssigneePicker";
 
 export type { ItemFormData } from "./item-form/types";

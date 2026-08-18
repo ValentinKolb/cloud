@@ -1,5 +1,5 @@
 import { type DateContext, dates } from "@k2b/stdlib";
-import type { Recurrence } from "@/contracts";
+import type { Recurrence } from "../contracts";
 
 export type RecurrencePreset = "never" | "daily" | "weekly" | "monthly" | "yearly" | "custom";
 export type RecurrenceFrequency = "daily" | "weekly" | "monthly" | "yearly";

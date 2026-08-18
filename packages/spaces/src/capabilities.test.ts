@@ -581,6 +581,32 @@ describe("spaces capabilities", () => {
     });
   });
 
+  test("shows task text and deadlines directly in the action review", async () => {
+    spyOn(spacesService.item, "get").mockResolvedValue(task);
+    spyOn(spacesService.space, "get").mockResolvedValue(space);
+    spyOn(spacesService.space.permission, "get").mockResolvedValue("write");
+
+    const result = await spacesCapabilities.actions["task.update"].review!(
+      {
+        itemId,
+        description: "First line\n\nSecond line",
+        deadline: "2026-08-20T15:00:00.000Z",
+      },
+      userContext,
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        details: [
+          { label: "Task", value: task.title },
+          { label: "Description", value: "First line\n\nSecond line", display: "block" },
+          { label: "Deadline", value: "2026-08-20T15:00:00.000Z", format: "date-time" },
+        ],
+      },
+    });
+  });
+
   test("reviews an existing calendar import against the internal Space boundary", async () => {
     spyOn(spacesService.space, "get").mockResolvedValue(space);
     spyOn(spacesService.space.permission, "get").mockResolvedValue("write");

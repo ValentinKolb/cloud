@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { err, fail, ok, type Paginated, type Result } from "@k2b/stdlib";
 import {
+  type CapabilityActionReview,
   type CapabilityExecutionContext,
   type CapabilityInvocationResult,
   type CapabilityResult,
@@ -13,6 +14,8 @@ import {
 } from "@valentinkolb/cloud/contracts";
 import { hasPermission, type PermissionLevel } from "@valentinkolb/cloud/server";
 import { type AuditActor, audit } from "@valentinkolb/cloud/services";
+import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
+import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import type { z } from "zod";
 import {
   CalendarDestinationListDataSchema,
@@ -69,6 +72,7 @@ import {
   TaskUpdateInputSchema,
 } from "./capability-contracts";
 import type { MutationResult, SpaceComment, SpaceItem } from "./contracts";
+import { summarizeRecurrence } from "./presentation/recurrence";
 import { buildSpaceItemHref } from "./routes";
 import type { ItemAcrossKind, SpaceWithPermission } from "./service";
 import { spacesService } from "./service";
@@ -93,6 +97,38 @@ const truncateText = (value: string, maxBytes: number): { text: string; truncate
     bytes += characterBytes;
   }
   return { text: chunks.join(""), truncated: true };
+};
+
+type ReviewDetails = NonNullable<CapabilityActionReview["details"]>;
+
+const capabilityDateConfig = async () => ({
+  timeZone: normalizeTimeZone(String((await settingsGet<string>("app.timezone")) || "").trim(), "UTC"),
+  locale: "en" as const,
+  firstDayOfWeek: 1 as const,
+});
+
+const relationReviewDetails = async (
+  input: { assigneeIds?: string[]; tagIds?: string[] },
+  internalSpaceId: string,
+): Promise<ReviewDetails> => {
+  const [users, detail] = await Promise.all([
+    input.assigneeIds ? spacesService.item.listAssignableUsers({ spaceId: internalSpaceId, search: "", limit: 100 }) : Promise.resolve([]),
+    input.tagIds ? spacesService.space.getDetail({ id: internalSpaceId }) : Promise.resolve(null),
+  ]);
+  const userNames = new Map(users.map((user) => [user.id, user.displayName]));
+  const publicTags = detail ? await spacesPublicResources.projectTags(detail.tags) : [];
+  const tagNames = new Map(publicTags.map((tag) => [tag.id, tag.name]));
+  return [
+    ...(input.assigneeIds
+      ? [
+          {
+            label: "Assignees",
+            value: input.assigneeIds.map((id) => userNames.get(id) ?? id).join(", ") || "None",
+          },
+        ]
+      : []),
+    ...(input.tagIds ? [{ label: "Tags", value: input.tagIds.map((id) => tagNames.get(id) ?? id).join(", ") || "None" }] : []),
+  ];
 };
 
 const boundedText = (value: string | null, maxBytes: number): { text: string | null; truncated: boolean } =>
@@ -1198,16 +1234,28 @@ export const spacesCapabilities = defineCapabilities({
         const resolved = await requireItem(input.itemId, context, "write");
         if (!resolved.ok) return resolved;
         if (isEvent(resolved.data.item)) return fail(err.badInput("Item is not a task"));
+        const relations = await relationReviewDetails(input, resolved.data.internalSpaceId);
         return ok({
           message: `Update task ${resolved.data.item.title}.`,
           details: [
             { label: "Task", value: resolved.data.item.title },
-            {
-              label: "Changed fields",
-              value: Object.keys(input)
-                .filter((field) => field !== "itemId")
-                .join(", "),
-            },
+            ...(input.title !== undefined ? [{ label: "Title", value: input.title }] : []),
+            ...(input.description !== undefined
+              ? [
+                  input.description === null
+                    ? { label: "Description", value: "Clear description" }
+                    : { label: "Description", value: input.description, display: "block" as const },
+                ]
+              : []),
+            ...(input.deadline !== undefined
+              ? [
+                  input.deadline === null
+                    ? { label: "Deadline", value: "Clear deadline" }
+                    : { label: "Deadline", value: input.deadline, format: "date-time" as const },
+                ]
+              : []),
+            ...(input.priority !== undefined ? [{ label: "Priority", value: input.priority ?? "No priority" }] : []),
+            ...relations,
           ],
           links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, input.itemId) }],
         });
@@ -1258,16 +1306,62 @@ export const spacesCapabilities = defineCapabilities({
         const resolved = await requireItem(input.itemId, context, "write");
         if (!resolved.ok) return resolved;
         if (!isEvent(resolved.data.item)) return fail(err.badInput("Item is not an event"));
+        const [relations, dateConfig] = await Promise.all([
+          relationReviewDetails(input, resolved.data.internalSpaceId),
+          input.recurrence !== undefined ? capabilityDateConfig() : Promise.resolve(undefined),
+        ]);
+        const allDay = input.allDay ?? resolved.data.item.allDay;
+        const recurrence =
+          input.recurrence === undefined
+            ? undefined
+            : input.recurrence === null
+              ? "Does not repeat"
+              : `${
+                  summarizeRecurrence(input.recurrence, {
+                    startsAt: input.startsAt ?? resolved.data.item.startsAt,
+                    allDay,
+                    dateConfig,
+                  }) ?? "Custom recurrence"
+                }${
+                  input.recurrence.exdate.length > 0
+                    ? ` · ${input.recurrence.exdate.length} excluded ${input.recurrence.exdate.length === 1 ? "date" : "dates"}`
+                    : ""
+                }`;
         return ok({
           message: `Update event ${resolved.data.item.title}.`,
           details: [
             { label: "Event", value: resolved.data.item.title },
-            {
-              label: "Changed fields",
-              value: Object.keys(input)
-                .filter((field) => field !== "itemId")
-                .join(", "),
-            },
+            ...(input.title !== undefined ? [{ label: "Title", value: input.title }] : []),
+            ...(input.description !== undefined
+              ? [
+                  input.description === null
+                    ? { label: "Description", value: "Clear description" }
+                    : { label: "Description", value: input.description, display: "block" as const },
+                ]
+              : []),
+            ...(input.location !== undefined ? [{ label: "Location", value: input.location ?? "Clear location" }] : []),
+            ...(input.url !== undefined ? [{ label: "Link", value: input.url ?? "Clear link" }] : []),
+            ...(input.startsAt !== undefined
+              ? [
+                  {
+                    label: "Starts",
+                    value: input.startsAt,
+                    format: allDay ? ("date" as const) : ("date-time" as const),
+                  },
+                ]
+              : []),
+            ...(input.endsAt !== undefined
+              ? [
+                  {
+                    label: "Ends",
+                    value: input.endsAt,
+                    format: allDay ? ("date" as const) : ("date-time" as const),
+                  },
+                ]
+              : []),
+            ...(input.allDay !== undefined ? [{ label: "All day", value: input.allDay ? "Yes" : "No" }] : []),
+            ...(recurrence !== undefined ? [{ label: "Recurrence", value: recurrence }] : []),
+            ...relations,
           ],
           links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, input.itemId) }],
         });
@@ -1360,8 +1454,8 @@ export const spacesCapabilities = defineCapabilities({
           message: `Update your comment on ${resolved.data.item.title}.`,
           details: [
             { label: "Item", value: resolved.data.item.title },
-            { label: "Current comment", value: resolved.data.comment.content.slice(0, 500) },
-            { label: "Replacement comment", value: input.content.slice(0, 500) },
+            { label: "Current comment", value: resolved.data.comment.content, display: "block" },
+            { label: "Replacement comment", value: input.content, display: "block" },
           ],
           links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, resolved.data.item.id) }],
         });
@@ -1385,7 +1479,7 @@ export const spacesCapabilities = defineCapabilities({
           message: `Delete your comment on ${resolved.data.item.title}.`,
           details: [
             { label: "Item", value: resolved.data.item.title },
-            { label: "Comment", value: resolved.data.comment.content.slice(0, 500) },
+            { label: "Comment", value: resolved.data.comment.content, display: "block" },
           ],
           links: [{ rel: "open" as const, href: buildSpaceItemHref(resolved.data.item.spaceId, resolved.data.item.id) }],
         });
@@ -1422,8 +1516,8 @@ export const spacesCapabilities = defineCapabilities({
             { label: "Space", value: access.data.space.name },
             { label: "Event", value: preview.data.invitation.title },
             { label: "Method", value: preview.data.invitation.method },
-            { label: "Starts", value: preview.data.invitation.startsAt },
-            { label: "Ends", value: preview.data.invitation.endsAt },
+            { label: "Starts", value: preview.data.invitation.startsAt, format: "date-time" },
+            { label: "Ends", value: preview.data.invitation.endsAt, format: "date-time" },
           ],
           ...(preview.data.existing ? { links: [{ rel: "open" as const, href: preview.data.existing.href }] } : {}),
         });

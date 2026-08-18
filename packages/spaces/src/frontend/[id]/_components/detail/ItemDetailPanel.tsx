@@ -31,7 +31,7 @@ import type {
 import { shouldHandleDetailClick } from "../../../lib/detail";
 import { readResponseError } from "../../../lib/response";
 import { openEditItemDialog, saveItemFormData } from "../shared/editItem";
-import { summarizeRecurrence } from "../shared/recurrence";
+import { summarizeRecurrence } from "@/presentation/recurrence";
 import SpaceAssigneePicker from "../shared/SpaceAssigneePicker";
 import { invalidateSpacesData, requestSpacesRouteNavigation } from "../workspace/workspace-events";
 import type { SpaceItemDetail } from "../workspace/workspace-types";
