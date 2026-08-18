@@ -7,6 +7,8 @@ import {
   type MailConversationContextQuery,
   type MailConversationSpaceCreateInput,
   mailConversationParticipantSchema,
+  relatedConversationReasonSchema,
+  type RelatedConversationSummary,
   type RelatedMailPage,
 } from "../contracts";
 import {
@@ -22,6 +24,7 @@ import {
 } from "./app-integrations";
 import type { MailRequestContext } from "./auth";
 import { requireMailboxCollaborationPermission } from "./collaboration";
+import { normalizeMailSubject } from "./message-threading";
 import { publicIds, requirePublicId } from "./public-resources";
 
 type SqlClient = typeof sql;
@@ -323,4 +326,168 @@ export const listRelatedMail = async (params: {
     items,
     nextCursor: hasMore && last ? encodeHistoryCursor({ version: 1, date: last.latestMessageAt, id: last.id }) : null,
   });
+};
+
+/**
+ * Finds explainable, deterministic relations inside one authorized mailbox.
+ * Calendar attachments are deliberately not considered: Mail does not persist
+ * a stable parsed event identity today, so guessing from attachment contents
+ * would make both ranking and authorization harder to reason about.
+ */
+export const listRelatedConversations = async (params: {
+  context: MailRequestContext;
+  mailboxId: string;
+  conversationId: string;
+  limit: number;
+}): Promise<Result<RelatedConversationSummary[]>> => {
+  const access = await requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
+  if (!access.ok) return access;
+  const conversation = await loadConversationProjection(params.mailboxId, params.conversationId);
+  if (!conversation) return fail(err.notFound("Conversation"));
+
+  const participantEmails = conversation.participants.map((participant) => participant.email);
+  const normalizedSubject = normalizeMailSubject(conversation.subject);
+  if (participantEmails.length === 0 && normalizedSubject.length === 0) return ok([]);
+  const limit = Math.min(Math.max(params.limit, 1), 10);
+  // Each supported relation signal contributes at most one result-sized,
+  // newest-first candidate window before any combined ranking work begins.
+  const candidateLimitPerSignal = limit;
+
+  const rows = await sql<
+    Array<{
+      id: string;
+      subject: string;
+      participant_summary: string;
+      latest_message_at: Date;
+      preview: string | null;
+      reasons: unknown;
+    }>
+  >`
+    WITH participant_candidates AS MATERIALIZED (
+      SELECT
+        conversation.id AS conversation_id,
+        conversation.latest_message_at
+      FROM mail.conversations conversation
+      JOIN mail.conversation_messages link ON link.conversation_id = conversation.id
+      JOIN mail.message_addresses address ON address.message_id = link.message_id
+      JOIN mail.message_contents message ON message.id = link.message_id
+      WHERE ${participantEmails.length > 0}
+        AND conversation.mailbox_id = ${params.mailboxId}::uuid
+        AND conversation.id <> ${params.conversationId}::uuid
+        AND address.normalized_email = ANY(${toPgTextArray(participantEmails)}::text[])
+        AND EXISTS (
+          SELECT 1 FROM mail.message_placements placement
+          WHERE placement.message_id = message.id AND placement.deleted_at IS NULL
+        )
+      GROUP BY conversation.id, conversation.latest_message_at
+      ORDER BY conversation.latest_message_at DESC, conversation.id DESC
+      LIMIT ${candidateLimitPerSignal}
+    ), subject_candidates AS MATERIALIZED (
+      SELECT
+        conversation.id AS conversation_id,
+        conversation.latest_message_at
+      FROM mail.conversations conversation
+      JOIN mail.conversation_messages link ON link.conversation_id = conversation.id
+      JOIN mail.message_contents message ON message.id = link.message_id
+      WHERE ${normalizedSubject.length > 0}
+        AND conversation.mailbox_id = ${params.mailboxId}::uuid
+        AND conversation.id <> ${params.conversationId}::uuid
+        AND message.normalized_subject = ${normalizedSubject}
+        AND EXISTS (
+          SELECT 1 FROM mail.message_placements placement
+          WHERE placement.message_id = message.id AND placement.deleted_at IS NULL
+        )
+      GROUP BY conversation.id, conversation.latest_message_at
+      ORDER BY conversation.latest_message_at DESC, conversation.id DESC
+      LIMIT ${candidateLimitPerSignal}
+    ), candidates AS MATERIALIZED (
+      SELECT conversation_id FROM participant_candidates
+      UNION
+      SELECT conversation_id FROM subject_candidates
+    ), signals AS MATERIALIZED (
+      SELECT DISTINCT
+        candidate.conversation_id,
+        'participant'::text AS kind,
+        address.normalized_email AS value,
+        2::integer AS weight
+      FROM candidates candidate
+      JOIN mail.conversation_messages link ON link.conversation_id = candidate.conversation_id
+      JOIN mail.message_addresses address ON address.message_id = link.message_id
+      JOIN mail.message_contents message ON message.id = address.message_id
+      WHERE ${participantEmails.length > 0}
+        AND address.normalized_email = ANY(${toPgTextArray(participantEmails)}::text[])
+        AND message.mailbox_id = ${params.mailboxId}::uuid
+        AND EXISTS (
+          SELECT 1 FROM mail.message_placements placement
+          WHERE placement.message_id = message.id AND placement.deleted_at IS NULL
+        )
+
+      UNION
+
+      SELECT DISTINCT
+        candidate.conversation_id,
+        'subject'::text AS kind,
+        ${conversation.subject.trim().slice(0, 500) || "(No subject)"}::text AS value,
+        1::integer AS weight
+      FROM candidates candidate
+      JOIN mail.conversation_messages link ON link.conversation_id = candidate.conversation_id
+      JOIN mail.message_contents message ON message.id = link.message_id
+      WHERE ${normalizedSubject.length > 0}
+        AND message.mailbox_id = ${params.mailboxId}::uuid
+        AND message.normalized_subject = ${normalizedSubject}
+        AND EXISTS (
+          SELECT 1 FROM mail.message_placements placement
+          WHERE placement.message_id = message.id AND placement.deleted_at IS NULL
+        )
+    ), ranked AS (
+      SELECT signal.conversation_id, SUM(signal.weight)::integer AS score
+      FROM signals signal
+      WHERE signal.conversation_id <> ${params.conversationId}::uuid
+      GROUP BY signal.conversation_id
+    )
+    SELECT
+      conversation.id,
+      conversation.subject,
+      conversation.participant_summary,
+      conversation.latest_message_at,
+      latest.preview,
+      reasons.items AS reasons
+    FROM ranked
+    JOIN mail.conversations conversation ON conversation.id = ranked.conversation_id
+    JOIN LATERAL (
+      SELECT JSONB_AGG(
+        JSONB_BUILD_OBJECT('kind', reason.kind, 'value', reason.value)
+        ORDER BY reason.weight DESC, reason.kind, reason.value
+      ) AS items
+      FROM (
+        SELECT signal.kind, signal.value, signal.weight
+        FROM signals signal
+        WHERE signal.conversation_id = conversation.id
+        ORDER BY signal.weight DESC, signal.kind, signal.value
+        LIMIT 6
+      ) reason
+    ) reasons ON true
+    LEFT JOIN LATERAL (
+      SELECT NULLIF(LEFT(BTRIM(COALESCE(message.plain_text, '')), 240), '') AS preview
+      FROM mail.conversation_messages link
+      JOIN mail.message_contents message ON message.id = link.message_id
+      WHERE link.conversation_id = conversation.id
+      ORDER BY message.internal_date DESC, message.id DESC
+      LIMIT 1
+    ) latest ON true
+    WHERE conversation.mailbox_id = ${params.mailboxId}::uuid
+    ORDER BY ranked.score DESC, conversation.latest_message_at DESC, conversation.id DESC
+    LIMIT ${limit}
+  `;
+
+  return ok(
+    rows.map((row) => ({
+      id: row.id,
+      subject: row.subject,
+      participantSummary: row.participant_summary,
+      latestMessageAt: row.latest_message_at.toISOString(),
+      preview: row.preview,
+      reasons: z.array(relatedConversationReasonSchema).min(1).max(6).parse(row.reasons),
+    })),
+  );
 };

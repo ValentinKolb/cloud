@@ -26,7 +26,6 @@ const live = createAssistantLiveInvalidationHub({ onApplied: () => undefined });
 const project = {
   id: "project123",
   shortId: "project123",
-  appId: "assistant",
   name: "Support",
   description: "",
   icon: "ti ti-folders",
@@ -41,7 +40,6 @@ const project = {
 const conversation = (id: string, title: string, projectId: string | null): AiConversation => ({
   id,
   shortId: id,
-  appId: "assistant",
   title,
   titleSource: "default",
   description: "",
@@ -53,7 +51,7 @@ const conversation = (id: string, title: string, projectId: string | null): AiCo
   runError: null,
   unreadCompletion: false,
   projectId,
-  resource: { kind: "direct" },
+  draft: { content: [], revision: 0, updatedAt: null },
   createdByUserId: "user123",
   createdAt: "2026-08-12T08:00:00.000Z",
   updatedAt: "2026-08-12T08:00:00.000Z",

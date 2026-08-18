@@ -1,6 +1,11 @@
 import { invokeCapabilityWithDataSchema } from "@valentinkolb/cloud/capabilities";
 import type { z } from "zod";
-import { contactBooksSchema, contactMutationDataSchema, contactSuggestionsSchema } from "../../app-integration-contracts";
+import {
+  contactBooksSchema,
+  contactMutationDataSchema,
+  contactResolveDataSchema,
+  contactSuggestionsSchema,
+} from "../../app-integration-contracts";
 
 const invokeContactsCapability = async <T>(params: {
   kind: "query" | "action";
@@ -31,6 +36,15 @@ export const suggestContacts = (input: { query: string; cursor?: string; limit?:
     id: "contact.suggest",
     input,
     dataSchema: contactSuggestionsSchema,
+    signal,
+  });
+
+export const resolveContacts = (input: { emails: string[]; limit?: number }, signal?: AbortSignal) =>
+  invokeContactsCapability({
+    kind: "query",
+    id: "contact.resolve",
+    input,
+    dataSchema: contactResolveDataSchema,
     signal,
   });
 

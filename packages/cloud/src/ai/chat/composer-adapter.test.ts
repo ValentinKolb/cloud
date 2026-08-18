@@ -73,6 +73,38 @@ describe("Cloud chat composer adapter", () => {
     });
   });
 
+  test("round-trips a linked Cloud resource as an attachment without duplicating its icon class", () => {
+    const resource: AiComposerAttachment = {
+      kind: "resource",
+      id: "resource:mail.draft:D4F7K2",
+      name: "Quarterly update",
+      ref: { type: "mail.draft", id: "D4F7K2" },
+      icon: "ti ti-mail",
+      href: "/app/mail/drafts/D4F7K2",
+    };
+    const attachments = aiChatAttachments([resource]);
+
+    expect(attachments).toEqual([
+      {
+        id: resource.id,
+        name: resource.name,
+        size: undefined,
+        kind: "resource",
+        icon: "ti ti-mail",
+        previewUrl: undefined,
+        href: resource.href,
+        data: resource,
+      },
+    ]);
+    expect(aiComposerSendInput({ intent: "send", text: "", attachments })).toEqual({
+      message: undefined,
+      content: undefined,
+      files: undefined,
+      resources: [{ ref: resource.ref, title: resource.name, icon: resource.icon, href: resource.href }],
+      storedFiles: undefined,
+    });
+  });
+
   test("keeps file policy in Cloud and rejects images without a vision path", async () => {
     const result = await readAiComposerFiles([new File(["image"], "photo.png", { type: "image/png" })], { acceptsImages: false });
 

@@ -1,7 +1,21 @@
 import { type Context, Hono } from "hono";
 import { z } from "zod";
-import { type AccessSubject, type ApiErrorResponse, type AuthContext, err, fail, ok, type RequestActor, respond, v } from "../server";
+import { listCapabilities } from "../_internal/registry";
+import {
+  type AccessSubject,
+  type ApiErrorResponse,
+  type AuthContext,
+  auth,
+  err,
+  fail,
+  ok,
+  rateLimit,
+  type RequestActor,
+  respond,
+  v,
+} from "../server";
 import { coreSettings } from "../services/settings/api";
+import { buildAiCapabilityCatalog } from "./capabilities";
 import type { AiToolApprovalContext } from "./approvals";
 import { createConfiguredDefaultCloudAiTools } from "./default-tools";
 import { aiProjectFilePathFromMount } from "./file-mount";
@@ -9,10 +23,11 @@ import { AI_FILES_MAX_FILE_BYTES_DEFAULT, aiFileStore, decodeAiFileContent, gues
 import {
   AiCompactionInputSchema,
   AiCreateConversationInputSchema,
+  AiSaveConversationDraftInputSchema,
+  AiSubmitConversationDraftInputSchema,
   AiMessageForkInputSchema,
   AiMessageRetryInputSchema,
   AiSteerInputSchema,
-  AiTurnInputSchema,
   aiInputToUserMessage,
   aiTurnInputToContent,
   toAiActionFailureResponse,
@@ -22,6 +37,7 @@ import { aiMaintenanceJobs } from "./maintenance";
 import { AI_MEMORY_CONTENT_MAX_CHARS, aiMemories } from "./memories";
 import { createCloudAiMemoryTool } from "./memory-tool";
 import { aiActorUser, aiPrefsUserId, aiUserPrefs } from "./prefs";
+import { personalAiModelPolicy, personalAiSystemPrompt } from "./personal-agent";
 import { aiProjects } from "./projects";
 import { projectPublicAiStoredMessages, publicAiStoredMessages } from "./public-projection";
 import { isConversationResourceCursor } from "./resource-refs";
@@ -37,39 +53,37 @@ import { listAiModels, readAiSettingsState, selectAiModelProfile, toPublicAiSett
 import { AI_SHORT_ID_PATTERN } from "./short-id";
 import { aiConversations } from "./store";
 import { createAiConversationStreamResponse, loadAiStreamState } from "./stream";
+import { aiResourceMarker } from "./resource-markers";
 import { composeAiSystemPrompt } from "./system-prompt";
 import { aiToolPromptHints } from "./tools";
-import type { AiConversation, AiConversationResource, AiModelPolicy, AiTurn, AiTurnToolSource } from "./types";
+import type { AiConversation, AiModelPolicy, AiTurn } from "./types";
 
 /** Everything a resolved, authorized request needs to run against the shared runtime. */
-export type AiChatRequestContext = {
+type AiChatRequestContext = {
   actor: RequestActor;
   ownerUserId: string;
-  resource?: AiConversationResource;
-  toolSource: AiTurnToolSource;
-  /** Whether the authorized, effective tool set can inspect attached images. */
-  canInspectAttachedImages?: boolean;
-  systemPrompt?: string;
   modelPolicy: AiModelPolicy;
   toolApprovalContext: AiToolApprovalContext;
 };
 
-export type AiChatRoutesConfig = {
-  appId: string;
-  /** Default title for created conversations. */
-  defaultTitle?: (ctx: AiChatRequestContext) => string | undefined;
-  /** Policy used to list selectable models on /models. */
-  modelListPolicy?:
-    | AiModelPolicy
-    | ((c: Context<AuthContext>) => AiModelPolicy | ApiErrorResponse | Promise<AiModelPolicy | ApiErrorResponse>);
-  /** System prompt mutation for retry modes (details/concise). */
-  retryInstruction?: (mode: "retry" | "details" | "concise") => string | null;
-  /** Per-conversation app context added after the conversation is authorized. */
-  conversationSystemPrompt?: (conversation: AiConversation) => string | undefined;
-  /** Authorize the request and produce its run context, or return a typed API error. */
-  resolveContext: (c: Context<AuthContext>) => Promise<AiChatRequestContext | ApiErrorResponse>;
-  /** Enable conversation metadata editing + archiving (direct chats). */
-  allowConversationManagement?: boolean;
+const actorUser = (actor: RequestActor) => (actor.kind === "user" ? actor.user : actor.delegatedUser);
+
+const resolveContext = async (c: Context<AuthContext>): Promise<AiChatRequestContext | ApiErrorResponse> => {
+  const actor = c.get("actor");
+  const user = actorUser(actor);
+  if (!user) return respond(c, fail(err.forbidden("AI conversations require a user-backed actor.")));
+  return {
+    actor,
+    ownerUserId: user.id,
+    modelPolicy: personalAiModelPolicy,
+    toolApprovalContext: { actorUserId: user.id },
+  };
+};
+
+const retryInstruction = (mode: "retry" | "details" | "concise"): string | null => {
+  if (mode === "details") return "Answer the user's request again with more detail and specificity.";
+  if (mode === "concise") return "Answer the user's request again more concisely.";
+  return null;
 };
 
 const ConversationListQuerySchema = z
@@ -157,15 +171,15 @@ const publicConversation = (conversation: AiConversation, projectId: string | nu
   id: conversation.shortId,
   projectId: conversation.projectId ? projectId : null,
 });
-const publicConversations = async (conversations: AiConversation[], appId: string, subject: AccessSubject) => {
+const publicConversations = async (conversations: AiConversation[], subject: AccessSubject) => {
   const projectIds = conversations.flatMap((conversation) => (conversation.projectId ? [conversation.projectId] : []));
-  const shortIds = await aiProjects.resolveShortIds(projectIds, appId, subject);
+  const shortIds = await aiProjects.resolveShortIds(projectIds, subject);
   return conversations.map((conversation) =>
     publicConversation(conversation, conversation.projectId ? (shortIds.get(conversation.projectId) ?? null) : null),
   );
 };
-const publicConversationFor = async (conversation: AiConversation, appId: string, subject: AccessSubject) =>
-  (await publicConversations([conversation], appId, subject))[0]!;
+const publicConversationFor = async (conversation: AiConversation, subject: AccessSubject) =>
+  (await publicConversations([conversation], subject))[0]!;
 const publicMemory = (memory: Awaited<ReturnType<typeof aiMemories.create>>) => ({ ...memory, id: memory.shortId });
 
 /** Fire-and-forget: remember the model this user actually ran a turn with (preselected for new chats). */
@@ -175,13 +189,13 @@ const rememberLastUsedModel = (actor: RequestActor, modelProfileId: string | nul
   void aiUserPrefs.update(userId, { lastModelId: modelProfileId }).catch(() => undefined);
 };
 
-const conversationDetail = async (conversation: AiConversation, appId: string, subject: AccessSubject) => {
+const conversationDetail = async (conversation: AiConversation, subject: AccessSubject) => {
   const [state, timeline] = await Promise.all([
     loadAiStreamState(conversation),
     aiConversations.listConversationTimeline({ conversationId: conversation.id }),
   ]);
   return {
-    conversation: await publicConversationFor(conversation, appId, subject),
+    conversation: await publicConversationFor(conversation, subject),
     messages: state.messages.map((message) => ({ ...message, id: message.shortId })),
     hasMoreMessages: state.hasMoreMessages ?? false,
     activeTurn: state.activeTurn,
@@ -200,26 +214,13 @@ const publicPendingAction = (
   conversationId: string,
   turnId: string,
 ) => ({ ...action, conversationId, turnId });
-/**
- * The single AI chat route surface. The Assistant app and every embedded
- * resource chat instantiate this with their own `resolveContext`, so there is
- * exactly one implementation of conversations, turns, streaming, actions,
- * fork/retry, and compaction.
- */
-export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
-  const resolveModelListPolicy = async (c: Context<AuthContext>): Promise<AiModelPolicy | Response> => {
-    if (typeof config.modelListPolicy === "function") return config.modelListPolicy(c);
-    return config.modelListPolicy ?? { kind: "selectable", requiredCapabilities: ["streaming"] };
-  };
-
+export const aiRoutes = (() => {
   const loadConversation = async (c: Context<AuthContext>, ctx: AiChatRequestContext, archived = false): Promise<AiConversation | null> => {
     const conversationId = c.req.param("conversationId");
     if (!conversationId) return null;
     return aiConversations.getConversationByShortId({
       shortId: conversationId,
-      appId: config.appId,
       ownerUserId: ctx.ownerUserId,
-      resource: ctx.resource,
       archived,
     });
   };
@@ -229,32 +230,30 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
 
   return (
     new Hono<AuthContext>()
+      .use(rateLimit())
+      .use("*", auth.requireRole("authenticated"))
       .get("/status", async (c) => {
-        const policy = await resolveModelListPolicy(c);
-        if (policy instanceof Response) return policy;
-        return respond(c, ok(await toPublicAiSettingsState(policy.allowedDataBoundaries)));
+        return respond(c, ok(await toPublicAiSettingsState(personalAiModelPolicy.allowedDataBoundaries)));
       })
       .get("/models", async (c) => {
-        const policy = await resolveModelListPolicy(c);
-        if (policy instanceof Response) return policy;
-        return respond(c, ok(await listAiModels(policy)));
+        return respond(c, ok(await listAiModels(personalAiModelPolicy)));
       })
       .get("/prefs", async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const userId = aiPrefsUserId(ctx.actor);
         if (!userId) return respond(c, fail(err.forbidden("AI preferences require a user context.")));
         return respond(c, ok(await aiUserPrefs.get(userId)));
       })
       .put("/prefs", v("json", AiUserPrefsInputSchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const userId = aiPrefsUserId(ctx.actor);
         if (!userId) return respond(c, fail(err.forbidden("AI preferences require a user context.")));
         return respond(c, ok(await aiUserPrefs.update(userId, c.req.valid("json"))));
       })
       .get("/memories", v("query", MemoryListQuerySchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const userId = aiPrefsUserId(ctx.actor);
         if (!userId) return respond(c, fail(err.forbidden("AI memories require a user context.")));
@@ -262,7 +261,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return respond(c, ok((await aiMemories.list({ userId, query: query.q, limit: query.limit })).map(publicMemory)));
       })
       .post("/memories", v("json", MemoryCreateSchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const userId = aiPrefsUserId(ctx.actor);
         if (!userId) return respond(c, fail(err.forbidden("AI memories require a user context.")));
@@ -273,7 +272,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         );
       })
       .patch("/memories/:memoryId", v("json", MemoryUpdateSchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const userId = aiPrefsUserId(ctx.actor);
         if (!userId) return respond(c, fail(err.forbidden("AI memories require a user context.")));
@@ -283,7 +282,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return memory ? respond(c, ok(publicMemory(memory))) : respond(c, fail(err.notFound("Memory")));
       })
       .delete("/memories/:memoryId", async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const userId = aiPrefsUserId(ctx.actor);
         if (!userId) return respond(c, fail(err.forbidden("AI memories require a user context.")));
@@ -294,15 +293,12 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
           : respond(c, fail(err.notFound("Memory")));
       })
       .get("/prefs/system-prompt", async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const user = aiActorUser(ctx.actor);
         if (!user) return respond(c, fail(err.forbidden("AI preferences require a user context.")));
 
-        // Same composition path as the executor, for a fresh chat in this app:
-        // prefs + memory apply to the default toolset only.
-        const isDefaultToolSource = ctx.toolSource.kind === "default";
-        const prefs = isDefaultToolSource ? await aiUserPrefs.get(user.id) : null;
+        const prefs = await aiUserPrefs.get(user.id);
         const memoryEnabled = Boolean(prefs?.memoryEnabled);
         const memory = memoryEnabled ? await aiMemories.selectHot(user.id, "") : null;
         const state = await readAiSettingsState();
@@ -316,21 +312,20 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
           }
         }
         const toolsSupported = Boolean(previewProfile?.capabilities.includes("tools"));
-        const tools =
-          isDefaultToolSource && toolsSupported
-            ? [...(await createConfiguredDefaultCloudAiTools()), ...(memoryEnabled ? [createCloudAiMemoryTool()] : [])]
-            : [];
+        const tools = toolsSupported
+          ? [...(await createConfiguredDefaultCloudAiTools()), ...(memoryEnabled ? [createCloudAiMemoryTool()] : [])]
+          : [];
         const memoryToolEnabled = tools.some((tool) => tool.def.name === "memory");
         const timeZone = String((await coreSettings.get<string>("app.timezone")) || "").trim() || "UTC";
         const prompt = composeAiSystemPrompt({
           globalInstructions: state.globalInstructions,
-          appPrompt: ctx.systemPrompt,
+          agentPrompt: personalAiSystemPrompt(),
           user,
-          appId: config.appId,
+          appId: "ai",
           memoryEnabled,
           memoryToolEnabled,
-          helpEnabled: isDefaultToolSource && toolsSupported,
-          capabilitiesEnabled: ctx.toolSource.kind === "default" && toolsSupported && ctx.toolSource.capabilities === true,
+          helpEnabled: toolsSupported,
+          capabilitiesEnabled: toolsSupported,
           toolHints: aiToolPromptHints(tools),
           memory: memory?.text,
           timeZone,
@@ -338,14 +333,13 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return respond(c, ok({ prompt, renderedAt: new Date().toISOString() }));
       })
       .get("/resources", v("query", UserResourcesQuerySchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const query = c.req.valid("query");
         return respond(
           c,
           ok(
             await aiConversations.listUserConversationResources({
-              appId: config.appId,
               ownerUserId: ctx.ownerUserId,
               search: query.q,
               before: query.cursor,
@@ -355,21 +349,17 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         );
       })
       .get("/conversations", v("query", ConversationListQuerySchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const query = c.req.valid("query");
-        const project = query.projectId
-          ? await aiProjects.getByShortId(query.projectId, config.appId, c.get("accessSubject"), "read")
-          : null;
+        const project = query.projectId ? await aiProjects.getByShortId(query.projectId, c.get("accessSubject"), "read") : null;
         if (query.projectId && !project) return respond(c, fail(err.notFound("Project")));
         return respond(
           c,
           ok(
             await publicConversations(
               await aiConversations.listConversations({
-                appId: config.appId,
                 ownerUserId: ctx.ownerUserId,
-                resource: ctx.resource,
                 search: query.q,
                 archived: query.archived,
                 status: query.status,
@@ -377,24 +367,19 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
                 unassigned: query.unassigned,
                 limit: query.limit,
               }),
-              config.appId,
               c.get("accessSubject"),
             ),
           ),
         );
       })
       .get("/conversations/page", v("query", ConversationPageQuerySchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const query = c.req.valid("query");
-        const project = query.projectId
-          ? await aiProjects.getByShortId(query.projectId, config.appId, c.get("accessSubject"), "read")
-          : null;
+        const project = query.projectId ? await aiProjects.getByShortId(query.projectId, c.get("accessSubject"), "read") : null;
         if (query.projectId && !project) return respond(c, fail(err.notFound("Project")));
         const page = await aiConversations.listConversationsPage({
-          appId: config.appId,
           ownerUserId: ctx.ownerUserId,
-          resource: ctx.resource,
           search: query.q,
           archived: query.archived,
           status: query.status,
@@ -403,24 +388,43 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
           page: query.page ?? 1,
           perPage: query.perPage ?? 20,
         });
-        return respond(c, ok({ ...page, items: await publicConversations(page.items, config.appId, c.get("accessSubject")) }));
+        return respond(c, ok({ ...page, items: await publicConversations(page.items, c.get("accessSubject")) }));
       })
       .post("/conversations", v("json", AiCreateConversationInputSchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const body = c.req.valid("json");
-        const project = body.projectId ? await aiProjects.getByShortId(body.projectId, config.appId, c.get("accessSubject"), "read") : null;
+        const project = body.projectId ? await aiProjects.getByShortId(body.projectId, c.get("accessSubject"), "read") : null;
         if (body.projectId && !project) return respond(c, fail(err.notFound("Project")));
+        let catalog: ReturnType<typeof buildAiCapabilityCatalog> = [];
+        if (body.preloadCapabilities?.length) {
+          try {
+            catalog = buildAiCapabilityCatalog(await listCapabilities());
+          } catch {
+            return respond(c, fail(err.internal("The live capability catalog is unavailable.")));
+          }
+        }
+        const preloadCapabilities = (body.preloadCapabilities ?? []).map((requested) =>
+          catalog.find(
+            (candidate) =>
+              candidate.appId === requested.appId && candidate.kind === requested.kind && candidate.operation.localId === requested.id,
+          ),
+        );
+        const unavailable = preloadCapabilities.findIndex((entry) => !entry);
+        if (unavailable >= 0) {
+          const requested = body.preloadCapabilities![unavailable]!;
+          return respond(c, fail(err.badInput(`Capability is unavailable: ${requested.appId}.${requested.id}`)));
+        }
         return respond(
           c,
           ok(
             publicConversation(
               await aiConversations.createConversation({
-                appId: config.appId,
                 ownerUserId: ctx.ownerUserId,
-                title: body.title ?? config.defaultTitle?.(ctx),
-                resource: ctx.resource,
+                title: body.title,
                 projectId: project?.id,
+                draft: body.draft?.content,
+                preloadCapabilities: preloadCapabilities.map((entry) => entry!.name),
               }),
               project?.shortId ?? null,
             ),
@@ -429,14 +433,14 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         );
       })
       .get("/conversations/:conversationId", async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
-        return respond(c, ok(await conversationDetail(conversation, config.appId, c.get("accessSubject"))));
+        return respond(c, ok(await conversationDetail(conversation, c.get("accessSubject"))));
       })
       .get("/conversations/:conversationId/messages", v("query", MessagesPageQuerySchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -449,7 +453,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return respond(c, ok({ ...page, messages: await publicAiStoredMessages(page.messages, conversation) }));
       })
       .get("/conversations/:conversationId/messages/search", v("query", MessagesSearchQuerySchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -463,7 +467,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return respond(c, ok({ ...page, messages: await publicAiStoredMessages(page.messages, conversation) }));
       })
       .get("/conversations/:conversationId/resources", v("query", ConversationResourcesQuerySchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -480,7 +484,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         );
       })
       .get("/conversations/:conversationId/sources", v("query", ConversationResourcesQuerySchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -498,84 +502,75 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         );
       })
       .get("/conversations/:conversationId/timeline", async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
         return respond(c, ok(await aiConversations.listConversationTimeline({ conversationId: conversation.id })));
       })
       .patch("/conversations/:conversationId", v("json", ConversationMetadataInputSchema), async (c) => {
-        if (!config.allowConversationManagement) return notFound(c);
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
         const body = c.req.valid("json");
         const updated = await aiConversations.updateConversationMetadata({
           conversationId: conversation.id,
-          appId: config.appId,
           ownerUserId: ctx.ownerUserId,
           title: body.title,
           description: body.description,
           pinned: body.pinned,
         });
         if (!updated) return notFound(c);
-        return respond(c, ok(await publicConversationFor(updated, config.appId, c.get("accessSubject"))));
+        return respond(c, ok(await publicConversationFor(updated, c.get("accessSubject"))));
       })
       .put("/conversations/:conversationId/project", v("json", ConversationProjectInputSchema), async (c) => {
-        if (!config.allowConversationManagement) return notFound(c);
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
         const body = c.req.valid("json");
-        const project = body.projectId ? await aiProjects.getByShortId(body.projectId, config.appId, c.get("accessSubject"), "read") : null;
+        const project = body.projectId ? await aiProjects.getByShortId(body.projectId, c.get("accessSubject"), "read") : null;
         if (body.projectId && !project) return respond(c, fail(err.notFound("Project")));
         const result = await aiConversations.setConversationProject({
           conversationId: conversation.id,
-          appId: config.appId,
           ownerUserId: ctx.ownerUserId,
           projectId: project?.id ?? null,
         });
         if (!result.ok) {
-          if (result.reason === "not_empty") {
-            return respond(c, fail(err.conflict("Choose a Project before sending the first message.")));
+          if (result.reason === "active_turn") {
+            return respond(c, fail(err.conflict("Wait for the active turn before changing the Project.")));
           }
           return notFound(c);
         }
-        return respond(c, ok(await publicConversationFor(result.conversation, config.appId, c.get("accessSubject"))));
+        return respond(c, ok(await publicConversationFor(result.conversation, c.get("accessSubject"))));
       })
       .post("/conversations/:conversationId/pin", async (c) => {
-        if (!config.allowConversationManagement) return notFound(c);
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
         const updated = await aiConversations.setConversationPinned({
           conversationId: conversation.id,
-          appId: config.appId,
           ownerUserId: ctx.ownerUserId,
           pinned: true,
         });
-        return updated ? respond(c, ok(await publicConversationFor(updated, config.appId, c.get("accessSubject")))) : notFound(c);
+        return updated ? respond(c, ok(await publicConversationFor(updated, c.get("accessSubject")))) : notFound(c);
       })
       .delete("/conversations/:conversationId/pin", async (c) => {
-        if (!config.allowConversationManagement) return notFound(c);
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
         const updated = await aiConversations.setConversationPinned({
           conversationId: conversation.id,
-          appId: config.appId,
           ownerUserId: ctx.ownerUserId,
           pinned: false,
         });
-        return updated ? respond(c, ok(await publicConversationFor(updated, config.appId, c.get("accessSubject")))) : notFound(c);
+        return updated ? respond(c, ok(await publicConversationFor(updated, c.get("accessSubject")))) : notFound(c);
       })
       .post("/conversations/:conversationId/archive", async (c) => {
-        if (!config.allowConversationManagement) return notFound(c);
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -584,50 +579,81 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         }
         const archived = await aiConversations.archiveConversation({
           conversationId: conversation.id,
-          appId: config.appId,
           ownerUserId: ctx.ownerUserId,
         });
         if (!archived) return notFound(c);
         return respond(c, ok({ ok: true }));
       })
       .post("/conversations/:conversationId/restore", async (c) => {
-        if (!config.allowConversationManagement) return notFound(c);
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx, true);
         if (!conversation) return notFound(c);
         const restored = await aiConversations.restoreConversation({
           conversationId: conversation.id,
-          appId: config.appId,
           ownerUserId: ctx.ownerUserId,
         });
-        return restored ? respond(c, ok(await publicConversationFor(restored, config.appId, c.get("accessSubject")))) : notFound(c);
+        return restored ? respond(c, ok(await publicConversationFor(restored, c.get("accessSubject")))) : notFound(c);
       })
       .post("/conversations/:conversationId/viewed", async (c) => {
-        if (!config.allowConversationManagement) return notFound(c);
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
         const viewed = await aiConversations.markConversationViewed({
           conversationId: conversation.id,
-          appId: config.appId,
           ownerUserId: ctx.ownerUserId,
         });
         return viewed ? respond(c, ok({ ok: true })) : notFound(c);
       })
-      .post("/conversations/:conversationId/turns", v("json", AiTurnInputSchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+      .put("/conversations/:conversationId/draft", v("json", AiSaveConversationDraftInputSchema), async (c) => {
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
         const body = c.req.valid("json");
-        const { input, message } = aiInputToUserMessage(aiTurnInputToContent(body));
-        const project = conversation.projectId
-          ? await aiProjects.snapshot(conversation.projectId, config.appId, c.get("accessSubject"))
-          : null;
+        try {
+          const saved = await aiConversations.saveDraft({
+            conversationId: conversation.id,
+            ownerUserId: ctx.ownerUserId,
+            expectedRevision: body.expectedRevision,
+            content: body.content,
+          });
+          if (!saved.ok) {
+            return saved.reason === "conflict"
+              ? respond(c, fail(err.conflict("The conversation draft changed in another session.")))
+              : notFound(c);
+          }
+          return respond(c, ok(saved.draft));
+        } catch (error) {
+          return respond(c, fail(err.badInput(error instanceof Error ? error.message : "Invalid conversation draft.")));
+        }
+      })
+      .post("/conversations/:conversationId/turns", v("json", AiSubmitConversationDraftInputSchema), async (c) => {
+        const ctx = await resolveContext(c);
+        if (ctx instanceof Response) return ctx;
+        const conversation = await loadConversation(c, ctx);
+        if (!conversation) return notFound(c);
+        const body = c.req.valid("json");
+        if (conversation.draft.revision !== body.draftRevision) {
+          return respond(c, fail(err.conflict("The conversation draft changed in another session.")));
+        }
+        if (conversation.draft.content.length === 0) return respond(c, fail(err.badInput("The conversation draft is empty.")));
+        const resourceParts = conversation.draft.content.filter((part) => part.type === "resource");
+        const turnContent = conversation.draft.content.map((part) => {
+          if (part.type === "text") return { type: "text" as const, text: part.text };
+          if (part.type === "file") {
+            return { type: "attachment" as const, path: part.path, mediaType: part.mediaType, size: part.size };
+          }
+          return {
+            type: "text" as const,
+            text: aiResourceMarker({ ref: part.ref, title: part.title, icon: part.icon, href: part.href }),
+          };
+        });
+        const { input, message } = aiInputToUserMessage(aiTurnInputToContent({ content: turnContent }));
+        const project = conversation.projectId ? await aiProjects.snapshot(conversation.projectId, c.get("accessSubject")) : null;
         if (conversation.projectId && !project) return respond(c, fail(err.notFound("Project")));
-        const systemPrompt = [ctx.systemPrompt, config.conversationSystemPrompt?.(conversation)].filter(Boolean).join("\n\n") || undefined;
+        const systemPrompt = personalAiSystemPrompt(conversation.shortId);
         try {
           const result = await submitAiChatTurn({
             conversationId: conversation.id,
@@ -639,9 +665,14 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
             systemPrompt,
             project: project ?? undefined,
             clientToolIds: body.clientToolIds,
-            toolSource: ctx.toolSource,
-            canInspectAttachedImages: ctx.canInspectAttachedImages,
+            toolSource: { kind: "default", capabilities: true },
             toolApprovalContext: ctx.toolApprovalContext,
+            expectedDraftRevision: body.draftRevision,
+            expectedProjectId: conversation.projectId,
+            resources: resourceParts.map((part) => ({ ref: part.ref, title: part.title, icon: part.icon, href: part.href })),
+            expectedFiles: conversation.draft.content.flatMap((part) =>
+              part.type === "file" ? [{ path: part.path, version: part.version }] : [],
+            ),
           });
           rememberLastUsedModel(ctx.actor, result.turn.modelProfileId);
           return respond(
@@ -661,7 +692,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         }
       })
       .post("/conversations/:conversationId/turns/:turnId/steer", v("json", AiSteerInputSchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -682,7 +713,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return respond(c, ok(result.steer), 201);
       })
       .post("/conversations/:conversationId/messages/:messageId/retry", v("json", AiMessageRetryInputSchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -700,13 +731,14 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         const body = c.req.valid("json");
         const content = body.content?.length ? aiTurnInputToContent({ content: body.content }) : target.message.content;
         const { input, message } = aiInputToUserMessage(content as never);
-        const instruction = config.retryInstruction?.(body.mode) ?? null;
-        const systemPrompt =
-          [ctx.systemPrompt, config.conversationSystemPrompt?.(conversation), instruction].filter(Boolean).join("\n\n") || undefined;
-        const project = conversation.projectId
-          ? await aiProjects.snapshot(conversation.projectId, config.appId, c.get("accessSubject"))
+        const instruction = retryInstruction(body.mode);
+        const systemPrompt = [personalAiSystemPrompt(conversation.shortId), instruction].filter(Boolean).join("\n\n");
+        const originalRunConfig = target.loopId
+          ? await aiConversations.getTurnRunConfig({ conversationId: conversation.id, turnId: target.loopId })
           : null;
-        if (conversation.projectId && !project) return respond(c, fail(err.notFound("Project")));
+        const originalProject = originalRunConfig?.kind !== "compact" ? originalRunConfig?.project : undefined;
+        const currentProject = originalProject?.id ? await aiProjects.getByShortId(originalProject.id, c.get("accessSubject")) : null;
+        if (originalProject && !currentProject) return respond(c, fail(err.notFound("Project")));
 
         try {
           const result = await submitAiChatTurn({
@@ -714,14 +746,15 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
             input,
             userMessage: message,
             actor: ctx.actor,
-            requestedModelId: body.modelProfileId ?? project?.defaultModelProfileId ?? undefined,
+            requestedModelId: body.modelProfileId ?? originalProject?.defaultModelProfileId ?? undefined,
             modelPolicy: ctx.modelPolicy,
             systemPrompt,
-            project: project ?? undefined,
-            toolSource: ctx.toolSource,
-            canInspectAttachedImages: ctx.canInspectAttachedImages,
+            project: originalProject,
+            toolSource: { kind: "default", capabilities: true },
             toolApprovalContext: ctx.toolApprovalContext,
             truncateFromSeq: target.seq,
+            fileSnapshot: originalRunConfig?.kind !== "compact" ? originalRunConfig?.files : undefined,
+            retrySourceTurnId: target.loopId ?? undefined,
           });
           rememberLastUsedModel(ctx.actor, result.turn.modelProfileId);
           return respond(
@@ -741,7 +774,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         }
       })
       .post("/conversations/:conversationId/messages/:messageId/fork", v("json", AiMessageForkInputSchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -755,7 +788,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         }
 
         const body = c.req.valid("json");
-        if (conversation.projectId && !(await aiProjects.get(conversation.projectId, config.appId, c.get("accessSubject"), "read"))) {
+        if (conversation.projectId && !(await aiProjects.get(conversation.projectId, c.get("accessSubject"), "read"))) {
           return respond(c, fail(err.notFound("Project")));
         }
         const forked = await aiConversations.forkConversation({
@@ -764,10 +797,10 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
           ownerUserId: ctx.ownerUserId,
           title: body.title ?? conversation.title,
         });
-        return respond(c, ok(await conversationDetail(forked, config.appId, c.get("accessSubject"))));
+        return respond(c, ok(await conversationDetail(forked, c.get("accessSubject"))));
       })
       .get("/conversations/:conversationId/enrichment", async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -778,7 +811,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return respond(c, ok({ status, runs: runs.map((run) => publicEnrichmentRun(run, conversation.shortId)) }));
       })
       .post("/conversations/:conversationId/reindex", async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -786,7 +819,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return respond(c, ok({ queued: true }), 201);
       })
       .post("/conversations/:conversationId/compact", v("json", AiCompactionInputSchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -804,7 +837,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         }
       })
       .post("/conversations/:conversationId/turns/:turnId/abort", async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -814,7 +847,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return respond(c, ok({ ok: true }));
       })
       .post("/conversations/:conversationId/turns/:turnId/actions/:callId", v("json", AiTurnActionSchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -832,7 +865,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return respond(c, ok({ ok: true }));
       })
       .get("/conversations/:conversationId/pending-actions/:turnId", async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -842,7 +875,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return respond(c, ok(actions.map((action) => publicPendingAction(action, conversation.shortId, turn.shortId))));
       })
       .get("/conversations/:conversationId/stream", async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -854,7 +887,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
           // scope. The actor itself is a request-time snapshot, so this catches
           // a withdrawn grant but not a revoked credential — see r9358ceb.
           revalidate: async () => {
-            const current = await config.resolveContext(c);
+            const current = await resolveContext(c);
             if (current instanceof Response) return false;
             return Boolean(await loadConversation(c, current));
           },
@@ -863,7 +896,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
 
       // ── Conversation files ─────────────────────────────────────────────
       .get("/conversations/:conversationId/files", v("query", FilesListQuerySchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -871,7 +904,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return respond(c, ok({ files, totalBytes: await aiFileStore.totalBytes(conversation.id) }));
       })
       .post("/conversations/:conversationId/files", async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -908,7 +941,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return respond(c, ok({ file: stat }));
       })
       .get("/conversations/:conversationId/files/content", v("query", FilePathQuerySchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -925,7 +958,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         });
       })
       .delete("/conversations/:conversationId/files", v("query", FilePathQuerySchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -936,7 +969,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return respond(c, ok({ deleted: true }));
       })
       .put("/conversations/:conversationId/files/content", v("json", FileWriteSchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -960,7 +993,7 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return respond(c, ok({ file: await aiFileStore.stat({ conversationId: conversation.id, path }) }));
       })
       .post("/conversations/:conversationId/files/rename", v("json", FileRenameSchema), async (c) => {
-        const ctx = await config.resolveContext(c);
+        const ctx = await resolveContext(c);
         if (ctx instanceof Response) return ctx;
         const conversation = await loadConversation(c, ctx);
         if (!conversation) return notFound(c);
@@ -975,6 +1008,6 @@ export const createAiChatRoutes = (config: AiChatRoutesConfig) => {
         return respond(c, ok({ renamed: true }));
       })
   );
-};
+})();
 
-export type AiChatRoutes = ReturnType<typeof createAiChatRoutes>;
+export type AiRoutes = typeof aiRoutes;

@@ -39,9 +39,22 @@ const insertServiceAccount = async (label: string): Promise<string> => {
 };
 
 suite("AI live invalidation outbox", () => {
+  test("keeps only the global live-enqueue function signature", async () => {
+    const rows = await sql<{ arguments: string }[]>`
+      SELECT pg_get_function_identity_arguments(procedure.oid) AS arguments
+      FROM pg_proc procedure
+      JOIN pg_namespace namespace ON namespace.oid = procedure.pronamespace
+      WHERE namespace.nspname = 'ai' AND procedure.proname = 'enqueue_live_for_user'
+    `;
+
+    expect(rows.map((row) => row.arguments)).toEqual([
+      "p_change_id uuid, p_user_id uuid, p_conversation_short_id text, p_project_short_id text, p_domains text[]",
+    ]);
+  });
+
   test("commits conversation invalidations atomically with the domain write", async () => {
     const userId = await insertUser("owner");
-    const conversation = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
     try {
       const created = await sql<{ domains: string[]; conversation_short_id: string }[]>`
         SELECT domains, conversation_short_id
@@ -92,11 +105,11 @@ suite("AI live invalidation outbox", () => {
     const ownerId = await insertUser("owner");
     const memberId = await insertUser("member");
     const owner = { type: "user" as const, userId: ownerId };
-    const project = await aiProjects.create({ appId: "ai-live-test", subject: owner, name: "Realtime Project" });
+    const project = await aiProjects.create({ subject: owner, name: "Realtime Project" });
     let chatId: string | null = null;
     try {
       await sql`DELETE FROM ai.live_invalidation_outbox WHERE audience_user_id IN (${ownerId}::uuid, ${memberId}::uuid)`;
-      const memberGrant = await aiProjects.grantAccess(project.id, "ai-live-test", owner, {
+      const memberGrant = await aiProjects.grantAccess(project.id, owner, {
         principal: { type: "user", userId: memberId },
         permission: "read",
       });
@@ -108,13 +121,8 @@ suite("AI live invalidation outbox", () => {
         ORDER BY audience_user_id::text
       `;
       expect(recipients.map((row) => row.audience_user_id).sort()).toEqual([memberId, ownerId].sort());
-      const projectApps = await sql<{ app_id: string }[]>`
-        SELECT DISTINCT app_id FROM ai.live_invalidation_outbox WHERE project_short_id = ${project.shortId}
-      `;
-      expect(projectApps.map((row) => row.app_id)).toEqual(["ai-live-test"]);
-
       await sql`DELETE FROM ai.live_invalidation_outbox WHERE audience_user_id IN (${ownerId}::uuid, ${memberId}::uuid)`;
-      await aiProjects.updateAccess(project.id, "ai-live-test", memberGrant!.id, owner, "write");
+      await aiProjects.updateAccess(project.id, memberGrant!.id, owner, "write");
       const permissionRecipients = await sql<{ audience_user_id: string }[]>`
         SELECT DISTINCT audience_user_id::text FROM ai.live_invalidation_outbox
         WHERE project_short_id = ${project.shortId} ORDER BY audience_user_id::text
@@ -122,7 +130,7 @@ suite("AI live invalidation outbox", () => {
       expect(permissionRecipients.map((row) => row.audience_user_id).sort()).toEqual([memberId, ownerId].sort());
 
       await sql`DELETE FROM ai.live_invalidation_outbox WHERE audience_user_id IN (${ownerId}::uuid, ${memberId}::uuid)`;
-      await aiProjects.revokeAccess(project.id, "ai-live-test", memberGrant!.id, owner);
+      await aiProjects.revokeAccess(project.id, memberGrant!.id, owner);
       const revokeRecipients = await sql<{ audience_user_id: string }[]>`
         SELECT DISTINCT audience_user_id::text FROM ai.live_invalidation_outbox
         WHERE project_short_id = ${project.shortId} ORDER BY audience_user_id::text
@@ -130,7 +138,6 @@ suite("AI live invalidation outbox", () => {
       expect(revokeRecipients.map((row) => row.audience_user_id).sort()).toEqual([memberId, ownerId].sort());
 
       const chat = await aiConversations.createConversation({
-        appId: "ai-live-test",
         ownerUserId: ownerId,
         projectId: project.id,
       });
@@ -163,10 +170,10 @@ suite("AI live invalidation outbox", () => {
         (${`ai-live-child-${suffix}`}, 'local', 'Live child', 'Live child')
       RETURNING id
     `;
-    const project = await aiProjects.create({ appId: "ai-live-test", subject: owner, name: "Group Project" });
-    const serviceProject = await aiProjects.create({ appId: "ai-live-test", subject: service, name: "Service Project" });
+    const project = await aiProjects.create({ subject: owner, name: "Group Project" });
+    const serviceProject = await aiProjects.create({ subject: service, name: "Service Project" });
     try {
-      await aiProjects.grantAccess(project.id, "ai-live-test", owner, {
+      await aiProjects.grantAccess(project.id, owner, {
         principal: { type: "group", groupId: groups[0]!.id },
         permission: "read",
       });
@@ -203,8 +210,8 @@ suite("AI live invalidation outbox", () => {
         )[0]?.count,
       ).toBe(0);
     } finally {
-      await aiProjects.delete(project.id, "ai-live-test", owner);
-      await aiProjects.delete(serviceProject.id, "ai-live-test", service);
+      await aiProjects.delete(project.id, owner);
+      await aiProjects.delete(serviceProject.id, service);
       await sql`DELETE FROM ai.live_invalidation_outbox WHERE audience_user_id IN (${ownerId}::uuid, ${memberId}::uuid)`;
       await sql`DELETE FROM auth.users WHERE id IN (${ownerId}::uuid, ${memberId}::uuid)`;
       await sql`DELETE FROM auth.service_accounts WHERE id = ${serviceAccountId}::uuid`;

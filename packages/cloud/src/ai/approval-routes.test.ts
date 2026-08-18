@@ -57,8 +57,6 @@ const capabilityApp: CapabilityRegistryEntry = {
 
 const preference: AiToolApprovalPreference = {
   id: preferenceId,
-  contextAppId: "assistant",
-  resource: null,
   toolName: aiCapabilityToolName("demo", "action", "rename"),
   approvalScope: "demo.rename",
   createdAt: "2026-08-05T12:00:00.000Z",

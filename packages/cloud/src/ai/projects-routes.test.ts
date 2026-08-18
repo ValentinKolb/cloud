@@ -7,7 +7,7 @@ import { defineCapabilities } from "../contracts/capabilities";
 import type { CapabilityRegistryEntry } from "../contracts/registry";
 import type { AuthContext } from "../server";
 import { aiProjects } from "./projects";
-import { createAiProjectsRoutes } from "./projects-routes";
+import { __buildAiProjectsRoutesForTest } from "./projects-routes";
 
 const userId = "11111111-1111-4111-8111-111111111111";
 const projectId = "22222222-2222-4222-8222-222222222222";
@@ -77,7 +77,7 @@ describe("AI Project reference routes", () => {
       createdAt: "2026-08-11T10:00:00.000Z",
       updatedAt: "2026-08-11T10:00:00.000Z",
     });
-    const routes = createAiProjectsRoutes({ appId: "assistant", limit: pass, authenticate: pass });
+    const routes = __buildAiProjectsRoutesForTest({ limit: pass, authenticate: pass });
 
     const response = await routes.request(`/${projectShortId}/knowledge`, {
       method: "POST",
@@ -86,15 +86,14 @@ describe("AI Project reference routes", () => {
     });
 
     expect(response.status).toBe(201);
-    expect(aiProjects.getByShortId).toHaveBeenCalledWith(projectShortId, "assistant", null, "write");
-    expect(aiProjects.createKnowledge).toHaveBeenCalledWith(projectId, "assistant", null, { title: "Public", content: "Shared" });
+    expect(aiProjects.getByShortId).toHaveBeenCalledWith(projectShortId, null, "write");
+    expect(aiProjects.createKnowledge).toHaveBeenCalledWith(projectId, null, { title: "Public", content: "Shared" });
   });
 
   test("checks Project write access before consulting the capability registry", async () => {
     spyOn(aiProjects, "getByShortId").mockResolvedValue(null);
     let registryCalls = 0;
-    const routes = createAiProjectsRoutes({
-      appId: "assistant",
+    const routes = __buildAiProjectsRoutesForTest({
       limit: pass,
       authenticate,
       getCapability: async () => {
@@ -114,8 +113,7 @@ describe("AI Project reference routes", () => {
 
   test("distinguishes registry unavailability from invalid and valid refs", async () => {
     spyOn(aiProjects, "getByShortId").mockResolvedValue({ id: projectId, shortId: projectShortId } as never);
-    const unavailable = createAiProjectsRoutes({
-      appId: "assistant",
+    const unavailable = __buildAiProjectsRoutesForTest({
       limit: pass,
       authenticate,
       getCapability: async () => {
@@ -129,8 +127,7 @@ describe("AI Project reference routes", () => {
     };
     expect((await unavailable.request(`/${projectShortId}/references`, request)).status).toBe(503);
 
-    const invalid = createAiProjectsRoutes({
-      appId: "assistant",
+    const invalid = __buildAiProjectsRoutesForTest({
       limit: pass,
       authenticate,
       getCapability: async () => capabilityEntry(false),
@@ -145,7 +142,7 @@ describe("AI Project reference routes", () => {
       label: "Ada",
       createdAt: "2026-08-11T10:00:00.000Z",
     });
-    const valid = createAiProjectsRoutes({ appId: "assistant", limit: pass, authenticate, getCapability: async () => capabilityEntry() });
+    const valid = __buildAiProjectsRoutesForTest({ limit: pass, authenticate, getCapability: async () => capabilityEntry() });
     const response = await valid.request(`/${projectShortId}/references`, {
       ...request,
       body: JSON.stringify({ ref: { type: "contacts.contact", id: "contact-1" }, label: "Ada" }),

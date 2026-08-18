@@ -12,7 +12,7 @@ import type {
 } from "@k2b/nessi";
 import type { Usage } from "@k2b/nessi/ai";
 import type { z } from "zod";
-import type { CloudResourceRef } from "../contracts/capabilities";
+import type { CapabilityActionReview, CloudResourceRef } from "../contracts/capabilities";
 import type { RequestActor } from "../server";
 import type { AiTurnBlock } from "./protocol";
 
@@ -115,15 +115,15 @@ export type AiResolvedModel = {
   provider: Provider;
 };
 
-export type AiConversationResource =
-  | { kind: "direct" }
-  | { kind: "resource"; appId: string; resourceType: string; resourceId: string; title?: string };
+export type AiDraftContentPart =
+  | { type: "text"; text: string }
+  | { type: "resource"; ref: CloudResourceRef; title?: string; icon?: string; href?: string }
+  | { type: "file"; path: string; mediaType: string; size: number; version: number };
 
-export type AiResourceDescriptor = {
-  appId: string;
-  resourceType: string;
-  resourceId: string;
-  title?: string;
+export type AiConversationDraft = {
+  content: AiDraftContentPart[];
+  revision: number;
+  updatedAt: string | null;
 };
 
 export type AiConversationFieldSource = "default" | "auto" | "user";
@@ -134,7 +134,6 @@ export type AiConversationStatusFilter = Exclude<AiConversationRunStatus, "idle"
 export type AiConversation = {
   id: string;
   shortId: string;
-  appId: string;
   title: string;
   /** Who set the current title — enrichment never overwrites a user-chosen title. */
   titleSource: AiConversationFieldSource;
@@ -152,7 +151,8 @@ export type AiConversation = {
   unreadCompletion: boolean;
   /** Optional shared project context; the conversation itself remains private to its owner. */
   projectId: string | null;
-  resource: AiConversationResource;
+  /** Mutable pending user message. It is not part of model context until a turn consumes it. */
+  draft: AiConversationDraft;
   createdByUserId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -189,7 +189,6 @@ export type AiEnrichmentStatus = {
 
 export type AiEnrichmentOverviewRun = AiEnrichmentRun & {
   conversationTitle: string;
-  appId: string;
 };
 
 export type AiEnrichmentOverview = {
@@ -226,7 +225,7 @@ export type AiConversationPage = {
 
 export type AiConversationProjectUpdateResult =
   | { ok: true; conversation: AiConversation }
-  | { ok: false; reason: "not_found" | "not_empty" };
+  | { ok: false; reason: "not_found" | "active_turn" };
 
 export type AiStoredMessage = {
   id: string;
@@ -355,6 +354,7 @@ export type AiPendingTurnAction =
       name: string;
       args: unknown;
       message?: string;
+      review?: CapabilityActionReview;
       allowAlways: boolean;
     }
   | {
@@ -385,16 +385,14 @@ export type AiPendingTurnActionRecord = {
   name: string;
   args: unknown;
   message?: string;
+  review?: CapabilityActionReview;
   approvalScope: string;
   allowAlways: boolean;
   frontendMode?: AiFrontendToolMode;
   resolvedEvent: InboundEvent | null;
 };
 
-export type AiTurnToolSource =
-  | { kind: "none" }
-  | { kind: "default"; capabilities?: boolean }
-  | { kind: "resource"; resourceKey: string; params: Record<string, string> };
+export type AiTurnToolSource = { kind: "none" } | { kind: "default"; capabilities?: boolean };
 
 export type AiClientToolId = "local_bash";
 
@@ -402,7 +400,6 @@ export type AiClientToolId = "local_bash";
 export type AiProjectPromptSnapshot = {
   /** Public readable Project ID. Resolve it once before using internal Project services. */
   id: string;
-  appId: string;
   name: string;
   revision: number;
   instructions: string;
@@ -501,7 +498,6 @@ export type AiChatTurnRunConfig = {
   modelPolicy?: AiModelPolicy;
   requestedModelId?: string;
   systemPrompt?: string;
-  resourceContext?: string;
   project?: AiProjectPromptSnapshot;
   files?: AiConversationFileSnapshot;
   /** Whether this turn's materialized tools can inspect referenced images. */
@@ -510,8 +506,6 @@ export type AiChatTurnRunConfig = {
   toolSource?: AiTurnToolSource;
   toolApprovalContext?: {
     actorUserId: string;
-    appId: string;
-    resource?: AiConversationResource;
   };
 };
 
@@ -548,12 +542,12 @@ export type AiTurnSweepResult = {
 
 export type AiConversationService = {
   createConversation(input: {
-    appId: string;
     ownerUserId: string;
     title?: string;
     description?: string;
-    resource?: AiConversationResource;
     projectId?: string;
+    draft?: AiDraftContentPart[];
+    preloadCapabilities?: string[];
   }): Promise<AiConversation>;
   forkConversation(input: {
     sourceConversationId: string;
@@ -562,9 +556,7 @@ export type AiConversationService = {
     title?: string;
   }): Promise<AiConversation>;
   listConversations(input: {
-    appId: string;
     ownerUserId: string;
-    resource?: AiConversationResource;
     search?: string;
     refs?: CloudResourceRef[];
     archived?: boolean;
@@ -573,16 +565,9 @@ export type AiConversationService = {
     unassigned?: boolean;
     limit?: number;
   }): Promise<AiConversation[]>;
-  listSidebarConversations(input: {
-    appId: string;
-    ownerUserId: string;
-    unassignedLimit?: number;
-    perProjectLimit?: number;
-  }): Promise<AiConversation[]>;
+  listSidebarConversations(input: { ownerUserId: string; unassignedLimit?: number; perProjectLimit?: number }): Promise<AiConversation[]>;
   listConversationsPage(input: {
-    appId: string;
     ownerUserId: string;
-    resource?: AiConversationResource;
     search?: string;
     archived?: boolean;
     status?: AiConversationStatusFilter;
@@ -591,19 +576,14 @@ export type AiConversationService = {
     page: number;
     perPage: number;
   }): Promise<AiConversationPage>;
-  getConversation(input: {
+  getConversation(input: { conversationId: string; ownerUserId?: string }): Promise<AiConversation | null>;
+  getConversationByShortId(input: { shortId: string; ownerUserId?: string; archived?: boolean }): Promise<AiConversation | null>;
+  saveDraft(input: {
     conversationId: string;
-    appId?: string;
-    ownerUserId?: string;
-    resource?: AiConversationResource;
-  }): Promise<AiConversation | null>;
-  getConversationByShortId(input: {
-    shortId: string;
-    appId?: string;
-    ownerUserId?: string;
-    resource?: AiConversationResource;
-    archived?: boolean;
-  }): Promise<AiConversation | null>;
+    ownerUserId: string;
+    expectedRevision: number;
+    content: AiDraftContentPart[];
+  }): Promise<{ ok: true; draft: AiConversationDraft } | { ok: false; reason: "not_found" | "conflict" }>;
   getLoadedCapabilities(input: { conversationId: string }): Promise<string[]>;
   loadCapabilities(input: {
     conversationId: string;
@@ -623,7 +603,6 @@ export type AiConversationService = {
     limit?: number;
   }): Promise<{ resources: AiConversationResourceRef[]; nextCursor?: string }>;
   listUserConversationResources(input: {
-    appId: string;
     ownerUserId: string;
     search?: string;
     before?: string;
@@ -649,7 +628,6 @@ export type AiConversationService = {
     callId: string;
   } | null>;
   createInterChatMessage(input: {
-    appId: string;
     sourceConversationId: string;
     sourceTurnId: string;
     sourceCallId: string;
@@ -671,7 +649,6 @@ export type AiConversationService = {
   >;
   updateConversationMetadata(input: {
     conversationId: string;
-    appId?: string;
     ownerUserId?: string;
     title: string;
     description?: string;
@@ -679,19 +656,13 @@ export type AiConversationService = {
   }): Promise<AiConversation | null>;
   setConversationProject(input: {
     conversationId: string;
-    appId?: string;
     ownerUserId?: string;
     projectId: string | null;
   }): Promise<AiConversationProjectUpdateResult>;
-  setConversationPinned(input: {
-    conversationId: string;
-    appId?: string;
-    ownerUserId?: string;
-    pinned: boolean;
-  }): Promise<AiConversation | null>;
-  archiveConversation(input: { conversationId: string; appId?: string; ownerUserId?: string }): Promise<boolean>;
-  restoreConversation(input: { conversationId: string; appId?: string; ownerUserId?: string }): Promise<AiConversation | null>;
-  markConversationViewed(input: { conversationId: string; appId?: string; ownerUserId?: string }): Promise<boolean>;
+  setConversationPinned(input: { conversationId: string; ownerUserId?: string; pinned: boolean }): Promise<AiConversation | null>;
+  archiveConversation(input: { conversationId: string; ownerUserId?: string }): Promise<boolean>;
+  restoreConversation(input: { conversationId: string; ownerUserId?: string }): Promise<AiConversation | null>;
+  markConversationViewed(input: { conversationId: string; ownerUserId?: string }): Promise<boolean>;
   /**
    * Conversations whose content changed since the last enrichment (no active
    * turn, has messages, failure backoff elapsed). Oldest first. With
@@ -776,9 +747,18 @@ export type AiConversationService = {
     modelProfileId: string;
     runConfig: AiChatTurnRunConfig;
     userMessage: Message;
+    /** Atomically consume this saved draft revision when present. */
+    expectedDraftRevision?: number;
+    /** Conversation Project observed while resolving this turn's immutable snapshot. */
+    expectedProjectId?: string | null;
     /** Delete active messages with seq >= truncateFromSeq first (retry-in-place). */
     truncateFromSeq?: number;
+    /** Resources introduced by this user message, indexed in the same transaction. */
+    resources?: AiConversationResourceObservation[];
+    /** Retry source whose immutable turn-file bytes are copied into the new turn. */
+    retrySourceTurnId?: string;
   }): Promise<{ turn: AiTurn; message: AiStoredMessage }>;
+  getTurnRunConfig(input: { conversationId: string; turnId: string }): Promise<AiTurnRunConfig | null>;
   getTurn(input: { conversationId: string; turnId: string }): Promise<AiTurn | null>;
   getTurnByShortId(input: { conversationId: string; shortId: string }): Promise<AiTurn | null>;
   getActiveTurn(input: { conversationId: string }): Promise<{ turn: AiTurn; liveBlocks: AiTurnBlock[]; liveSeq: number } | null>;
@@ -863,26 +843,6 @@ export type AiAccessResult<TAccess = unknown> = {
   allowed: boolean;
   data?: TAccess;
   reason?: string;
-};
-
-export type AiResourceHookContext<TParams, TAccess = unknown> = {
-  params: TParams;
-  actor: RequestActor;
-  access: TAccess;
-  signal: AbortSignal;
-};
-
-export type AiResourceDefinition<TParams, TAccess = unknown> = {
-  id: string;
-  appId: string;
-  path: string;
-  resourceId?: (keyof TParams & string) | ((ctx: AiResourceHookContext<TParams, TAccess>) => string | Promise<string>);
-  resourceTitle?: string | ((ctx: AiResourceHookContext<TParams, TAccess>) => string | Promise<string>);
-  access(input: { params: TParams; actor: RequestActor; signal: AbortSignal }): Promise<AiAccessResult<TAccess>>;
-  modelPolicy?: AiModelPolicy | ((ctx: AiResourceHookContext<TParams, TAccess>) => AiModelPolicy | Promise<AiModelPolicy>);
-  systemPrompt?: string | ((ctx: AiResourceHookContext<TParams, TAccess>) => string | Promise<string>);
-  context?: (ctx: AiResourceHookContext<TParams, TAccess>) => string | Promise<string>;
-  tools?: AiRuntimeTool[] | ((ctx: AiResourceHookContext<TParams, TAccess>) => AiRuntimeTool[] | Promise<AiRuntimeTool[]>);
 };
 
 export type AiToolApprovalPolicy = "never" | "once" | "always" | { kind: "user-configurable"; default: "once" | "always"; scope?: string };

@@ -699,7 +699,11 @@ const createSendOutbox = async (params: {
   });
   await params.db`
     UPDATE mail.drafts
-    SET state = 'scheduled'
+    SET
+      state = 'scheduled',
+      last_editor_kind = (SELECT actor_kind FROM mail.commands WHERE id = ${params.commandId}::uuid),
+      last_editor_id = (SELECT actor_id FROM mail.commands WHERE id = ${params.commandId}::uuid),
+      updated_at = now()
     WHERE id = ${prepared.draftId}::uuid
   `;
   return projection;
@@ -969,6 +973,9 @@ const createActorCommandWithActor = async (params: CreateActorCommandInternalPar
     return result.ok ? ok(await normalizeCommand(result.data)) : result;
   } catch (error) {
     if (isServiceError(error)) return fail(error);
+    log.error("Failed to create mail command", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return fail(err.internal("Failed to create mail command"));
   }
 };

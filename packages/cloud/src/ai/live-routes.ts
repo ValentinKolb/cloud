@@ -36,7 +36,6 @@ type WsContext = {
 };
 
 export type AiLiveRoutesConfig = {
-  appId: string;
   resolveLiveUser?: (sessionToken: string | null) => Promise<LiveUser | null>;
   resolveScopeVersion?: (userId: string) => Promise<string>;
 };
@@ -100,23 +99,21 @@ const revoke = (ctx: WsContext, code: "login_required" | "access_denied", messag
 };
 
 export const resolveAiLiveCursor = async (
-  appId: string,
   userId: string,
   fromCursor: string | null,
   recover: boolean,
-  latest: (appId: string, userId: string) => Promise<string | null> = latestAiInvalidationCursor,
-): Promise<string> => AiLiveCursorSchema.parse(recover || !fromCursor ? ((await latest(appId, userId)) ?? "0-0") : fromCursor);
+  latest: (userId: string) => Promise<string | null> = latestAiInvalidationCursor,
+): Promise<string> => AiLiveCursorSchema.parse(recover || !fromCursor ? ((await latest(userId)) ?? "0-0") : fromCursor);
 
 export const parseAiLiveReplayEvent = (
-  appId: string,
   item: { cursor: unknown; data: unknown },
 ): { cursor: string; event: AiInvalidation } | null => {
   const cursor = AiLiveCursorSchema.safeParse(item.cursor);
   const event = AiInvalidationSchema.safeParse(item.data);
-  return cursor.success && event.success && event.data.appId === appId ? { cursor: cursor.data, event: event.data } : null;
+  return cursor.success && event.success ? { cursor: cursor.data, event: event.data } : null;
 };
 
-export const createAiLiveRoutes = (config: AiLiveRoutesConfig) => {
+const buildAiLiveRoutes = (config: AiLiveRoutesConfig = {}) => {
   const resolveLiveUser = config.resolveLiveUser ?? resolveAiLiveSessionUser;
 
   const currentUser = async (ctx: WsContext): Promise<LiveUser | null> => {
@@ -147,7 +144,6 @@ export const createAiLiveRoutes = (config: AiLiveRoutesConfig) => {
         startAuthRefresh(ctx, userId);
       } catch (error) {
         log.error("AI live authorization refresh failed", {
-          appId: config.appId,
           userId,
           error: error instanceof Error ? error.message : String(error),
         });
@@ -162,14 +158,14 @@ export const createAiLiveRoutes = (config: AiLiveRoutesConfig) => {
     ctx.streamAbort = abort;
     void (async () => {
       try {
-        for await (const item of liveAiInvalidations({ appId: config.appId, userId, after, signal: abort.signal })) {
+        for await (const item of liveAiInvalidations({ userId, after, signal: abort.signal })) {
           if (!isAiLiveSubscriptionCurrent(ctx, userId, abort.signal)) break;
           if (!(await currentUser(ctx))) {
             revoke(ctx, "login_required", "Login required");
             return;
           }
           if (!isAiLiveSubscriptionCurrent(ctx, userId, abort.signal)) break;
-          const replay = parseAiLiveReplayEvent(config.appId, item);
+          const replay = parseAiLiveReplayEvent(item);
           if (!replay) {
             closeWithError(ctx, "stream_failed", "AI event stream contains invalid data", 1011);
             return;
@@ -183,7 +179,6 @@ export const createAiLiveRoutes = (config: AiLiveRoutesConfig) => {
       } catch (error) {
         if (abort.signal.aborted || isClosing(ctx)) return;
         log.error("AI live event stream failed", {
-          appId: config.appId,
           userId,
           error: error instanceof Error ? error.message : String(error),
         });
@@ -205,11 +200,10 @@ export const createAiLiveRoutes = (config: AiLiveRoutesConfig) => {
     let cursor: string;
     let scopeVersion: string | null;
     try {
-      cursor = await resolveAiLiveCursor(config.appId, user.id, fromCursor, recover);
+      cursor = await resolveAiLiveCursor(user.id, fromCursor, recover);
       scopeVersion = config.resolveScopeVersion ? await config.resolveScopeVersion(user.id) : null;
     } catch (error) {
       log.error("AI live subscription setup failed", {
-        appId: config.appId,
         userId: user.id,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -298,4 +292,5 @@ export const createAiLiveRoutes = (config: AiLiveRoutesConfig) => {
   );
 };
 
-export type AiLiveRoutes = ReturnType<typeof createAiLiveRoutes>;
+export const aiLiveRoutes = buildAiLiveRoutes();
+export type AiLiveRoutes = typeof aiLiveRoutes;

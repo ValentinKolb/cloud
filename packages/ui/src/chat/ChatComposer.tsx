@@ -60,7 +60,7 @@ export type ChatComposerProps = {
 };
 
 const attachmentIcon = (attachment: ChatAttachment): string =>
-  attachment.icon ?? (attachment.kind === "image" ? "ti ti-photo" : "ti ti-file");
+  attachment.icon ?? (attachment.kind === "image" ? "ti ti-photo" : attachment.kind === "resource" ? "ti ti-link" : "ti ti-file");
 
 const formatBytes = (bytes: number | undefined): string | null => {
   if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes < 0) return null;
@@ -300,15 +300,43 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
             {(attachment) => (
               <div class="k2b-chat-composer__attachment" role="listitem">
                 <Show
-                  when={attachment.kind === "image" && attachment.previewUrl}
-                  fallback={<i class={attachmentIcon(attachment)} aria-hidden="true" />}
+                  when={attachment.href}
+                  fallback={
+                    <>
+                      <Show
+                        when={attachment.kind === "image" && attachment.previewUrl}
+                        fallback={<i class={attachmentIcon(attachment)} aria-hidden="true" />}
+                      >
+                        <img src={attachment.previewUrl} alt={attachment.alt ?? ""} />
+                      </Show>
+                      <span>
+                        <strong title={attachment.name}>{attachment.name}</strong>
+                        <Show when={formatBytes(attachment.size)}>{(size) => <small>{size()}</small>}</Show>
+                      </span>
+                    </>
+                  }
                 >
-                  <img src={attachment.previewUrl} alt={attachment.alt ?? ""} />
+                  {(href) => (
+                    <a
+                      class="k2b-chat-composer__attachment-link"
+                      href={href()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Open ${attachment.name} in a new tab`}
+                    >
+                      <Show
+                        when={attachment.kind === "image" && attachment.previewUrl}
+                        fallback={<i class={attachmentIcon(attachment)} aria-hidden="true" />}
+                      >
+                        <img src={attachment.previewUrl} alt={attachment.alt ?? ""} />
+                      </Show>
+                      <span>
+                        <strong title={attachment.name}>{attachment.name}</strong>
+                        <Show when={formatBytes(attachment.size)}>{(size) => <small>{size()}</small>}</Show>
+                      </span>
+                    </a>
+                  )}
                 </Show>
-                <span>
-                  <strong title={attachment.name}>{attachment.name}</strong>
-                  <Show when={formatBytes(attachment.size)}>{(size) => <small>{size()}</small>}</Show>
-                </span>
                 <Show when={props.onAttachmentsChange}>
                   <button
                     type="button"

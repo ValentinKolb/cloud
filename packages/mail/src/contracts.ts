@@ -314,6 +314,31 @@ export const relatedMailQuerySchema = z
     limit: z.coerce.number().int().min(1).max(25).default(10),
   })
   .strict();
+
+export const relatedConversationReasonSchema = z
+  .object({
+    kind: z.enum(["participant", "subject"]),
+    value: z.string().min(1).max(500),
+  })
+  .strict();
+export const relatedConversationSummarySchema = z
+  .object({
+    id: ResourceShortIdSchema,
+    subject: z.string().max(2_000),
+    participantSummary: z.string().max(2_000),
+    latestMessageAt: z.string().datetime(),
+    preview: z.string().max(240).nullable(),
+    reasons: z.array(relatedConversationReasonSchema).min(1).max(6),
+  })
+  .strict();
+export const relatedConversationListSchema = z.array(relatedConversationSummarySchema).max(10);
+export type RelatedConversationSummary = z.infer<typeof relatedConversationSummarySchema>;
+
+export const relatedConversationQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(10).default(5),
+  })
+  .strict();
 export const searchBackendSchema = z.enum(["auto", "postgres", "pg_textsearch"]);
 export type SearchBackend = z.infer<typeof searchBackendSchema>;
 
@@ -2798,6 +2823,7 @@ export const draftSchema = z.object({
   attachments: z.array(draftAttachmentSchema),
   createdBy: draftActorRefSchema,
   lastEditedBy: draftActorRefSchema,
+  lastEditedByDisplayName: z.string().min(1),
   recoveryCopyCount: z.number().int().nonnegative(),
   revision: z.number().int().positive(),
   state: z.enum(["draft", "scheduled", "sending", "sent", "discarded"]),

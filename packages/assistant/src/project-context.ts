@@ -12,12 +12,12 @@ export const loadAssistantProjectContextSnapshot = async (
   subject: AccessSubject,
   projectId: string,
 ): Promise<AssistantProjectContextSnapshot | null> => {
-  const project = await aiProjects.getByShortId(projectId, "assistant", subject);
+  const project = await aiProjects.getByShortId(projectId, subject);
   if (!project) return null;
   const [knowledge, files, references] = await Promise.all([
-    aiProjects.listKnowledge(project.id, "assistant", subject),
-    aiProjects.listFiles(project.id, "assistant", subject),
-    aiProjects.listReferences(project.id, "assistant", subject),
+    aiProjects.listKnowledge(project.id, subject),
+    aiProjects.listFiles(project.id, subject),
+    aiProjects.listReferences(project.id, subject),
   ]);
   return {
     projectId,

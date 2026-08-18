@@ -2,9 +2,26 @@ import { type Accessor, createMemo, createSignal, onCleanup } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { type AiAttachmentRef, aiAttachmentMarker } from "../attachments";
 import { type AiStreamSseEvent, type AiTurnBlock, type AiTurnSnapshot, steerMessageBlockId } from "../protocol";
-import type { AiConversation, AiConversationTimelineEntry, AiStoredMessage, AiTurn, AiTurnSteer, AiUserContentPart } from "../types";
+import { type AiResourceMarker, aiResourceMarker } from "../resource-markers";
+import type {
+  AiConversation,
+  AiConversationTimelineEntry,
+  AiDraftContentPart,
+  AiStoredMessage,
+  AiTurn,
+  AiTurnSteer,
+  AiUserContentPart,
+} from "../types";
 import { type AiChatProjection, activeTurnFromSnapshot, emptyProjection, reduceProjection, visibleMessages } from "./projection";
 import { type AiStreamHandle, subscribeAiStream } from "./transport";
+
+type ComposerDraftInput = {
+  message?: string;
+  content?: AiUserContentPart[];
+  files?: File[];
+  resources?: AiResourceMarker[];
+  storedFiles?: Array<{ path: string; mediaType: string; size: number; version: number }>;
+};
 
 export type AiChatRunStatus = "idle" | "streaming" | "waiting_for_action" | "stopping" | "failed";
 export type AiStreamStatus = "idle" | "connecting" | "open" | "reconnecting";
@@ -63,7 +80,7 @@ const runErrorFromEvent = (event: AiStreamSseEvent, activeTurnId: string | null 
 };
 
 export type CreateAiChatControllerOptions = {
-  /** API base path, e.g. "/api/assistant". */
+  /** Global AI API base path, normally "/api/ai". */
   baseUrl: string;
   params?: Record<string, string> | Accessor<Record<string, string>>;
   initialConversationId?: string | null;
@@ -109,7 +126,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
 
   // Cache of projections for conversations opened this session (fast switching).
   const cache = new Map<string, AiChatProjection>();
-  const preparedAttachmentRefs = new Map<string, WeakMap<File, Promise<AiAttachmentRef>>>();
+  const preparedAttachmentRefs = new Map<string, WeakMap<File, Promise<AiAttachmentRef & { version: number }>>>();
   if (options.initialConversationId && options.initialDetail) cache.set(options.initialConversationId, initialProjection);
   // Infinite scroll state per conversation (history is windowed, oldest first).
   const [hasMoreByConversation, setHasMoreByConversation] = createSignal<Record<string, boolean>>({});
@@ -130,6 +147,8 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
   let conversationOpenGeneration = 0;
   let historyTargetSeq: number | null = null;
   let historyLoadPromise: Promise<boolean> | null = null;
+  let draftSaveQueue: Promise<unknown> = Promise.resolve();
+  let conversationCreationPromise: Promise<AiConversation | null> | null = null;
 
   const isActiveConversation = (conversationId: string) => activeConversationId() === conversationId;
   const timeline = () => {
@@ -500,7 +519,14 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     }
   };
 
-  const createConversation = async (input: { title?: string; projectId?: string } = {}) => {
+  const createConversation = async (
+    input: {
+      title?: string;
+      projectId?: string;
+      draft?: { content: AiDraftContentPart[] };
+      preloadCapabilities?: Array<{ appId: string; kind: "query" | "action"; id: string }>;
+    } = {},
+  ) => {
     const generation = ++conversationOpenGeneration;
     clearErrors();
     try {
@@ -527,12 +553,24 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     }
   };
 
-  const ensureConversation = async (): Promise<string | null> => activeConversationId() ?? (await createConversation())?.id ?? null;
+  const ensureConversation = async (): Promise<string | null> => {
+    const active = activeConversationId();
+    if (active) return active;
+
+    if (!conversationCreationPromise) {
+      const creation = createConversation();
+      conversationCreationPromise = creation;
+      void creation.then(() => {
+        if (conversationCreationPromise === creation) conversationCreationPromise = null;
+      });
+    }
+    return (await conversationCreationPromise)?.id ?? null;
+  };
 
   // ---- commands ---------------------------------------------------------
 
   /** Upload one attachment into the conversation file store; returns its reference. */
-  const uploadConversationFile = async (conversationId: string, file: File): Promise<AiAttachmentRef> => {
+  const uploadConversationFile = async (conversationId: string, file: File): Promise<AiAttachmentRef & { version: number }> => {
     let prepared = preparedAttachmentRefs.get(conversationId);
     if (!prepared) {
       prepared = new WeakMap();
@@ -545,8 +583,8 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
       form.append("file", file);
       const response = await fetch(url(`/conversations/${conversationId}/files`), { method: "POST", body: form });
       if (!response.ok) throw new Error(await readError(response, `Failed to upload ${file.name}`));
-      const body = (await response.json()) as { file: { path: string; mediaType: string; size: number } };
-      return { path: body.file.path, mediaType: body.file.mediaType, size: body.file.size };
+      const body = (await response.json()) as { file: { path: string; mediaType: string; size: number; version: number } };
+      return { path: body.file.path, mediaType: body.file.mediaType, size: body.file.size, version: body.file.version };
     })();
     prepared.set(file, upload);
     try {
@@ -557,106 +595,172 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     }
   };
 
-  const send = async (input: { message?: string; content?: AiUserContentPart[]; files?: File[]; modelProfileId?: string }) => {
-    const text = input.message?.trim() ?? "";
-    if (!text && !input.content?.length && !input.files?.length) return false;
-    const conversationId = await ensureConversation();
-    if (!conversationId) return false;
-    if (isActiveConversation(conversationId) && running()) return false;
+  const persistComposerDraft = async (
+    input: ComposerDraftInput,
+    conversationId: string | null,
+  ): Promise<{ conversationId: string; content: AiDraftContentPart[]; revision: number } | null> => {
+    if (!conversationId) return null;
+    const conversation = isActiveConversation(conversationId) ? state.conversation : cache.get(conversationId)?.conversation;
+    if (!conversation) return null;
 
-    if (isActiveConversation(conversationId)) clearErrors();
-    const baseProjection = isActiveConversation(conversationId)
-      ? { conversation: state.conversation, messages: [...state.messages], activeTurn: state.activeTurn }
-      : (cache.get(conversationId) ?? emptyProjection());
+    let uploaded: Array<AiAttachmentRef & { version: number }> = [];
+    try {
+      uploaded = input.files?.length ? await Promise.all(input.files.map((file) => uploadConversationFile(conversationId, file))) : [];
+    } catch (uploadError) {
+      setConversationError(conversationId, uploadError instanceof Error ? uploadError.message : "Attachment upload failed");
+      return null;
+    }
 
-    // Upload attachments first — their VFS paths become part of the message.
-    let attachmentParts: { type: "attachment"; path: string; mediaType: string; size: number }[] = [];
-    if (input.files?.length) {
+    const textParts: AiDraftContentPart[] = [];
+    const message = input.message?.trim();
+    if (message && !input.content?.some((part) => typeof part !== "string" && part.type === "text")) {
+      textParts.push({ type: "text", text: message });
+    }
+    for (const part of input.content ?? []) {
+      if (typeof part === "string") {
+        if (part.trim()) textParts.push({ type: "text", text: part });
+      } else if (part.type === "text" && part.text.trim()) {
+        textParts.push({ type: "text", text: part.text });
+      }
+    }
+    const content: AiDraftContentPart[] = [
+      ...textParts,
+      ...(input.resources ?? []).map((resource) => ({ type: "resource" as const, ...resource })),
+      ...(input.storedFiles ?? []).map((file) => ({ type: "file" as const, ...file })),
+      ...uploaded.map((file) => ({ type: "file" as const, ...file })),
+    ];
+    try {
+      const draft = await request<AiConversation["draft"]>(
+        `/conversations/${conversationId}/draft`,
+        { method: "PUT", body: JSON.stringify({ expectedRevision: conversation.draft.revision, content }) },
+        "Failed to save conversation draft",
+      );
+      const nextConversation = { ...conversation, draft };
+      const projection = isActiveConversation(conversationId)
+        ? { conversation: nextConversation, messages: state.messages, activeTurn: state.activeTurn }
+        : { ...(cache.get(conversationId) ?? emptyProjection(nextConversation)), conversation: nextConversation };
+      cache.set(conversationId, projection);
+      if (isActiveConversation(conversationId)) setState("conversation", nextConversation);
+      return { conversationId, content, revision: draft.revision };
+    } catch (draftError) {
+      setConversationError(conversationId, draftError instanceof Error ? draftError.message : "Failed to save conversation draft");
+      return null;
+    }
+  };
+
+  const queueDraftOperation = <T>(operation: () => Promise<T>): Promise<T> => {
+    const queued = draftSaveQueue.then(operation);
+    draftSaveQueue = queued.then(
+      () => undefined,
+      () => undefined,
+    );
+    return queued;
+  };
+
+  const saveDraft = (input: ComposerDraftInput) => {
+    const targetConversation = ensureConversation();
+    return queueDraftOperation(async () => persistComposerDraft(input, await targetConversation));
+  };
+
+  const send = (input: ComposerDraftInput & { modelProfileId?: string }): Promise<boolean> => {
+    if (!isComposerDraftSendable(input)) return Promise.resolve(false);
+    const targetConversation = ensureConversation();
+    return queueDraftOperation(async () => {
+      const savedDraft = await persistComposerDraft(input, await targetConversation);
+      if (!savedDraft) return false;
+      const conversationId = savedDraft.conversationId;
+      if (isActiveConversation(conversationId) && running()) return false;
+
+      if (isActiveConversation(conversationId)) clearErrors();
+      const baseProjection = isActiveConversation(conversationId)
+        ? { conversation: state.conversation, messages: [...state.messages], activeTurn: state.activeTurn }
+        : (cache.get(conversationId) ?? emptyProjection());
+
+      // Optimistic view renders attachments through the same marker format the server persists.
+      const optimisticContent: AiUserContentPart[] = [
+        ...savedDraft.content.flatMap((part) => {
+          if (part.type === "text") return [{ type: "text" as const, text: part.text }];
+          if (part.type === "file") return [{ type: "text" as const, text: aiAttachmentMarker(part) }];
+          return [{ type: "text" as const, text: aiResourceMarker(part) }];
+        }),
+      ];
+
+      // Optimistic: show the user message immediately.
+      const optimistic: AiStoredMessage = {
+        id: `pending-${Date.now()}`,
+        shortId: `pending-${Date.now()}`,
+        conversationId,
+        seq: (baseProjection.messages.at(-1)?.seq ?? 0) + 1,
+        kind: "message",
+        message: { role: "user", content: optimisticContent },
+        loopId: null,
+        modelProfileId: null,
+        providerModel: null,
+        usage: null,
+        stopReason: null,
+        loopAggregate: null,
+        loopDoneReason: null,
+        compactedAt: null,
+        meta: null,
+        createdAt: new Date().toISOString(),
+      };
+      const optimisticProjection = { ...baseProjection, messages: [...baseProjection.messages, optimistic] };
+      cache.set(conversationId, optimisticProjection);
+      if (isActiveConversation(conversationId)) {
+        setState("messages", (prev) => [...prev, optimistic]);
+        setRunStatusRaw("streaming");
+      }
+
       try {
-        const refs = await Promise.all(input.files.map((file) => uploadConversationFile(conversationId, file)));
-        attachmentParts = refs.map((ref) => ({ type: "attachment" as const, ...ref }));
-      } catch (uploadError) {
-        setConversationError(conversationId, uploadError instanceof Error ? uploadError.message : "Attachment upload failed");
+        const result = await request<SubmitTurnResult>(
+          `/conversations/${conversationId}/turns`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              draftRevision: savedDraft.revision,
+              modelProfileId: input.modelProfileId,
+            }),
+          },
+          "AI request failed",
+        );
+        if (invalidateInactiveCache(conversationId)) return true;
+        // Replace the optimistic message with the persisted one.
+        setState("messages", (prev) => prev.map((message) => (message.id === optimistic.id ? result.message : message)));
+        setState(
+          "activeTurn",
+          (current) =>
+            current ?? {
+              turnId: result.turn.id,
+              attempt: 0,
+              seq: 0,
+              status: "running",
+              blocks: [],
+              modelProfileId: result.turn.modelProfileId,
+            },
+        );
+        if (state.conversation) {
+          setState("conversation", "draft", {
+            content: [],
+            revision: savedDraft.revision + 1,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+        cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
+        void refreshTimeline(conversationId);
+        if (input.files?.length) {
+          const prepared = preparedAttachmentRefs.get(conversationId);
+          for (const file of input.files) prepared?.delete(file);
+        }
+        return true;
+      } catch (sendError) {
+        if (invalidateInactiveCache(conversationId)) return false;
+        setState("messages", (prev) => prev.filter((message) => message.id !== optimistic.id));
+        cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
+        setRunStatusRaw("failed");
+        setConversationError(conversationId, sendError instanceof Error ? sendError.message : "AI request failed");
         return false;
       }
-    }
-
-    const wireContent = input.content?.length || attachmentParts.length ? [...(input.content ?? []), ...attachmentParts] : undefined;
-    // Optimistic view renders attachments through the same marker format the server persists.
-    const optimisticContent: AiUserContentPart[] = [
-      ...(input.content?.length ? input.content : text ? [{ type: "text" as const, text }] : []),
-      ...attachmentParts.map((part) => ({ type: "text" as const, text: aiAttachmentMarker(part) })),
-    ];
-
-    // Optimistic: show the user message immediately.
-    const optimistic: AiStoredMessage = {
-      id: `pending-${Date.now()}`,
-      shortId: `pending-${Date.now()}`,
-      conversationId,
-      seq: (baseProjection.messages.at(-1)?.seq ?? 0) + 1,
-      kind: "message",
-      message: { role: "user", content: optimisticContent },
-      loopId: null,
-      modelProfileId: null,
-      providerModel: null,
-      usage: null,
-      stopReason: null,
-      loopAggregate: null,
-      loopDoneReason: null,
-      compactedAt: null,
-      meta: null,
-      createdAt: new Date().toISOString(),
-    };
-    const optimisticProjection = { ...baseProjection, messages: [...baseProjection.messages, optimistic] };
-    cache.set(conversationId, optimisticProjection);
-    if (isActiveConversation(conversationId)) {
-      setState("messages", (prev) => [...prev, optimistic]);
-      setRunStatusRaw("streaming");
-    }
-
-    try {
-      const result = await request<SubmitTurnResult>(
-        `/conversations/${conversationId}/turns`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            message: text || undefined,
-            content: wireContent,
-            modelProfileId: input.modelProfileId,
-          }),
-        },
-        "AI request failed",
-      );
-      if (invalidateInactiveCache(conversationId)) return true;
-      // Replace the optimistic message with the persisted one.
-      setState("messages", (prev) => prev.map((message) => (message.id === optimistic.id ? result.message : message)));
-      setState(
-        "activeTurn",
-        (current) =>
-          current ?? {
-            turnId: result.turn.id,
-            attempt: 0,
-            seq: 0,
-            status: "running",
-            blocks: [],
-            modelProfileId: result.turn.modelProfileId,
-          },
-      );
-      cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
-      void refreshTimeline(conversationId);
-      if (input.files?.length) {
-        const prepared = preparedAttachmentRefs.get(conversationId);
-        for (const file of input.files) prepared?.delete(file);
-      }
-      return true;
-    } catch (sendError) {
-      if (invalidateInactiveCache(conversationId)) return false;
-      setState("messages", (prev) => prev.filter((message) => message.id !== optimistic.id));
-      cache.set(conversationId, { conversation: state.conversation, messages: state.messages, activeTurn: state.activeTurn });
-      setRunStatusRaw("failed");
-      setConversationError(conversationId, sendError instanceof Error ? sendError.message : "AI request failed");
-      return false;
-    }
+    });
   };
 
   const submitSteer = async (input: { text: string; clientRequestId: string; blockId: string }) => {
@@ -939,6 +1043,7 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
     openConversation,
     refreshActiveConversation,
     createConversation,
+    saveDraft,
     send,
     steer,
     retrySteer,
@@ -955,6 +1060,9 @@ export const createAiChatController = (options: CreateAiChatControllerOptions) =
 
 export type AiChatController = ReturnType<typeof createAiChatController>;
 
+const isComposerDraftSendable = (input: ComposerDraftInput): boolean =>
+  Boolean(input.message?.trim() || input.content?.length || input.files?.length || input.resources?.length || input.storedFiles?.length);
+
 export const __aiControllerTest = {
   claimFrontendCall,
   conversationRunError,
@@ -965,4 +1073,5 @@ export const __aiControllerTest = {
   isCurrentStreamSession,
   isActiveConversationLoading,
   settleFrontendCall,
+  isComposerDraftSendable,
 };

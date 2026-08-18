@@ -7,6 +7,7 @@ import type { AiChatActions } from "./message-actions";
 import {
   type AiRetryMessageInput,
   copyTextFromMessage,
+  resourcesFromMessage,
   textAttachmentSummariesFromMessage,
   userContentWithEditedVisibleText,
   userVisibleTextFromMessage,
@@ -82,6 +83,13 @@ export const aiUserMessageAttachments = (entry: AiStoredMessage, actions: AiChat
     kind: attachment.mediaType.startsWith("image/") ? ("image" as const) : ("file" as const),
     previewUrl: attachment.mediaType.startsWith("image/") ? (actions.fileUrl?.(attachment.path) ?? undefined) : undefined,
     icon: attachment.mediaType.startsWith("image/") ? "ti ti-photo" : `ti ${attachment.icon}`,
+  })),
+  ...resourcesFromMessage(entry.message).map((resource, index) => ({
+    id: `${entry.id}-resource-${index}`,
+    name: resource.title ?? resource.ref.id,
+    kind: "resource" as const,
+    icon: resource.icon ?? "ti ti-cloud",
+    href: resource.href,
   })),
 ];
 

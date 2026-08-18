@@ -93,10 +93,11 @@ The scheduled time must be at least one minute in the future. Times are displaye
 
 ## A draft is read-only or changed elsewhere {icon="pencil"}
 
-A shared draft allows one active editor. Another browser window or collaborator may hold the lease.
+A shared draft allows one active editor. The collaboration dialog distinguishes your own other tab from another identifiable collaborator when that information is available.
 
-- Continue reading without taking over if the other editor is still working.
-- Select **Take over** only when you intend to end the other editing session.
+- Select **View read-only** to continue without interrupting the other editor.
+- Select **Edit in this tab** or **Take over** only when you intend to make the other editing session read-only.
+- For a connection warning, retry after the connection recovers; Mail does not treat it as another editor or open the takeover dialog.
 - If Mail reports recovery copies, inspect them before discarding or overwriting content.
 - If the browser reloads after unsaved typing, accept the restored browser recovery when it matches your work.
 

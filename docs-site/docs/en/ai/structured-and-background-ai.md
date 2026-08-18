@@ -18,6 +18,11 @@ bounded tasks that do not need a conversation.
 `runAiStructured()` executes a model request. It does not receive an actor or
 an access subject.
 
+Cloud does not expose a generic `POST /api/ai/executions` endpoint. Application
+workflows authorize their domain input and use the durable shared AI workflow
+actions below; bounded server code calls `runAiStructured()` directly. This
+keeps arbitrary prompts and domain data out of a new public execution surface.
+
 Authorize the domain read first. Send only the fields required by the task.
 
 ## Run a structured task

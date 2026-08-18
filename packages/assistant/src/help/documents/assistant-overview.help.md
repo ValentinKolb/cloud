@@ -6,7 +6,7 @@ description: Chats, models, turns, and the first useful workflow.
 order: 100
 ---
 
-Assistant is a personal AI workspace for writing, rewriting, summarizing, explaining, planning, and working with supported files. Chats are saved to your user account and are already available from the Assistant overview.
+Assistant is the standard workspace for your personal Cloud agent. The same agent can help you write, summarize, explain, plan, work with supported files, and use authorized data and operations from Cloud applications. Every chat is saved to your user account and is available from the Assistant overview, including chats started from another application such as a Mail draft.
 
 ## Overview {icon="layout-grid"}
 
@@ -21,9 +21,11 @@ Assistant is a personal AI workspace for writing, rewriting, summarizing, explai
 
 :::reference
 - **Start a chat:** Use New Chat or type a message in an empty Assistant view.
+- **Continue work from another app:** An application can open a new Assistant chat with its current Cloud resources already attached. The application remains responsible for access to its data and operations.
 - **Return to existing work:** Use the recent chat groups, Search Chats, or All Chats without opening a conversation first.
 - **Choose a model when needed:** Pick a model in the composer when more than one selectable streaming model is available.
-- **Send the request:** Write the task clearly, attach files if the composer offers attachments, then send.
+- **Send the request:** Write the task clearly, then use the plus menu to attach supported files or Cloud resources before sending.
+- **Cloud resources:** A resource chip identifies the current Mail draft, Contact, Grid record, or another supported item. When it has a destination, select the chip to open that resource in a new tab. Attaching it does not grant access; Assistant must use the owning application's authorized capabilities to read or change it.
 - **Images:** A Vision model inspects newly attached images directly. A tool-capable model can instead use the configured image-inspection model. Attachments remain conversation files, so the file context updates without storing image bytes inside the message.
 - **Keep the useful thread:** Rename the chat or add a description when the conversation should be easy to find later.
 - **Search inside a chat:** Use `/search` to find visible messages or inspect the structured Cloud resources used in this chat or across your active chats.

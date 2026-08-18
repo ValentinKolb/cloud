@@ -61,7 +61,7 @@ describe.skipIf(!(await canUseAiDatabase()))("enrichment store (integration)", (
     const userId = await insertUser();
     const conversationIds: string[] = [];
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-enrich-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
       await seedUserMessage(conversation.id, "Hi");
 
@@ -86,7 +86,7 @@ describe.skipIf(!(await canUseAiDatabase()))("enrichment store (integration)", (
       // Exactly clean — the millisecond-truncated ISO value would leave it dirty forever.
       expect(await candidateIds()).not.toContain(conversation.id);
 
-      const updated = await aiConversations.getConversation({ conversationId: conversation.id, appId: "ai-enrich-test" });
+      const updated = await aiConversations.getConversation({ conversationId: conversation.id });
       expect(updated?.title).toBe("Greeting chat");
       expect(updated?.titleSource).toBe("auto");
       expect(updated?.description).toBe("A greeting.");
@@ -104,7 +104,7 @@ describe.skipIf(!(await canUseAiDatabase()))("enrichment store (integration)", (
     const userId = await insertUser();
     const conversationIds: string[] = [];
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-enrich-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
       await seedUserMessage(conversation.id, "Hi");
 

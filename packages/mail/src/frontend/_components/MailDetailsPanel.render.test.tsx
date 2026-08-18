@@ -248,6 +248,8 @@ describe("Mail conversation detail panel", () => {
     expect(html).toContain('aria-label="Active collaborators" class="bg-[var(--ui-surface)] p-3"');
     expect(html).toContain('aria-label="Contacts" class="bg-[var(--ui-surface)] p-3"');
     expect(html).toContain('aria-label="Spaces" class="space-y-1 bg-[var(--ui-surface)] p-3"');
+    expect(html).toContain("Related mail");
+    expect(html).toContain("No related mail");
     expect(html.indexOf('aria-label="Active collaborators"')).toBeGreaterThan(html.indexOf('aria-label="Conversation context"'));
     expect(html.indexOf('aria-label="Active collaborators"')).toBeLessThan(html.indexOf('aria-label="Contacts"'));
     expect(html).not.toContain(">Contacts<");

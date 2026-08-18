@@ -114,7 +114,7 @@ export const CORE_SETTINGS = {
     kind: "boolean",
     label: "Enable AI",
     default: false,
-    description: "Enable Cloud AI features including the Assistant app and app-provided AI resources.",
+    description: "Enable Cloud AI features including personal conversations, Assistant, and app Capabilities.",
   },
   "ai.default_model_id": {
     kind: "string",

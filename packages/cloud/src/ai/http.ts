@@ -3,14 +3,62 @@ import type { Context } from "hono";
 import { z } from "zod";
 import { type AuthContext, err, fail, respond } from "../server";
 import { aiAttachmentMarker } from "./attachments";
+import { AI_TURN_ATTACHMENT_MAX_ITEMS } from "./limits";
+import { AiResourceMarkerSchema } from "./resource-markers";
 import { AI_SHORT_ID_PATTERN } from "./short-id";
-import type { AiClientToolId, AiSettingsError, AiUserContentPart } from "./types";
+import type { AiClientToolId, AiDraftContentPart, AiSettingsError, AiUserContentPart } from "./types";
 import { isAiSettingsError } from "./validate";
+
+export const AiDraftContentPartSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("text"), text: z.string().max(20_000) }),
+  AiResourceMarkerSchema.extend({ type: z.literal("resource") }),
+  z.object({
+    type: z.literal("file"),
+    path: z.string().trim().min(1).max(500),
+    mediaType: z.string().trim().min(1).max(120),
+    size: z.number().int().min(0),
+    version: z.number().int().min(1),
+  }),
+]);
+
+export const AiConversationDraftInputSchema = z
+  .object({
+    content: z.array(AiDraftContentPartSchema).max(20),
+  })
+  .superRefine((value, context) => {
+    if (value.content.filter((part) => part.type !== "text").length > AI_TURN_ATTACHMENT_MAX_ITEMS) {
+      context.addIssue({ code: "custom", path: ["content"], message: `A draft can attach at most ${AI_TURN_ATTACHMENT_MAX_ITEMS} items` });
+    }
+  });
+
+export const AiInitialConversationDraftInputSchema = z
+  .object({
+    content: z.array(z.union([AiDraftContentPartSchema.options[0], AiDraftContentPartSchema.options[1]])).max(20),
+  })
+  .superRefine((value, context) => {
+    if (value.content.filter((part) => part.type === "resource").length > AI_TURN_ATTACHMENT_MAX_ITEMS) {
+      context.addIssue({ code: "custom", path: ["content"], message: `A draft can attach at most ${AI_TURN_ATTACHMENT_MAX_ITEMS} items` });
+    }
+  });
+
+export const AiCapabilityRefSchema = z.object({
+  appId: z.string().trim().min(1).max(100),
+  kind: z.enum(["query", "action"]),
+  id: z.string().trim().min(1).max(200),
+});
 
 export const AiCreateConversationInputSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
   projectId: z.string().regex(AI_SHORT_ID_PATTERN).optional(),
+  draft: AiInitialConversationDraftInputSchema.optional(),
+  preloadCapabilities: z.array(AiCapabilityRefSchema).max(8).optional(),
 });
+
+export const AiSaveConversationDraftInputSchema = AiConversationDraftInputSchema.extend({
+  expectedRevision: z.number().int().min(0),
+});
+
+export type AiDraftContentPartInput = z.infer<typeof AiDraftContentPartSchema> & AiDraftContentPart;
 
 export const AiUserContentPartSchema = z.union([
   z.string().trim().min(1).max(20000),
@@ -44,6 +92,12 @@ export const AiTurnInputSchema = z
   });
 
 export type AiTurnInput = z.infer<typeof AiTurnInputSchema>;
+
+export const AiSubmitConversationDraftInputSchema = z.object({
+  draftRevision: z.number().int().min(1),
+  modelProfileId: z.string().trim().min(1).optional(),
+  clientToolIds: z.array(AiClientToolIdSchema).max(1).optional(),
+});
 
 export const AiSteerInputSchema = z.object({
   message: z.string().trim().min(1).max(20000),

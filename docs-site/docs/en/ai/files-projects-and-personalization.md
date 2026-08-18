@@ -5,7 +5,7 @@ section: AI
 order: 1050
 description: Give AI controlled access to chat files, shared Project context, and durable personal preferences.
 tags: [ai, files, projects, memory]
-updated: 2026-08-11
+updated: 2026-08-18
 ---
 
 # Files, Projects, and personalization
@@ -70,21 +70,24 @@ A Project owns a name, description, icon, instructions, optional default model,
 shared text knowledge and files, Cloud resource references, and `read`, `write`,
 or `admin` grants. Creating a Project atomically creates an explicit `admin`
 grant for the creating user or service account. Cloud resolves direct and nested
-group membership from the authoritative account database. Each Project belongs to one
-immutable AI application and can only be resolved or changed through that app.
+group membership from the authoritative account database.
 Projects have no account owner and survive principal deletion. Project access
 changes cannot remove the final admin grant; if an operator deletes the sole
 admin principal outside the Project service, operator recovery is required to
-add a new grant directly.
+add a new grant directly. A platform administrator can find Projects without a
+remaining admin and restore their access under **Admin > AI > Projects**. This
+recovery surface manages grants only; it does not expose Project contents or
+private chats.
 
 Project chats remain private to their creator. Sharing a Project does not share
-chat history. A chat is attached to at most one Project. Its owner may choose,
-change, or clear that Project only while the chat has no messages or turns;
-after the first request the association is immutable.
+chat history. A chat has at most one current Project. Its owner may choose,
+change, or clear that Project between turns. A change affects only future turns
+and is rejected while a turn is queued, running, or waiting for attention.
 
 When a turn is submitted, Cloud rechecks access and stores an immutable snapshot
 with the Project id, name, revision, instructions, context manifest, and model
-default. Retries reuse that snapshot. Project edits affect the next turn.
+default. Past messages do not change when the current Project changes. Retries
+reuse that turn's snapshot; new turns use the current Project and revision.
 Workers recheck current access before execution. `project_context` and every
 read below the virtual `/project` file mount recheck it before returning data.
 The mount is never writable and does not copy shared bytes into a private chat.
@@ -93,10 +96,11 @@ Only Project instructions are instruction-bearing. Knowledge, files, references,
 and tool results are untrusted data. References contain metadata only; the agent
 must use the target app's current authorized capabilities to read the source.
 
-The Assistant Project workspace lets users with `write` or `admin` access edit
-instructions and manage knowledge, files, and Cloud resource references.
-Reference selection uses Universal Search and can be filtered by application.
-Only `admin` users manage Project access. The HTTP API and
+The Assistant Project workspace lets users with `write` access manage basic
+metadata, knowledge, files, and Cloud resource references. Because Project
+instructions and the default model change trusted agent behavior, only
+`admin` users may edit them or manage Project access. Reference selection uses
+Universal Search and can be filtered by application. The HTTP API and
 `cld assistant projects` expose the same metadata, context, and access model.
 
 ## Use personalization for durable user context
@@ -111,11 +115,14 @@ selects relevant records within a 6,000-character budget. Native FTS is always
 available; Cloud optionally uses the exact `pg_textsearch` BM25 index and falls
 back for known extension-capability failures.
 
-The `memory` tool can list, search, add, correct, pin, and forget entries. It
+The `memory` tool can list, search, add, correct, pin, and forget entries without
+an approval pause. Memory mutations are personal context maintenance, not domain
+Actions. They remain visible and reversible in Assistant settings. The tool
 must not store secrets, credentials, raw chat logs, temporary task details, or
-instructions from retrieved content. Learning from private chats is off by
-default; its worker extracts only explicit durable facts and preferences and
-never deletes a memory.
+instructions from retrieved content. Automatic learning reads only user-authored
+text, strips attachment markers, ignores resource refs, Assistant output, and
+tool results, and never deletes a memory. It is controlled by the user's
+personalization setting.
 
 ## Prompt order
 
@@ -123,13 +130,12 @@ Cloud composes the system prompt in this order:
 
 1. platform rules;
 2. organization instructions;
-3. application instructions;
+3. code-owned personal-agent instructions;
 4. Project instructions;
 5. the Project context manifest as untrusted data;
-6. resource context as untrusted data;
-7. the bounded conversation file manifest as untrusted data;
-8. relevant personal facts and preferences;
-9. the final execution reminder.
+6. the bounded conversation file manifest as untrusted data;
+7. relevant personal facts and preferences;
+8. the final execution reminder.
 
 See [AI resources and access](/en/docs/ai/resources-and-access) for authorized
 domain context and [Tools and approvals](/en/docs/ai/tools-and-approvals) for

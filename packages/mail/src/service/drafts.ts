@@ -36,6 +36,7 @@ import { resolveDefaultSignatureSource } from "./compose-templates";
 import { applyConversationReferenceToReplySubjectInTransaction } from "./conversation-reference";
 import { withOwnedDraftLease } from "./draft-leases";
 import { enqueueDraftProjection, enqueueDraftProjectionSnapshot, queueDraftProjectionInTransaction } from "./draft-provider-projection";
+import { notifyMailInvalidations } from "./events";
 import type { AttachmentDownload } from "./messages";
 
 const InternalIdSchema = z.string().uuid();
@@ -85,6 +86,7 @@ type DbDraft = {
   id: string;
   mailbox_id: string;
   conversation_id: string | null;
+  lifecycle_conversation_id?: string | null;
   intent: DraftIntent;
   source_message_id: string | null;
   derived_from_message_id: string | null;
@@ -94,6 +96,7 @@ type DbDraft = {
   author_id: string | null;
   last_editor_kind: DraftActor["kind"];
   last_editor_id: string | null;
+  last_editor_display_name?: string;
   to_addresses: MailDraft["to"] | string;
   cc_addresses: MailDraft["cc"] | string;
   bcc_addresses: MailDraft["bcc"] | string;
@@ -256,7 +259,7 @@ const conflict = (message: string): Result<never> => fail({ code: "CONFLICT", me
 const mapDraft = (row: DbDraft): MailDraft => ({
   id: row.id,
   mailboxId: row.mailbox_id,
-  conversationId: row.conversation_id,
+  conversationId: row.lifecycle_conversation_id ?? row.conversation_id,
   intent: row.intent,
   sourceMessageId: row.source_message_id,
   derivedFromMessageId: row.derived_from_message_id,
@@ -274,6 +277,15 @@ const mapDraft = (row: DbDraft): MailDraft => ({
   attachments: parseArray(row.attachments),
   createdBy: actorFromColumns(row.author_kind, row.author_id),
   lastEditedBy: actorFromColumns(row.last_editor_kind, row.last_editor_id),
+  lastEditedByDisplayName:
+    row.last_editor_display_name ??
+    (row.last_editor_kind === "user"
+      ? "User"
+      : row.last_editor_kind === "service_account"
+        ? "Service account"
+        : row.last_editor_kind === "workflow"
+          ? "Workflow"
+          : "Mail provider"),
   recoveryCopyCount: Number(row.recovery_copy_count),
   revision: Number(row.revision),
   state: row.state,
@@ -1630,8 +1642,27 @@ export const getDraft = async (context: MailRequestContext, mailboxId: string, d
   const allowed = await requireMailboxPermission(context, mailboxId, "read");
   if (!allowed.ok) return allowed;
   const [row] = await sql<DbDraft[]>`
-    SELECT ${draftColumns}
+    SELECT
+      ${draftColumns},
+      lifecycle.conversation_id AS lifecycle_conversation_id,
+      CASE d.last_editor_kind
+        WHEN 'user' THEN COALESCE(editor_user.display_name, 'Former user')
+        WHEN 'service_account' THEN COALESCE(editor_service.display_name, 'Former service account')
+        WHEN 'workflow' THEN 'Workflow'
+        ELSE 'Mail provider'
+      END AS last_editor_display_name
     FROM mail.drafts d
+    LEFT JOIN auth.users editor_user ON d.last_editor_kind = 'user' AND editor_user.id = d.last_editor_id
+    LEFT JOIN auth.service_accounts editor_service
+      ON d.last_editor_kind = 'service_account' AND editor_service.id = d.last_editor_id
+    LEFT JOIN LATERAL (
+      SELECT link.conversation_id
+      FROM mail.outbox_submissions outbox
+      JOIN mail.conversation_messages link ON link.message_id = outbox.message_id
+      WHERE outbox.draft_id = d.id
+      ORDER BY outbox.created_at DESC, outbox.id DESC
+      LIMIT 1
+    ) lifecycle ON true
     WHERE d.id = ${draftId}::uuid AND d.mailbox_id = ${mailboxId}::uuid AND d.origin = 'user'
   `;
   return row ? ok(mapDraft(row)) : fail(err.notFound("Draft"));
@@ -1970,6 +2001,7 @@ export const discardDraft = async (params: {
       retirementSnapshotId = await queueDraftProjectionInTransaction({ db: tx, draftId: updated.id });
       return ok(mapDraft(updated));
     });
+    if (result.ok) await notifyMailInvalidations();
     if (result.ok && retirementSnapshotId) await enqueueDraftProjectionSnapshot(retirementSnapshotId);
     return result;
   } catch {

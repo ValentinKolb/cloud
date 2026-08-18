@@ -5,6 +5,7 @@ import MailComposer from "./MailComposer";
 
 export default function MailComposerPage(props: {
   mailboxId: string;
+  currentActor: { kind: "user" | "service_account"; id: string };
   identities: SenderIdentity[];
   initialDraft?: MailDraft;
   initialSeed?: MailDraftSeed;
@@ -20,6 +21,7 @@ export default function MailComposerPage(props: {
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden" classList={{ "paper rounded-[var(--ui-radius-frame)]": !props.popout }}>
         <MailComposer
           mailboxId={props.mailboxId}
+          currentActor={props.currentActor}
           identities={props.identities}
           initialDraft={props.initialDraft}
           initialSeed={props.initialSeed}

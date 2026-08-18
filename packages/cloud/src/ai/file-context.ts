@@ -25,12 +25,17 @@ const attachmentPaths = (message: Message): string[] => {
 export const snapshotAiConversationFiles = async (
   conversationId: string,
   message: Message,
+  expected?: ReadonlyArray<{ path: string; version: number }>,
 ): Promise<AiConversationFileSnapshot | undefined> => {
   const all = await aiFileStore.list({ conversationId });
   const byPath = new Map(all.map((file) => [file.path, file]));
   const attached = attachmentPaths(message).map((path) => {
     const file = byPath.get(path);
     if (!file) throw new Error(`Attached conversation file does not exist: ${path}`);
+    const expectedVersion = expected?.find((entry) => entry.path === path)?.version;
+    if (expectedVersion !== undefined && file.version !== expectedVersion) {
+      throw new Error(`Attached conversation file changed before the turn was submitted: ${path}`);
+    }
     if (file.mediaType.startsWith("image/") && !isAiImageMediaType(file.mediaType)) {
       throw new Error(`Attached image ${path} has an unsupported media type: ${file.mediaType}`);
     }

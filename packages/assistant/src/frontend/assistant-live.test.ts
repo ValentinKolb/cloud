@@ -44,7 +44,6 @@ describe("Assistant live invalidation hub", () => {
     hub.scheduleEvent("10-0", {
       type: "ai.invalidated",
       changeId: crypto.randomUUID(),
-      appId: "assistant",
       conversationId: "Chat01",
       projectId: null,
       domains: ["conversation-list"],
@@ -79,7 +78,6 @@ describe("Assistant live invalidation hub", () => {
     hub.scheduleEvent("11-0", {
       type: "ai.invalidated",
       changeId: crypto.randomUUID(),
-      appId: "assistant",
       conversationId: "Other1",
       projectId: null,
       domains: ["conversation-files"],
@@ -91,7 +89,6 @@ describe("Assistant live invalidation hub", () => {
     hub.scheduleEvent("12-0", {
       type: "ai.invalidated",
       changeId: crypto.randomUUID(),
-      appId: "assistant",
       conversationId: "Chat01",
       projectId: null,
       domains: ["conversation-files"],

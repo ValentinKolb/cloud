@@ -39,9 +39,12 @@ import MailComposerAttachments from "./MailComposerAttachments";
 import { openMailComposerCalendarDialog } from "./MailComposerCalendarDialog";
 import MailComposerEditor from "./MailComposerEditor";
 import MailComposerHistory from "./MailComposerHistory";
+import MailComposerLifecycleNotice from "./MailComposerLifecycleNotice";
+import { mailDraftCollaborationCopy, openMailDraftCollaborationDialog } from "./MailDraftCollaborationDialog";
 import MailRecipientInput from "./MailRecipientInput";
 import { chooseScheduledSendTime } from "./MailScheduleDialog";
 import { readMailUserPreferences, writeMailComposerPanes } from "./MailSettingsStore";
+import { launchMailDraftAssistant } from "./mail-assistant-launch";
 import { mailDraftHref, mailDraftSeedHref } from "./mail-compose-route";
 import { createMailComposerAttachmentManager } from "./mail-composer-attachment-manager";
 import { focusMailComposerEditorAtStart } from "./mail-composer-editor-focus";
@@ -69,6 +72,7 @@ const intentIcon = (intent: DraftIntent): string =>
 
 export default function MailComposer(props: {
   mailboxId: string;
+  currentActor: { kind: "user" | "service_account"; id: string };
   identities: SenderIdentity[];
   initialDraft?: MailDraft;
   initialSeed?: MailDraftSeed;
@@ -197,6 +201,8 @@ export default function MailComposer(props: {
     draft,
     setDraft,
     lease,
+    leaseConflict,
+    lifecycleTransition,
     status,
     setStatus,
     statusMessage,
@@ -212,6 +218,51 @@ export default function MailComposer(props: {
     hasUnsavedChanges,
   } = draftSession;
   const conversationId = () => draft()?.conversationId ?? initial.conversationId;
+  const composeWithAi = mutations.create<void, void>({
+    mutation: async () => {
+      const currentDraft = await persist();
+      if (!currentDraft) throw new Error(statusMessage() || "Draft could not be saved");
+      const launch = await launchMailDraftAssistant({
+        mailboxId: props.mailboxId,
+        returnHref: props.returnHref,
+        draft: currentDraft,
+      });
+      navigateTo(launch.href);
+    },
+  });
+  const saveLifecycleCopy = mutations.create<MailDraft, void>({
+    mutation: async () => {
+      const response = await apiClient.mailboxes[":mailboxId"].drafts.$post({
+        param: { mailboxId: props.mailboxId },
+        json: {
+          ...content(),
+          conversationId: null,
+          intent: "new",
+          sourceMessageId: null,
+          includeSourceAttachments: false,
+        },
+      });
+      if (!response.ok) throw new Error(await readApiError(response, "Could not save as a new draft"));
+      return await response.json();
+    },
+    onSuccess: (created) => navigateTo(mailDraftHref(props.mailboxId, created.id, props.returnHref, { popout: props.popout })),
+    onError: (error) => prompts.error(error.message),
+  });
+  const copyLifecycleText = async () => {
+    try {
+      await navigator.clipboard.writeText(body());
+      toast.success("Unsaved text copied");
+    } catch {
+      await prompts.error("Your browser could not copy the text. The read-only editor still contains it.");
+    }
+  };
+  const openLifecycleMessage = () => {
+    const current = lifecycleTransition()?.draft;
+    if (!current?.conversationId) return;
+    const target = new URL(props.returnHref, window.location.origin);
+    target.searchParams.set("conversation", current.conversationId);
+    navigateTo(`${target.pathname}${target.search}${target.hash}`);
+  };
   const currentComposerPanes = createMemo(() => reconcileMailComposerPanes(composerPanes(), format(), Boolean(conversationId())));
   type PreviewInput = { draft: DraftEditableContentInput; conversationId: string | null };
   const initialPreviewInput: PreviewInput = { draft: content(), conversationId: conversationId() };
@@ -304,6 +355,15 @@ export default function MailComposer(props: {
     const current = composerPanes();
     const next = currentComposerPanes();
     if (next !== current) updateComposerPanes(next);
+  });
+
+  createEffect(() => {
+    if (!lifecycleTransition()) return;
+    deliveryPreparationController?.abort();
+    deliveryPreparationController = null;
+    send.abort();
+    discard.abort();
+    saveLifecycleCopy.abort();
   });
 
   const restoreRecoveryCopy = async () => {
@@ -889,21 +949,55 @@ export default function MailComposer(props: {
     void handoffTo((draftId) => draftHref(draftId, true), popup);
   };
 
-  const takeOver = async () => {
+  let conflictDialogOpen = false;
+  let lastPromptedConflict = leaseConflict();
+  const presentLeaseConflict = async () => {
     const currentDraft = draft();
-    if (!currentDraft) return;
-    const confirmed = await prompts.confirm("The other editing session becomes read-only.", {
-      title: "Take over draft?",
-      confirmText: "Take over",
-    });
-    if (!confirmed || disposed) return;
-    stopHeartbeat();
-    const acquired = await acquireLease(currentDraft, true);
-    if (!disposed && acquired) {
-      setStatus("saved");
-      setStatusMessage("Draft editing taken over");
+    const conflict = leaseConflict();
+    if (!currentDraft || !conflict || conflictDialogOpen) return;
+    conflictDialogOpen = true;
+    try {
+      const choice = await openMailDraftCollaborationDialog({
+        conflict,
+        currentActor: props.currentActor,
+        dateConfig: props.dateConfig,
+      });
+      if (choice !== "takeover" || disposed) return;
+      stopHeartbeat();
+      setStatus("preparing");
+      const acquired = await acquireLease(currentDraft, true);
+      if (!disposed && acquired) {
+        setStatus("saved");
+        setStatusMessage("");
+        toast.success("You can now edit this draft");
+      }
+    } catch (error) {
+      if (!disposed) {
+        setStatus("error");
+        setStatusMessage(error instanceof Error ? error.message : "Draft editing could not be taken over");
+      }
+    } finally {
+      conflictDialogOpen = false;
     }
   };
+
+  createEffect(() => {
+    const conflict = leaseConflict();
+    if (!conflict || conflict === lastPromptedConflict || conflictDialogOpen) return;
+    lastPromptedConflict = conflict;
+    queueMicrotask(() => void presentLeaseConflict());
+  });
+
+  const collaborationStatus = () => {
+    const conflict = leaseConflict();
+    return conflict ? mailDraftCollaborationCopy(conflict, props.currentActor).status : statusMessage();
+  };
+  const connectionUnavailable = () => status() === "readonly" && Boolean(lease()) && !leaseConflict();
+  const readonlyActionLabel = () => {
+    const conflict = leaseConflict();
+    return conflict ? mailDraftCollaborationCopy(conflict, props.currentActor).takeoverLabel : "Retry";
+  };
+  const handleReadonlyAction = () => (leaseConflict() ? void presentLeaseConflict() : void resumeCurrentLease());
 
   const composerIntent = () => draft()?.intent ?? initial.intent;
   const retryPreview = () => void previewQuery.refresh();
@@ -1006,13 +1100,20 @@ export default function MailComposer(props: {
           <IdentitySwitcher />
           <span class="min-w-0 flex-1" />
           <Show when={status() === "error" || status() === "readonly"}>
-            <span class="min-w-0 truncate text-xs text-red-600 dark:text-red-300" role="status">
-              {statusMessage()}
+            <span
+              class="min-w-0 truncate text-xs"
+              classList={{
+                "text-red-600 dark:text-red-300": status() === "error" || connectionUnavailable(),
+                "text-dimmed": status() === "readonly" && !connectionUnavailable(),
+              }}
+              role="status"
+            >
+              {collaborationStatus()}
             </span>
           </Show>
-          <Show when={status() === "readonly" && draft()}>
-            <Button variant="secondary" size="sm" type="button" onClick={() => (lease() ? void resumeCurrentLease() : void takeOver())}>
-              {lease() ? "Retry" : "Take over"}
+          <Show when={status() === "readonly" && draft() && (lease() || leaseConflict())}>
+            <Button variant="secondary" size="sm" type="button" onClick={handleReadonlyAction}>
+              {readonlyActionLabel()}
             </Button>
           </Show>
           <Show when={editable() && (draft()?.recoveryCopyCount ?? 0) > 0}>
@@ -1030,13 +1131,18 @@ export default function MailComposer(props: {
 
       <Show when={props.popout && (status() === "error" || status() === "readonly")}>
         <div
-          class="flex shrink-0 items-center gap-2 bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300"
+          class="flex shrink-0 items-center gap-2 px-3 py-2 text-xs"
+          classList={{
+            "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300": status() === "error" || connectionUnavailable(),
+            "border-b border-[var(--ui-border)] bg-[var(--ui-surface-subtle)] text-secondary":
+              status() === "readonly" && !connectionUnavailable(),
+          }}
           role="status"
         >
-          <span class="min-w-0 flex-1 truncate">{statusMessage()}</span>
-          <Show when={status() === "readonly" && draft()}>
-            <Button variant="secondary" size="sm" type="button" onClick={() => (lease() ? void resumeCurrentLease() : void takeOver())}>
-              {lease() ? "Retry" : "Take over"}
+          <span class="min-w-0 flex-1 truncate">{collaborationStatus()}</span>
+          <Show when={status() === "readonly" && draft() && (lease() || leaseConflict())}>
+            <Button variant="secondary" size="sm" type="button" onClick={handleReadonlyAction}>
+              {readonlyActionLabel()}
             </Button>
           </Show>
         </div>
@@ -1055,6 +1161,18 @@ export default function MailComposer(props: {
         <div class="flex shrink-0 items-center bg-[var(--ui-surface-subtle)] px-3 py-1.5">
           <IdentitySwitcher />
         </div>
+      </Show>
+
+      <Show when={lifecycleTransition()}>
+        {(transition) => (
+          <MailComposerLifecycleNotice
+            transition={transition()}
+            savingCopy={saveLifecycleCopy.loading()}
+            onCopyText={() => void copyLifecycleText()}
+            onSaveAsNew={() => void saveLifecycleCopy.mutate()}
+            onOpenMessage={openLifecycleMessage}
+          />
+        )}
       </Show>
 
       <div class="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-3">
@@ -1144,6 +1262,20 @@ export default function MailComposer(props: {
           <i class={`ti ${intentIcon(composerIntent())}`} aria-hidden="true" />
           {intentLabel(composerIntent())}
         </SplitButton>
+        <Button
+          size="sm"
+          variant="ai"
+          type="button"
+          loading={composeWithAi.loading()}
+          disabled={!editable() || uploads().length > 0 || composeWithAi.loading()}
+          onClick={() =>
+            void composeWithAi
+              .mutate()
+              .catch((error: unknown) => prompts.error(error instanceof Error ? error.message : "Assistant chat could not be created"))
+          }
+        >
+          <i class="ti ti-sparkles" aria-hidden="true" /> Write with AI
+        </Button>
         <Tooltip.Anchor
           content={deliveryOptionsSummary().length > 0 ? `Message options: ${deliveryOptionsSummary().join(", ")}` : "Message options"}
         >

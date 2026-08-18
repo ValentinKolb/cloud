@@ -5,7 +5,7 @@ import { conversationFileSource } from "@valentinkolb/cloud/ai/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import type { AssistantChatContextSnapshot } from "../chat-context";
-import type { AssistantChatTask } from "../chat-tasks-contracts";
+import type { AiChatTaskView as AssistantChatTask } from "@valentinkolb/cloud/ai";
 import type { AssistantProjectContextSnapshot } from "../project-context";
 import { AssistantChatContextSurface } from "./AssistantChatContextSurfaces";
 import {
@@ -154,7 +154,7 @@ function AssistantChatContextView(props: { state: AssistantChatContextState }) {
       }
     >
       {(value) => {
-        const chatSource = conversationFileSource("/api/assistant", value().chat.chatId);
+        const chatSource = conversationFileSource("/api/ai", value().chat.chatId);
         const projectSource = value().project
           ? assistantProjectFileSource(value().project!.id, () => value().projectContext?.files ?? [])
           : null;

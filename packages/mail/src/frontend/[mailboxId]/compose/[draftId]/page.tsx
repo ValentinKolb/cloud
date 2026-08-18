@@ -19,6 +19,10 @@ export default ssr<AuthContext>(async (c) => {
     accessSubject: c.get("accessSubject"),
     requestId: c.req.header("x-request-id") ?? null,
   };
+  const currentActor =
+    context.actor.kind === "user"
+      ? { kind: "user" as const, id: context.actor.user.id }
+      : { kind: "service_account" as const, id: context.actor.serviceAccount.id };
   const [mailbox, permission, identities, draft, calendarIntegrationAvailable] = await Promise.all([
     mailboxes.getMailbox(context, mailboxId),
     mailboxAccess.getMailboxPermission(context, mailboxId),
@@ -49,6 +53,7 @@ export default ssr<AuthContext>(async (c) => {
     >
       <MailComposerPage
         mailboxId={mailboxShortId}
+        currentActor={currentActor}
         identities={publicData.identities}
         initialDraft={publicData.draft}
         initialPanes={initialPanes}

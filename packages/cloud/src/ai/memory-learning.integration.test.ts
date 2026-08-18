@@ -26,8 +26,8 @@ describe.skipIf(!(await canUseAiDatabase()))("AI memory learning (integration)",
       RETURNING id
     `;
     const [conversation] = await sql<{ id: string; dirty_as_of: string }[]>`
-      INSERT INTO ai.conversations (short_id, app_id, created_by_user_id, title)
-      VALUES (${createAiShortId()}, 'assistant', ${user!.id}::uuid, 'Memory learning test')
+      INSERT INTO ai.conversations (short_id, created_by_user_id, title)
+      VALUES (${createAiShortId()}, ${user!.id}::uuid, 'Memory learning test')
       RETURNING id, updated_at::text AS dirty_as_of
     `;
     await sql`
@@ -49,7 +49,6 @@ describe.skipIf(!(await canUseAiDatabase()))("AI memory learning (integration)",
             {
               conversationId: conversation!.id,
               userId: user!.id,
-              appId: "assistant",
               dirtyAsOf: conversation!.dirty_as_of,
               failCount: 0,
             },

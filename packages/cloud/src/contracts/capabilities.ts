@@ -88,6 +88,7 @@ export const CapabilityActionReviewSchema = z
           .object({
             label: z.string().min(1).max(120),
             value: z.string().max(10_000),
+            display: z.enum(["inline", "block"]).optional(),
           })
           .strict(),
       )

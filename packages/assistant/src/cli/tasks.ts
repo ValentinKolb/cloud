@@ -1,5 +1,8 @@
 import { arg, command, confirmFlag, flag, readCliInput } from "@valentinkolb/cloud/cli";
-import type { AssistantChatTask, AssistantChatTaskOccurrence } from "../chat-tasks-contracts";
+import type {
+  AiChatTaskOccurrenceView as AssistantChatTaskOccurrence,
+  AiChatTaskView as AssistantChatTask,
+} from "@valentinkolb/cloud/ai";
 import { idempotentJsonRequest, jsonRequest, printRows, printValue, queryString, readApi, requireConfirmation } from "./shared";
 
 type TaskDetail = { task: AssistantChatTask; occurrences: AssistantChatTaskOccurrence[] };

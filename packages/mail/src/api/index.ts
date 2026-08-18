@@ -70,6 +70,8 @@ import {
   reassignConversationMessageInputSchema,
   relatedMailPageSchema,
   relatedMailQuerySchema,
+  relatedConversationListSchema,
+  relatedConversationQuerySchema,
   renderComposeSnippetInputSchema,
   searchBackendSchema,
   searchRequestSchema,
@@ -848,6 +850,32 @@ const mailOperationsApi = new Hono<MailApiContext>()
       });
       return respondAppDependency(c, result);
     },
+  )
+  .get(
+    "/mailboxes/:mailboxId/conversations/:conversationId/related",
+    describeRoute({
+      tags: ["Mail:Context"],
+      summary: "List related Mail conversations",
+      description:
+        "Returns a small explainable ranking from the current mailbox using shared external participants and normalized subjects.",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(relatedConversationListSchema, "Related conversations"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Conversation not found"),
+      },
+    }),
+    v("param", mailboxAndIdParamSchema("conversationId")),
+    v("query", relatedConversationQuerySchema),
+    async (c) =>
+      respondConversations(
+        c,
+        conversationContext.listRelatedConversations({
+          context: requestContext(c),
+          ...internalParams(c, c.req.valid("param") as { mailboxId: string; conversationId: string }),
+          limit: c.req.valid("query").limit,
+        }),
+      ),
   )
   .get(
     "/mailboxes/:mailboxId/conversations/:conversationId/contacts/:bookId/:contactId/history",

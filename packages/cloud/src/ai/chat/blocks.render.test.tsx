@@ -129,11 +129,28 @@ describe("capability tool presentation", () => {
 
     const customReview = block("awaiting_approval");
     if (customReview.kind !== "tool" || !customReview.approval) throw new Error("approval block missing");
-    customReview.approval.message = "The draft includes an external recipient.\nSubject: Release follow-up\nRecipients: Ada";
+    customReview.approval.message = "The draft includes an external recipient.";
+    customReview.approval.review = {
+      message: "The draft includes an external recipient.",
+      details: [
+        { label: "Subject", value: "Release follow-up" },
+        { label: "Recipients", value: "Ada", display: "inline" },
+        { label: "Proposed body", value: "Hello **Ada**\n<script>alert('plain text')</script>", display: "block" },
+      ],
+      links: [{ rel: "edit", href: "/app/mail/MbA123/drafts/DrG789", title: "Edit draft" }],
+    };
     const customHtml = renderApproval(customReview);
     expect(customHtml).toContain("The draft includes an external recipient.");
-    expect(customHtml).toContain('<strong class="font-semibold text-primary">Subject: </strong>Release follow-up');
-    expect(customHtml).toContain('<strong class="font-semibold text-primary">Recipients: </strong>Ada');
-    expect(customHtml).toContain('class="mt-3 flex flex-col gap-1 text-xs leading-5 text-secondary"');
+    expect(customHtml).toContain('<dt class="font-semibold text-primary">Subject</dt>');
+    expect(customHtml).toContain('<dd class="min-w-0 whitespace-pre-wrap break-words">Release follow-up</dd>');
+    expect(customHtml).toContain('<dt class="font-semibold text-primary">Recipients</dt>');
+    expect(customHtml).toContain('aria-label="Proposed body"');
+    expect(customHtml).toContain('aria-label="Proposed body content"');
+    expect(customHtml).toContain('tabindex="0"');
+    expect(customHtml).toContain("Hello **Ada**");
+    expect(customHtml).toContain("&lt;script>alert('plain text')&lt;/script>");
+    expect(customHtml).not.toContain("<strong>Ada</strong>");
+    expect(customHtml).toContain('href="/app/mail/MbA123/drafts/DrG789"');
+    expect(customHtml).toContain("Edit draft</a>");
   });
 });

@@ -226,6 +226,35 @@ export const ConversationSearchInputSchema = z
   .strict();
 export const ConversationSearchDataSchema = z.array(ConversationDataSchema).max(100);
 
+export const ConversationRelatedInputSchema = z
+  .object({
+    mailboxId: MailboxIdInputSchema,
+    conversationId: ConversationIdInputSchema.describe("Conversation whose related Mail should be found."),
+    limit: z.number().int().min(1).max(10).default(5).describe("Maximum number of related conversations to return."),
+  })
+  .strict();
+export const ConversationRelatedReasonSchema = z
+  .object({
+    kind: z.enum(["participant", "subject"]),
+    value: z.string().min(1).max(500),
+  })
+  .strict();
+export const ConversationRelatedDataSchema = z
+  .array(
+    z
+      .object({
+        id: ResourceShortIdSchema,
+        subject: z.string().max(2_000),
+        participantSummary: z.string().max(2_000),
+        latestMessageAt: TimestampSchema,
+        preview: z.string().max(240).nullable(),
+        reasons: z.array(ConversationRelatedReasonSchema).min(1).max(6),
+        ...OptionalResourceLinksShape,
+      })
+      .strict(),
+  )
+  .max(10);
+
 const AddressDataSchema = z.object({ name: z.string().max(200).nullable(), address: z.email() }).strict();
 export const AttachmentDataSchema = z
   .object({

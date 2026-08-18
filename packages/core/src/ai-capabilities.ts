@@ -10,6 +10,11 @@ import {
   aiChatTasks,
   aiConversations,
   isConversationResourceCursor,
+  ChatTaskIdSchema,
+  ChatTaskOccurrenceIdSchema,
+  ChatTaskScheduleInputSchema,
+  chatTaskCreateFingerprint,
+  normalizeChatTaskSchedule,
 } from "@valentinkolb/cloud/ai";
 import {
   CloudResourceRefSchema,
@@ -20,19 +25,12 @@ import {
   UniversalSearchDataSchema,
 } from "@valentinkolb/cloud/contracts";
 import { z } from "zod";
-import {
-  ChatTaskIdSchema,
-  ChatTaskOccurrenceIdSchema,
-  ChatTaskScheduleInputSchema,
-  chatTaskCreateFingerprint,
-  normalizeChatTaskSchedule,
-} from "./chat-tasks-contracts";
-import { assistantChatTaskRuntime, reconcileAssistantChatTasks } from "./chat-tasks-runtime";
-import { deliverPendingAssistantMessages } from "./inter-chat-messages";
+import { aiChatTaskRuntime, reconcileAiChatTasks } from "./ai-chat-tasks-runtime";
+import { deliverPendingAiMessages } from "./ai-inter-chat-messages";
 
-const ASSISTANT_APP_ID = "assistant";
+const CORE_APP_ID = "core";
 const MAX_MESSAGE_TEXT_CHARS = 8_000;
-const ChatIdSchema = z.string().regex(AI_SHORT_ID_PATTERN).describe("Readable six-character Assistant chat ID.");
+const ChatIdSchema = z.string().regex(AI_SHORT_ID_PATTERN).describe("Readable six-character AI conversation ID.");
 const CursorSchema = z
   .string()
   .regex(/^[1-9]\d*$/)
@@ -46,7 +44,7 @@ const resourceCursorSchema = (scope: "conversation" | "user") =>
     .refine((value) => isConversationResourceCursor(value, scope), "Invalid resource cursor")
     .optional()
     .describe("Opaque cursor returned by the previous resource page.");
-const CHAT_MESSAGE_TOOL_NAME = aiCapabilityToolName(ASSISTANT_APP_ID, "action", "chat.message");
+const CHAT_MESSAGE_TOOL_NAME = aiCapabilityToolName(CORE_APP_ID, "action", "chat.message");
 const ChatTaskCreateInputSchema = z
   .object({
     chatId: ChatIdSchema,
@@ -263,7 +261,7 @@ const chatSummary = (chat: AiConversation) => ({
 });
 
 const toResourceView = (chat: AiConversation): CloudResourceView => ({
-  ref: { type: "assistant.chat", id: chat.shortId },
+  ref: { type: "core.chat", id: chat.shortId },
   title: chat.title,
   ...(chat.description.trim() ? { preview: chat.description } : {}),
   priority: chat.pinnedAt ? 8 : 6,
@@ -308,51 +306,51 @@ const resourceData = (resource: AiConversationResourceRef) => ({
 });
 
 const ownedChat = async (chatId: string, userId: string, archived = false): Promise<AiConversation | null> =>
-  aiConversations.getConversationByShortId({ shortId: chatId, appId: ASSISTANT_APP_ID, ownerUserId: userId, archived });
+  aiConversations.getConversationByShortId({ shortId: chatId, ownerUserId: userId, archived });
 const readableOwnedChat = async (chatId: string, userId: string): Promise<AiConversation | null> =>
   (await ownedChat(chatId, userId)) ?? ownedChat(chatId, userId, true);
 
-export const assistantCapabilities = defineCapabilities({
+export const aiCapabilities = defineCapabilities({
   protocolVersion: 1,
   types: {
     chat: {
-      title: "Assistant chat",
-      description: "A private Assistant conversation owned by the current user.",
+      title: "AI conversation",
+      description: "A private AI conversation owned by the current user.",
       icon: "ti ti-message-chatbot",
       reader: "chat.read",
     },
     task: {
-      title: "Scheduled Assistant task",
-      description: "A one-time or recurring prompt attached to an owned Assistant chat.",
+      title: "Scheduled AI task",
+      description: "A one-time or recurring prompt attached to an owned AI conversation.",
       icon: "ti ti-calendar-clock",
       reader: "task.read",
     },
   },
   queries: {
     "tasks.list": {
-      title: "List scheduled Assistant tasks",
+      title: "List scheduled AI tasks",
       description: "List the current user's chat-bound scheduled tasks, optionally for one chat or state.",
       input: ChatTasksListInputSchema,
       data: z.array(ChatTaskDataSchema),
       openWorld: false,
       async run(input, context) {
         if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
-        const tasks = await aiChatTasks.list({ appId: ASSISTANT_APP_ID, userId: context.user.id, ...input });
-        return ok({ data: tasks.map(taskData), refs: tasks.map((task) => ({ type: "assistant.task", id: task.shortId })) });
+        const tasks = await aiChatTasks.list({ userId: context.user.id, ...input });
+        return ok({ data: tasks.map(taskData), refs: tasks.map((task) => ({ type: "core.task", id: task.shortId })) });
       },
     },
     "task.read": {
-      title: "Read a scheduled Assistant task",
+      title: "Read a scheduled AI task",
       description: "Read one owned scheduled task and its recent occurrence history.",
       input: ChatTaskReadInputSchema,
       data: ChatTaskDetailDataSchema,
       openWorld: false,
       async run(input, context) {
         if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
-        const task = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.id });
+        const task = await aiChatTasks.get({ userId: context.user.id, taskId: input.id });
         if (!task) return fail(err.notFound("Task"));
         const occurrences =
-          (await aiChatTasks.listOccurrences({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.id })) ?? [];
+          (await aiChatTasks.listOccurrences({ userId: context.user.id, taskId: input.id })) ?? [];
         return ok({
           data: {
             task: taskData(task),
@@ -367,23 +365,22 @@ export const assistantCapabilities = defineCapabilities({
             })),
           },
           refs: [
-            { type: "assistant.task", id: task.shortId },
-            { type: "assistant.chat", id: task.chatId },
+            { type: "core.task", id: task.shortId },
+            { type: "core.chat", id: task.chatId },
           ],
           links: [{ rel: "open", href: chatHref(task.chatId) }],
         });
       },
     },
     "chats.search": {
-      title: "Search Assistant chats",
-      description: "Find the current user's Assistant chats by text and exact Cloud resource refs.",
+      title: "Search AI conversations",
+      description: "Find the current user's AI conversations by text and exact Cloud resource refs.",
       input: ChatsSearchInputSchema,
       data: UniversalSearchDataSchema,
       openWorld: false,
       async run(input, context) {
-        if (!context.user) return fail(err.forbidden("Assistant chats require a user-backed actor"));
+        if (!context.user) return fail(err.forbidden("AI conversations require a user-backed actor"));
         const chats = await aiConversations.listConversations({
-          appId: ASSISTANT_APP_ID,
           ownerUserId: context.user.id,
           search: input.query || undefined,
           refs: input.refs,
@@ -394,13 +391,13 @@ export const assistantCapabilities = defineCapabilities({
       },
     },
     "chat.read": {
-      title: "Read an Assistant chat",
+      title: "Read an AI conversation",
       description: "Read one page of visible user and assistant text from one explicitly identified owned chat.",
       input: ChatReadInputSchema,
       data: ChatMessagesDataSchema,
       openWorld: false,
       async run(input, context) {
-        if (!context.user) return fail(err.forbidden("Assistant chats require a user-backed actor"));
+        if (!context.user) return fail(err.forbidden("AI conversations require a user-backed actor"));
         const chat = await readableOwnedChat(input.id, context.user.id);
         if (!chat) return fail(err.notFound("Chat"));
         const beforeSeq = input.cursor === undefined ? undefined : Number(input.cursor);
@@ -409,20 +406,20 @@ export const assistantCapabilities = defineCapabilities({
         const oldestSeq = page.messages[0]?.seq;
         return ok({
           data: { chat: chatSummary(chat), messages: page.messages.flatMap((message) => visibleMessage(message) ?? []) },
-          refs: [{ type: "assistant.chat", id: chat.shortId }],
+          refs: [{ type: "core.chat", id: chat.shortId }],
           links: [{ rel: "open", href: chatHref(chat.shortId) }],
           page: capabilityPage(page.hasMore && oldestSeq !== undefined ? String(oldestSeq) : undefined),
         });
       },
     },
     "chat.search": {
-      title: "Search messages in an Assistant chat",
-      description: "Search visible text inside one explicitly identified owned Assistant chat, including compacted history.",
+      title: "Search messages in an AI conversation",
+      description: "Search visible text inside one explicitly identified owned AI conversation, including compacted history.",
       input: ChatSearchInputSchema,
       data: ChatMessagesDataSchema,
       openWorld: false,
       async run(input, context) {
-        if (!context.user) return fail(err.forbidden("Assistant chats require a user-backed actor"));
+        if (!context.user) return fail(err.forbidden("AI conversations require a user-backed actor"));
         const chat = await readableOwnedChat(input.chatId, context.user.id);
         if (!chat) return fail(err.notFound("Chat"));
         const beforeSeq = input.cursor === undefined ? undefined : Number(input.cursor);
@@ -435,20 +432,20 @@ export const assistantCapabilities = defineCapabilities({
         });
         return ok({
           data: { chat: chatSummary(chat), messages: page.messages.flatMap((message) => visibleMessage(message) ?? []) },
-          refs: [{ type: "assistant.chat", id: chat.shortId }],
+          refs: [{ type: "core.chat", id: chat.shortId }],
           links: [{ rel: "open", href: chatHref(chat.shortId) }],
           page: capabilityPage(page.nextCursor),
         });
       },
     },
     "chat.resources": {
-      title: "List resources used in an Assistant chat",
+      title: "List resources used in an AI conversation",
       description: "List or search structured Cloud resource refs observed in one explicitly identified owned chat.",
       input: ChatResourcesInputSchema,
       data: ChatResourcesDataSchema,
       openWorld: false,
       async run(input, context) {
-        if (!context.user) return fail(err.forbidden("Assistant chats require a user-backed actor"));
+        if (!context.user) return fail(err.forbidden("AI conversations require a user-backed actor"));
         const chat = await readableOwnedChat(input.chatId, context.user.id);
         if (!chat) return fail(err.notFound("Chat"));
         const page = await aiConversations.listConversationResources({
@@ -466,15 +463,14 @@ export const assistantCapabilities = defineCapabilities({
       },
     },
     "chats.resources": {
-      title: "Search resources used across Assistant chats",
-      description: "List or search structured Cloud resource refs across the current user's active Assistant chats.",
+      title: "Search resources used across AI conversations",
+      description: "List or search structured Cloud resource refs across the current user's active AI conversations.",
       input: ChatsResourcesInputSchema,
       data: ChatsResourcesDataSchema,
       openWorld: false,
       async run(input, context) {
-        if (!context.user) return fail(err.forbidden("Assistant chats require a user-backed actor"));
+        if (!context.user) return fail(err.forbidden("AI conversations require a user-backed actor"));
         const page = await aiConversations.listUserConversationResources({
-          appId: ASSISTANT_APP_ID,
           ownerUserId: context.user.id,
           search: input.query,
           before: input.cursor,
@@ -493,8 +489,8 @@ export const assistantCapabilities = defineCapabilities({
   },
   actions: {
     "task.create": {
-      title: "Create a scheduled Assistant task",
-      description: "Create one reviewed future prompt in an owned Assistant chat. Resolve relative user wording to localAt before calling.",
+      title: "Create a scheduled AI task",
+      description: "Create one reviewed future prompt in an owned AI conversation. Resolve relative user wording to localAt before calling.",
       input: ChatTaskCreateInputSchema,
       data: ChatTaskDataSchema,
       destructive: false,
@@ -524,7 +520,6 @@ export const assistantCapabilities = defineCapabilities({
         const idempotencyFingerprint = chatTaskCreateFingerprint(input);
         try {
           const replay = await aiChatTasks.getCreateByIdempotency({
-            appId: ASSISTANT_APP_ID,
             userId: context.user.id,
             idempotencyKey: context.idempotencyKey,
             idempotencyFingerprint,
@@ -533,8 +528,8 @@ export const assistantCapabilities = defineCapabilities({
             return ok({
               data: taskData(replay),
               refs: [
-                { type: "assistant.task", id: replay.shortId },
-                { type: "assistant.chat", id: replay.chatId },
+                { type: "core.task", id: replay.shortId },
+                { type: "core.chat", id: replay.chatId },
               ],
             });
         } catch (error) {
@@ -550,7 +545,6 @@ export const assistantCapabilities = defineCapabilities({
         let task: AiChatTask | null;
         try {
           task = await aiChatTasks.create({
-            appId: ASSISTANT_APP_ID,
             userId: context.user.id,
             chatId: input.chatId,
             prompt: input.prompt,
@@ -563,18 +557,18 @@ export const assistantCapabilities = defineCapabilities({
           throw error;
         }
         if (!task) return fail(err.notFound("Chat"));
-        void reconcileAssistantChatTasks().catch(() => undefined);
+        void reconcileAiChatTasks().catch(() => undefined);
         return ok({
           data: taskData(task),
           refs: [
-            { type: "assistant.task", id: task.shortId },
-            { type: "assistant.chat", id: task.chatId },
+            { type: "core.task", id: task.shortId },
+            { type: "core.chat", id: task.chatId },
           ],
         });
       },
     },
     "task.update": {
-      title: "Update a scheduled Assistant task",
+      title: "Update a scheduled AI task",
       description: "Update the prompt or future schedule of one owned task after reviewing the exact replacement.",
       input: ChatTaskUpdateInputSchema,
       data: ChatTaskDataSchema,
@@ -583,7 +577,7 @@ export const assistantCapabilities = defineCapabilities({
       idempotency: "none",
       async review(input, context) {
         if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
-        const task = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        const task = await aiChatTasks.get({ userId: context.user.id, taskId: input.taskId });
         if (!task) return fail(err.notFound("Task"));
         try {
           const normalized = input.schedule ? await normalizeChatTaskSchedule(input.schedule, input.timezone) : null;
@@ -612,19 +606,18 @@ export const assistantCapabilities = defineCapabilities({
           return fail(err.badInput(error instanceof Error ? error.message : "Invalid schedule"));
         }
         const task = await aiChatTasks.update({
-          appId: ASSISTANT_APP_ID,
           userId: context.user.id,
           taskId: input.taskId,
           prompt: input.prompt,
           ...normalized,
         });
         if (!task) return fail(err.notFound("Task"));
-        void reconcileAssistantChatTasks().catch(() => undefined);
-        return ok({ data: taskData(task), refs: [{ type: "assistant.task", id: task.shortId }] });
+        void reconcileAiChatTasks().catch(() => undefined);
+        return ok({ data: taskData(task), refs: [{ type: "core.task", id: task.shortId }] });
       },
     },
     "task.pause": {
-      title: "Pause a scheduled Assistant task",
+      title: "Pause a scheduled AI task",
       description: "Pause one owned scheduled task after review.",
       input: ChatTaskIdInputSchema,
       data: ChatTaskDataSchema,
@@ -633,7 +626,7 @@ export const assistantCapabilities = defineCapabilities({
       idempotency: "none",
       async review(input, context) {
         if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
-        const task = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        const task = await aiChatTasks.get({ userId: context.user.id, taskId: input.taskId });
         if (!task) return fail(err.notFound("Task"));
         const stateError = invalidTaskState(task, "pause");
         if (stateError) return fail(err.conflict(stateError));
@@ -647,23 +640,22 @@ export const assistantCapabilities = defineCapabilities({
       },
       async run(input, context) {
         if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
-        const current = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        const current = await aiChatTasks.get({ userId: context.user.id, taskId: input.taskId });
         if (!current) return fail(err.notFound("Task"));
         const stateError = invalidTaskState(current, "pause");
         if (stateError) return fail(err.conflict(stateError));
         const task = await aiChatTasks.setState({
-          appId: ASSISTANT_APP_ID,
           userId: context.user.id,
           taskId: input.taskId,
           state: "paused",
         });
         if (!task) return fail(err.conflict("Task state changed; read it and retry"));
-        void reconcileAssistantChatTasks().catch(() => undefined);
-        return ok({ data: taskData(task), refs: [{ type: "assistant.task", id: task.shortId }] });
+        void reconcileAiChatTasks().catch(() => undefined);
+        return ok({ data: taskData(task), refs: [{ type: "core.task", id: task.shortId }] });
       },
     },
     "task.resume": {
-      title: "Resume a scheduled Assistant task",
+      title: "Resume a scheduled AI task",
       description: "Resume one owned scheduled task after review.",
       input: ChatTaskIdInputSchema,
       data: ChatTaskDataSchema,
@@ -672,7 +664,7 @@ export const assistantCapabilities = defineCapabilities({
       idempotency: "none",
       async review(input, context) {
         if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
-        const task = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        const task = await aiChatTasks.get({ userId: context.user.id, taskId: input.taskId });
         if (!task) return fail(err.notFound("Task"));
         const stateError = invalidTaskState(task, "resume");
         if (stateError) return fail(err.conflict(stateError));
@@ -686,23 +678,22 @@ export const assistantCapabilities = defineCapabilities({
       },
       async run(input, context) {
         if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
-        const current = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        const current = await aiChatTasks.get({ userId: context.user.id, taskId: input.taskId });
         if (!current) return fail(err.notFound("Task"));
         const stateError = invalidTaskState(current, "resume");
         if (stateError) return fail(err.conflict(stateError));
         const task = await aiChatTasks.setState({
-          appId: ASSISTANT_APP_ID,
           userId: context.user.id,
           taskId: input.taskId,
           state: "active",
         });
         if (!task) return fail(err.conflict("Task state changed; read it and retry"));
-        void reconcileAssistantChatTasks().catch(() => undefined);
-        return ok({ data: taskData(task), refs: [{ type: "assistant.task", id: task.shortId }] });
+        void reconcileAiChatTasks().catch(() => undefined);
+        return ok({ data: taskData(task), refs: [{ type: "core.task", id: task.shortId }] });
       },
     },
     "task.run": {
-      title: "Run a scheduled Assistant task now",
+      title: "Run a scheduled AI task now",
       description: "Queue one manual occurrence without changing the future schedule.",
       input: ChatTaskIdInputSchema,
       data: z.object({ id: ChatTaskOccurrenceIdSchema, state: z.enum(["queued", "running", "completed", "failed"]) }),
@@ -711,7 +702,7 @@ export const assistantCapabilities = defineCapabilities({
       idempotency: "required",
       async review(input, context) {
         if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
-        const task = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        const task = await aiChatTasks.get({ userId: context.user.id, taskId: input.taskId });
         if (!task) return fail(err.notFound("Task"));
         const stateError = invalidTaskState(task, "run");
         if (stateError) return fail(err.conflict(stateError));
@@ -725,7 +716,7 @@ export const assistantCapabilities = defineCapabilities({
       },
       async run(input, context) {
         if (!context.user || !context.idempotencyKey) return fail(err.forbidden("Scheduled tasks require an idempotent user action"));
-        const task = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        const task = await aiChatTasks.get({ userId: context.user.id, taskId: input.taskId });
         if (!task) return fail(err.notFound("Task"));
         let occurrence: Awaited<ReturnType<typeof aiChatTasks.createOccurrence>>;
         try {
@@ -733,19 +724,19 @@ export const assistantCapabilities = defineCapabilities({
             taskId: task.id,
             scheduledFor: new Date().toISOString(),
             trigger: "manual",
-            requestKey: `manual:${ASSISTANT_APP_ID}:${context.user.id}:${context.idempotencyKey}`,
+            requestKey: `manual:${CORE_APP_ID}:${context.user.id}:${context.idempotencyKey}`,
           });
         } catch (error) {
           if (error instanceof AiChatTaskIdempotencyConflictError) return fail(capabilityIdempotencyConflict(error.message));
           throw error;
         }
         if (!occurrence) return fail(err.conflict("This task already has a queued or running occurrence"));
-        void assistantChatTaskRuntime.recover().catch(() => undefined);
-        return ok({ data: { id: occurrence.shortId, state: occurrence.state }, refs: [{ type: "assistant.task", id: task.shortId }] });
+        void aiChatTaskRuntime.recover().catch(() => undefined);
+        return ok({ data: { id: occurrence.shortId, state: occurrence.state }, refs: [{ type: "core.task", id: task.shortId }] });
       },
     },
     "task.delete": {
-      title: "Delete a scheduled Assistant task",
+      title: "Delete a scheduled AI task",
       description: "Delete one task and all of its occurrence history after review.",
       input: ChatTaskIdInputSchema,
       data: z.object({ deleted: z.literal(true) }),
@@ -754,7 +745,7 @@ export const assistantCapabilities = defineCapabilities({
       idempotency: "none",
       async review(input, context) {
         if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
-        const task = await aiChatTasks.get({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId });
+        const task = await aiChatTasks.get({ userId: context.user.id, taskId: input.taskId });
         if (!task) return fail(err.notFound("Task"));
         return ok({
           message: `Delete scheduled task ${task.shortId} and its run history.`,
@@ -767,22 +758,22 @@ export const assistantCapabilities = defineCapabilities({
       },
       async run(input, context) {
         if (!context.user) return fail(err.forbidden("Scheduled tasks require a user-backed actor"));
-        if (!(await aiChatTasks.delete({ appId: ASSISTANT_APP_ID, userId: context.user.id, taskId: input.taskId })))
+        if (!(await aiChatTasks.delete({ userId: context.user.id, taskId: input.taskId })))
           return fail(err.notFound("Task"));
-        void reconcileAssistantChatTasks().catch(() => undefined);
+        void reconcileAiChatTasks().catch(() => undefined);
         return ok({ data: { deleted: true as const } });
       },
     },
     "chat.message": {
-      title: "Message another Assistant chat",
-      description: "Queue one attributable message for another owned Assistant chat after reviewing the exact target and text.",
+      title: "Message another AI conversation",
+      description: "Queue one attributable message for another owned AI conversation after reviewing the exact target and text.",
       input: ChatMessageInputSchema,
       data: ChatMessageDataSchema,
       destructive: false,
       openWorld: false,
       idempotency: "required",
       async review(input, context) {
-        if (!context.user) return fail(err.forbidden("Assistant chats require a user-backed actor"));
+        if (!context.user) return fail(err.forbidden("AI conversations require a user-backed actor"));
         const target = await ownedChat(input.chatId, context.user.id);
         if (!target) return fail(err.notFound("Chat"));
         return ok({
@@ -795,15 +786,14 @@ export const assistantCapabilities = defineCapabilities({
         });
       },
       async run(input, context) {
-        if (!context.user) return fail(err.forbidden("Assistant chats require a user-backed actor"));
+        if (!context.user) return fail(err.forbidden("AI conversations require a user-backed actor"));
         if (!context.idempotencyKey) return fail(err.badInput("Idempotency-Key is required"));
         const origin = await aiConversations.getCapabilityInvocationOrigin({
           idempotencyKey: context.idempotencyKey,
           toolName: CHAT_MESSAGE_TOOL_NAME,
         });
-        if (!origin) return fail(err.forbidden("Inter-chat messages require an Assistant AI turn"));
+        if (!origin) return fail(err.forbidden("Inter-chat messages require an AI conversation turn"));
         const created = await aiConversations.createInterChatMessage({
-          appId: ASSISTANT_APP_ID,
           sourceConversationId: origin.conversationId,
           sourceTurnId: origin.turnId,
           sourceCallId: origin.callId,
@@ -820,12 +810,12 @@ export const assistantCapabilities = defineCapabilities({
         }
         if (created.message.status === "failed") return fail(err.conflict("The target chat could not accept the message"));
         const delivery =
-          created.message.status === "delivered" ? null : await deliverPendingAssistantMessages(created.message.targetConversationId);
+          created.message.status === "delivered" ? null : await deliverPendingAiMessages(created.message.targetConversationId);
         const status = created.message.status === "delivered" ? "delivered" : (delivery?.get(created.message.id) ?? "queued");
         if (status === "failed") return fail(err.conflict("The target chat could not accept the message"));
         return ok({
           data: { id: created.message.shortId, status, targetChatId: created.message.targetChatId },
-          refs: [{ type: "assistant.chat", id: created.message.targetChatId }],
+          refs: [{ type: "core.chat", id: created.message.targetChatId }],
           links: [{ rel: "open", href: chatHref(created.message.targetChatId) }],
         });
       },

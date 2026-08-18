@@ -1,7 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { createRoot } from "solid-js";
 import type { AiStreamSseEvent, AiTurnBlock } from "../protocol";
 import type { AiConversation } from "../types";
-import { __aiControllerTest } from "./controller";
+import { __aiControllerTest, createAiChatController } from "./controller";
 import type { AiChatProjection } from "./projection";
 
 const {
@@ -14,12 +15,155 @@ const {
   reconcileSteerBlocks,
   runErrorFromEvent,
   settleFrontendCall,
+  isComposerDraftSendable,
 } = __aiControllerTest;
+
+const originalFetch = globalThis.fetch;
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
+describe("AI controller draft submission", () => {
+  test("sends a draft containing only a Cloud resource", () => {
+    expect(isComposerDraftSendable({ resources: [{ ref: { type: "mail.message", id: "m1" } }] })).toBe(true);
+  });
+
+  test("sends a draft containing only an already uploaded file", () => {
+    expect(isComposerDraftSendable({ storedFiles: [{ path: "/notes.txt", mediaType: "text/plain", size: 5, version: 1 }] })).toBe(true);
+  });
+
+  test("shares one conversation creation across concurrent draft saves", async () => {
+    let resolveCreate!: (response: Response) => void;
+    const createResponse = new Promise<Response>((resolve) => {
+      resolveCreate = resolve;
+    });
+    let createCalls = 0;
+    let draftRevision = 0;
+    globalThis.fetch = Object.assign(
+      async (request: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(request);
+        if (path === "/api/ai/conversations" && init?.method === "POST") {
+          createCalls += 1;
+          return createResponse;
+        }
+        if (init?.headers && new Headers(init.headers).get("Accept") === "text/event-stream") {
+          return new Response(new ReadableStream());
+        }
+        if (path.endsWith("/draft") && init?.method === "PUT") {
+          draftRevision += 1;
+          const body = JSON.parse(String(init.body)) as { content: AiConversation["draft"]["content"] };
+          return Response.json({ content: body.content, revision: draftRevision, updatedAt: null });
+        }
+        return Response.json({});
+      },
+      { preconnect: originalFetch.preconnect },
+    );
+
+    let dispose!: () => void;
+    const controller = createRoot((rootDispose) => {
+      dispose = rootDispose;
+      return createAiChatController({ baseUrl: "/api/ai" });
+    });
+    const first = controller.saveDraft({ message: "First" });
+    const second = controller.saveDraft({ message: "Second" });
+    await Promise.resolve();
+    expect(createCalls).toBe(1);
+
+    resolveCreate(Response.json(conversation("created"), { status: 201 }));
+    expect((await first)?.conversationId).toBe("created");
+    expect((await second)?.conversationId).toBe("created");
+    expect(createCalls).toBe(1);
+    dispose();
+  });
+
+  test("keeps the submitted draft and turn POST ahead of a queued empty autosave", async () => {
+    const requests: string[] = [];
+    let revision = 0;
+    let resolveTurn!: (response: Response) => void;
+    const turnResponse = new Promise<Response>((resolve) => {
+      resolveTurn = resolve;
+    });
+    globalThis.fetch = Object.assign(
+      async (request: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(request);
+        if (init?.headers && new Headers(init.headers).get("Accept") === "text/event-stream") {
+          return new Response(new ReadableStream());
+        }
+        if (path.endsWith("/draft") && init?.method === "PUT") {
+          const body = JSON.parse(String(init.body)) as { content: AiConversation["draft"]["content"] };
+          requests.push(`PUT:${body.content.find((part) => part.type === "text")?.text ?? "empty"}`);
+          revision += 1;
+          return Response.json({ content: body.content, revision, updatedAt: null });
+        }
+        if (path.endsWith("/turns") && init?.method === "POST") {
+          requests.push("POST");
+          return turnResponse;
+        }
+        if (path.endsWith("/timeline")) return Response.json([]);
+        return Response.json({});
+      },
+      { preconnect: originalFetch.preconnect },
+    );
+
+    let dispose!: () => void;
+    const current = conversation("current");
+    const controller = createRoot((rootDispose) => {
+      dispose = rootDispose;
+      return createAiChatController({
+        baseUrl: "/api/ai",
+        initialConversationId: current.id,
+        initialDetail: { conversation: current, messages: [], activeTurn: null },
+      });
+    });
+    const sending = controller.send({ message: "Sent" });
+    const emptyAutosave = controller.saveDraft({});
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(requests).toEqual(["PUT:Sent", "POST"]);
+
+    resolveTurn(
+      Response.json({
+        turn: {
+          id: "turn-1",
+          shortId: "tRn234",
+          conversationId: current.id,
+          status: "running",
+          attempt: 0,
+          modelProfileId: null,
+          createdAt: "2026-07-11T00:00:00.000Z",
+          completedAt: null,
+          error: null,
+        },
+        message: {
+          id: "message-1",
+          shortId: "mSg234",
+          conversationId: current.id,
+          seq: 1,
+          kind: "message",
+          message: { role: "user", content: [{ type: "text", text: "Sent" }] },
+          loopId: null,
+          modelProfileId: null,
+          providerModel: null,
+          usage: null,
+          stopReason: null,
+          loopAggregate: null,
+          loopDoneReason: null,
+          compactedAt: null,
+          meta: null,
+          createdAt: "2026-07-11T00:00:00.000Z",
+        },
+      }),
+    );
+    expect(await sending).toBe(true);
+    await emptyAutosave;
+    expect(requests).toEqual(["PUT:Sent", "POST", "PUT:empty"]);
+    dispose();
+  });
+});
 
 const conversation = (id: string): AiConversation => ({
   id,
   shortId: "cNv234",
-  appId: "assistant",
   title: id,
   titleSource: "default",
   description: "",
@@ -31,7 +175,7 @@ const conversation = (id: string): AiConversation => ({
   runError: null,
   unreadCompletion: false,
   projectId: null,
-  resource: { kind: "direct" },
+  draft: { content: [], revision: 0, updatedAt: null },
   createdByUserId: "user-1",
   createdAt: "2026-07-11T00:00:00.000Z",
   updatedAt: "2026-07-11T00:00:00.000Z",

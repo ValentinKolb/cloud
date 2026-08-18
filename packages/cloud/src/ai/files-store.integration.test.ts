@@ -45,7 +45,7 @@ suite("normalizeAiFilePath", () => {
 suite("aiFileStore integration", () => {
   test("write, stat, slice reads, rename, remove, totals", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversations.createConversation({ appId: "ai-files-test", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
 
     try {
       await aiFileStore.write({
@@ -86,7 +86,7 @@ suite("aiFileStore integration", () => {
 
   test("enforces per-file and per-conversation limits in the store", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversations.createConversation({ appId: "ai-files-test", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
 
     try {
       await expect(
@@ -107,7 +107,7 @@ suite("aiFileStore integration", () => {
 
   test("keeps user uploads user-owned and blocks assistant overwrites", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversations.createConversation({ appId: "ai-files-test", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
 
     try {
       await aiFileStore.write({
@@ -138,8 +138,8 @@ suite("aiFileStore integration", () => {
 
   test("copyToConversation carries the VFS into a fork", async () => {
     const userId = await insertUser();
-    const source = await aiConversations.createConversation({ appId: "ai-files-test", ownerUserId: userId });
-    const target = await aiConversations.createConversation({ appId: "ai-files-test", ownerUserId: userId });
+    const source = await aiConversations.createConversation({ ownerUserId: userId });
+    const target = await aiConversations.createConversation({ ownerUserId: userId });
 
     try {
       await aiFileStore.write({ conversationId: source.id, path: "/a.txt", bytes: bytes("hello"), origin: "user" });
@@ -157,7 +157,7 @@ suite("aiFileStore integration", () => {
 
   test("migrates historical inline images into referenced user files", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversations.createConversation({ appId: "ai-files-test", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
 
     try {
       await aiConversations.submitChatTurn({

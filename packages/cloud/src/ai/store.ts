@@ -1,14 +1,15 @@
 import type { DoneReason, InboundEvent, LoopAggregate, Message, SessionStore, StoreEntry } from "@k2b/nessi";
 import type { Usage } from "@k2b/nessi/ai";
 import { sql } from "bun";
+import { CapabilityActionReviewSchema, type CapabilityActionReview } from "../contracts/capabilities";
 import { logger } from "../services/logging";
 import { toPgTextArray } from "../services/postgres";
 import type { AiTurnBlock } from "./protocol";
 import { withAiShortId, withAiShortIdForDb } from "./short-id";
 import type {
   AiConversation,
+  AiConversationDraft,
   AiConversationPage,
-  AiConversationResource,
   AiConversationResourceOccurrence,
   AiConversationResourceRef,
   AiConversationService,
@@ -90,11 +91,6 @@ const isSearchCapabilityError = (error: unknown): boolean =>
 type ConversationRow = {
   id: string;
   short_id: string;
-  app_id: string;
-  resource_kind: "direct" | "resource";
-  resource_app_id: string | null;
-  resource_type: string | null;
-  resource_id: string | null;
   title: string;
   title_source: string | null;
   description: string | null;
@@ -108,6 +104,9 @@ type ConversationRow = {
   latest_turn_completed_at?: Date | string | null;
   enrich_fail_count: number | null;
   project_id: string | null;
+  draft_content: unknown;
+  draft_revision: number | string;
+  draft_updated_at: Date | string | null;
   created_by_user_id: string | null;
   created_at: Date | string;
   updated_at: Date | string;
@@ -121,7 +120,6 @@ type EnrichmentRunRow = {
   id: string;
   conversation_id: string;
   conversation_title?: string;
-  app_id?: string;
   status: "ok" | "failed" | "skipped";
   trigger: "scheduled" | "manual";
   model_profile_id: string | null;
@@ -178,6 +176,7 @@ type PendingActionRow = {
   tool_name: string;
   args: unknown;
   message: string | null;
+  review: unknown | null;
   approval_scope: string;
   allow_always: boolean;
   frontend_mode: AiFrontendToolMode | null;
@@ -457,6 +456,12 @@ const parseJsonValue = <T>(value: unknown): T => {
   return value as T;
 };
 
+const parseCapabilityActionReview = (value: unknown): CapabilityActionReview | undefined => {
+  if (value === null || value === undefined) return undefined;
+  const parsed = CapabilityActionReviewSchema.safeParse(parseJsonValue(value));
+  return parsed.success ? parsed.data : undefined;
+};
+
 const fieldSource = (value: string | null): AiConversation["titleSource"] => (value === "auto" || value === "user" ? value : "default");
 
 const conversationRunStatus = (status: AiTurnStatus | null | undefined): AiConversation["runStatus"] => {
@@ -470,7 +475,6 @@ const conversationRunStatus = (status: AiTurnStatus | null | undefined): AiConve
 const rowToConversation = (row: ConversationRow): AiConversation => ({
   id: row.id,
   shortId: row.short_id,
-  appId: row.app_id,
   title: row.title,
   titleSource: fieldSource(row.title_source),
   description: row.description ?? "",
@@ -485,16 +489,11 @@ const rowToConversation = (row: ConversationRow): AiConversation => ({
     Boolean(row.latest_turn_completed_at) &&
     (!row.last_viewed_at || new Date(row.latest_turn_completed_at!).getTime() > new Date(row.last_viewed_at).getTime()),
   projectId: row.project_id,
-  resource:
-    row.resource_kind === "resource"
-      ? {
-          kind: "resource",
-          appId: row.resource_app_id ?? row.app_id,
-          resourceType: row.resource_type ?? "",
-          resourceId: row.resource_id ?? "",
-          title: row.title,
-        }
-      : { kind: "direct" },
+  draft: {
+    content: parseJsonValue<AiConversationDraft["content"]>(row.draft_content ?? []),
+    revision: Number(row.draft_revision ?? 0),
+    updatedAt: row.draft_updated_at ? iso(row.draft_updated_at) : null,
+  },
   createdByUserId: row.created_by_user_id,
   createdAt: iso(row.created_at),
   updatedAt: iso(row.updated_at),
@@ -517,7 +516,6 @@ const rowToEnrichmentRun = (row: EnrichmentRunRow): AiEnrichmentRun => ({
 const rowToEnrichmentOverviewRun = (row: EnrichmentRunRow): AiEnrichmentOverviewRun => ({
   ...rowToEnrichmentRun(row),
   conversationTitle: row.conversation_title ?? "",
-  appId: row.app_id ?? "",
 });
 
 const numberOrNull = (value: number | string | null | undefined): number | null => {
@@ -587,6 +585,7 @@ const pendingActionToPublicEvent = (row: PendingActionRow): AiPendingTurnAction 
         name: row.tool_name,
         args: parseJsonValue(row.args),
         message: row.message ?? undefined,
+        review: parseCapabilityActionReview(row.review),
         allowAlways: row.allow_always,
       };
 
@@ -599,6 +598,7 @@ const rowToPendingActionRecord = (row: PendingActionRow): AiPendingTurnActionRec
   name: row.tool_name,
   args: parseJsonValue(row.args),
   message: row.message ?? undefined,
+  review: parseCapabilityActionReview(row.review),
   approvalScope: row.approval_scope,
   allowAlways: row.allow_always,
   frontendMode: row.frontend_mode ?? undefined,
@@ -623,43 +623,12 @@ const boundedMs = (value: number, fallback: number, min: number, max: number): n
   return Math.min(Math.max(Math.floor(value), min), max);
 };
 
-const resourceColumns = (resource: AiConversationResource | undefined, fallbackAppId: string) => {
-  if (!resource || resource.kind === "direct") {
-    return {
-      resourceKind: "direct",
-      resourceAppId: null,
-      resourceType: null,
-      resourceId: null,
-    };
-  }
-  return {
-    resourceKind: "resource",
-    resourceAppId: resource.appId || fallbackAppId,
-    resourceType: resource.resourceType,
-    resourceId: resource.resourceId,
-  };
-};
-
-const resourceFilter = (resource: AiConversationResource | undefined, fallbackAppId: string) => {
-  if (!resource) return null;
-  const columns = resourceColumns(resource, fallbackAppId);
-  return {
-    kind: columns.resourceKind,
-    appId: columns.resourceAppId,
-    type: columns.resourceType,
-    id: columns.resourceId,
-  };
-};
-
 const loadConversationSummary = async (input: {
   conversationId?: string;
   shortId?: string;
-  appId?: string;
   ownerUserId?: string;
-  resource?: AiConversationResource;
   archived?: boolean;
 }): Promise<AiConversation | null> => {
-  const resource = input.appId ? resourceFilter(input.resource, input.appId) : null;
   const rows = await sql<ConversationRow[]>`
     SELECT
       conversation.*,
@@ -676,12 +645,7 @@ const loadConversationSummary = async (input: {
     ) latest ON TRUE
     WHERE (${input.conversationId ?? null}::uuid IS NULL OR conversation.id = ${input.conversationId ?? null}::uuid)
       AND (${input.shortId ?? null}::text IS NULL OR conversation.short_id = ${input.shortId ?? null})
-      AND (${input.appId ?? null}::text IS NULL OR conversation.app_id = ${input.appId ?? null})
       AND (${input.ownerUserId ?? null}::uuid IS NULL OR conversation.created_by_user_id = ${input.ownerUserId ?? null})
-      AND (${resource?.kind ?? null}::text IS NULL OR conversation.resource_kind = ${resource?.kind ?? null})
-      AND (${resource?.appId ?? null}::text IS NULL OR conversation.resource_app_id = ${resource?.appId ?? null})
-      AND (${resource?.type ?? null}::text IS NULL OR conversation.resource_type = ${resource?.type ?? null})
-      AND (${resource?.id ?? null}::text IS NULL OR conversation.resource_id = ${resource?.id ?? null})
       AND (${Boolean(input.archived)}::boolean = (conversation.archived_at IS NOT NULL))
     LIMIT 1
   `;
@@ -872,42 +836,36 @@ const toolPresentationMeta = (
 
 export const aiConversations: AiConversationService = {
   createConversation: async (input) => {
-    const resource = resourceColumns(input.resource, input.appId);
     const rows = await withAiShortId(
       "idx_ai_conversations_short_id",
       (shortId) => sql<ConversationRow[]>`
       INSERT INTO ai.conversations (
         short_id,
-        app_id,
-        resource_kind,
-        resource_app_id,
-        resource_type,
-        resource_id,
         title,
         description,
         project_id,
+        draft_content,
+        draft_revision,
+        loaded_capabilities,
+        draft_updated_at,
         created_by_user_id
       )
       SELECT
         ${shortId},
-        ${input.appId},
-        ${resource.resourceKind},
-        ${resource.resourceAppId},
-        ${resource.resourceType},
-        ${resource.resourceId},
         ${input.title?.trim() || "New chat"},
         ${input.description?.trim() ?? ""},
         ${input.projectId ?? null}::uuid,
+        ${JSON.stringify(input.draft ?? [])}::jsonb,
+        ${input.draft?.length ? 1 : 0},
+        ${toPgTextArray(input.preloadCapabilities ?? [])}::text[],
+        ${input.draft?.length ? new Date() : null},
         ${input.ownerUserId}
       WHERE ${input.projectId ?? null}::uuid IS NULL
-         OR EXISTS (
-           SELECT 1 FROM ai.projects project
-           WHERE project.id = ${input.projectId ?? null}::uuid AND project.app_id = ${input.appId}
-         )
+         OR EXISTS (SELECT 1 FROM ai.projects project WHERE project.id = ${input.projectId ?? null}::uuid)
       RETURNING *
     `,
     );
-    if (!rows[0]) throw new Error("Project does not belong to this AI application.");
+    if (!rows[0]) throw new Error("Project does not exist.");
     return rowToConversation(rows[0]);
   },
 
@@ -922,12 +880,10 @@ export const aiConversations: AiConversationService = {
         "idx_ai_conversations_short_id",
         (attempt, shortId) => attempt<ConversationRow[]>`
           INSERT INTO ai.conversations (
-            short_id, app_id, resource_kind, resource_app_id, resource_type, resource_id,
-            title, description, project_id, created_by_user_id
+            short_id, title, description, project_id, created_by_user_id
           )
           SELECT
-            ${shortId}, app_id, resource_kind, resource_app_id, resource_type, resource_id,
-            ${input.title?.trim() || source[0]!.title}, description, project_id, ${input.ownerUserId}::uuid
+            ${shortId}, ${input.title?.trim() || source[0]!.title}, description, project_id, ${input.ownerUserId}::uuid
           FROM ai.conversations WHERE id = ${input.sourceConversationId}::uuid
           RETURNING *
         `,
@@ -958,7 +914,6 @@ export const aiConversations: AiConversationService = {
   },
 
   listConversations: async (input) => {
-    const resource = resourceFilter(input.resource, input.appId);
     const pattern = searchPattern(input.search);
     const query = input.search?.trim() || null;
     const archived = Boolean(input.archived);
@@ -983,13 +938,8 @@ export const aiConversations: AiConversationService = {
         ORDER BY created_at DESC, id DESC
         LIMIT 1
       ) latest ON TRUE
-      WHERE conversation.app_id = ${input.appId}
-        AND conversation.created_by_user_id = ${input.ownerUserId}
+      WHERE conversation.created_by_user_id = ${input.ownerUserId}
         AND (${archived}::boolean = (conversation.archived_at IS NOT NULL))
-        AND (${resource?.kind ?? null}::text IS NULL OR conversation.resource_kind = ${resource?.kind ?? null})
-        AND (${resource?.appId ?? null}::text IS NULL OR conversation.resource_app_id = ${resource?.appId ?? null})
-        AND (${resource?.type ?? null}::text IS NULL OR conversation.resource_type = ${resource?.type ?? null})
-        AND (${resource?.id ?? null}::text IS NULL OR conversation.resource_id = ${resource?.id ?? null})
         AND (${input.projectId ?? null}::uuid IS NULL OR conversation.project_id = ${input.projectId ?? null}::uuid)
         AND (NOT ${Boolean(input.unassigned)}::boolean OR conversation.project_id IS NULL)
         AND (${refs.length === 0}::boolean OR NOT EXISTS (
@@ -1049,10 +999,8 @@ export const aiConversations: AiConversationService = {
           ORDER BY created_at DESC, id DESC
           LIMIT 1
         ) latest ON TRUE
-        WHERE conversation.app_id = ${input.appId}
-          AND conversation.created_by_user_id = ${input.ownerUserId}::uuid
+        WHERE conversation.created_by_user_id = ${input.ownerUserId}::uuid
           AND conversation.archived_at IS NULL
-          AND conversation.resource_kind = 'direct'
       )
       SELECT *
       FROM ranked
@@ -1064,7 +1012,6 @@ export const aiConversations: AiConversationService = {
   },
 
   listConversationsPage: async (input): Promise<AiConversationPage> => {
-    const resource = resourceFilter(input.resource, input.appId);
     const pattern = searchPattern(input.search);
     const query = input.search?.trim() || null;
     const archived = Boolean(input.archived);
@@ -1088,13 +1035,8 @@ export const aiConversations: AiConversationService = {
         ORDER BY created_at DESC, id DESC
         LIMIT 1
       ) latest ON TRUE
-      WHERE conversation.app_id = ${input.appId}
-        AND conversation.created_by_user_id = ${input.ownerUserId}
+      WHERE conversation.created_by_user_id = ${input.ownerUserId}
         AND (${archived}::boolean = (conversation.archived_at IS NOT NULL))
-        AND (${resource?.kind ?? null}::text IS NULL OR conversation.resource_kind = ${resource?.kind ?? null})
-        AND (${resource?.appId ?? null}::text IS NULL OR conversation.resource_app_id = ${resource?.appId ?? null})
-        AND (${resource?.type ?? null}::text IS NULL OR conversation.resource_type = ${resource?.type ?? null})
-        AND (${resource?.id ?? null}::text IS NULL OR conversation.resource_id = ${resource?.id ?? null})
         AND (${input.projectId ?? null}::uuid IS NULL OR conversation.project_id = ${input.projectId ?? null}::uuid)
         AND (NOT ${Boolean(input.unassigned)}::boolean OR conversation.project_id IS NULL)
         AND (${pattern}::text IS NULL
@@ -1129,13 +1071,8 @@ export const aiConversations: AiConversationService = {
         ORDER BY created_at DESC, id DESC
         LIMIT 1
       ) latest ON TRUE
-      WHERE conversation.app_id = ${input.appId}
-        AND conversation.created_by_user_id = ${input.ownerUserId}
+      WHERE conversation.created_by_user_id = ${input.ownerUserId}
         AND (${archived}::boolean = (conversation.archived_at IS NOT NULL))
-        AND (${resource?.kind ?? null}::text IS NULL OR conversation.resource_kind = ${resource?.kind ?? null})
-        AND (${resource?.appId ?? null}::text IS NULL OR conversation.resource_app_id = ${resource?.appId ?? null})
-        AND (${resource?.type ?? null}::text IS NULL OR conversation.resource_type = ${resource?.type ?? null})
-        AND (${resource?.id ?? null}::text IS NULL OR conversation.resource_id = ${resource?.id ?? null})
         AND (${input.projectId ?? null}::uuid IS NULL OR conversation.project_id = ${input.projectId ?? null}::uuid)
         AND (NOT ${Boolean(input.unassigned)}::boolean OR conversation.project_id IS NULL)
         AND (${pattern}::text IS NULL
@@ -1173,6 +1110,69 @@ export const aiConversations: AiConversationService = {
   getConversationByShortId: async (input) => {
     return loadConversationSummary(input);
   },
+
+  saveDraft: async (input) =>
+    sql.begin(async (tx) => {
+      const [conversation] = await tx<
+        { draft_content: unknown; draft_revision: number | string; draft_updated_at: Date | string | null }[]
+      >`
+        SELECT draft_content, draft_revision, draft_updated_at
+        FROM ai.conversations
+        WHERE id = ${input.conversationId}::uuid
+          AND created_by_user_id = ${input.ownerUserId}::uuid
+          AND archived_at IS NULL
+        FOR UPDATE
+      `;
+      if (!conversation) return { ok: false as const, reason: "not_found" as const };
+      if (Number(conversation.draft_revision) !== input.expectedRevision) {
+        return { ok: false as const, reason: "conflict" as const };
+      }
+      const [sameDraft] = await tx<{ same: boolean }[]>`
+        SELECT ${JSON.stringify(input.content)}::jsonb = ${JSON.stringify(parseJsonValue(conversation.draft_content))}::jsonb AS same
+      `;
+      if (sameDraft?.same) {
+        return {
+          ok: true as const,
+          draft: {
+            content: input.content,
+            revision: Number(conversation.draft_revision),
+            updatedAt: conversation.draft_updated_at ? iso(conversation.draft_updated_at) : null,
+          },
+        };
+      }
+
+      for (const part of input.content) {
+        if (part.type !== "file") continue;
+        const [file] = await tx<{ exists: boolean }[]>`
+          SELECT EXISTS (
+            SELECT 1 FROM ai.files
+            WHERE conversation_id = ${input.conversationId}::uuid
+              AND path = ${part.path}
+              AND media_type = ${part.mediaType}
+              AND size = ${part.size}
+              AND version = ${part.version}
+          ) AS exists
+        `;
+        if (!file?.exists) throw new Error(`Conversation file changed or no longer exists: ${part.path}`);
+      }
+
+      const [saved] = await tx<{ draft_content: unknown; draft_revision: number | string; draft_updated_at: Date | string }[]>`
+        UPDATE ai.conversations
+        SET draft_content = ${JSON.stringify(input.content)}::jsonb,
+            draft_revision = draft_revision + 1,
+            draft_updated_at = now()
+        WHERE id = ${input.conversationId}::uuid
+        RETURNING draft_content, draft_revision, draft_updated_at
+      `;
+      return {
+        ok: true as const,
+        draft: {
+          content: parseJsonValue<AiConversationDraft["content"]>(saved!.draft_content),
+          revision: Number(saved!.draft_revision),
+          updatedAt: iso(saved!.draft_updated_at),
+        },
+      };
+    }),
 
   getLoadedCapabilities: async (input) => {
     const rows = await sql<{ loaded_capabilities: string[] | null }[]>`
@@ -1278,8 +1278,7 @@ export const aiConversations: AiConversationService = {
       FROM ai.conversation_resource_refs indexed
       JOIN ai.conversations conversation ON conversation.id = indexed.conversation_id
       LEFT JOIN ai.turns source_turn ON source_turn.id = indexed.source_turn_id
-      WHERE conversation.app_id = ${input.appId}
-        AND conversation.created_by_user_id = ${input.ownerUserId}::uuid
+      WHERE conversation.created_by_user_id = ${input.ownerUserId}::uuid
         AND conversation.archived_at IS NULL
         AND (${pattern}::text IS NULL OR LOWER(COALESCE(indexed.title, '') || ' ' || indexed.resource_type || ' ' || indexed.resource_id || ' ' || conversation.title) LIKE ${pattern})
         AND (${cursor?.at ?? null}::timestamptz IS NULL OR (indexed.last_seen_at, indexed.resource_type, indexed.resource_id, conversation.short_id) <
@@ -1407,8 +1406,6 @@ export const aiConversations: AiConversationService = {
       JOIN ai.turns source_turn ON source_turn.conversation_id = source.id AND source_turn.id = ${input.sourceTurnId}::uuid
       JOIN ai.conversations target ON target.short_id = ${input.targetChatId}
       WHERE source.id = ${input.sourceConversationId}::uuid
-        AND source.app_id = ${input.appId}
-        AND target.app_id = ${input.appId}
         AND source.created_by_user_id = ${input.actorUserId}::uuid
         AND target.created_by_user_id = ${input.actorUserId}::uuid
         AND source.archived_at IS NULL
@@ -1581,7 +1578,6 @@ export const aiConversations: AiConversationService = {
             ELSE updated_at
           END
       WHERE id = ${input.conversationId}
-        AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
         AND (${input.ownerUserId ?? null}::uuid IS NULL OR created_by_user_id = ${input.ownerUserId ?? null})
         AND archived_at IS NULL
       RETURNING id
@@ -1595,7 +1591,6 @@ export const aiConversations: AiConversationService = {
         SELECT *
         FROM ai.conversations
         WHERE id = ${input.conversationId}::uuid
-          AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
           AND (${input.ownerUserId ?? null}::uuid IS NULL OR created_by_user_id = ${input.ownerUserId ?? null})
           AND archived_at IS NULL
         FOR UPDATE
@@ -1604,21 +1599,24 @@ export const aiConversations: AiConversationService = {
 
       const [activity] = await tx<{ exists: boolean }[]>`
         SELECT EXISTS (
-          SELECT 1 FROM ai.messages WHERE conversation_id = ${input.conversationId}::uuid
-          UNION ALL
-          SELECT 1 FROM ai.turns WHERE conversation_id = ${input.conversationId}::uuid
+          SELECT 1 FROM ai.turns
+          WHERE conversation_id = ${input.conversationId}::uuid
+            AND status IN ('queued', 'running', 'waiting_for_action')
         ) AS exists
       `;
-      if (activity?.exists) return { ok: false as const, reason: "not_empty" as const };
+      if (activity?.exists) return { ok: false as const, reason: "active_turn" as const };
 
       const updated = await tx<ConversationRow[]>`
         UPDATE ai.conversations
         SET project_id = ${input.projectId}::uuid,
             updated_at = CASE WHEN project_id IS DISTINCT FROM ${input.projectId}::uuid THEN now() ELSE updated_at END
         WHERE id = ${input.conversationId}::uuid
+          AND (${input.projectId}::uuid IS NULL OR EXISTS (SELECT 1 FROM ai.projects WHERE id = ${input.projectId}::uuid))
         RETURNING *
       `;
-      return { ok: true as const, conversation: rowToConversation(updated[0]!) };
+      return updated[0]
+        ? { ok: true as const, conversation: rowToConversation(updated[0]) }
+        : { ok: false as const, reason: "not_found" as const };
     });
   },
 
@@ -1627,7 +1625,6 @@ export const aiConversations: AiConversationService = {
       UPDATE ai.conversations
       SET pinned_at = CASE WHEN ${input.pinned} THEN COALESCE(pinned_at, now()) ELSE NULL END
       WHERE id = ${input.conversationId}
-        AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
         AND (${input.ownerUserId ?? null}::uuid IS NULL OR created_by_user_id = ${input.ownerUserId ?? null})
         AND archived_at IS NULL
       RETURNING id
@@ -1640,7 +1637,6 @@ export const aiConversations: AiConversationService = {
       UPDATE ai.conversations
       SET archived_at = now(), pinned_at = NULL
       WHERE id = ${input.conversationId}
-        AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
         AND (${input.ownerUserId ?? null}::uuid IS NULL OR created_by_user_id = ${input.ownerUserId ?? null})
         AND archived_at IS NULL
         AND NOT EXISTS (
@@ -1659,7 +1655,6 @@ export const aiConversations: AiConversationService = {
       UPDATE ai.conversations
       SET archived_at = NULL
       WHERE id = ${input.conversationId}
-        AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
         AND (${input.ownerUserId ?? null}::uuid IS NULL OR created_by_user_id = ${input.ownerUserId ?? null})
         AND archived_at IS NOT NULL
       RETURNING id
@@ -1672,7 +1667,6 @@ export const aiConversations: AiConversationService = {
       UPDATE ai.conversations
       SET last_viewed_at = now()
       WHERE id = ${input.conversationId}
-        AND (${input.appId ?? null}::text IS NULL OR app_id = ${input.appId ?? null})
         AND (${input.ownerUserId ?? null}::uuid IS NULL OR created_by_user_id = ${input.ownerUserId ?? null})
         AND archived_at IS NULL
       RETURNING id
@@ -1836,7 +1830,7 @@ export const aiConversations: AiConversationService = {
       CROSS JOIN run_summary
     `;
     const recentRows = await sql<EnrichmentRunRow[]>`
-      SELECT r.*, c.title AS conversation_title, c.app_id
+      SELECT r.*, c.title AS conversation_title
       FROM ai.enrichment_runs r
       JOIN ai.conversations c ON c.id = r.conversation_id
       WHERE c.archived_at IS NULL
@@ -2215,7 +2209,16 @@ export const aiConversations: AiConversationService = {
 
   submitChatTurn: async (input) => {
     return await sql.begin(async (tx) => {
-      await tx`SELECT id FROM ai.conversations WHERE id = ${input.conversationId} FOR UPDATE`;
+      const [conversation] = await tx<{ draft_revision: number | string; project_id: string | null }[]>`
+        SELECT draft_revision, project_id FROM ai.conversations WHERE id = ${input.conversationId} FOR UPDATE
+      `;
+      if (!conversation) throw new Error("Conversation not found.");
+      if (input.expectedDraftRevision !== undefined && Number(conversation.draft_revision) !== input.expectedDraftRevision) {
+        throw new Error("Conversation draft changed before the turn was submitted.");
+      }
+      if (input.expectedProjectId !== undefined && conversation.project_id !== input.expectedProjectId) {
+        throw new Error("Conversation Project changed before the turn was submitted.");
+      }
       if (typeof input.truncateFromSeq === "number" && input.truncateFromSeq > 0) {
         await tx`
           DELETE FROM ai.messages
@@ -2248,7 +2251,19 @@ export const aiConversations: AiConversationService = {
       const turn = rowToTurn(turnRows[0]!);
       const attachedFiles = input.runConfig.files?.attached ?? [];
       for (const file of attachedFiles) {
-        const copied = await tx<{ path: string }[]>`
+        const copied = input.retrySourceTurnId
+          ? await tx<{ path: string }[]>`
+          INSERT INTO ai.turn_files (turn_id, path, bytes, media_type, size, origin, updated_at, version)
+          SELECT ${turn.id}::uuid, path, bytes, media_type, size, origin, updated_at, version
+          FROM ai.turn_files
+          WHERE turn_id = ${input.retrySourceTurnId}::uuid
+            AND path = ${file.path}
+            AND size = ${file.size}
+            AND media_type = ${file.mediaType}
+            AND version = ${file.version ?? -1}
+          RETURNING path
+        `
+          : await tx<{ path: string }[]>`
           INSERT INTO ai.turn_files (turn_id, path, bytes, media_type, size, origin, updated_at, version)
           SELECT ${turn.id}::uuid, path, bytes, media_type, size, origin, updated_at, version
           FROM ai.files
@@ -2269,8 +2284,49 @@ export const aiConversations: AiConversationService = {
         },
         tx,
       );
+      const resources = [
+        ...new Map((input.resources ?? []).map((resource) => [`${resource.ref.type}\0${resource.ref.id}`, resource])).values(),
+      ];
+      for (const resource of resources) {
+        await tx`
+          INSERT INTO ai.conversation_resource_refs (
+            conversation_id, resource_type, resource_id, title, preview, icon, href, source_turn_id
+          ) VALUES (
+            ${input.conversationId}, ${resource.ref.type}, ${resource.ref.id}, ${resource.title ?? null},
+            ${resource.preview ?? null}, ${resource.icon ?? null}, ${resource.href ?? null}, ${turn.id}
+          )
+          ON CONFLICT (conversation_id, resource_type, resource_id)
+          DO UPDATE SET
+            title = COALESCE(EXCLUDED.title, ai.conversation_resource_refs.title),
+            preview = COALESCE(EXCLUDED.preview, ai.conversation_resource_refs.preview),
+            icon = COALESCE(EXCLUDED.icon, ai.conversation_resource_refs.icon),
+            href = COALESCE(EXCLUDED.href, ai.conversation_resource_refs.href),
+            source_turn_id = EXCLUDED.source_turn_id,
+            last_seen_at = now()
+        `;
+      }
+      if (input.expectedDraftRevision !== undefined) {
+        await tx`
+          UPDATE ai.conversations
+          SET draft_content = '[]'::jsonb,
+              draft_revision = draft_revision + 1,
+              draft_updated_at = now()
+          WHERE id = ${input.conversationId}::uuid
+        `;
+      }
       return { turn, message: rowToMessage(messageRow) };
     });
+  },
+
+  getTurnRunConfig: async (input) => {
+    const rows = await sql<{ run_config: unknown }[]>`
+      SELECT run_config
+      FROM ai.turns
+      WHERE id = ${input.turnId}::uuid
+        AND conversation_id = ${input.conversationId}::uuid
+      LIMIT 1
+    `;
+    return rows[0]?.run_config ? parseJsonValue<AiTurnRunConfig>(rows[0].run_config) : null;
   },
 
   getTurn: async (input) => {
@@ -2722,6 +2778,7 @@ export const aiConversations: AiConversationService = {
         tool_name,
         args,
         message,
+        review,
         approval_scope,
         allow_always,
         frontend_mode,
@@ -2737,6 +2794,7 @@ export const aiConversations: AiConversationService = {
         ${input.name},
         ${JSON.stringify(input.args ?? null)}::jsonb,
         ${input.message ?? null},
+        ${input.review ? JSON.stringify(input.review) : null}::jsonb,
         ${input.approvalScope},
         ${input.allowAlways},
         ${input.frontendMode ?? null},
@@ -2750,6 +2808,7 @@ export const aiConversations: AiConversationService = {
         tool_name = EXCLUDED.tool_name,
         args = EXCLUDED.args,
         message = EXCLUDED.message,
+        review = EXCLUDED.review,
         approval_scope = EXCLUDED.approval_scope,
         allow_always = EXCLUDED.allow_always,
         frontend_mode = EXCLUDED.frontend_mode

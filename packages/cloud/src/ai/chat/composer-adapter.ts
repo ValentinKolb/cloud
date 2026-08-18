@@ -1,5 +1,6 @@
 import type { ChatAttachment, ChatModelOption, ChatSubmitInput } from "@k2b/ui";
 import { AI_TURN_IMAGE_MAX_TOTAL_BYTES } from "../limits";
+import type { AiResourceMarker } from "../resource-markers";
 import type { AiPublicModelProfile, AiUserContentPart } from "../types";
 import {
   type AiComposerAttachment,
@@ -18,6 +19,8 @@ export type AiComposerSendInput = {
   message?: string;
   content?: AiUserContentPart[];
   files?: File[];
+  resources?: AiResourceMarker[];
+  storedFiles?: Array<{ path: string; mediaType: string; size: number; version: number }>;
 };
 
 export type AiComposerFileResult = {
@@ -42,9 +45,10 @@ export const aiChatAttachments = (attachments: readonly AiComposerAttachment[]):
   attachments.map((attachment) => ({
     id: attachment.id,
     name: attachment.name,
-    size: attachment.size,
-    kind: attachment.kind === "image" ? "image" : "file",
-    icon: attachment.kind === "image" ? "ti ti-photo" : `ti ${attachment.icon}`,
+    size: "size" in attachment ? attachment.size : undefined,
+    kind: attachment.kind === "image" ? "image" : attachment.kind === "resource" ? "resource" : "file",
+    icon: attachment.kind === "image" ? "ti ti-photo" : attachment.icon.startsWith("ti ") ? attachment.icon : `ti ${attachment.icon}`,
+    href: attachment.kind === "resource" ? attachment.href : undefined,
     previewUrl: attachment.kind === "image" ? imageSrc(attachment) : undefined,
     data: attachment,
   }));
@@ -53,7 +57,9 @@ const isAiComposerAttachment = (value: unknown): value is AiComposerAttachment =
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<AiComposerAttachment>;
   return (
-    (candidate.kind === "image" || candidate.kind === "file") && typeof candidate.id === "string" && typeof candidate.name === "string"
+    ["image", "file", "stored-file", "resource"].includes(candidate.kind ?? "") &&
+    typeof candidate.id === "string" &&
+    typeof candidate.name === "string"
   );
 };
 
@@ -65,6 +71,12 @@ export const aiComposerSendInput = (input: ChatSubmitInput): AiComposerSendInput
   const files = attachments.filter(
     (attachment): attachment is PendingAiImage | PendingAiVfsFile => attachment.kind === "image" || attachment.kind === "file",
   );
+  const resources = attachments
+    .filter((attachment) => attachment.kind === "resource")
+    .map((attachment) => ({ ref: attachment.ref, title: attachment.name, icon: attachment.icon, href: attachment.href }));
+  const storedFiles = attachments
+    .filter((attachment) => attachment.kind === "stored-file")
+    .map(({ path, mediaType, size, version }) => ({ path, mediaType, size, version }));
   const content =
     attachments.length > 0
       ? ([...(input.text ? [{ type: "text" as const, text: input.text }] : [])] satisfies AiUserContentPart[])
@@ -74,6 +86,8 @@ export const aiComposerSendInput = (input: ChatSubmitInput): AiComposerSendInput
     message: input.text || undefined,
     content: content?.length ? content : undefined,
     files: files.length ? files.map((attachment) => attachment.file) : undefined,
+    resources: resources.length ? resources : undefined,
+    storedFiles: storedFiles.length ? storedFiles : undefined,
   };
 };
 

@@ -81,9 +81,7 @@ function ApprovalPreferences() {
             {(approval) => (
               <SettingsCollection.Item
                 title={approval.title}
-                description={`${approval.app?.name ?? approval.contextAppId}${
-                  approval.resource ? ` · ${approval.resource.resourceType}` : " · Direct chats"
-                }`}
+                description={approval.app?.name ?? "Cloud AI tool"}
                 icon={<i class={approval.app?.icon ?? "ti ti-tool"} style={{ color: approval.app?.accent }} aria-hidden="true" />}
               >
                 <SettingsCollection.Item.Actions>

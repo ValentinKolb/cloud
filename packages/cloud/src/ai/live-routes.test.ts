@@ -25,25 +25,23 @@ describe("AI live cursors", () => {
       latestReads += 1;
       return "9-2";
     };
-    expect(await resolveAiLiveCursor("assistant", "user-1", "8-1", false, latest)).toBe("8-1");
+    expect(await resolveAiLiveCursor("user-1", "8-1", false, latest)).toBe("8-1");
     expect(latestReads).toBe(0);
-    expect(await resolveAiLiveCursor("assistant", "user-1", "8-1", true, latest)).toBe("9-2");
-    expect(await resolveAiLiveCursor("assistant", "user-1", null, false, async () => null)).toBe("0-0");
+    expect(await resolveAiLiveCursor("user-1", "8-1", true, latest)).toBe("9-2");
+    expect(await resolveAiLiveCursor("user-1", null, false, async () => null)).toBe("0-0");
   });
 
-  test("validates cursors, events, and app isolation", () => {
+  test("validates cursors and events", () => {
     const event = {
       type: "ai.invalidated",
       changeId: crypto.randomUUID(),
-      appId: "assistant",
       conversationId: "Chat01",
       projectId: null,
       domains: ["conversation-list"],
       at: "2026-08-12T16:00:00.000Z",
     } satisfies AiInvalidation;
-    expect(parseAiLiveReplayEvent("assistant", { cursor: "10-1", data: event })).toEqual({ cursor: "10-1", event });
-    expect(parseAiLiveReplayEvent("other", { cursor: "10-1", data: event })).toBeNull();
-    expect(parseAiLiveReplayEvent("assistant", { cursor: "latest", data: event })).toBeNull();
+    expect(parseAiLiveReplayEvent({ cursor: "10-1", data: event })).toEqual({ cursor: "10-1", event });
+    expect(parseAiLiveReplayEvent({ cursor: "latest", data: event })).toBeNull();
   });
 
   test("rejects an old stream after reauthorization yields to a replacement subscription", async () => {

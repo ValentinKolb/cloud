@@ -5,7 +5,7 @@ section: AI
 order: 1070
 description: Present conversation state, tools, approvals, and failures with the shared chat controller and components.
 tags: [ai, ui, solidjs]
-updated: 2026-08-04
+updated: 2026-08-18
 ---
 
 # Chat interface
@@ -112,6 +112,22 @@ The controller exposes:
 - approval and frontend-tool actions;
 - file URLs and file counts;
 - one error state for the active chat.
+
+## Attach Cloud resources
+
+Treat a Cloud resource like another composer attachment: keep its structured
+`ref`, plus optional `title`, `icon`, and root-relative `href` presentation
+metadata. `aiComposerSendInput()` preserves that data for the conversation
+draft, and sent messages render it as an attachment chip. A supplied `href`
+links the chip back to the owning application.
+
+The attachment does not copy resource contents into the draft and does not
+grant access. The model receives only the resource reference and presentation
+metadata, and must read the resource through the owning application's
+authorized capability. Attachment metadata and resource data returned by that
+capability remain untrusted context. Editing or retrying a user message
+preserves the resource attachment while copy actions expose only the visible
+user text.
 
 `Chat.Composer` submits a draft entered during an active response as `steer` by
 default. Set `runningSubmitIntent="queue"` when the application owns a local or

@@ -1,4 +1,5 @@
 import type { CompactResult, InboundEvent, Message } from "@k2b/nessi";
+import type { CapabilityActionReview } from "../contracts/capabilities";
 import type { AiConversation, AiFrontendToolMode, AiStoredMessage, AiToolPresentation, AiTurnStatus } from "./types";
 
 /**
@@ -34,7 +35,7 @@ export type AiTurnBlock =
       result?: unknown;
       isError?: boolean;
       /** Present while status is awaiting_approval. */
-      approval?: { message?: string; allowAlways: boolean };
+      approval?: { message?: string; review?: CapabilityActionReview; allowAlways: boolean };
       /** Present for frontend tools. */
       frontendMode?: AiFrontendToolMode;
       /** Saved Cloud-owned display snapshot for capability calls. */

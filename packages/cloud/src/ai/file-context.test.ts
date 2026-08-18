@@ -62,6 +62,31 @@ describe("conversation file manifest", () => {
     expect(message.content).toEqual([{ type: "text", text: '<attachment path="/photo.jpg" media-type="image/jpeg" size="123" />' }]);
   });
 
+  test("rejects a saved draft when its exact file version was replaced", async () => {
+    const originalList = aiFileStore.list;
+    aiFileStore.list = async () => [
+      {
+        path: "/draft.txt",
+        size: 3,
+        mediaType: "text/plain",
+        origin: "user" as const,
+        updatedAt: "2026-08-18T00:00:00.000Z",
+        version: 2,
+      },
+    ];
+    try {
+      await expect(
+        snapshotAiConversationFiles(
+          "conversation",
+          { role: "user", content: [{ type: "text", text: '<attachment path="/draft.txt" media-type="text/plain" size="3" />' }] },
+          [{ path: "/draft.txt", version: 1 }],
+        ),
+      ).rejects.toThrow("changed before the turn was submitted");
+    } finally {
+      aiFileStore.list = originalList;
+    }
+  });
+
   test("rejects marker-packed messages above the turn attachment limit", async () => {
     const originalList = aiFileStore.list;
     aiFileStore.list = async () =>

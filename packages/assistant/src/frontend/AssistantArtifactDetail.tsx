@@ -12,7 +12,7 @@ type AssistantFilesDialogProps = {
 };
 
 function AssistantFilesDialog(props: AssistantFilesDialogProps) {
-  const source = conversationFileSource("/api/assistant", props.conversationId);
+  const source = conversationFileSource("/api/ai", props.conversationId);
   let refreshVisible = async (): Promise<void> => undefined;
   const unregister = props.live.register({
     matches: matchesAssistantInvalidation(["conversation-files"], { conversationId: props.conversationId }),

@@ -1,21 +1,21 @@
 import { dates } from "@k2b/stdlib";
 import {
-  AI_SHORT_ID_PATTERN,
   type AiChatTask,
   type AiChatTaskOccurrence,
   type AiChatTaskOccurrenceState,
   type AiChatTaskSchedule,
   type AiChatTaskState,
-} from "@valentinkolb/cloud/ai";
-import { coreSettings } from "@valentinkolb/cloud/services";
-import { normalizeWorkflowSchedule } from "@valentinkolb/cloud/workflows/runtime";
+} from "./chat-tasks";
+import { AI_SHORT_ID_PATTERN } from "./short-id";
+import { coreSettings } from "../services";
+import { normalizeWorkflowSchedule } from "../workflows/runtime";
 import { z } from "zod";
 
 export const ChatTaskIdSchema = z.string().regex(AI_SHORT_ID_PATTERN).describe("Readable six-character scheduled task ID.");
 export const ChatTaskOccurrenceIdSchema = z.string().regex(AI_SHORT_ID_PATTERN).describe("Readable six-character task occurrence ID.");
-export const AssistantChatIdSchema = z.string().regex(AI_SHORT_ID_PATTERN).describe("Readable six-character Assistant chat ID.");
+export const AiConversationIdSchema = z.string().regex(AI_SHORT_ID_PATTERN).describe("Readable six-character AI conversation ID.");
 
-export type AssistantChatTask = {
+export type AiChatTaskView = {
   id: string;
   chatId: string;
   chatTitle: string;
@@ -28,7 +28,7 @@ export type AssistantChatTask = {
   updatedAt: string;
 };
 
-export type AssistantChatTaskOccurrence = {
+export type AiChatTaskOccurrenceView = {
   id: string;
   taskId: string;
   scheduledFor: string;
@@ -40,7 +40,7 @@ export type AssistantChatTaskOccurrence = {
   completedAt: string | null;
 };
 
-export const toAssistantChatTask = (task: AiChatTask): AssistantChatTask => ({
+export const toAiChatTaskView = (task: AiChatTask): AiChatTaskView => ({
   id: task.shortId,
   chatId: task.chatId,
   chatTitle: task.chatTitle,
@@ -53,7 +53,7 @@ export const toAssistantChatTask = (task: AiChatTask): AssistantChatTask => ({
   updatedAt: task.updatedAt,
 });
 
-export const toAssistantChatTaskOccurrence = (occurrence: AiChatTaskOccurrence, taskId: string): AssistantChatTaskOccurrence => ({
+export const toAiChatTaskOccurrenceView = (occurrence: AiChatTaskOccurrence, taskId: string): AiChatTaskOccurrenceView => ({
   id: occurrence.shortId,
   taskId,
   scheduledFor: occurrence.scheduledFor,

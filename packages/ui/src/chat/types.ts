@@ -20,10 +20,12 @@ export type ChatAttachment = {
   id: string;
   name: string;
   size?: number;
-  kind?: "file" | "image";
+  kind?: "file" | "image" | "resource";
   icon?: string;
   previewUrl?: string;
   alt?: string;
+  /** Optional destination represented by this attachment. */
+  href?: string;
   /** Opaque application-owned payload returned unchanged with ChatSubmitInput. */
   data?: unknown;
 };

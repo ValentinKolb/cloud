@@ -33,6 +33,7 @@ import type { ConversationReminder } from "../../service/reminders";
 import type { MailDetailErrors } from "../../service/workspace";
 import { readApiError } from "./api-response";
 import MailConversationContext from "./MailConversationContext";
+import MailRelatedConversations from "./MailRelatedConversations";
 import { openMailMessageInspector } from "./MailMessageInspectorDialog";
 import { presentMailActivity } from "./mail-activity-presentation";
 import { mailDraftHref } from "./mail-compose-route";
@@ -662,6 +663,13 @@ export default function MailDetailsPanel(props: {
               conversationId={props.conversationId}
               requestUrl={props.requestUrl}
               active={props.active}
+            />
+
+            <MailRelatedConversations
+              mailboxId={props.mailboxId}
+              conversationId={props.conversationId}
+              active={props.active}
+              dateConfig={props.dateConfig}
             />
 
             <Show when={attachments().length > 0}>

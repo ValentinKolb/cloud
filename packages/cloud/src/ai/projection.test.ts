@@ -7,7 +7,6 @@ import type { AiConversation, AiStoredMessage } from "./types";
 const conversation: AiConversation = {
   id: "conv-1",
   shortId: "cNv234",
-  appId: "assistant",
   title: "Chat",
   titleSource: "default",
   description: "",
@@ -19,7 +18,7 @@ const conversation: AiConversation = {
   runError: null,
   unreadCompletion: false,
   projectId: null,
-  resource: { kind: "direct" },
+  draft: { content: [], revision: 0, updatedAt: null },
   createdByUserId: "user-1",
   createdAt: "2026-07-07T00:00:00.000Z",
   updatedAt: "2026-07-07T00:00:00.000Z",
@@ -253,11 +252,27 @@ describe("projection reducer", () => {
           callId: "c1",
           name: "danger",
           status: "awaiting_approval",
-          approval: { allowAlways: true },
+          approval: {
+            message: "Update the draft.",
+            review: {
+              message: "Update the draft.",
+              details: [{ label: "Proposed body", value: "Hello Ada", display: "block" }],
+              links: [{ rel: "edit", href: "/app/mail/MbA123/drafts/DrG789" }],
+            },
+            allowAlways: true,
+          },
         },
       }),
     ]);
     expect(state.activeTurn?.status).toBe("waiting_for_action");
+    expect(state.activeTurn?.blocks[0]).toMatchObject({
+      approval: {
+        review: {
+          details: [{ display: "block" }],
+          links: [{ rel: "edit", href: "/app/mail/MbA123/drafts/DrG789" }],
+        },
+      },
+    });
   });
 
   test("turn_finished for a different turn is ignored", () => {

@@ -30,7 +30,6 @@ const user = (id: string) => ({
 const conversation = (ownerId: string): AiConversation => ({
   id: "conversation-1",
   shortId: "cNv234",
-  appId: "assistant",
   title: "Chat",
   titleSource: "default",
   description: "",
@@ -42,7 +41,7 @@ const conversation = (ownerId: string): AiConversation => ({
   runError: null,
   unreadCompletion: false,
   projectId: null,
-  resource: { kind: "direct" },
+  draft: { content: [], revision: 0, updatedAt: null },
   createdByUserId: ownerId,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",

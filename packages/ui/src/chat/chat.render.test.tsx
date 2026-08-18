@@ -30,7 +30,7 @@ describe("@k2b/ui portable chat family", () => {
         onSubmit: () => undefined,
         onStop: () => undefined,
         state: "running",
-        attachments: [{ id: "brief", name: "brief.pdf", size: 12_000, kind: "file" }],
+        attachments: [{ id: "brief", name: "brief.pdf", size: 12_000, kind: "file", href: "/files/brief" }],
         onAttachmentsChange: () => undefined,
         fileSelection: { onSelect: () => undefined },
         models: [
@@ -61,6 +61,7 @@ describe("@k2b/ui portable chat family", () => {
     expect(html).toContain('role="listbox"');
     expect(html).toContain("/clear");
     expect(html).toContain("brief.pdf");
+    expect(html).toContain('href="/files/brief"');
     expect(html).toContain("12 KB");
     expect(html).toContain("Fast model");
     expect(html).toContain('src="https://example.test/provider.svg"');
@@ -243,6 +244,22 @@ describe("@k2b/ui portable chat family", () => {
     expect(html).toContain("k2b-chat-message__attachments");
     expect(html).toContain("User: ");
     expect(html).not.toContain("k2b-chat-message__bubble");
+  });
+
+  test("renders an attachment destination without coupling chat to an application router", () => {
+    const html = renderToString(() =>
+      createComponent(Chat.Message, {
+        role: "user",
+        attachments: [{ id: "draft", name: "Quarterly update", kind: "resource", href: "/app/mail/drafts/D4F7K2" }],
+      }),
+    );
+
+    expect(html).toContain('href="/app/mail/drafts/D4F7K2"');
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noopener noreferrer"');
+    expect(html).toContain('aria-label="Open Quarterly update in a new tab"');
+    expect(html).toContain("ti ti-link");
+    expect(html).toContain("Quarterly update");
   });
 
   test("renders a generic timeline without application protocols", () => {

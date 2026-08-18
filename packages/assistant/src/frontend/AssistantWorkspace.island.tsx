@@ -13,6 +13,7 @@ import type {
 import { type AiLiveServerMessage, parseAiLiveServerMessage } from "@valentinkolb/cloud/ai/live-events";
 import { createAiChatController } from "@valentinkolb/cloud/ai/solid";
 import {
+  AI_TURN_ATTACHMENT_MAX_ITEMS,
   AiChatActionsProvider,
   AiChatTurnNavigator,
   type AiComposerAttachment,
@@ -27,6 +28,7 @@ import {
   readAiComposerFiles,
 } from "@valentinkolb/cloud/ai/ui";
 import { createLiveWebSocket, type LiveWebSocket } from "@valentinkolb/cloud/browser/live";
+import { openCloudResourcePicker } from "@valentinkolb/cloud/browser/resource-picker";
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { assistantApi } from "../api/client";
 import type { AssistantChatContextSnapshot } from "../chat-context";
@@ -101,7 +103,7 @@ export default function AssistantWorkspace(props: Props) {
     Boolean(modelId && props.models.some((model) => model.id === modelId));
 
   const chat = createAiChatController({
-    baseUrl: "/api/assistant",
+    baseUrl: "/api/ai",
     initialConversationId: props.initialConversationId,
     initialDetail: props.initialDetail,
     initialTimeline: props.initialDetail?.timeline,
@@ -156,7 +158,7 @@ export default function AssistantWorkspace(props: Props) {
   });
   let subscribeCount = 0;
   liveSocket = createLiveWebSocket<AiLiveServerMessage>({
-    url: "/api/assistant/live",
+    url: "/api/ai/live",
     initialCursor: props.initialLiveCursor,
     subscribe: (cursor) => ({
       type: "ai.live.subscribe",
@@ -213,6 +215,8 @@ export default function AssistantWorkspace(props: Props) {
   const [composerAttachments, setComposerAttachments] = createSignal<Record<string, AiComposerAttachment[]>>({});
   const [queuedMessages, setQueuedMessages] = createSignal<Record<string, AssistantQueuedMessage[]>>({});
   const [sendingQueuedId, setSendingQueuedId] = createSignal<string | null>(null);
+  const [composerSubmitting, setComposerSubmitting] = createSignal(false);
+  const submittedDrafts = new Set<string>();
   let queuedMessageSequence = 0;
   const [pendingProjectChats, setPendingProjectChats] = createSignal<Record<string, AiConversation>>({});
   const [filesDialogOpen, setFilesDialogOpen] = createSignal(false);
@@ -280,6 +284,51 @@ export default function AssistantWorkspace(props: Props) {
   const composerAttachmentsFor = (key: string) => composerAttachments()[key] ?? [];
   const setComposerAttachmentsFor = (key: string, attachments: AiComposerAttachment[]) =>
     setComposerAttachments((current) => ({ ...current, [key]: attachments }));
+
+  const hydratedDrafts = new Set<string>();
+  createEffect(() => {
+    const conversation = chat.conversation();
+    if (!conversation || hydratedDrafts.has(conversation.id)) return;
+    hydratedDrafts.add(conversation.id);
+    const text = conversation.draft.content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n\n");
+    setComposerDraft(conversation.id, text);
+    setComposerAttachmentsFor(
+      conversation.id,
+      conversation.draft.content.flatMap((part): AiComposerAttachment[] => {
+        if (part.type === "resource") {
+          return [
+            {
+              kind: "resource",
+              id: `resource:${part.ref.type}:${part.ref.id}`,
+              name: part.title ?? part.ref.id,
+              ref: part.ref,
+              icon: part.icon ?? "ti ti-cloud",
+              href: part.href,
+            },
+          ];
+        }
+        if (part.type === "file") {
+          return [
+            {
+              kind: "stored-file",
+              id: `file:${part.path}:${part.version}`,
+              name: part.path.split("/").at(-1) || part.path,
+              path: part.path,
+              mediaType: part.mediaType,
+              size: part.size,
+              version: part.version,
+              icon: "ti-file",
+            },
+          ];
+        }
+        return [];
+      }),
+    );
+  });
+
   const selectedModel = createMemo(() => props.models.find((model) => model.id === selectedModelId()) ?? null);
   const acceptsImages = () =>
     Boolean(
@@ -311,6 +360,32 @@ export default function AssistantWorkspace(props: Props) {
     await newConversation.mutate({ focus, projectId, navigate: shouldNavigate });
     return newConversation.data();
   };
+  createEffect(() => {
+    if (activeProject()) return;
+    if (composerSubmitting()) return;
+    const sessionKey = composerSessionKey();
+    const text = composerDraft(sessionKey);
+    const composerFiles = composerAttachmentsFor(sessionKey);
+    const attachments = aiChatAttachments(composerFiles);
+    const input = aiComposerSendInput({ intent: "send", text, attachments });
+    const hasDraft = Boolean(input.message || input.files?.length || input.resources?.length || input.storedFiles?.length);
+    const activeConversationId = chat.activeConversationId();
+    if (!hasDraft && activeConversationId && submittedDrafts.delete(activeConversationId)) return;
+    if (!chat.activeConversationId() && !hasDraft) return;
+    const timer = window.setTimeout(async () => {
+      let conversationId = chat.activeConversationId();
+      if (!conversationId) {
+        const conversation = await createConversation(false);
+        if (!conversation) return;
+        conversationId = conversation.id;
+        hydratedDrafts.add(conversationId);
+        setComposerDraft(conversationId, text);
+        setComposerAttachmentsFor(conversationId, composerFiles);
+      }
+      await chat.saveDraft(input);
+    }, 2_000);
+    onCleanup(() => window.clearTimeout(timer));
+  });
   const createAndFocusConversation = () => createConversation(true);
   const canSend = createMemo(
     () => canUseComposer() && !newConversation.loading() && !chat.loadingConversation() && !chat.running() && !chat.activeTurn(),
@@ -392,15 +467,21 @@ export default function AssistantWorkspace(props: Props) {
 
   const send = async (input: AiComposerSendInput) => {
     if (!canSend()) return false;
-    if (!chat.activeConversationId()) {
-      const conversation = await createConversation(false);
-      if (!conversation || chat.activeConversationId() !== conversation.id) return false;
+    setComposerSubmitting(true);
+    try {
+      if (!chat.activeConversationId()) {
+        const conversation = await createConversation(false);
+        if (!conversation || chat.activeConversationId() !== conversation.id) return false;
+      }
+      const sent = await chat.send({
+        ...input,
+        modelProfileId: selectedModelId() || undefined,
+      });
+      if (sent && chat.activeConversationId()) submittedDrafts.add(chat.activeConversationId()!);
+      return sent;
+    } finally {
+      setComposerSubmitting(false);
     }
-    const sent = await chat.send({
-      ...input,
-      modelProfileId: selectedModelId() || undefined,
-    });
-    return sent;
   };
   const sendProjectMessage = async (projectId: string, input: AiComposerSendInput) => {
     if (!canSend()) return false;
@@ -590,6 +671,31 @@ export default function AssistantWorkspace(props: Props) {
     }));
   };
 
+  const addComposerResource = async (sessionKey: string) => {
+    if (composerAttachmentsFor(sessionKey).length >= AI_TURN_ATTACHMENT_MAX_ITEMS) {
+      chat.setError(`A message can attach at most ${AI_TURN_ATTACHMENT_MAX_ITEMS} items.`);
+      return;
+    }
+    const existing = composerAttachmentsFor(sessionKey).filter((item) => item.kind === "resource");
+    const selected = await openCloudResourcePicker({
+      title: "Attach Cloud resource",
+      excludeRefs: existing.map((item) => item.ref),
+      requireReader: true,
+    });
+    if (!selected) return;
+    setComposerAttachmentsFor(sessionKey, [
+      ...composerAttachmentsFor(sessionKey),
+      {
+        kind: "resource",
+        id: `resource:${selected.ref.type}:${selected.ref.id}`,
+        name: selected.title,
+        ref: selected.ref,
+        icon: selected.icon ?? selected.appIcon ?? "ti ti-cloud",
+        href: selected.href,
+      },
+    ]);
+  };
+
   const AssistantComposer = (composerProps: { projectId?: string; projectName?: string }) => {
     const sessionKey = () => (composerProps.projectId ? projectComposerKey(composerProps.projectId) : composerSessionKey());
     const projectComposer = () => Boolean(composerProps.projectId);
@@ -664,30 +770,40 @@ export default function AssistantWorkspace(props: Props) {
           }
           onError={(error) => chat.setError(error instanceof Error ? error.message : "Chat action failed.")}
           menuActions={
-            projectComposer() || !activeConversation()
+            projectComposer()
               ? []
               : [
                   {
-                    id: "search-chat",
-                    label: "Search this chat",
-                    icon: "ti ti-search",
-                    onSelect: async () => {
-                      const conversation = activeConversation();
-                      if (!conversation) return;
-                      const message = await openAssistantChatMessageSearch(conversation.id);
-                      if (message) await revealMessage(message);
-                    },
+                    id: "attach-resource",
+                    label: "Attach Cloud resource",
+                    icon: "ti ti-cloud-plus",
+                    onSelect: () => addComposerResource(sessionKey()),
                   },
-                  {
-                    id: "compact-context",
-                    label: "Compact context",
-                    icon: "ti ti-package",
-                    disabled: chat.running(),
-                    onSelect: async () => {
-                      if (!chat.activeConversationId()) return;
-                      await chat.compactConversation({ modelProfileId: selectedModelId() || undefined });
-                    },
-                  },
+                  ...(activeConversation()
+                    ? [
+                        {
+                          id: "search-chat",
+                          label: "Search this chat",
+                          icon: "ti ti-search",
+                          onSelect: async () => {
+                            const conversation = activeConversation();
+                            if (!conversation) return;
+                            const message = await openAssistantChatMessageSearch(conversation.id);
+                            if (message) await revealMessage(message);
+                          },
+                        },
+                        {
+                          id: "compact-context",
+                          label: "Compact context",
+                          icon: "ti ti-package",
+                          disabled: chat.running(),
+                          onSelect: async () => {
+                            if (!chat.activeConversationId()) return;
+                            await chat.compactConversation({ modelProfileId: selectedModelId() || undefined });
+                          },
+                        },
+                      ]
+                    : []),
                 ]
           }
           contextActions={[]}

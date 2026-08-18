@@ -4,7 +4,7 @@ import type { Provider } from "@k2b/nessi/ai";
 import { ok } from "@k2b/stdlib";
 import { z } from "zod";
 import { compileCapabilities } from "../_internal/capabilities";
-import { defineCapabilities } from "../contracts/capabilities";
+import { defineCapabilities, type CapabilityActionReview } from "../contracts/capabilities";
 import type { CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
 import {
   aiCapabilityInputSchema,
@@ -520,6 +520,7 @@ describe("AI capability catalog", () => {
     expect(called).toBe("contacts__query__list");
 
     const approvalMessages: string[] = [];
+    const actionReviews: Array<{ callId: string; review: CapabilityActionReview }> = [];
     let actionExecutions = 0;
     const actionPrepared = prepareAiTools({
       tools: createLoadedAiCapabilityTools({
@@ -527,9 +528,13 @@ describe("AI capability catalog", () => {
         loadedNames: ["contacts__action__create"],
         review: async () => ({
           message: "Create a contact.",
-          details: [{ label: "Name", value: "Ada" }],
+          details: [
+            { label: "Name", value: "Ada" },
+            { label: "Notes", value: "Long notes", display: "block" },
+          ],
           links: [{ rel: "open", href: "/app/contacts" }],
         }),
+        onReview: (callId, review) => actionReviews.push({ callId, review }),
         execute: async () => {
           actionExecutions += 1;
           return { data: { id: "created" } };
@@ -544,6 +549,7 @@ describe("AI capability catalog", () => {
     await action.execute(
       { title: "Ada" },
       {
+        callId: "call-create",
         signal: AbortSignal.timeout(1_000),
         requestApproval: async (message) => {
           approvalMessages.push(message);
@@ -552,13 +558,27 @@ describe("AI capability catalog", () => {
         requestClientTool: async <T>() => undefined as T,
       },
     );
-    expect(approvalMessages).toEqual(["Create a contact.\nName: Ada\nopen: /app/contacts"]);
+    expect(approvalMessages).toEqual(["Create a contact."]);
+    expect(actionReviews).toEqual([
+      {
+        callId: "call-create",
+        review: {
+          message: "Create a contact.",
+          details: [
+            { label: "Name", value: "Ada" },
+            { label: "Notes", value: "Long notes", display: "block" },
+          ],
+          links: [{ rel: "open", href: "/app/contacts" }],
+        },
+      },
+    ]);
     expect(actionExecutions).toBe(1);
 
     await expect(
       action.execute(
         { title: "Rejected" },
         {
+          callId: "call-rejected",
           signal: AbortSignal.timeout(1_000),
           requestApproval: async () => false,
           requestClientTool: async <T>() => undefined as T,
@@ -644,7 +664,7 @@ describe("AI capability catalog", () => {
       appId: "contacts",
       appAccent: "#0f766e",
     });
-    expect(approvalScope).toBe("contacts.create");
+    expect(approvalScope).toBeUndefined();
   });
 
   test("keeps capability discovery available when the Help registry fails", async () => {

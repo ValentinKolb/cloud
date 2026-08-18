@@ -18,6 +18,24 @@ const createContext = (
 ): { ctx: CloudCliContext; stdout: string[]; stderr: string[] } => {
   const stdout: string[] = [];
   const stderr: string[] = [];
+  const draftRevisions = new Map<string, number>();
+  const fetchWithDraftFallback: CloudCliContext["fetch"] = async (path, init) => {
+    const response = await fetcher(path, init);
+    if (response.status !== 404) return response;
+    const url = String(path);
+    const detail = url.match(/^\/api\/ai\/conversations\/([^/]+)$/u);
+    if (detail && (init?.method ?? "GET") === "GET") {
+      const revision = draftRevisions.get(detail[1]!) ?? 0;
+      return json({ conversation: { id: detail[1], draft: { content: [], revision, updatedAt: null } }, activeTurn: null });
+    }
+    const draft = url.match(/^\/api\/ai\/conversations\/([^/]+)\/draft$/u);
+    if (draft && init?.method === "PUT") {
+      const revision = (draftRevisions.get(draft[1]!) ?? 0) + 1;
+      draftRevisions.set(draft[1]!, revision);
+      return json({ content: [], revision, updatedAt: "2026-08-18T00:00:00.000Z" });
+    }
+    return response;
+  };
   const ctx: CloudCliContext = {
     args,
     flags: {},
@@ -27,7 +45,7 @@ const createContext = (
     createApiClient: () => {
       throw new Error("unused");
     },
-    fetch: fetcher,
+    fetch: fetchWithDraftFallback,
     readJson: async <T>(response: Response) => {
       if (!response.ok)
         throw new Error(`${response.status} ${((await response.json()) as { message?: string }).message ?? response.statusText}`);
@@ -100,18 +118,18 @@ describe("assistant CLI", () => {
 
     expect(requests.map(({ path, method, body }) => ({ path, method, body }))).toEqual([
       {
-        path: "/api/assistant/tasks",
+        path: "/api/ai/tasks",
         method: "POST",
         body: { chatId: "cHt234", prompt: "Check the release.", schedule: { kind: "once", localAt: "2099-06-15T09:30" } },
       },
-      { path: "/api/assistant/tasks/tSk234/run", method: "POST", body: null },
+      { path: "/api/ai/tasks/tSk234/run", method: "POST", body: null },
     ]);
     expect(requests.every((request) => Boolean(request.idempotencyKey))).toBe(true);
   });
 
   test("shows the task scheduling timezone", async () => {
     const request = createContext(["tasks", "status"], async (path) => {
-      expect(String(path)).toBe("/api/assistant/tasks/status");
+      expect(String(path)).toBe("/api/ai/tasks/status");
       return json({ timezone: "Europe/Berlin" });
     });
     await assistantCli.run(request.ctx);
@@ -123,7 +141,7 @@ describe("assistant CLI", () => {
     const fetcher: CloudCliContext["fetch"] = async (path) => {
       requests.push(String(path));
       if (String(path).includes("messages/search")) return json({ messages: [], nextCursor: "12" });
-      if (String(path).startsWith("/api/assistant/resources")) return json({ resources: [] });
+      if (String(path).startsWith("/api/ai/resources")) return json({ resources: [] });
       return json({ resources: [] });
     };
 
@@ -141,9 +159,9 @@ describe("assistant CLI", () => {
     expect(await assistantCli.run(across.ctx)).toBeUndefined();
 
     expect(requests).toEqual([
-      "/api/assistant/conversations/cHt234/messages/search?q=release+date&limit=10",
-      "/api/assistant/conversations/cHt234/resources?q=nT1234&limit=20",
-      "/api/assistant/resources?q=release+notes&limit=20",
+      "/api/ai/conversations/cHt234/messages/search?q=release+date&limit=10",
+      "/api/ai/conversations/cHt234/resources?q=nT1234&limit=20",
+      "/api/ai/resources?q=release+notes&limit=20",
     ]);
   });
 
@@ -183,7 +201,7 @@ describe("assistant CLI", () => {
     ctx.flags.limit = "5";
 
     expect(await assistantCli.run(ctx)).toBeUndefined();
-    expect(requests).toEqual(["/api/assistant/memories?q=German&limit=5"]);
+    expect(requests).toEqual(["/api/ai/memories?q=German&limit=5"]);
     expect(JSON.parse(stdout.join(""))).toEqual([memory]);
   });
 
@@ -218,9 +236,9 @@ describe("assistant CLI", () => {
     expect(await assistantCli.run(update.ctx)).toBeUndefined();
 
     expect(requests).toEqual([
-      { path: "/api/assistant/memories", method: "POST", body: { kind: "preference", content: "Answer in German" } },
+      { path: "/api/ai/memories", method: "POST", body: { kind: "preference", content: "Answer in German" } },
       {
-        path: `/api/assistant/memories/${id}`,
+        path: `/api/ai/memories/${id}`,
         method: "PATCH",
         body: { kind: "fact", content: "Timezone is Europe/Berlin" },
       },
@@ -329,9 +347,9 @@ describe("assistant CLI", () => {
     );
     const { ctx, stdout, stderr } = createContext(["hello"], async (path, init) => {
       requests.push(`${init?.method ?? "GET"} ${String(path)}`);
-      if (path === "/api/assistant/conversations") return json({ id: "chat-1", title: "New chat" }, 201);
-      if (path === "/api/assistant/conversations/chat-1/stream") return stream;
-      if (path === "/api/assistant/conversations/chat-1/turns") return json({ turn: { id: "turn-1", status: "queued" } }, 201);
+      if (path === "/api/ai/conversations") return json({ id: "chat-1", title: "New chat" }, 201);
+      if (path === "/api/ai/conversations/chat-1/stream") return stream;
+      if (path === "/api/ai/conversations/chat-1/turns") return json({ turn: { id: "turn-1", status: "queued" } }, 201);
       return json({ message: "Not found" }, 404);
     });
     ctx.flags.print = true;
@@ -340,9 +358,11 @@ describe("assistant CLI", () => {
     expect(stdout.join("")).toBe("Hello\n");
     expect(stderr).toEqual([]);
     expect(requests).toEqual([
-      "POST /api/assistant/conversations",
-      "GET /api/assistant/conversations/chat-1/stream",
-      "POST /api/assistant/conversations/chat-1/turns",
+      "POST /api/ai/conversations",
+      "GET /api/ai/conversations/chat-1/stream",
+      "GET /api/ai/conversations/chat-1",
+      "PUT /api/ai/conversations/chat-1/draft",
+      "POST /api/ai/conversations/chat-1/turns",
     ]);
   });
 
@@ -404,9 +424,9 @@ describe("assistant CLI", () => {
     ];
     const { ctx, stdout, stderr } = createContext([], async (path, init) => {
       requests.push(`${init?.method ?? "GET"} ${String(path)}`);
-      if (path === "/api/assistant/conversations") return json({ id: "chat-1", title: "New chat" }, 201);
-      if (path === "/api/assistant/conversations/chat-1/stream") return streams[streamIndex++]!;
-      if (path === "/api/assistant/conversations/chat-1/turns") {
+      if (path === "/api/ai/conversations") return json({ id: "chat-1", title: "New chat" }, 201);
+      if (path === "/api/ai/conversations/chat-1/stream") return streams[streamIndex++]!;
+      if (path === "/api/ai/conversations/chat-1/turns") {
         turnIndex += 1;
         return json({ turn: { id: `turn-${turnIndex}`, status: "queued" } }, 201);
       }
@@ -431,8 +451,8 @@ describe("assistant CLI", () => {
     expect(output).toContain("First\nSecond\n");
     expect(stderr).not.toContain("Chat: chat-1");
     expect(prompts).toEqual(["> ", "> ", "> "]);
-    expect(requests.filter((request) => request === "POST /api/assistant/conversations")).toHaveLength(1);
-    expect(requests.filter((request) => request === "POST /api/assistant/conversations/chat-1/turns")).toHaveLength(2);
+    expect(requests.filter((request) => request === "POST /api/ai/conversations")).toHaveLength(1);
+    expect(requests.filter((request) => request === "POST /api/ai/conversations/chat-1/turns")).toHaveLength(2);
   });
 
   test("selects a model through the numbered picker", async () => {
@@ -456,7 +476,7 @@ describe("assistant CLI", () => {
       ),
     );
     const { ctx, stdout } = createContext([], async (path, init) => {
-      if (path === "/api/assistant/status") {
+      if (path === "/api/ai/status") {
         return json({
           defaultModelId: "model-1",
           models: [
@@ -465,15 +485,15 @@ describe("assistant CLI", () => {
           ],
         });
       }
-      if (path === "/api/assistant/models") {
+      if (path === "/api/ai/models") {
         return json([
           { id: "model-1", label: "Model One", provider: "provider", model: "one", capabilities: [] },
           { id: "model-2", label: "Model Two", provider: "provider", model: "two", capabilities: [] },
         ]);
       }
-      if (path === "/api/assistant/conversations") return json({ id: "chat-1", title: "New chat" }, 201);
-      if (path === "/api/assistant/conversations/chat-1/stream") return streams[streamIndex++]!;
-      if (path === "/api/assistant/conversations/chat-1/turns") {
+      if (path === "/api/ai/conversations") return json({ id: "chat-1", title: "New chat" }, 201);
+      if (path === "/api/ai/conversations/chat-1/stream") return streams[streamIndex++]!;
+      if (path === "/api/ai/conversations/chat-1/turns") {
         turnBodies.push(init?.body ? JSON.parse(String(init.body)) : null);
         turnIndex += 1;
         return json({ turn: { id: `turn-${turnIndex}`, status: "queued" } }, 201);
@@ -489,8 +509,8 @@ describe("assistant CLI", () => {
 
     expect(await runInteractiveAssistant(ctx, {}, reader)).toBe(0);
     expect(turnBodies).toEqual([
-      { message: "Summarize this", modelProfileId: "model-2" },
-      { message: "Continue", modelProfileId: "model-2" },
+      { draftRevision: 1, modelProfileId: "model-2" },
+      { draftRevision: 2, modelProfileId: "model-2" },
     ]);
     const output = stdout.join("");
     expect(output).toContain("Assistant · Model One · /help for commands");
@@ -577,12 +597,12 @@ describe("assistant CLI", () => {
       ),
     ];
     const { ctx, stdout } = createContext([], async (path, init) => {
-      if (path === "/api/assistant/conversations") return json({ id: "chat-1", title: "New chat" }, 201);
-      if (path === "/api/assistant/conversations/chat-1/stream") return streams[streamIndex++]!;
-      if (path === "/api/assistant/conversations/chat-1/turns") {
+      if (path === "/api/ai/conversations") return json({ id: "chat-1", title: "New chat" }, 201);
+      if (path === "/api/ai/conversations/chat-1/stream") return streams[streamIndex++]!;
+      if (path === "/api/ai/conversations/chat-1/turns") {
         return json({ turn: { id: "turn-1", status: "queued" } }, 201);
       }
-      if (path === "/api/assistant/conversations/chat-1/pending-actions/turn-1") {
+      if (path === "/api/ai/conversations/chat-1/pending-actions/turn-1") {
         return json([
           {
             type: "approval_request",
@@ -596,7 +616,7 @@ describe("assistant CLI", () => {
           },
         ]);
       }
-      if (path === "/api/assistant/conversations/chat-1/turns/turn-1/actions/call-1") {
+      if (path === "/api/ai/conversations/chat-1/turns/turn-1/actions/call-1") {
         approvalBody = JSON.parse(String(init?.body));
         return json({ ok: true });
       }
@@ -664,13 +684,13 @@ describe("assistant CLI", () => {
       ),
     ];
     const { ctx, stdout, stderr } = createContext([], async (path, init) => {
-      if (path === "/api/assistant/conversations") return json({ id: "chat-1", title: "New chat" }, 201);
-      if (path === "/api/assistant/conversations/chat-1/stream") return streams[streamIndex++]!;
-      if (path === "/api/assistant/conversations/chat-1/turns") {
+      if (path === "/api/ai/conversations") return json({ id: "chat-1", title: "New chat" }, 201);
+      if (path === "/api/ai/conversations/chat-1/stream") return streams[streamIndex++]!;
+      if (path === "/api/ai/conversations/chat-1/turns") {
         turnBody = JSON.parse(String(init?.body));
         return json({ turn: { id: "turn-1", status: "queued" } }, 201);
       }
-      if (path === "/api/assistant/conversations/chat-1/pending-actions/turn-1") {
+      if (path === "/api/ai/conversations/chat-1/pending-actions/turn-1") {
         return json([
           {
             type: "frontend_tool",
@@ -683,7 +703,7 @@ describe("assistant CLI", () => {
           },
         ]);
       }
-      if (path === "/api/assistant/conversations/chat-1/turns/turn-1/actions/call-1") {
+      if (path === "/api/ai/conversations/chat-1/turns/turn-1/actions/call-1") {
         actionBody = JSON.parse(String(init?.body));
         return json({ ok: true });
       }
@@ -763,11 +783,11 @@ describe("assistant CLI", () => {
       ),
     ];
     const { ctx, stdout } = createContext([], async (path, init) => {
-      if (path === "/api/assistant/conversations/chat-1") {
+      if (path === "/api/ai/conversations/chat-1") {
         return json({ conversation: { id: "chat-1", title: "Existing" }, activeTurn: { turnId: "turn-1", status: "waiting_for_action" } });
       }
-      if (path === "/api/assistant/conversations/chat-1/stream") return streams[streamIndex++]!;
-      if (path === "/api/assistant/conversations/chat-1/pending-actions/turn-1") {
+      if (path === "/api/ai/conversations/chat-1/stream") return streams[streamIndex++]!;
+      if (path === "/api/ai/conversations/chat-1/pending-actions/turn-1") {
         return json([
           {
             type: "frontend_tool",
@@ -780,11 +800,11 @@ describe("assistant CLI", () => {
           },
         ]);
       }
-      if (path === "/api/assistant/conversations/chat-1/turns/turn-1/actions/call-1") {
+      if (path === "/api/ai/conversations/chat-1/turns/turn-1/actions/call-1") {
         actionBody = JSON.parse(String(init?.body));
         return json({ ok: true });
       }
-      if (path === "/api/assistant/conversations/chat-1/turns") {
+      if (path === "/api/ai/conversations/chat-1/turns") {
         submittedTurns += 1;
         return json({ turn: { id: "unexpected", status: "queued" } }, 201);
       }
@@ -888,7 +908,6 @@ describe("assistant CLI", () => {
     const project = (shortId: string) => ({
       id: shortId,
       shortId,
-      appId: "assistant",
       name: "Release notes",
       description: "",
       instructions: "",
@@ -910,7 +929,6 @@ describe("assistant CLI", () => {
     const project = (shortId: string, name: string) => ({
       id: shortId,
       shortId,
-      appId: "assistant",
       name,
       description: "",
       instructions: "",
@@ -937,8 +955,8 @@ describe("assistant CLI", () => {
     const requests: Array<{ path: string; method: string; body: unknown }> = [];
     const { ctx } = createContext(["Summarize this"], async (path, init) => {
       requests.push({ path: String(path), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
-      if (path === "/api/assistant/conversations") return json({ id: "chat-1", title: "Project chat", projectId }, 201);
-      if (path === "/api/assistant/conversations/chat-1/turns") {
+      if (path === "/api/ai/conversations") return json({ id: "chat-1", title: "Project chat", projectId }, 201);
+      if (path === "/api/ai/conversations/chat-1/turns") {
         return json({ turn: { id: "turn-1", status: "queued" } }, 201);
       }
       return json({ message: "Not found" }, 404);
@@ -949,7 +967,7 @@ describe("assistant CLI", () => {
 
     expect(await assistantCli.run(ctx)).toBe(0);
     expect(requests[0]).toEqual({
-      path: "/api/assistant/conversations",
+      path: "/api/ai/conversations",
       method: "POST",
       body: { projectId },
     });

@@ -142,6 +142,8 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
   const title = () => props.block.presentation?.title ?? displayToolName(props.block.name);
   const ownerName = () => props.block.presentation?.appName ?? "Assistant";
   const description = () => {
+    const reviewMessage = props.block.approval?.review?.message.trim();
+    if (reviewMessage) return reviewMessage;
     const message = props.block.approval?.message?.trim();
     if (!message) return null;
     const duplicateTitle = props.block.presentation ? `${props.block.presentation.appName}: ${props.block.presentation.title}\n` : "";
@@ -150,7 +152,7 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
     return withoutDuplicateTitle || null;
   };
   const reviewLines = () =>
-    (description() ?? "")
+    (props.block.approval?.review ? "" : (description() ?? ""))
       .split("\n")
       .map((line) => line.trim())
       .filter(Boolean)
@@ -158,6 +160,12 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
         const match = /^([^:]{1,40}):\s+(.+)$/.exec(line);
         return match ? { label: match[1], value: match[2] } : { value: line };
       });
+  const inlineReviewDetails = () =>
+    (props.block.approval?.review?.details ?? []).filter((detail) => (detail.display ?? "inline") === "inline");
+  const blockReviewDetails = () => (props.block.approval?.review?.details ?? []).filter((detail) => detail.display === "block");
+  const reviewLinks = () => props.block.approval?.review?.links ?? [];
+  const reviewLinkTitle = (rel: "open" | "edit" | "status" | "preview" | "download") =>
+    ({ open: "Open", edit: "Edit", status: "View status", preview: "Preview", download: "Download" })[rel];
   const detailData = () => (isStructuredDataValue(props.block.args) ? props.block.args : undefined);
   const appAccent = () => props.block.presentation?.appAccent;
   const detailsId = `approval-details-${props.block.callId}`;
@@ -262,6 +270,49 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
                 </p>
               )}
             </For>
+          </div>
+        </Show>
+        <Show when={props.block.approval?.review}>
+          <div class="mt-3 flex flex-col gap-3 text-xs leading-5 text-secondary">
+            <p class="whitespace-pre-wrap">{description()}</p>
+            <Show when={inlineReviewDetails().length > 0}>
+              <dl class="grid gap-x-3 gap-y-1 sm:grid-cols-[max-content_minmax(0,1fr)]">
+                <For each={inlineReviewDetails()}>
+                  {(detail) => (
+                    <>
+                      <dt class="font-semibold text-primary">{detail.label}</dt>
+                      <dd class="min-w-0 whitespace-pre-wrap break-words">{detail.value}</dd>
+                    </>
+                  )}
+                </For>
+              </dl>
+            </Show>
+            <For each={blockReviewDetails()}>
+              {(detail) => (
+                <section class="min-w-0" aria-label={detail.label}>
+                  <h4 class="mb-1 font-semibold text-primary">{detail.label}</h4>
+                  <pre
+                    class="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-white/55 p-2 font-sans text-xs leading-5 text-secondary [box-shadow:var(--ui-control-recess)] dark:bg-black/20"
+                    role="region"
+                    tabIndex={0}
+                    aria-label={`${detail.label} content`}
+                  >
+                    {detail.value}
+                  </pre>
+                </section>
+              )}
+            </For>
+            <Show when={reviewLinks().length > 0}>
+              <nav class="flex flex-wrap gap-x-3 gap-y-1" aria-label={`${title()} links`}>
+                <For each={reviewLinks()}>
+                  {(link) => (
+                    <a class="font-medium text-link underline-offset-2 hover:underline" href={link.href}>
+                      {link.title ?? reviewLinkTitle(link.rel)}
+                    </a>
+                  )}
+                </For>
+              </nav>
+            </Show>
           </div>
         </Show>
         <button

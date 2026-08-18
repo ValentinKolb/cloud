@@ -83,9 +83,7 @@ individual command. There is no remembered or non-interactive Bash approval.
 ## Set the approval policy
 
 This policy belongs to tools declared with `defineAiTool()`. Dynamically loaded
-app Capability Actions use the fixed AI Core policy described below. A
-Capability app may only declare whether a reviewed closed-world Action is
-eligible for a remembered user choice; AI Core owns and enforces that choice.
+app Capability Actions use the fixed AI Core policy described below.
 
 | Policy | Behavior |
 | --- | --- |
@@ -96,8 +94,8 @@ eligible for a remembered user choice; AI Core owns and enforces that choice.
 
 The default is `once`.
 
-Remembered approval is scoped to the actor, application, resource, tool, and
-approval scope. A resource chat does not share approval with another resource.
+Remembered approval is scoped to the actor, tool, and declared approval scope.
+Only use a shared scope when every call covered by it has the same consequence.
 
 Use `never` only for safe reads or deterministic presentation. Writes and
 external side effects should require approval.
@@ -127,7 +125,7 @@ path, the tool reports that image inspection is unavailable.
 
 ## Search product Help
 
-A user-backed direct chat on a tool-capable model resolves `search_help` and
+A user-backed personal chat on a tool-capable model resolves `search_help` and
 `read_help` dynamically from app-owned Help registration. They do not require
 Capability discovery because static product guidance is separate from
 executable operations. A registry failure stays local to Help and may be tried
@@ -137,7 +135,7 @@ exposure rules.
 
 ## Discover Cloud app capabilities
 
-A direct chat may opt into the live capability catalog through its default tool
+A personal chat uses the live capability catalog through its default tool
 source:
 
 ```ts
@@ -191,22 +189,15 @@ AI Core treats capability operation kinds as the approval boundary:
 | --- | --- |
 | Query | Execute without interactive approval |
 | Action without `approval` | Require fresh approval for that call |
-| Action with `approval: "rememberable"` | Require approval and allow the user to remember it |
+| Action with `approval: "rememberable"` | Require fresh approval for that call |
 
-Capability manifests therefore describe objective Action properties such as
-`openWorld`, `destructive`, idempotency, and the optional availability of a
-review. The optional `approval: "rememberable"` field is the one Cloud client
-policy extension: it allows, but never silently creates, a remembered user
-choice. `openWorld` and `destructive` remain MCP-compatible annotations and do
-not themselves decide whether approval can be remembered.
-
-AI Core accepts remembered approval only for closed-world Actions with a
-review. The first call still runs the review and asks the user. Choosing
-**Always approve** stores the choice for the current user, host application,
-resource, tool, and approval scope. Later matching calls still run the live
-review, app authorization, input validation, and domain checks; only the
-interactive confirmation is skipped. Open-world Actions and Actions without
-the field always ask again.
+Capability manifests describe objective Action properties such as `openWorld`,
+`destructive`, idempotency, and the optional availability of a review. AI Core
+currently does not remember Capability Action approvals, including Actions
+that declare `approval: "rememberable"`: a safe reusable scope can depend on
+the owning app's concrete arguments and resources. Add remembered Capability
+approval only with a canonical app-owned scope contract; do not infer it from a
+conversation attachment or resource ID.
 
 This approval confirms the user's intent for one model-requested call. It is
 not application authorization. After approval, the owning app validates the
@@ -243,12 +234,15 @@ The stream exposes pending actions. The shared controller provides:
 - `respondToApproval({ turnId, callId }, { approved, remember })`;
 - `submitFrontendToolResult({ turnId, callId }, result)`.
 
-Show the tool name, requested inputs, and consequence before approval. For a
-Capability Action, `allowAlways` is true only when its live manifest declares
-`approval: "rememberable"`. Use a split approval button so approving once
-stays the primary action and **Always approve** remains an explicit secondary
-choice. When a review is available, show it instead of making the user
-interpret opaque IDs in the raw arguments.
+Show the tool name, requested inputs, and consequence before approval.
+Capability Actions currently expose only one-time approval. For tools that do
+allow a remembered choice, use a split approval button so approving once stays
+the primary action and **Always approve** remains an explicit secondary choice.
+When a Capability review is available, show it instead of making the user
+interpret opaque IDs in the raw arguments. Review details default to the
+compact `inline` presentation; `display: "block"` gives long plain-text values
+their own bounded section. The hint never enables HTML or Markdown rendering,
+and semantic review links remain clickable same-origin links.
 
 Users can list and revoke their remembered choices in Assistant under
 **Personalization → Approvals**. Revocation is ownership-scoped and takes

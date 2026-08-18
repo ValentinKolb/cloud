@@ -93,10 +93,16 @@ describe("nessi block event mapping", () => {
 
   test("tool_action_request marks the tool block awaiting with approval metadata", () => {
     const mapper = createEventMapper(1, []);
+    const review = {
+      message: "Sure?",
+      details: [{ label: "Body", value: "Hello", display: "block" as const }],
+      links: [{ rel: "edit" as const, href: "/app/mail/drafts/one" }],
+    };
+    mapper.setApprovalReviews(new Map([["call-9", review]]));
     const ops = mapper.translate({
       ...turn,
       type: "tool_action_request",
-      kind: "approval",
+      kind: "custom_approval",
       callId: "call-9",
       name: "danger",
       args: { a: 1 },
@@ -104,7 +110,7 @@ describe("nessi block event mapping", () => {
     } as OutboundEvent);
     expect(ops[0]).toMatchObject({
       type: "block_set",
-      block: { id: toolBlockId("call-9"), status: "awaiting_approval", approval: { message: "Sure?" } },
+      block: { id: toolBlockId("call-9"), status: "awaiting_approval", approval: { message: "Sure?", review } },
     });
   });
 

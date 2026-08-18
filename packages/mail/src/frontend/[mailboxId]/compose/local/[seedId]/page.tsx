@@ -17,6 +17,10 @@ export default ssr<AuthContext>(async (c) => {
     accessSubject: c.get("accessSubject"),
     requestId: c.req.header("x-request-id") ?? null,
   };
+  const currentActor =
+    context.actor.kind === "user"
+      ? { kind: "user" as const, id: context.actor.user.id }
+      : { kind: "service_account" as const, id: context.actor.serviceAccount.id };
   const [mailbox, permission, identities, calendarIntegrationAvailable] = await Promise.all([
     mailboxes.getMailbox(context, mailboxId),
     mailboxAccess.getMailboxPermission(context, mailboxId),
@@ -32,6 +36,7 @@ export default ssr<AuthContext>(async (c) => {
     <Layout c={c} fullPage focusMode flushCanvas={popout} title={[{ title: "Mail", href: returnHref }, { title: "New message" }]}>
       <MailDraftSeedComposerPage
         mailboxId={mailboxShortId}
+        currentActor={currentActor}
         seedId={seedId}
         identities={publicData.identities}
         initialPanes={initialPanes}

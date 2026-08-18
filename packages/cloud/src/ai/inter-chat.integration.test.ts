@@ -29,8 +29,8 @@ const insertUser = async (label: string) => {
 describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inter-chat messages (integration)", () => {
   test("indexes structured refs and searches their owned chat occurrences", async () => {
     const userId = await insertUser("resources");
-    const first = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId, title: "Release" });
-    const second = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId, title: "Mail" });
+    const first = await aiConversations.createConversation({ ownerUserId: userId, title: "Release" });
+    const second = await aiConversations.createConversation({ ownerUserId: userId, title: "Mail" });
     try {
       await aiConversations.indexConversationResources({
         conversationId: first.id,
@@ -63,7 +63,6 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
       });
 
       const across = await aiConversations.listUserConversationResources({
-        appId: "assistant",
         ownerUserId: userId,
         search: "deployment",
       });
@@ -71,7 +70,6 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
       expect(across.resources[0]).toMatchObject({ ref: { type: "mail.message", id: "eM1234" }, chat: { shortId: second.shortId } });
 
       const chats = await aiConversations.listConversations({
-        appId: "assistant",
         ownerUserId: userId,
         refs: [{ type: "notebooks.note", id: "nT1234" }],
       });
@@ -92,18 +90,17 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
   test("delivers one attributable idempotent message into another owned chat", async () => {
     const userId = await insertUser("delivery");
     const otherUserId = await insertUser("other");
-    const source = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId, title: "Source" });
-    const target = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId, title: "Target" });
-    const idleTarget = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId, title: "Idle target" });
+    const source = await aiConversations.createConversation({ ownerUserId: userId, title: "Source" });
+    const target = await aiConversations.createConversation({ ownerUserId: userId, title: "Target" });
+    const idleTarget = await aiConversations.createConversation({ ownerUserId: userId, title: "Idle target" });
     const otherIdleTarget = await aiConversations.createConversation({
-      appId: "assistant",
       ownerUserId: userId,
       title: "Other idle target",
     });
-    const archived = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId, title: "Archived" });
-    const foreign = await aiConversations.createConversation({ appId: "assistant", ownerUserId: otherUserId, title: "Foreign" });
+    const archived = await aiConversations.createConversation({ ownerUserId: userId, title: "Archived" });
+    const foreign = await aiConversations.createConversation({ ownerUserId: otherUserId, title: "Foreign" });
     try {
-      expect(await aiConversations.archiveConversation({ conversationId: archived.id, appId: "assistant", ownerUserId: userId })).toBe(
+      expect(await aiConversations.archiveConversation({ conversationId: archived.id, ownerUserId: userId })).toBe(
         true,
       );
       const sourceTurn = await aiConversations.createCompactionTurn({
@@ -136,7 +133,6 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
         callId: "call-message",
       });
       const created = await aiConversations.createInterChatMessage({
-        appId: "assistant",
         sourceConversationId: origin!.conversationId,
         sourceTurnId: origin!.turnId,
         sourceCallId: origin!.callId,
@@ -149,7 +145,6 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
       if (!created.ok) return;
 
       const duplicate = await aiConversations.createInterChatMessage({
-        appId: "assistant",
         sourceConversationId: source.id,
         sourceTurnId: sourceTurn.id,
         sourceCallId: "call-message",
@@ -161,7 +156,6 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
       expect(duplicate.ok && duplicate.message.id).toBe(created.message.id);
 
       const foreignResult = await aiConversations.createInterChatMessage({
-        appId: "assistant",
         sourceConversationId: source.id,
         sourceTurnId: sourceTurn.id,
         sourceCallId: "call-foreign",
@@ -172,7 +166,6 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
       });
       expect(foreignResult).toEqual({ ok: false, reason: "not_found" });
       const archivedResult = await aiConversations.createInterChatMessage({
-        appId: "assistant",
         sourceConversationId: source.id,
         sourceTurnId: sourceTurn.id,
         sourceCallId: "call-archived",
@@ -208,7 +201,6 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
       });
 
       const queued = await aiConversations.createInterChatMessage({
-        appId: "assistant",
         sourceConversationId: source.id,
         sourceTurnId: sourceTurn.id,
         sourceCallId: "call-busy",
@@ -230,7 +222,6 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
       }
 
       const deliverable = await aiConversations.createInterChatMessage({
-        appId: "assistant",
         sourceConversationId: source.id,
         sourceTurnId: sourceTurn.id,
         sourceCallId: "call-deliverable",
@@ -241,7 +232,6 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
       });
       expect(deliverable.ok).toBe(true);
       await aiConversations.createInterChatMessage({
-        appId: "assistant",
         sourceConversationId: source.id,
         sourceTurnId: sourceTurn.id,
         sourceCallId: "call-same-target",
@@ -251,7 +241,6 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
         idempotencyKey: "ai-inter-chat-same-target",
       });
       await aiConversations.createInterChatMessage({
-        appId: "assistant",
         sourceConversationId: source.id,
         sourceTurnId: sourceTurn.id,
         sourceCallId: "call-other-target",
@@ -278,7 +267,6 @@ describe.skipIf(!(await canUseAiDatabase()))("AI conversation resources and inte
       expect(recursiveSource?.recursive).toBe(true);
 
       const recursive = await aiConversations.createInterChatMessage({
-        appId: "assistant",
         sourceConversationId: target.id,
         sourceTurnId: delivered.delivered ? delivered.turn.id : sourceTurn.id,
         sourceCallId: "call-recursive",

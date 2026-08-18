@@ -3,11 +3,14 @@ import { query } from "@k2b/stdlib/solid";
 import { Button, DateTimePicker, Placeholder, prompts, Select, StatusBadge, TextInput, toast } from "@k2b/ui";
 import { createEffect, createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { assistantApi } from "../api/client";
-import type { AssistantChatTask, AssistantChatTaskOccurrence } from "../chat-tasks-contracts";
+import type {
+  AiChatTaskOccurrenceView as AssistantChatTaskOccurrence,
+  AiChatTaskView as AssistantChatTask,
+} from "@valentinkolb/cloud/ai";
 import { type AssistantLiveInvalidation, matchesAssistantInvalidation, useAssistantLive } from "./assistant-live";
 
 const request = async <T,>(path: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(`/api/assistant${path}`, init);
+  const response = await fetch(`/api/ai${path}`, init);
   const body = (await response.json().catch(() => null)) as (T & { message?: string }) | null;
   if (!response.ok || !body) throw new Error(body?.message || "Scheduled task request failed");
   return body;
@@ -81,7 +84,7 @@ export function AssistantTasksView(props: { chatId: string }) {
     source: () => historyTask()?.id ?? "",
     load: async (taskId, { abortSignal }) => {
       if (!taskId) return null;
-      const response = await fetch(`/api/assistant/tasks/${taskId}`, { signal: abortSignal });
+      const response = await fetch(`/api/ai/tasks/${taskId}`, { signal: abortSignal });
       if (response.status === 404) return null;
       const body = (await response.json().catch(() => null)) as {
         task: AssistantChatTask;

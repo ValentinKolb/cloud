@@ -20,15 +20,6 @@ export type AiApprovalPreferenceView = AiToolApprovalPreference & {
 
 const AiApprovalPreferenceSchema = z.object({
   id: z.uuid(),
-  contextAppId: z.string(),
-  resource: z
-    .object({
-      kind: z.literal("resource"),
-      appId: z.string(),
-      resourceType: z.string(),
-      resourceId: z.string(),
-    })
-    .nullable(),
   toolName: z.string(),
   approvalScope: z.string(),
   createdAt: z.iso.datetime(),

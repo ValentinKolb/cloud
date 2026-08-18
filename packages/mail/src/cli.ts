@@ -70,6 +70,7 @@ import {
   type ProviderBinding,
   type ProviderConnection,
   providerSecretSchema,
+  type RelatedConversationSummary,
   type RelatedMailPage,
   type SavedConversationViewFilter,
   type ScheduledSendPage,
@@ -3903,6 +3904,40 @@ export default defineCliCommands({
         ctx.print(`Participants: ${value.participants.length}`);
         ctx.print(`Contacts: ${value.contacts.status === "ready" ? value.contacts.items.length : "unavailable"}`);
         if (value.contacts.status === "ready" && value.contacts.nextCursor) ctx.print(`Next Contacts cursor: ${value.contacts.nextCursor}`);
+      },
+    }),
+    command("conversation related", {
+      summary: "List conversations with shared participants or subject",
+      args: { conversationId: arg.required({ description: "Conversation id" }) },
+      flags: {
+        ...mailboxFlag,
+        limit: flag.int({ min: 1, max: 10, default: 5 }),
+      },
+      run: async ({ ctx, args, flags }) => {
+        const mailbox = await resolveMailbox(ctx, flags.mailbox);
+        const query = new URLSearchParams({ limit: String(flags.limit ?? 5) });
+        const items = await readApi<RelatedConversationSummary[]>(
+          ctx,
+          `/mailboxes/${mailbox.id}/conversations/${requireMailResourceId(args.conversationId, "Conversation id")}/related?${query}`,
+        );
+        printTable(
+          ctx,
+          items,
+          items.map((item) => ({
+            date: item.latestMessageAt,
+            reason: item.reasons.map((reason) => (reason.kind === "subject" ? "same subject" : `participant ${reason.value}`)).join(", "),
+            participants: item.participantSummary,
+            subject: item.subject,
+            id: item.id,
+          })),
+          [
+            { key: "date", label: "DATE" },
+            { key: "reason", label: "WHY RELATED" },
+            { key: "participants", label: "PARTICIPANTS" },
+            { key: "subject", label: "SUBJECT" },
+            { key: "id", label: "CONVERSATION ID" },
+          ],
+        );
       },
     }),
     command("conversation contact-history", {

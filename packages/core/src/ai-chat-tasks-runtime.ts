@@ -1,37 +1,44 @@
 import { job, mutex, scheduler } from "@k2b/sync";
-import { aiChatTasks, aiConversations, aiProjects, enqueueExistingAiTurn, validateAiTurnRequest } from "@valentinkolb/cloud/ai";
+import {
+  aiChatTasks,
+  aiConversations,
+  aiProjects,
+  enqueueExistingAiTurn,
+  personalAiModelPolicy,
+  personalAiSystemPrompt,
+  validateAiTurnRequest,
+} from "@valentinkolb/cloud/ai";
 import { accounts, coreSettings, logger } from "@valentinkolb/cloud/services";
 import { isAccountExpired } from "@valentinkolb/cloud/services/account-model";
-import { assistantModelPolicy } from "./model-policy";
-import { assistantChatPrompt } from "./prompt";
+import { deliverPendingAiMessages } from "./ai-inter-chat-messages";
 
-const APP_ID = "assistant";
-const RECOVERY_ID = "assistant:chat-tasks:recover";
+const APP_ID = "core";
+const RECOVERY_ID = "core:ai-chat-tasks:recover";
 const SCHEDULE_PREFIX = "task:";
-const log = logger("assistant:chat-tasks");
+const log = logger("core:ai-chat-tasks");
 
-const taskScheduler = scheduler({ id: "assistant-chat-tasks" });
-const reconcileMutex = mutex({ id: "assistant:chat-tasks:reconcile", defaultTtl: 60_000, retryCount: 0 });
+const taskScheduler = scheduler({ id: "core-ai-chat-tasks" });
+const reconcileMutex = mutex({ id: "core:ai-chat-tasks:reconcile", defaultTtl: 60_000, retryCount: 0 });
 let started = false;
 
 const taskJob = job<{ occurrenceId: string }, { status: "gone" | "failed" | "not_found" | "busy" | "stale" | "delivered"; retry: boolean }>(
   {
-    id: "assistant-chat-task-occurrence",
+    id: "core-ai-chat-task-occurrence",
     defaults: { leaseMs: 60_000, keyTtlMs: 24 * 60 * 60_000 },
     process: async ({ ctx }) => {
-      const pending = await aiChatTasks.getQueuedOccurrence(APP_ID, ctx.input.occurrenceId);
+      const pending = await aiChatTasks.getQueuedOccurrence(ctx.input.occurrenceId);
       if (!pending) return { status: "gone" as const, retry: false };
       const { occurrence, task } = pending;
       const [user, conversation] = await Promise.all([
         accounts.users.get({ id: task.sponsorUserId }),
-        aiConversations.getConversation({ conversationId: task.conversationId, appId: APP_ID, ownerUserId: task.sponsorUserId }),
+        aiConversations.getConversation({ conversationId: task.conversationId, ownerUserId: task.sponsorUserId }),
       ]);
       if (!user || isAccountExpired(user.accountExpires) || !conversation) {
         const status = await aiChatTasks.failOccurrence({ occurrenceId: occurrence.id, error: "Task sponsor or chat is unavailable" });
         return { status: status === "gone" ? ("not_found" as const) : status, retry: status === "stale" };
       }
       const project = conversation.projectId
-        ? await aiProjects.snapshot(conversation.projectId, APP_ID, { type: "user", userId: user.id })
+        ? await aiProjects.snapshot(conversation.projectId, { type: "user", userId: user.id })
         : null;
       if (conversation.projectId && !project) {
         const status = await aiChatTasks.failOccurrence({ occurrenceId: occurrence.id, error: "Current Project access is unavailable" });
@@ -40,7 +47,7 @@ const taskJob = job<{ occurrenceId: string }, { status: "gone" | "failed" | "not
       const text = `Scheduled task ${task.shortId} (${occurrence.scheduledFor}):\n\n${task.prompt}`;
       const { resolved } = await validateAiTurnRequest({
         input: text,
-        modelPolicy: assistantModelPolicy,
+        modelPolicy: personalAiModelPolicy,
         requestedModelId: project?.defaultModelProfileId ?? undefined,
       });
       const delivered = await aiChatTasks.deliverOccurrence({
@@ -50,12 +57,12 @@ const taskJob = job<{ occurrenceId: string }, { status: "gone" | "failed" | "not
           kind: "chat",
           input: text,
           actor: { kind: "user", user },
-          modelPolicy: assistantModelPolicy,
+          modelPolicy: personalAiModelPolicy,
           requestedModelId: project?.defaultModelProfileId ?? undefined,
-          systemPrompt: assistantChatPrompt(conversation.shortId),
+          systemPrompt: personalAiSystemPrompt(conversation.shortId),
           project: project ?? undefined,
           toolSource: { kind: "default", capabilities: true },
-          toolApprovalContext: { actorUserId: user.id, appId: APP_ID, resource: { kind: "direct" } },
+          toolApprovalContext: { actorUserId: user.id },
         },
         userMessage: { role: "user", content: [{ type: "text", text }] },
         expectedRevision: task.revision,
@@ -115,11 +122,11 @@ const registerRecurringTask = async (task: Awaited<ReturnType<typeof aiChatTasks
   });
 };
 
-export const reconcileAssistantChatTasks = async (): Promise<void> => {
+export const reconcileAiChatTasks = async (): Promise<void> => {
   const lock = await reconcileMutex.acquire(APP_ID, 60_000);
   if (!lock) return;
   try {
-    const tasks = await aiChatTasks.listActiveCron(APP_ID);
+    const tasks = await aiChatTasks.listActiveCron();
     const desired = new Set(tasks.map((task) => `${SCHEDULE_PREFIX}${task.id}`));
     for (const task of tasks) await registerRecurringTask(task);
     for (const current of await taskScheduler.list()) {
@@ -131,24 +138,25 @@ export const reconcileAssistantChatTasks = async (): Promise<void> => {
 };
 
 const recover = async (): Promise<{ queued: number }> => {
-  await reconcileAssistantChatTasks();
-  for (const terminal of await aiChatTasks.listTerminalRunningTurns(APP_ID)) {
+  await reconcileAiChatTasks();
+  for (const terminal of await aiChatTasks.listTerminalRunningTurns()) {
     await aiChatTasks.finalizeTurn(terminal);
   }
-  await aiChatTasks.materializeDueOnce(APP_ID);
-  const queued = await aiChatTasks.listQueuedOccurrences(APP_ID);
+  await aiChatTasks.materializeDueOnce();
+  const queued = await aiChatTasks.listQueuedOccurrences();
   for (const { occurrence } of queued) await submitOccurrence(occurrence.id);
+  await deliverPendingAiMessages();
   return { queued: queued.length };
 };
 
-export const assistantChatTaskRuntime = {
+export const aiChatTaskRuntime = {
   start: async (): Promise<void> => {
     if (started) return;
     taskScheduler.start();
     started = true;
     try {
       const timezone = String((await coreSettings.get<string>("app.timezone")) || "").trim() || "UTC";
-      await reconcileAssistantChatTasks();
+      await reconcileAiChatTasks();
       await taskScheduler.create({
         id: RECOVERY_ID,
         cron: "* * * * *",

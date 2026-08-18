@@ -2,6 +2,7 @@ import type { CompactEvent, NessiLoop, OutboundEvent, Provider, Tool, ToolResolv
 import { compact, nessi } from "@k2b/nessi";
 import { loadCurrentHelp } from "../_internal/help-catalog";
 import { listCapabilities } from "../_internal/registry";
+import type { CapabilityActionReview } from "../contracts/capabilities";
 import type { AccessSubject, RequestActor } from "../server";
 import { logger } from "../services/logging";
 import { coreSettings } from "../services/settings/api";
@@ -28,7 +29,6 @@ import {
   toolBlockId,
 } from "./protocol";
 import { collectConversationResourceObservations } from "./resource-refs";
-import { resolveAiResourceRunContext } from "./resource-runner";
 import { isAiVisionModelConfigured, type resolveAiModel } from "./settings";
 import { aiConversations } from "./store";
 import { publishAiWireEvent } from "./stream";
@@ -228,7 +228,8 @@ const rebuildBlocksFromMessages = (
       blocks[at!] = {
         ...existing,
         status: action.kind === "client_tool" ? "awaiting_client" : "awaiting_approval",
-        approval: action.kind === "client_tool" ? undefined : { message: action.message, allowAlways: action.allowAlways },
+        approval:
+          action.kind === "client_tool" ? undefined : { message: action.message, review: action.review, allowAlways: action.allowAlways },
         frontendMode: action.frontendMode,
       };
     }
@@ -281,6 +282,10 @@ const createEventMapper = (attempt: number, seedBlocks: AiTurnBlock[]) => {
   let presentations = new Map<string, AiToolPresentation>();
   const setPresentations = (items: Map<string, AiToolPresentation>) => {
     presentations = items;
+  };
+  let approvalReviews = new Map<string, CapabilityActionReview>();
+  const setApprovalReviews = (items: Map<string, CapabilityActionReview>) => {
+    approvalReviews = items;
   };
   /** nessi stream block ids (turn-scoped) that belong to tool_call blocks — their deltas are raw args JSON. */
   const toolStreamIds = new Set<string>();
@@ -349,7 +354,10 @@ const createEventMapper = (attempt: number, seedBlocks: AiTurnBlock[]) => {
             name: event.name,
             args: event.args,
             status: event.kind === "client_tool" ? "awaiting_client" : "awaiting_approval",
-            approval: event.kind === "client_tool" ? undefined : { message: event.message, allowAlways: false },
+            approval:
+              event.kind === "client_tool"
+                ? undefined
+                : { message: event.message, review: approvalReviews.get(event.callId), allowAlways: false },
             frontendMode: event.kind === "client_tool" ? (frontendModes.get(event.name) ?? "client") : undefined,
           }),
         ];
@@ -382,7 +390,7 @@ const createEventMapper = (attempt: number, seedBlocks: AiTurnBlock[]) => {
     }
   };
 
-  return { translate, compaction, setFrontendModes, setPresentations };
+  return { translate, compaction, setFrontendModes, setPresentations, setApprovalReviews };
 };
 
 // ---------------------------------------------------------------------------
@@ -392,7 +400,6 @@ const createEventMapper = (attempt: number, seedBlocks: AiTurnBlock[]) => {
 type MaterializedChatConfig = {
   actor?: RequestActor;
   systemPrompt?: string;
-  resourceContext?: string;
   tools: AiRuntimeTool[];
   toolApprovalContext?: AiToolApprovalContext;
   modelPolicy: AiChatTurnRunConfig["modelPolicy"];
@@ -401,28 +408,9 @@ type MaterializedChatConfig = {
 
 const materializeChatConfig = async (config: AiChatTurnRunConfig, signal: AbortSignal, turnId: string): Promise<MaterializedChatConfig> => {
   const source = config.toolSource ?? { kind: "none" };
-  if (source.kind === "resource") {
-    if (!config.actor) throw new Error("AI resource turn is missing an actor.");
-    const resource = await resolveAiResourceRunContext({
-      resourceKey: source.resourceKey,
-      params: source.params,
-      actor: config.actor,
-      signal,
-    });
-    return {
-      actor: resource.actor,
-      systemPrompt: resource.systemPrompt,
-      resourceContext: resource.resourceContext,
-      tools: resource.tools,
-      toolApprovalContext: { actorUserId: resource.ownerUserId, appId: resource.descriptor.appId, resource: resource.conversationResource },
-      modelPolicy: resource.modelPolicy,
-      requestedModelId: config.requestedModelId,
-    };
-  }
   return {
     actor: config.actor,
     systemPrompt: config.systemPrompt,
-    resourceContext: config.resourceContext,
     tools:
       source.kind === "default"
         ? [
@@ -517,7 +505,7 @@ export class AiTurnExecutor {
       material = await materializeChatConfig(config, abortController.signal, turnId);
       if (config.project) {
         const subject = accessSubjectForActor(material.actor);
-        const project = subject ? await aiProjects.getByShortId(config.project.id, config.project.appId, subject, "read") : null;
+        const project = subject ? await aiProjects.getByShortId(config.project.id, subject, "read") : null;
         if (!project) {
           throw new Error("Project access is no longer available.");
         }
@@ -563,7 +551,7 @@ export class AiTurnExecutor {
     }
     if (capabilityAuthority) material.actor = capabilityAuthority.actor;
 
-    // Personalization applies to direct chats with the default toolset.
+    // Personalization applies to user-backed personal conversations.
     const user = aiActorUser(material.actor);
     let prefs: AiUserPrefs | null = null;
     if (user && config.toolSource?.kind === "default") {
@@ -578,14 +566,14 @@ export class AiTurnExecutor {
       project && resolvedProjectId && projectSubject
         ? {
             list: async () =>
-              (await aiProjects.listFiles(resolvedProjectId, project.appId, projectSubject)).map((file) => ({
+              (await aiProjects.listFiles(resolvedProjectId, projectSubject)).map((file) => ({
                 path: file.path,
                 mediaType: file.mediaType,
                 size: file.size,
                 updatedAt: file.updatedAt,
               })),
             read: async (path: string) => {
-              const file = await aiProjects.readFileByPath(resolvedProjectId, project.appId, path, projectSubject);
+              const file = await aiProjects.readFileByPath(resolvedProjectId, path, projectSubject);
               return file
                 ? { path: file.path, mediaType: file.mediaType, size: file.size, updatedAt: file.updatedAt, bytes: file.bytes }
                 : null;
@@ -594,9 +582,9 @@ export class AiTurnExecutor {
         : undefined;
     const runtimeTools = [
       ...material.tools,
-      ...(memoryActive ? [createCloudAiMemoryTool()] : []),
+      ...(memoryActive ? [createCloudAiMemoryTool(memoryQueryFromInput(config.input))] : []),
       ...(config.project && resolvedProjectId && projectSubject
-        ? [createCloudAiProjectContextTool(resolvedProjectId, config.project.appId, projectSubject)]
+        ? [createCloudAiProjectContextTool(resolvedProjectId, projectSubject)]
         : []),
     ];
     const toolsSupported = resolved.profile.capabilities.includes("tools");
@@ -626,9 +614,11 @@ export class AiTurnExecutor {
       conversationId,
     });
     const rememberableCapabilityApprovals = new Map<string, string>();
+    const capabilityActionReviews = new Map<string, CapabilityActionReview>();
     pipeline.setFrontendModes(prepared.frontendModes);
     const toolPresentations = new Map<string, AiToolPresentation>();
     pipeline.setPresentations(toolPresentations);
+    pipeline.setApprovalReviews(capabilityActionReviews);
     let turnInput = config.input;
     try {
       if (resolved.profile.capabilities.includes("vision") && config.files?.attached.some((file) => isAiImageMediaType(file.mediaType))) {
@@ -703,6 +693,7 @@ export class AiTurnExecutor {
               args,
               context,
             }),
+          onReview: (callId, review) => capabilityActionReviews.set(callId, review),
           execute: async (entry, args, context) => {
             try {
               const result = await executeAiCapability({
@@ -755,13 +746,11 @@ export class AiTurnExecutor {
 
     const systemPrompt = composeAiSystemPrompt({
       globalInstructions: settings.globalInstructions,
-      appPrompt: material.systemPrompt,
-      resourceContext: material.resourceContext,
+      agentPrompt: material.systemPrompt,
       project: config.project,
       files: config.files,
       projectToolEnabled,
       user,
-      appId: material.toolApprovalContext?.appId,
       memoryEnabled: memoryActive,
       memoryToolEnabled,
       helpEnabled,
@@ -825,6 +814,7 @@ export class AiTurnExecutor {
       prepared,
       approvalContext: material.toolApprovalContext,
       rememberableCapabilityApprovals,
+      capabilityActionReviews,
       appliedSteers,
       noteToolRound: toolRoundPolicy.noteToolRound,
     });
@@ -862,6 +852,7 @@ export class AiTurnExecutor {
     prepared: PreparedAiTools;
     approvalContext?: AiToolApprovalContext;
     rememberableCapabilityApprovals: ReadonlyMap<string, string>;
+    capabilityActionReviews: ReadonlyMap<string, CapabilityActionReview>;
     appliedSteers: AiTurnSteer[];
     noteToolRound: () => void;
   }): Promise<AttemptOutcome> {
@@ -874,6 +865,7 @@ export class AiTurnExecutor {
       prepared,
       approvalContext,
       rememberableCapabilityApprovals,
+      capabilityActionReviews,
       appliedSteers,
       noteToolRound,
     } = input;
@@ -892,6 +884,7 @@ export class AiTurnExecutor {
             prepared,
             approvalContext,
             rememberableCapabilityApprovals,
+            capabilityActionReviews,
           });
           if (suspended) {
             abortController.abort();
@@ -973,8 +966,19 @@ export class AiTurnExecutor {
     prepared: PreparedAiTools;
     approvalContext?: AiToolApprovalContext;
     rememberableCapabilityApprovals: ReadonlyMap<string, string>;
+    capabilityActionReviews: ReadonlyMap<string, CapabilityActionReview>;
   }): Promise<boolean> {
-    const { event, loop, pipeline, conversationId, turnId, prepared, approvalContext, rememberableCapabilityApprovals } = input;
+    const {
+      event,
+      loop,
+      pipeline,
+      conversationId,
+      turnId,
+      prepared,
+      approvalContext,
+      rememberableCapabilityApprovals,
+      capabilityActionReviews,
+    } = input;
     const approvalPolicy = prepared.approvalPolicies.get(event.name);
     const frontendMode: AiFrontendToolMode | undefined =
       event.kind === "client_tool" ? (prepared.frontendModes.get(event.name) ?? "client") : undefined;
@@ -1024,6 +1028,7 @@ export class AiTurnExecutor {
       name: event.name,
       args: event.args,
       message: event.message,
+      review: event.kind === "custom_approval" ? capabilityActionReviews.get(event.callId) : undefined,
       approvalScope,
       allowAlways,
       frontendMode,
@@ -1239,6 +1244,10 @@ class StreamPipeline {
 
   setPresentations(presentations: Map<string, AiToolPresentation>): void {
     this.mapper.setPresentations(presentations);
+  }
+
+  setApprovalReviews(reviews: Map<string, CapabilityActionReview>): void {
+    this.mapper.setApprovalReviews(reviews);
   }
 
   async emitBaseline(): Promise<void> {

@@ -24,7 +24,6 @@ const [{ default: AssistantProjectView }, { assistantContextCountTitle }, { Assi
 const project = {
   id: "project123",
   shortId: "project123",
-  appId: "assistant",
   name: "IT support",
   description: "",
   icon: "ti ti-folders",

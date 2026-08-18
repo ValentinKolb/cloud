@@ -1,11 +1,25 @@
+import { createLiveWebSocket } from "@valentinkolb/cloud/browser/live";
 import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { apiClient } from "../../api/client";
-import type { AcquiredDraftLease, DraftEditableContent, MailDraft, MailDraftSeed } from "../../contracts";
+import type { AcquiredDraftLease, DraftEditableContent, DraftLease, MailDraft, MailDraftSeed } from "../../contracts";
+import { MAIL_LIVE_WS_TYPE, type MailLiveClientMessage, type MailLiveServerMessage, parseMailLiveServerMessage } from "../../live-events";
 import { readApiError } from "./api-response";
-import { type DraftLeaseHeartbeatResult, recoverDraftLeaseHeartbeat } from "./mail-draft-lease-recovery";
 import { advanceMailDraftJournalAfterSave, type MailDraftJournal, readMailDraftJournal } from "./mail-draft-journal";
+import { type DraftLeaseHeartbeatResult, recoverDraftLeaseHeartbeat } from "./mail-draft-lease-recovery";
+import {
+  isClosedMailDraft,
+  type MailDraftLifecycleTransition,
+  mailDraftLifecycleMessage,
+  reconcileMailDraftLifecycle,
+} from "./mail-draft-lifecycle";
+import { createMailLiveInvalidationHub } from "./mail-live-invalidation-hub";
 
 type ComposerStatus = "local" | "preparing" | "saved" | "saving" | "error" | "readonly";
+
+export type MailDraftLeaseConflict = {
+  lease: DraftLease | null;
+  reason: "occupied" | "lost";
+};
 
 export const createSerializedDraftMutationQueue = () => {
   let queue: Promise<void> = Promise.resolve();
@@ -51,8 +65,10 @@ export const createMailDraftSession = (options: {
 }) => {
   const [draft, setDraft] = createSignal<MailDraft | null>(options.initialDraft ?? null);
   const [lease, setLease] = createSignal<AcquiredDraftLease | null>(null);
+  const [leaseConflict, setLeaseConflict] = createSignal<MailDraftLeaseConflict | null>(null);
   const [status, setStatus] = createSignal<ComposerStatus>(options.initialSeed ? "local" : "preparing");
   const [statusMessage, setStatusMessage] = createSignal(options.initialSeed ? "" : "Preparing draft...");
+  const [lifecycleTransition, setLifecycleTransition] = createSignal<MailDraftLifecycleTransition | null>(null);
   const [initialized, setInitialized] = createSignal(false);
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
@@ -75,6 +91,30 @@ export const createMailDraftSession = (options: {
   const stopScheduledSave = () => {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = null;
+  };
+
+  const applyClosedDraft = (currentDraft: MailDraft) => {
+    if (options.isDisposed()) return;
+    const transition = reconcileMailDraftLifecycle(lifecycleTransition(), currentDraft, serializedContent() !== lastSavedContent);
+    if (!transition || !isClosedMailDraft(currentDraft)) return;
+    stopScheduledSave();
+    stopHeartbeat();
+    setLease(null);
+    setLeaseConflict(null);
+    setDraft(currentDraft);
+    setLifecycleTransition(transition);
+    setStatus("readonly");
+    setStatusMessage(mailDraftLifecycleMessage(currentDraft));
+  };
+
+  const refreshDraftLifecycle = async (): Promise<void> => {
+    const currentDraft = draft();
+    if (!currentDraft) return;
+    const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].$get({
+      param: { mailboxId: options.mailboxId, draftId: currentDraft.id },
+    });
+    if (!response.ok) throw new Error(await readApiError(response, "Draft status could not be refreshed"));
+    applyClosedDraft(await response.json());
   };
 
   const releaseLeaseOnExit = (): Promise<void> => {
@@ -129,6 +169,29 @@ export const createMailDraftSession = (options: {
     }
   };
 
+  const readCurrentLease = async (currentDraft: MailDraft): Promise<DraftLease | null> => {
+    try {
+      const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$get({
+        param: { mailboxId: options.mailboxId, draftId: currentDraft.id },
+      });
+      return response.ok ? await response.json() : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const reportLeaseConflict = async (currentDraft: MailDraft, reason: MailDraftLeaseConflict["reason"]): Promise<void> => {
+    const current = await readCurrentLease(currentDraft);
+    if (options.isDisposed()) return;
+    setLeaseConflict({ lease: current, reason });
+    setStatus("readonly");
+    setStatusMessage(
+      current
+        ? `${current.holder.displayName} is editing this draft in another session.`
+        : "This draft is open in another editing session.",
+    );
+  };
+
   const startHeartbeat = () => {
     stopHeartbeat();
     const generation = heartbeatGeneration;
@@ -136,7 +199,7 @@ export const createMailDraftSession = (options: {
       heartbeatTimer = null;
       const activeDraft = draft();
       const activeLease = lease();
-      if (!activeDraft || !activeLease) return;
+      if (!activeDraft || !activeLease || lifecycleTransition() || isClosedMailDraft(activeDraft)) return;
       const controller = new AbortController();
       heartbeatController = controller;
       let heartbeat: DraftLeaseHeartbeatResult;
@@ -153,30 +216,41 @@ export const createMailDraftSession = (options: {
       }
       if (options.isDisposed() || generation !== heartbeatGeneration) return;
       if (heartbeat.kind === "unavailable") {
+        setLeaseConflict(null);
         setStatus("readonly");
         setStatusMessage("Connection lost. Retry to resume editing.");
         return;
       }
       if (heartbeat.kind === "rejected") {
         setLease(null);
-        setStatus("readonly");
-        setStatusMessage("Editing lease expired. Reload or take over the draft.");
+        await refreshDraftLifecycle().catch(() => undefined);
+        if (lifecycleTransition()) return;
+        await reportLeaseConflict(activeDraft, "lost");
         return;
       }
       setLease(heartbeat.lease);
+      setLeaseConflict(null);
       startHeartbeat();
     }, 10_000);
   };
 
   const acquireLease = async (currentDraft: MailDraft, takeover = false): Promise<AcquiredDraftLease | null> => {
+    if (lifecycleTransition() || isClosedMailDraft(currentDraft)) return null;
     const response = await apiClient.mailboxes[":mailboxId"].drafts[":draftId"].lease.$post({
       param: { mailboxId: options.mailboxId, draftId: currentDraft.id },
       json: { takeover },
     });
     if (options.isDisposed()) return null;
     if (!response.ok) {
-      setStatus("readonly");
-      setStatusMessage(await readApiError(response, "Draft is open elsewhere"));
+      if (response.status === 409) {
+        await refreshDraftLifecycle().catch(() => undefined);
+        if (lifecycleTransition()) return null;
+        await reportLeaseConflict(currentDraft, "occupied");
+      } else {
+        setLeaseConflict(null);
+        setStatus("error");
+        setStatusMessage(await readApiError(response, "Draft editing could not be started"));
+      }
       return null;
     }
     const acquired = await response.json();
@@ -188,6 +262,7 @@ export const createMailDraftSession = (options: {
       return null;
     }
     setLease(acquired);
+    setLeaseConflict(null);
     startHeartbeat();
     return acquired;
   };
@@ -208,6 +283,12 @@ export const createMailDraftSession = (options: {
     const currentDraft = draft();
     if (!currentDraft) return null;
     if (options.isDisposed()) return null;
+    if (isClosedMailDraft(currentDraft)) {
+      lastSavedContent = JSON.stringify(draftEditableContent(currentDraft));
+      setInitialized(true);
+      applyClosedDraft(currentDraft);
+      return currentDraft;
+    }
     const acquired = await acquireLease(currentDraft);
     if (options.isDisposed()) return null;
     lastSavedContent = JSON.stringify(draftEditableContent(currentDraft));
@@ -241,6 +322,7 @@ export const createMailDraftSession = (options: {
 
   const persist = async (): Promise<MailDraft | null> => {
     return await serializeMutation(async () => {
+      if (lifecycleTransition()) return null;
       let currentDraft = draft();
       if (!currentDraft && options.initialSeed) {
         const nextContent = options.content();
@@ -290,6 +372,7 @@ export const createMailDraftSession = (options: {
       });
       if (!response.ok) {
         if (options.isDisposed()) return null;
+        if (lifecycleTransition()) return null;
         const message = await readApiError(response, "Draft could not be saved");
         setStatus("error");
         setStatusMessage(message);
@@ -346,12 +429,14 @@ export const createMailDraftSession = (options: {
     if (options.isDisposed() || generation !== heartbeatGeneration) return;
     if (heartbeat.kind === "ok") {
       setLease(heartbeat.lease);
+      setLeaseConflict(null);
       setStatus("saved");
       setStatusMessage("");
       startHeartbeat();
       return;
     }
     if (heartbeat.kind === "unavailable") {
+      setLeaseConflict(null);
       setStatus("readonly");
       setStatusMessage("Connection lost. Retry to resume editing.");
       return;
@@ -409,6 +494,59 @@ export const createMailDraftSession = (options: {
       setInitialized(true);
       return;
     }
+    let markApplied: (cursor: string | null | undefined) => void = () => undefined;
+    const liveHub = createMailLiveInvalidationHub({
+      delayMs: 100,
+      isBlocked: () => false,
+      onApplied: (cursor) => markApplied(cursor),
+      onFailed: () => undefined,
+    });
+    liveHub.register({
+      matches: (invalidation) => {
+        if (invalidation.conversationIds === null) return true;
+        const conversationId = draft()?.conversationId;
+        return Boolean(conversationId && invalidation.conversationIds.has(conversationId));
+      },
+      invalidate: refreshDraftLifecycle,
+    });
+    const live = createLiveWebSocket<MailLiveServerMessage>({
+      url: "/api/mail/ws",
+      initialCursor: null,
+      activity: "visible",
+      subscribe: (cursor) =>
+        ({
+          type: MAIL_LIVE_WS_TYPE.subscribe,
+          payload: { mailboxId: options.mailboxId, fromCursor: cursor },
+        }) satisfies MailLiveClientMessage,
+      parse: (raw) => {
+        const message = parseMailLiveServerMessage(raw);
+        if (!message) throw new Error("Invalid Mail live server message");
+        return message;
+      },
+      onMessage: (message, controls) => {
+        if (message.payload.mailboxId && message.payload.mailboxId !== options.mailboxId) {
+          controls.terminate({ code: "resource_mismatch", message: "Mail live subscription changed resources" });
+          return;
+        }
+        if (message.type === MAIL_LIVE_WS_TYPE.ready) {
+          liveHub.schedule({ cursor: message.payload.cursor, conversationId: null });
+          return;
+        }
+        if (message.type === MAIL_LIVE_WS_TYPE.event) {
+          liveHub.schedule({ cursor: message.payload.cursor, conversationId: message.payload.event.conversationId });
+          return;
+        }
+        if (message.type === MAIL_LIVE_WS_TYPE.revoked) {
+          controls.terminate({ code: message.payload.code, message: message.payload.message });
+        }
+      },
+    });
+    markApplied = live.markApplied;
+    live.connect();
+    onCleanup(() => {
+      liveHub.dispose();
+      live.dispose();
+    });
     void ensureDraft();
   });
 
@@ -427,6 +565,8 @@ export const createMailDraftSession = (options: {
     setDraft,
     lease,
     setLease,
+    leaseConflict,
+    lifecycleTransition,
     status,
     setStatus,
     statusMessage,

@@ -31,7 +31,7 @@ const enrichJob = job<void, AiEnrichmentRunSummary>({
   trace: trace.fromSyncJob<void, AiEnrichmentRunSummary>({
     name: "AI chat enrichment",
     source: "ai:chat:enrich",
-    appId: "assistant",
+    appId: "ai",
     summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
   }),
   process: async ({ ctx }) => {
@@ -59,7 +59,7 @@ const reindexJob = job<{ conversationId: string }, AiEnrichmentRunSummary>({
   trace: trace.fromSyncJob<{ conversationId: string }, AiEnrichmentRunSummary>({
     name: "AI chat reindex (manual)",
     source: "ai:chat:reindex",
-    appId: "assistant",
+    appId: "ai",
     summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
   }),
   process: async ({ ctx }) => {
@@ -82,7 +82,7 @@ const memoryLearningJob = job<void, AiMemoryLearningRunSummary>({
   trace: trace.fromSyncJob<void, AiMemoryLearningRunSummary>({
     name: "AI memory learning",
     source: "ai:memory:learn",
-    appId: "assistant",
+    appId: "ai",
     summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
   }),
   process: async ({ ctx }) => {
@@ -119,7 +119,7 @@ const createSchedule = async (config: {
     cron: config.cron,
     tz: config.tz,
     meta: {
-      appId: "assistant",
+      appId: "ai",
       family: config.family,
       label: config.label,
       source: config.id,
@@ -128,7 +128,7 @@ const createSchedule = async (config: {
       resourceLabel: config.label,
       detailHref: "/admin/settings?tab=ai",
     },
-    trace: trace.fromSyncSchedule<void>({ name: config.id, source: config.id, appId: "assistant" }),
+    trace: trace.fromSyncSchedule<void>({ name: config.id, source: config.id, appId: "ai" }),
     process: async ({ ctx }) => {
       await config.submit(`slot:${ctx.slotTs}`);
     },

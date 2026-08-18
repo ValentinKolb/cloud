@@ -74,7 +74,7 @@ const ChatProgressDots = () => (
 );
 
 const attachmentIcon = (attachment: ChatAttachment): string =>
-  attachment.icon ?? (attachment.kind === "image" ? "ti ti-photo" : "ti ti-file");
+  attachment.icon ?? (attachment.kind === "image" ? "ti ti-photo" : attachment.kind === "resource" ? "ti ti-link" : "ti ti-file");
 
 const finiteNonNegative = (value: number | undefined): number =>
   typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -169,19 +169,45 @@ export function ChatMessage(props: ChatMessageProps): JSX.Element {
       <Show when={(props.attachments?.length ?? 0) > 0}>
         <div class="k2b-chat-message__attachments" role="list" aria-label="Attachments">
           <For each={props.attachments}>
-            {(attachment) => (
-              <div class="k2b-chat-message__attachment" role="listitem" title={attachment.name}>
+            {(attachment) => {
+              const content = () => (
+                <>
+                  <Show
+                    when={attachment.kind === "image" && attachment.previewUrl}
+                    fallback={<i class={attachmentIcon(attachment)} aria-hidden="true" />}
+                  >
+                    <img src={attachment.previewUrl} alt={attachment.alt ?? attachment.name} />
+                  </Show>
+                  <Show when={attachment.kind !== "image"}>
+                    <span>{attachment.name}</span>
+                  </Show>
+                </>
+              );
+              return (
                 <Show
-                  when={attachment.kind === "image" && attachment.previewUrl}
-                  fallback={<i class={attachmentIcon(attachment)} aria-hidden="true" />}
+                  when={attachment.href}
+                  fallback={
+                    <div class="k2b-chat-message__attachment" role="listitem" title={attachment.name}>
+                      {content()}
+                    </div>
+                  }
                 >
-                  <img src={attachment.previewUrl} alt={attachment.alt ?? attachment.name} />
+                  {(href) => (
+                    <a
+                      class="k2b-chat-message__attachment"
+                      role="listitem"
+                      title={attachment.name}
+                      href={href()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Open ${attachment.name} in a new tab`}
+                    >
+                      {content()}
+                    </a>
+                  )}
                 </Show>
-                <Show when={attachment.kind !== "image"}>
-                  <span>{attachment.name}</span>
-                </Show>
-              </div>
-            )}
+              );
+            }}
           </For>
         </div>
       </Show>

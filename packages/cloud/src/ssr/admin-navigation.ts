@@ -19,6 +19,7 @@ const aiLinks: AdminLink[] = [
   { href: "/admin/settings?tab=ai-general", icon: "ti-adjustments", label: "General" },
   { href: "/admin/settings?tab=ai-providers", icon: "ti-sparkles", label: "Providers" },
   { href: "/admin/settings?tab=ai-skills", icon: "ti-wand", label: "Skills" },
+  { href: "/admin/settings?tab=ai-projects", icon: "ti-folders", label: "Projects" },
   { href: "/admin/settings?tab=ai-jobs", icon: "ti-activity", label: "Background Jobs" },
 ];
 

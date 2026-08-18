@@ -3,7 +3,7 @@ import { aiChatTasks, aiConversations, createAiShortId, migrateCloudAi } from "@
 import { registerNotificationDefinitions } from "@valentinkolb/cloud/services/notifications/catalog";
 import { sql } from "bun";
 import { app } from "./config";
-import { createAssistantNotificationService } from "./notifications";
+import { createAiNotificationService } from "./ai-notifications";
 
 const canRun = async (): Promise<boolean> => {
   if (!process.env.APP_SECRET) return false;
@@ -24,8 +24,8 @@ const canRun = async (): Promise<boolean> => {
 /** Reported as skipped rather than silently passing when the backing service is absent. */
 const suite = (await canRun()) ? describe : describe.skip;
 
-suite("Assistant completion notifications", () => {
-  test("recovers each completed direct chat once and skips non-chat resources", async () => {
+suite("Core AI completion notifications", () => {
+  test("recovers each completed personal chat once and skips non-chat runs", async () => {
     const suffix = crypto.randomUUID();
     const [user] = await sql<{ id: string }[]>`
       INSERT INTO auth.users (uid, provider, profile, display_name, mail, given_name, sn)
@@ -34,16 +34,15 @@ suite("Assistant completion notifications", () => {
     `;
     const userId = user!.id;
     const conversationIds: string[] = [];
-    const service = createAssistantNotificationService(app.notifications);
+    const service = createAiNotificationService(app.notifications);
 
     try {
-      const direct = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId });
+      const direct = await aiConversations.createConversation({ ownerUserId: userId });
       const resource = await aiConversations.createConversation({
-        appId: "assistant",
         ownerUserId: userId,
-        resource: { kind: "resource", appId: "grids", resourceType: "table", resourceId: crypto.randomUUID() },
+        draft: [{ type: "resource", ref: { type: "grids.table", id: crypto.randomUUID() } }],
       });
-      const compaction = await aiConversations.createConversation({ appId: "assistant", ownerUserId: userId });
+      const compaction = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(direct.id, resource.id, compaction.id);
 
       const turns = await sql<{ id: string; conversation_id: string }[]>`
@@ -58,17 +57,15 @@ suite("Assistant completion notifications", () => {
       const resourceTurn = turns.find((turn) => turn.conversation_id === resource.id)!;
       const compactionTurn = turns.find((turn) => turn.conversation_id === compaction.id)!;
 
-      const [eligibility] = await sql<{ app_id: string; resource_kind: string; run_kind: string | null; after_definition: boolean }[]>`
-        SELECT conversation.app_id,
-               conversation.resource_kind,
-               turn.run_config->>'kind' AS run_kind,
+      const [eligibility] = await sql<{ run_kind: string | null; after_definition: boolean }[]>`
+        SELECT turn.run_config->>'kind' AS run_kind,
                turn.completed_at >= definition.first_seen_at AS after_definition
         FROM ai.turns turn
         JOIN ai.conversations conversation ON conversation.id = turn.conversation_id
         JOIN notifications.definitions definition ON definition.id = ${app.notifications.turnCompleted.id}
         WHERE turn.id = ${directTurn.id}::uuid
       `;
-      expect(eligibility).toEqual({ app_id: "assistant", resource_kind: "direct", run_kind: "chat", after_definition: true });
+      expect(eligibility).toEqual({ run_kind: "chat", after_definition: true });
 
       const first = await service.notifyTurnCompleted(directTurn.id);
       // A running Assistant replica may win the same recovery race. The
@@ -77,7 +74,10 @@ suite("Assistant completion notifications", () => {
       expect(first.scanned).toBe(first.sent);
       expect(first.scanned).toBeLessThanOrEqual(1);
       expect(await service.notifyTurnCompleted(directTurn.id)).toEqual({ scanned: 0, sent: 0, failed: 0 });
-      expect(await service.notifyTurnCompleted(resourceTurn.id)).toEqual({ scanned: 0, sent: 0, failed: 0 });
+      const resourceCompletion = await service.notifyTurnCompleted(resourceTurn.id);
+      expect(resourceCompletion.failed).toBe(0);
+      expect(resourceCompletion.scanned).toBe(resourceCompletion.sent);
+      expect(resourceCompletion.scanned).toBeLessThanOrEqual(1);
       expect(await service.notifyTurnCompleted(compactionTurn.id)).toEqual({ scanned: 0, sent: 0, failed: 0 });
 
       const events = await sql<{ id: string; title: string; target_href: string | null; idempotency_key: string }[]>`
@@ -86,14 +86,21 @@ suite("Assistant completion notifications", () => {
         WHERE definition_id = ${app.notifications.turnCompleted.id}
           AND recipient_user_id = ${userId}::uuid
       `;
-      expect(events).toEqual([
+      expect(events).toEqual(expect.arrayContaining([
         {
           id: expect.any(String),
           title: "Assistant response ready",
           target_href: `/app/assistant?conversation=${direct.shortId}`,
           idempotency_key: `turn:${directTurn.id}`,
         },
-      ]);
+        {
+          id: expect.any(String),
+          title: "Assistant response ready",
+          target_href: `/app/assistant?conversation=${resource.shortId}`,
+          idempotency_key: `turn:${resourceTurn.id}`,
+        },
+      ]));
+      expect(events).toHaveLength(2);
       const deliveries = await sql<{ channel: string; status: string; error_code: string | null; payload_encrypted: string | null }[]>`
         SELECT delivery.channel, delivery.status, delivery.error_code, delivery.payload_encrypted
         FROM notifications.deliveries delivery
@@ -101,8 +108,11 @@ suite("Assistant completion notifications", () => {
         WHERE event.definition_id = ${app.notifications.turnCompleted.id}
           AND event.recipient_user_id = ${userId}::uuid
       `;
-      expect(deliveries).toEqual([expect.objectContaining({ channel: "browser", status: "suppressed", error_code: "no_endpoint" })]);
-      expect(deliveries[0]?.payload_encrypted).toBeNull();
+      expect(deliveries).toHaveLength(2);
+      for (const delivery of deliveries) {
+        expect(delivery).toEqual(expect.objectContaining({ channel: "browser", status: "suppressed", error_code: "no_endpoint" }));
+        expect(delivery.payload_encrypted).toBeNull();
+      }
     } finally {
       await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
     }
@@ -115,13 +125,12 @@ suite("Assistant completion notifications", () => {
       VALUES (${`assistant-task-notify-${suffix}`}, 'local', 'user', 'Assistant Task Notify', ${`assistant-task-notify-${suffix}@example.test`}, 'Assistant', 'Notify')
       RETURNING id
     `;
-    const conversation = await aiConversations.createConversation({ appId: "assistant", ownerUserId: user!.id });
-    const service = createAssistantNotificationService(app.notifications);
+    const conversation = await aiConversations.createConversation({ ownerUserId: user!.id });
+    const service = createAiNotificationService(app.notifications);
 
     try {
       const runAt = new Date(Date.now() + 60_000).toISOString();
       const task = await aiChatTasks.create({
-        appId: "assistant",
         userId: user!.id,
         chatId: conversation.shortId,
         prompt: "Check the release.",

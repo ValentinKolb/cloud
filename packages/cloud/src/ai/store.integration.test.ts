@@ -89,7 +89,7 @@ suite("AI conversation store integration", () => {
     const conversationIds: string[] = [];
 
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
 
       expect(await aiConversations.getLoadedCapabilities({ conversationId: conversation.id })).toEqual([]);
@@ -150,32 +150,21 @@ suite("AI conversation store integration", () => {
     const subject = { type: "user" as const, userId };
     let projectId: string | null = null;
     try {
-      const project = await aiProjects.create({ appId: "ai-test", subject, name: `Project ${crypto.randomUUID()}` });
-      await expect(aiConversations.createConversation({ appId: "other-app", ownerUserId: userId, projectId: project.id })).rejects.toThrow(
-        "Project does not belong to this AI application",
-      );
-      await expect(
-        sql.begin(
-          async (tx) => tx`
-            INSERT INTO ai.conversations (short_id, app_id, project_id, created_by_user_id)
-            VALUES (${createAiShortId()}, 'other-app', ${project.id}::uuid, ${userId}::uuid)
-          `,
-        ),
-      ).rejects.toThrow('violates foreign key constraint "ai_conversations_project_app_fkey"');
+      const project = await aiProjects.create({ subject, name: `Project ${crypto.randomUUID()}` });
       projectId = project.id;
-      const projectChat = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId, projectId: project.id });
-      const generalChat = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const projectChat = await aiConversations.createConversation({ ownerUserId: userId, projectId: project.id });
+      const generalChat = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(projectChat.id, generalChat.id);
 
-      expect(
-        (await aiConversations.listConversations({ appId: "ai-test", ownerUserId: userId, projectId: project.id })).map((chat) => chat.id),
-      ).toEqual([projectChat.id]);
-      expect(
-        (await aiConversations.listConversations({ appId: "ai-test", ownerUserId: userId, unassigned: true })).map((chat) => chat.id),
-      ).toEqual([generalChat.id]);
+      expect((await aiConversations.listConversations({ ownerUserId: userId, projectId: project.id })).map((chat) => chat.id)).toEqual([
+        projectChat.id,
+      ]);
+      expect((await aiConversations.listConversations({ ownerUserId: userId, unassigned: true })).map((chat) => chat.id)).toEqual([
+        generalChat.id,
+      ]);
     } finally {
       await cleanupFixture({ userId, conversationIds });
-      if (projectId) await aiProjects.delete(projectId, "ai-test", subject);
+      if (projectId) await aiProjects.delete(projectId, subject);
     }
   });
 
@@ -183,7 +172,7 @@ suite("AI conversation store integration", () => {
     const userId = await insertUser();
     const conversationIds: string[] = [];
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
       await aiFileStore.write({
         conversationId: conversation.id,
@@ -227,7 +216,7 @@ suite("AI conversation store integration", () => {
     const conversationIds: string[] = [];
 
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
       const store = aiConversations.createSessionStore({ conversationId: conversation.id, modelProfileId: "test-model" });
       const turnUsage = { input: 15_876, output: 32, total: 15_908 };
@@ -307,7 +296,7 @@ suite("AI conversation store integration", () => {
     const conversationIds: string[] = [];
 
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
 
       const submitted = await aiConversations.submitChatTurn({
@@ -359,7 +348,7 @@ suite("AI conversation store integration", () => {
     const conversationIds: string[] = [];
 
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
       const { turn } = await aiConversations.submitChatTurn({
         conversationId: conversation.id,
@@ -469,7 +458,7 @@ suite("AI conversation store integration", () => {
     const conversationIds: string[] = [];
 
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
       const { turn } = await aiConversations.submitChatTurn({
         conversationId: conversation.id,
@@ -488,6 +477,14 @@ suite("AI conversation store integration", () => {
         runBudgetMs: 60_000,
       });
 
+      const review = {
+        message: "Update the draft.",
+        details: [
+          { label: "Subject", value: "Release follow-up" },
+          { label: "Proposed body", value: "Hello Ada", display: "block" as const },
+        ],
+        links: [{ rel: "edit" as const, href: "/app/mail/MbA123/drafts/DrG789", title: "Edit draft" }],
+      };
       await aiConversations.savePendingTurnAction({
         turnId: turn.id,
         conversationId: conversation.id,
@@ -496,12 +493,23 @@ suite("AI conversation store integration", () => {
         status: "pending",
         name: "danger",
         args: { action: "wipe" },
+        message: review.message,
+        review,
         approvalScope: "danger",
         allowAlways: true,
         resolvedEvent: null,
       });
 
-      const blocks = [{ id: "tool-call-1", kind: "tool" as const, callId: "call-1", name: "danger", status: "awaiting_approval" as const }];
+      const blocks = [
+        {
+          id: "tool-call-1",
+          kind: "tool" as const,
+          callId: "call-1",
+          name: "danger",
+          status: "awaiting_approval" as const,
+          approval: { message: review.message, review, allowAlways: true },
+        },
+      ];
       expect(
         await aiConversations.suspendTurn({
           conversationId: conversation.id,
@@ -515,8 +523,24 @@ suite("AI conversation store integration", () => {
 
       const active = await aiConversations.getActiveTurn({ conversationId: conversation.id });
       expect(active?.turn.status).toBe("waiting_for_action");
-      expect(active?.liveBlocks).toHaveLength(1);
+      expect(active?.liveBlocks).toEqual(blocks);
       expect(active?.liveSeq).toBe(7);
+      expect(await aiConversations.listPendingTurnActions({ conversationId: conversation.id, turnId: turn.id })).toEqual([
+        {
+          type: "approval_request",
+          turnId: turn.id,
+          conversationId: conversation.id,
+          callId: "call-1",
+          name: "danger",
+          args: { action: "wipe" },
+          message: review.message,
+          review,
+          allowAlways: true,
+        },
+      ]);
+      expect(await aiConversations.listPendingActionRecords({ conversationId: conversation.id, turnId: turn.id })).toMatchObject([
+        { callId: "call-1", review },
+      ]);
       expect(
         (
           await aiConversations.enqueueTurnSteer({
@@ -558,7 +582,7 @@ suite("AI conversation store integration", () => {
         runBudgetMs: 60_000,
       });
       expect(continuation?.turn.attempt).toBe(2);
-      expect(continuation?.liveBlocks).toHaveLength(1);
+      expect(continuation?.liveBlocks).toEqual(blocks);
 
       const resumedSteers = await aiConversations.takePendingTurnSteers({
         conversationId: conversation.id,
@@ -649,7 +673,7 @@ suite("AI conversation store integration", () => {
     const conversationIds: string[] = [];
 
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
       const { turn } = await aiConversations.submitChatTurn({
         conversationId: conversation.id,
@@ -749,7 +773,7 @@ suite("AI conversation store integration", () => {
     const conversationIds: string[] = [];
 
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
       const { turn } = await aiConversations.submitChatTurn({
         conversationId: conversation.id,
@@ -799,7 +823,7 @@ suite("AI conversation store integration", () => {
 
     try {
       // Crashed running turn (lease expired, within budget) -> requeued.
-      const crashConv = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const crashConv = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(crashConv.id);
       const { turn: crashTurn } = await aiConversations.submitChatTurn({
         conversationId: crashConv.id,
@@ -819,7 +843,7 @@ suite("AI conversation store integration", () => {
       await sql`UPDATE ai.turns SET lease_expires_at = now() - interval '1 second' WHERE id = ${crashTurn.id}`;
 
       // Over-budget running turn (deadline passed, lease expired) -> failed.
-      const budgetConv = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const budgetConv = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(budgetConv.id);
       const { turn: budgetTurn } = await aiConversations.submitChatTurn({
         conversationId: budgetConv.id,
@@ -843,7 +867,7 @@ suite("AI conversation store integration", () => {
       `;
 
       // Waiting turn past its action deadline -> aborted.
-      const waitConv = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const waitConv = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(waitConv.id);
       const { turn: waitTurn } = await aiConversations.submitChatTurn({
         conversationId: waitConv.id,
@@ -871,7 +895,7 @@ suite("AI conversation store integration", () => {
       await sql`UPDATE ai.turns SET deadline = now() - interval '1 second' WHERE id = ${waitTurn.id}`;
 
       // Resolved wait whose continuation queue message was lost -> requeued.
-      const resumeConv = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const resumeConv = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(resumeConv.id);
       const { turn: resumeTurn } = await aiConversations.submitChatTurn({
         conversationId: resumeConv.id,
@@ -916,7 +940,7 @@ suite("AI conversation store integration", () => {
       });
 
       // Actual recovery exhaustion is terminal instead of hanging forever.
-      const cappedConv = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const cappedConv = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(cappedConv.id);
       const { turn: cappedTurn } = await aiConversations.submitChatTurn({
         conversationId: cappedConv.id,
@@ -952,7 +976,7 @@ suite("AI conversation store integration", () => {
     const conversationIds: string[] = [];
 
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
       const { turn } = await aiConversations.submitChatTurn({
         conversationId: conversation.id,
@@ -1007,7 +1031,7 @@ suite("AI conversation store integration", () => {
       expect(messages).toHaveLength(2);
       expect(messages[1]?.message.role).toBe("assistant");
       expect(messages[1]?.loopId).toBe(turn.id);
-      expect(messages[1]?.meta?.toolPresentations?.["call-1"]).toMatchObject({ appId: "contacts", title: "List contacts" });
+      expect(messages[1]?.meta?.toolPresentations?.["call-1"]).toMatchObject({ title: "List contacts" });
 
       // A non-owner session store must fail loudly instead of writing.
       const stranger = aiConversations.createSessionStore({
@@ -1039,7 +1063,7 @@ suite("AI conversation store integration", () => {
     const conversationIds: string[] = [];
 
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
 
       // Seed four messages without a turn (plain session store path).
@@ -1100,7 +1124,7 @@ suite("AI conversation store integration", () => {
 
     try {
       const create = async (title: string) => {
-        const conversation = await aiConversations.createConversation({ appId: "ai-test", ownerUserId: userId, title });
+        const conversation = await aiConversations.createConversation({ ownerUserId: userId, title });
         conversationIds.push(conversation.id);
         return conversation;
       };
@@ -1114,12 +1138,11 @@ suite("AI conversation store integration", () => {
       const pinnedUpdatedAt = pinned.updatedAt;
       const pinnedResult = await aiConversations.setConversationPinned({
         conversationId: pinned.id,
-        appId: "ai-test",
         ownerUserId: userId,
         pinned: true,
       });
       expect(pinnedResult).toMatchObject({ pinnedAt: expect.any(String), updatedAt: pinnedUpdatedAt });
-      expect((await aiConversations.listConversations({ appId: "ai-test", ownerUserId: userId }))[0]?.id).toBe(pinned.id);
+      expect((await aiConversations.listConversations({ ownerUserId: userId }))[0]?.id).toBe(pinned.id);
 
       // completed_at comes from Postgres, exactly as production writes it
       // (store.ts sets `completed_at = now()`). Stamping it from the Bun clock
@@ -1136,7 +1159,7 @@ suite("AI conversation store integration", () => {
       await insertTurn(failed.id, "failed", true, "Provider unavailable");
       await insertTurn(done.id, "completed", true);
 
-      const summaries = await aiConversations.listConversations({ appId: "ai-test", ownerUserId: userId });
+      const summaries = await aiConversations.listConversations({ ownerUserId: userId });
       expect(summaries.find((item) => item.id === running.id)?.runStatus).toBe("running");
       expect(summaries.find((item) => item.id === attention.id)?.runStatus).toBe("needs_attention");
       expect(summaries.find((item) => item.id === failed.id)).toMatchObject({
@@ -1148,33 +1171,30 @@ suite("AI conversation store integration", () => {
         runError: null,
         unreadCompletion: true,
       });
-      expect(await aiConversations.listConversations({ appId: "ai-test", ownerUserId: userId, status: "running" })).toHaveLength(1);
-      expect(await aiConversations.listConversations({ appId: "ai-test", ownerUserId: userId, status: "needs_attention" })).toHaveLength(1);
-      expect(await aiConversations.listConversations({ appId: "ai-test", ownerUserId: userId, status: "failed" })).toHaveLength(1);
-      expect(await aiConversations.listConversations({ appId: "ai-test", ownerUserId: userId, status: "unread" })).toHaveLength(1);
-      expect(await aiConversations.archiveConversation({ conversationId: running.id, appId: "ai-test", ownerUserId: userId })).toBe(false);
+      expect(await aiConversations.listConversations({ ownerUserId: userId, status: "running" })).toHaveLength(1);
+      expect(await aiConversations.listConversations({ ownerUserId: userId, status: "needs_attention" })).toHaveLength(1);
+      expect(await aiConversations.listConversations({ ownerUserId: userId, status: "failed" })).toHaveLength(1);
+      expect(await aiConversations.listConversations({ ownerUserId: userId, status: "unread" })).toHaveLength(1);
+      expect(await aiConversations.archiveConversation({ conversationId: running.id, ownerUserId: userId })).toBe(false);
 
-      expect(await aiConversations.markConversationViewed({ conversationId: done.id, appId: "ai-test", ownerUserId: userId })).toBe(true);
+      expect(await aiConversations.markConversationViewed({ conversationId: done.id, ownerUserId: userId })).toBe(true);
       expect((await aiConversations.getConversation({ conversationId: done.id }))?.unreadCompletion).toBe(false);
       await aiConversations.updateConversationMetadata({
         conversationId: done.id,
-        appId: "ai-test",
         ownerUserId: userId,
         title: "Done renamed",
         description: done.description,
       });
       expect((await aiConversations.getConversation({ conversationId: done.id }))?.unreadCompletion).toBe(false);
 
-      expect(await aiConversations.archiveConversation({ conversationId: pinned.id, appId: "ai-test", ownerUserId: userId })).toBe(true);
+      expect(await aiConversations.archiveConversation({ conversationId: pinned.id, ownerUserId: userId })).toBe(true);
       expect(await aiConversations.getConversation({ conversationId: pinned.id })).toBeNull();
-      expect(await aiConversations.listConversations({ appId: "ai-test", ownerUserId: userId, archived: true })).toHaveLength(1);
-      expect(await aiConversations.restoreConversation({ conversationId: pinned.id, appId: "ai-test", ownerUserId: userId })).toMatchObject(
-        {
-          id: pinned.id,
-          pinnedAt: null,
-          archivedAt: null,
-        },
-      );
+      expect(await aiConversations.listConversations({ ownerUserId: userId, archived: true })).toHaveLength(1);
+      expect(await aiConversations.restoreConversation({ conversationId: pinned.id, ownerUserId: userId })).toMatchObject({
+        id: pinned.id,
+        pinnedAt: null,
+        archivedAt: null,
+      });
       expect(await aiConversations.getConversation({ conversationId: normal.id })).toMatchObject({ runStatus: "idle" });
     } finally {
       await cleanupFixture({ userId, conversationIds });
@@ -1186,7 +1206,6 @@ suite("AI conversation store integration", () => {
     const conversationIds: string[] = [];
     try {
       const conversation = await aiConversations.createConversation({
-        appId: "ai-test",
         ownerUserId: userId,
         title: "Unrelated title",
         description: "User-written description",
@@ -1203,17 +1222,16 @@ suite("AI conversation store integration", () => {
         .createSessionStore({ conversationId: conversation.id })
         .append(assistantMessage("The visible assistant conclusion names the caladrius fallback"));
 
-      expect(await aiConversations.listConversations({ appId: "ai-test", ownerUserId: userId, search: "zygomatic" })).toHaveLength(1);
+      expect(await aiConversations.listConversations({ ownerUserId: userId, search: "zygomatic" })).toHaveLength(1);
       expect(
         await aiConversations.listConversationsPage({
-          appId: "ai-test",
           ownerUserId: userId,
           search: "quasar",
           page: 1,
           perPage: 20,
         }),
       ).toMatchObject({ total: 1, items: [{ id: conversation.id }] });
-      expect(await aiConversations.listConversations({ appId: "ai-test", ownerUserId: userId, search: "caladrius" })).toHaveLength(1);
+      expect(await aiConversations.listConversations({ ownerUserId: userId, search: "caladrius" })).toHaveLength(1);
 
       const dirtyRows = await sql<{ dirtyAsOf: string }[]>`
         SELECT updated_at::text AS "dirtyAsOf" FROM ai.conversations WHERE id = ${conversation.id}::uuid
@@ -1225,7 +1243,7 @@ suite("AI conversation store integration", () => {
         keywords: ["indexing"],
         dirtyAsOf: dirtyAsOf!,
       });
-      expect(await aiConversations.listConversations({ appId: "ai-test", ownerUserId: userId, search: "heliotrope" })).toHaveLength(1);
+      expect(await aiConversations.listConversations({ ownerUserId: userId, search: "heliotrope" })).toHaveLength(1);
       expect((await aiConversations.getConversation({ conversationId: conversation.id }))?.description).toBe("User-written description");
     } finally {
       await cleanupFixture({ userId, conversationIds });
@@ -1237,7 +1255,7 @@ suite("AI conversation store integration", () => {
     const otherUserId = await insertUser();
 
     try {
-      const context = { actorUserId: userId, appId: "ai-test", resource: { kind: "direct" as const } };
+      const context = { actorUserId: userId };
       const tool = { toolName: `tool-${crypto.randomUUID()}`, approvalScope: "scope" };
 
       expect(await hasRememberedAiToolApproval(context, tool)).toBe(false);
@@ -1245,7 +1263,7 @@ suite("AI conversation store integration", () => {
       expect(await hasRememberedAiToolApproval(context, tool)).toBe(true);
       const preferences = await listAiToolApprovalPreferences(userId);
       expect(preferences).toHaveLength(1);
-      expect(preferences[0]).toMatchObject({ contextAppId: "ai-test", resource: null, ...tool });
+      expect(preferences[0]).toMatchObject(tool);
       expect(await listAiToolApprovalPreferences(otherUserId)).toEqual([]);
       expect(await revokeAiToolApprovalPreference(otherUserId, preferences[0]!.id)).toBe(false);
       expect(await revokeAiToolApprovalPreference(userId, preferences[0]!.id)).toBe(true);

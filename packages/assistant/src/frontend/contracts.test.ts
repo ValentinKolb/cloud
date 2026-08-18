@@ -7,7 +7,8 @@ describe("Assistant frontend contracts", () => {
     const [client, apiRoutes, pageRoutes] = await Promise.all([read("../api/client.ts"), read("../api/index.ts"), read("./index.ts")]);
 
     expect(client).toContain("api.create<ApiType>");
-    expect(client).not.toContain("fetch(");
+    expect(client.match(/fetch\(/g)).toHaveLength(1);
+    expect(client).toContain("/api/ai/tasks");
     expect(apiRoutes).toContain("auth.requireUser()");
     expect(pageRoutes).toContain("auth.requireUser(auth.redirectToLogin)");
   });
@@ -93,7 +94,9 @@ describe("Assistant frontend contracts", () => {
     expect(workspace).not.toContain("const slashCommands");
     expect(workspace).not.toContain("commands={");
     expect(workspace).not.toContain("type / ...");
-    expect(workspace).toContain("projectComposer() || !activeConversation()");
+    expect(workspace).toContain('id: "attach-resource"');
+    expect(workspace).toContain("openCloudResourcePicker");
+    expect(workspace).toContain("composerAttachmentsFor(sessionKey).length >= AI_TURN_ATTACHMENT_MAX_ITEMS");
     expect(workspace).toContain('id: "search-chat"');
     expect(workspace).toContain('id: "compact-context"');
     expect(workspace).toContain("openAssistantChatMessageSearch");

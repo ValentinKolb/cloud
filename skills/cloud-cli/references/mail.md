@@ -273,6 +273,14 @@ cld --json mail message inspect <message-id>
 cld --json mail message source <message-id> --out message.eml
 ```
 
+List a bounded, deterministic set of conversations from the same mailbox that share an external participant or normalized subject with the current conversation:
+
+```bash
+cld --json mail conversation related <conversation-id> --limit 5
+```
+
+Every result includes the reasons it matched. This conversation-level command is distinct from `conversation contact-history`, which requires one resolved Contact and returns history for that specific Contact.
+
 `conversation get` returns the shared summary, collaboration state, local tags,
 and up to the 50 most recent messages. `messagesTruncated: true` means earlier
 messages exist; use `conversation messages` and its cursor to inspect the full
@@ -476,7 +484,7 @@ Use `cld mail <group> help` for all flags. The durable day-to-day surface is:
 | Access | `access list|search-principals|grant|set|revoke` |
 | Discovery | `provider discover|list`, `binding list|attach`, `identity list|add|setup-default|configure|verify|disable`, `folders`, `status` |
 | Read and search | `search`, `message get|wait|inspect|source|edit-as-new|resend`, `conversation list|get|messages|counts`, `remote-content list|allow-sender|allow-domain|remove` |
-| Collaboration | `conversation collaboration|update|users|activity|context|contact-history`, `tag ...`, `conversation tag ...`, `comment list|add|edit|delete`, `reminder get|set|cancel` |
+| Collaboration | `conversation collaboration|update|users|activity|context|related|contact-history`, `tag ...`, `conversation tag ...`, `comment list|add|edit|delete`, `reminder get|set|cancel` |
 | Views and repair | `saved-view list|get|create|update|delete|conversations`, `conversation split|merge|reassign-message` |
 
 Provider-backed read, unread, flag, folder, attachment, and maintenance commands are documented in [Mail operations](mail-operations.md). Compose, draft, scheduling, and command-journal operations are documented in [Mail compose and drafts](mail-compose.md).

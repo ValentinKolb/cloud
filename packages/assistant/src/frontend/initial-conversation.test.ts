@@ -5,7 +5,6 @@ import { resolveInitialConversation } from "./initial-conversation";
 const conversation = (id: string): AiConversation => ({
   id,
   shortId: id,
-  appId: "assistant",
   title: id,
   titleSource: "default",
   description: "",
@@ -17,7 +16,7 @@ const conversation = (id: string): AiConversation => ({
   runError: null,
   unreadCompletion: false,
   projectId: null,
-  resource: { kind: "direct" },
+  draft: { content: [], revision: 0, updatedAt: null },
   createdByUserId: "user-1",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",

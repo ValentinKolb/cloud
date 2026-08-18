@@ -3,6 +3,7 @@ import { fileIcons } from "@k2b/stdlib";
 import { formatBytes as sharedFormatBytes } from "../../shared/format";
 import { type AiAttachmentRef, parseAiAttachmentMarkers } from "../attachments";
 import { AI_IMAGE_INPUT_MAX_BYTES, AI_TURN_ATTACHMENT_MAX_ITEMS } from "../limits";
+import { type AiResourceMarker, parseAiResourceMarker } from "../resource-markers";
 import { assistantVisibleTextFromMessage } from "../timeline";
 import type { AiStoredMessage, AiUserContentPart } from "../types";
 import { AI_IMAGE_MEDIA_TYPES, isAiImageMediaType } from "../types";
@@ -38,6 +39,24 @@ export type AiComposerAttachment =
       mediaType: string;
       file: File;
       icon: string;
+    }
+  | {
+      kind: "stored-file";
+      id: string;
+      name: string;
+      size: number;
+      mediaType: string;
+      path: string;
+      version: number;
+      icon: string;
+    }
+  | {
+      kind: "resource";
+      id: string;
+      name: string;
+      ref: { type: string; id: string };
+      icon: string;
+      href?: string;
     };
 
 export type PendingAiImage = Extract<AiComposerAttachment, { kind: "image" }>;
@@ -119,6 +138,7 @@ export const userVisibleTextFromMessage = (message: Message): string => {
     .map((part) => {
       const text = typeof part === "string" ? part : part.type === "text" ? part.text : "";
       if (text.startsWith(ATTACHMENT_CONTEXT_PREFIX)) return "";
+      if (parseAiResourceMarker(text)) return "";
       return parseAiAttachmentMarkers(text).text;
     })
     .join("")
@@ -137,9 +157,19 @@ export const vfsAttachmentsFromMessage = (message: Message): (AiAttachmentRef & 
   });
 };
 
+export const resourcesFromMessage = (message: Message): AiResourceMarker[] => {
+  if (message.role !== "user") return [];
+  return message.content.flatMap((part) => {
+    const text = typeof part === "string" ? part : part.type === "text" ? part.text : "";
+    const resource = parseAiResourceMarker(text);
+    return resource ? [resource] : [];
+  });
+};
+
 export const isAttachmentContextPart = (part: AiUserContentPart): boolean => {
   const text = typeof part === "string" ? part : part.type === "text" ? part.text : "";
   if (text.startsWith(ATTACHMENT_CONTEXT_PREFIX)) return true;
+  if (parseAiResourceMarker(text)) return true;
   return parseAiAttachmentMarkers(text).attachments.length > 0 && !parseAiAttachmentMarkers(text).text;
 };
 

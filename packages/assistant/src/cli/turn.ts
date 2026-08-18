@@ -4,6 +4,7 @@ import {
   AI_TURN_ATTACHMENT_MAX_ITEMS,
   AI_TURN_IMAGE_MAX_TOTAL_BYTES,
   type AiConversation,
+  type AiDraftContentPart,
   type AiFileStat,
   type AiTurnBlock,
   type AiTurnContentPart,
@@ -11,7 +12,7 @@ import {
   isAiImageMediaType,
 } from "@valentinkolb/cloud/ai";
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
-import { ASSISTANT_API, jsonRequest, printValue, readApi } from "./shared";
+import { AI_API, jsonRequest, printValue, readApi } from "./shared";
 import { type AssistantTurnStreamResult, streamAssistantTurn } from "./stream";
 
 export type ConversationDetail = {
@@ -59,7 +60,11 @@ export const resolveConversation = async (
         jsonRequest("POST", { ...(input.title ? { title: input.title } : {}), ...(input.projectId ? { projectId: input.projectId } : {}) }),
       );
 
-export const uploadAttachment = async (ctx: CloudCliContext, conversationId: string, localPath: string): Promise<AiTurnContentPart> => {
+export const uploadAttachment = async (
+  ctx: CloudCliContext,
+  conversationId: string,
+  localPath: string,
+): Promise<AiTurnContentPart & { version: number }> => {
   const file = Bun.file(localPath);
   if (!(await file.exists())) throw new Error(`Attachment not found: ${localPath}`);
   const mediaType = file.type || guessAiMediaType(localPath);
@@ -69,9 +74,51 @@ export const uploadAttachment = async (ctx: CloudCliContext, conversationId: str
   const form = new FormData();
   form.set("file", new File([await file.arrayBuffer()], basename(localPath), { type: mediaType }));
   const uploaded = await ctx.readJson<{ file: AiFileStat }>(
-    await ctx.fetch(`${ASSISTANT_API}${conversationPath(conversationId, "/files")}`, { method: "POST", body: form }),
+    await ctx.fetch(`${AI_API}${conversationPath(conversationId, "/files")}`, { method: "POST", body: form }),
   );
-  return { type: "attachment", path: uploaded.file.path, mediaType: uploaded.file.mediaType, size: uploaded.file.size };
+  return {
+    type: "attachment",
+    path: uploaded.file.path,
+    mediaType: uploaded.file.mediaType,
+    size: uploaded.file.size,
+    version: uploaded.file.version,
+  };
+};
+
+const submitDraftBody = async (ctx: CloudCliContext, conversationId: string, body: unknown): Promise<unknown> => {
+  if (!body || typeof body !== "object") return body;
+  const input = body as {
+    message?: string;
+    content?: Array<{ type: string; text?: string; path?: string; mediaType?: string; size?: number; version?: number }>;
+    modelProfileId?: string;
+    clientToolIds?: string[];
+  };
+  const detail = await readConversationDetail(ctx, conversationId);
+  if (detail.conversation.draft.content.length > 0) {
+    throw new Error("This conversation has an unsent composer draft. Send or clear it in Assistant before using the CLI.");
+  }
+  const content = [
+    ...(input.message?.trim() ? [{ type: "text" as const, text: input.message.trim() }] : []),
+    ...(input.content ?? []).flatMap((part): AiDraftContentPart[] => {
+      if (part.type === "text" && part.text?.trim()) return [{ type: "text" as const, text: part.text.trim() }];
+      if (
+        part.type === "attachment" &&
+        part.path &&
+        part.mediaType &&
+        typeof part.size === "number" &&
+        typeof part.version === "number"
+      ) {
+        return [{ type: "file" as const, path: part.path, mediaType: part.mediaType, size: part.size, version: part.version }];
+      }
+      return [];
+    }),
+  ];
+  const draft = await readApi<AiConversation["draft"]>(
+    ctx,
+    conversationPath(conversationId, "/draft"),
+    jsonRequest("PUT", { expectedRevision: detail.conversation.draft.revision, content }),
+  );
+  return { draftRevision: draft.revision, modelProfileId: input.modelProfileId, clientToolIds: input.clientToolIds };
 };
 
 export const submitAssistantTurn = async (input: {
@@ -85,7 +132,7 @@ export const submitAssistantTurn = async (input: {
   onToolBlock?: (block: Extract<AiTurnBlock, { kind: "tool" }>) => void;
 }): Promise<{ submitted: TurnSubmission; result?: AssistantTurnStreamResult }> => {
   const streamResponse = input.watch
-    ? await input.ctx.fetch(`${ASSISTANT_API}${conversationPath(input.conversationId, "/stream")}`, {
+    ? await input.ctx.fetch(`${AI_API}${conversationPath(input.conversationId, "/stream")}`, {
         headers: { Accept: "text/event-stream" },
         signal: input.signal,
       })
@@ -93,7 +140,10 @@ export const submitAssistantTurn = async (input: {
   if (streamResponse && (!streamResponse.ok || !streamResponse.body)) await input.ctx.readJson(streamResponse);
   let submitted: TurnSubmission;
   try {
-    submitted = await readApi<TurnSubmission>(input.ctx, input.path, jsonRequest("POST", input.body));
+    const body = input.path.endsWith("/turns")
+      ? await submitDraftBody(input.ctx, input.conversationId, input.body)
+      : input.body;
+    submitted = await readApi<TurnSubmission>(input.ctx, input.path, jsonRequest("POST", body));
   } catch (error) {
     await streamResponse?.body?.cancel().catch(() => undefined);
     throw error;

@@ -13,15 +13,17 @@ import type {
   AiMemoryPriority,
   AiStoredMessage,
   AiUserPrefs,
+  AiRoutes,
 } from "@valentinkolb/cloud/ai";
 import { api } from "@valentinkolb/cloud/browser";
 import type { AssistantChatContextSnapshot } from "../chat-context";
-import type { AssistantChatTask } from "../chat-tasks-contracts";
+import type { AiChatTaskView as AssistantChatTask } from "@valentinkolb/cloud/ai";
 import type { AssistantProjectContextSnapshot } from "../project-context";
 import type { AssistantSidebarSnapshot } from "../sidebar";
 import type { ApiType } from ".";
 
-const client = api.create<ApiType>({ baseUrl: "/api/assistant" });
+const client = api.create<AiRoutes>({ baseUrl: "/api/ai" });
+const assistantClient = api.create<ApiType>({ baseUrl: "/api/assistant" });
 
 const readError = async (response: Response, fallback: string): Promise<string> => {
   const body = await response.json().catch(() => null);
@@ -31,13 +33,13 @@ const readError = async (response: Response, fallback: string): Promise<string> 
 /** Typed conversation-management facade used by the Assistant UI. */
 export const assistantApi = {
   loadSidebar: async (signal?: AbortSignal): Promise<AssistantSidebarSnapshot> => {
-    const response = await client.workspace.sidebar.$get({}, { init: { signal } });
+    const response = await assistantClient.workspace.sidebar.$get({}, { init: { signal } });
     if (!response.ok) throw new Error(await readError(response, "Failed to load Assistant navigation"));
     return (await response.json()) as AssistantSidebarSnapshot;
   },
 
   loadChatContext: async (conversationId: string, signal?: AbortSignal): Promise<AssistantChatContextSnapshot> => {
-    const response = await client.workspace.conversations[":conversationId"].context.$get(
+    const response = await assistantClient.workspace.conversations[":conversationId"].context.$get(
       { param: { conversationId } },
       { init: { signal } },
     );
@@ -46,7 +48,7 @@ export const assistantApi = {
   },
 
   loadProjectContext: async (projectId: string, signal?: AbortSignal): Promise<AssistantProjectContextSnapshot> => {
-    const response = await client.workspace.projects[":projectId"].context.$get({ param: { projectId } }, { init: { signal } });
+    const response = await assistantClient.workspace.projects[":projectId"].context.$get({ param: { projectId } }, { init: { signal } });
     if (!response.ok) throw new Error(await readError(response, "Failed to load Project context"));
     return (await response.json()) as AssistantProjectContextSnapshot;
   },
@@ -173,10 +175,8 @@ export const assistantApi = {
   },
 
   listChatTasks: async (input: { chatId: string; limit?: number; signal?: AbortSignal }): Promise<AssistantChatTask[]> => {
-    const response = await client.tasks.$get(
-      { query: { chatId: input.chatId, limit: String(input.limit ?? 50) } },
-      { init: { signal: input.signal } },
-    );
+    const query = new URLSearchParams({ chatId: input.chatId, limit: String(input.limit ?? 50) });
+    const response = await fetch(`/api/ai/tasks?${query}`, { signal: input.signal });
     if (!response.ok) throw new Error(await readError(response, "Failed to load scheduled tasks"));
     return response.json();
   },

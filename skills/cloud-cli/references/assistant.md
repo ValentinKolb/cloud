@@ -1,6 +1,6 @@
 # Assistant CLI
 
-Use `cld assistant` for interactive chat and Assistant automation. The root command starts or continues a chat; named management commands inspect chat state and files, resolve pending actions, manage personalization, and manage Projects.
+Use `cld assistant` for interactive access to the user's personal Cloud agent and for chat automation. Assistant is the CLI and GUI surface for personal conversations stored by Cloud AI Core; chats started from Mail or another application appear in the same history. The root command starts or continues a chat, while named management commands inspect chat state and files, resolve pending actions, manage personalization, and manage Projects.
 
 ## Interactive and print modes
 
@@ -48,13 +48,15 @@ Useful options:
 - `--title <title>` names a newly created chat.
 - `--model <profile-id>` selects a model from `cld assistant models`.
 - `--project <project-id>` creates the new chat in an accessible Project.
-- Repeat `--attach <local-file>` for images or documents.
+- Repeat `--attach <local-file>` for local images or documents. This flag does not accept a Cloud resource ID.
 - `--detach` submits the turn and returns its ID without waiting in print mode.
 - Repeat `--approve <exact-tool-name>` in print mode to approve only those tools for that turn. There is deliberately no approve-all flag.
 
 Print mode writes assistant text to stdout and tool progress to stderr. `--json` waits and prints one final aggregate. `--jsonl` emits versioned stream events such as text deltas, tool state changes, attention requests, and turn completion. Structured output, detached submission, and piped input require `--print`.
 `--allow-bash` is deliberately rejected with `--print`, structured output, and
 detached execution.
+
+The web composer and CLI share one durable conversation draft. Before a CLI turn in an existing chat, the CLI refuses to replace a non-empty unsent web draft. Send or clear that draft in Assistant, then retry the CLI command. This prevents a terminal turn from silently overwriting text, files, or Cloud resources prepared in another tab.
 
 If a turn needs an approval or frontend tool result that was not supplied, the command exits with status `2`. Inspect and resolve it explicitly:
 
@@ -82,7 +84,7 @@ cld assistant turns steer <chat-id> <turn-id> "Focus on the migration risk"
 cld assistant turns stop <chat-id> <turn-id>
 ```
 
-Chat management includes `chats create`, `update`, `pin`, `unpin`, `archive`, `restore`, `mark-read`, `compact`, `reindex`, and `index-status`. Message operations include `messages search`, `messages retry`, and `messages fork`. `resources list` inspects structured refs in one chat; `resources search` finds their occurrences across active owned chats. Resource results are based on schema-valid refs observed in Project context and capability calls, not IDs guessed from prose. Archiving requires `--yes`.
+Chat management includes `chats create`, `update`, `pin`, `unpin`, `archive`, `restore`, `mark-read`, `compact`, `reindex`, and `index-status`. Message operations include `messages search`, `messages retry`, and `messages fork`. `resources list` inspects structured refs attached to or observed in one chat; `resources search` finds their occurrences across active owned chats. Resource results are based on schema-valid refs from conversation drafts, Project context, and capability calls, not IDs guessed from prose. A ref and its optional app link are presentation and identity, not authorization. Archiving requires `--yes`.
 
 Assistant agents can discover previous conversations through the closed-world
 `chats.search`, `chat.read`, and `chat.search` Queries. They can inspect
@@ -161,7 +163,7 @@ cld assistant personalization forget <memory-id> --yes
 
 `--content` also accepts `--content-file` and `--stdin`. Forgetting an entry requires `--yes`.
 
-Personalization use and learning from private chats are separate settings:
+Personalization use and learning from chats are separate settings. Learning considers only genuine user-authored text, not attached Cloud resources, files, tool results, scheduled prompts, inter-chat deliveries, or Assistant output:
 
 ```bash
 cld assistant personalization status

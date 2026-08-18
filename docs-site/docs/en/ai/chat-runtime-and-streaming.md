@@ -3,78 +3,54 @@ title: Chat runtime and streaming
 navTitle: Chat and streaming
 section: AI
 order: 1030
-description: Run bounded chat sessions and stream model output to an application.
+description: Create personal conversations, save composer drafts, and stream agent work.
 tags: [ai, chat, streaming]
-updated: 2026-08-12
+updated: 2026-08-18
 ---
 
 # Chat runtime and streaming
 
-`createAiChatRoutes()` provides the shared conversation and turn API.
+Core mounts one authenticated conversation API at `/api/ai`. Conversations do
+not belong to an application and have no primary resource. Assistant renders
+the standard GUI; another application may create a conversation and redirect
+the user there.
 
-Use it for a standalone chat. Use
-[`defineAiResource()`](/en/docs/ai/resources-and-access) when the chat belongs
-to a domain resource.
-
-The shared runtime is useful when conversation history, streaming, approvals,
-files, interruption, and crash recovery are product requirements. It does not
-own application context or authorization: the app resolves both for every
-turn and tool call.
-
-## Create chat routes
+## Create a conversation draft
 
 ```ts
-import {
-  aiMaintenanceJobs,
-  createAiChatRoutes,
-  migrateCloudAi,
-  startAiRuntime,
-} from "@valentinkolb/cloud/ai";
-import {
-  auth,
-  expectUserBackedActor,
-  middleware,
-  type AuthContext,
-} from "@valentinkolb/cloud/server";
-import { Hono } from "hono";
+import { launchAssistant } from "@valentinkolb/cloud/ai/browser";
 
-const chatRoutes = createAiChatRoutes({
-  appId: "assistant",
-  allowConversationManagement: true,
-  modelListPolicy: {
-    kind: "selectable",
-    requiredCapabilities: ["streaming"],
+const launch = await launchAssistant({
+  draft: {
+    content: [
+      { type: "text", text: "Help me finish this email." },
+      { type: "resource", ref: { type: "mail.draft", id: draftId } },
+    ],
   },
-  resolveContext: async (c) => {
-    const actor = c.get("actor");
-    const user = expectUserBackedActor(c);
-
-    return {
-      actor,
-      ownerUserId: user.id,
-      toolSource: { kind: "none" },
-      systemPrompt: "Help with writing and planning.",
-      modelPolicy: { kind: "selectable", requiredCapabilities: ["streaming"] },
-    };
-  },
+  preloadCapabilities: [
+    { appId: "mail", kind: "query", id: "draft.read" },
+    { appId: "mail", kind: "action", id: "draft.update" },
+  ],
+  files: selectedFiles,
 });
-
-const chatApi = new Hono<AuthContext>()
-  .use("*", auth.requireRole("authenticated"))
-  .use("*", auth.requireUser())
-  .route("/", chatRoutes);
-
-const router = new Hono<AuthContext>()
-  .use("*", middleware.runtime())
-  .use("*", middleware.settings())
-  .route("/api/assistant", chatApi);
+window.location.assign(launch.href);
 ```
 
-Protect the entire mount. `/status` and `/models` return sanitized state but do
-not call `resolveContext()`.
+The request may provide at most eight live Capability names. Core validates and
+stores their compiled names so the first turn can load them without discovery.
+This is a prompt-budget optimization, not authorization. Every invocation still
+runs as the current user against the owning application.
 
-This minimal chat has no tools. Use a resource tool source for tools declared
-by `defineAiResource()`.
+The structured composer draft contains text, exact stored-file versions, and
+zero or more Cloud resource refs. Save it with `PUT
+/api/ai/conversations/:id/draft` and an `expectedRevision`. Identical autosaves
+are idempotent; stale writes return a conflict. Submit a turn with the returned
+`draftRevision`. The transaction consumes and clears exactly that revision, so
+text and attachments cannot drift between save and send.
+`launchAssistant()` uploads browser `File` values after creating the private
+conversation and then stores their returned versions in the same draft. The
+JSON create endpoint itself accepts text and resource refs, not unuploaded file
+paths.
 
 The default tool source adds card and survey interactions, bounded
 conversation-file tools (including configured image inspection), arithmetic and deterministic date calculation, and web search or
@@ -90,9 +66,8 @@ streams its calls but has no shell executor, and browser clients neither opt in
 nor register a handler. See the local CLI boundary in
 [Tools and approvals](/en/docs/ai/tools-and-approvals#run-an-optional-tool-in-a-local-cli).
 
-`toolSource: { kind: "default", capabilities: true }` additionally enables the
-compact Cloud app capability discovery tools. It is an explicit opt-in: other
-chat and resource consumers keep their existing tool surface. Capability tools
+Personal conversations always enable the compact Cloud app capability discovery
+tools. Capability tools
 require a model profile with `tools` support and a current direct user actor;
 service-backed agent identities are not part of this contract.
 
@@ -117,7 +92,8 @@ language-dependent automatic retries.
 | `/memories`, `/memories/:id` | Search and manage structured personal facts and preferences |
 | `/conversations` | List and create conversations |
 | `/conversations/:id` | Read or manage one conversation |
-| `/conversations/:id/project` | Choose or clear a Project before the first message |
+| `/conversations/:id/draft` | Optimistically save text, files, and Cloud resources |
+| `/conversations/:id/project` | Choose, change, or clear the current Project between turns |
 | `/conversations/:id/messages/search` | Search visible text inside one owned conversation |
 | `/conversations/:id/resources` | List or filter structured Cloud refs observed in one conversation |
 | `/resources` | List or filter structured Cloud refs across the user's active conversations |
@@ -128,40 +104,19 @@ language-dependent automatic retries.
 The router also supports message retry, forks, compaction, pending tool
 actions, conversation enrichment, and paged history.
 
-Search applies ownership, application, resource, archive, status, and pagination
+Search applies ownership, Project, archive, status, and pagination
 filters before returning visible conversation text. Tool results and model
 thinking are not user-visible message search results. Structured Cloud resource
 discovery indexes only schema-valid refs observed in trusted structured values;
 it does not infer resource identity from prose.
 
-`allowConversationManagement` enables metadata editing, pinning, archiving,
-and restore for direct chats.
+## Runtime ownership
 
-## Start the runtime
-
-Chat routes enqueue work. A running service must also start the worker:
-
-```ts
-let stopAiRuntime: (() => void) | undefined;
-
-await app.start({
-  fetch: router.fetch,
-  lifecycle: {
-    setup: migrateCloudAi,
-    start: async () => {
-      stopAiRuntime = startAiRuntime({ concurrency: 4 });
-      await aiMaintenanceJobs.start();
-    },
-    stop: async () => {
-      stopAiRuntime?.();
-      await aiMaintenanceJobs.stop();
-    },
-  },
-});
-```
-
-`startAiRuntime()` is process-wide and reference-counted. The returned function
-releases one caller. The last release stops the workers.
+Core mounts `/api/ai`, migrates the AI schema, and exclusively owns the
+conversation workers, maintenance, scheduled chat tasks, and durable
+continuations. Applications must not start a second AI conversation runtime.
+They publish domain Capabilities, launch a personal conversation through
+`launchAssistant()`, or use `runAiStructured()` for bounded server/workflow AI.
 
 The runtime leases queued turns, recovers interrupted work, and sweeps stale
 turns. User approvals and frontend-tool responses are durable continuation
@@ -189,31 +144,16 @@ lists, metadata, Sources, files, scheduled tasks, Project context, and access
 changes are durable server projections, not turn deltas. Server-render those
 projections and refresh them through [Realtime UI](/en/docs/frontend/realtime-ui).
 
-AI applications can mount the server-only live route from
-`@valentinkolb/cloud/ai/live`. `migrateCloudAi()` installs the transactional
+Core mounts the server-only live route at `/api/ai/live`.
+`migrateCloudAi()` installs the transactional
 invalidation outbox and persistence triggers; `startAiRuntime()` dispatches the
 outbox. A committed AI write and its invalidation therefore cannot diverge.
 The browser still reloads each affected projection through its authorized HTTP
 query before it advances the event cursor.
 
-```ts
-import { createAiLiveRoutes } from "@valentinkolb/cloud/ai/live";
-
-const appId = "assistant";
-
-router.route(
-  "/api/assistant/live",
-  createAiLiveRoutes({
-    appId,
-    resolveScopeVersion: (userId) => aiProjects.scopeVersion({ type: "user", userId }, appId),
-  }),
-);
-```
-
-The live stream is isolated by application and user. Every Project belongs to
-one AI application. Its context can be shared with users of that application,
-but each Project chat remains owned by its creator and only appears in that
-user's stream and queries. On reconnect, the route establishes a new head
+The live stream is isolated by user. Project context can be shared through
+normal Cloud access grants, but each conversation remains owned by its creator
+and only appears in that user's stream and queries. On reconnect, the route establishes a new head
 cursor and the client refreshes every registered AI projection. This is the
 authoritative recovery path when retained replay is insufficient.
 

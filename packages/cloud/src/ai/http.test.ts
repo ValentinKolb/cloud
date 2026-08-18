@@ -43,6 +43,53 @@ describe("AI HTTP input helpers", () => {
     expect(() => AiCreateConversationInputSchema.parse({ projectId: "meeting-summary" })).toThrow();
   });
 
+  test("accepts a bounded structured launch draft and exact capability refs", () => {
+    const launch = AiCreateConversationInputSchema.parse({
+      draft: {
+        content: [
+          { type: "text", text: "Help me write this email." },
+          { type: "resource", ref: { type: "mail.draft", id: "Draft1" } },
+        ],
+      },
+      preloadCapabilities: [{ appId: "mail", kind: "query", id: "draft.read" }],
+    });
+    expect(launch.draft?.content).toHaveLength(2);
+    expect(launch.preloadCapabilities).toEqual([{ appId: "mail", kind: "query", id: "draft.read" }]);
+    expect(() =>
+      AiCreateConversationInputSchema.parse({
+        draft: { content: [{ type: "file", path: "/not-uploaded.txt", mediaType: "text/plain", size: 1, version: 1 }] },
+      }),
+    ).toThrow();
+    expect(() =>
+      AiCreateConversationInputSchema.parse({
+        preloadCapabilities: Array.from({ length: 9 }, () => ({ appId: "mail", kind: "query", id: "draft.read" })),
+      }),
+    ).toThrow();
+    expect(() =>
+      AiCreateConversationInputSchema.parse({
+        draft: {
+          content: [
+            {
+              type: "resource",
+              ref: { type: "mail.draft", id: "Draft1" },
+              href: "https://attacker.example/collect",
+            },
+          ],
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      AiCreateConversationInputSchema.parse({
+        draft: {
+          content: Array.from({ length: 9 }, (_, index) => ({
+            type: "resource",
+            ref: { type: "mail.draft", id: `Draft${index}` },
+          })),
+        },
+      }),
+    ).toThrow();
+  });
+
   test("accepts only the predefined optional local client tool", () => {
     expect(AiTurnInputSchema.parse({ message: "Inspect this checkout", clientToolIds: ["local_bash"] }).clientToolIds).toEqual([
       "local_bash",

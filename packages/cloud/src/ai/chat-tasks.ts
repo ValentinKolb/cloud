@@ -79,16 +79,15 @@ type OccurrenceRow = {
 
 const iso = (value: Date | string): string => new Date(value).toISOString();
 const nullableIso = (value: Date | string | null): string | null => (value === null ? null : iso(value));
-const taskIdempotencyKey = (appId: string, key: string): string => `${appId}:task.create:${key}`;
+const taskIdempotencyKey = (key: string): string => `task.create:${key}`;
 const taskFingerprint = (input: {
-  appId: string;
   chatId: string;
   prompt: string;
   schedule: AiChatTaskSchedule;
   timezone: string;
 }): string =>
   new Bun.CryptoHasher("sha256")
-    .update(JSON.stringify([input.appId, input.chatId, input.prompt.trim(), input.schedule, input.timezone]))
+    .update(JSON.stringify([input.chatId, input.prompt.trim(), input.schedule, input.timezone]))
     .digest("hex");
 const taskSelect = sql`
   SELECT task.*, conversation.short_id AS conversation_short_id, conversation.title AS conversation_title
@@ -129,7 +128,6 @@ const toOccurrence = (row: OccurrenceRow): AiChatTaskOccurrence => ({
 
 export const aiChatTasks = {
   list: async (input: {
-    appId: string;
     userId: string;
     chatId?: string;
     state?: AiChatTaskState;
@@ -137,8 +135,7 @@ export const aiChatTasks = {
   }): Promise<AiChatTask[]> => {
     const rows = await sql<TaskRow[]>`
       ${taskSelect}
-      WHERE conversation.app_id = ${input.appId}
-        AND task.sponsor_user_id = ${input.userId}::uuid
+      WHERE task.sponsor_user_id = ${input.userId}::uuid
         AND (${input.chatId ?? null}::text IS NULL OR conversation.short_id = ${input.chatId ?? null})
         AND (${input.state ?? null}::text IS NULL OR task.state = ${input.state ?? null})
       ORDER BY task.created_at DESC, task.id DESC
@@ -147,11 +144,10 @@ export const aiChatTasks = {
     return rows.map(toTask);
   },
 
-  get: async (input: { appId: string; userId: string; taskId: string }): Promise<AiChatTask | null> => {
+  get: async (input: { userId: string; taskId: string }): Promise<AiChatTask | null> => {
     const rows = await sql<TaskRow[]>`
       ${taskSelect}
-      WHERE conversation.app_id = ${input.appId}
-        AND task.sponsor_user_id = ${input.userId}::uuid
+      WHERE task.sponsor_user_id = ${input.userId}::uuid
         AND task.short_id = ${input.taskId}
       LIMIT 1
     `;
@@ -159,7 +155,6 @@ export const aiChatTasks = {
   },
 
   create: async (input: {
-    appId: string;
     userId: string;
     chatId: string;
     prompt: string;
@@ -168,14 +163,13 @@ export const aiChatTasks = {
     idempotencyKey?: string;
     idempotencyFingerprint?: string;
   }): Promise<AiChatTask | null> => {
-    const scopedKey = input.idempotencyKey ? taskIdempotencyKey(input.appId, input.idempotencyKey) : null;
+    const scopedKey = input.idempotencyKey ? taskIdempotencyKey(input.idempotencyKey) : null;
     const fingerprint = scopedKey ? (input.idempotencyFingerprint ?? taskFingerprint(input)) : null;
     if (input.idempotencyKey) {
       const existing = await sql<(TaskRow & { idempotency_fingerprint: string | null })[]>`
         ${taskSelect}
         WHERE task.idempotency_key = ${scopedKey}
           AND task.sponsor_user_id = ${input.userId}::uuid
-          AND conversation.app_id = ${input.appId}
         LIMIT 1
       `;
       if (existing[0]) {
@@ -195,7 +189,6 @@ export const aiChatTasks = {
         ${input.schedule.kind === "cron" ? input.schedule.cron : null}, ${input.timezone}, ${scopedKey}, ${fingerprint}
       FROM ai.conversations conversation
       WHERE conversation.short_id = ${input.chatId}
-        AND conversation.app_id = ${input.appId}
         AND conversation.created_by_user_id = ${input.userId}::uuid
         AND conversation.archived_at IS NULL
       ON CONFLICT (sponsor_user_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
@@ -209,7 +202,6 @@ export const aiChatTasks = {
       ${taskSelect}
       WHERE task.idempotency_key = ${scopedKey}
         AND task.sponsor_user_id = ${input.userId}::uuid
-        AND conversation.app_id = ${input.appId}
       LIMIT 1
     `;
     if (!existing[0]) return null;
@@ -218,16 +210,14 @@ export const aiChatTasks = {
   },
 
   getCreateByIdempotency: async (input: {
-    appId: string;
     userId: string;
     idempotencyKey: string;
     idempotencyFingerprint: string;
   }): Promise<AiChatTask | null> => {
     const rows = await sql<(TaskRow & { idempotency_fingerprint: string | null })[]>`
       ${taskSelect}
-      WHERE task.idempotency_key = ${taskIdempotencyKey(input.appId, input.idempotencyKey)}
+      WHERE task.idempotency_key = ${taskIdempotencyKey(input.idempotencyKey)}
         AND task.sponsor_user_id = ${input.userId}::uuid
-        AND conversation.app_id = ${input.appId}
       LIMIT 1
     `;
     if (!rows[0]) return null;
@@ -236,7 +226,6 @@ export const aiChatTasks = {
   },
 
   update: async (input: {
-    appId: string;
     userId: string;
     taskId: string;
     prompt?: string;
@@ -246,8 +235,7 @@ export const aiChatTasks = {
     sql.begin(async (tx) => {
       const rows = await tx<TaskRow[]>`
         ${taskSelect}
-        WHERE conversation.app_id = ${input.appId}
-          AND task.sponsor_user_id = ${input.userId}::uuid
+        WHERE task.sponsor_user_id = ${input.userId}::uuid
           AND task.short_id = ${input.taskId}
         FOR UPDATE OF task
       `;
@@ -292,7 +280,7 @@ export const aiChatTasks = {
       return toTask(updated[0]!);
     }),
 
-  setState: async (input: { appId: string; userId: string; taskId: string; state: "active" | "paused" }): Promise<AiChatTask | null> => {
+  setState: async (input: { userId: string; taskId: string; state: "active" | "paused" }): Promise<AiChatTask | null> => {
     const rows = await sql<TaskRow[]>`
       UPDATE ai.chat_tasks task
       SET state = ${input.state},
@@ -301,7 +289,6 @@ export const aiChatTasks = {
           updated_at = CASE WHEN task.state = ${input.state} THEN task.updated_at ELSE now() END
       FROM ai.conversations conversation
       WHERE conversation.id = task.conversation_id
-        AND conversation.app_id = ${input.appId}
         AND task.sponsor_user_id = ${input.userId}::uuid
         AND task.short_id = ${input.taskId}
         AND (
@@ -315,12 +302,11 @@ export const aiChatTasks = {
     return rows[0] ? toTask(rows[0]) : null;
   },
 
-  delete: async (input: { appId: string; userId: string; taskId: string }): Promise<boolean> => {
+  delete: async (input: { userId: string; taskId: string }): Promise<boolean> => {
     const rows = await sql<{ id: string }[]>`
       DELETE FROM ai.chat_tasks task
       USING ai.conversations conversation
       WHERE conversation.id = task.conversation_id
-        AND conversation.app_id = ${input.appId}
         AND task.sponsor_user_id = ${input.userId}::uuid
         AND task.short_id = ${input.taskId}
       RETURNING task.id
@@ -329,7 +315,6 @@ export const aiChatTasks = {
   },
 
   listOccurrences: async (input: {
-    appId: string;
     userId: string;
     taskId: string;
     limit?: number;
@@ -345,10 +330,10 @@ export const aiChatTasks = {
     return rows.map(toOccurrence);
   },
 
-  listActiveCron: async (appId: string): Promise<AiChatTask[]> => {
+  listActiveCron: async (): Promise<AiChatTask[]> => {
     const rows = await sql<TaskRow[]>`
       ${taskSelect}
-      WHERE conversation.app_id = ${appId} AND task.state = 'active' AND task.schedule_kind = 'cron'
+      WHERE task.state = 'active' AND task.schedule_kind = 'cron'
     `;
     return rows.map(toTask);
   },
@@ -381,12 +366,12 @@ export const aiChatTasks = {
     return toOccurrence(existing[0]);
   },
 
-  materializeDueOnce: async (appId: string, limit = 100): Promise<AiChatTaskOccurrence[]> => {
+  materializeDueOnce: async (limit = 100): Promise<AiChatTaskOccurrence[]> => {
     const tasks = await sql<{ id: string; run_at: Date | string; revision: number | bigint }[]>`
       SELECT task.id, task.run_at, task.revision
       FROM ai.chat_tasks task
       JOIN ai.conversations conversation ON conversation.id = task.conversation_id
-      WHERE conversation.app_id = ${appId} AND task.state = 'active' AND task.schedule_kind = 'once' AND task.run_at <= now()
+      WHERE task.state = 'active' AND task.schedule_kind = 'once' AND task.run_at <= now()
       ORDER BY run_at, id
       LIMIT ${Math.min(Math.max(limit, 1), 500)}
     `;
@@ -405,7 +390,7 @@ export const aiChatTasks = {
     return occurrences;
   },
 
-  listQueuedOccurrences: async (appId: string, limit = 100): Promise<Array<{ occurrence: AiChatTaskOccurrence; task: AiChatTask }>> => {
+  listQueuedOccurrences: async (limit = 100): Promise<Array<{ occurrence: AiChatTaskOccurrence; task: AiChatTask }>> => {
     const rows = await sql<(OccurrenceRow & TaskRow)[]>`
       SELECT occurrence.id, occurrence.short_id, occurrence.task_id, occurrence.scheduled_for, occurrence.trigger,
         occurrence.state, occurrence.turn_id, occurrence.error, occurrence.created_at, occurrence.started_at, occurrence.completed_at,
@@ -418,7 +403,7 @@ export const aiChatTasks = {
         FROM ai.chat_task_occurrences candidate
         JOIN ai.chat_tasks task ON task.id = candidate.task_id
         JOIN ai.conversations conversation ON conversation.id = task.conversation_id
-        WHERE candidate.state = 'queued' AND task.state = 'active' AND conversation.app_id = ${appId}
+        WHERE candidate.state = 'queued' AND task.state = 'active'
           AND NOT EXISTS (
             SELECT 1 FROM ai.turns turn
             WHERE turn.conversation_id = task.conversation_id
@@ -443,10 +428,7 @@ export const aiChatTasks = {
     }));
   },
 
-  getQueuedOccurrence: async (
-    appId: string,
-    occurrenceId: string,
-  ): Promise<{ occurrence: AiChatTaskOccurrence; task: AiChatTask } | null> => {
+  getQueuedOccurrence: async (occurrenceId: string): Promise<{ occurrence: AiChatTaskOccurrence; task: AiChatTask } | null> => {
     return sql.begin(async (tx) => {
       const occurrences = await tx<OccurrenceRow[]>`
         SELECT * FROM ai.chat_task_occurrences WHERE id = ${occurrenceId}::uuid AND state = 'queued' LIMIT 1
@@ -455,7 +437,7 @@ export const aiChatTasks = {
       if (!occurrence) return null;
       const tasks = await tx<TaskRow[]>`
         ${taskSelect}
-        WHERE task.id = ${occurrence.task_id}::uuid AND task.state = 'active' AND conversation.app_id = ${appId}
+        WHERE task.id = ${occurrence.task_id}::uuid AND task.state = 'active'
         LIMIT 1
       `;
       if (!tasks[0]) return null;
@@ -637,17 +619,14 @@ export const aiChatTasks = {
       return { occurrenceId: row.occurrence_id, failed: input.status !== "completed" };
     }),
 
-  listTerminalRunningTurns: async (
-    appId: string,
-    limit = 100,
-  ): Promise<Array<{ turnId: string; status: "completed" | "failed" | "aborted" }>> => {
+  listTerminalRunningTurns: async (limit = 100): Promise<Array<{ turnId: string; status: "completed" | "failed" | "aborted" }>> => {
     const rows = await sql<{ turn_id: string; status: "completed" | "failed" | "aborted" }[]>`
       SELECT occurrence.turn_id, turn.status
       FROM ai.chat_task_occurrences occurrence
       JOIN ai.chat_tasks task ON task.id = occurrence.task_id
       JOIN ai.conversations conversation ON conversation.id = task.conversation_id
       JOIN ai.turns turn ON turn.id = occurrence.turn_id
-      WHERE conversation.app_id = ${appId} AND occurrence.state = 'running'
+      WHERE occurrence.state = 'running'
         AND turn.status IN ('completed', 'failed', 'aborted')
       ORDER BY turn.completed_at, occurrence.id
       LIMIT ${Math.min(Math.max(limit, 1), 500)}

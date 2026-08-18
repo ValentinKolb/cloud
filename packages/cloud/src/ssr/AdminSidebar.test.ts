@@ -28,6 +28,11 @@ describe("buildAdminGroups", () => {
 
     expect(groups.map((group) => group.label)).toEqual(["General", "Operations", "AI", "Settings"]);
     expect(groups[1]?.links).toEqual([{ href: "/admin/example/jobs", icon: "ti-activity", label: "Jobs" }]);
+    expect(groups.find((group) => group.label === "AI")?.links).toContainEqual({
+      href: "/admin/settings?tab=ai-projects",
+      icon: "ti-folders",
+      label: "Projects",
+    });
   });
 
   it("keeps adminHref as the single-link fallback", () => {

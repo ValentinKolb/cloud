@@ -92,6 +92,8 @@ cld --json mail draft get <draft-id>
 cld --json mail conversation drafts <conversation-id> --limit 20
 ```
 
+Treat `draft get` as the authoritative state before a terminal edit. Another Mail tab or collaborator may have scheduled, sent, discarded, or revised the draft since the previous read. Draft writes remain revision-fenced and reject a draft that is no longer editable; fetch the current state instead of retrying stale content. The Mail browser UI receives realtime lifecycle updates, while the CLI deliberately re-reads durable state per command.
+
 Draft intent is immutable. Use `new`, `reply`, `reply_all`, or `forward` when creating the draft. Replies and forwards identify their source:
 
 ```bash

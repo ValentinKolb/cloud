@@ -400,20 +400,25 @@ type CapabilityActionReview = {
   details?: Array<{
     label: string;
     value: string;
+    display?: "inline" | "block";
   }>;
   links?: CapabilitySemanticLink[];
 };
 ```
 
 `message` states the consequence. `details` lists the concrete values a person
-should check. `links` reuses the existing root-relative, same-origin semantic
-links so the person can inspect or edit the resource in its owning app.
+should check. Omit `display`, or use `inline`, for concise fields. Use `block`
+for bounded long-form plain text such as a proposed message body. `links`
+reuses the existing root-relative, same-origin semantic links so the person can
+inspect or edit the resource in its owning app.
 
 The shape is intentionally fixed. Reviews have no app-defined schema, title,
 icon, severity, arbitrary JSON, HTML, Markdown, refs, pagination, or executable
-controls. Clients derive the title and app presentation from the live manifest
-and registry, and derive warning treatment from `openWorld` and `destructive`.
-Render every review value as untrusted plain text.
+controls. `display` is only a layout hint; it does not change the value's trust
+or content type. Clients derive the title and app presentation from the live
+manifest and registry, and derive warning treatment from `openWorld` and
+`destructive`. Render every review value as escaped, untrusted plain text and
+keep semantic links as links rather than flattening them into text.
 
 Cloud bounds a review to a 1,000-character message, 20 details with a
 120-character label and 10,000-character value, and 10 semantic links. For

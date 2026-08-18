@@ -23,7 +23,6 @@ const { default: AssistantEmptyChat, assistantStarterActions } = await import(".
 const project = {
   id: "project123",
   shortId: "project123",
-  appId: "assistant",
   name: "Support",
   description: "Shared support context",
   icon: "ti ti-folders",

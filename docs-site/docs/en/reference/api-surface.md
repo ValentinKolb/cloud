@@ -126,7 +126,7 @@ inferring support from autocomplete.
 | --- | --- | --- |
 | `@valentinkolb/cloud` | `defineApp`, declaration types, typed notifications | Registry, heartbeat, and runtime composition are platform-owned |
 | `@valentinkolb/cloud/services` | Feature services used by capability guides | Raw stores, lifecycle starters, gateway telemetry, and migrations are maintainer APIs |
-| `@valentinkolb/cloud/ai` | Resources, routes, tools, and runtime APIs used by AI guides | Stores, migrations, workers, and maintenance helpers not named by a guide are maintainer APIs |
+| `@valentinkolb/cloud/ai` | Structured model calls and local tools used by AI guides | Conversation stores, migrations, workers, and maintenance helpers are platform-owned |
 | `@valentinkolb/cloud/browser` | Typed Hono client factory | Utility helpers are outside the documented typed-client contract |
 | `@valentinkolb/cloud/shared` | Cloud-specific helpers named by feature guides | Generic utility re-exports are compatibility-only |
 | `@valentinkolb/cloud/cli` | APIs for application CLI modules | Built-in account, application, and admin modules are platform-owned |
@@ -140,6 +140,7 @@ documents all process variables; that larger list is not the shape of `env`.
 
 | Entry point | Status | Use | Guide |
 | --- | --- | --- | --- |
+| `@valentinkolb/cloud/ai/browser` | Supported, browser | Create a personal Assistant conversation with an initial structured draft | [Chat and streaming](/en/docs/ai/chat-runtime-and-streaming) |
 | `@valentinkolb/cloud/ai/solid` | Supported, browser | AI chat controller | [Chat interface](/en/docs/ai/chat-interface) |
 | `@valentinkolb/cloud/ai/ui` | Supported, SolidJS | Shared AI chat components | [Chat interface](/en/docs/ai/chat-interface) |
 | `@valentinkolb/cloud/ai/live` | Supported, server-only | AI Realtime UI route and SSR cursor | [Chat and streaming](/en/docs/ai/chat-runtime-and-streaming) |

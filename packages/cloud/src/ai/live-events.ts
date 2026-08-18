@@ -21,7 +21,6 @@ export const AiInvalidationSchema = z
   .object({
     type: z.literal("ai.invalidated"),
     changeId: z.uuid(),
-    appId: z.string().min(1).max(120),
     conversationId: AiResourceIdSchema.nullable(),
     projectId: AiResourceIdSchema.nullable(),
     domains: z.array(AiInvalidationDomainSchema).min(1),

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { coreSettings } from "@valentinkolb/cloud/services";
-import { chatTaskCreateFingerprint, normalizeChatTaskSchedule } from "./chat-tasks-contracts";
+import { chatTaskCreateFingerprint, normalizeChatTaskSchedule } from "./chat-task-contracts";
 
 afterEach(() => mock.restore());
 

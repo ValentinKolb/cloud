@@ -21,6 +21,7 @@ Core admin pages configure platform services and link to app-specific admin pane
 :::reference
 - **General and user management:** Branding, public links, schedules, defaults, login behavior, expiry, reminders, and self-service behavior.
 - **FreeIPA:** FreeIPA connection settings, sync rules, and group mapping.
-- **AI, mail, and PDF rendering:** Model profiles, provider credentials, SMTP delivery, sender credentials, Gotenberg connection, credentials, and render limits.
+- **AI:** Configure model profiles and provider credentials, inspect background work, and use **Projects** to restore access when a shared Project no longer has an administrator.
+- **Mail and PDF rendering:** Configure SMTP delivery, sender credentials, Gotenberg connection, credentials, and render limits.
 - **Templates, security, and legal:** Transactional email templates, rate limits, access protection defaults, Terms of Service, Privacy Policy, and Imprint.
 :::

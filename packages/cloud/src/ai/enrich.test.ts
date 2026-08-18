@@ -14,7 +14,6 @@ import type { AiEnrichmentCandidate, AiResolvedModel, AiStoredMessage } from "./
 const conversation = (overrides: Partial<AiEnrichmentCandidate> = {}): AiEnrichmentCandidate => ({
   id: "00000000-0000-0000-0000-00000000c001",
   shortId: "cNv234",
-  appId: "assistant",
   title: "New chat",
   titleSource: "default",
   description: "",
@@ -26,7 +25,7 @@ const conversation = (overrides: Partial<AiEnrichmentCandidate> = {}): AiEnrichm
   runError: null,
   unreadCompletion: false,
   projectId: null,
-  resource: { kind: "direct" },
+  draft: { content: [], revision: 0, updatedAt: null },
   createdByUserId: null,
   createdAt: "2026-07-09T10:00:00.000Z",
   updatedAt: "2026-07-09T10:05:00.000Z",

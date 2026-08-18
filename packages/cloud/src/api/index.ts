@@ -16,8 +16,10 @@
 import { Hono } from "hono";
 import { prettyJSON } from "hono/pretty-json";
 import { createAiApprovalPreferenceRoutes } from "../ai/approval-routes";
-import { createAiProjectsRoutes } from "../ai/projects-routes";
+import { aiProjectsRoutes } from "../ai/projects-routes";
+import { aiRoutes } from "../ai/routes";
 import accountsEntitiesRoutes from "./accounts-entities";
+import adminAiProjectsRoutes from "./admin-ai-projects";
 import adminCoreSettingsRoutes from "./admin-core-settings";
 import adminLifecycleRoutes from "./admin-lifecycle";
 import { adminAnnouncementRoutes, announcementRoutes } from "./announcements";
@@ -51,11 +53,13 @@ const buildCoreApi = (options: CoreApiOptions) => {
     .route("/accounts", accountsEntitiesRoutes)
     .route("/apps", appDiscoveryRoutes)
     .route("/announcements", announcementRoutes)
+    .route("/admin/core/ai-projects", adminAiProjectsRoutes)
     .route("/admin/core/announcements", adminAnnouncementRoutes)
     .route("/admin/core/settings", adminCoreSettingsRoutes)
     .route("/admin/lifecycle", adminLifecycleRoutes)
     .route("/ai/approval-preferences", approvalPreferenceRoutes)
-    .route("/ai/projects", createAiProjectsRoutes({ appId: "assistant" }))
+    .route("/ai/projects", aiProjectsRoutes)
+    .route("/ai", aiRoutes)
     .route("/", helpRoutes)
     .route("/", capabilityRoutes)
     .route("/", mcpRoutes)

@@ -17,6 +17,8 @@ import type {
   AiChatTurnRunConfig,
   AiClientToolId,
   AiCompactionTurnRunConfig,
+  AiConversationResourceObservation,
+  AiConversationFileSnapshot,
   AiInterChatMessage,
   AiModelPolicy,
   AiPendingTurnAction,
@@ -72,7 +74,6 @@ export type SubmitAiChatTurnInput = {
   modelPolicy?: AiModelPolicy;
   requestedModelId?: string;
   systemPrompt?: string;
-  resourceContext?: string;
   project?: AiChatTurnRunConfig["project"];
   clientToolIds?: AiClientToolId[];
   toolSource?: AiTurnToolSource;
@@ -80,13 +81,19 @@ export type SubmitAiChatTurnInput = {
   toolApprovalContext?: AiToolApprovalContext;
   /** Retry-in-place: drop active messages with seq >= this before creating the turn. */
   truncateFromSeq?: number;
+  expectedDraftRevision?: number;
+  expectedProjectId?: string | null;
+  resources?: AiConversationResourceObservation[];
+  expectedFiles?: ReadonlyArray<{ path: string; version: number }>;
+  fileSnapshot?: AiConversationFileSnapshot;
+  retrySourceTurnId?: string;
 };
 
 export const submitAiChatTurn = async (input: SubmitAiChatTurnInput): Promise<{ turn: AiTurn; message: AiStoredMessage }> => {
   if (input.clientToolIds?.length && input.toolSource?.kind !== "default") {
     throw new Error("Optional client tools require the default tool source.");
   }
-  const files = await snapshotAiConversationFiles(input.conversationId, input.userMessage);
+  const files = input.fileSnapshot ?? (await snapshotAiConversationFiles(input.conversationId, input.userMessage, input.expectedFiles));
   const userMessage = canonicalizeAiConversationAttachments(input.userMessage, files);
   const inputMessage = canonicalizeAiConversationAttachments(
     { role: "user", content: typeof input.input === "string" ? [input.input] : input.input },
@@ -111,7 +118,6 @@ export const submitAiChatTurn = async (input: SubmitAiChatTurnInput): Promise<{ 
     modelPolicy: input.modelPolicy,
     requestedModelId: input.requestedModelId,
     systemPrompt: input.systemPrompt,
-    resourceContext: input.resourceContext,
     project: input.project,
     files,
     canInspectAttachedImages,
@@ -126,6 +132,10 @@ export const submitAiChatTurn = async (input: SubmitAiChatTurnInput): Promise<{ 
     runConfig,
     userMessage,
     truncateFromSeq: input.truncateFromSeq,
+    expectedDraftRevision: input.expectedDraftRevision,
+    expectedProjectId: input.expectedProjectId,
+    resources: input.resources,
+    retrySourceTurnId: input.retrySourceTurnId,
   });
 
   await enqueueAiTurn({ conversationId: input.conversationId, turnId: submitted.turn.id });

@@ -16,7 +16,6 @@ type SqlClient = typeof sql;
 export type AiLiveOutboxRow = {
   id: string;
   change_id: string;
-  app_id: string;
   audience_user_id: string;
   conversation_short_id: string | null;
   project_short_id: string | null;
@@ -32,12 +31,11 @@ const invalidationTopic = topic<AiInvalidation>({
   limits: { payloadBytes: 8_000 },
 });
 
-const tenantId = (appId: string, userId: string): string => `${appId}:${userId}`;
+const tenantId = (userId: string): string => userId;
 
 export const enqueueAiInvalidation = async (
   db: SqlClient,
   input: {
-    appId: string;
     audienceUserId: string;
     domains: AiInvalidationDomain[];
     conversationId?: string | null;
@@ -47,11 +45,10 @@ export const enqueueAiInvalidation = async (
 ): Promise<string> => {
   const [row] = await db<{ id: string }[]>`
     INSERT INTO ai.live_invalidation_outbox (
-      change_id, app_id, audience_user_id, conversation_short_id, project_short_id, domains
+      change_id, audience_user_id, conversation_short_id, project_short_id, domains
     )
     VALUES (
       ${input.changeId ?? crypto.randomUUID()}::uuid,
-      ${input.appId},
       ${input.audienceUserId}::uuid,
       ${input.conversationId ?? null},
       ${input.projectId ?? null},
@@ -67,14 +64,13 @@ const publishAiInvalidation = (row: AiLiveOutboxRow): Promise<unknown> => {
   const event: AiInvalidation = {
     type: "ai.invalidated",
     changeId: row.change_id,
-    appId: row.app_id,
     conversationId: row.conversation_short_id,
     projectId: row.project_short_id,
     domains: row.domains,
     at: new Date(row.created_at).toISOString(),
   };
   return invalidationTopic.pub({
-    tenantId: tenantId(row.app_id, row.audience_user_id),
+    tenantId: tenantId(row.audience_user_id),
     orderingKey: row.conversation_short_id ?? row.project_short_id ?? row.audience_user_id,
     idempotencyKey: row.change_id,
     data: event,
@@ -97,7 +93,6 @@ export const claimAiInvalidationBatch = async (limit = BATCH_SIZE): Promise<AiLi
             SELECT 1
             FROM ai.live_invalidation_outbox earlier
             WHERE earlier.audience_user_id = current.audience_user_id
-              AND earlier.app_id = current.app_id
               AND earlier.delivered_at IS NULL
               AND earlier.dead_at IS NULL
               AND (earlier.created_at, earlier.id) < (current.created_at, current.id)
@@ -113,7 +108,6 @@ export const claimAiInvalidationBatch = async (limit = BATCH_SIZE): Promise<AiLi
       RETURNING
         outbox.id::text,
         outbox.change_id::text,
-        outbox.app_id,
         outbox.audience_user_id::text,
         outbox.conversation_short_id,
         outbox.project_short_id,
@@ -150,7 +144,6 @@ export const dispatchAiInvalidation = async (
     `;
     log.warn("AI live invalidation delivery failed", {
       invalidationId: row.id,
-      appId: row.app_id,
       userId: row.audience_user_id,
       attempts,
       error: message,
@@ -206,8 +199,8 @@ export const stopAiInvalidationRuntime = async (): Promise<void> => {
   await activeReconcile;
 };
 
-export const liveAiInvalidations = (input: { appId: string; userId: string; after?: string | null; signal?: AbortSignal }) =>
-  invalidationTopic.live({ tenantId: tenantId(input.appId, input.userId), after: input.after ?? undefined, signal: input.signal });
+export const liveAiInvalidations = (input: { userId: string; after?: string | null; signal?: AbortSignal }) =>
+  invalidationTopic.live({ tenantId: tenantId(input.userId), after: input.after ?? undefined, signal: input.signal });
 
-export const latestAiInvalidationCursor = (appId: string, userId: string): Promise<string | null> =>
-  invalidationTopic.latestCursor({ tenantId: tenantId(appId, userId) });
+export const latestAiInvalidationCursor = (userId: string): Promise<string | null> =>
+  invalidationTopic.latestCursor({ tenantId: tenantId(userId) });

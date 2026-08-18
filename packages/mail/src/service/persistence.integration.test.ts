@@ -641,7 +641,7 @@ suite("mail PostgreSQL foundation", () => {
         },
       },
     });
-    expect(approvedSafetySend.ok).toBe(true);
+    expect(approvedSafetySend.ok, approvedSafetySend.ok ? undefined : JSON.stringify(approvedSafetySend.error)).toBe(true);
     const [answeredConversation] = await sql<{ work_status: string; message_count: number }[]>`
       SELECT c.work_status, COUNT(cm.message_id)::int AS message_count
       FROM mail.conversations c
@@ -1337,7 +1337,7 @@ suite("mail PostgreSQL foundation", () => {
       byteLength: outgoingAttachment.length,
       stream: Readable.from([outgoingAttachment]),
     });
-    expect(draftWithAttachment.ok).toBe(true);
+    expect(draftWithAttachment.ok, draftWithAttachment.ok ? undefined : JSON.stringify(draftWithAttachment.error)).toBe(true);
     if (!draftWithAttachment.ok) return;
     expect(draftWithAttachment.data.attachments).toHaveLength(1);
     const [outgoingAttachmentBlob] = await sql<{ blob_id: string }[]>`
@@ -2781,6 +2781,15 @@ suite("mail PostgreSQL foundation", () => {
     });
     expect(collaboratorCommand.ok, collaboratorCommand.ok ? undefined : JSON.stringify(collaboratorCommand.error)).toBe(true);
     if (!collaboratorCommand.ok) return;
+    const scheduledDraft = await getDraft(context, mailbox.data.id, collaboratorDraft.data.id);
+    expect(scheduledDraft.ok).toBe(true);
+    if (scheduledDraft.ok) {
+      expect(scheduledDraft.data).toMatchObject({
+        state: "scheduled",
+        conversationId: collaboratorCommand.data.result.conversationId,
+        lastEditedByDisplayName: "Mail Collaborator",
+      });
+    }
     const collaboratorScheduled = await listScheduledSends({
       context: collaboratorContext,
       mailboxId: mailbox.data.id,

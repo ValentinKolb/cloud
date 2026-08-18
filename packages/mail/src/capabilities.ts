@@ -21,6 +21,7 @@ import {
   collaboration,
   commands,
   composeSafety,
+  conversationContext,
   conversationSummaries,
   drafts,
   draftUploads,
@@ -792,6 +793,41 @@ const queryDefinitions = {
       });
     },
   },
+  "conversation.related": {
+    title: "Find related mail",
+    description:
+      "Find a small, explainable set of conversations from the same mailbox that share external participants or the normalized subject. Use this to understand relevant history around a Mail conversation.",
+    input: c.ConversationRelatedInputSchema,
+    data: c.ConversationRelatedDataSchema,
+    openWorld: true,
+    run: async (input: z.output<typeof c.ConversationRelatedInputSchema>, context: CapabilityExecutionContext) => {
+      const scope = await resolveConversationScope(input.mailboxId, input.conversationId);
+      if (!scope.ok) return scope;
+      const result = await conversationContext.listRelatedConversations({
+        context: requestContext(context),
+        mailboxId: scope.data.mailbox.id,
+        conversationId: scope.data.conversationId,
+        limit: input.limit,
+      });
+      if (!result.ok) return result;
+      const ids = await publicResources.publicIds(
+        "conversations",
+        result.data.map((item) => item.id),
+      );
+      const data = result.data.map((item) => {
+        const id = requirePublicId(ids, item.id);
+        return {
+          ...item,
+          id,
+          links: [openLink(conversationHref(scope.data.mailbox.shortId, id))],
+        };
+      });
+      return ok({
+        data,
+        refs: data.map((item) => ({ type: "mail.conversation", id: item.id })),
+      });
+    },
+  },
   "conversation.read": {
     title: "Read conversation",
     description:
@@ -1518,12 +1554,22 @@ const actionDefinitions = {
       const current = await requireDraftForReview(input.mailboxId, input.draftId, context);
       if (!current.ok) return current;
       if (current.data.revision !== input.expectedRevision) return fail(err.conflict("Draft changed before review"));
+      const proposedBodyPreview = truncateText(input.draft.body, 10_000);
       return ok({
         message: `Replace the editable content of draft ${reviewSubject(current.data.subject)}.`,
         details: [
           { label: "Current subject", value: reviewSubject(current.data.subject) },
           { label: "New subject", value: input.draft.subject || "(no subject)" },
           { label: "Recipients", value: recipientSummary(input.draft) || "None" },
+          ...(proposedBodyPreview.truncated
+            ? [
+                {
+                  label: "Preview warning",
+                  value: "This preview is truncated to 10 KB. Review the full proposed body in Details before approving.",
+                },
+              ]
+            : []),
+          { label: "Proposed body preview", value: proposedBodyPreview.text, display: "block" as const },
         ],
         links: [editLink(draftHref(input.mailboxId, input.draftId))],
       });
@@ -1654,7 +1700,7 @@ const actionDefinitions = {
     },
   },
   "draft.send": {
-    title: "Send draft email",
+    title: "Send mail",
     description: "Send or schedule a reviewed draft email for external delivery.",
     input: c.DraftSendInputSchema,
     data: c.DraftSendDataSchema,

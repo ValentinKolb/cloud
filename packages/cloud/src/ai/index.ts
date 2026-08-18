@@ -117,6 +117,7 @@ export {
   toAiErrorResponse,
 } from "./http";
 export { AI_IMAGE_INPUT_MAX_BYTES, AI_TURN_ATTACHMENT_MAX_ITEMS, AI_TURN_IMAGE_MAX_TOTAL_BYTES } from "./limits";
+export { personalAiModelPolicy, personalAiSystemPrompt } from "./personal-agent";
 export {
   AI_INVALIDATION_DOMAINS,
   AI_LIVE_WS_TYPE,
@@ -169,6 +170,8 @@ export {
   AI_PROJECT_NAME_MAX_CHARS,
   type AiProject,
   type AiProjectAccess,
+  type AiProjectAdminListItem,
+  type AiProjectAdminSummary,
   type AiProjectFile,
   type AiProjectKnowledge,
   type AiProjectPermission,
@@ -176,8 +179,8 @@ export {
   aiProjects,
 } from "./projects";
 export {
+  aiProjectsRoutes,
   type AiProjectsRoutes,
-  createAiProjectsRoutes,
 } from "./projects-routes";
 export {
   AI_WIRE_VERSION,
@@ -191,9 +194,21 @@ export {
   isNewerWireEvent,
 } from "./protocol";
 export { createAiProvider } from "./provider";
-export { type DefineAiResourceConfig, type DefinedAiResource, defineAiResource, requireAiResourceAccess } from "./resource";
+export {
+  AiConversationIdSchema,
+  ChatTaskIdSchema,
+  ChatTaskOccurrenceIdSchema,
+  ChatTaskScheduleInputSchema,
+  chatTaskCreateFingerprint,
+  getChatTaskTimezone,
+  normalizeChatTaskSchedule,
+  toAiChatTaskOccurrenceView,
+  toAiChatTaskView,
+  type AiChatTaskOccurrenceView,
+  type AiChatTaskView,
+} from "./chat-task-contracts";
 export { isConversationResourceCursor } from "./resource-refs";
-export { type AiChatRequestContext, type AiChatRoutes, type AiChatRoutesConfig, createAiChatRoutes } from "./routes";
+export type { AiRoutes } from "./routes";
 export {
   type AiTurnActionInput,
   AiTurnActionSchema,
@@ -250,7 +265,8 @@ export type {
   AiClientToolId,
   AiConversation,
   AiConversationPage,
-  AiConversationResource,
+  AiConversationDraft,
+  AiDraftContentPart,
   AiConversationResourceOccurrence,
   AiConversationResourceRef,
   AiConversationRunStatus,
@@ -278,8 +294,6 @@ export type {
   AiProviderId,
   AiPublicModelProfile,
   AiResolvedModel,
-  AiResourceDefinition,
-  AiResourceHookContext,
   AiRuntimeTool,
   AiSettingsError,
   AiSettingsErrorCode,

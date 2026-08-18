@@ -2,13 +2,13 @@ import { sql } from "bun";
 import { z } from "zod";
 import { coreSettings } from "../services";
 import { logger } from "../services/logging";
-import { buildEnrichmentTranscript } from "./enrich";
+import { parseAiAttachmentMarkers } from "./attachments";
 import { aiMemories } from "./memories";
 import { aiConversations } from "./store";
 import type { RunAiStructuredInput, RunAiStructuredResult } from "./structured";
 import { resolveAiBackgroundModel, runAiStructured } from "./structured";
 import { AI_MEMORY_LEARNING_INSTRUCTIONS_SETTING_KEY, buildAiTaskPrompt } from "./task-prompt";
-import type { AiResolvedModel } from "./types";
+import type { AiResolvedModel, AiStoredMessage } from "./types";
 
 const DEFAULT_BATCH_LIMIT = 10;
 
@@ -29,7 +29,6 @@ export type AiLearnedMemories = z.infer<typeof AiLearnedMemoriesSchema>;
 type Candidate = {
   conversationId: string;
   userId: string;
-  appId: string;
   dirtyAsOf: string;
   failCount: number;
 };
@@ -69,14 +68,11 @@ const listCandidates = async (limit: number): Promise<Candidate[]> => {
     SELECT
       c.id AS "conversationId",
       c.created_by_user_id AS "userId",
-      c.app_id AS "appId",
       c.updated_at::text AS "dirtyAsOf",
       c.memory_learn_fail_count AS "failCount"
     FROM ai.conversations c
     JOIN ai.user_prefs p ON p.user_id = c.created_by_user_id
-    WHERE c.app_id = 'assistant'
-      AND c.resource_kind = 'direct'
-      AND c.created_by_user_id IS NOT NULL
+    WHERE c.created_by_user_id IS NOT NULL
       AND c.archived_at IS NULL
       AND p.memory_learning_enabled = TRUE
       AND (c.memory_learned_at IS NULL OR c.updated_at > c.memory_learned_at)
@@ -121,6 +117,27 @@ const learningInput = (transcript: string, active: Awaited<ReturnType<typeof aiM
     transcript,
   ].join("\n");
 
+export const buildMemoryLearningTranscript = (messages: AiStoredMessage[]): string =>
+  messages
+    .flatMap((stored) => {
+      const message = stored.message;
+      if (
+        stored.kind !== "message" ||
+        message.role !== "user" ||
+        stored.meta?.agentMessage ||
+        stored.meta?.scheduledTask
+      )
+        return [];
+      return message.content.flatMap((part) => {
+        if (typeof part === "string") return part.trim() ? [part.trim()] : [];
+        if (part.type !== "text") return [];
+        const text = parseAiAttachmentMarkers(part.text).text.trim();
+        if (!text || text.startsWith("[Attached Cloud resource ")) return [];
+        return [text];
+      });
+    })
+    .join("\n\n");
+
 export const learnAiMemoriesFromPrivateChats = async (
   input: { limit?: number; signal?: AbortSignal; heartbeat?: () => Promise<void>; deps?: MemoryLearningDeps } = {},
 ): Promise<AiMemoryLearningRunSummary> => {
@@ -152,7 +169,7 @@ export const learnAiMemoriesFromPrivateChats = async (
     if (input.signal?.aborted) break;
     try {
       const messages = await aiConversations.listMessages({ conversationId: candidate.conversationId });
-      const transcript = buildEnrichmentTranscript(messages);
+      const transcript = buildMemoryLearningTranscript(messages);
       if (!transcript.trim()) {
         await markLearned(candidate);
         summary.skipped += 1;
@@ -162,7 +179,7 @@ export const learnAiMemoriesFromPrivateChats = async (
       const active = await aiMemories.list({ userId: candidate.userId, limit: 50 });
       const result = await structured({
         task: "memory-learn",
-        appId: candidate.appId,
+        appId: "ai",
         systemPrompt,
         input: learningInput(transcript, active),
         output: AiLearnedMemoriesSchema,

@@ -38,7 +38,11 @@ const view = (memory: AiMemory) => ({
   updatedAt: memory.updatedAt,
 });
 
-export const createCloudAiMemoryTool = () =>
+const normalizedEvidence = (value: string): string => value.toLocaleLowerCase().replace(/\s+/gu, " ").trim();
+export const memoryMutationSupportedByEvidence = (evidence: string, value: string): boolean =>
+  normalizedEvidence(evidence).includes(normalizedEvidence(value));
+
+export const createCloudAiMemoryTool = (evidence = "") =>
   defineAiTool({
     name: "memory",
     description: [
@@ -68,6 +72,9 @@ export const createCloudAiMemoryTool = () =>
 
     if (input.action === "add") {
       if (!input.kind || !input.content?.trim()) return { ok: false, message: "Kind and content are required to add a memory." };
+      if (!memoryMutationSupportedByEvidence(evidence, input.content)) {
+        return { ok: false, message: "A memory can only be added from text the user wrote in this turn." };
+      }
       const memory = await aiMemories.create({
         userId,
         kind: input.kind,
@@ -83,6 +90,9 @@ export const createCloudAiMemoryTool = () =>
     if (input.action === "update") {
       if (!input.kind && !input.content?.trim() && !input.priority)
         return { ok: false, message: "Pass a changed field to update the memory." };
+      if (input.content?.trim() && !memoryMutationSupportedByEvidence(evidence, input.content)) {
+        return { ok: false, message: "Memory content can only be updated from text the user wrote in this turn." };
+      }
       const memory = await aiMemories.updateByShortId(userId, input.id, {
         kind: input.kind,
         content: input.content,
@@ -95,6 +105,13 @@ export const createCloudAiMemoryTool = () =>
     }
 
     const memory = await aiMemories.getByShortId(userId, input.id);
+    if (
+      memory &&
+      !memoryMutationSupportedByEvidence(evidence, input.id) &&
+      !memoryMutationSupportedByEvidence(evidence, memory.content)
+    ) {
+      return { ok: false, message: "A memory can only be forgotten when the user identifies it in this turn." };
+    }
     if (!memory || !(await aiMemories.deleteByShortId(userId, input.id))) return { ok: false, message: "Memory not found." };
     return { ok: true, message: `Forgot memory: ${memory.content}` };
   });

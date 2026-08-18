@@ -195,7 +195,7 @@ export const enrichDirtyAiConversations = async (input: {
 
     const result = await structured({
       task: "chat-enrich",
-      appId: conversation.appId,
+      appId: "ai",
       systemPrompt,
       input: buildEnrichmentInput(conversation, transcript),
       output: AiChatEnrichmentSchema,
@@ -236,7 +236,6 @@ export const enrichDirtyAiConversations = async (input: {
       event: "enrich.applied",
       attributes: {
         conversationId: conversation.id,
-        appId: conversation.appId,
         titleUpdated: applyTitle,
         keywords: keywords.length,
       },
@@ -247,7 +246,7 @@ export const enrichDirtyAiConversations = async (input: {
     {
       name: "AI chat enrichment run",
       source: "ai:chat:enrich:run",
-      appId: "assistant",
+      appId: "ai",
       category: "ai",
       attributes: { candidates: candidates.length, model: resolved.profile.id },
     },

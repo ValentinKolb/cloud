@@ -12,7 +12,7 @@ import {
   guessAiMediaType,
 } from "@valentinkolb/cloud/ai";
 import { arg, command, confirmFlag, flag, readCliInput } from "@valentinkolb/cloud/cli";
-import { ASSISTANT_API, jsonRequest, parseJson, printRows, printValue, queryString, readApi, requireConfirmation, shortId } from "./shared";
+import { AI_API, jsonRequest, parseJson, printRows, printValue, queryString, readApi, requireConfirmation, shortId } from "./shared";
 import { streamAssistantTurn } from "./stream";
 import { type ConversationDetail, conversationPath, submitAndMaybeWatch } from "./turn";
 
@@ -495,7 +495,7 @@ export const assistantManagementCommands = [
       const form = new FormData();
       form.set("file", new File([await local.arrayBuffer()], basename(args.file), { type: local.type || guessAiMediaType(args.file) }));
       const result = await ctx.readJson<{ file: AiFileStat }>(
-        await ctx.fetch(`${ASSISTANT_API}${conversationPath(args.chat, "/files")}`, { method: "POST", body: form }),
+        await ctx.fetch(`${AI_API}${conversationPath(args.chat, "/files")}`, { method: "POST", body: form }),
       );
       printValue(ctx, result, result.file.path);
     },
@@ -509,7 +509,7 @@ export const assistantManagementCommands = [
     flags: { out: flag.string({ description: "Local output path; defaults to the remote file name" }) },
     async run({ ctx, args, flags }) {
       const response = await ctx.fetch(
-        `${ASSISTANT_API}${conversationPath(args.chat, "/files/content")}${queryString({ path: args.path })}`,
+        `${AI_API}${conversationPath(args.chat, "/files/content")}${queryString({ path: args.path })}`,
       );
       if (!response.ok) await ctx.readJson(response);
       const out = flags.out ?? basename(args.path);

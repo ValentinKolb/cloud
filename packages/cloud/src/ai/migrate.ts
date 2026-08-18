@@ -17,19 +17,40 @@ export const migrateCloudAi = async (): Promise<void> => {
     CREATE TABLE IF NOT EXISTS ai.conversations (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       short_id TEXT NOT NULL,
-      app_id TEXT NOT NULL,
-      resource_kind TEXT NOT NULL DEFAULT 'direct',
-      resource_app_id TEXT,
-      resource_type TEXT,
-      resource_id TEXT,
       title TEXT NOT NULL DEFAULT 'New chat',
       description TEXT NOT NULL DEFAULT '',
+      loaded_capabilities TEXT[] NOT NULL DEFAULT '{}',
+      draft_content JSONB NOT NULL DEFAULT '[]'::jsonb,
+      draft_revision BIGINT NOT NULL DEFAULT 0,
+      draft_updated_at TIMESTAMPTZ,
       created_by_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      archived_at TIMESTAMPTZ,
-      CONSTRAINT ai_conversations_resource_kind_check CHECK (resource_kind IN ('direct', 'resource'))
+      archived_at TIMESTAMPTZ
     )
+  `.simple();
+
+  // AI chat ownership was unreleased and only backed local test data. Make the
+  // product-model cut once, then keep only the global conversation contract.
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'ai' AND table_name = 'conversations' AND column_name = 'app_id'
+      ) THEN
+        DELETE FROM ai.conversations;
+        ALTER TABLE ai.conversations DROP CONSTRAINT IF EXISTS ai_conversations_project_app_fkey;
+        DROP INDEX IF EXISTS ai.idx_ai_conversations_app_owner_updated;
+        DROP INDEX IF EXISTS ai.idx_ai_conversations_app_owner_pinned;
+        ALTER TABLE ai.conversations
+          DROP COLUMN app_id,
+          DROP COLUMN resource_kind,
+          DROP COLUMN resource_app_id,
+          DROP COLUMN resource_type,
+          DROP COLUMN resource_id;
+      END IF;
+    END $$
   `.simple();
 
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
@@ -44,6 +65,9 @@ export const migrateCloudAi = async (): Promise<void> => {
   await sql`ALTER TABLE ai.conversations DROP COLUMN IF EXISTS icon`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS loaded_capabilities TEXT[] NOT NULL DEFAULT '{}'`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS draft_content JSONB NOT NULL DEFAULT '[]'::jsonb`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS draft_revision BIGINT NOT NULL DEFAULT 0`.simple();
+  await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS draft_updated_at TIMESTAMPTZ`.simple();
   // Enrichment (description/keywords/title upkeep) — dirty = updated_at > enriched_at.
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS keywords TEXT[] NOT NULL DEFAULT '{}'`.simple();
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS search_summary TEXT NOT NULL DEFAULT ''`.simple();
@@ -140,14 +164,14 @@ export const migrateCloudAi = async (): Promise<void> => {
   `.simple();
 
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_ai_conversations_app_owner_updated
-    ON ai.conversations(app_id, created_by_user_id, updated_at DESC)
+    CREATE INDEX IF NOT EXISTS idx_ai_conversations_owner_updated
+    ON ai.conversations(created_by_user_id, updated_at DESC)
     WHERE archived_at IS NULL
   `.simple();
 
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_ai_conversations_app_owner_pinned
-    ON ai.conversations(app_id, created_by_user_id, pinned_at DESC, updated_at DESC)
+    CREATE INDEX IF NOT EXISTS idx_ai_conversations_owner_pinned
+    ON ai.conversations(created_by_user_id, pinned_at DESC, updated_at DESC)
     WHERE archived_at IS NULL
   `.simple();
 
@@ -430,6 +454,7 @@ export const migrateCloudAi = async (): Promise<void> => {
       tool_name TEXT NOT NULL,
       args JSONB NOT NULL,
       message TEXT,
+      review JSONB,
       approval_scope TEXT NOT NULL,
       allow_always BOOLEAN NOT NULL DEFAULT FALSE,
       frontend_mode TEXT,
@@ -441,6 +466,8 @@ export const migrateCloudAi = async (): Promise<void> => {
       CONSTRAINT ai_pending_actions_status_check CHECK (status IN ('pending', 'resolved', 'aborted'))
     )
   `.simple();
+
+  await sql`ALTER TABLE ai.pending_actions ADD COLUMN IF NOT EXISTS review JSONB`.simple();
 
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_pending_actions_turn_call
@@ -454,31 +481,29 @@ export const migrateCloudAi = async (): Promise<void> => {
   `.simple();
 
   await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'ai' AND table_name = 'tool_approval_preferences' AND column_name = 'app_id'
+      ) THEN
+        DROP TABLE ai.tool_approval_preferences;
+      END IF;
+    END $$
+  `.simple();
+
+  await sql`
     CREATE TABLE IF NOT EXISTS ai.tool_approval_preferences (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       actor_user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-      app_id TEXT NOT NULL,
-      resource_app_id TEXT,
-      resource_type TEXT,
-      resource_id TEXT,
       tool_name TEXT NOT NULL,
       approval_scope TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       last_used_at TIMESTAMPTZ,
       expires_at TIMESTAMPTZ,
-      CONSTRAINT ai_tool_approval_preferences_unique UNIQUE (
-        actor_user_id,
-        app_id,
-        resource_app_id,
-        resource_type,
-        resource_id,
-        tool_name,
-        approval_scope
-      )
+      CONSTRAINT ai_tool_approval_preferences_unique UNIQUE (actor_user_id, tool_name, approval_scope)
     )
   `.simple();
-
-  await sql`ALTER TABLE ai.tool_approval_preferences ADD COLUMN IF NOT EXISTS resource_app_id TEXT`.simple();
 
   await sql`
     CREATE TABLE IF NOT EXISTS ai.tool_calls (
@@ -959,7 +984,6 @@ export const migrateCloudAi = async (): Promise<void> => {
     CREATE TABLE IF NOT EXISTS ai.projects (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       short_id TEXT NOT NULL,
-      app_id TEXT NOT NULL,
       name TEXT NOT NULL,
       description TEXT NOT NULL DEFAULT '',
       icon TEXT NOT NULL DEFAULT 'ti ti-folders',
@@ -996,17 +1020,20 @@ export const migrateCloudAi = async (): Promise<void> => {
   `.simple();
 
   await sql`ALTER TABLE ai.projects ADD COLUMN IF NOT EXISTS short_id TEXT`.simple();
-  await sql`ALTER TABLE ai.projects ADD COLUMN IF NOT EXISTS app_id TEXT`.simple();
-  await sql`UPDATE ai.projects SET app_id = 'assistant' WHERE app_id IS NULL`.simple();
-  await sql`ALTER TABLE ai.projects ALTER COLUMN app_id SET NOT NULL`.simple();
   await sql`
     DO $$
     BEGIN
-      IF NOT EXISTS (
+      IF EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conrelid = 'ai.projects'::regclass AND conname = 'ai_projects_id_app_id_key'
       ) THEN
-        ALTER TABLE ai.projects ADD CONSTRAINT ai_projects_id_app_id_key UNIQUE (id, app_id);
+        ALTER TABLE ai.projects DROP CONSTRAINT ai_projects_id_app_id_key;
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'ai' AND table_name = 'projects' AND column_name = 'app_id'
+      ) THEN
+        ALTER TABLE ai.projects DROP COLUMN app_id;
       END IF;
     END $$
   `.simple();
@@ -1117,20 +1144,6 @@ export const migrateCloudAi = async (): Promise<void> => {
 
   await sql`ALTER TABLE ai.conversations ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES ai.projects(id) ON DELETE SET NULL`.simple();
   await sql`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conrelid = 'ai.conversations'::regclass AND conname = 'ai_conversations_project_app_fkey'
-      ) THEN
-        ALTER TABLE ai.conversations
-          ADD CONSTRAINT ai_conversations_project_app_fkey
-          FOREIGN KEY (project_id, app_id) REFERENCES ai.projects(id, app_id)
-          DEFERRABLE INITIALLY DEFERRED;
-      END IF;
-    END $$
-  `.simple();
-  await sql`
     CREATE INDEX IF NOT EXISTS idx_ai_conversations_project_owner_updated
     ON ai.conversations(project_id, created_by_user_id, updated_at DESC)
     WHERE project_id IS NOT NULL AND archived_at IS NULL
@@ -1144,7 +1157,6 @@ export const migrateCloudAi = async (): Promise<void> => {
     CREATE TABLE IF NOT EXISTS ai.live_invalidation_outbox (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       change_id UUID NOT NULL,
-      app_id TEXT NOT NULL,
       audience_user_id UUID NOT NULL,
       conversation_short_id TEXT,
       project_short_id TEXT,
@@ -1164,6 +1176,18 @@ export const migrateCloudAi = async (): Promise<void> => {
       )
     )
   `.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'ai' AND table_name = 'live_invalidation_outbox' AND column_name = 'app_id'
+      ) THEN
+        DELETE FROM ai.live_invalidation_outbox;
+        ALTER TABLE ai.live_invalidation_outbox DROP COLUMN app_id;
+      END IF;
+    END $$
+  `.simple();
   // Audience IDs are immutable event-routing data. A foreign key makes an
   // unrelated user-delete cascade invoke Project triggers after the user row
   // has disappeared, aborting the authoritative delete instead of merely
@@ -1179,14 +1203,19 @@ export const migrateCloudAi = async (): Promise<void> => {
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_ai_live_invalidation_outbox_user_order
-    ON ai.live_invalidation_outbox(audience_user_id, app_id, created_at, id)
+    ON ai.live_invalidation_outbox(audience_user_id, created_at, id)
     WHERE delivered_at IS NULL AND dead_at IS NULL
+  `.simple();
+
+  // Hard cut: the former app-scoped signature is a distinct PostgreSQL
+  // overload, so CREATE OR REPLACE cannot remove it for us.
+  await sql`
+    DROP FUNCTION IF EXISTS ai.enqueue_live_for_user(UUID, TEXT, UUID, TEXT, TEXT, TEXT[])
   `.simple();
 
   await sql`
     CREATE OR REPLACE FUNCTION ai.enqueue_live_for_user(
       p_change_id UUID,
-      p_app_id TEXT,
       p_user_id UUID,
       p_conversation_short_id TEXT,
       p_project_short_id TEXT,
@@ -1195,9 +1224,9 @@ export const migrateCloudAi = async (): Promise<void> => {
     BEGIN
       IF p_user_id IS NULL OR cardinality(p_domains) = 0 THEN RETURN; END IF;
       INSERT INTO ai.live_invalidation_outbox (
-        change_id, app_id, audience_user_id, conversation_short_id, project_short_id, domains
+        change_id, audience_user_id, conversation_short_id, project_short_id, domains
       ) VALUES (
-        p_change_id, p_app_id, p_user_id, p_conversation_short_id, p_project_short_id,
+        p_change_id, p_user_id, p_conversation_short_id, p_project_short_id,
         ARRAY(SELECT DISTINCT domain FROM unnest(p_domains) domain ORDER BY domain)
       );
     END
@@ -1212,7 +1241,7 @@ export const migrateCloudAi = async (): Promise<void> => {
     DECLARE
       target RECORD;
     BEGIN
-      SELECT conversation.app_id, conversation.created_by_user_id, conversation.short_id,
+      SELECT conversation.created_by_user_id, conversation.short_id,
              project.short_id AS project_short_id
       INTO target
       FROM ai.conversations conversation
@@ -1220,7 +1249,7 @@ export const migrateCloudAi = async (): Promise<void> => {
       WHERE conversation.id = p_conversation_id;
       IF NOT FOUND THEN RETURN; END IF;
       PERFORM ai.enqueue_live_for_user(
-        gen_random_uuid(), target.app_id, target.created_by_user_id, target.short_id, target.project_short_id, p_domains
+        gen_random_uuid(), target.created_by_user_id, target.short_id, target.project_short_id, p_domains
       );
     END
     $$ LANGUAGE plpgsql
@@ -1234,10 +1263,9 @@ export const migrateCloudAi = async (): Promise<void> => {
     DECLARE
       change UUID := gen_random_uuid();
       project_short TEXT;
-      project_app TEXT;
       recipient RECORD;
     BEGIN
-      SELECT short_id, app_id INTO project_short, project_app FROM ai.projects WHERE id = p_project_id;
+      SELECT short_id INTO project_short FROM ai.projects WHERE id = p_project_id;
       IF NOT FOUND THEN RETURN; END IF;
 
       FOR recipient IN
@@ -1277,7 +1305,7 @@ export const migrateCloudAi = async (): Promise<void> => {
           )
         SELECT DISTINCT user_id FROM recipients WHERE user_id IS NOT NULL
       LOOP
-        PERFORM ai.enqueue_live_for_user(change, project_app, recipient.user_id, NULL, project_short, p_domains);
+        PERFORM ai.enqueue_live_for_user(change, recipient.user_id, NULL, project_short, p_domains);
       END LOOP;
     END
     $$ LANGUAGE plpgsql
@@ -1292,7 +1320,7 @@ export const migrateCloudAi = async (): Promise<void> => {
       IF TG_OP = 'DELETE' THEN row_data := OLD; ELSE row_data := NEW; END IF;
       SELECT short_id INTO project_short FROM ai.projects WHERE id = row_data.project_id;
       PERFORM ai.enqueue_live_for_user(
-        gen_random_uuid(), row_data.app_id, row_data.created_by_user_id, row_data.short_id, project_short,
+        gen_random_uuid(), row_data.created_by_user_id, row_data.short_id, project_short,
         ARRAY['conversation-list', 'conversation-detail']::text[]
       );
       RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;

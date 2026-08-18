@@ -1,17 +1,21 @@
-import { type AiInterChatMessage, aiConversations, aiProjects, deliverAiInterChatMessage } from "@valentinkolb/cloud/ai";
+import {
+  type AiInterChatMessage,
+  aiConversations,
+  aiProjects,
+  deliverAiInterChatMessage,
+  personalAiModelPolicy,
+  personalAiSystemPrompt,
+} from "@valentinkolb/cloud/ai";
 import { accounts, logger } from "@valentinkolb/cloud/services";
-import { assistantModelPolicy } from "./model-policy";
-import { assistantChatPrompt } from "./prompt";
 
-const ASSISTANT_APP_ID = "assistant";
-const log = logger("assistant:inter-chat-messages");
+const log = logger("core:ai-inter-chat-messages");
 
-export type AssistantMessageDeliveryStatus = "queued" | "delivered" | "failed";
+export type AiMessageDeliveryStatus = "queued" | "delivered" | "failed";
 
-export const deliverPendingAssistantMessages = async (
+export const deliverPendingAiMessages = async (
   targetConversationId?: string,
-): Promise<Map<string, AssistantMessageDeliveryStatus>> => {
-  const outcomes = new Map<string, AssistantMessageDeliveryStatus>();
+): Promise<Map<string, AiMessageDeliveryStatus>> => {
+  const outcomes = new Map<string, AiMessageDeliveryStatus>();
   let pending: AiInterChatMessage[];
   try {
     pending = await aiConversations.listPendingInterChatMessages({ targetConversationId, limit: 50 });
@@ -25,7 +29,6 @@ export const deliverPendingAssistantMessages = async (
         accounts.users.get({ id: message.actorUserId }),
         aiConversations.getConversation({
           conversationId: message.targetConversationId,
-          appId: ASSISTANT_APP_ID,
           ownerUserId: message.actorUserId,
         }),
       ]);
@@ -38,13 +41,12 @@ export const deliverPendingAssistantMessages = async (
         activeTarget ??
         (await aiConversations.getConversationByShortId({
           shortId: message.targetChatId,
-          appId: ASSISTANT_APP_ID,
           ownerUserId: message.actorUserId,
           archived: true,
         }));
       if (!target) continue;
       const project = target.projectId
-        ? await aiProjects.snapshot(target.projectId, ASSISTANT_APP_ID, { type: "user", userId: user.id })
+        ? await aiProjects.snapshot(target.projectId, { type: "user", userId: user.id })
         : null;
       if (target.projectId && !project) {
         await aiConversations.failInterChatMessage({ messageId: message.id, error: "Target Project is unavailable" });
@@ -54,12 +56,12 @@ export const deliverPendingAssistantMessages = async (
       const delivered = await deliverAiInterChatMessage({
         message,
         actor: { kind: "user", user },
-        modelPolicy: assistantModelPolicy,
-        systemPrompt: assistantChatPrompt(target.shortId),
+        modelPolicy: personalAiModelPolicy,
+        systemPrompt: personalAiSystemPrompt(target.shortId),
         project: project ?? undefined,
         sourceHref: `/app/assistant?conversation=${encodeURIComponent(message.sourceChatId)}`,
         toolSource: { kind: "default", capabilities: true },
-        toolApprovalContext: { actorUserId: user.id, appId: ASSISTANT_APP_ID, resource: { kind: "direct" } },
+        toolApprovalContext: { actorUserId: user.id },
       });
       outcomes.set(message.id, delivered.delivered ? "delivered" : delivered.reason === "busy" ? "queued" : "failed");
     } catch (error) {

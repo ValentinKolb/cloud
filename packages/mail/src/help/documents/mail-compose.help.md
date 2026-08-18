@@ -14,6 +14,12 @@ Choose a verified sender in **From**, add recipients, and enter a subject and bo
 
 The composer is separate from the mailbox workspace. Use **Back to mailbox** to save the latest changes, release the editing lease, and return. **Open in new window** moves the same draft to a dedicated browser window; it never creates a second draft.
 
+## Continue the draft with Assistant {icon="sparkles"}
+
+Select **Write with AI** to save the current Mail draft and open it in a new Assistant chat. Assistant starts with the draft attached as a Cloud resource and with the bounded Mail operations needed to read, update, search related history, and propose sending it. Exact readable Contacts may also be attached for unambiguous recipients; a missing or unavailable Contacts integration does not block the chat.
+
+The Assistant chat does not copy the message into a separate Mail draft and does not gain additional mailbox access. Mail checks your current permission whenever Assistant reads or changes the draft. Updating or sending mail is shown as an Action review; sending still requires explicit approval and Mail's normal final validation. Return to Mail through the draft link when you want to review the authoritative composer state directly.
+
 ## Use Cloud Mail for email links {icon="link"}
 
 Open **Mailbox tools > Email link setup** to ask the current browser to use Cloud Mail for standard `mailto:` links. Confirm the browser prompt when it appears. This association belongs to the browser or operating system, not to a mailbox or Cloud account, so Cloud does not display a permanent default-app switch.
@@ -43,7 +49,9 @@ Drafts belong to the mailbox, not only to the browser that created them. When a 
 
 Mail saves the shared draft as you work and keeps a browser recovery journal for changes that have not reached the server. After a reload or interrupted connection, Mail can restore those browser changes.
 
-Only one editing session holds the draft lease at a time. If another tab or person is editing it, the composer becomes read-only. Use **Take over** only when you intend to replace the other editing session. Concurrent or stale saves can create recovery copies; use the recovery action in the composer to inspect and restore them.
+Only one editing session can save the draft at a time. If another tab or person is editing it, Mail names that session when possible and lets you continue read-only or explicitly move editing to this tab. The composer keeps a quiet reminder after the dialog closes. Use **Take over** only when you intend to make the other editor read-only. A temporary connection problem is shown separately and does not ask you to take over. Concurrent or stale saves can create recovery copies; use the recovery action in the composer to inspect and restore them.
+
+If another session schedules, sends, or discards the draft, every open composer reloads the authoritative draft state and stops saving or renewing its editing lease. The composer stays read-only instead of allowing another send or takeover. Unsaved local text remains visible and can be copied or saved as a new independent draft; when the original message belongs to a conversation, **Open message** returns to it.
 
 **Discard draft** removes the shared draft for everyone with mailbox access. Returning to the mailbox keeps the draft.
 

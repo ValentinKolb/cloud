@@ -19,6 +19,7 @@ export type {
   AiForkMessageInput,
   AiRetryMessageInput,
 } from "./chat/message-utils";
+export { MAX_ATTACHMENTS as AI_TURN_ATTACHMENT_MAX_ITEMS } from "./chat/message-utils";
 export {
   AiChatActionsProvider,
   type AiChatTimelineSession,

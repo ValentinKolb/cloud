@@ -1,13 +1,21 @@
-import { type AiEnrichmentOverview, aiConversations, listAiCredentialProfileIds } from "@valentinkolb/cloud/ai";
+import {
+  type AiEnrichmentOverview,
+  type AiProjectAdminListItem,
+  type AiProjectAdminSummary,
+  aiConversations,
+  aiProjects,
+  listAiCredentialProfileIds,
+} from "@valentinkolb/cloud/ai";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { settingsService } from "@valentinkolb/cloud/services";
 import { AdminLayout, getRuntimeContext, hasDedicatedRuntimeRoute } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../../../config";
+import AiProjectsAdminPanel from "./_components/AiProjectsAdminPanel";
 import CoreSettingsForm, { type SettingFieldDef } from "./_components/CoreSettingsForm.island";
 import LegalSettingsForm, { type LegalInitial } from "./_components/LegalSettingsForm.island";
 
 // Flat tab list. Each tab maps either to a core-settings group (`group` prop)
-// or the special `legal` view that uses a custom form (mode-switch UX).
+// or a dedicated immediate-action view such as Projects or Legal.
 const TABS = [
   {
     id: "general",
@@ -50,6 +58,13 @@ const TABS = [
     description: "Model and schedule for background AI work like chat enrichment.",
     icon: "ti ti-activity",
     group: "ai" as const,
+  },
+  {
+    id: "ai-projects",
+    title: "AI Projects",
+    description: "Recover and manage access to shared AI Projects.",
+    icon: "ti ti-folders",
+    group: null,
   },
   { id: "mail", title: "Mail Settings", description: "SMTP delivery and sender credentials.", icon: "ti ti-mail", group: "mail" as const },
   {
@@ -150,6 +165,13 @@ export default ssr<AuthContext>(async (c) => {
   // Which profiles have a stored provider key. The keys themselves never leave
   // the server, so the form shows presence instead of a value.
   let aiCredentialProfileIds: string[] = [];
+  let aiProjectItems: AiProjectAdminListItem[] = [];
+  let aiProjectSummary: AiProjectAdminSummary | null = null;
+  let aiProjectTotal = 0;
+  let aiProjectPage = 1;
+  let aiProjectPerPage = 100;
+  const search = (c.req.query("search") ?? "").trim();
+  const requestedPage = Number.parseInt(c.req.query("page") ?? "1", 10);
 
   if (tab.group) {
     entries = await buildEntries(tab.group);
@@ -160,6 +182,16 @@ export default ssr<AuthContext>(async (c) => {
   } else if (tab.id === "legal") {
     entries = await buildEntries("legal");
     legalInitial = buildLegalInitial(entries);
+  } else if (tab.id === "ai-projects") {
+    const [projects, summary] = await Promise.all([
+      aiProjects.admin.list({ search: search || undefined, page: Number.isFinite(requestedPage) ? requestedPage : 1, perPage: 100 }),
+      aiProjects.admin.summary({ search: search || undefined }),
+    ]);
+    aiProjectItems = projects.items;
+    aiProjectSummary = summary;
+    aiProjectTotal = projects.total;
+    aiProjectPage = projects.page;
+    aiProjectPerPage = projects.perPage;
   }
 
   return () => (
@@ -184,6 +216,17 @@ export default ssr<AuthContext>(async (c) => {
 
         {tab.id === "legal" && legalInitial ? (
           <LegalSettingsForm title={tab.title} subtitle={tab.description} icon={tab.icon} initial={legalInitial} entries={entries} />
+        ) : null}
+
+        {tab.id === "ai-projects" && aiProjectSummary ? (
+          <AiProjectsAdminPanel
+            projects={aiProjectItems}
+            summary={aiProjectSummary}
+            total={aiProjectTotal}
+            page={aiProjectPage}
+            perPage={aiProjectPerPage}
+            search={search}
+          />
         ) : null}
       </div>
     </AdminLayout>

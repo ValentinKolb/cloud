@@ -12,11 +12,13 @@ import {
   CommentListDataSchema,
   ConversationGetDataSchema,
   ConversationListDataSchema,
+  ConversationRelatedDataSchema,
   ConversationMarkInputSchema,
   ConversationMoveInputSchema,
   DraftCreateInputSchema,
   DraftListDataSchema,
   DraftSendInputSchema,
+  DraftUpdateInputSchema,
   FolderListDataSchema,
   MessageDataSchema,
   SubscriptionListDataSchema,
@@ -24,7 +26,9 @@ import {
 } from "./capability-contracts";
 import {
   collaboration,
+  conversationContext,
   conversationSummaries,
+  drafts,
   listSubscriptions,
   localTags,
   mailboxAccess,
@@ -46,6 +50,8 @@ const folderBId = "FbB222";
 const folderCId = "FcC333";
 const internalMailboxId = "553cd2c2-6dd8-47c7-bd2d-f731e78bc7ef";
 const internalConversationId = "34e29d53-8e6a-4a4d-bd83-4ad8d69957c8";
+const internalRelatedConversationId = "99999999-9999-4999-8999-999999999999";
+const relatedConversationId = "Rel123";
 const internalFolderId = "dc1fe87d-c60b-4f63-a83d-9db6320da31d";
 const internalFolderAId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const internalFolderBId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -70,7 +76,10 @@ const publicIdsByTable = {
     [internalFolderBId, folderBId],
     [internalFolderCId, folderCId],
   ]),
-  conversations: new Map([[internalConversationId, conversationId]]),
+  conversations: new Map([
+    [internalConversationId, conversationId],
+    [internalRelatedConversationId, relatedConversationId],
+  ]),
   messages: new Map([
     [internalConversationId, messageId],
     [internalMessageId, messageId],
@@ -89,6 +98,7 @@ const internalIdsByTable = {
   mailboxes: new Map([[mailboxId, internalMailboxId]]),
   folders: new Map([[folderId, internalFolderId]]),
   conversations: new Map([[conversationId, internalConversationId]]),
+  drafts: new Map([[draftId, internalDraftId]]),
   senderIdentities: new Map([[senderIdentityId, internalConversationId]]),
   deliveries: new Map([[deliveryId, internalConversationId]]),
   tags: new Map([[tagId, internalConversationId]]),
@@ -163,6 +173,7 @@ describe("mail capabilities", () => {
       "conversation.comment.list",
       "conversation.list",
       "conversation.read",
+      "conversation.related",
       "conversation.reminder.get",
       "conversation.search",
       "delivery.list",
@@ -258,7 +269,7 @@ describe("mail capabilities", () => {
       }).success,
     ).toBeTrue();
     expect(mailCapabilities.actions["conversation.mark"].description).toContain("read, unread, flagged, or unflagged");
-    expect(mailCapabilities.actions["draft.send"].title).toBe("Send draft email");
+    expect(mailCapabilities.actions["draft.send"].title).toBe("Send mail");
     expect(mailCapabilities.queries["draft.send.review"].description).toContain("does not send");
   });
 
@@ -322,6 +333,68 @@ describe("mail capabilities", () => {
       },
     });
     if (review.ok) expect(CapabilityActionReviewSchema.safeParse(review.data).success).toBeTrue();
+  });
+
+  test("reviews a draft update with a disclosed bounded plain-text body preview", async () => {
+    spyOn(mailboxAccess, "requireMailboxPermission").mockResolvedValue({ ok: true, data: "write" });
+    spyOn(drafts, "getDraft").mockResolvedValue({
+      ok: true,
+      data: {
+        id: internalDraftId,
+        mailboxId: internalMailboxId,
+        conversationId: null,
+        intent: "new",
+        sourceMessageId: null,
+        derivedFromMessageId: null,
+        derivationKind: null,
+        senderIdentityId: internalConversationId,
+        to: [],
+        cc: [],
+        bcc: [],
+        subject: "Old subject",
+        body: "Old body",
+        format: "markdown",
+        priority: "normal",
+        requestDeliveryReceipt: false,
+        requestReadReceipt: false,
+        attachments: [],
+        createdBy: { kind: "user", userId },
+        lastEditedBy: { kind: "user", userId },
+        lastEditedByDisplayName: "Ada",
+        recoveryCopyCount: 0,
+        revision: 2,
+        state: "draft",
+        deliveryClass: "normal",
+        createdAt: "2026-08-18T10:00:00.000Z",
+        updatedAt: "2026-08-18T10:00:00.000Z",
+      },
+    } as never);
+    const proposedBody = `Hello **Ada**\n\n<script>alert('plain text')</script>\n${"x".repeat(10_500)}`;
+    const input = DraftUpdateInputSchema.parse({
+      mailboxId,
+      draftId,
+      expectedRevision: 2,
+      draft: {
+        senderIdentityId,
+        to: [{ name: "Ada", address: "ada@example.test" }],
+        subject: "New subject",
+        body: proposedBody,
+      },
+    });
+
+    const review = await mailCapabilities.actions["draft.update"].review(input, context);
+
+    if (!review.ok) throw new Error("Expected a draft update review");
+    expect(review.data.details).toContainEqual({
+      label: "Preview warning",
+      value: "This preview is truncated to 10 KB. Review the full proposed body in Details before approving.",
+    });
+    const preview = review.data.details?.find((detail) => detail.label === "Proposed body preview");
+    expect(preview?.display).toBe("block");
+    expect(Buffer.byteLength(preview?.value ?? "", "utf8")).toBe(10_000);
+    expect(proposedBody.startsWith(preview?.value ?? "")).toBeTrue();
+    expect(preview?.value).not.toBe(proposedBody);
+    expect(CapabilityActionReviewSchema.safeParse(review.data).success).toBeTrue();
   });
 
   test("keeps remote conversation subjects inside the review envelope", async () => {
@@ -434,6 +507,49 @@ describe("mail capabilities", () => {
     expect(ConversationListDataSchema.safeParse(result.data.data.map(({ links: _, ...item }) => item)).success).toBeTrue();
     expect(JSON.stringify(result)).not.toContain(internalConversationId);
     expect(JSON.stringify(result)).not.toContain(internalMailboxId);
+  });
+
+  test("returns bounded related conversations with explainable reasons, refs, and links", async () => {
+    spyOn(conversationContext, "listRelatedConversations").mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          id: internalRelatedConversationId,
+          subject: "Re: Release update",
+          participantSummary: "Ada",
+          latestMessageAt: "2026-08-04T10:00:00.000Z",
+          preview: "A previous update",
+          reasons: [
+            { kind: "participant", value: "ada@example.test" },
+            { kind: "subject", value: "Release update" },
+          ],
+        },
+      ],
+    });
+
+    const result = await mailCapabilities.queries["conversation.related"].run({ mailboxId, conversationId, limit: 5 }, context);
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        data: [
+          {
+            id: relatedConversationId,
+            subject: "Re: Release update",
+            participantSummary: "Ada",
+            latestMessageAt: "2026-08-04T10:00:00.000Z",
+            preview: "A previous update",
+            reasons: [
+              { kind: "participant", value: "ada@example.test" },
+              { kind: "subject", value: "Release update" },
+            ],
+            links: [{ rel: "open", href: `/app/mail/${mailboxId}?conversation=${relatedConversationId}` }],
+          },
+        ],
+        refs: [{ type: "mail.conversation", id: relatedConversationId }],
+      },
+    });
+    if (result.ok) expect(ConversationRelatedDataSchema.safeParse(result.data.data).success).toBeTrue();
   });
 
   test("reads the shared summary with the latest bounded message window", async () => {

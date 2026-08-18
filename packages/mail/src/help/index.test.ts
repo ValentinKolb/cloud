@@ -116,7 +116,7 @@ describe("mailHelp", () => {
     const expectedContent = new Map([
       ["mail-start", "Mail organizes email around **mailboxes**"],
       ["mail-work", "Use **Search mailbox** for a quick search"],
-      ["mail-compose", "Only one editing session holds the draft lease"],
+      ["mail-compose", "Only one editing session can save the draft at a time"],
       ["mail-collaboration", "Internal comments are visible to people who can read the mailbox"],
       ["mail-security", "Mail keeps uncertain signals quiet"],
       ["mail-admin", "Pause mailbox** stops incoming synchronization"],
@@ -128,6 +128,9 @@ describe("mailHelp", () => {
     for (const [id, text] of expectedContent) {
       expect(mailHelp.getMarkdown(id)).toContain(text);
     }
+    expect(mailHelp.getMarkdown("mail-compose")).toContain("Select **Write with AI**");
+    expect(mailHelp.getMarkdown("mail-compose")).toContain("does not gain additional mailbox access");
+    expect(mailHelp.getMarkdown("mail-work")).toContain("section for the conversation as a whole");
   });
 
   test("documents permission-scoped Contacts context", () => {
@@ -138,6 +141,7 @@ describe("mailHelp", () => {
     expect(collaboration).toContain("Mail creates the Contact there");
     expect(collaboration).not.toContain("opens in a new tab");
     expect(collaboration).toContain("Mail stores no Contact ownership");
+    expect(collaboration).toContain("cld mail conversation related");
     expect(collaboration).toContain("contact-history");
   });
 

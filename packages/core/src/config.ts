@@ -1,6 +1,7 @@
 import { defineApp } from "@valentinkolb/cloud";
 import { CORE_SETTINGS } from "./_settings";
 import { NOTIFICATIONS } from "./notifications";
+import { AI_NOTIFICATIONS } from "./ai-notifications";
 
 export const app = defineApp({
   id: "core",
@@ -10,7 +11,7 @@ export const app = defineApp({
   appearance: { accent: "#0284c7", background: { from: "#38bdf8", to: "#60a5fa", angle: 135 } },
   baseUrl: "http://app-core:3000",
   settings: CORE_SETTINGS,
-  notifications: NOTIFICATIONS,
+  notifications: { ...NOTIFICATIONS, ...AI_NOTIFICATIONS },
   legalLinks: [
     { label: "Imprint", href: "/impressum", icon: "ti ti-info-circle" },
     { label: "Privacy", href: "/legal/privacy", icon: "ti ti-shield-lock" },
@@ -36,6 +37,7 @@ export const app = defineApp({
     "/impressum",
     "/api/auth",
     "/api/announcements",
+    "/api/ai",
     "/api/mcp",
     "/api/search",
     "/api/accounts/entities",

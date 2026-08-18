@@ -8,6 +8,7 @@ import { readMailDraftSeed } from "./mail-draft-seed-store";
 
 export default function MailDraftSeedComposerPage(props: {
   mailboxId: string;
+  currentActor: { kind: "user" | "service_account"; id: string };
   seedId: string;
   identities: SenderIdentity[];
   initialPanes: PanesLayout;
@@ -46,6 +47,7 @@ export default function MailDraftSeedComposerPage(props: {
         {(value) => (
           <MailComposerPage
             mailboxId={props.mailboxId}
+            currentActor={props.currentActor}
             identities={props.identities}
             initialSeed={value()}
             initialPanes={props.initialPanes}

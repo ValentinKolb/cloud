@@ -5,12 +5,12 @@ import { coreSettings, logger, notifications, trace } from "@valentinkolb/cloud/
 import { sql } from "bun";
 import { z } from "zod";
 
-const RECOVERY_SCHEDULE_ID = "assistant:notifications:recover";
+const RECOVERY_SCHEDULE_ID = "core:ai-notifications:recover";
 const RECOVERY_BATCH_SIZE = 100;
 
-const log = logger("assistant:notifications");
+const log = logger("core:ai-notifications");
 
-export const NOTIFICATIONS = {
+export const AI_NOTIFICATIONS = {
   turnCompleted: notification({
     recipient: "user",
     label: "Assistant responses",
@@ -50,7 +50,7 @@ export const NOTIFICATIONS = {
   }),
 };
 
-type AssistantNotificationDefinitions = BoundNotificationMap<"assistant", typeof NOTIFICATIONS>;
+type AiNotificationDefinitions = BoundNotificationMap<"core", typeof AI_NOTIFICATIONS>;
 
 type CompletionCandidate = {
   turn_id: string;
@@ -66,17 +66,17 @@ type TaskAttentionCandidate = {
   error: string;
 };
 
-type AssistantNotificationRecoverySummary = {
+type AiNotificationRecoverySummary = {
   scanned: number;
   sent: number;
   failed: number;
 };
 
-export const createAssistantNotificationService = (definitions: AssistantNotificationDefinitions) => {
-  const recoveryScheduler = scheduler({ id: "assistant-notifications" });
+export const createAiNotificationService = (definitions: AiNotificationDefinitions) => {
+  const recoveryScheduler = scheduler({ id: "core-ai-notifications" });
   let started = false;
 
-  const recoverCompletions = async (input: { turnId?: string; limit?: number } = {}): Promise<AssistantNotificationRecoverySummary> => {
+  const recoverCompletions = async (input: { turnId?: string; limit?: number } = {}): Promise<AiNotificationRecoverySummary> => {
     const limit = Math.min(Math.max(Math.floor(input.limit ?? RECOVERY_BATCH_SIZE), 1), 1_000);
     const candidates = await sql<CompletionCandidate[]>`
       SELECT turn.id AS turn_id,
@@ -88,8 +88,6 @@ export const createAssistantNotificationService = (definitions: AssistantNotific
       WHERE turn.status = 'completed'
         AND turn.completed_at >= definition.first_seen_at
         AND turn.run_config->>'kind' = 'chat'
-        AND conversation.app_id = 'assistant'
-        AND conversation.resource_kind = 'direct'
         AND conversation.created_by_user_id IS NOT NULL
         AND (${input.turnId ?? null}::uuid IS NULL OR turn.id = ${input.turnId ?? null}::uuid)
         AND NOT EXISTS (
@@ -127,7 +125,7 @@ export const createAssistantNotificationService = (definitions: AssistantNotific
 
   const recoverTaskAttention = async (
     input: { occurrenceId?: string; limit?: number } = {},
-  ): Promise<AssistantNotificationRecoverySummary> => {
+  ): Promise<AiNotificationRecoverySummary> => {
     const limit = Math.min(Math.max(Math.floor(input.limit ?? RECOVERY_BATCH_SIZE), 1), 1_000);
     const candidates = await sql<TaskAttentionCandidate[]>`
       SELECT occurrence.id AS occurrence_id,
@@ -143,7 +141,6 @@ export const createAssistantNotificationService = (definitions: AssistantNotific
         AND occurrence.completed_at >= definition.first_seen_at
         AND occurrence.error IS NOT NULL
         AND task.state = 'needs_attention'
-        AND conversation.app_id = 'assistant'
         AND (${input.occurrenceId ?? null}::uuid IS NULL OR occurrence.id = ${input.occurrenceId ?? null}::uuid)
         AND NOT EXISTS (
           SELECT 1
@@ -185,7 +182,7 @@ export const createAssistantNotificationService = (definitions: AssistantNotific
     return { scanned: candidates.length, sent, failed };
   };
 
-  const recover = async (): Promise<AssistantNotificationRecoverySummary> => {
+  const recover = async (): Promise<AiNotificationRecoverySummary> => {
     const [completions, tasks] = await Promise.all([recoverCompletions(), recoverTaskAttention()]);
     return {
       scanned: completions.scanned + tasks.scanned,
@@ -195,8 +192,8 @@ export const createAssistantNotificationService = (definitions: AssistantNotific
   };
 
   return {
-    notifyTurnCompleted: (turnId: string): Promise<AssistantNotificationRecoverySummary> => recoverCompletions({ turnId, limit: 1 }),
-    notifyTaskNeedsAttention: (occurrenceId: string): Promise<AssistantNotificationRecoverySummary> =>
+    notifyTurnCompleted: (turnId: string): Promise<AiNotificationRecoverySummary> => recoverCompletions({ turnId, limit: 1 }),
+    notifyTaskNeedsAttention: (occurrenceId: string): Promise<AiNotificationRecoverySummary> =>
       recoverTaskAttention({ occurrenceId, limit: 1 }),
 
     start: async (): Promise<void> => {
@@ -210,7 +207,7 @@ export const createAssistantNotificationService = (definitions: AssistantNotific
           cron: "* * * * *",
           tz: timezone,
           meta: {
-            appId: "assistant",
+            appId: "core",
             family: "ai:chat",
             label: "Assistant completion notifications",
             source: RECOVERY_SCHEDULE_ID,
@@ -219,10 +216,10 @@ export const createAssistantNotificationService = (definitions: AssistantNotific
             resourceLabel: "Assistant chats",
             detailHref: "/me/notifications",
           },
-          trace: trace.fromSyncSchedule<AssistantNotificationRecoverySummary>({
+          trace: trace.fromSyncSchedule<AiNotificationRecoverySummary>({
             name: "Assistant completion notification recovery",
             source: RECOVERY_SCHEDULE_ID,
-            appId: "assistant",
+            appId: "core",
             summarize: (event) => (event.type === "succeeded" ? event.data : undefined),
           }),
           process: () => recover(),

@@ -1,6 +1,7 @@
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
 
-export const ASSISTANT_API = "/api/assistant";
+export const AI_API = "/api/ai";
+const ASSISTANT_API = "/api/assistant";
 const PROJECTS_API = "/api/ai/projects";
 
 export const queryString = (values: Record<string, string | number | boolean | null | undefined>): string => {
@@ -24,6 +25,9 @@ export const idempotentJsonRequest = (method: string, body?: unknown): RequestIn
 };
 
 export const readApi = async <T>(ctx: CloudCliContext, path: string, init?: RequestInit): Promise<T> =>
+  ctx.readJson<T>(await ctx.fetch(`${AI_API}${path}`, init));
+
+export const readAssistantApi = async <T>(ctx: CloudCliContext, path: string, init?: RequestInit): Promise<T> =>
   ctx.readJson<T>(await ctx.fetch(`${ASSISTANT_API}${path}`, init));
 
 export const readProjectsApi = async <T>(ctx: CloudCliContext, path: string, init?: RequestInit): Promise<T> =>

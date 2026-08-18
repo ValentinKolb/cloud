@@ -896,7 +896,7 @@ function AiEnrichmentOverviewPanel(props: { overview: AiEnrichmentOverview; show
               <span class="min-w-0">
                 <span class="block truncate text-primary">{run.conversationTitle || run.conversationId}</span>
                 <span class="block truncate text-[11px] text-dimmed">
-                  {run.appId || "assistant"} · {run.trigger} · {formatAiDate(run.createdAt)}
+                  {run.trigger} · {formatAiDate(run.createdAt)}
                 </span>
               </span>
               <span class="whitespace-nowrap text-[11px] text-dimmed">{formatAiDuration(run.durationMs)}</span>

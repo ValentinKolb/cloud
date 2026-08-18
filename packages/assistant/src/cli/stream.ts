@@ -1,6 +1,6 @@
 import { type AiStoredMessage, type AiStreamSseEvent, type AiTurnBlock, parseAiSse } from "@valentinkolb/cloud/ai";
 import type { CloudCliContext } from "@valentinkolb/cloud/cli";
-import { ASSISTANT_API, jsonRequest } from "./shared";
+import { AI_API, jsonRequest } from "./shared";
 
 export type AssistantTurnStreamResult = {
   conversationId: string;
@@ -90,7 +90,7 @@ export const streamAssistantTurn = async (input: {
         approvedCalls.add(block.callId);
         await ctx.readJson(
           await ctx.fetch(
-            `${ASSISTANT_API}/conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(targetTurnId!)}/actions/${encodeURIComponent(block.callId)}`,
+            `${AI_API}/conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(targetTurnId!)}/actions/${encodeURIComponent(block.callId)}`,
             jsonRequest("POST", { type: "approval_response", approved: true }),
           ),
         );
@@ -198,7 +198,7 @@ export const streamAssistantTurn = async (input: {
     while (!abort.signal.aborted) {
       const response =
         initialResponse ??
-        (await ctx.fetch(`${ASSISTANT_API}/conversations/${encodeURIComponent(conversationId)}/stream`, {
+        (await ctx.fetch(`${AI_API}/conversations/${encodeURIComponent(conversationId)}/stream`, {
           headers: { Accept: "text/event-stream" },
           signal: abort.signal,
         }));

@@ -253,7 +253,7 @@ const createExecutor = (
 suite("AI executor integration", () => {
   test("runs a chat turn end to end: claim, stream, persist, finish", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
 
     try {
       nextCompletion = textCompletion("Hello from the mock model");
@@ -311,7 +311,7 @@ suite("AI executor integration", () => {
 
   test("resolves a referenced image only for the provider request and keeps persisted messages reference-only", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
     try {
       await aiFileStore.write({
         conversationId: conversation.id,
@@ -394,7 +394,7 @@ suite("AI executor integration", () => {
 
   test("finalizes a claimed turn when its immutable image snapshot is missing", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
     try {
       await aiFileStore.write({
         conversationId: conversation.id,
@@ -444,7 +444,7 @@ suite("AI executor integration", () => {
 
   test("view_image reads the authorized conversation file and applies optional guidance with a vision model", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
     try {
       await aiFileStore.write({
         conversationId: conversation.id,
@@ -506,7 +506,7 @@ suite("AI executor integration", () => {
 
   test("view_image reads a mounted Project image with the selected Vision model", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
     try {
       const profile: AiModelProfile = { ...mockProfile(), capabilities: ["streaming", "tools", "vision"] };
       let requestBody: unknown;
@@ -550,15 +550,15 @@ suite("AI executor integration", () => {
   test("keeps mounted Project files available when dynamic capabilities reprepare the tools", async () => {
     const userId = await insertUser();
     const subject = { type: "user" as const, userId };
-    const project = await aiProjects.create({ appId: "ai-exec", subject, name: "Project files" });
-    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId, projectId: project.id });
+    const project = await aiProjects.create({ subject, name: "Project files" });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId, projectId: project.id });
     try {
-      await aiProjects.writeFile(project.id, "ai-exec", subject, {
+      await aiProjects.writeFile(project.id, subject, {
         path: "guide.md",
         mediaType: "text/markdown",
         bytes: new TextEncoder().encode("# Guide"),
       });
-      const projectSnapshot = await aiProjects.snapshot(project.id, "ai-exec", subject);
+      const projectSnapshot = await aiProjects.snapshot(project.id, subject);
       if (!projectSnapshot) throw new Error("Expected Project snapshot");
 
       const requests: unknown[] = [];
@@ -622,7 +622,7 @@ suite("AI executor integration", () => {
 
   test("exposes Help for a user-backed default chat without enabling capabilities", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
 
     try {
       completionRequestCount = 0;
@@ -675,7 +675,7 @@ suite("AI executor integration", () => {
 
   test("advertises local Bash only when the durable turn opts in", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
 
     try {
       completionRequestCount = 0;
@@ -726,7 +726,7 @@ suite("AI executor integration", () => {
 
   test("does not advertise tool-only Help or memory mutations to a model without tools", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
 
     try {
       await aiMemories.create({ userId, kind: "preference", content: "Prefers concise German answers." });
@@ -783,13 +783,12 @@ suite("AI executor integration", () => {
   test("uses the Project snapshot from the durable turn config", async () => {
     const userId = await insertUser();
     const project = await aiProjects.create({
-      appId: "ai-exec",
       subject: { type: "user", userId },
       name: "Meeting summary",
       instructions: "Current instructions that must not replace the snapshot.",
     });
     await sql`UPDATE ai.projects SET revision = 5 WHERE id = ${project.id}::uuid`;
-    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
 
     try {
       completionRequestCount = 0;
@@ -807,7 +806,6 @@ suite("AI executor integration", () => {
           actor: { kind: "user", user: actorUser(userId) },
           project: {
             id: project.shortId,
-            appId: "ai-exec",
             name: "Meeting summary",
             instructions: "List decisions before action items.",
             revision: 4,
@@ -839,7 +837,7 @@ suite("AI executor integration", () => {
       const request = JSON.stringify(requests[0]);
       expect(request).toContain("# Project instructions: Meeting summary");
       expect(request).toContain("List decisions before action items.");
-      expect(request).toContain("cannot override platform, organization, or app rules");
+      expect(request).toContain("cannot override platform, organization, or agent rules");
       expect(request).not.toContain("Current instructions that must not replace the snapshot.");
     } finally {
       onCompletionRequest = null;
@@ -851,7 +849,7 @@ suite("AI executor integration", () => {
 
   test("a fresh claim after a crash re-runs without duplicating the user message", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
 
     try {
       nextCompletion = textCompletion("Recovered answer");
@@ -905,7 +903,7 @@ suite("AI executor integration", () => {
 
   test("steering submitted during the final provider response continues the same turn", async () => {
     const userId = await insertUser();
-    const conversation = await aiConversations.createConversation({ appId: "ai-exec", ownerUserId: userId });
+    const conversation = await aiConversations.createConversation({ ownerUserId: userId });
 
     try {
       completionRequestCount = 0;

@@ -257,9 +257,11 @@ test("admin security commands expose report and policy management", async () => 
   ]);
 }, 20_000);
 
-test("conversation context commands use the Contacts integration API", async () => {
+test("conversation context commands expose Contacts and deterministic related mail", async () => {
+  const requestedPaths: string[] = [];
   const server = withMailbox(async (request) => {
     const url = new URL(request.url);
+    requestedPaths.push(`${url.pathname}${url.search}`);
     const base = `/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}`;
     if (request.method === "GET" && url.pathname === `${base}/context`) {
       return api({
@@ -271,6 +273,18 @@ test("conversation context commands use the Contacts integration API", async () 
     if (request.method === "GET" && url.pathname === `${base}/contacts/system/${USER_ID}/history`) {
       return api({ items: [], nextCursor: null });
     }
+    if (request.method === "GET" && url.pathname === `${base}/related`) {
+      return api([
+        {
+          id: "rel123",
+          subject: "Re: Release update",
+          participantSummary: "Ada",
+          latestMessageAt: "2026-08-18T12:00:00.000Z",
+          preview: "Earlier context",
+          reasons: [{ kind: "participant", value: "ada@example.test" }],
+        },
+      ]);
+    }
     return api({ message: "unexpected" }, { status: 500 });
   });
   servers.push(server);
@@ -278,13 +292,28 @@ test("conversation context commands use the Contacts integration API", async () 
 
   const commands = [
     ["--json", "mail", "conversation", "context", CONVERSATION_ID, "--mailbox", MAILBOX_ID],
+    ["--json", "mail", "conversation", "related", CONVERSATION_ID, "--mailbox", MAILBOX_ID, "--limit", "3"],
     ["--json", "mail", "conversation", "contact-history", CONVERSATION_ID, "system", USER_ID, "--mailbox", MAILBOX_ID],
+    ["mail", "conversation", "related", CONVERSATION_ID, "--mailbox", MAILBOX_ID, "--limit", "3"],
   ];
   const results = [];
   for (const command of commands) results.push(await runCli(origin, command));
 
   expect(results.every((result) => result.exitCode === 0 && result.stderr === "")).toBe(true);
-});
+  expect(JSON.parse(results[1]!.stdout)).toEqual([
+    {
+      id: "rel123",
+      subject: "Re: Release update",
+      participantSummary: "Ada",
+      latestMessageAt: "2026-08-18T12:00:00.000Z",
+      preview: "Earlier context",
+      reasons: [{ kind: "participant", value: "ada@example.test" }],
+    },
+  ]);
+  expect(results[3]!.stdout).toContain("WHY RELATED");
+  expect(results[3]!.stdout).toContain("participant ada@example.test");
+  expect(requestedPaths).toContain(`/api/mail/mailboxes/${MAILBOX_ID}/conversations/${CONVERSATION_ID}/related?limit=3`);
+}, 20_000);
 
 test("conversation drafts lists resumable work for one conversation", async () => {
   const drafts = [

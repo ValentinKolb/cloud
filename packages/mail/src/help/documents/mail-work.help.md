@@ -64,6 +64,8 @@ Select a conversation row to open its thread. Each message has its own sender, r
 
 An optional conversation summary appears in a highlighted card above the messages. Use its **Edit summary** button or **More conversation actions > Create summary** to maintain it with Markdown formatting; summaries are shared Mail context and can also be updated by an automation. If the conversation has unfinished drafts, the Reply action shows an indicator. Open **Conversation details** to see who created the newest draft, when it was updated, and continue it.
 
+Conversation details also shows a small **Related mail** section for the conversation as a whole. Mail ranks other conversations from the same mailbox when they share an external participant or the same normalized subject, and shows the matching reasons with each result. This is distinct from a Contact card's **Related Mail** action, which opens an exact search for that one participant. Neither feature infers similarity from message bodies, attachments, or calendar events.
+
 Opening an unread conversation marks it as read. Use **More conversation actions** to mark it unread again, add or remove a flag, or print the conversation. A conversation that you mark unread stays unread in already open tabs until you deliberately open its row again; a live update alone does not mark it read.
 
 Mail adapts message bodies to the current theme by default: safe HTML in light mode and plain text in dark mode when both versions are available. Open an individual message's actions and choose **View as plain text** or **View as HTML** to override that message. Choose a persistent mode for this browser under **Settings > Reading > Default message format**.

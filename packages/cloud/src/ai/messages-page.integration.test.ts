@@ -73,7 +73,7 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
     const userId = await insertUser();
     const conversationIds: string[] = [];
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-page-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
       const turnId = crypto.randomUUID();
       const turnShortId = createAiShortId();
@@ -98,7 +98,7 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
     const userId = await insertUser();
     const conversationIds: string[] = [];
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-page-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
       for (let seq = 1; seq <= 12; seq++) {
         await insertMessage({ conversationId: conversation.id, seq, role: seq % 2 ? "user" : "assistant", text: `msg ${seq}` });
@@ -126,7 +126,7 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
     const userId = await insertUser();
     const conversationIds: string[] = [];
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-page-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
 
       // Compacted history: archived rows on seq 1-2, the active summary shares seq 2.
@@ -164,8 +164,8 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
     const userId = await insertUser();
     const conversationIds: string[] = [];
     try {
-      const source = await aiConversations.createConversation({ appId: "ai-page-test", ownerUserId: userId });
-      const target = await aiConversations.createConversation({ appId: "ai-page-test", ownerUserId: userId });
+      const source = await aiConversations.createConversation({ ownerUserId: userId });
+      const target = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(source.id, target.id);
 
       await insertMessage({ conversationId: source.id, seq: 1, role: "user", text: "needle old" });
@@ -206,7 +206,7 @@ describe.skipIf(!(await canUseAiDatabase()))("listMessagesPage (integration)", (
     const userId = await insertUser();
     const conversationIds: string[] = [];
     try {
-      const conversation = await aiConversations.createConversation({ appId: "ai-page-test", ownerUserId: userId });
+      const conversation = await aiConversations.createConversation({ ownerUserId: userId });
       conversationIds.push(conversation.id);
       const turnId = crypto.randomUUID();
       await sql`

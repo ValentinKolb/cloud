@@ -555,6 +555,7 @@ export const createLoadedAiCapabilityTools = (input: {
   catalog: readonly AiCapabilityCatalogEntry[];
   loadedNames: readonly string[];
   review?: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<CapabilityActionReview | null>;
+  onReview?: (callId: string, review: CapabilityActionReview) => void;
   execute: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<unknown>;
 }): AiRuntimeTool[] => {
   const byName = new Map(input.catalog.map((entry) => [entry.name, entry]));
@@ -573,13 +574,9 @@ export const createLoadedAiCapabilityTools = (input: {
       }).server(async (args, context) => {
         if (entry.kind === "action") {
           const review = (await input.review?.(entry, args, context)) ?? null;
-          const message = review
-            ? [
-                review.message,
-                ...(review.details ?? []).map((detail) => `${detail.label}: ${detail.value}`),
-                ...(review.links ?? []).map((link) => `${link.title ?? link.rel}: ${link.href}`),
-              ].join("\n")
-            : `${entry.appName}: ${entry.title}\nReview the validated arguments below before running this Action.`;
+          if (review && context.callId) input.onReview?.(context.callId, review);
+          const message =
+            review?.message ?? `${entry.appName}: ${entry.title}\nReview the validated arguments below before running this Action.`;
           if (!(await context.requestApproval(message))) throw new Error("Capability Action was rejected by the user.");
         }
         return input.execute(entry, args, context);
@@ -627,6 +624,7 @@ export const createAiCapabilityToolResolver =
     maxLoadedCapabilities?: number;
     execute: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<unknown>;
     review?: (entry: AiCapabilityCatalogEntry, args: unknown, context: ToolContext) => Promise<CapabilityActionReview | null>;
+    onReview?: (callId: string, review: CapabilityActionReview) => void;
     onPrepared?: (snapshot: {
       prepared: PreparedAiTools;
       presentations: Map<string, AiToolPresentation>;
@@ -662,7 +660,13 @@ export const createAiCapabilityToolResolver =
       }),
       ...(input.listHelpRegistry ? createAiHelpTools(helpRegistry) : []),
       createAiResourceReaderTool({ apps: registry, catalog, execute: input.execute }),
-      ...createLoadedAiCapabilityTools({ catalog, loadedNames, review: input.review, execute: input.execute }),
+      ...createLoadedAiCapabilityTools({
+        catalog,
+        loadedNames,
+        review: input.review,
+        onReview: input.onReview,
+        execute: input.execute,
+      }),
     ];
     const prepared = prepareAiTools({
       tools: [...input.staticTools, ...capabilityTools],
@@ -685,9 +689,8 @@ export const createAiCapabilityToolResolver =
         title: entry.title,
         capabilityKind: entry.kind,
       });
-      if (entry.kind === "action" && "approval" in entry.operation && entry.operation.approval === "rememberable") {
-        rememberableApprovals.set(name, `${entry.appId}.${entry.operation.localId}`);
-      }
+      // Capability actions are never globally rememberable: the owning app's
+      // review can depend on the concrete resource and arguments of each call.
     }
     input.onPrepared?.({ prepared, presentations, rememberableApprovals });
     return prepared.tools;

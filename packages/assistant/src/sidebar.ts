@@ -8,12 +8,11 @@ export type AssistantSidebarSnapshot = {
 export const loadAssistantSidebarSnapshot = async (userId: string): Promise<AssistantSidebarSnapshot> => {
   const subject = { type: "user" as const, userId };
   const [projects, conversations] = await Promise.all([
-    aiProjects.list(subject, "assistant"),
-    aiConversations.listSidebarConversations({ appId: "assistant", ownerUserId: userId }),
+    aiProjects.list(subject),
+    aiConversations.listSidebarConversations({ ownerUserId: userId }),
   ]);
   const projectShortIds = await aiProjects.resolveShortIds(
     conversations.flatMap((conversation) => (conversation.projectId ? [conversation.projectId] : [])),
-    "assistant",
     subject,
   );
   return {

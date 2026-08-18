@@ -62,65 +62,63 @@ const publicReference = (reference: AiProjectReference, projectId: string): AiPr
 });
 
 type AiProjectsRouteDependencies = {
-  appId: string;
   limit?: MiddlewareHandler<AuthContext>;
   authenticate?: MiddlewareHandler<AuthContext>;
   getCapability?: typeof getCapability;
 };
 
-export const createAiProjectsRoutes = (dependencies: AiProjectsRouteDependencies) =>
+const buildAiProjectsRoutes = (dependencies: AiProjectsRouteDependencies = {}) =>
   new Hono<AuthContext>()
     .use(dependencies.limit ?? rateLimit())
     .use("*", dependencies.authenticate ?? auth.requireRole("*"))
     .get("/", async (c) =>
-      respond(c, ok({ projects: (await aiProjects.list(c.get("accessSubject") ?? null, dependencies.appId)).map(publicProject) })),
+      respond(c, ok({ projects: (await aiProjects.list(c.get("accessSubject") ?? null)).map(publicProject) })),
     )
     .post("/", dependencies.authenticate ?? auth.requireRole("authenticated"), v("json", ProjectFieldsSchema), async (c) =>
       respond(
         c,
         ok({
           project: publicProject(
-            await aiProjects.create({ appId: dependencies.appId, subject: c.get("accessSubject"), ...c.req.valid("json") }),
+            await aiProjects.create({ subject: c.get("accessSubject"), ...c.req.valid("json") }),
           ),
         }),
         201,
       ),
     )
     .get("/:projectId", async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null);
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null);
       return project ? respond(c, ok({ project: publicProject(project) })) : notFound(c);
     })
     .patch("/:projectId", v("json", UpdateProjectSchema), async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null, "write");
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null, "write");
       if (!project) return notFound(c);
-      const updated = await aiProjects.update(project.id, dependencies.appId, c.get("accessSubject") ?? null, c.req.valid("json"));
+      const updated = await aiProjects.update(project.id, c.get("accessSubject") ?? null, c.req.valid("json"));
       return updated ? respond(c, ok({ project: publicProject(updated) })) : notFound(c);
     })
     .delete("/:projectId", async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null, "admin");
-      return project && (await aiProjects.delete(project.id, dependencies.appId, c.get("accessSubject") ?? null))
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null, "admin");
+      return project && (await aiProjects.delete(project.id, c.get("accessSubject") ?? null))
         ? respond(c, ok({ deleted: true }))
         : notFound(c);
     })
     .get("/:projectId/access", async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null, "admin");
-      const access = project ? await aiProjects.listAccess(project.id, dependencies.appId, c.get("accessSubject") ?? null) : null;
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null, "admin");
+      const access = project ? await aiProjects.listAccess(project.id, c.get("accessSubject") ?? null) : null;
       return access ? respond(c, ok({ access })) : notFound(c);
     })
     .post("/:projectId/access", v("json", ProjectAccessSchema), async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null, "admin");
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null, "admin");
       const access = project
-        ? await aiProjects.grantAccess(project.id, dependencies.appId, c.get("accessSubject") ?? null, c.req.valid("json"))
+        ? await aiProjects.grantAccess(project.id, c.get("accessSubject") ?? null, c.req.valid("json"))
         : null;
       return access ? respond(c, ok({ access }), 201) : notFound(c);
     })
     .patch("/:projectId/access/:accessId", v("json", ProjectAccessUpdateSchema), async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null, "admin");
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null, "admin");
       try {
         return project &&
           (await aiProjects.updateAccess(
             project.id,
-            dependencies.appId,
             c.req.param("accessId")!,
             c.get("accessSubject") ?? null,
             c.req.valid("json").permission,
@@ -133,10 +131,10 @@ export const createAiProjectsRoutes = (dependencies: AiProjectsRouteDependencies
       }
     })
     .delete("/:projectId/access/:accessId", async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null, "admin");
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null, "admin");
       try {
         return project &&
-          (await aiProjects.revokeAccess(project.id, dependencies.appId, c.req.param("accessId")!, c.get("accessSubject") ?? null))
+          (await aiProjects.revokeAccess(project.id, c.req.param("accessId")!, c.get("accessSubject") ?? null))
           ? respond(c, ok({ deleted: true }))
           : notFound(c, "Access entry");
       } catch (error) {
@@ -145,31 +143,30 @@ export const createAiProjectsRoutes = (dependencies: AiProjectsRouteDependencies
       }
     })
     .get("/:projectId/knowledge", v("query", KnowledgeQuerySchema), async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null);
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null);
       if (!project) return notFound(c);
       return respond(
         c,
         ok({
           knowledge: (
-            await aiProjects.listKnowledge(project.id, dependencies.appId, c.get("accessSubject") ?? null, c.req.valid("query").q)
+            await aiProjects.listKnowledge(project.id, c.get("accessSubject") ?? null, c.req.valid("query").q)
           ).map((item) => publicKnowledge(item, project.shortId)),
         }),
       );
     })
     .post("/:projectId/knowledge", v("json", KnowledgeSchema), async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null, "write");
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null, "write");
       const knowledge = project
-        ? await aiProjects.createKnowledge(project.id, dependencies.appId, c.get("accessSubject") ?? null, c.req.valid("json"))
+        ? await aiProjects.createKnowledge(project.id, c.get("accessSubject") ?? null, c.req.valid("json"))
         : null;
       return knowledge ? respond(c, ok({ knowledge: publicKnowledge(knowledge, project!.shortId) }), 201) : notFound(c);
     })
     .patch("/:projectId/knowledge/:knowledgeId", v("json", UpdateKnowledgeSchema), async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null, "write");
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null, "write");
       const knowledge =
         project &&
         (await aiProjects.updateKnowledge(
           project.id,
-          dependencies.appId,
           c.req.param("knowledgeId")!,
           c.get("accessSubject") ?? null,
           c.req.valid("json"),
@@ -177,19 +174,19 @@ export const createAiProjectsRoutes = (dependencies: AiProjectsRouteDependencies
       return knowledge ? respond(c, ok({ knowledge: publicKnowledge(knowledge, project!.shortId) })) : notFound(c, "Knowledge entry");
     })
     .delete("/:projectId/knowledge/:knowledgeId", async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null, "write");
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null, "write");
       return project &&
-        (await aiProjects.deleteKnowledge(project.id, dependencies.appId, c.req.param("knowledgeId")!, c.get("accessSubject") ?? null))
+        (await aiProjects.deleteKnowledge(project.id, c.req.param("knowledgeId")!, c.get("accessSubject") ?? null))
         ? respond(c, ok({ deleted: true }))
         : notFound(c, "Knowledge entry");
     })
     .get("/:projectId/files", async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null);
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null);
       if (!project) return notFound(c);
       return respond(
         c,
         ok({
-          files: (await aiProjects.listFiles(project.id, dependencies.appId, c.get("accessSubject") ?? null)).map((file) =>
+          files: (await aiProjects.listFiles(project.id, c.get("accessSubject") ?? null)).map((file) =>
             publicFile(file, project.shortId),
           ),
         }),
@@ -200,12 +197,11 @@ export const createAiProjectsRoutes = (dependencies: AiProjectsRouteDependencies
       try {
         const project = await aiProjects.getByShortId(
           c.req.param("projectId")!,
-          dependencies.appId,
           c.get("accessSubject") ?? null,
           "write",
         );
         const file = project
-          ? await aiProjects.writeFile(project.id, dependencies.appId, c.get("accessSubject") ?? null, {
+          ? await aiProjects.writeFile(project.id, c.get("accessSubject") ?? null, {
               path: body.path,
               mediaType: body.mediaType,
               bytes: decodeAiFileContent(body.content, body.encoding),
@@ -217,9 +213,9 @@ export const createAiProjectsRoutes = (dependencies: AiProjectsRouteDependencies
       }
     })
     .get("/:projectId/files/:fileId", async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null);
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null);
       const file = project
-        ? await aiProjects.readFile(project.id, dependencies.appId, c.req.param("fileId")!, c.get("accessSubject") ?? null)
+        ? await aiProjects.readFile(project.id, c.req.param("fileId")!, c.get("accessSubject") ?? null)
         : null;
       if (!file) return notFound(c, "Project file");
       return respond(
@@ -232,19 +228,19 @@ export const createAiProjectsRoutes = (dependencies: AiProjectsRouteDependencies
       );
     })
     .delete("/:projectId/files/:fileId", async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null, "write");
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null, "write");
       return project &&
-        (await aiProjects.deleteFile(project.id, dependencies.appId, c.req.param("fileId")!, c.get("accessSubject") ?? null))
+        (await aiProjects.deleteFile(project.id, c.req.param("fileId")!, c.get("accessSubject") ?? null))
         ? respond(c, ok({ deleted: true }))
         : notFound(c, "Project file");
     })
     .get("/:projectId/references", async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null);
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null);
       if (!project) return notFound(c);
       return respond(
         c,
         ok({
-          references: (await aiProjects.listReferences(project.id, dependencies.appId, c.get("accessSubject") ?? null)).map((reference) =>
+          references: (await aiProjects.listReferences(project.id, c.get("accessSubject") ?? null)).map((reference) =>
             publicReference(reference, project.shortId),
           ),
         }),
@@ -253,7 +249,7 @@ export const createAiProjectsRoutes = (dependencies: AiProjectsRouteDependencies
     .post("/:projectId/references", v("json", ReferenceSchema), async (c) => {
       const body = c.req.valid("json");
       const subject = c.get("accessSubject") ?? null;
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, subject, "write");
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, subject, "write");
       if (!project) return notFound(c);
       let entry: Awaited<ReturnType<typeof getCapability>>;
       try {
@@ -264,15 +260,18 @@ export const createAiProjectsRoutes = (dependencies: AiProjectsRouteDependencies
       if (!entry || !resolveCapabilityResourceReader(entry.manifest, body.ref)) {
         return respond(c, fail(err.badInput("Cloud resource type is unknown or has no reader.")));
       }
-      const reference = await aiProjects.createReference(project.id, dependencies.appId, subject, body);
+      const reference = await aiProjects.createReference(project.id, subject, body);
       return reference ? respond(c, ok({ reference: publicReference(reference, project.shortId) }), 201) : notFound(c);
     })
     .delete("/:projectId/references/:referenceId", async (c) => {
-      const project = await aiProjects.getByShortId(c.req.param("projectId")!, dependencies.appId, c.get("accessSubject") ?? null, "write");
+      const project = await aiProjects.getByShortId(c.req.param("projectId")!, c.get("accessSubject") ?? null, "write");
       return project &&
-        (await aiProjects.deleteReference(project.id, dependencies.appId, c.req.param("referenceId")!, c.get("accessSubject") ?? null))
+        (await aiProjects.deleteReference(project.id, c.req.param("referenceId")!, c.get("accessSubject") ?? null))
         ? respond(c, ok({ deleted: true }))
         : notFound(c, "Project reference");
     });
 
-export type AiProjectsRoutes = ReturnType<typeof createAiProjectsRoutes>;
+export const aiProjectsRoutes = buildAiProjectsRoutes();
+/** @internal Test seam; applications use aiProjectsRoutes. */
+export const __buildAiProjectsRoutesForTest = buildAiProjectsRoutes;
+export type AiProjectsRoutes = typeof aiProjectsRoutes;
