@@ -508,7 +508,7 @@ export const aiCapabilities = defineCapabilities({
             details: [
               { label: "Chat", value: `${chat.title} (${chat.shortId})` },
               { label: "Schedule", value: `${schedule} (${normalized.timezone})` },
-              { label: "Prompt", value: input.prompt },
+              { label: "Prompt", value: input.prompt, display: "block" },
             ],
           });
         } catch (error) {
@@ -590,7 +590,7 @@ export const aiCapabilities = defineCapabilities({
                 label: "Schedule",
                 value: taskScheduleLabel({ ...task, schedule: nextSchedule, timezone: normalized?.timezone ?? task.timezone }),
               },
-              { label: "Prompt", value: input.prompt ?? task.prompt },
+              { label: "Prompt", value: input.prompt ?? task.prompt, display: "block" },
             ],
           });
         } catch (error) {
@@ -633,7 +633,7 @@ export const aiCapabilities = defineCapabilities({
         return ok({
           message: `Pause scheduled task ${task.shortId}.`,
           details: [
-            { label: "Task", value: task.prompt },
+            { label: "Task", value: task.prompt, display: "block" },
             { label: "Schedule", value: taskScheduleLabel(task) },
           ],
         });
@@ -671,7 +671,7 @@ export const aiCapabilities = defineCapabilities({
         return ok({
           message: `Resume scheduled task ${task.shortId}.`,
           details: [
-            { label: "Task", value: task.prompt },
+            { label: "Task", value: task.prompt, display: "block" },
             { label: "Schedule", value: taskScheduleLabel(task) },
           ],
         });
@@ -710,7 +710,7 @@ export const aiCapabilities = defineCapabilities({
           message: `Run scheduled task ${task.shortId} now.`,
           details: [
             { label: "Chat", value: `${task.chatTitle} (${task.chatId})` },
-            { label: "Prompt", value: task.prompt },
+            { label: "Prompt", value: task.prompt, display: "block" },
           ],
         });
       },
@@ -751,7 +751,7 @@ export const aiCapabilities = defineCapabilities({
           message: `Delete scheduled task ${task.shortId} and its run history.`,
           details: [
             { label: "Chat", value: `${task.chatTitle} (${task.chatId})` },
-            { label: "Prompt", value: task.prompt },
+            { label: "Prompt", value: task.prompt, display: "block" },
             { label: "Schedule", value: taskScheduleLabel(task) },
           ],
         });
@@ -780,7 +780,7 @@ export const aiCapabilities = defineCapabilities({
           message: `Send this message to ${target.title} (${target.shortId}).`,
           details: [
             { label: "Target chat", value: `${target.title} (${target.shortId})` },
-            { label: "Message", value: input.text },
+            { label: "Message", value: input.text, display: "block" },
           ],
           links: [{ rel: "open", href: chatHref(target.shortId), title: "Open target chat" }],
         });
