@@ -94,7 +94,11 @@ Before calling a change complete, decide which of these apply:
   state preserve the same result.
 - **Data and effects:** applications own durable domain data in Postgres;
   Valkey coordinates bounded runtime work. Commit domain state before
-  retryable notifications or external effects.
+  retryable notifications or external effects. Bound work that can grow or
+  repeat: input sizes, pagination, batches, queues and buffers, concurrency,
+  retries, and tool or agent loops. Define cancellation and overload behavior
+  explicitly. Derive limits from a public contract or operational budget; do
+  not invent arbitrary caps.
 - **Shared UI:** use public `@k2b/ui` components for controls, feedback,
   surfaces, and layout whenever they can express the requirement. Application
   components compose domain behavior; they do not recreate generic UI
