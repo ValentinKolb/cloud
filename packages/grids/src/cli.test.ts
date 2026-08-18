@@ -375,7 +375,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(148);
+    expect(commands).toHaveLength(152);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {
@@ -899,6 +899,53 @@ describe("grids CLI", () => {
       [`/api/grids/tables/${tableId}/durable-history/continue`, "POST"],
     ]);
     expect(enabled.jsonValues).toEqual([active]);
+  });
+
+  test("manages table finalization and finalizes records through public ids", async () => {
+    const disabledStatus = { enabled: false, durableHistory: "active" as const };
+    const enabledStatus = {
+      enabled: true,
+      durableHistory: "active" as const,
+      enabledAt: "2026-08-18T12:00:00.000Z",
+      finalizedCount: 0,
+      canDisable: true,
+    };
+    const status = createContext(
+      ["tables", "finalization", baseId, "Authors"],
+      {},
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse(disabledStatus)],
+      { output: "json" },
+    );
+    await gridsCli.run(status.ctx);
+    expect(status.calls.at(-1)?.path).toBe(`/api/grids/tables/${tableId}/finalization`);
+    expect(status.jsonValues).toEqual([disabledStatus]);
+
+    const enable = createContext(
+      ["tables", "finalization", "enable", baseId, "Authors"],
+      { yes: true },
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse(enabledStatus)],
+      { output: "json" },
+    );
+    await gridsCli.run(enable.ctx);
+    expect(enable.calls.at(-1)?.path).toBe(`/api/grids/tables/${tableId}/finalization/enable`);
+    expect(enable.calls.at(-1)?.init?.method).toBe("POST");
+    expect(enable.jsonValues).toEqual([enabledStatus]);
+
+    const finalizedRecord = { ...record, finalizedAt: "2026-08-18T12:01:00.000Z", finalizedBy: null };
+    const finalize = createContext(
+      ["records", "finalize", baseId, "Authors", recordId],
+      { yes: true },
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse(finalizedRecord)],
+      { output: "json" },
+    );
+    await gridsCli.run(finalize.ctx);
+    expect(finalize.calls.at(-1)?.path).toBe(`/api/grids/records/${tableId}/${recordId}/finalize`);
+    expect(finalize.calls.at(-1)?.init?.method).toBe("POST");
+    expect(finalize.jsonValues).toEqual([finalizedRecord]);
+
+    const missingConfirmation = createContext(["records", "finalize", baseId, "Authors", recordId]);
+    await expect(gridsCli.run(missingConfirmation.ctx)).rejects.toThrow("Pass --yes to permanently finalize the record.");
+    expect(missingConfirmation.calls).toHaveLength(0);
   });
 
   test("lists durable record versions and downloads retained files", async () => {

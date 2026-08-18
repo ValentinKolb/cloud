@@ -141,6 +141,22 @@ type ValidatedFieldCreate = {
   defaultValue: unknown;
 };
 
+const requireFinalizationForIdConfig = async (
+  client: SqlClient,
+  tableId: string,
+  type: string,
+  config: Record<string, unknown>,
+): Promise<Result<void>> => {
+  if (type !== "id" || config.assignment !== "finalization") return ok();
+  const rows = await client`
+    SELECT table_id FROM grids.table_finalization_activations
+    WHERE table_id = ${tableId}::uuid FOR SHARE
+  `;
+  return rows.length > 0
+    ? ok()
+    : fail(err.badInput("Assign on finalization becomes available when Finalization is enabled for the table."));
+};
+
 const validateFieldCreateIdentity = async (input: CreateFieldInput): Promise<Result<string>> => {
   const name = input.name.trim();
   if (name.length === 0) return fail(err.badInput("name required"));
@@ -155,7 +171,13 @@ const validateFieldCreateValues = async (input: CreateFieldInput, name: string):
   if (!configResult.ok) return configResult;
   const config = configResult.data as Record<string, unknown>;
   if (input.type === "id" && config.assignment === "finalization") {
-    return fail(err.badInput("Assign on finalization becomes available when Finalization is enabled for the table."));
+    const [enabled] = await sql<{ enabled: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM grids.table_finalization_activations WHERE table_id = ${input.tableId}::uuid
+      ) AS enabled
+    `;
+    if (!enabled?.enabled)
+      return fail(err.badInput("Assign on finalization becomes available when Finalization is enabled for the table."));
   }
   const linkResult = await validateLinkOrComputedConfig(input.type, config, input.tableId);
   if (!linkResult.ok) return linkResult;
@@ -226,6 +248,8 @@ const prepareFieldCreate = async (input: CreateFieldInput): Promise<Result<Field
 const insertPreparedField = async (state: FieldCreateState, actorId: string | null): Promise<Result<Field>> =>
   sql.begin(async (tx): Promise<Result<Field>> => {
     const field = state.candidate;
+    const finalization = await requireFinalizationForIdConfig(tx, field.tableId, field.type, field.config);
+    if (!finalization.ok) return finalization;
     if (state.tableKind === "federated") await degradeForTableSchemaChange(field.tableId, actorId, tx);
     const created = await writeNamedResource(
       () =>
@@ -328,7 +352,13 @@ const validateFieldUpdate = async (existing: Field, input: UpdateFieldInput, tab
   if (!cfgValidation.ok) return cfgValidation;
   const config = cfgValidation.data as Record<string, unknown>;
   if (existing.type === "id" && config.assignment === "finalization") {
-    return fail(err.badInput("Assign on finalization becomes available when Finalization is enabled for the table."));
+    const [enabled] = await sql<{ enabled: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM grids.table_finalization_activations WHERE table_id = ${existing.tableId}::uuid
+      ) AS enabled
+    `;
+    if (!enabled?.enabled)
+      return fail(err.badInput("Assign on finalization becomes available when Finalization is enabled for the table."));
   }
   // Same-base + cross-table consistency on every update path. Important:
   // the user can't change `tableId` after creation, so the source-table
@@ -435,7 +465,12 @@ const compensateUniqueConstraintDisable = async (existing: Field, field: Field, 
       const restoredResult = await persistFieldUpdate(field.id, fieldUpdateState(existing), tx);
       if (!restoredResult.ok) throw new Error(restoredResult.error.message);
       if (existing.type === "id") {
-        await syncNumberSeriesFormat(tx, { kind: "field", id: existing.id }, numberSeriesFormatForField(existing.config));
+        await syncNumberSeriesFormat(
+          tx,
+          { kind: "field", id: existing.id },
+          numberSeriesFormatForField(existing.config),
+          (existing.config as { assignment?: "creation" | "finalization" }).assignment ?? "creation",
+        );
       }
       await logFieldUpdateDiff(field, fieldUpdateState(existing), actorId, tx);
       if (field.name !== existing.name) {
@@ -537,11 +572,18 @@ export const update = async (id: string, input: UpdateFieldInput, actorId: strin
     txResult = await sql
       .begin(async (tx): Promise<Result<Field>> => {
         await degradeForTableSchemaChange(existing.tableId, actorId, tx);
+        const finalization = await requireFinalizationForIdConfig(tx, existing.tableId, existing.type, nextResult.data.config);
+        if (!finalization.ok) return finalization;
         const fieldResult = await persistFieldUpdate(id, nextResult.data, tx);
         if (!fieldResult.ok) throw fieldResult;
         const field = fieldResult.data;
         if (field.type === "id") {
-          await syncNumberSeriesFormat(tx, { kind: "field", id: field.id }, numberSeriesFormatForField(field.config));
+          await syncNumberSeriesFormat(
+            tx,
+            { kind: "field", id: field.id },
+            numberSeriesFormatForField(field.config),
+            (field.config as { assignment?: "creation" | "finalization" }).assignment ?? "creation",
+          );
         }
 
         await logFieldUpdateDiff(existing, nextResult.data, actorId, tx);
@@ -682,6 +724,8 @@ export const restore = async (id: string, actorId: string | null): Promise<Resul
   try {
     restored = await sql.begin(async (tx): Promise<Result<Field>> => {
       await degradeForTableSchemaChange(existing.tableId, actorId, tx);
+      const finalization = await requireFinalizationForIdConfig(tx, existing.tableId, existing.type, existing.config);
+      if (!finalization.ok) return finalization;
       const result = await writeNamedResource(
         () =>
           tx.savepoint(async (sp) => {

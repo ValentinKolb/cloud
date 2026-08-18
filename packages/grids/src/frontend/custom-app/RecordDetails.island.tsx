@@ -113,7 +113,7 @@ export default function RecordDetails(props: {
         as="h2"
         size="md"
         actions={
-          <Show when={props.updateEndpoint && editableFields.length > 0}>
+          <Show when={props.updateEndpoint && editableFields.length > 0 && !record().finalizedAt}>
             <Button variant="secondary" size="sm" disabled={saving()} onClick={() => void edit()}>
               <i class="ti ti-pencil" aria-hidden="true" />
               Edit
@@ -132,7 +132,7 @@ export default function RecordDetails(props: {
                 tableId={field.tableId}
                 recordId={record().id}
                 field={field}
-                canWrite={editableFieldIds.has(field.id)}
+                canWrite={editableFieldIds.has(field.id) && !record().finalizedAt}
                 initialFiles={props.filesByField[field.id] ?? []}
                 endpoint={props.fileEndpoints[field.id]}
               />

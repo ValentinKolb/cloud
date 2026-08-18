@@ -23,16 +23,10 @@ import type { WorkflowActionContext, WorkflowActionResult, WorkflowJsonValue, Wo
 import { workflowAction } from "@valentinkolb/cloud/workflows";
 import type { RecordMutationAudit, Table } from "./contracts";
 import { logAudit, type SqlClient } from "./service/audit";
-import {
-  atomicQueryMatches,
-  type AtomicQueryPredicate,
-  type AtomicRecordRef,
-  lockAtomicRecords,
-  requireAtomicTable,
-} from "./service/workflow-atomic-records";
 import { summarizeDocumentRun } from "./service/document-mappers";
 import { createDocumentLink, createRunForRecord, getDocumentRun, getTemplate, publicDocumentLinkBaseUrl } from "./service/documents";
 import { get as getEmailTemplate } from "./service/email-templates";
+import { finalizeInTransaction as finalizeRecordInTransaction } from "./service/record-finalization";
 import { createInTransaction as createRecordInTransaction, updateInTransaction as updateRecordInTransaction } from "./service/record-write";
 import { get as getRecord } from "./service/records";
 import { get as getTable } from "./service/tables";
@@ -49,6 +43,13 @@ import {
   workflowAuditMeta,
   workflowRunScope,
 } from "./service/workflow-action-scope";
+import {
+  type AtomicQueryPredicate,
+  type AtomicRecordRef,
+  atomicQueryMatches,
+  lockAtomicRecords,
+  requireAtomicTable,
+} from "./service/workflow-atomic-records";
 import { sendWorkflowEmail, type WorkflowEmailRecipient } from "./service/workflow-email-send";
 import { preflightWorkflowHttp, requestWorkflowHttp } from "./service/workflow-http-client";
 
@@ -377,6 +378,61 @@ const httpInput = (config: {
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
 export const GRIDS_WORKFLOW_ACTIONS = {
+  finalizeRecord: workflowAction.transactional({
+    label: "Finalize record",
+    description: "Validates and permanently locks one record after a current permission check.",
+    outputType: "grids.record",
+    config: {
+      kind: "object",
+      properties: {
+        record: { kind: "string", minLength: 1, maxLength: 500, description: "Record input or output reference." },
+      },
+    },
+
+    run: (ctx, config) =>
+      attempt(async () => {
+        const tx = transaction(ctx);
+        const scope = await workflowRunScope(ctx, tx);
+        await requireExecution(scope, tx);
+        const record = await recordReference(ctx, config.record, "record");
+        await currentTable(scope, record.tableId);
+        const recordAccess = await requireRecordAccess(scope, record.tableId, "write", tx);
+        const finalized = requireOk(
+          await finalizeRecordInTransaction(tx, {
+            tableId: record.tableId,
+            recordId: record.recordId,
+            actorId: actorId(scope),
+            recordAccess,
+            dateConfig: await dateContext(),
+          }),
+        );
+        await logAudit(
+          {
+            baseId: scope.baseId,
+            tableId: record.tableId,
+            recordId: record.recordId,
+            userId: actorId(scope),
+            action: "workflow.record.finalized",
+            diff: { workflowRecordFinalization: { old: null, new: workflowAuditMeta(scope) } },
+          },
+          tx,
+        );
+        return {
+          state: "succeeded",
+          output: { kind: "record", tableId: finalized.record.tableId, recordId: finalized.record.id } as WorkflowJsonValue,
+        };
+      }),
+
+    plan: (ctx, config) =>
+      planned(async () => {
+        const scope = await workflowRunScope(ctx);
+        await requireExecution(scope);
+        const record = await recordReference(ctx, config.record, "record");
+        await readableRecord(scope, record, "write");
+        return { summary: "Finalize one record permanently", output: record as unknown as WorkflowJsonValue };
+      }),
+  }),
+
   updateRecord: workflowAction.transactional({
     label: "Update record",
     description: "Updates fields on one record after a current permission check.",
@@ -557,7 +613,13 @@ export const GRIDS_WORKFLOW_ACTIONS = {
                 enum: ["empty", "notEmpty"],
                 description: "Whether the query must match no records or at least one record.",
               },
-              message: { kind: "string", minLength: 1, maxLength: 500, optional: true, description: "Failure shown when the assertion is false." },
+              message: {
+                kind: "string",
+                minLength: 1,
+                maxLength: 500,
+                optional: true,
+                description: "Failure shown when the assertion is false.",
+              },
             },
           },
           description: "Current-state assertions evaluated while coordination records are locked.",
@@ -635,7 +697,8 @@ export const GRIDS_WORKFLOW_ACTIONS = {
           const change = config.changes[index]!;
           if (!("updateRecord" in change)) continue;
           const record = await recordReference(ctx, change.updateRecord.record, `changes.${index}.updateRecord.record`);
-          if (record.planned) throw actionError("WORKFLOW_VALUE_INVALID", `changes.${index}.updateRecord.record must reference an existing record`);
+          if (record.planned)
+            throw actionError("WORKFLOW_VALUE_INVALID", `changes.${index}.updateRecord.record must reference an existing record`);
           locks.push({ tableId: record.tableId, recordId: record.recordId, required: "write" });
         }
 

@@ -151,7 +151,8 @@ export const provisionFieldNumberSeries = (
   config: Record<string, unknown>,
 ): Promise<SeriesRow | null> => {
   const format = numberSeriesFormatForField(config);
-  return format ? provision(client, { kind: "field", id: fieldId }, format) : Promise.resolve(null);
+  const assignment = config.assignment === "finalization" ? "finalization" : "creation";
+  return format ? provision(client, { kind: "field", id: fieldId }, format, assignment) : Promise.resolve(null);
 };
 
 export const provisionDocumentNumberSeries = (client: SqlClient, templateId: string, numberTemplate: string): Promise<SeriesRow> =>
@@ -164,6 +165,7 @@ export const syncNumberSeriesFormat = async (
   client: SqlClient,
   owner: { kind: "field" | "document_template"; id: string },
   format: NumberSeriesFormat | null,
+  assignment: NumberSeriesAssignment = "creation",
 ): Promise<void> => {
   const [series] = await client<SeriesRow[]>`
     SELECT id::text, short_id, assignment, current_version, baseline_floor, archived_at
@@ -177,7 +179,13 @@ export const syncNumberSeriesFormat = async (
     }
     return;
   }
-  const current = series ?? (await provision(client, owner, format));
+  const current = series ?? (await provision(client, owner, format, assignment));
+  if (current.assignment !== assignment) {
+    await client`
+      UPDATE grids.number_series SET assignment = ${assignment}, updated_at = now()
+      WHERE id = ${current.id}::uuid
+    `;
+  }
   const [version] = await client<VersionRow[]>`
     SELECT version, strategy, prefix, padding, period, number_template
     FROM grids.number_series_versions
@@ -278,12 +286,13 @@ export const loadFieldNumberSeries = (fieldIds: readonly string[]): Promise<Map<
 export const loadDocumentNumberSeries = (templateIds: readonly string[]): Promise<Map<string, NumberSeriesSummary>> =>
   loadSummaries("document_template_id", templateIds);
 
-const allocateNumberInTransaction = async (params: {
+export const allocateNumberInTransaction = async (params: {
   client: SqlClient;
   owner: { kind: "field" | "document_template"; id: string };
   now?: Date;
   dateConfig?: DateContext;
   renderDocument?: (value: number, seriesShortId: string) => string;
+  expectedAssignment?: NumberSeriesAssignment;
 }): Promise<NumberSeriesAllocation> => {
   const [series] = await params.client<SeriesRow[]>`
     SELECT id::text, short_id, assignment, current_version, baseline_floor, archived_at
@@ -291,7 +300,14 @@ const allocateNumberInTransaction = async (params: {
     WHERE ${ownerPredicate(params.owner)}
   `;
   if (!series || series.archived_at !== null) throw new Error("active number series is missing");
-  if (series.assignment !== "creation") throw new Error("number series is reserved for record finalization");
+  const expectedAssignment = params.expectedAssignment ?? "creation";
+  if (series.assignment !== expectedAssignment) {
+    throw new Error(
+      expectedAssignment === "creation"
+        ? "number series is reserved for record finalization"
+        : "number series is assigned on record creation",
+    );
+  }
   const [format] = await params.client<VersionRow[]>`
     SELECT version, strategy, prefix, padding, period, number_template
     FROM grids.number_series_versions

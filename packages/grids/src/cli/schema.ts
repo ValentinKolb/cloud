@@ -8,6 +8,7 @@ import type {
   PublicTable as Table,
 } from "../api/public-dto";
 import { PublicFederatedDraftInputSchema } from "../api/public-dto";
+import type { PublicRecordFinalizationStatus } from "../api/record-finalization";
 import type { TableKind } from "../contracts";
 
 type FederatedDraftInput = ReturnType<typeof PublicFederatedDraftInputSchema.parse>;
@@ -228,6 +229,55 @@ export const tableCommands = [
         }
       }
       printJsonOrMessage(ctx, status, `Enabled durable history for ${table.name} (${table.id}).`);
+    },
+  }),
+  command("tables finalization", {
+    summary: "Show a table's record finalization status",
+    args: tableArgs,
+    flags: { ...baseFlag, ...tableFlag },
+    async run({ ctx, args, flags }) {
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
+      const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
+      const status = await readApi<PublicRecordFinalizationStatus>(ctx, `/tables/${encodeURIComponent(table.id)}/finalization`);
+      if (!printCliStructured(ctx, status)) {
+        ctx.print(
+          status.enabled
+            ? `Finalization is enabled for ${table.name} (${status.finalizedCount} finalized).`
+            : `Finalization is not enabled for ${table.name}. Durable history: ${status.durableHistory}.`,
+        );
+      }
+    },
+  }),
+  command("tables finalization enable", {
+    summary: "Enable record finalization for a table",
+    args: tableArgs,
+    flags: { ...baseFlag, ...tableFlag, yes: confirmFlag("Enable irreversible record finalization") },
+    async run({ ctx, args, flags }) {
+      if (!flags.yes) throw new Error("Pass --yes to enable record finalization.");
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
+      const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
+      const status = await readApi<PublicRecordFinalizationStatus>(
+        ctx,
+        `/tables/${encodeURIComponent(table.id)}/finalization/enable`,
+        jsonRequest("POST"),
+      );
+      printJsonOrMessage(ctx, status, `Enabled finalization for ${table.name} (${table.id}).`);
+    },
+  }),
+  command("tables finalization disable", {
+    summary: "Disable record finalization before the first record is finalized",
+    args: tableArgs,
+    flags: { ...baseFlag, ...tableFlag, yes: confirmFlag("Disable record finalization") },
+    async run({ ctx, args, flags }) {
+      if (!flags.yes) throw new Error("Pass --yes to disable record finalization.");
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
+      const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
+      const status = await readApi<PublicRecordFinalizationStatus>(
+        ctx,
+        `/tables/${encodeURIComponent(table.id)}/finalization/disable`,
+        jsonRequest("POST"),
+      );
+      printJsonOrMessage(ctx, status, `Disabled finalization for ${table.name} (${table.id}).`);
     },
   }),
   command("tables create", {

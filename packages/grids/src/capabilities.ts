@@ -678,6 +678,7 @@ const mapRecord = (record: GridRecord, table: Table) => ({
   id: record.shortId,
   tableId: table.shortId,
   version: record.version,
+  ...(record.finalizedAt ? { finalizedAt: record.finalizedAt, finalizedBy: record.finalizedBy ?? null } : {}),
   deletedAt: record.deletedAt,
   createdBy: record.createdBy,
   updatedBy: record.updatedBy,
@@ -933,7 +934,7 @@ export const gridsCapabilities = defineCapabilities({
     "record.read": {
       title: "Read Grids Record",
       description:
-        "Read bounded record metadata and its current version for conflict-safe record.update. Use targeted gql.execute selects to read field values.",
+        "Read bounded record metadata, finalization state, and current version for conflict-safe record.update. Use targeted gql.execute selects to read field values.",
       input: RecordReadInputSchema,
       data: RecordCapabilityDataSchema,
       openWorld: false,

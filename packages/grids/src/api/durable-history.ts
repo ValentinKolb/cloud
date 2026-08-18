@@ -33,7 +33,7 @@ export const PublicRecordRevisionSchema = z
   .object({
     id: ShortIdSchema,
     revision: z.number().int().positive(),
-    action: z.enum(["baseline", "created", "updated", "deleted", "restored", "file.added", "file.replaced", "file.removed"]),
+    action: z.enum(["baseline", "created", "updated", "deleted", "restored", "finalized", "file.added", "file.replaced", "file.removed"]),
     recordVersion: z.number().int().positive(),
     data: z.record(ShortIdSchema, z.unknown()),
     files: z.array(PublicRevisionFileSchema),

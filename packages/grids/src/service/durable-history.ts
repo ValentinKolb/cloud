@@ -14,6 +14,7 @@ export type DurableHistoryAction =
   | "updated"
   | "deleted"
   | "restored"
+  | "finalized"
   | "file.added"
   | "file.replaced"
   | "file.removed";
@@ -318,10 +319,10 @@ export const captureRecordRevision = async (
     actorId: string | null;
     schemaFields?: readonly Field[];
   },
-): Promise<void> => {
-  if (!(await activation(input.tableId, client))) return;
+): Promise<RecordRevision | null> => {
+  if (!(await activation(input.tableId, client))) return null;
   const schema = await ensureSchemaRevision(client, input.tableId, input.schemaFields);
-  await insertRevision(client, {
+  return insertRevision(client, {
     tableId: input.tableId,
     recordId: input.recordId,
     action: input.action,

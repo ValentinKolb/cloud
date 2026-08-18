@@ -244,6 +244,7 @@ Run options are configured separately from the workflow source. One workflow can
 
 | Step | Required fields | Optional fields and defaults | Dry run |
 | --- | --- | --- | --- |
+| `finalizeRecord` | `record` | None | Validates Write access and predicts one permanent finalization |
 | `updateRecord` | `record`, non-empty `set` | `audit` answers keyed by audit-question UUID | Validates and predicts the record update |
 | `createRecord` | `table`, non-empty `values` | `saveAs` | Validates and predicts the new record |
 | `atomicRecords` | 1–100 `locks`, 1–50 `checks`, 1–50 `changes` | Check `message`; update `ifVersion` and `audit` | Evaluates current checks and predicts the bounded record changes without locking or writing |
@@ -255,7 +256,7 @@ Run options are configured separately from the workflow source. One workflow can
 | `succeed` | `message` | None | Stops planning with a successful terminal result |
 | `fail` | `message` | None | Stops planning with the failure that execution would produce |
 
-`updateRecord` and `createRecord` field keys accept exact field names or public IDs. If a table requires change context, `updateRecord.audit` must answer the applicable questions by their question UUID. `generateDocument.template` and `sendEmail.template` accept an enabled template exact name or public ID. Ambiguous and inaccessible references are rejected during validation.
+`finalizeRecord` uses the table's generic Finalization contract: it validates the complete record, assigns final IDs, stores the final Durable History version, and permanently locks the record atomically. Retrying the same workflow step is safe. `updateRecord` and `createRecord` field keys accept exact field names or public IDs. If a table requires change context, `updateRecord.audit` must answer the applicable questions by their question UUID. `generateDocument.template` and `sendEmail.template` accept an enabled template exact name or public ID. Ambiguous and inaccessible references are rejected during validation.
 
 ### Commit related record changes together
 
@@ -572,7 +573,7 @@ The workflow page covers the runs in this base, which is what a workflow author 
 A run that is interrupted — a restart, a lost connection, a worker replaced mid-step — is resumed from the outcomes already recorded rather than started again. What that means for a step depends on the kind of effect the action performs, and it is the reason a run can end `needs_attention` instead of simply failing.
 
 :::reference
-- **Record changes:** `updateRecord`, `createRecord`, `atomicRecords`, and `createDocumentLink` commit their work and the record of it together. An interruption means the change did not happen, so resuming performs it once.
+- **Record changes:** `finalizeRecord`, `updateRecord`, `createRecord`, `atomicRecords`, and `createDocumentLink` commit their work and the record of it together. An interruption means the change did not happen, so resuming performs it once.
 - **Documents and email:** `generateDocument` and `sendEmail` are keyed to the run and the step. Resuming after an interruption does not generate a second document or send a recipient a second copy.
 - **HTTP requests:** `httpRequest` is the one action nothing can verify afterwards. If a request left Grids and no complete response came back, the outcome is genuinely unknown.
 - **Decisions and variables:** `setVariable`, `succeed`, `fail`, and the control-flow steps perform no external effect and are simply re-evaluated.

@@ -12,6 +12,7 @@ import { validatePrincipalValuesForActor } from "./principal-values";
 import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
 import { buildRecordAuditContext, loadTableAuditPolicy } from "./record-audit";
 import { captureRecordEventSnapshot, notifyRecordEventOutbox } from "./record-event-outbox";
+import { assertRecordMutable } from "./record-finalization";
 import { buildPersistedUpdateData, buildRecordDiff, mapRecordRow, splitRelationsFromData } from "./record-persistence";
 import { createReader, get } from "./record-read";
 import { recordUniqueConflict } from "./record-unique-conflicts";
@@ -101,6 +102,7 @@ const validateForCreate = async (
   const out: Record<string, unknown> = {};
   for (const field of fields) {
     if (field.type === "id") {
+      if ((field.config as { assignment?: string }).assignment === "finalization") continue;
       out[field.id] = await generateIdValue(field, {
         dateConfig: options.dateConfig,
       });
@@ -472,8 +474,10 @@ export const updateInTransaction = async (
   if (!auditPolicy.ok) return auditPolicy;
   const auditContext = buildRecordAuditContext(auditPolicy.data, "update", Object.keys(diff), opts.audit);
   if (!auditContext.ok) return auditContext;
-  if (Object.keys(diff).length === 0) return ok({ record: existing, outboxId: null });
   await prepareRecordMutation(client, tableId, recordId);
+  const mutable = await assertRecordMutable(client, tableId, recordId);
+  if (!mutable.ok) return mutable;
+  if (Object.keys(diff).length === 0) return ok({ record: existing, outboxId: null });
   const eventPayload = {
     v: 1,
     type: "record.updated",
@@ -586,6 +590,8 @@ export const softDelete = async (
       const auditContext = buildRecordAuditContext(auditPolicy.data, "delete", [], audit);
       if (!auditContext.ok) return auditContext;
       await prepareRecordMutation(tx, tableId, recordId);
+      const mutable = await assertRecordMutable(tx, tableId, recordId);
+      if (!mutable.ok) return mutable;
       const [row] = await tx<Array<{ outbox_id: string }>>`
         UPDATE grids.records
         SET deleted_at = now(), updated_by = ${actorId}::uuid, updated_at = now()
@@ -651,6 +657,8 @@ export const restore = async (
       const auditContext = buildRecordAuditContext(auditPolicy.data, "restore", [], audit);
       if (!auditContext.ok) return auditContext;
       await prepareRecordMutation(tx, tableId, recordId);
+      const mutable = await assertRecordMutable(tx, tableId, recordId);
+      if (!mutable.ok) return mutable;
       const [row] = await tx<Array<{ outbox_id: string }>>`
         UPDATE grids.records
         SET deleted_at = NULL, updated_by = ${actorId}::uuid, updated_at = now()

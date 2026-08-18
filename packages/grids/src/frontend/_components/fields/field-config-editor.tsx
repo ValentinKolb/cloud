@@ -694,6 +694,7 @@ function IdConstraints(props: { config: () => FieldConfigState; onChange: (next:
   const prefix = () => (typeof cfg().prefix === "string" ? (cfg().prefix as string) : "");
   const padding = () => (typeof cfg().padding === "number" ? String(cfg().padding) : "4");
   const period = () => (typeof cfg().period === "string" ? (cfg().period as string) : "year");
+  const assignment = () => (cfg().assignment === "finalization" ? "finalization" : "creation");
   const length = () => (typeof cfg().length === "number" ? String(cfg().length) : "5");
   const groups = () => (typeof cfg().groups === "number" ? String(cfg().groups) : "2");
   const segmentLength = () => (typeof cfg().segmentLength === "number" ? String(cfg().segmentLength) : "4");
@@ -729,14 +730,27 @@ function IdConstraints(props: { config: () => FieldConfigState; onChange: (next:
         description="Choose how new record IDs are generated."
         value={strategy}
         onValueChange={(v) => {
-          if (v === "sequence") props.onChange({ strategy: v, prefix: prefix(), padding: 4 });
-          else if (v === "date_sequence") props.onChange({ strategy: v, prefix: prefix(), padding: 4, period: "year" });
+          if (v === "sequence") props.onChange({ strategy: v, prefix: prefix(), padding: 4, assignment: assignment() });
+          else if (v === "date_sequence")
+            props.onChange({ strategy: v, prefix: prefix(), padding: 4, period: "year", assignment: assignment() });
           else if (v === "short_code") props.onChange({ strategy: v, prefix: prefix(), length: 5 });
           else if (v === "random_code") props.onChange({ strategy: v, prefix: prefix(), groups: 2, segmentLength: 4 });
           else props.onChange({ strategy: v, prefix: prefix() });
         }}
         options={ID_STRATEGY_OPTIONS}
       />
+      <Show when={strategy() === "sequence" || strategy() === "date_sequence"}>
+        <Select
+          label="Assign"
+          description="Creation is the default. Finalization leaves the field empty while the record is a draft."
+          value={assignment}
+          onValueChange={(value) => update({ assignment: value })}
+          options={[
+            { id: "creation", label: "On record creation" },
+            { id: "finalization", label: "On finalization" },
+          ]}
+        />
+      </Show>
       <Show when={strategy() === "sequence"}>
         <div class="grid grid-cols-2 gap-3">
           <PrefixInput />

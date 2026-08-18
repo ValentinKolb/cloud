@@ -263,6 +263,8 @@ export const RecordCapabilityDataSchema = z
     id: ShortIdSchema,
     tableId: ShortIdSchema,
     version: z.number().int().positive(),
+    finalizedAt: TimestampSchema.nullable().optional(),
+    finalizedBy: z.uuid().nullable().optional(),
     deletedAt: TimestampSchema.nullable(),
     createdBy: z.uuid().nullable(),
     updatedBy: z.uuid().nullable(),

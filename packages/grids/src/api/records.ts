@@ -30,6 +30,7 @@ import {
   toPublicRecords,
 } from "./public-dto";
 import { fromPublicExportBody, PublicExportBodySchema } from "./public-query";
+import { PublicRecordFinalizationReadinessSchema, toPublicRecordFinalizationReadiness } from "./record-finalization";
 import { PublicReferencedByPageSchema, toPublicReferencedByPage } from "./referenced-by";
 import { internalIdParam, requirePublicIdParam, requireStoredPublicIdParam } from "./route-params";
 
@@ -163,6 +164,66 @@ const app = new Hono<AuthContext>()
   )
 
   .get(
+    "/:tableId/:recordId/finalization",
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
+    describeRoute({
+      tags: ["Grids:Record"],
+      summary: "Inspect whether a record is ready to finalize",
+      responses: {
+        200: jsonResponse(PublicRecordFinalizationReadinessSchema, "Record finalization readiness"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId }, "write");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.record.finalization.inspect({ tableId, recordId, recordAccess: ALL_RECORD_ACCESS });
+      return result.ok ? c.json(await toPublicRecordFinalizationReadiness(result.data)) : respond(c, () => Promise.resolve(result));
+    },
+  )
+
+  .post(
+    "/:tableId/:recordId/finalize",
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
+    describeRoute({
+      tags: ["Grids:Record"],
+      summary: "Finalize a record and make it immutable",
+      responses: {
+        200: jsonResponse(PublicGridRecordSchema, "Finalized record"),
+        400: jsonResponse(ErrorResponseSchema, "Record is incomplete or finalization is disabled"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Concurrent change"),
+      },
+    }),
+    async (c) => {
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId }, "write");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.record.finalization.finalize({
+        tableId,
+        recordId,
+        actorId: currentActorUserId(c),
+        recordAccess: ALL_RECORD_ACCESS,
+        dateConfig: await getDateConfig(c),
+      });
+      if (!result.ok) return respond(c, () => Promise.resolve(result));
+      const fields = await gridsService.field.listByTable(tableId);
+      return c.json(await toPublicRecord(result.data, fields));
+    },
+  )
+
+  .get(
     "/:tableId/:recordId/referenced-by",
     requirePublicIdParam("tableId", "table", "Table"),
     requirePublicIdParam("recordId", "record", "Record"),
@@ -243,6 +304,7 @@ const app = new Hono<AuthContext>()
         400: jsonResponse(ErrorResponseSchema, "Invalid upload"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Record is finalized"),
         413: jsonResponse(ErrorResponseSchema, "File too large"),
       },
     }),
@@ -294,6 +356,7 @@ const app = new Hono<AuthContext>()
         400: jsonResponse(ErrorResponseSchema, "Invalid replacement"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Record is finalized"),
         413: jsonResponse(ErrorResponseSchema, "File too large"),
       },
     }),
@@ -388,6 +451,7 @@ const app = new Hono<AuthContext>()
         204: { description: "Removed from the current record" },
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Record is finalized"),
       },
     }),
     async (c) => {
@@ -577,6 +641,7 @@ const app = new Hono<AuthContext>()
         400: jsonResponse(ErrorResponseSchema, "Invalid input or missing audit answers"),
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Record is finalized or changed concurrently"),
       },
     }),
     v("json", RecordOperationBodySchema),

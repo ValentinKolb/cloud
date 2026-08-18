@@ -11,6 +11,7 @@ const actionLabel: Record<PublicRecordRevision["action"], string> = {
   updated: "Record updated",
   deleted: "Record moved to trash",
   restored: "Record restored",
+  finalized: "Record finalized",
   "file.added": "File added",
   "file.replaced": "File replaced",
   "file.removed": "File removed",

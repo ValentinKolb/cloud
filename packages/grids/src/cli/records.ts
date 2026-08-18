@@ -313,6 +313,28 @@ export const recordCommands = [
       printJsonOrMessage(ctx, record, `Updated record ${record.id}.`);
     },
   }),
+  command("records finalize", {
+    summary: "Finalize a record and make it permanently read-only",
+    args: tableArgs,
+    flags: {
+      ...baseFlag,
+      ...tableFlag,
+      record: flag.string({ description: "Record public id" }),
+      yes: confirmFlag("Permanently finalize this record"),
+    },
+    async run({ ctx, args, flags }) {
+      if (!flags.yes) throw new Error("Pass --yes to permanently finalize the record.");
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? (flags.record ? 0 : 1) : 2);
+      const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
+      const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
+      const record = await readApi<GridRecord>(
+        ctx,
+        `/records/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}/finalize`,
+        jsonRequest("POST"),
+      );
+      printJsonOrMessage(ctx, record, `Finalized record ${record.id}.`);
+    },
+  }),
   command("records delete", {
     summary: "Move a record to trash",
     args: tableArgs,

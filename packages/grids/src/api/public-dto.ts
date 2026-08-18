@@ -336,7 +336,7 @@ export const PublicFormSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
-export const PublicGridRecordSchema = GridRecordSchema.omit({ id: true, shortId: true, tableId: true }).extend({
+export const PublicGridRecordSchema = GridRecordSchema.omit({ id: true, shortId: true, tableId: true, finalRevisionId: true }).extend({
   id: ShortIdSchema,
   tableId: ShortIdSchema,
 });
@@ -957,9 +957,10 @@ export const toPublicRecords = async (records: readonly GridRecord[], fields: re
   );
   const recordIds = await projectPublicIds("record", relationRecordIds);
   return records.map((record) => {
-    const { expanded: _, ...withoutExpanded } = omitShortId(record);
+    const { expanded: _, finalRevisionId: _finalRevisionId, finalizedAt, finalizedBy, ...withoutExpanded } = omitShortId(record);
     return {
       ...withoutExpanded,
+      ...(finalizedAt ? { finalizedAt, finalizedBy: finalizedBy ?? null } : {}),
       id: record.shortId,
       tableId: publicId(tableIds, record.tableId, "table"),
       data: Object.fromEntries(

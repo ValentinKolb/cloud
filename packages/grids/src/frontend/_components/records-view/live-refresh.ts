@@ -3,7 +3,7 @@ import type { RecordQuery } from "../../../contracts";
 
 export type LiveRecordEvent = {
   v: 1;
-  type: "record.created" | "record.updated" | "record.deleted" | "record.restored";
+  type: "record.created" | "record.updated" | "record.deleted" | "record.restored" | "record.finalized";
   baseId: string;
   tableId: string;
   recordId: string;
@@ -25,7 +25,8 @@ export const isLiveRecordEventForTable = (event: unknown, tableId: string): even
     (candidate.type === "record.created" ||
       candidate.type === "record.updated" ||
       candidate.type === "record.deleted" ||
-      candidate.type === "record.restored") &&
+      candidate.type === "record.restored" ||
+      candidate.type === "record.finalized") &&
     candidate.tableId === tableId &&
     typeof candidate.recordId === "string"
   );

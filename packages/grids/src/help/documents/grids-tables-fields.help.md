@@ -98,6 +98,14 @@ The baseline is the earliest state Grids can prove. It does not reconstruct chan
 
 Readers of a current Record can open **Versions** in its detail panel. A version shows the field meanings that applied then and can download the exact files retained by that version. Durable history increases storage use, has no disable action, and is not by itself a claim of legal or regulatory compliance. It is not exposed through normal Record lists or Custom Apps.
 
+### Finalize records {icon="lock"}
+
+After Durable History has finished its baseline, a Base admin can enable **Record finalization** in the same **History and protection** section. Existing and new records remain Draft until someone with Write access explicitly finalizes one.
+
+Finalization checks every required field, assigns any sequential ID configured for **On finalization**, stores the final version, and then permanently locks the record in one operation. Its fields, Relations, Files, trash state, and final number can no longer change. A retry returns the same finalized record and never allocates a second number.
+
+Before the first record is finalized, an admin can disable the feature after changing all finalization-assigned ID fields back to **On record creation**. After the first final record, the table setting is permanent. Grids does not add invoice, cancellation, correction, or compliance semantics; model those with ordinary fields, Relations, and Workflows.
+
 ## Require change context {icon="point"}
 
 In **Table settings → Data integrity**, an admin can require answers before sensitive field updates, moving records to trash, or restoring them. Questions can apply to every update or only when selected fields change.

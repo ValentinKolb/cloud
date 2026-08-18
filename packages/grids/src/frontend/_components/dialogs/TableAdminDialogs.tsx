@@ -19,6 +19,7 @@ import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { PublicDurableHistoryStatus } from "../../../api/durable-history";
 import type { PublicFederatedSourcePublication, PublicField, PublicForm, PublicTable } from "../../../api/public-dto";
+import type { PublicRecordFinalizationStatus } from "../../../api/record-finalization";
 import { createDraft } from "../editor-draft";
 import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "../fields/field-config-editor";
 import { FIELD_TYPE_ICONS } from "../fields/field-type-meta";
@@ -265,6 +266,12 @@ function TableSettingsBody(props: {
   };
   const [historyLoading, setHistoryLoading] = createSignal(false);
   const [historyLoadError, setHistoryLoadError] = createSignal<string | null>(null);
+  const [finalizationStatus, setFinalizationStatus] = createSignal<PublicRecordFinalizationStatus | null>(null);
+  const enabledFinalizationStatus = () => {
+    const status = finalizationStatus();
+    return status?.enabled ? status : null;
+  };
+  const [finalizationLoading, setFinalizationLoading] = createSignal(false);
 
   const loadPublications = async () => {
     if (props.table.kind !== "stored" || !props.canManageBase) return;
@@ -293,9 +300,23 @@ function TableSettingsBody(props: {
       setHistoryLoading(false);
     }
   };
+  const loadFinalizationStatus = async () => {
+    if (props.table.kind !== "stored" || !props.canManageBase) return;
+    setFinalizationLoading(true);
+    try {
+      const response = await apiClient.tables[":tableId"].finalization.$get({ param: { tableId: props.table.id } });
+      if (!response.ok) throw new Error(await errorMessage(response, "Could not load finalization status"));
+      setFinalizationStatus(await response.json());
+    } catch (error) {
+      prompts.error(error instanceof Error ? error.message : "Could not load finalization status");
+    } finally {
+      setFinalizationLoading(false);
+    }
+  };
   onMount(() => {
     void loadPublications();
     void loadHistoryStatus();
+    void loadFinalizationStatus();
   });
 
   const historyMut = mutations.create<PublicDurableHistoryStatus, "enable" | "continue">({
@@ -319,7 +340,10 @@ function TableSettingsBody(props: {
       }
       return status;
     },
-    onSuccess: setHistoryStatus,
+    onSuccess: (status) => {
+      setHistoryStatus(status);
+      void loadFinalizationStatus();
+    },
     onError: (error) => prompts.error(error.message),
   });
 
@@ -329,6 +353,33 @@ function TableSettingsBody(props: {
       { title: "Enable durable history?", confirmText: "Enable durable history" },
     );
     if (confirmed) historyMut.mutate("enable");
+  };
+
+  const finalizationMut = mutations.create<PublicRecordFinalizationStatus, "enable" | "disable">({
+    mutation: async (operation) => {
+      const response =
+        operation === "enable"
+          ? await apiClient.tables[":tableId"].finalization.enable.$post({ param: { tableId: props.table.id } })
+          : await apiClient.tables[":tableId"].finalization.disable.$post({ param: { tableId: props.table.id } });
+      if (!response.ok) throw new Error(await errorMessage(response, `Could not ${operation} finalization`));
+      return response.json();
+    },
+    onSuccess: setFinalizationStatus,
+    onError: (error) => prompts.error(error.message),
+  });
+
+  const changeFinalization = async (operation: "enable" | "disable") => {
+    const confirmed = await prompts.confirm(
+      operation === "enable"
+        ? "Records stay drafts until someone finalizes them. A finalized record, its files and relations can never be changed or removed."
+        : "Draft records remain editable. You can enable Finalization again later.",
+      {
+        title: operation === "enable" ? "Enable record finalization?" : "Disable record finalization?",
+        confirmText: operation === "enable" ? "Enable finalization" : "Disable finalization",
+        ...(operation === "disable" ? { variant: "danger" as const } : {}),
+      },
+    );
+    if (confirmed) finalizationMut.mutate(operation);
   };
 
   const revokePublication = async (publication: PublicFederatedSourcePublication) => {
@@ -606,6 +657,64 @@ function TableSettingsBody(props: {
                 </Show>
               </Show>
             </Show>
+            <div class="mt-4">
+              <div class="mb-2 text-sm font-medium text-primary">Record finalization</div>
+              <Show
+                when={!finalizationLoading() && finalizationStatus()}
+                fallback={<Placeholder state="loading" align="left" title="Loading finalization status…" />}
+              >
+                {(status) => (
+                  <Show
+                    when={enabledFinalizationStatus()}
+                    fallback={
+                      <NoticeCard
+                        tone={status().durableHistory === "active" ? "info" : "neutral"}
+                        icon={false}
+                        bodyClass="flex flex-col items-start gap-3"
+                      >
+                        <span>
+                          Finalization turns selected drafts into permanently read-only records. It requires an active Durable History
+                          baseline.
+                        </span>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          type="button"
+                          disabled={status().durableHistory !== "active"}
+                          onClick={() => void changeFinalization("enable")}
+                          loading={finalizationMut.loading()}
+                          loadingLabel="Enabling finalization"
+                        >
+                          <i class="ti ti-lock" /> Enable finalization
+                        </Button>
+                      </NoticeCard>
+                    }
+                  >
+                    {(enabled) => (
+                      <NoticeCard tone="success" icon={false} bodyClass="flex flex-col items-start gap-3">
+                        <span>
+                          {enabled().finalizedCount === 0
+                            ? "Finalization is enabled. Records remain drafts until explicitly finalized."
+                            : `${enabled().finalizedCount} record(s) are finalized. Finalization is now permanently enabled for this table.`}
+                        </span>
+                        <Show when={enabled().canDisable}>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            type="button"
+                            onClick={() => void changeFinalization("disable")}
+                            loading={finalizationMut.loading()}
+                            loadingLabel="Disabling finalization"
+                          >
+                            Disable finalization
+                          </Button>
+                        </Show>
+                      </NoticeCard>
+                    )}
+                  </Show>
+                )}
+              </Show>
+            </div>
           </PanelDialog.Section>
         </Show>
 

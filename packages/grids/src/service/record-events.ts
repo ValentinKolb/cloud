@@ -17,7 +17,7 @@ export const RECORD_EVENT_WORK_MAX_DELIVERIES = 10_000;
 export const GridsRecordEventSchema = z
   .object({
     v: z.literal(1),
-    type: z.enum(["record.created", "record.updated", "record.deleted", "record.restored", "comment.created"]),
+    type: z.enum(["record.created", "record.updated", "record.deleted", "record.restored", "record.finalized", "comment.created"]),
     baseId: z.string().uuid(),
     tableId: z.string().uuid(),
     recordId: z.string().uuid(),

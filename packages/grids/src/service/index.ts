@@ -27,6 +27,7 @@ import {
 } from "./permission-resolver";
 import * as recordComments from "./record-comments";
 import { listDeadRecordEventDeliveryFailures } from "./record-event-delivery-failures";
+import * as recordFinalization from "./record-finalization";
 import * as recordHistory from "./record-history";
 import * as records from "./records";
 import * as referencedBy from "./referenced-by";
@@ -87,6 +88,11 @@ export const gridsService = {
       enable: durableHistory.enable,
       continueActivation: durableHistory.continueActivation,
     },
+    finalization: {
+      getStatus: recordFinalization.getStatus,
+      enable: recordFinalization.enable,
+      disable: recordFinalization.disable,
+    },
     federation: {
       getDraft: federatedTables.getDraft,
       getCurrent: federatedTables.getCurrent,
@@ -138,6 +144,10 @@ export const gridsService = {
       list: durableHistory.listRecordRevisions,
       get: durableHistory.getRevision,
       getFileContent: durableHistory.getRevisionFileContent,
+    },
+    finalization: {
+      inspect: recordFinalization.inspect,
+      finalize: recordFinalization.finalize,
     },
     comments: {
       list: recordComments.list,

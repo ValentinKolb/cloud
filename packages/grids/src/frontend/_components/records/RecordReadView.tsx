@@ -22,6 +22,7 @@ type RecordReadViewProps = {
   record: GridRecord;
   mode?: RecordReadViewMode;
   headerMeta?: JSX.Element;
+  showFinalizationStatus?: boolean;
   headerActions?: JSX.Element;
   quickActions?: JSX.Element;
   relationLabels?: Record<string, string>;
@@ -125,6 +126,14 @@ export default function RecordReadView(props: RecordReadViewProps) {
       <Show when={mode() === "snapshot"}>
         <span class="inline-flex items-center gap-1 text-[0.6875rem] leading-4 text-blue-600 dark:text-blue-400">
           <i class="ti ti-camera" aria-hidden="true" /> Snapshot
+        </span>
+      </Show>
+      <Show when={mode() === "live" && props.showFinalizationStatus}>
+        <span
+          class={`inline-flex items-center gap-1 text-[0.6875rem] leading-4 ${props.record.finalizedAt ? "text-emerald-700 dark:text-emerald-300" : "text-dimmed"}`}
+        >
+          <i class={props.record.finalizedAt ? "ti ti-lock" : "ti ti-pencil"} aria-hidden="true" />
+          {props.record.finalizedAt ? "Finalized" : "Draft"}
         </span>
       </Show>
       <span class="text-[0.6875rem] leading-4 text-dimmed">v{props.record.version}</span>

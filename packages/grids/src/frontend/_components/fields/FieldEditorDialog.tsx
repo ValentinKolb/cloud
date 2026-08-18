@@ -470,7 +470,8 @@ function FieldEditor(props: {
             {(series) => (
               <NoticeCard tone={series.migrationNote ? "warning" : "info"} icon={false} role="status">
                 <p>
-                  Number series <strong>{series.id}</strong> · Assign on record creation · Last allocated {series.lastValue}
+                  Number series <strong>{series.id}</strong> · Assign on{" "}
+                  {series.assignment === "finalization" ? "finalization" : "record creation"} · Last allocated {series.lastValue}
                   {series.preview ? ` · Next preview ${series.preview}` : ""}
                 </p>
                 <Show when={series.migrationNote}>

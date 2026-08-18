@@ -1,9 +1,10 @@
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import { Button, DescriptionList, DetailPanel, Dropdown, IconButton, prompts, Tooltip } from "@k2b/ui";
-import { Show } from "solid-js";
+import { createEffect, createSignal, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
+import type { PublicRecordFinalizationReadiness } from "../../../api/record-finalization";
 import type { ColumnSpec, RecordMutationAudit, TableAuditPolicy } from "../../../contracts";
 import { recordAuditRequirementFor } from "../../../record-audit-policy";
 import type { PublicDocumentTemplateSummary } from "../documents/public-document-types";
@@ -58,6 +59,7 @@ type Props = {
 export default function RecordDetailPanel(props: Props) {
   const record = () => props.record();
   const mode = () => props.mode();
+  const [finalization, setFinalization] = createSignal<PublicRecordFinalizationReadiness | null>(null);
 
   const visibleFields = () => props.fields.filter((f) => !f.deletedAt);
   const formatDateTime = (value: string) =>
@@ -108,6 +110,33 @@ export default function RecordDetailPanel(props: Props) {
     },
     onSuccess: () => props.onRemoved(),
     onError: (e) => prompts.error(e.message),
+  });
+
+  const finalizeMut = mutations.create<GridRecord, GridRecord>({
+    mutation: async (rec) => {
+      const res = await apiClient.records[":tableId"][":recordId"].finalize.$post({
+        param: { tableId: props.tableId, recordId: rec.id },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to finalize record"));
+      return res.json();
+    },
+    onSuccess: (updated) => {
+      setFinalization((state) => (state ? { ...state, finalized: true, finalizedAt: updated.finalizedAt ?? null } : state));
+      props.onUpdated(updated);
+    },
+    onError: (error) => prompts.error(error.message),
+  });
+
+  createEffect(() => {
+    const rec = record();
+    setFinalization(null);
+    if (!rec || !props.canWrite || mode() !== "live" || rec.finalizedAt) return;
+    void (async () => {
+      const response = await apiClient.records[":tableId"][":recordId"].finalization.$get({
+        param: { tableId: props.tableId, recordId: rec.id },
+      });
+      if (response.ok && record()?.id === rec.id) setFinalization(await response.json());
+    })();
   });
 
   // ---- Handlers ----------------------------------------------------------
@@ -203,6 +232,38 @@ export default function RecordDetailPanel(props: Props) {
     restoreMut.mutate({ rec, audit: audit ?? undefined });
   };
 
+  const handleFinalize = async (rec: GridRecord) => {
+    if (finalizeMut.loading()) return;
+    let readiness = finalization();
+    if (!readiness) {
+      const response = await apiClient.records[":tableId"][":recordId"].finalization.$get({
+        param: { tableId: props.tableId, recordId: rec.id },
+      });
+      if (!response.ok) {
+        prompts.error(await errorMessage(response, "Could not check finalization requirements"));
+        return;
+      }
+      readiness = await response.json();
+      setFinalization(readiness);
+    }
+    if (!readiness.enabled) {
+      prompts.error("Finalization is not enabled for this table.");
+      return;
+    }
+    if (readiness.missing.length > 0) {
+      prompts.error(
+        `Complete these fields before finalizing:\n\n${readiness.missing.map((item) => `• ${item.fieldName}: ${item.message}`).join("\n")}`,
+      );
+      return;
+    }
+    const assigned = readiness.assignedOnFinalization.map((item) => item.fieldName);
+    const confirmed = await prompts.confirm(
+      `${recordDisplayTitle({ fields: props.fields, record: rec, fieldsByTable: props.fieldsByTable, relationLabels: props.relationLabels, dateConfig: props.dateConfig, viewColumns: props.viewColumns })}\n\n${assigned.length ? `IDs assigned now: ${assigned.join(", ")}\n\n` : ""}After finalization, this record and its files and relations can no longer be changed or removed.`,
+      { title: "Finalize record?", confirmText: "Finalize", variant: "danger" },
+    );
+    if (confirmed) finalizeMut.mutate(rec);
+  };
+
   return (
     <Show when={record()} fallback={null} keyed>
       {(rec) => (
@@ -213,6 +274,7 @@ export default function RecordDetailPanel(props: Props) {
           fields={props.fields}
           record={rec}
           mode={mode()}
+          showFinalizationStatus={Boolean(rec.finalizedAt || finalization()?.enabled)}
           relationLabels={props.relationLabels}
           fieldsByTable={props.fieldsByTable}
           viewColumns={props.viewColumns}
@@ -223,13 +285,13 @@ export default function RecordDetailPanel(props: Props) {
               tableId={props.tableId}
               recordId={record.id}
               field={field}
-              canWrite={props.canWrite && mode() === "live"}
+              canWrite={props.canWrite && mode() === "live" && !record.finalizedAt}
               initialFiles={props.detail()?.filesByField[field.id] ?? []}
             />
           )}
           headerActions={
             <>
-              <Show when={props.canWrite && mode() === "live"}>
+              <Show when={props.canWrite && mode() === "live" && !rec.finalizedAt}>
                 <Dropdown.Root
                   position="bottom-left"
                   items={[
@@ -268,7 +330,7 @@ export default function RecordDetailPanel(props: Props) {
           }
           quickActions={
             <>
-              <Show when={props.canWrite && mode() === "live"}>
+              <Show when={props.canWrite && mode() === "live" && !rec.finalizedAt}>
                 <Button
                   variant="secondary"
                   size="sm"

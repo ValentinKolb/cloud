@@ -119,7 +119,13 @@ describe("durable history route permissions", () => {
         name: "Durable history admin",
         scopes: ["grids:admin"],
       });
-      if (!readCredential.ok || !adminCredential.ok) throw new Error("credential creation failed");
+      const writeCredential = await serviceAccountCredentials.createResourceApiToken({
+        serviceAccountId,
+        actor: user,
+        name: "Record finalization write",
+        scopes: ["grids:write"],
+      });
+      if (!readCredential.ok || !writeCredential.ok || !adminCredential.ok) throw new Error("credential creation failed");
 
       expect((await app.request(`/tables/${tableShortId}/durable-history`)).status).toBe(401);
       expect((await app.request(`/tables/${tableShortId}/durable-history`, bearer(readCredential.data.token))).status).toBe(403);
@@ -143,6 +149,36 @@ describe("durable history route permissions", () => {
       expect(serialized).not.toContain(fieldId);
       expect(serialized).not.toContain(userId);
 
+      expect((await app.request(`/tables/${tableShortId}/finalization`, bearer(readCredential.data.token))).status).toBe(403);
+      const finalizationEnabled = await app.request(
+        `/tables/${tableShortId}/finalization/enable`,
+        bearer(adminCredential.data.token, "POST"),
+      );
+      expect(finalizationEnabled.status).toBe(200);
+      expect(await finalizationEnabled.json()).toMatchObject({ enabled: true, finalizedCount: 0, canDisable: true });
+      expect((await app.request(`/records/${tableShortId}/${recordShortId}/finalization`, bearer(readCredential.data.token))).status).toBe(
+        403,
+      );
+      const readiness = await app.request(`/records/${tableShortId}/${recordShortId}/finalization`, bearer(writeCredential.data.token));
+      expect(readiness.status).toBe(200);
+      expect(await readiness.json()).toMatchObject({ enabled: true, finalized: false, missing: [] });
+      const finalized = await app.request(`/records/${tableShortId}/${recordShortId}/finalize`, bearer(writeCredential.data.token, "POST"));
+      expect(finalized.status).toBe(200);
+      const finalizedBody = (await finalized.json()) as { id: string; tableId: string; finalizedAt: string };
+      expect(finalizedBody.id).toBe(recordShortId);
+      expect(finalizedBody.tableId).toBe(tableShortId);
+      expect(typeof finalizedBody.finalizedAt).toBe("string");
+      expect(JSON.stringify(finalizedBody)).not.toContain(recordId);
+      expect(
+        (
+          await app.request(`/records/${tableShortId}/${recordShortId}`, {
+            ...bearer(writeCredential.data.token, "PATCH"),
+            headers: { authorization: `Bearer ${writeCredential.data.token}`, "content-type": "application/json" },
+            body: JSON.stringify({ values: { [fieldShortId]: "Changed" } }),
+          })
+        ).status,
+      ).toBe(409);
+
       await sql`DELETE FROM grids.file_attachments WHERE file_id = ${fileId}::uuid`;
       const fileUrl = `/records/${tableShortId}/${recordShortId}/versions/${versionPage.items[0]!.id}/files/${fileShortId}`;
       expect((await app.request(fileUrl)).status).toBe(401);
@@ -158,8 +194,13 @@ describe("durable history route permissions", () => {
         (await app.request(`/records/${tableShortId}/${recordShortId}/versions?cursor=bad`, bearer(readCredential.data.token))).status,
       ).toBe(400);
     } finally {
+      await sql`
+        UPDATE grids.records SET finalized_at = NULL, finalized_by = NULL, final_revision_id = NULL
+        WHERE table_id = ${tableId}::uuid
+      `;
       await sql`DELETE FROM grids.file_protected_references WHERE base_id = ${baseId}::uuid`;
       await sql`DELETE FROM grids.record_revisions WHERE table_id = ${tableId}::uuid`;
+      await sql`DELETE FROM grids.table_finalization_activations WHERE table_id = ${tableId}::uuid`;
       await sql`DELETE FROM grids.durable_history_activations WHERE table_id = ${tableId}::uuid`;
       await sql`DELETE FROM grids.table_schema_revisions WHERE table_id = ${tableId}::uuid`;
       await sql`DELETE FROM grids.audit_log WHERE base_id IN (${baseId}::uuid, ${foreignBaseId}::uuid)`;

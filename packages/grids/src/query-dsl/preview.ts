@@ -884,6 +884,9 @@ export const previewDslQuery = async (
         ? {
             recordMeta: {
               version: row.__record_version,
+              finalizedAt: asIso(row.__record_finalized_at),
+              finalizedBy:
+                typeof row.__record_finalized_by === "string" && UUID_RE.test(row.__record_finalized_by) ? row.__record_finalized_by : null,
               deletedAt: asIso(row.__record_deleted_at),
               createdBy:
                 typeof row.__record_created_by === "string" && UUID_RE.test(row.__record_created_by) ? row.__record_created_by : null,

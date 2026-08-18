@@ -849,13 +849,19 @@ const migrateDurableHistory = async (sql: SQL): Promise<void> => {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CONSTRAINT record_revisions_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$'),
       CONSTRAINT record_revisions_action_chk CHECK (
-        action IN ('baseline', 'created', 'updated', 'deleted', 'restored', 'file.added', 'file.replaced', 'file.removed')
+        action IN ('baseline', 'created', 'updated', 'deleted', 'restored', 'finalized', 'file.added', 'file.replaced', 'file.removed')
       ),
       UNIQUE (table_id, record_id, revision_no)
     )
   `.simple();
   await sql`ALTER TABLE grids.record_revisions ADD COLUMN IF NOT EXISTS actor_display_name TEXT`.simple();
   await sql`ALTER TABLE grids.record_revisions ADD COLUMN IF NOT EXISTS actor_avatar_hash TEXT`.simple();
+  await sql`ALTER TABLE grids.record_revisions DROP CONSTRAINT IF EXISTS record_revisions_action_chk`.simple();
+  await sql`
+    ALTER TABLE grids.record_revisions ADD CONSTRAINT record_revisions_action_chk CHECK (
+      action IN ('baseline', 'created', 'updated', 'deleted', 'restored', 'finalized', 'file.added', 'file.replaced', 'file.removed')
+    )
+  `.simple();
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_record_revisions_short_id
     ON grids.record_revisions(short_id)
@@ -867,6 +873,33 @@ const migrateDurableHistory = async (sql: SQL): Promise<void> => {
   `.simple();
   await sql`DROP INDEX IF EXISTS grids.idx_grids_record_revisions_record_page`.simple();
   console.log("  ✓ grids durable history");
+};
+
+const migrateRecordFinalization = async (sql: SQL): Promise<void> => {
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.table_finalization_activations (
+      table_id UUID PRIMARY KEY REFERENCES grids.tables(id) ON DELETE RESTRICT,
+      enabled_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      enabled_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  await sql`ALTER TABLE grids.records ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ`.simple();
+  await sql`ALTER TABLE grids.records ADD COLUMN IF NOT EXISTS finalized_by UUID REFERENCES auth.users(id) ON DELETE SET NULL`.simple();
+  await sql`
+    ALTER TABLE grids.records ADD COLUMN IF NOT EXISTS final_revision_id UUID REFERENCES grids.record_revisions(id) ON DELETE RESTRICT
+  `.simple();
+  await sql`ALTER TABLE grids.records DROP CONSTRAINT IF EXISTS records_finalization_marker_chk`.simple();
+  await sql`
+    ALTER TABLE grids.records ADD CONSTRAINT records_finalization_marker_chk CHECK (
+      (finalized_at IS NULL AND final_revision_id IS NULL)
+      OR (finalized_at IS NOT NULL AND final_revision_id IS NOT NULL)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_records_table_finalized
+    ON grids.records(table_id, finalized_at) WHERE finalized_at IS NOT NULL
+  `.simple();
+  console.log("  ✓ grids record finalization");
 };
 
 const migrateViews = async (sql: SQL): Promise<void> => {
@@ -1739,7 +1772,7 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
       table_id UUID NOT NULL REFERENCES grids.tables(id) ON DELETE CASCADE,
       record_id UUID NOT NULL,
-      event_type TEXT NOT NULL CHECK (event_type IN ('record.created', 'record.updated', 'record.deleted', 'record.restored', 'comment.created')),
+      event_type TEXT NOT NULL CHECK (event_type IN ('record.created', 'record.updated', 'record.deleted', 'record.restored', 'record.finalized', 'comment.created')),
       record_version INT NOT NULL CHECK (record_version > 0),
       data JSONB NOT NULL,
       deleted_at TIMESTAMPTZ,
@@ -1760,12 +1793,12 @@ const migrateFormsAndEvents = async (sql: SQL): Promise<void> => {
            SELECT 1 FROM pg_constraint
            WHERE conrelid = 'grids.record_event_snapshots'::regclass
              AND conname = constraint_name
-             AND pg_get_constraintdef(oid) LIKE '%comment.created%'
+             AND pg_get_constraintdef(oid) LIKE '%record.finalized%'
          ) THEN
         EXECUTE format('ALTER TABLE grids.record_event_snapshots DROP CONSTRAINT %I', constraint_name);
         ALTER TABLE grids.record_event_snapshots
           ADD CONSTRAINT record_event_snapshots_event_type_check
-          CHECK (event_type IN ('record.created', 'record.updated', 'record.deleted', 'record.restored', 'comment.created'));
+          CHECK (event_type IN ('record.created', 'record.updated', 'record.deleted', 'record.restored', 'record.finalized', 'comment.created'));
       END IF;
     END $$
   `.simple();
@@ -2223,6 +2256,7 @@ export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
     await migrateDocumentTemplates(connection);
     await migrateDocumentArtifacts(connection);
     await migrateNumberSeries(connection);
+    await migrateRecordFinalization(connection);
     await finalizeDocumentArtifacts(connection);
     await cleanupAlphaSchema(connection);
     await migrateFormsAndEvents(connection);

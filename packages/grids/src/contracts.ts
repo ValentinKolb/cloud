@@ -471,6 +471,9 @@ export const GridRecordSchema = z.object({
   data: z.record(z.string(), z.unknown()),
   expanded: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   version: z.number().int(),
+  finalizedAt: z.string().datetime().nullable().optional(),
+  finalizedBy: z.string().uuid().nullable().optional(),
+  finalRevisionId: z.string().uuid().nullable().optional(),
   deletedAt: z.string().datetime().nullable(),
   createdBy: z.string().uuid().nullable(),
   updatedBy: z.string().uuid().nullable(),
@@ -973,6 +976,8 @@ const DslQueryPreviewSuccessSchema = z.object({
       recordMeta: z
         .object({
           version: z.number().int(),
+          finalizedAt: z.string().datetime().nullable(),
+          finalizedBy: z.string().uuid().nullable(),
           deletedAt: z.string().datetime().nullable(),
           createdBy: z.string().uuid().nullable(),
           updatedBy: z.string().uuid().nullable(),

@@ -19,6 +19,7 @@ import type { GridsWorkflowPrincipal } from "../workflows/contracts";
 import { gridsWorkflows } from "../workflows/module";
 import { enable as enableDurableHistory, listRecordRevisions } from "./durable-history";
 import { provisionFieldNumberSeries } from "./number-series";
+import { enable as enableFinalization } from "./record-finalization";
 import { GRIDS_APP_ID, gridsAuthorizationSnapshot } from "./workflow-runs";
 import { dryRunGridsWorkflowRun, runGridsWorkflowRun } from "./workflow-runtime";
 import { deleteTestWorkflowScope, insertTestWorkflow, publishTestWorkflowVersion } from "./workflow-test-fixture";
@@ -114,7 +115,12 @@ const insertFixture = async (fixture: Fixture): Promise<void> => {
 };
 
 const cleanupFixture = async (fixture: Fixture): Promise<void> => {
+  await sql`
+    UPDATE grids.records SET finalized_at = NULL, finalized_by = NULL, final_revision_id = NULL
+    WHERE table_id = ${fixture.tableId}::uuid
+  `;
   await sql`DELETE FROM grids.record_revisions WHERE table_id = ${fixture.tableId}::uuid`;
+  await sql`DELETE FROM grids.table_finalization_activations WHERE table_id = ${fixture.tableId}::uuid`;
   await sql`DELETE FROM grids.durable_history_activations WHERE table_id = ${fixture.tableId}::uuid`;
   await sql`DELETE FROM grids.table_schema_revisions WHERE table_id = ${fixture.tableId}::uuid`;
   await sql`DELETE FROM grids.audit_log WHERE base_id = ${fixture.baseId}::uuid`;
@@ -330,6 +336,34 @@ describe("declared Grids workflow actions", () => {
       const [step] = await stepRuns(runId);
       expect(step).toMatchObject({ step_key: "steps.0", state: "completed", effect_state: "succeeded" });
       expect(step?.effect_output).toEqual({ kind: "record", tableId: fixture.tableId, recordId: fixture.recordId });
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("finalizeRecord is permission-checked, atomic, and idempotent when a workflow step is replayed", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      const history = await enableDurableHistory(fixture.tableId, fixture.actorId);
+      if (!history.ok) throw history.error;
+      const activation = await enableFinalization(fixture.tableId, fixture.actorId);
+      if (!activation.ok) throw activation.error;
+      const runId = await queueRun(fixture, {
+        plan: boundPlan([actionStep(0, "finalizeRecord", { record: "inputs.record" })], {}),
+        inputs: { record: { kind: "record", tableId: fixture.tableId, recordId: fixture.recordId } },
+      });
+
+      expect(await drive(runId)).toBe("succeeded");
+      await reopenForReplay(runId);
+      expect(await drive(runId)).toBe("succeeded");
+      const [record] = await sql<Array<{ finalized_at: Date | null; version: number }>>`
+        SELECT finalized_at, version FROM grids.records WHERE id = ${fixture.recordId}::uuid
+      `;
+      expect(record?.finalized_at).toBeTruthy();
+      expect(record?.version).toBe(2);
+      const revisions = await listRecordRevisions({ tableId: fixture.tableId, recordId: fixture.recordId });
+      expect(revisions.ok && revisions.data.items.filter((revision) => revision.action === "finalized")).toHaveLength(1);
     } finally {
       await cleanupFixture(fixture);
     }

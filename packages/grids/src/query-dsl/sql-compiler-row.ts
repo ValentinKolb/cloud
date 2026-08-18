@@ -204,6 +204,8 @@ export const compileDslQueryPlanToSql = (plan: DslResolvedSqlQueryPlan, options:
     sql`r.id::text AS __record_id`,
     sql`r.table_id::text AS __table_id`,
     sql`r.version AS __record_version`,
+    sql`r.finalized_at AS __record_finalized_at`,
+    sql`r.finalized_by::text AS __record_finalized_by`,
     sql`r.deleted_at AS __record_deleted_at`,
     sql`r.created_by::text AS __record_created_by`,
     sql`r.updated_by::text AS __record_updated_by`,

@@ -124,7 +124,7 @@ Built-in templates create complete example bases with schema, views, Grids Apps,
 records are included by default; pass `--empty` to keep the complete configuration without those records. Commands are
 `templates list|instantiate`.
 
-Base commands are `list`, `use`, `current`, and `bases list|get|create|update|delete|restore|trash`. Table commands are `tables list|get|create|update|delete|restore|history|history enable`.
+Base commands are `list`, `use`, `current`, and `bases list|get|create|update|delete|restore|trash`. Table commands are `tables list|get|create|update|delete|restore|history|history enable|finalization|finalization enable|finalization disable`.
 
 Pass `--kind stored` for a normal table or `--kind federated` for a user-facing Combined table. Stored is the default.
 
@@ -204,6 +204,9 @@ continues the initial baseline in bounded server-side batches until every existi
 ```bash
 cld grids tables history Authors --json
 cld grids tables history enable Authors --yes --json
+cld grids tables finalization Authors --json
+cld grids tables finalization enable Authors --yes --json
+cld grids records finalize Authors <record-id> --yes --json
 cld grids records versions Authors <record-id> --limit 20 --json
 cld grids records versions download Authors <record-id> <revision-id> <file-id> --out historical-file.bin
 ```
@@ -216,7 +219,7 @@ provide legal or regulatory compliance.
 entire Combined table and accepts record, source, action, time-range, cursor, and limit filters. Combined audit entries expose only
 canonical included fields, declared audit answers such as required deletion comments, and safe source labels.
 
-Record commands are `records shape|list|query|get|create|import|export|update|delete|restore|audit|audit list|versions|versions download`.
+Record commands are `records shape|list|query|get|create|import|export|update|finalize|delete|restore|audit|audit list|versions|versions download`.
 
 ### Files and snapshots
 
@@ -750,6 +753,7 @@ Action fields are:
 
 | Action | Required | Optional and defaults | Saved output |
 | --- | --- | --- | --- |
+| `finalizeRecord` | `record` | none | none |
 | `updateRecord` | `record`, non-empty `set` | `audit` answers by question UUID | none |
 | `createRecord` | `table`, non-empty `values` | `saveAs` | created record |
 | `atomicRecords` | 1–100 `locks`, 1–50 `checks`, 1–50 `changes` | check `message`; update `ifVersion` and `audit` | none |
@@ -1021,10 +1025,12 @@ list, use, current
 templates list|instantiate
 bases list|get|create|update|delete|restore|trash
 access reference|list|grant|set|revoke|search-principals
-tables list|get|create|update|delete|restore
+tables list|get|create|update|delete|restore|history|finalization
+tables history enable|finalization enable|finalization disable
 tables combined get|candidates|publications|validate|draft|publish|revoke
 fields types|type|list|get|create|update|delete|restore|dependents|reorder
-records shape|list|query|get|create|import|export|update|delete|restore|audit|audit list
+records shape|list|query|get|create|import|export|update|finalize|delete|restore|audit|audit list|versions
+records versions download
 records files list|upload|download|delete
 snapshots list|create|get
 gql reference|run|preview|compile-view|autocomplete|skill|context

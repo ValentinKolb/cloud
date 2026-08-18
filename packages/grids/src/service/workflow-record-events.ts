@@ -1,11 +1,11 @@
+import type { Result } from "@k2b/stdlib";
+import { type Lock, mutex, type QueueReceived } from "@k2b/sync";
 import { logger } from "@valentinkolb/cloud/services";
 import { get as settingsGet } from "@valentinkolb/cloud/services/settings";
 import { normalizeTimeZone } from "@valentinkolb/cloud/shared";
 import type { WorkflowInvocationReceipt, WorkflowJsonValue } from "@valentinkolb/cloud/workflows";
 import { workflowPathKey } from "@valentinkolb/cloud/workflows";
 import { evaluateWorkflowTriggerInputs } from "@valentinkolb/cloud/workflows/runtime";
-import type { Result } from "@k2b/stdlib";
-import { type Lock, mutex, type QueueReceived } from "@k2b/sync";
 import { sql } from "bun";
 import type { FilterTree } from "../contracts";
 import type { GridsWorkflow } from "../workflows/contracts";
@@ -203,6 +203,7 @@ type Snapshot = { data: Record<string, WorkflowJsonValue>; matched: boolean };
 const eventName = (event: GridsRecordEvent): "created" | "updated" | "deleted" | "commented" | null => {
   if (event.type === "record.created") return "created";
   if (event.type === "record.updated") return "updated";
+  if (event.type === "record.finalized") return "updated";
   if (event.type === "record.deleted") return "deleted";
   if (event.type === "comment.created") return "commented";
   return null;

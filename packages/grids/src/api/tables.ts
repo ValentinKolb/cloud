@@ -38,6 +38,7 @@ import {
   toPublicTable,
   toPublicTables,
 } from "./public-dto";
+import { PublicRecordFinalizationStatusSchema, toPublicRecordFinalizationStatus } from "./record-finalization";
 import { internalIdParam, requirePublicIdParam, requireStoredPublicIdParam } from "./route-params";
 import { tableQueryRoutes } from "./table-query-routes";
 
@@ -466,6 +467,78 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const result = await gridsService.table.durableHistory.continueActivation(tableId);
       return result.ok ? c.json(toPublicDurableHistoryStatus(result.data)) : c.json({ message: result.error.message }, result.error.status);
+    },
+  )
+
+  .get(
+    "/:tableId/finalization",
+    requirePublicIdParam("tableId", "table", "Table"),
+    describeRoute({
+      tags: ["Grids:Table"],
+      summary: "Get record finalization status",
+      responses: {
+        200: jsonResponse(PublicRecordFinalizationStatusSchema, "Record finalization status"),
+        400: jsonResponse(ErrorResponseSchema, "Unsupported table"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const tableId = internalIdParam(c, "tableId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.table.finalization.getStatus(tableId);
+      return result.ok ? c.json(toPublicRecordFinalizationStatus(result.data)) : respond(c, () => Promise.resolve(result));
+    },
+  )
+
+  .post(
+    "/:tableId/finalization/enable",
+    requirePublicIdParam("tableId", "table", "Table"),
+    describeRoute({
+      tags: ["Grids:Table"],
+      summary: "Enable record finalization",
+      responses: {
+        200: jsonResponse(PublicRecordFinalizationStatusSchema, "Record finalization status"),
+        400: jsonResponse(ErrorResponseSchema, "Durable History prerequisite not met"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    async (c) => {
+      const tableId = internalIdParam(c, "tableId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.table.finalization.enable(tableId, currentActorUserId(c));
+      return result.ok ? c.json(toPublicRecordFinalizationStatus(result.data)) : respond(c, () => Promise.resolve(result));
+    },
+  )
+
+  .post(
+    "/:tableId/finalization/disable",
+    requirePublicIdParam("tableId", "table", "Table"),
+    describeRoute({
+      tags: ["Grids:Table"],
+      summary: "Disable record finalization before first use",
+      responses: {
+        200: jsonResponse(PublicRecordFinalizationStatusSchema, "Record finalization status"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+        409: jsonResponse(ErrorResponseSchema, "Finalization is permanent after first use"),
+      },
+    }),
+    async (c) => {
+      const tableId = internalIdParam(c, "tableId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.table.finalization.disable(tableId, currentActorUserId(c));
+      return result.ok ? c.json(toPublicRecordFinalizationStatus(result.data)) : respond(c, () => Promise.resolve(result));
     },
   )
 

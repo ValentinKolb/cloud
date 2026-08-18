@@ -4,6 +4,7 @@ import { sql } from "bun";
 import { logAudit, type SqlClient } from "./audit";
 import { captureRecordRevision, lockDurableHistoryMutationBoundary, prepareRecordMutation } from "./durable-history";
 import { type FederatedRevisionScope, getActive, verifyRevisionScope } from "./federated-tables";
+import { assertRecordMutable } from "./record-finalization";
 import { insertWithShortIdForDb } from "./short-id";
 import { get as getTable } from "./tables";
 import type { GridFile, GridFileContent, GridFilePreview } from "./types";
@@ -419,6 +420,8 @@ export const upload = async (params: {
     await lockDurableHistoryMutationBoundary(tx, params.tableId);
     await lockMutationTarget(tx, params.recordId, params.fieldId);
     await prepareRecordMutation(tx, params.tableId, params.recordId);
+    const mutable = await assertRecordMutable(tx, params.tableId, params.recordId);
+    if (!mutable.ok) return mutable;
 
     if (typeof maxFiles === "number" && Number.isInteger(maxFiles) && maxFiles > 0) {
       const [countRow] = await tx<{ count: number }[]>`
@@ -510,6 +513,8 @@ export const replace = async (params: {
     await lockDurableHistoryMutationBoundary(tx, params.tableId);
     await lockMutationTarget(tx, params.recordId, params.fieldId);
     await prepareRecordMutation(tx, params.tableId, params.recordId);
+    const mutable = await assertRecordMutable(tx, params.tableId, params.recordId);
+    if (!mutable.ok) return mutable;
     const [existingRow] = await tx<DbRow[]>`
       SELECT file.id::text AS id, file.short_id, attachment.record_id::text AS record_id,
              attachment.field_id::text AS field_id, attachment.position, file.filename, file.mime_type,
@@ -624,6 +629,8 @@ export const remove = async (params: {
     await lockDurableHistoryMutationBoundary(tx, params.tableId);
     await lockMutationTarget(tx, params.recordId, params.fieldId);
     await prepareRecordMutation(tx, params.tableId, params.recordId);
+    const mutable = await assertRecordMutable(tx, params.tableId, params.recordId);
+    if (!mutable.ok) return mutable;
     const [row] = await tx<DbRow[]>`
       SELECT file.id::text AS id, file.short_id, attachment.record_id::text AS record_id,
              attachment.field_id::text AS field_id, attachment.position, file.filename, file.mime_type,

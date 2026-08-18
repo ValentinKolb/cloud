@@ -219,6 +219,8 @@ const branchForSource = async (params: {
              source_table.base_id AS source_base_id,
              ${data} AS data,
              source_record.version,
+             source_record.finalized_at,
+             source_record.finalized_by,
              source_record.deleted_at,
              source_record.created_by,
              source_record.updated_by,
