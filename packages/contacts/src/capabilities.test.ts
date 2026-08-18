@@ -360,6 +360,7 @@ describe("contacts capabilities", () => {
         contactId: publicContactId,
         expectedUpdatedAt: timestamp,
         firstName: "Grace",
+        birthday: "1990-05-12",
         emails: [{ label: "work", email: "grace@example.test" }],
       },
       context,
@@ -367,9 +368,12 @@ describe("contacts capabilities", () => {
     expect(result.ok).toBeTrue();
     if (!result.ok) return;
     expect(result.data.details).toContainEqual({ label: "First name", value: "Ada → Grace" });
+    expect(result.data.details).toContainEqual({ label: "Current birthday", value: "None" });
+    expect(result.data.details).toContainEqual({ label: "New birthday", value: "1990-05-12", format: "date" });
     expect(result.data.details).toContainEqual({
       label: "Email addresses",
-      value: "1 item: ada@example.test → 1 item: grace@example.test",
+      value: "Current\n1. work — ada@example.test\n\nProposed\n1. work — grace@example.test",
+      display: "block",
     });
   });
 

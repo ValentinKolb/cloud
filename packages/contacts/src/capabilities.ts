@@ -216,16 +216,67 @@ const boundedReviewText = (value: unknown, limit = 240): string => {
   return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
 };
 
+const CONTACT_REVIEW_BLOCK_MAX_CHARS = 9_000;
+const CONTACT_COLLECTION_FIELDS = new Set<ContactReviewField>(["tagIds", "emails", "phones", "addresses", "websites", "bankAccounts"]);
+
 const contactReviewItem = (field: ContactReviewField, value: unknown, tagNames: ReadonlyMap<string, string>): string => {
-  if (field === "tagIds") return tagNames.get(String(value)) ?? boundedReviewText(value);
+  if (field === "tagIds") return tagNames.get(String(value)) ?? String(value);
   if (typeof value !== "object" || value === null) return boundedReviewText(value);
   const item = value as Record<string, unknown>;
-  if (field === "emails") return boundedReviewText(item.email);
-  if (field === "phones") return boundedReviewText(item.phone);
-  if (field === "addresses") return boundedReviewText([item.line1, item.city, item.countryCode].filter(Boolean).join(", "));
-  if (field === "websites") return boundedReviewText(item.url);
-  if (field === "bankAccounts") return boundedReviewText([item.accountHolderName, item.iban].filter(Boolean).join(" — "));
+  if (field === "emails") return [item.label, item.email].filter(Boolean).join(" — ");
+  if (field === "phones") return [item.label, item.phone].filter(Boolean).join(" — ");
+  if (field === "addresses") {
+    return [
+      item.label,
+      item.recipientName,
+      item.companyName,
+      item.line1,
+      item.line2,
+      [item.postalCode, item.city].filter(Boolean).join(" "),
+      item.stateRegion,
+      item.countryCode,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (field === "websites") return [item.label, item.url].filter(Boolean).join(" — ");
+  if (field === "bankAccounts") {
+    return [
+      [item.label, item.accountHolderName, item.iban].filter(Boolean).join(" — "),
+      item.bic ? `BIC: ${item.bic}` : null,
+      item.bankName ? `Bank: ${item.bankName}` : null,
+      item.note ? `Note: ${item.note}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
   return boundedReviewText(value);
+};
+
+const contactCollectionReviewValue = (field: ContactReviewField, value: unknown, tagNames: ReadonlyMap<string, string>): string => {
+  if (!Array.isArray(value) || value.length === 0) return "None";
+  return value.map((item, index) => `${index + 1}. ${contactReviewItem(field, item, tagNames)}`).join("\n\n");
+};
+
+const contactCollectionReview = (
+  field: ContactReviewField,
+  current: unknown,
+  proposed: unknown,
+  tagNames: ReadonlyMap<string, string>,
+): NonNullable<CapabilityActionReview["details"]>[number] => {
+  const full = `Current\n${contactCollectionReviewValue(field, current, tagNames)}\n\nProposed\n${contactCollectionReviewValue(
+    field,
+    proposed,
+    tagNames,
+  )}`;
+  const truncated = full.length > CONTACT_REVIEW_BLOCK_MAX_CHARS;
+  return {
+    label: CONTACT_REVIEW_LABELS[field],
+    value: truncated
+      ? `${full.slice(0, CONTACT_REVIEW_BLOCK_MAX_CHARS)}\n\nPreview truncated. Review the full validated input under Details.`
+      : full,
+    display: "block",
+  };
 };
 
 const contactReviewValue = (field: ContactReviewField, value: unknown, tagNames: ReadonlyMap<string, string>): string => {
@@ -1015,14 +1066,33 @@ export const contactsCapabilities = defineCapabilities({
             message: `Update ${resolveContactName(contact)}.`,
             details: [
               { label: "Contact", value: resolveContactName(contact) },
-              ...changedFields.map((field) => ({
-                label: CONTACT_REVIEW_LABELS[field],
-                value: `${contactReviewValue(field, currentContactReviewValue(contact, field), tagNames)} → ${contactReviewValue(
-                  field,
-                  input[field],
-                  tagNames,
-                )}`,
-              })),
+              ...changedFields.flatMap((field): NonNullable<CapabilityActionReview["details"]> => {
+                const current = currentContactReviewValue(contact, field);
+                const proposed = input[field];
+                if (CONTACT_COLLECTION_FIELDS.has(field)) {
+                  return [contactCollectionReview(field, current, proposed, tagNames)];
+                }
+                if (field === "birthday") {
+                  return [
+                    {
+                      label: "Current birthday",
+                      value: typeof current === "string" ? current : "None",
+                      ...(typeof current === "string" ? { format: "date" as const } : {}),
+                    },
+                    {
+                      label: "New birthday",
+                      value: typeof proposed === "string" ? proposed : "None",
+                      ...(typeof proposed === "string" ? { format: "date" as const } : {}),
+                    },
+                  ];
+                }
+                return [
+                  {
+                    label: CONTACT_REVIEW_LABELS[field],
+                    value: `${contactReviewValue(field, current, tagNames)} → ${contactReviewValue(field, proposed, tagNames)}`,
+                  },
+                ];
+              }),
             ],
           };
         }),
