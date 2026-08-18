@@ -37,7 +37,7 @@ const record = (data: Record<string, unknown>, expanded?: GridRecord["expanded"]
 });
 
 describe("FieldValue rendering", () => {
-  test("keeps HTML template values escaped and exposes a preview action", () => {
+  test("keeps HTML template values escaped and exposes a tall preview action", async () => {
     const htmlField = field({ id: "html01", name: "Email body", type: "html_template" });
     const html = renderToString(() => createComponent(FieldValue, { field: htmlField, value: "<strong>Ada</strong>" }));
     const detail = renderToString(() => createComponent(FieldValue, { field: htmlField, value: "<strong>Ada</strong>", mode: "detail" }));
@@ -46,6 +46,10 @@ describe("FieldValue rendering", () => {
     expect(html).not.toContain("<strong>Ada</strong>");
     expect(detail).toContain("Preview");
     expect(detail).not.toContain("&lt;strong>Ada&lt;/strong>");
+
+    const source = await Bun.file(new URL("./FieldValue.tsx", import.meta.url)).text();
+    expect(source).toContain("panelDialogFixedOptions");
+    expect(source).toContain("h-[65dvh] min-h-[24rem]");
   });
 
   test("renders relation links and label-only relation values", () => {

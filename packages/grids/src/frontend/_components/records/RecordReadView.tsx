@@ -1,5 +1,7 @@
 import type { DateContext } from "@k2b/stdlib";
-import { DescriptionList, DetailPanel, Placeholder } from "@k2b/ui";
+import { clipboard } from "@k2b/stdlib/solid";
+import { DescriptionList, DetailPanel, IconButton, Placeholder, Tooltip } from "@k2b/ui";
+import { cloudResourceClipboard } from "@valentinkolb/cloud/browser/resource-clipboard";
 import { For, type JSX, Show } from "solid-js";
 import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import type { ColumnSpec, FormatSpec } from "../../../contracts";
@@ -7,6 +9,7 @@ import { effectiveDisplayField } from "../../../lookup-display";
 import { fieldTypeIcon } from "../fields/field-type-meta";
 import { barcodeValueText, canRenderBarcode } from "../table/BarcodeRendering";
 import { FieldValue } from "../table/FieldValue";
+import { resolveFieldDisplay } from "../table/field-display";
 import { fieldDisplayFormatForView, recordDisplayTitle, recordTitleField } from "./record-display";
 
 type RecordReadViewMode = "live" | "trash" | "snapshot";
@@ -36,6 +39,7 @@ const visibleFieldsFor = (fields: Field[]) => fields.filter((field) => !field.de
 export const hasRecordDetailValue = (value: unknown): boolean => value !== null && value !== undefined && value !== "";
 
 export default function RecordReadView(props: RecordReadViewProps) {
+  const recordClipboard = clipboard.createWriter({ write: cloudResourceClipboard.write, copiedFor: 1800 });
   const mode = () => props.mode ?? "live";
   const visibleFields = () => visibleFieldsFor(props.fields);
   const titleField = () => recordTitleField(visibleFields());
@@ -87,20 +91,52 @@ export default function RecordReadView(props: RecordReadViewProps) {
     );
   };
 
+  const relationItems = (field: Field) => {
+    const intent = resolveFieldDisplay({
+      field,
+      value: props.record.data[field.id],
+      record: props.record,
+      relationLabels: props.relationLabels,
+    });
+    return intent.kind === "relation" ? intent.items : [];
+  };
+
+  const relationTargetTableId = (field: Field): string | undefined => (field.config as { targetTableId?: string }).targetTableId;
+
+  const recordHref = () =>
+    `/app/grids/${encodeURIComponent(props.baseId)}/table/${encodeURIComponent(props.tableId)}?record=${encodeURIComponent(props.record.id)}`;
+  const copyRecord = () =>
+    recordClipboard.copy({
+      ref: { type: "grids.record", id: props.record.id },
+      fallbackText: new URL(recordHref(), window.location.origin).href,
+    });
+  const copyRecordLabel = () => {
+    if (recordClipboard.error()) return "Could not copy record reference";
+    return recordClipboard.wasCopied() ? "Record reference copied" : "Copy record reference";
+  };
+
   const defaultHeaderMeta = () => (
     <>
       <Show when={mode() === "trash"}>
-        <span class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+        <span class="inline-flex items-center gap-1 text-[0.6875rem] leading-4 text-amber-600 dark:text-amber-400">
           <i class="ti ti-trash" aria-hidden="true" /> Deleted
         </span>
       </Show>
       <Show when={mode() === "snapshot"}>
-        <span class="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400">
+        <span class="inline-flex items-center gap-1 text-[0.6875rem] leading-4 text-blue-600 dark:text-blue-400">
           <i class="ti ti-camera" aria-hidden="true" /> Snapshot
         </span>
       </Show>
-      <span>v{props.record.version}</span>
-      <span class="font-mono">{props.record.id.slice(0, 8)}</span>
+      <span class="text-[0.6875rem] leading-4 text-dimmed">v{props.record.version}</span>
+      <span class="text-[0.6875rem] leading-4 text-dimmed">{props.record.id}</span>
+      <Tooltip.Anchor content={copyRecordLabel()}>
+        <IconButton type="button" variant="ghost" size="xs" class="h-5! w-5!" label={copyRecordLabel()} onClick={() => void copyRecord()}>
+          <i
+            class={recordClipboard.error() ? "ti ti-alert-circle text-danger" : recordClipboard.wasCopied() ? "ti ti-check" : "ti ti-copy"}
+            aria-hidden="true"
+          />
+        </IconButton>
+      </Tooltip.Anchor>
     </>
   );
 
@@ -121,10 +157,9 @@ export default function RecordReadView(props: RecordReadViewProps) {
 
   const fieldTerm = (field: Field, includeDescription = false) => (
     <span class="flex min-w-0 items-start gap-1.5">
-      <i
-        class={`${fieldTypeIcon(field.type, field.icon)} mt-0.5 shrink-0 ${isComputedField(field) ? "text-blue-600 dark:text-blue-400" : ""}`}
-        aria-hidden="true"
-      />
+      <span class="flex h-5 w-4 shrink-0 items-center" aria-hidden="true">
+        <i class={`${fieldTypeIcon(field.type, field.icon)} ${isComputedField(field) ? "text-blue-600 dark:text-blue-400" : ""}`} />
+      </span>
       <span class="min-w-0">
         <span class="block break-words">{field.name}</span>
         <Show when={includeDescription && field.description}>
@@ -148,62 +183,102 @@ export default function RecordReadView(props: RecordReadViewProps) {
         <Show when={hasFieldSections()}>
           <For each={barcodeFields()}>
             {(field) => (
-              <DetailPanel.Section title={field.name} icon={fieldTypeIcon(field.type, field.icon)}>
-                {renderField(field, props.record)}
-              </DetailPanel.Section>
+              <DetailPanel.Group label={`${field.name} field`}>
+                <DetailPanel.Section title={field.name} icon={fieldTypeIcon(field.type, field.icon)}>
+                  {renderField(field, props.record)}
+                </DetailPanel.Section>
+              </DetailPanel.Group>
             )}
           </For>
           <Show when={detailsFields().length > 0}>
-            <DetailPanel.Section title="Fields" icon="ti ti-list-details">
-              <DescriptionList
-                layout="rows"
-                size="sm"
-                items={detailsFields().map((field) => ({
-                  term: fieldTerm(field),
-                  description: <span class="min-w-0 break-words text-primary">{renderField(field, props.record)}</span>,
-                }))}
-              />
-            </DetailPanel.Section>
+            <DetailPanel.Group label="Record fields">
+              <DetailPanel.Section title="Fields" icon="ti ti-list-details">
+                <DescriptionList
+                  layout="rows"
+                  size="sm"
+                  items={detailsFields().map((field) => ({
+                    term: fieldTerm(field),
+                    description: <span class="min-w-0 break-words text-primary">{renderField(field, props.record)}</span>,
+                  }))}
+                />
+              </DetailPanel.Section>
+            </DetailPanel.Group>
           </Show>
           <For each={textBlockFields()}>
             {(field) => (
-              <DetailPanel.Section title={field.name} icon={fieldTypeIcon(field.type, field.icon)}>
-                <div class="break-words text-sm leading-relaxed text-secondary">{renderField(field, props.record)}</div>
-              </DetailPanel.Section>
+              <DetailPanel.Group label={`${field.name} field`}>
+                <DetailPanel.Section title={field.name} icon={fieldTypeIcon(field.type, field.icon)}>
+                  <div class="break-words text-sm leading-relaxed text-secondary">{renderField(field, props.record)}</div>
+                </DetailPanel.Section>
+              </DetailPanel.Group>
             )}
           </For>
           <Show when={fileFields().length > 0}>
-            <DetailPanel.Section title="Files" icon="ti ti-paperclip">
-              <div class="flex flex-col gap-4">
-                <For each={fileFields()}>
-                  {(field) => (
-                    <div class="min-w-0">
-                      <div class="text-xs text-dimmed">{fieldTerm(field, true)}</div>
-                      <div class="mt-2 min-w-0 break-words text-sm text-secondary">{renderField(field, props.record)}</div>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </DetailPanel.Section>
+            <DetailPanel.Group label="Record files">
+              <DetailPanel.Section title="Files" icon="ti ti-paperclip">
+                <div class="flex flex-col gap-4">
+                  <For each={fileFields()}>
+                    {(field) => (
+                      <div class="min-w-0">
+                        <div class="text-xs text-dimmed">{fieldTerm(field, true)}</div>
+                        <div class="mt-2 min-w-0 break-words text-sm text-secondary">{renderField(field, props.record)}</div>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </DetailPanel.Section>
+            </DetailPanel.Group>
           </Show>
         </Show>
 
         <Show when={bodyFields().length === 0}>
-          <Placeholder surface="paper" align="left" description={<>No record values yet.</>} />
+          <DetailPanel.Group label="Record fields">
+            <DetailPanel.Section title="Fields" icon="ti ti-list-details">
+              <Placeholder align="left" description={<>No record values yet.</>} />
+            </DetailPanel.Section>
+          </DetailPanel.Group>
         </Show>
 
         <Show when={relationFields().length > 0 || props.relationsAfter !== undefined}>
           <DetailPanel.Group label="Record relationships">
             <Show when={relationFields().length > 0}>
               <DetailPanel.Section title="Relations" icon="ti ti-link" tone="accent">
-                <DescriptionList
-                  layout="rows"
-                  size="sm"
-                  items={relationFields().map((field) => ({
-                    term: fieldTerm(field, true),
-                    description: <span class="min-w-0 break-words text-primary">{renderField(field, props.record)}</span>,
-                  }))}
-                />
+                <For each={relationFields()}>
+                  {(field) => {
+                    const items = relationItems(field);
+                    const targetTableId = relationTargetTableId(field);
+                    return (
+                      <Show
+                        when={items.length > 0 && targetTableId ? targetTableId : undefined}
+                        fallback={
+                          <DetailPanel.Action
+                            type="button"
+                            disabled
+                            title={`${field.name} · —`}
+                            description={field.description ?? undefined}
+                            leading={<i class={fieldTypeIcon(field.type, field.icon)} aria-hidden="true" />}
+                          />
+                        }
+                      >
+                        {(resolvedTableId) => (
+                          <For each={items}>
+                            {(item) => (
+                              <DetailPanel.Action
+                                href={`/app/grids/${encodeURIComponent(props.baseId)}/table/${encodeURIComponent(
+                                  resolvedTableId(),
+                                )}?record=${encodeURIComponent(item.id)}`}
+                                title={`${field.name} · ${item.label}`}
+                                description={field.description ?? undefined}
+                                leading={<i class={fieldTypeIcon(field.type, field.icon)} aria-hidden="true" />}
+                                trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+                              />
+                            )}
+                          </For>
+                        )}
+                      </Show>
+                    );
+                  }}
+                </For>
               </DetailPanel.Section>
             </Show>
             {props.relationsAfter}

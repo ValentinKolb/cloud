@@ -239,31 +239,36 @@ export default function RecordDocumentsSection(props: {
                 </div>
               }
             >
-              <StructuredDataPreview
-                title="Metadata"
-                data={{
-                  id: snapshot.id,
-                  tableId: snapshot.tableId,
-                  recordId: snapshot.recordId,
-                  createdAt: snapshot.createdAt,
-                  createdBy: snapshot.createdBy,
-                }}
-                maxRows={8}
-              />
-              <DetailPanel.Section title="Raw snapshot data" icon="ti ti-code" collapsible>
-                <div class="flex flex-col gap-3">
+              <DetailPanel.Group label="Snapshot metadata">
+                <DetailPanel.Section title="Metadata" icon="ti ti-info-circle">
                   <StructuredDataPreview
-                    title="Root record"
-                    data={isStructuredDataValue(snapshot.root) ? snapshot.root : { error: "Snapshot root is not valid JSON." }}
-                    defaultMode="raw"
+                    data={{
+                      id: snapshot.id,
+                      tableId: snapshot.tableId,
+                      recordId: snapshot.recordId,
+                      createdAt: snapshot.createdAt,
+                      createdBy: snapshot.createdBy,
+                    }}
+                    maxRows={8}
                   />
-                  <StructuredDataPreview
-                    title="Record graph"
-                    data={isStructuredDataValue(snapshot.graph) ? snapshot.graph : { error: "Snapshot graph is not valid JSON." }}
-                    defaultMode="raw"
-                  />
-                </div>
-              </DetailPanel.Section>
+                </DetailPanel.Section>
+              </DetailPanel.Group>
+              <DetailPanel.Group label="Raw snapshot data">
+                <DetailPanel.Section title="Raw snapshot data" icon="ti ti-code" collapsible>
+                  <div class="flex flex-col gap-3">
+                    <StructuredDataPreview
+                      title="Root record"
+                      data={isStructuredDataValue(snapshot.root) ? snapshot.root : { error: "Snapshot root is not valid JSON." }}
+                      defaultMode="raw"
+                    />
+                    <StructuredDataPreview
+                      title="Record graph"
+                      data={isStructuredDataValue(snapshot.graph) ? snapshot.graph : { error: "Snapshot graph is not valid JSON." }}
+                      defaultMode="raw"
+                    />
+                  </div>
+                </DetailPanel.Section>
+              </DetailPanel.Group>
             </RecordReadView>
           </div>
         ),
@@ -296,103 +301,102 @@ export default function RecordDocumentsSection(props: {
   return (
     <>
       <Show when={props.live || manualSnapshots().length > 0}>
-        <DetailPanel.Section
-          title="Snapshots"
-          icon="ti ti-camera"
-          meta={manualSnapshots().length}
-          actions={
-            <Show when={props.live}>
-              <Button
-                variant="secondary"
-                size="sm"
-                type="button"
-                onClick={() => createSnapshotMut.mutate(undefined)}
-                disabled={createSnapshotMut.loading()}
-                aria-busy={createSnapshotMut.loading()}
-              >
-                {createSnapshotMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
-                Create snapshot
-              </Button>
+        <DetailPanel.Group label="Record snapshots">
+          <DetailPanel.Section
+            title="Snapshots"
+            icon="ti ti-camera"
+            meta={manualSnapshots().length}
+            actions={
+              <Show when={props.live}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  onClick={() => createSnapshotMut.mutate(undefined)}
+                  disabled={createSnapshotMut.loading()}
+                  aria-busy={createSnapshotMut.loading()}
+                >
+                  {createSnapshotMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-camera" />}
+                  Create snapshot
+                </Button>
+              </Show>
+            }
+          >
+            <Show when={manualSnapshots().length === 0}>
+              <Placeholder align="left" description="No snapshots yet." />
             </Show>
-          }
-        >
-          <Show when={manualSnapshots().length === 0}>
-            <Placeholder align="left" description="No snapshots yet." />
-          </Show>
-          <For each={manualSnapshots()}>
-            {(snapshot) => (
-              <button
-                type="button"
-                class="group flex min-w-0 items-center gap-2 py-1 text-left text-sm disabled:cursor-not-allowed disabled:opacity-60"
-                aria-label={`Inspect snapshot ${snapshot.id}`}
-                onClick={() => inspectSnapshotMut.mutate(snapshot)}
-                disabled={inspectSnapshotMut.loading()}
-                aria-busy={activeSnapshotId() === snapshot.id}
-              >
-                <i
-                  aria-hidden="true"
-                  class={activeSnapshotId() === snapshot.id ? "ti ti-loader-2 shrink-0 animate-spin" : "ti ti-camera shrink-0 text-dimmed"}
+            <For each={manualSnapshots()}>
+              {(snapshot) => (
+                <DetailPanel.Action
+                  type="button"
+                  title={`SNAP-${snapshot.id.slice(0, 8).toUpperCase()}`}
+                  description={formatRecordRelativeTime(snapshot.createdAt)}
+                  leading={
+                    <i aria-hidden="true" class={activeSnapshotId() === snapshot.id ? "ti ti-loader-2 animate-spin" : "ti ti-camera"} />
+                  }
+                  trailing={<i aria-hidden="true" class="ti ti-chevron-right" />}
+                  aria-label={`Inspect snapshot ${snapshot.id}`}
+                  onClick={() => inspectSnapshotMut.mutate(snapshot)}
+                  disabled={inspectSnapshotMut.loading()}
+                  aria-busy={activeSnapshotId() === snapshot.id}
                 />
-                <span class="min-w-0 flex-1 truncate font-mono text-secondary transition-colors group-hover:text-primary">
-                  SNAP-{snapshot.id.slice(0, 8).toUpperCase()}
-                </span>
-                <span class="shrink-0 text-xs text-dimmed">{formatRecordRelativeTime(snapshot.createdAt)}</span>
-                <i aria-hidden="true" class="ti ti-chevron-right shrink-0 text-dimmed" />
-              </button>
-            )}
-          </For>
-        </DetailPanel.Section>
+              )}
+            </For>
+          </DetailPanel.Section>
+        </DetailPanel.Group>
       </Show>
 
       <Show when={generatedRuns().length > 0 || (props.live && availableTemplates().length > 0)}>
-        <DetailPanel.Section
-          title="Documents"
-          icon="ti ti-file-type-pdf"
-          meta={generatedRuns().length}
-          actions={
-            <Show when={props.live && availableTemplates().length > 0}>
-              <Dropdown.Root position="bottom-left" width="16rem" items={generationActions()}>
-                <Dropdown.Trigger variant="secondary" size="sm" type="button" disabled={refreshDocumentsMut.loading()}>
-                  <i class="ti ti-file-plus" />
-                  Generate
-                  <i class="ti ti-chevron-down text-xs" />
-                </Dropdown.Trigger>
-              </Dropdown.Root>
+        <DetailPanel.Group label="Generated documents">
+          <DetailPanel.Section
+            title="Documents"
+            icon="ti ti-file-type-pdf"
+            meta={generatedRuns().length}
+            actions={
+              <Show when={props.live && availableTemplates().length > 0}>
+                <Dropdown.Root position="bottom-left" width="16rem" items={generationActions()}>
+                  <Dropdown.Trigger variant="secondary" size="sm" type="button" disabled={refreshDocumentsMut.loading()}>
+                    <i class="ti ti-file-plus" />
+                    Generate
+                    <i class="ti ti-chevron-down text-xs" />
+                  </Dropdown.Trigger>
+                </Dropdown.Root>
+              </Show>
+            }
+          >
+            <Show when={generatedRuns().length === 0}>
+              <Placeholder align="left" description="No generated documents yet." />
             </Show>
-          }
-        >
-          <Show when={generatedRuns().length === 0}>
-            <Placeholder align="left" description="No generated documents yet." />
-          </Show>
-          <For each={generatedRuns()}>
-            {(run) => (
-              <button
-                type="button"
-                class="group flex min-w-0 items-center gap-2 py-1 text-left text-sm disabled:cursor-not-allowed disabled:opacity-60"
-                aria-label={`Download ${run.filename}`}
-                onClick={() => redownloadMut.mutate(run)}
-                disabled={redownloadMut.loading()}
-                aria-busy={activeDownloadId() === run.id}
-              >
-                <i
-                  aria-hidden="true"
-                  class={
-                    activeDownloadId() === run.id
-                      ? "ti ti-loader-2 shrink-0 animate-spin"
-                      : `ti ${fileIcons.getFileIcon({
-                          name: run.filename,
-                          type: "file",
-                          mimeType: "application/pdf",
-                        })} shrink-0 text-base`
+            <For each={generatedRuns()}>
+              {(run) => (
+                <DetailPanel.Action
+                  type="button"
+                  title={run.filename}
+                  description={formatRecordRelativeTime(run.generatedAt)}
+                  leading={
+                    <i
+                      aria-hidden="true"
+                      class={
+                        activeDownloadId() === run.id
+                          ? "ti ti-loader-2 animate-spin"
+                          : `ti ${fileIcons.getFileIcon({
+                              name: run.filename,
+                              type: "file",
+                              mimeType: "application/pdf",
+                            })}`
+                      }
+                    />
                   }
+                  trailing={<i aria-hidden="true" class="ti ti-download" />}
+                  aria-label={`Download ${run.filename}`}
+                  onClick={() => redownloadMut.mutate(run)}
+                  disabled={redownloadMut.loading()}
+                  aria-busy={activeDownloadId() === run.id}
                 />
-                <span class="min-w-0 flex-1 truncate text-secondary transition-colors group-hover:text-primary">{run.filename}</span>
-                <span class="shrink-0 text-xs text-dimmed">{formatRecordRelativeTime(run.generatedAt)}</span>
-                <i aria-hidden="true" class="ti ti-download shrink-0 text-dimmed" />
-              </button>
-            )}
-          </For>
-        </DetailPanel.Section>
+              )}
+            </For>
+          </DetailPanel.Section>
+        </DetailPanel.Group>
       </Show>
     </>
   );

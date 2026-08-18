@@ -294,30 +294,32 @@ export default function RecordDetailPanel(props: Props) {
         >
           <Show when={props.detail()?.combinedOrigin}>
             {(origin) => (
-              <DetailPanel.Section title="Combined source" icon="ti ti-stack-2" tone="neutral">
-                <DescriptionList
-                  layout="rows"
-                  size="sm"
-                  items={[
-                    {
-                      term: "Published from",
-                      description: `${origin().source.baseName} · ${origin().source.tableName}`,
-                    },
-                    ...(origin().deletedAt
-                      ? [
-                          {
-                            term: "Deleted",
-                            description: <time dateTime={origin().deletedAt!}>{formatDateTime(origin().deletedAt!)}</time>,
-                          },
-                        ]
-                      : []),
-                    {
-                      term: "Access",
-                      description: "Read-only publication. Restore or edit this record in its source table.",
-                    },
-                  ]}
-                />
-              </DetailPanel.Section>
+              <DetailPanel.Group label="Combined record source">
+                <DetailPanel.Section title="Combined source" icon="ti ti-stack-2" tone="neutral">
+                  <DescriptionList
+                    layout="rows"
+                    size="sm"
+                    items={[
+                      {
+                        term: "Published from",
+                        description: `${origin().source.baseName} · ${origin().source.tableName}`,
+                      },
+                      ...(origin().deletedAt
+                        ? [
+                            {
+                              term: "Deleted",
+                              description: <time dateTime={origin().deletedAt!}>{formatDateTime(origin().deletedAt!)}</time>,
+                            },
+                          ]
+                        : []),
+                      {
+                        term: "Access",
+                        description: "Read-only publication. Restore or edit this record in its source table.",
+                      },
+                    ]}
+                  />
+                </DetailPanel.Section>
+              </DetailPanel.Group>
             )}
           </Show>
           <RecordDocumentsSection

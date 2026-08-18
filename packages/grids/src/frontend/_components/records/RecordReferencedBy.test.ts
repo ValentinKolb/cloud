@@ -6,6 +6,7 @@ import RecordReferencedBy, {
   groupReferencedByItems,
   REFERENCED_BY_PAGE_SIZE,
   type ReferencedByItem,
+  referencedByActionTitle,
   referencedByEndpoint,
 } from "./RecordReferencedBy.island";
 
@@ -31,6 +32,7 @@ describe("RecordReferencedBy", () => {
     expect(groups).toHaveLength(2);
     expect(groups[0]?.items.map((entry) => entry.sourceRecordId)).toEqual(["REC001", "REC002"]);
     expect(groups[1]).toMatchObject({ fieldName: "Billing customer", items: [{ sourceRecordId: "REC003" }] });
+    expect(referencedByActionTitle(item("REC001"))).toBe("Customer · Order REC001");
   });
 
   test("is always visible and requests bounded five-item pages", () => {

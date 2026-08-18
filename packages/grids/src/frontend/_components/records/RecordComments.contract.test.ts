@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
 describe("App record comments", () => {
-  test("uses a bare discussion without creating a nested scroll owner", async () => {
+  test("uses a DetailPanel section without creating a nested scroll owner", async () => {
     const source = await Bun.file(new URL("./RecordComments.island.tsx", import.meta.url)).text();
 
-    expect(source).toContain("Discussion");
-    expect(source).toContain('as="h2"');
-    expect(source).toContain('surface="bare"');
+    expect(source).toContain('<DetailPanel.Group label="Record comments">');
+    expect(source).toContain("<DetailPanel.Section");
+    expect(source).toContain('icon="ti ti-messages"');
     expect(source).toContain("<Discussion.List");
+    expect(source).toContain("<Discussion.Composer");
     expect(source).not.toContain("overflow-y-auto");
     expect(source).not.toContain('class="detail-section');
     expect(source).not.toContain("detail-section-label");

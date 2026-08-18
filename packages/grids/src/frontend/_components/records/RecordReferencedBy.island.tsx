@@ -31,6 +31,8 @@ export const groupReferencedByItems = (items: readonly ReferencedByItem[]): Refe
   return [...grouped.values()];
 };
 
+export const referencedByActionTitle = (item: ReferencedByItem): string => `${item.relationFieldName} · ${item.sourceRecordLabel}`;
+
 const readError = async (response: Response): Promise<string> => {
   const body = await response.json().catch(() => null);
   return body && typeof body === "object" && "message" in body && typeof body.message === "string"
@@ -80,23 +82,17 @@ export default function RecordReferencedBy(props: { baseId: string; tableId: str
         </Show>
         <For each={groups()}>
           {(group) => (
-            <div class="flex flex-col gap-1">
-              <p class="text-xs text-dimmed">
-                {group.tableName} · {group.fieldName}
-              </p>
-              <div class="flex flex-col gap-1">
-                <For each={group.items}>
-                  {(item) => (
-                    <DetailPanel.Action
-                      href={`/app/grids/${encodeURIComponent(props.baseId)}/table/${encodeURIComponent(item.sourceTableId)}?record=${encodeURIComponent(item.sourceRecordId)}`}
-                      title={item.sourceRecordLabel}
-                      leading={<i class="ti ti-table-row" aria-hidden="true" />}
-                      trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
-                    />
-                  )}
-                </For>
-              </div>
-            </div>
+            <For each={group.items}>
+              {(item) => (
+                <DetailPanel.Action
+                  href={`/app/grids/${encodeURIComponent(props.baseId)}/table/${encodeURIComponent(item.sourceTableId)}?record=${encodeURIComponent(item.sourceRecordId)}`}
+                  title={referencedByActionTitle(item)}
+                  description={item.sourceTableName}
+                  leading={<i class="ti ti-table-row" aria-hidden="true" />}
+                  trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+                />
+              )}
+            </For>
           )}
         </For>
         <Show when={pages.hasMore()}>

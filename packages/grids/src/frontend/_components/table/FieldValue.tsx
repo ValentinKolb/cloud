@@ -1,5 +1,5 @@
 import type { DateContext } from "@k2b/stdlib";
-import { Button, dialogCore, MarkdownView, PanelDialog, ProgressBar, panelDialogOptions, TemplatePreview } from "@k2b/ui";
+import { Button, dialogCore, MarkdownView, PanelDialog, ProgressBar, panelDialogFixedOptions, TemplatePreview } from "@k2b/ui";
 import { createMemo, For, type JSX, Show } from "solid-js";
 import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import type { FormatSpec } from "../../../contracts";
@@ -88,11 +88,11 @@ const openHtmlTemplatePreview = (field: Field, html: string) =>
       <PanelDialog>
         <PanelDialog.Header title={`${field.name} — HTML preview`} icon="ti ti-template" close={() => close()} />
         <PanelDialog.Body>
-          <TemplatePreview html={html} title={`${field.name} HTML preview`} class="min-h-[28rem]" />
+          <TemplatePreview html={html} title={`${field.name} HTML preview`} class="h-[65dvh] min-h-[24rem]" />
         </PanelDialog.Body>
       </PanelDialog>
     ),
-    panelDialogOptions,
+    panelDialogFixedOptions,
   );
 
 function HtmlTemplateValue(props: { field: Field; value: unknown; mode: FieldValueMode; empty: JSX.Element | string }) {

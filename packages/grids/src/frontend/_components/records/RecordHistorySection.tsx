@@ -213,8 +213,10 @@ export function RecordHistoryList(props: HistoryProps) {
 
 export default function RecordHistorySection(props: HistoryProps) {
   return (
-    <DetailPanel.Section title="History" icon="ti ti-history" meta={props.entries.length} collapsible>
-      <RecordHistoryList {...props} />
-    </DetailPanel.Section>
+    <DetailPanel.Group label="Record history">
+      <DetailPanel.Section title="History" icon="ti ti-history" meta={props.entries.length} collapsible>
+        <RecordHistoryList {...props} />
+      </DetailPanel.Section>
+    </DetailPanel.Group>
   );
 }

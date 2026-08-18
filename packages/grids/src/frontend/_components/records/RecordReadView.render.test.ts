@@ -55,8 +55,14 @@ describe("RecordReadView", () => {
     expect(html).toContain("k2b-detail-panel__body");
     expect(html).toContain("ti-table-row");
     expect(html).toContain("Studio shelf");
+    expect(html).toContain("v2");
+    expect(html).toContain("12345678-abcd-4000-8000-000000000000");
+    expect(html).toContain("Copy record reference");
+    expect(html).toContain("ti-copy");
+    expect(html).not.toContain("font-mono");
     expect(html).toContain("Fields");
     expect(html).toContain("ti-list-details");
+    expect(html).toContain('role="group" aria-label="Record fields"');
     expect(html).toContain("Room");
     expect(html).not.toContain(">Notes<");
     expect(html).not.toContain("detail-stack");
@@ -65,7 +71,13 @@ describe("RecordReadView", () => {
 
   test("groups relations with additional reverse-relation content", () => {
     const name = field({ id: "name", name: "Name", type: "text", presentable: true });
-    const relation = field({ id: "camera", name: "Camera", type: "relation", config: { targetTableId: "cameras" } });
+    const relation = field({
+      id: "camera",
+      name: "Category",
+      type: "relation",
+      description: "Reusable equipment category.",
+      config: { targetTableId: "cameras" },
+    });
     const html = renderToString(() =>
       createComponent(RecordReadView, {
         baseId: "base",
@@ -81,7 +93,9 @@ describe("RecordReadView", () => {
     expect(html).toContain('role="group"');
     expect(html).toContain('aria-label="Record relationships"');
     expect(html).toContain("Relations");
-    expect(html).toContain("Sony FX3");
+    expect(html).toContain("Category · Sony FX3");
+    expect(html).toContain("Reusable equipment category.");
+    expect(html).toContain("k2b-detail-panel__action");
     expect(html).toContain("Referenced by content");
     expect(html).not.toContain("Unknown record");
     expect(html).not.toContain("No record values yet");

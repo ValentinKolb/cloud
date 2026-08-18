@@ -1,5 +1,5 @@
 import { type DateContext, dates } from "@k2b/stdlib";
-import { Avatar, Button, Discussion, IconButton, MarkdownView, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
+import { Avatar, Button, DetailPanel, Discussion, IconButton, MarkdownView, prompts, TextInput, Tooltip, toast } from "@k2b/ui";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import type { PublicRecordComment as RecordComment } from "../../../api/public-dto";
 
@@ -172,139 +172,145 @@ export default function RecordComments(props: Props) {
   };
 
   return (
-    <Discussion
-      label={props.title ?? "Comments"}
-      as="h2"
-      surface="bare"
-      class="min-w-0"
-      actions={
-        permissions().canWrite && !composerOpen() ? (
-          <Button type="button" variant="ghost" size="sm" onClick={() => setComposerOpen(true)}>
-            <i class="ti ti-plus" aria-hidden="true" /> Add comment
-          </Button>
-        ) : undefined
-      }
-    >
-      <Discussion.List
-        loading={loading() && comments().length === 0}
-        loadingLabel="Loading comments"
-        error={error()}
-        onRetry={async () => {
-          await load();
-        }}
-        hasMore={nextCursor() !== null}
-        loadingMore={loadingOlder()}
-        loadMoreLabel="Load earlier comments"
-        onLoadMore={() => {
-          const cursor = nextCursor();
-          return cursor ? load(cursor, true) : false;
-        }}
+    <DetailPanel.Group label="Record comments">
+      <DetailPanel.Section
+        title={props.title ?? "Comments"}
+        icon="ti ti-messages"
+        meta={comments().length}
+        actions={
+          permissions().canWrite && !composerOpen() ? (
+            <Button type="button" variant="ghost" size="sm" onClick={() => setComposerOpen(true)}>
+              <i class="ti ti-plus" aria-hidden="true" /> Add comment
+            </Button>
+          ) : undefined
+        }
       >
-        <For each={[...comments()].reverse()}>
-          {(comment) => (
-            <Discussion.Item
-              aria-busy={comment.id.startsWith("pending-") ? "true" : undefined}
-              avatar={
-                <Avatar
-                  name={comment.authorDisplayName}
-                  src={
-                    comment.authorUserId && comment.authorAvatarHash
-                      ? `/api/accounts/users/${encodeURIComponent(comment.authorUserId)}/avatar?rev=${encodeURIComponent(comment.authorAvatarHash)}`
-                      : undefined
+        <div class="flex min-w-0 flex-col gap-3">
+          <Discussion.List
+            loading={loading() && comments().length === 0}
+            loadingLabel="Loading comments"
+            error={error()}
+            onRetry={async () => {
+              await load();
+            }}
+            hasMore={nextCursor() !== null}
+            loadingMore={loadingOlder()}
+            loadMoreLabel="Load earlier comments"
+            onLoadMore={() => {
+              const cursor = nextCursor();
+              return cursor ? load(cursor, true) : false;
+            }}
+          >
+            <For each={[...comments()].reverse()}>
+              {(comment) => (
+                <Discussion.Item
+                  aria-busy={comment.id.startsWith("pending-") ? "true" : undefined}
+                  avatar={
+                    <Avatar
+                      name={comment.authorDisplayName}
+                      src={
+                        comment.authorUserId && comment.authorAvatarHash
+                          ? `/api/accounts/users/${encodeURIComponent(comment.authorUserId)}/avatar?rev=${encodeURIComponent(comment.authorAvatarHash)}`
+                          : undefined
+                      }
+                      size="xs"
+                    />
                   }
-                  size="xs"
-                />
-              }
-              author={comment.authorDisplayName}
-              timestamp={
-                <Tooltip.Anchor content={dates.formatDateTime(comment.createdAt, props.dateConfig)}>
-                  <time dateTime={comment.createdAt}>{relativeTime(comment.createdAt, props.dateConfig)}</time>
-                </Tooltip.Anchor>
-              }
-              meta={comment.updatedAt !== comment.createdAt && !comment.deletedAt ? "edited" : undefined}
-              actions={
-                canManage(comment) && !comment.id.startsWith("pending-") ? (
-                  <>
-                    <Tooltip.Anchor content="Edit comment">
-                      <IconButton
-                        type="button"
-                        label="Edit comment"
-                        variant="ghost"
-                        size="sm"
-                        class="h-7! w-7!"
-                        disabled={Boolean(savingId())}
-                        onClick={() => {
-                          setEditingId(comment.id);
-                          setEditingBody(comment.body ?? "");
-                        }}
-                      >
-                        <i class="ti ti-pencil" aria-hidden="true" />
-                      </IconButton>
+                  author={comment.authorDisplayName}
+                  timestamp={
+                    <Tooltip.Anchor content={dates.formatDateTime(comment.createdAt, props.dateConfig)}>
+                      <time dateTime={comment.createdAt}>{relativeTime(comment.createdAt, props.dateConfig)}</time>
                     </Tooltip.Anchor>
-                    <Tooltip.Anchor content="Delete comment">
-                      <IconButton
-                        type="button"
-                        label="Delete comment"
-                        variant="ghost"
-                        size="sm"
-                        class="h-7! w-7! hover:text-danger"
-                        disabled={Boolean(savingId())}
-                        onClick={() => void remove(comment)}
-                      >
-                        <i class="ti ti-trash" aria-hidden="true" />
-                      </IconButton>
-                    </Tooltip.Anchor>
-                  </>
-                ) : undefined
-              }
-            >
-              <Show
-                when={editingId() === comment.id}
-                fallback={
-                  <Show when={!comment.deletedAt && comment.body} fallback={<p class="mt-1 text-sm italic text-dimmed">Comment deleted</p>}>
-                    {(markdown) => <MarkdownView markdown={markdown()} headingScale="compact" />}
-                  </Show>
-                }
-              >
-                <form
-                  class="mt-2 flex flex-col gap-2"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void saveEdit(comment);
-                  }}
+                  }
+                  meta={comment.updatedAt !== comment.createdAt && !comment.deletedAt ? "edited" : undefined}
+                  actions={
+                    canManage(comment) && !comment.id.startsWith("pending-") ? (
+                      <>
+                        <Tooltip.Anchor content="Edit comment">
+                          <IconButton
+                            type="button"
+                            label="Edit comment"
+                            variant="ghost"
+                            size="sm"
+                            class="h-7! w-7!"
+                            disabled={Boolean(savingId())}
+                            onClick={() => {
+                              setEditingId(comment.id);
+                              setEditingBody(comment.body ?? "");
+                            }}
+                          >
+                            <i class="ti ti-pencil" aria-hidden="true" />
+                          </IconButton>
+                        </Tooltip.Anchor>
+                        <Tooltip.Anchor content="Delete comment">
+                          <IconButton
+                            type="button"
+                            label="Delete comment"
+                            variant="ghost"
+                            size="sm"
+                            class="h-7! w-7! hover:text-danger"
+                            disabled={Boolean(savingId())}
+                            onClick={() => void remove(comment)}
+                          >
+                            <i class="ti ti-trash" aria-hidden="true" />
+                          </IconButton>
+                        </Tooltip.Anchor>
+                      </>
+                    ) : undefined
+                  }
                 >
-                  <TextInput
-                    aria-label="Edit comment"
-                    value={() => editingBody()}
-                    onValueChange={setEditingBody}
-                    markdown
-                    disabled={savingId() === comment.id}
-                  />
-                  <div class="flex justify-end gap-2">
-                    <Button type="button" variant="secondary" size="sm" onClick={() => setEditingId(null)}>
-                      Cancel
-                    </Button>
-                    <Button type="submit" size="sm" disabled={!editingBody().trim() || savingId() === comment.id}>
-                      Save
-                    </Button>
-                  </div>
-                </form>
-              </Show>
-            </Discussion.Item>
-          )}
-        </For>
-      </Discussion.List>
+                  <Show
+                    when={editingId() === comment.id}
+                    fallback={
+                      <Show
+                        when={!comment.deletedAt && comment.body}
+                        fallback={<p class="mt-1 text-sm italic text-dimmed">Comment deleted</p>}
+                      >
+                        {(markdown) => <MarkdownView markdown={markdown()} headingScale="compact" />}
+                      </Show>
+                    }
+                  >
+                    <form
+                      class="mt-2 flex flex-col gap-2"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void saveEdit(comment);
+                      }}
+                    >
+                      <TextInput
+                        aria-label="Edit comment"
+                        value={() => editingBody()}
+                        onValueChange={setEditingBody}
+                        markdown
+                        disabled={savingId() === comment.id}
+                      />
+                      <div class="flex justify-end gap-2">
+                        <Button type="button" variant="secondary" size="sm" onClick={() => setEditingId(null)}>
+                          Cancel
+                        </Button>
+                        <Button type="submit" size="sm" disabled={!editingBody().trim() || savingId() === comment.id}>
+                          Save
+                        </Button>
+                      </div>
+                    </form>
+                  </Show>
+                </Discussion.Item>
+              )}
+            </For>
+          </Discussion.List>
 
-      <Show when={permissions().canWrite && composerOpen()}>
-        <Discussion.Composer
-          label="Add comment"
-          placeholder="Write a comment in markdown…"
-          submitLabel="Post comment"
-          cancelLabel="Cancel"
-          onCancel={() => setComposerOpen(false)}
-          onSubmit={post}
-        />
-      </Show>
-    </Discussion>
+          <Show when={permissions().canWrite && composerOpen()}>
+            <Discussion.Composer
+              label="Add comment"
+              placeholder="Write a comment in markdown…"
+              submitLabel="Post comment"
+              cancelLabel="Cancel"
+              onCancel={() => setComposerOpen(false)}
+              onSubmit={post}
+            />
+          </Show>
+        </div>
+      </DetailPanel.Section>
+    </DetailPanel.Group>
   );
 }
