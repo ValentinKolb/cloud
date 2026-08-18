@@ -611,9 +611,10 @@ describe("Grids capabilities", () => {
       );
       expect(updateReview.ok).toBe(true);
       if (updateReview.ok) {
-        const changedFields = updateReview.data.details?.find((detail) => detail.label === "Changed fields")?.value ?? "";
-        expect(changedFields.length).toBeLessThanOrEqual(1_000);
-        expect(changedFields).toBe("Name");
+        expect(updateReview.data.details).toContainEqual({
+          label: "Name",
+          value: "changed",
+        });
       }
     } finally {
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;

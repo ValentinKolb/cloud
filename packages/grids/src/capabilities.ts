@@ -1,6 +1,7 @@
 import { err, fail, ok } from "@k2b/stdlib";
 import {
   CAPABILITY_MAX_RESULT_BYTES,
+  type CapabilityActionReview,
   type CapabilityExecutionContext,
   type CloudResourceRef,
   type CloudResourceView,
@@ -58,7 +59,8 @@ import { ALL_RECORD_ACCESS } from "./service/record-access";
 import type { Base, Field, GridRecord, Table } from "./service/types";
 
 const GQL_CAPABILITY_RESULT_BUDGET_BYTES = CAPABILITY_MAX_RESULT_BYTES - 32 * 1024;
-const REVIEW_CHANGED_FIELDS_MAX_CHARS = 1_000;
+const REVIEW_VALUES_MAX_CHARS = 9_000;
+const REVIEW_VISIBLE_FIELDS = 16;
 
 const capabilityDateConfig = async () => ({
   timeZone: normalizeTimeZone(String((await settingsGet<string>("app.timezone")) || "").trim(), "UTC"),
@@ -683,17 +685,62 @@ const mapRecord = (record: GridRecord, table: Table) => ({
   updatedAt: record.updatedAt,
 });
 
-const changedFieldsReview = (fieldIds: string[], fieldNames: ReadonlyMap<string, string>): string => {
-  const names = fieldIds.map((id) => fieldNames.get(id) ?? id);
-  const visible: string[] = [];
-  for (const name of names) {
-    const remaining = names.length - visible.length - 1;
-    const suffix = remaining > 0 ? `, ... (+${remaining} more)` : "";
-    if (([...visible, name].join(", ") + suffix).length > REVIEW_CHANGED_FIELDS_MAX_CHARS) break;
-    visible.push(name);
-  }
-  const remaining = names.length - visible.length;
-  return (visible.join(", ") + (remaining > 0 ? `, ... (+${remaining} more)` : "")).slice(0, REVIEW_CHANGED_FIELDS_MAX_CHARS);
+const recordReviewValue = (value: unknown): string => {
+  if (value === null || value === undefined || value === "") return "Clear value";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.length === 0 ? "Clear values" : value.map((item) => `- ${recordReviewValue(item)}`).join("\n");
+  return JSON.stringify(value, null, 2);
+};
+
+const boundedRecordReviewValue = (value: unknown): string => {
+  const full = recordReviewValue(value);
+  return full.length > REVIEW_VALUES_MAX_CHARS
+    ? `${full.slice(0, REVIEW_VALUES_MAX_CHARS)}\n\nPreview truncated. Review the full validated input under Details.`
+    : full;
+};
+
+const recordValuesReview = (
+  values: Record<string, unknown>,
+  fields: ReadonlyArray<Field>,
+): NonNullable<CapabilityActionReview["details"]> => {
+  const fieldsByShortId = new Map(fields.map((field) => [field.shortId, field]));
+  const entries = Object.entries(values);
+  const visible = entries.slice(0, REVIEW_VISIBLE_FIELDS).map(([fieldId, value]) => {
+    const field = fieldsByShortId.get(fieldId);
+    const text = boundedRecordReviewValue(value);
+    if (field?.type === "date" && typeof value === "string") {
+      return {
+        label: field.name,
+        value,
+        format: field.config.includeTime === true ? ("date-time" as const) : ("date" as const),
+      };
+    }
+    return {
+      label: field?.name ?? fieldId,
+      value: text,
+      ...(((typeof value === "string" && !value.includes("\n") && value.length <= 160) ||
+        typeof value === "number" ||
+        typeof value === "boolean") &&
+      field?.type !== "longtext" &&
+      field?.type !== "json"
+        ? {}
+        : { display: "block" as const }),
+    };
+  });
+  const remaining = entries.slice(REVIEW_VISIBLE_FIELDS);
+  if (remaining.length === 0) return visible;
+  const additional = remaining
+    .map(([fieldId, value]) => `${fieldsByShortId.get(fieldId)?.name ?? fieldId}\n${recordReviewValue(value)}`)
+    .join("\n\n");
+  return [
+    ...visible,
+    {
+      label: `${remaining.length} additional proposed ${remaining.length === 1 ? "value" : "values"}`,
+      value: boundedRecordReviewValue(additional),
+      display: "block",
+    },
+  ];
 };
 
 const recordResult = async (record: GridRecord, table: Table) => {
@@ -932,17 +979,13 @@ export const gridsCapabilities = defineCapabilities({
         });
         if (!record) return fail(err.notFound("Record"));
         const base = await gridsService.base.get(table.data.table.baseId);
-        const fieldNames = new Map(values.data.fields.map((field) => [field.shortId, field.name]));
         return ok({
           message: `Update one record in ${table.data.table.name}.`,
           details: [
             { label: "Table", value: table.data.table.name },
             { label: "Record", value: record.shortId },
             { label: "Current version", value: String(record.version) },
-            {
-              label: "Changed fields",
-              value: changedFieldsReview(Object.keys(input.values), fieldNames),
-            },
+            ...recordValuesReview(input.values, values.data.fields),
           ],
           ...(base ? { links: [{ rel: "open" as const, href: recordHref(base, table.data.table, record.shortId) }] } : {}),
         });
