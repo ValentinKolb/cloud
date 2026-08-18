@@ -1464,6 +1464,31 @@ const requireConversationForReview = async (
   });
 };
 
+const requireCommentForReview = async (
+  input: { mailboxId: string; conversationId: string; commentId: string; expectedRevision: number },
+  context: CapabilityExecutionContext,
+) => {
+  const scope = await resolveConversationScope(input.mailboxId, input.conversationId);
+  if (!scope.ok) return scope;
+  const [conversation, commentId] = await Promise.all([
+    requireConversationForReview(input.mailboxId, input.conversationId, context),
+    resolveMailboxResource("comments", scope.data.mailbox.id, input.commentId),
+  ]);
+  if (!conversation.ok) return conversation;
+  if (!commentId.ok) return commentId;
+  const comment = await collaboration.getConversationComment({
+    context: requestContext(context),
+    mailboxId: scope.data.mailbox.id,
+    conversationId: scope.data.conversationId,
+    commentId: commentId.data,
+  });
+  if (!comment.ok) return comment;
+  if (comment.data.revision !== input.expectedRevision) return fail(err.conflict("Comment changed before review"));
+  const body = comment.data.body;
+  if (!body) return fail(err.conflict("Comment is no longer available"));
+  return ok({ conversation: conversation.data, comment: { ...comment.data, body } });
+};
+
 const actionDefinitions = {
   "draft.create": {
     title: "Create draft",
@@ -1485,6 +1510,13 @@ const actionDefinitions = {
           { label: "Subject", value: reviewSubject(input.subject) },
           { label: "Recipients", value: recipientSummary(input) || "None" },
           { label: "Attachments", value: String(input.attachments.length) },
+          ...(input.body
+            ? bodyReviewDetails({
+                body: input.body,
+                label: "Body",
+                truncatedMessage: "This preview is truncated to 10 KB. Review the full proposed body in Details before creating the draft.",
+              })
+            : []),
         ],
       });
     },
@@ -1734,7 +1766,9 @@ const actionDefinitions = {
         details: [
           { label: "Subject", value: reviewSubject(draft.data.subject) },
           { label: "Recipients", value: recipientSummary(draft.data) || "None" },
-          { label: "Delivery", value: input.scheduledAt ?? `After a ${input.undoSeconds}-second undo window` },
+          input.scheduledAt
+            ? { label: "Delivery", value: input.scheduledAt, format: "date-time" as const }
+            : { label: "Delivery", value: `After a ${input.undoSeconds}-second undo window` },
           ...safety.data.warnings.map((warning) => ({ label: warning.title, value: warning.description })),
           ...bodyReviewDetails({
             body: draft.data.body,
@@ -1810,7 +1844,7 @@ const actionDefinitions = {
         message: `Cancel delivery of ${reviewSubject(delivery.data.subject)}.`,
         details: [
           { label: "Subject", value: reviewSubject(delivery.data.subject) },
-          { label: "Scheduled for", value: delivery.data.scheduledAt },
+          { label: "Scheduled for", value: delivery.data.scheduledAt, format: "date-time" as const },
           { label: "Draft", value: input.disposition === "draft" ? "Restore as draft" : "Discard" },
         ],
         links: [statusLink(scheduledHref(input.mailboxId))],
@@ -2045,10 +2079,15 @@ const actionDefinitions = {
     review: async (input: z.output<typeof c.CollaborationUpdateInputSchema>, context: CapabilityExecutionContext) => {
       const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context);
       if (!conversation.ok) return conversation;
-      const details = [{ label: "Conversation", value: conversation.data.subject }];
+      const details: NonNullable<CapabilityActionReview["details"]> = [{ label: "Conversation", value: conversation.data.subject }];
       if (input.assigneeUserId !== undefined) details.push({ label: "Assignee", value: input.assigneeUserId ?? "Unassigned" });
       if (input.completion !== undefined) details.push({ label: "Next step", value: input.completion === "done" ? "Done" : "Reopen" });
-      if (input.snoozedUntil !== undefined) details.push({ label: "Snoozed until", value: input.snoozedUntil ?? "Not snoozed" });
+      if (input.snoozedUntil !== undefined)
+        details.push(
+          input.snoozedUntil
+            ? { label: "Snoozed until", value: input.snoozedUntil, format: "date-time" as const }
+            : { label: "Snoozed until", value: "Not snoozed" },
+        );
       return ok({
         message: `Update collaboration state for ${conversation.data.subject}.`,
         details,
@@ -2091,7 +2130,7 @@ const actionDefinitions = {
         message: `Set your reminder for ${conversation.data.subject}.`,
         details: [
           { label: "Conversation", value: conversation.data.subject },
-          { label: "Due at", value: input.dueAt },
+          { label: "Due at", value: input.dueAt, format: "date-time" as const },
         ],
         links: [{ rel: "open" as const, href: conversation.data.href }],
       });
@@ -2142,7 +2181,9 @@ const actionDefinitions = {
         message: `Cancel your reminder for ${conversation.data.subject}.`,
         details: [
           { label: "Conversation", value: conversation.data.subject },
-          { label: "Due at", value: reminder.data?.dueAt ?? "Unknown" },
+          ...(reminder.data?.dueAt
+            ? [{ label: "Due at", value: reminder.data.dueAt, format: "date-time" as const }]
+            : [{ label: "Due at", value: "Unknown" }]),
         ],
         links: [{ rel: "open" as const, href: conversation.data.href }],
       });
@@ -2212,15 +2253,24 @@ const actionDefinitions = {
     idempotency: "none",
     approval: "rememberable",
     review: async (input: z.output<typeof c.CommentUpdateInputSchema>, context: CapabilityExecutionContext) => {
-      const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context);
-      if (!conversation.ok) return conversation;
+      const review = await requireCommentForReview(input, context);
+      if (!review.ok) return review;
       return ok({
-        message: `Update your internal comment on ${conversation.data.subject}.`,
+        message: `Update your internal comment on ${review.data.conversation.subject}.`,
         details: [
-          { label: "Conversation", value: conversation.data.subject },
-          { label: "Replacement comment", value: input.body.slice(0, 500) },
+          { label: "Conversation", value: review.data.conversation.subject },
+          ...bodyReviewDetails({
+            body: review.data.comment.body,
+            label: "Current comment",
+            truncatedMessage: "This current-comment preview is truncated to 10 KB.",
+          }),
+          ...bodyReviewDetails({
+            body: input.body,
+            label: "Replacement comment",
+            truncatedMessage: "This replacement preview is truncated to 10 KB. Review the full replacement in Details before approving.",
+          }),
         ],
-        links: [{ rel: "open" as const, href: conversation.data.href }],
+        links: [{ rel: "open" as const, href: review.data.conversation.href }],
       });
     },
     run: async (input: z.output<typeof c.CommentUpdateInputSchema>, context: CapabilityExecutionContext) => {
@@ -2257,15 +2307,19 @@ const actionDefinitions = {
     openWorld: false,
     idempotency: "none",
     review: async (input: z.output<typeof c.CommentDeleteInputSchema>, context: CapabilityExecutionContext) => {
-      const conversation = await requireConversationForReview(input.mailboxId, input.conversationId, context);
-      if (!conversation.ok) return conversation;
+      const review = await requireCommentForReview(input, context);
+      if (!review.ok) return review;
       return ok({
-        message: `Delete your internal comment on ${conversation.data.subject}.`,
+        message: `Delete your internal comment on ${review.data.conversation.subject}.`,
         details: [
-          { label: "Conversation", value: conversation.data.subject },
-          { label: "Comment", value: input.commentId },
+          { label: "Conversation", value: review.data.conversation.subject },
+          ...bodyReviewDetails({
+            body: review.data.comment.body,
+            label: "Comment",
+            truncatedMessage: "This comment preview is truncated to 10 KB. Open the conversation to review the complete comment.",
+          }),
         ],
-        links: [{ rel: "open" as const, href: conversation.data.href }],
+        links: [{ rel: "open" as const, href: review.data.conversation.href }],
       });
     },
     run: async (input: z.output<typeof c.CommentDeleteInputSchema>, context: CapabilityExecutionContext) => {

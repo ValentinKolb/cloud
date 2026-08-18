@@ -103,6 +103,7 @@ const internalIdsByTable = {
   senderIdentities: new Map([[senderIdentityId, internalConversationId]]),
   deliveries: new Map([[deliveryId, internalConversationId]]),
   tags: new Map([[tagId, internalConversationId]]),
+  comments: new Map([[commentId, internalCommentId]]),
 } as const;
 const context = {
   actor: { kind: "user", user: { id: userId } },
@@ -317,6 +318,7 @@ describe("mail capabilities", () => {
         to: [{ name: "Ada", address: "ada@example.test" }],
         cc: [{ address: "team@example.test" }],
         subject: "Release follow-up",
+        body: "Hello Ada,\n\nThe release is ready.",
         attachments: [{ filename: "notes.txt", contentType: "text/plain", base64: "bm90ZXM=" }],
       }),
       context,
@@ -330,6 +332,7 @@ describe("mail capabilities", () => {
           { label: "Subject", value: "Release follow-up" },
           { label: "Recipients", value: "Ada, team@example.test" },
           { label: "Attachments", value: "1" },
+          { label: "Body", value: "Hello Ada,\n\nThe release is ready.", display: "block" },
         ],
       },
     });
@@ -460,6 +463,40 @@ describe("mail capabilities", () => {
     );
     expect(review.ok).toBeTrue();
     if (review.ok) expect(CapabilityActionReviewSchema.safeParse(review.data).success).toBeTrue();
+  });
+
+  test("shows the current and replacement comment directly in the review", async () => {
+    spyOn(mailboxAccess, "requireMailboxPermission").mockResolvedValue({ ok: true, data: "write" });
+    spyOn(messages, "listConversationMessages").mockResolvedValue({
+      ok: true,
+      data: { items: [{ subject: "Release follow-up" }], nextCursor: null },
+    } as never);
+    spyOn(collaboration, "getConversationComment").mockResolvedValue({
+      ok: true,
+      data: { revision: 3, body: "Current line\n\nMore context" },
+    } as never);
+
+    const review = await mailCapabilities.actions["conversation.comment.update"].review(
+      {
+        mailboxId,
+        conversationId,
+        commentId,
+        expectedRevision: 3,
+        body: "Replacement line\n\nNew context",
+      },
+      context,
+    );
+
+    expect(review).toMatchObject({
+      ok: true,
+      data: {
+        details: [
+          { label: "Conversation", value: "Release follow-up" },
+          { label: "Current comment", value: "Current line\n\nMore context", display: "block" },
+          { label: "Replacement comment", value: "Replacement line\n\nNew context", display: "block" },
+        ],
+      },
+    });
   });
 
   test("resolves short mailbox IDs and paginates folders with public IDs", async () => {
