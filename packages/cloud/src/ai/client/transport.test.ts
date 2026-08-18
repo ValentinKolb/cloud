@@ -1,5 +1,13 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { parseAiSse, subscribeAiStream } from "./transport";
+
+const originalSetTimeout = globalThis.setTimeout;
+const originalClearTimeout = globalThis.clearTimeout;
+
+afterEach(() => {
+  globalThis.setTimeout = originalSetTimeout;
+  globalThis.clearTimeout = originalClearTimeout;
+});
 
 describe("AI stream transport lifecycle", () => {
   test("parses split SSE chunks and ignores heartbeat comments", async () => {
@@ -47,5 +55,45 @@ describe("AI stream transport lifecycle", () => {
 
     expect(statuses).toEqual(["connecting"]);
     expect(events).toEqual([]);
+  });
+
+  test("abandons a stuck connection attempt and continues reconnecting", async () => {
+    const timers: Array<{ callback: () => void; delay: number } | null> = [];
+    globalThis.setTimeout = ((callback: () => void, delay = 0) => {
+      timers.push({ callback, delay });
+      return timers.length;
+    }) as typeof setTimeout;
+    globalThis.clearTimeout = ((id: number) => {
+      timers[id - 1] = null;
+    }) as typeof clearTimeout;
+
+    const attempts: AbortSignal[] = [];
+    const statuses: string[] = [];
+    const stream = subscribeAiStream({
+      url: "/stream",
+      fetch: (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init.signal!;
+          attempts.push(signal);
+          signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+        }),
+      onStatus: (status) => statuses.push(status),
+      onEvent: () => undefined,
+    });
+
+    expect(attempts).toHaveLength(1);
+    expect(timers[0]?.delay).toBe(10_000);
+    timers[0]?.callback();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const reconnectTimer = timers.find((timer) => timer?.delay === 500);
+    expect(reconnectTimer).toBeDefined();
+    reconnectTimer?.callback();
+    await Promise.resolve();
+
+    expect(attempts).toHaveLength(2);
+    expect(statuses).toEqual(["connecting", "reconnecting"]);
+    stream.close();
   });
 });

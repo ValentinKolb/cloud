@@ -5,6 +5,7 @@ export type AiStreamFetch = (url: string, init: RequestInit) => Promise<Response
 
 const RECONNECT_BASE_MS = 500;
 const RECONNECT_MAX_MS = 5_000;
+const CONNECT_TIMEOUT_MS = 10_000;
 
 /** Parse an SSE byte stream into decoded data payloads. */
 export async function* parseAiSse(response: Response, signal: AbortSignal): AsyncGenerator<AiStreamSseEvent> {
@@ -44,26 +45,39 @@ export const subscribeAiStream = (input: {
   onStatus?: (status: "connecting" | "open" | "reconnecting") => void;
   fetch?: AiStreamFetch;
 }): AiStreamHandle => {
-  const controller = new AbortController();
   const fetchStream: AiStreamFetch = input.fetch ?? fetch;
   let reconnectDelay = RECONNECT_BASE_MS;
   let stopped = false;
+  let activeAttempt: AbortController | null = null;
+  let connectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearConnectTimer = () => {
+    if (connectTimer !== null) clearTimeout(connectTimer);
+    connectTimer = null;
+  };
 
   const loop = async () => {
     while (!stopped) {
+      const attempt = new AbortController();
+      activeAttempt = attempt;
+      connectTimer = setTimeout(() => attempt.abort(), CONNECT_TIMEOUT_MS);
       try {
         input.onStatus?.(reconnectDelay === RECONNECT_BASE_MS ? "connecting" : "reconnecting");
-        const response = await fetchStream(input.url, { signal: controller.signal, headers: { Accept: "text/event-stream" } });
+        const response = await fetchStream(input.url, { signal: attempt.signal, headers: { Accept: "text/event-stream" } });
+        clearConnectTimer();
         if (stopped) return;
         if (!response.ok || !response.body) throw new Error(`AI stream failed: ${response.status}`);
         input.onStatus?.("open");
         reconnectDelay = RECONNECT_BASE_MS;
-        for await (const event of parseAiSse(response, controller.signal)) {
+        for await (const event of parseAiSse(response, attempt.signal)) {
           if (stopped) break;
           input.onEvent(event);
         }
       } catch {
         if (stopped) return;
+      } finally {
+        clearConnectTimer();
+        if (activeAttempt === attempt) activeAttempt = null;
       }
       if (stopped) return;
       await new Promise((resolve) => setTimeout(resolve, reconnectDelay));
@@ -75,7 +89,9 @@ export const subscribeAiStream = (input: {
   return {
     close: () => {
       stopped = true;
-      controller.abort();
+      clearConnectTimer();
+      activeAttempt?.abort();
+      activeAttempt = null;
     },
   };
 };
