@@ -439,7 +439,8 @@ describe("notebooks capabilities", () => {
     expect(result.data.details).toEqual([
       {
         label: "Operation 1",
-        value: 'Replace block @facts (data) with 15 characters: {"ready":false}',
+        value: 'Replace block @facts (data) with 15 characters.\n\n{"ready":false}',
+        display: "block",
       },
     ]);
   });

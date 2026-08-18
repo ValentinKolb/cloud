@@ -180,12 +180,6 @@ const compactSnippet = (content: string | null): string | undefined => {
 
 type NoteEditOperation = z.infer<typeof NoteEditInputSchema>["operations"][number];
 
-const noteEditReviewText = (value: string, limit = 400): string => {
-  const text = value.replace(/\s+/g, " ").trim();
-  if (!text) return "empty content";
-  return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
-};
-
 const noteEditOperationReview = (operation: NoteEditOperation): string => {
   let target = "";
   if ("name" in operation) {
@@ -231,11 +225,22 @@ const noteEditOperationReview = (operation: NoteEditOperation): string => {
       effect = `Prepend to${target}`;
       break;
   }
-  return "content" in operation
-    ? `${effect} with ${operation.content.length} character${operation.content.length === 1 ? "" : "s"}: ${noteEditReviewText(
-        operation.content,
-      )}`
-    : effect;
+  return effect;
+};
+
+const noteEditOperationDetails = (operation: NoteEditOperation, index: number) => {
+  const effect = noteEditOperationReview(operation);
+  if (!("content" in operation)) return { label: `Operation ${index + 1}`, value: effect };
+  const limit = 9_000;
+  const truncated = operation.content.length > limit;
+  const preview = truncated ? `${operation.content.slice(0, limit - 1)}…` : operation.content;
+  return {
+    label: `Operation ${index + 1}`,
+    value: `${effect} with ${operation.content.length} character${operation.content.length === 1 ? "" : "s"}.${
+      truncated ? ` Showing the first ${limit.toLocaleString("en")} characters.` : ""
+    }\n\n${preview}`,
+    display: "block" as const,
+  };
 };
 
 const runNotebookSearch = async (input: UniversalSearchInput, context: CapabilityExecutionContext) => {
@@ -693,10 +698,7 @@ export const notebooksCapabilities = defineCapabilities({
         if (!resolved.ok) return resolved;
         return ok({
           message: `Edit ${resolved.data.note.title}.`,
-          details: input.operations.map((operation: NoteEditOperation, index: number) => ({
-            label: `Operation ${index + 1}`,
-            value: noteEditOperationReview(operation),
-          })),
+          details: input.operations.map(noteEditOperationDetails),
           links: [{ rel: "open" as const, href: noteHref(resolved.data.notebook, resolved.data.note) }],
         });
       },
