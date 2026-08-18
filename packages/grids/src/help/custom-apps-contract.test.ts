@@ -101,7 +101,7 @@ describe("Grids Apps documentation contract", () => {
     expect(overview).toContain("Record blocks may edit only explicitly displayed and allowlisted fields or attachments");
     expect(pages).toContain("without Base or record Write access");
     expect(yaml).toContain("{ source: ROW, path: relation, fieldId:");
-    expect(cli).toContain("Metrics, Chart, Record, Rendered HTML, Form, Comments, Actions, and Scanner blocks");
+    expect(cli).toContain("Referenced records, Metrics, Chart, Record, Rendered HTML, Form, Comments, Actions, and Scanner blocks");
     expect(cli).toContain("row id or one selected single relation");
   });
 

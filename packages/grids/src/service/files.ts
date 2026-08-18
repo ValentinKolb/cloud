@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
+import { logAudit, type SqlClient } from "./audit";
 import { type FederatedRevisionScope, getActive, verifyRevisionScope } from "./federated-tables";
 import { insertWithShortIdForDb } from "./short-id";
 import { get as getTable } from "./tables";
@@ -25,6 +26,20 @@ type DbRow = {
   created_at: Date | string;
 };
 
+export type FileProtectionOwnerKind = "record_revision" | "document_artifact";
+
+export type ProtectedFileContent = {
+  id: string;
+  shortId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  createdBy: string | null;
+  createdAt: string;
+  bytes: Uint8Array;
+};
+
 const mapRow = (row: DbRow, targetFieldId = row.field_id, exposeCreatedBy = true): GridFile => ({
   id: row.id,
   shortId: row.short_id,
@@ -45,6 +60,29 @@ const normalizeFilename = (name: string): string => {
 };
 
 const sha256Hex = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
+
+const auditMetadata = (file: GridFile) => ({
+  id: file.shortId,
+  filename: file.filename,
+  mimeType: file.mimeType,
+  sizeBytes: file.sizeBytes,
+  sha256: file.sha256,
+});
+
+const lockMutationTarget = async (client: SqlClient, recordId: string, fieldId: string): Promise<void> => {
+  await client`SELECT pg_advisory_xact_lock(hashtext(${recordId}), hashtext(${fieldId}))`;
+};
+
+const cleanupUnreferenced = async (client: SqlClient, fileId: string): Promise<boolean> => {
+  const rows = await client<{ id: string }[]>`
+    DELETE FROM grids.files file
+    WHERE file.id = ${fileId}::uuid
+      AND NOT EXISTS (SELECT 1 FROM grids.file_attachments attachment WHERE attachment.file_id = file.id)
+      AND NOT EXISTS (SELECT 1 FROM grids.file_protected_references protected WHERE protected.file_id = file.id)
+    RETURNING file.id::text AS id
+  `;
+  return rows.length > 0;
+};
 
 const verifyTarget = async (tableId: string, recordId: string, fieldId: string): Promise<Result<{ config: FileFieldConfig }>> => {
   const table = await getTable(tableId);
@@ -212,13 +250,14 @@ export const listForRecordField = async (params: { tableId: string; recordId: st
   if (!target.ok) return target;
   if (!target.data.sourceFieldId) return ok([]);
   const rows = await sql<DbRow[]>`
-    SELECT id::text AS id, short_id, record_id::text AS record_id, field_id::text AS field_id,
-           position, filename, mime_type, size_bytes, sha256,
-           created_by::text AS created_by, created_at
-    FROM grids.files
-    WHERE record_id = ${params.recordId}::uuid AND field_id = ${target.data.sourceFieldId}::uuid
+    SELECT file.id::text AS id, file.short_id, attachment.record_id::text AS record_id, attachment.field_id::text AS field_id,
+           attachment.position, file.filename, file.mime_type, file.size_bytes, file.sha256,
+           file.created_by::text AS created_by, file.created_at
+    FROM grids.file_attachments attachment
+    JOIN grids.files file ON file.id = attachment.file_id
+    WHERE attachment.record_id = ${params.recordId}::uuid AND attachment.field_id = ${target.data.sourceFieldId}::uuid
       AND ${publicationGuard(target.data)}
-    ORDER BY position, created_at, id
+    ORDER BY attachment.position, file.created_at, file.id
   `;
   return ok(rows.map((row) => mapRow(row, target.data.targetFieldId, target.data.publication === null)));
 };
@@ -239,18 +278,19 @@ export const listForRecord = async (params: {
   if (mapped.length === 0) return filesByField;
   const guard = publicationGuard(mapped[0]!);
   const rows = await sql<Array<DbRow & { target_field_id: string }>>`
-    SELECT file.id::text AS id, file.short_id, file.record_id::text AS record_id, file.field_id::text AS field_id,
-           mapping.target_field_id::text, file.position, file.filename, file.mime_type,
+    SELECT file.id::text AS id, file.short_id, attachment.record_id::text AS record_id, attachment.field_id::text AS field_id,
+           mapping.target_field_id::text, attachment.position, file.filename, file.mime_type,
            file.size_bytes, file.sha256, file.created_by::text AS created_by, file.created_at
     FROM jsonb_to_recordset(${mapped.map((item) => ({
       target_field_id: item.targetFieldId,
       source_field_id: item.sourceFieldId,
     }))}::jsonb) AS mapping(target_field_id uuid, source_field_id uuid)
-    JOIN grids.files file
-      ON file.record_id = ${params.recordId}::uuid
-     AND file.field_id = mapping.source_field_id
+    JOIN grids.file_attachments attachment
+      ON attachment.record_id = ${params.recordId}::uuid
+     AND attachment.field_id = mapping.source_field_id
+    JOIN grids.files file ON file.id = attachment.file_id
     WHERE ${guard}
-    ORDER BY mapping.target_field_id, file.position, file.created_at, file.id
+    ORDER BY mapping.target_field_id, attachment.position, file.created_at, file.id
   `;
   for (const row of rows) filesByField[row.target_field_id]?.push(mapRow(row, row.target_field_id, mapped[0]?.publication === null));
   return filesByField;
@@ -323,19 +363,21 @@ export const listFirstImagePreviews = async (params: {
   >`
     SELECT DISTINCT ON (mapping.record_id, mapping.target_field_id)
       file.id::text AS id,
-      file.record_id::text AS record_id,
+      attachment.record_id::text AS record_id,
       mapping.target_field_id::text,
       file.filename,
       file.mime_type,
       file.size_bytes
     FROM jsonb_to_recordset(${mappings}::jsonb)
       AS mapping(record_id uuid, target_field_id uuid, source_field_id uuid)
+    JOIN grids.file_attachments attachment
+      ON attachment.record_id = mapping.record_id
+     AND attachment.field_id = mapping.source_field_id
     JOIN grids.files file
-      ON file.record_id = mapping.record_id
-     AND file.field_id = mapping.source_field_id
+      ON file.id = attachment.file_id
      AND file.mime_type LIKE 'image/%'
     WHERE ${guard}
-    ORDER BY mapping.record_id, mapping.target_field_id, file.position, file.created_at, file.id
+    ORDER BY mapping.record_id, mapping.target_field_id, attachment.position, file.created_at, file.id
   `;
 
   const out: Record<string, Record<string, GridFilePreview>> = {};
@@ -371,14 +413,12 @@ export const upload = async (params: {
   const maxFiles = target.data.config.maxFiles;
 
   return sql.begin(async (tx) => {
-    await tx`
-      SELECT pg_advisory_xact_lock(hashtext(${params.recordId}), hashtext(${params.fieldId}))
-    `;
+    await lockMutationTarget(tx, params.recordId, params.fieldId);
 
     if (typeof maxFiles === "number" && Number.isInteger(maxFiles) && maxFiles > 0) {
       const [countRow] = await tx<{ count: number }[]>`
         SELECT COUNT(*)::int AS count
-        FROM grids.files
+        FROM grids.file_attachments
         WHERE record_id = ${params.recordId}::uuid AND field_id = ${params.fieldId}::uuid
       `;
       if ((countRow?.count ?? 0) >= maxFiles) {
@@ -388,20 +428,16 @@ export const upload = async (params: {
 
     const [pos] = await tx<{ position: number }[]>`
       SELECT COALESCE(MAX(position) + 1, 0)::int AS position
-      FROM grids.files
+      FROM grids.file_attachments
       WHERE record_id = ${params.recordId}::uuid AND field_id = ${params.fieldId}::uuid
     `;
     const row = await insertWithShortIdForDb(tx, "idx_grids_files_short_id", async (attempt, shortId) => {
       const [created] = await attempt<DbRow[]>`
         INSERT INTO grids.files (
-          short_id, record_id, field_id, position, filename, mime_type,
-          size_bytes, sha256, bytes, created_by
+          short_id, filename, mime_type, size_bytes, sha256, bytes, created_by
         )
         VALUES (
           ${shortId},
-          ${params.recordId}::uuid,
-          ${params.fieldId}::uuid,
-          ${pos?.position ?? 0},
           ${filename},
           ${params.mimeType || "application/octet-stream"},
           ${params.bytes.byteLength},
@@ -409,15 +445,108 @@ export const upload = async (params: {
           ${params.bytes},
           ${params.userId}::uuid
         )
-        RETURNING id::text AS id, short_id, record_id::text AS record_id, field_id::text AS field_id,
-                  position, filename, mime_type, size_bytes, sha256,
+        RETURNING id::text AS id, short_id, filename, mime_type, size_bytes, sha256,
+                  created_by::text AS created_by, created_at
+      `;
+      if (!created) throw new Error("insert returned no row");
+      return {
+        ...created,
+        record_id: params.recordId,
+        field_id: params.fieldId,
+        position: pos?.position ?? 0,
+      } as DbRow;
+    });
+    if (!row) throw new Error("insert returned no row");
+    await tx`
+      INSERT INTO grids.file_attachments (file_id, record_id, field_id, position, attached_by)
+      VALUES (${row.id}::uuid, ${params.recordId}::uuid, ${params.fieldId}::uuid, ${row.position}, ${params.userId}::uuid)
+    `;
+    const file = mapRow(row);
+    await logAudit(
+      {
+        tableId: params.tableId,
+        recordId: params.recordId,
+        userId: params.userId,
+        action: "file.added",
+        diff: { [params.fieldId]: { old: null, new: auditMetadata(file) } },
+      },
+      tx,
+    );
+    return ok(file);
+  });
+};
+
+export const replace = async (params: {
+  tableId: string;
+  recordId: string;
+  fieldId: string;
+  fileId: string;
+  filename: string;
+  mimeType: string;
+  bytes: Uint8Array;
+  userId: string | null;
+}): Promise<Result<GridFile>> => {
+  const target = await verifyTarget(params.tableId, params.recordId, params.fieldId);
+  if (!target.ok) return target;
+  const filename = normalizeFilename(params.filename);
+  const mimeType = params.mimeType || "application/octet-stream";
+  if (!matchesAccept(filename, mimeType, target.data.config.accept)) {
+    return fail(err.badInput("file type is not accepted by this field"));
+  }
+
+  return sql.begin(async (tx): Promise<Result<GridFile>> => {
+    await lockMutationTarget(tx, params.recordId, params.fieldId);
+    const [existingRow] = await tx<DbRow[]>`
+      SELECT file.id::text AS id, file.short_id, attachment.record_id::text AS record_id,
+             attachment.field_id::text AS field_id, attachment.position, file.filename, file.mime_type,
+             file.size_bytes, file.sha256, file.created_by::text AS created_by, file.created_at
+      FROM grids.file_attachments attachment
+      JOIN grids.files file ON file.id = attachment.file_id
+      WHERE file.id = ${params.fileId}::uuid
+        AND attachment.record_id = ${params.recordId}::uuid
+        AND attachment.field_id = ${params.fieldId}::uuid
+      FOR UPDATE OF file, attachment
+    `;
+    if (!existingRow) return fail(err.notFound("File"));
+
+    const createdRow = await insertWithShortIdForDb(tx, "idx_grids_files_short_id", async (attempt, shortId) => {
+      const [created] = await attempt<Omit<DbRow, "record_id" | "field_id" | "position">[]>`
+        INSERT INTO grids.files (short_id, filename, mime_type, size_bytes, sha256, bytes, created_by)
+        VALUES (
+          ${shortId}, ${filename}, ${mimeType}, ${params.bytes.byteLength},
+          ${sha256Hex(params.bytes)}, ${params.bytes}, ${params.userId}::uuid
+        )
+        RETURNING id::text AS id, short_id, filename, mime_type, size_bytes, sha256,
                   created_by::text AS created_by, created_at
       `;
       if (!created) throw new Error("insert returned no row");
       return created;
     });
-    if (!row) throw new Error("insert returned no row");
-    return ok(mapRow(row));
+    const nextRow: DbRow = {
+      ...createdRow,
+      record_id: params.recordId,
+      field_id: params.fieldId,
+      position: existingRow.position,
+    };
+    await tx`
+      UPDATE grids.file_attachments
+      SET file_id = ${nextRow.id}::uuid, attached_by = ${params.userId}::uuid, attached_at = now()
+      WHERE file_id = ${params.fileId}::uuid
+    `;
+    const previous = mapRow(existingRow);
+    const next = mapRow(nextRow);
+    await logAudit(
+      {
+        tableId: params.tableId,
+        recordId: params.recordId,
+        userId: params.userId,
+        action: "file.replaced",
+        diff: { [params.fieldId]: { old: auditMetadata(previous), new: auditMetadata(next) } },
+      },
+      tx,
+    );
+    await cleanupUnreferenced(tx, params.fileId);
+    return ok(next);
   });
 };
 
@@ -431,13 +560,14 @@ export const getContent = async (params: {
   if (!target.ok) return target;
   if (!target.data.sourceFieldId) return fail(err.notFound("File"));
   const [row] = await sql<(DbRow & { bytes: Uint8Array })[]>`
-    SELECT id::text AS id, short_id, record_id::text AS record_id, field_id::text AS field_id,
-           position, filename, mime_type, size_bytes, sha256,
-           created_by::text AS created_by, created_at, bytes
-    FROM grids.files
-    WHERE id = ${params.fileId}::uuid
-      AND record_id = ${params.recordId}::uuid
-      AND field_id = ${target.data.sourceFieldId}::uuid
+    SELECT file.id::text AS id, file.short_id, attachment.record_id::text AS record_id,
+           attachment.field_id::text AS field_id, attachment.position, file.filename, file.mime_type,
+           file.size_bytes, file.sha256, file.created_by::text AS created_by, file.created_at, file.bytes
+    FROM grids.file_attachments attachment
+    JOIN grids.files file ON file.id = attachment.file_id
+    WHERE file.id = ${params.fileId}::uuid
+      AND attachment.record_id = ${params.recordId}::uuid
+      AND attachment.field_id = ${target.data.sourceFieldId}::uuid
       AND ${publicationGuard(target.data)}
   `;
   if (!row) return fail(err.notFound("File"));
@@ -447,11 +577,12 @@ export const getContent = async (params: {
 /** Resolves the only public file identifier to a live internal file. */
 export const getByShortId = async (shortId: string): Promise<GridFile | null> => {
   const [row] = await sql<DbRow[]>`
-    SELECT file.id::text AS id, file.short_id, file.record_id::text AS record_id,
-           file.field_id::text AS field_id, file.position, file.filename, file.mime_type,
+    SELECT file.id::text AS id, file.short_id, attachment.record_id::text AS record_id,
+           attachment.field_id::text AS field_id, attachment.position, file.filename, file.mime_type,
            file.size_bytes, file.sha256, file.created_by::text AS created_by, file.created_at
     FROM grids.files file
-    JOIN grids.records record ON record.id = file.record_id AND record.deleted_at IS NULL
+    JOIN grids.file_attachments attachment ON attachment.file_id = file.id
+    JOIN grids.records record ON record.id = attachment.record_id AND record.deleted_at IS NULL
     JOIN grids.tables table_ref ON table_ref.id = record.table_id AND table_ref.deleted_at IS NULL
     JOIN grids.bases base ON base.id = table_ref.base_id AND base.deleted_at IS NULL
     WHERE file.short_id = ${shortId}
@@ -459,16 +590,140 @@ export const getByShortId = async (shortId: string): Promise<GridFile | null> =>
   return row ? mapRow(row) : null;
 };
 
-export const remove = async (params: { tableId: string; recordId: string; fieldId: string; fileId: string }): Promise<Result<void>> => {
+export const remove = async (params: {
+  tableId: string;
+  recordId: string;
+  fieldId: string;
+  fileId: string;
+  userId?: string | null;
+}): Promise<Result<void>> => {
   const target = await verifyTarget(params.tableId, params.recordId, params.fieldId);
   if (!target.ok) return target;
-  const rows = await sql<{ id: string }[]>`
-    DELETE FROM grids.files
-    WHERE id = ${params.fileId}::uuid
-      AND record_id = ${params.recordId}::uuid
-      AND field_id = ${params.fieldId}::uuid
-    RETURNING id::text AS id
+  return sql.begin(async (tx): Promise<Result<void>> => {
+    await lockMutationTarget(tx, params.recordId, params.fieldId);
+    const [row] = await tx<DbRow[]>`
+      SELECT file.id::text AS id, file.short_id, attachment.record_id::text AS record_id,
+             attachment.field_id::text AS field_id, attachment.position, file.filename, file.mime_type,
+             file.size_bytes, file.sha256, file.created_by::text AS created_by, file.created_at
+      FROM grids.file_attachments attachment
+      JOIN grids.files file ON file.id = attachment.file_id
+      WHERE file.id = ${params.fileId}::uuid
+        AND attachment.record_id = ${params.recordId}::uuid
+        AND attachment.field_id = ${params.fieldId}::uuid
+      FOR UPDATE OF file, attachment
+    `;
+    if (!row) return fail(err.notFound("File"));
+    const file = mapRow(row);
+    await tx`DELETE FROM grids.file_attachments WHERE file_id = ${params.fileId}::uuid`;
+    await logAudit(
+      {
+        tableId: params.tableId,
+        recordId: params.recordId,
+        userId: params.userId ?? null,
+        action: "file.removed",
+        diff: { [params.fieldId]: { old: auditMetadata(file), new: null } },
+      },
+      tx,
+    );
+    await cleanupUnreferenced(tx, params.fileId);
+    return ok();
+  });
+};
+
+type ProtectParams = {
+  fileId: string;
+  ownerKind: FileProtectionOwnerKind;
+  ownerId: string;
+  baseId: string;
+  tableId: string;
+  recordId: string;
+  userId: string | null;
+};
+
+const protectWithClient = async (params: ProtectParams, client: SqlClient): Promise<Result<void>> => {
+  const [asset] = await client<{ id: string }[]>`
+    SELECT id::text AS id FROM grids.files WHERE id = ${params.fileId}::uuid FOR UPDATE
   `;
-  if (rows.length === 0) return fail(err.notFound("File"));
+  if (!asset) return fail(err.notFound("File"));
+  await client`
+    INSERT INTO grids.file_protected_references (
+      file_id, owner_kind, owner_id, base_id, table_id, record_id, created_by
+    )
+    VALUES (
+      ${params.fileId}::uuid, ${params.ownerKind}, ${params.ownerId}::uuid,
+      ${params.baseId}::uuid, ${params.tableId}::uuid, ${params.recordId}::uuid, ${params.userId}::uuid
+    )
+    ON CONFLICT (file_id, owner_kind, owner_id) DO NOTHING
+  `;
   return ok();
 };
+
+export const protect = async (params: ProtectParams, client?: SqlClient): Promise<Result<void>> =>
+  client ? protectWithClient(params, client) : sql.begin((tx) => protectWithClient(params, tx));
+
+type ProtectionIdentity = Pick<ProtectParams, "fileId" | "ownerKind" | "ownerId">;
+
+const releaseProtectionWithClient = async (params: ProtectionIdentity, client: SqlClient): Promise<Result<void>> => {
+  const [asset] = await client<{ id: string }[]>`
+    SELECT id::text AS id FROM grids.files WHERE id = ${params.fileId}::uuid FOR UPDATE
+  `;
+  if (!asset) return ok();
+  await client`
+    DELETE FROM grids.file_protected_references
+    WHERE file_id = ${params.fileId}::uuid
+      AND owner_kind = ${params.ownerKind}
+      AND owner_id = ${params.ownerId}::uuid
+  `;
+  await cleanupUnreferenced(client, params.fileId);
+  return ok();
+};
+
+export const releaseProtection = async (params: ProtectionIdentity, client?: SqlClient): Promise<Result<void>> =>
+  client ? releaseProtectionWithClient(params, client) : sql.begin((tx) => releaseProtectionWithClient(params, tx));
+
+export const getProtectedContent = async (params: ProtectionIdentity): Promise<Result<ProtectedFileContent>> => {
+  const [row] = await sql<
+    Array<{
+      id: string;
+      short_id: string;
+      filename: string;
+      mime_type: string;
+      size_bytes: number | string;
+      sha256: string;
+      created_by: string | null;
+      created_at: Date | string;
+      bytes: Uint8Array;
+    }>
+  >`
+    SELECT file.id::text AS id, file.short_id, file.filename, file.mime_type, file.size_bytes,
+           file.sha256, file.created_by::text AS created_by, file.created_at, file.bytes
+    FROM grids.file_protected_references protected
+    JOIN grids.files file ON file.id = protected.file_id
+    WHERE protected.file_id = ${params.fileId}::uuid
+      AND protected.owner_kind = ${params.ownerKind}
+      AND protected.owner_id = ${params.ownerId}::uuid
+  `;
+  if (!row) return fail(err.notFound("File"));
+  return ok({
+    id: row.id,
+    shortId: row.short_id,
+    filename: row.filename,
+    mimeType: row.mime_type,
+    sizeBytes: Number(row.size_bytes),
+    sha256: row.sha256,
+    createdBy: row.created_by,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+    bytes: row.bytes,
+  });
+};
+
+const cleanupWithClient = async (fileId: string, client: SqlClient): Promise<Result<boolean>> => {
+  const [asset] = await client<{ id: string }[]>`
+    SELECT id::text AS id FROM grids.files WHERE id = ${fileId}::uuid FOR UPDATE
+  `;
+  if (!asset) return ok(false);
+  return ok(await cleanupUnreferenced(client, fileId));
+};
+
+export const cleanup = async (fileId: string, client?: SqlClient): Promise<Result<boolean>> =>
+  client ? cleanupWithClient(fileId, client) : sql.begin((tx) => cleanupWithClient(fileId, tx));

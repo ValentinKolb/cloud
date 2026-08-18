@@ -103,7 +103,7 @@ export const resolvePublishedCustomAppRuntime = async (input: PublishedCustomApp
     if (block.type === "actions") {
       for (const action of block.actions) actions.set(`${block.id}\0${action.id}`, action);
     }
-    if (block.type === "records") {
+    if (block.type === "records" || block.type === "referenced_records") {
       for (const action of block.rowActions ?? []) actions.set(`${block.id}\0${action.id}`, action);
     }
   }

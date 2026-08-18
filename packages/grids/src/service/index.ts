@@ -28,6 +28,7 @@ import * as recordComments from "./record-comments";
 import { listDeadRecordEventDeliveryFailures } from "./record-event-delivery-failures";
 import * as recordHistory from "./record-history";
 import * as records from "./records";
+import * as referencedBy from "./referenced-by";
 import * as relationsModule from "./relations";
 import * as tables from "./tables";
 import * as templates from "./templates";
@@ -126,6 +127,7 @@ export const gridsService = {
     listActors: records.listActors,
     aggregate: records.aggregate,
     group: records.group,
+    listReferencedBy: referencedBy.listReferencedBy,
     comments: {
       list: recordComments.list,
       create: recordComments.create,
@@ -275,9 +277,14 @@ export const gridsService = {
     listForRecordField: files.listForRecordField,
     listFirstImagePreviews: files.listFirstImagePreviews,
     upload: files.upload,
+    replace: files.replace,
     getByShortId: files.getByShortId,
     getContent: files.getContent,
     remove: files.remove,
+    protect: files.protect,
+    releaseProtection: files.releaseProtection,
+    getProtectedContent: files.getProtectedContent,
+    cleanup: files.cleanup,
   },
   workflow: {
     listForBase: listWorkflows,

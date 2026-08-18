@@ -97,36 +97,38 @@ const openHtmlTemplatePreview = (field: Field, html: string) =>
 
 function HtmlTemplateValue(props: { field: Field; value: unknown; mode: FieldValueMode; empty: JSX.Element | string }) {
   const html = () => (typeof props.value === "string" ? props.value : "");
+  const PreviewButton = () => (
+    <Show
+      when={html() !== "#TEMPLATE_ERROR!"}
+      fallback={<span class="text-xs font-medium text-red-600 dark:text-red-400">Render error</span>}
+    >
+      <Button
+        variant="secondary"
+        size="sm"
+        type="button"
+        class="shrink-0"
+        onClick={(event) => {
+          event.stopPropagation();
+          void openHtmlTemplatePreview(props.field, html());
+        }}
+      >
+        <i class="ti ti-eye" /> Preview
+      </Button>
+    </Show>
+  );
   return (
     <Show when={html()} fallback={props.empty}>
-      <span class="flex min-w-0 items-center gap-2">
-        <code
-          class={
-            props.mode === "table"
-              ? "block min-w-0 flex-1 truncate text-xs text-dimmed"
-              : "block min-w-0 flex-1 break-all text-xs text-dimmed"
-          }
-        >
-          {html()}
-        </code>
-        <Show
-          when={html() !== "#TEMPLATE_ERROR!"}
-          fallback={<span class="text-xs font-medium text-red-600 dark:text-red-400">Render error</span>}
-        >
-          <Button
-            variant="secondary"
-            size="sm"
-            type="button"
-            class="shrink-0"
-            onClick={(event) => {
-              event.stopPropagation();
-              void openHtmlTemplatePreview(props.field, html());
-            }}
-          >
-            <i class="ti ti-eye" /> Preview
-          </Button>
-        </Show>
-      </span>
+      <Show
+        when={props.mode === "detail"}
+        fallback={
+          <span class="flex min-w-0 items-center gap-2">
+            <code class="block min-w-0 flex-1 truncate text-xs text-dimmed">{html()}</code>
+            <PreviewButton />
+          </span>
+        }
+      >
+        <PreviewButton />
+      </Show>
     </Show>
   );
 }

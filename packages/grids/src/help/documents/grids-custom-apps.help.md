@@ -24,6 +24,7 @@ A column may contain:
 - **Markdown**, for headings, instructions, links, and request-context placeholders;
 - **Form**, for creating a record with one existing active Grids Form;
 - **Records**, for up to 100 rows from a saved view or bounded GQL; tables may display an explicit field subset of the selected result;
+- **Referenced records**, on a Record page, for rows from one pinned table whose pinned Relation points to the current record;
 - **Metrics**, for named scalar aggregates from a saved view or bounded GQL;
 - **Chart**, for grouped aggregate results rendered as a supported chart;
 - **Record**, for an explicit field allowlist from the current detail record;
@@ -180,13 +181,15 @@ The definition's 6-character `id` is the app's stable public ID and route segmen
 
 ## Build visually {icon="apps"}
 
-Base administrators can turn on **Edit mode** and create an app with **New app** under **Apps**. The Pages column creates and selects pages; each page and the active app have their own settings action. **Add block** supports Markdown, Records, Metrics, Charts, Forms, Record details, Comments, Actions, and Scanner. Records, Metrics, and Charts can use an accessible saved View or inline GQL. Scanner appears after an enabled Scanner run option has a ready workflow revision.
+Base administrators can turn on **Edit mode** and create an app with **New app** under **Apps**. The Pages column creates and selects pages; each page and the active app have their own settings action. **Add block** supports Markdown, Records, Referenced records, Metrics, Charts, Forms, Record details, Comments, Actions, and Scanner. Records, Metrics, and Charts can use an accessible saved View or inline GQL. Referenced records appears on Record pages when another table has a Relation to that page's table. Scanner appears after an enabled Scanner run option has a ready workflow revision.
 
 The inspector keeps the common path short. Required identity, page, source, and block fields stay visible. Access, availability, route parameters, appearance, ordering, documents, and danger controls use expandable sections. Optional availability shows **Always** until you add a server-enforced GQL rule. Inline GQL and Markdown can each be opened in a larger editor without creating a second draft or a separate Save step; autocomplete continues to offer only the selected page's valid `@auth`, `@params`, `@page`, `@app`, `@base`, and `@time` context.
 
 Route parameters are required Record IDs, each with one parameter ID and Record table. Adding a Record block binds the page to its single compatible route parameter, hides the page from navigation, and makes that same record available to Record and Comments blocks; there is no second Page Record setting. Renaming a parameter updates its typed Form, navigation, workflow, row-action, and exact `@params.<name>` GQL references. Page IDs are editable and their navigation references update with them. Records rows can link to compatible route pages or run plural row workflows; Forms can receive typed server-trusted values and navigate after creation; Record blocks can choose writable fields and document templates.
 
 For a saved-View Records block, choose a table field selection or reuse the View's existing Cards configuration. Cards keep the View's configured fields and file cover, may be read-only, link to a row page, or expose the same row workflows as a table, and are pinned at publication. A GQL Records source displays exactly the ordinary-record columns returned by its query, including aliases, so it needs no second Columns selection. Use Metrics or Chart for aggregate results.
+
+Referenced records pins its source table, Relation field, displayed fields, table or Cards presentation, search setting, page size, and row actions. The generated query uses the current Record page parameter and the existing bounded Custom App GQL capability; authors do not maintain a second query. Changing or removing the Relation makes the draft invalid until it is corrected and republished.
 
 An Actions block shows a compact list. Open one action to edit its icon, target, history, typed parameter mappings, workflow launcher, input sources, confirmation, availability, and order. Workflow actions list only active Grids App launchers whose validated workflow revision is available in the current Base.
 

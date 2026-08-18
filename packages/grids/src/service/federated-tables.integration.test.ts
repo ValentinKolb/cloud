@@ -114,12 +114,16 @@ const createFixture = async (): Promise<Fixture> => {
       (${targetFileFieldId}::uuid, ${shortId("CF")}, ${targetTableId}::uuid, 'File', 'file', '{}'::jsonb, 1, FALSE)
   `;
   await sql`
-    INSERT INTO grids.records (id, table_id, data)
-    VALUES (${recordId}::uuid, ${sourceTableId}::uuid, jsonb_build_object(${sourceTextFieldId}::text, 'Mapped value'))
+    INSERT INTO grids.records (id, short_id, table_id, data)
+    VALUES (${recordId}::uuid, ${shortId("R")}, ${sourceTableId}::uuid, jsonb_build_object(${sourceTextFieldId}::text, 'Mapped value'))
   `;
   await sql`
-    INSERT INTO grids.files (id, record_id, field_id, position, filename, mime_type, size_bytes, sha256, bytes)
-    VALUES (${fileId}::uuid, ${recordId}::uuid, ${sourceFileFieldId}::uuid, 0, 'source.png', 'image/png', 5, 'fixture', ${new TextEncoder().encode("hello")})
+    INSERT INTO grids.files (id, short_id, filename, mime_type, size_bytes, sha256, bytes)
+    VALUES (${fileId}::uuid, ${shortId("FI")}, 'source.png', 'image/png', 5, 'fixture', ${new TextEncoder().encode("hello")})
+  `;
+  await sql`
+    INSERT INTO grids.file_attachments (file_id, record_id, field_id, position)
+    VALUES (${fileId}::uuid, ${recordId}::uuid, ${sourceFileFieldId}::uuid, 0)
   `;
   await sql`
     INSERT INTO grids.federated_table_revisions (id, table_id, revision, status, published_at)
@@ -155,6 +159,7 @@ const cleanupFixture = async (fixture: Fixture): Promise<void> => {
   await sql`DELETE FROM grids.audit_log WHERE table_id IN (${fixture.sourceTableId}::uuid, ${fixture.targetTableId}::uuid)`;
   await sql`DELETE FROM grids.federated_table_revisions WHERE table_id = ${fixture.targetTableId}::uuid`;
   await sql`DELETE FROM grids.bases WHERE id IN (${fixture.sourceBaseId}::uuid, ${fixture.targetBaseId}::uuid)`;
+  await sql`DELETE FROM grids.files WHERE id = ${fixture.fileId}::uuid`;
 };
 
 const previewCombined = async (
@@ -494,9 +499,10 @@ describe("combined table integration", () => {
         WHERE id = ${fixture.recordId}::uuid
       `;
       await sql`
-        INSERT INTO grids.records (id, table_id, data)
+        INSERT INTO grids.records (id, short_id, table_id, data)
         VALUES (
           ${uuid()}::uuid,
+          ${shortId("R")},
           ${secondTableId}::uuid,
           jsonb_build_object(
             ${secondTextFieldId}::text, 'Second value',
@@ -548,10 +554,10 @@ describe("combined table integration", () => {
     const fixture = await createFixture();
     try {
       await sql`
-        INSERT INTO grids.records (id, table_id, data)
+        INSERT INTO grids.records (id, short_id, table_id, data)
         VALUES
-          (${uuid()}::uuid, ${fixture.sourceTableId}::uuid, jsonb_build_object(${fixture.sourceTextFieldId}::text, 'Mapped second')),
-          (${uuid()}::uuid, ${fixture.sourceTableId}::uuid, jsonb_build_object(${fixture.sourceTextFieldId}::text, 'Other'))
+          (${uuid()}::uuid, ${shortId("R")}, ${fixture.sourceTableId}::uuid, jsonb_build_object(${fixture.sourceTextFieldId}::text, 'Mapped second')),
+          (${uuid()}::uuid, ${shortId("R")}, ${fixture.sourceTableId}::uuid, jsonb_build_object(${fixture.sourceTextFieldId}::text, 'Other'))
       `;
       const rows = await previewCombined(
         fixture,
@@ -621,9 +627,10 @@ describe("combined table integration", () => {
     const deletedRecordId = uuid();
     try {
       await sql`
-        INSERT INTO grids.records (id, table_id, data, deleted_at)
+        INSERT INTO grids.records (id, short_id, table_id, data, deleted_at)
         VALUES (
           ${deletedRecordId}::uuid,
+          ${shortId("R")},
           ${fixture.sourceTableId}::uuid,
           jsonb_build_object(${fixture.sourceTextFieldId}::text, 'Deleted value'),
           now()
@@ -675,8 +682,8 @@ describe("combined table integration", () => {
           }}::jsonb, 2, FALSE)
       `;
       await sql`
-        INSERT INTO grids.records (id, table_id, data)
-        VALUES (${relationRecordId}::uuid, ${relationTableId}::uuid, jsonb_build_object(${relationNameFieldId}::text, 'Hardware'))
+        INSERT INTO grids.records (id, short_id, table_id, data)
+        VALUES (${relationRecordId}::uuid, ${shortId("R")}, ${relationTableId}::uuid, jsonb_build_object(${relationNameFieldId}::text, 'Hardware'))
       `;
       await sql`
         INSERT INTO grids.record_links (from_record_id, from_field_id, to_record_id, position)
@@ -806,7 +813,8 @@ describe("combined table integration", () => {
   postgresTest("fails closed when a compiled publication is revoked with no source rows", async () => {
     const fixture = await createFixture();
     try {
-      await sql`DELETE FROM grids.files WHERE record_id = ${fixture.recordId}::uuid`;
+      await sql`DELETE FROM grids.file_attachments WHERE record_id = ${fixture.recordId}::uuid`;
+      await sql`DELETE FROM grids.files WHERE id = ${fixture.fileId}::uuid`;
       await sql`DELETE FROM grids.records WHERE id = ${fixture.recordId}::uuid`;
       const source = await buildDslSqlRecordSource(fixture.targetTableId, { [fixture.targetTableId]: fixture.targetFields });
       expect(source).not.toBeNull();
@@ -1475,13 +1483,14 @@ describe("combined table integration", () => {
         }))}::jsonb) AS item(id uuid, short_id text, table_id uuid, name text)
       `;
         await sql`
-        INSERT INTO grids.records (id, table_id, data)
-        SELECT id, table_id, data
+        INSERT INTO grids.records (id, short_id, table_id, data)
+        SELECT id, short_id, table_id, data
         FROM jsonb_to_recordset(${extra.map((item) => ({
           id: item.recordId,
+          short_id: shortId("R"),
           table_id: item.tableId,
           data: item.data,
-        }))}::jsonb) AS item(id uuid, table_id uuid, data jsonb)
+        }))}::jsonb) AS item(id uuid, short_id text, table_id uuid, data jsonb)
       `;
         await sql`
         INSERT INTO grids.federated_table_sources (revision_id, source_table_id, position, authorized_at)
@@ -1520,8 +1529,8 @@ describe("combined table integration", () => {
       const fixture = await createFixture();
       try {
         await sql`
-        INSERT INTO grids.records (id, table_id, data)
-        SELECT gen_random_uuid(), ${fixture.sourceTableId}::uuid,
+        INSERT INTO grids.records (id, short_id, table_id, data)
+        SELECT gen_random_uuid(), 'E' || lpad(sequence::text, 5, '0'), ${fixture.sourceTableId}::uuid,
                jsonb_build_object(${fixture.sourceTextFieldId}::text, 'Export row ' || sequence::text)
         FROM generate_series(1, 10025) sequence
       `;

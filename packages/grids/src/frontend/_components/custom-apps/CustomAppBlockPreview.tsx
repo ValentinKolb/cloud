@@ -200,6 +200,14 @@ export default function CustomAppBlockPreview(props: {
     >
       <MarkdownView markdown={props.block.markdown} inlineTokens={props.markdownInlineTokens} headingScale="large" />
     </Show>
+  ) : props.block.type === "referenced_records" ? (
+    <Placeholder
+      state="empty"
+      variant="compact"
+      align="left"
+      title={props.block.title ?? "Referenced records"}
+      description="This block is loaded from the current record when the published app page opens."
+    />
   ) : props.block.type === "records" || props.block.type === "metrics" || props.block.type === "chart" ? (
     <SourcePreview
       baseId={props.baseId}

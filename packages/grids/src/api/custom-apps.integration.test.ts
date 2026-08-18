@@ -133,7 +133,7 @@ describe("Grids App Form runtime", () => {
           ${viewPublicId},
           ${tableId}::uuid,
           'Request search',
-          ${`from table {${tableId}}\nselect {${fieldId}}`},
+          ${`from table {${tablePublicId}}\nselect {${fieldPublicId}}`},
           ${JSON.stringify({ displayConfig: { mode: "cards", cards: { fieldIds: [suppliedFieldId], imageFieldId } } })}::jsonb
         )
       `;
@@ -395,8 +395,12 @@ describe("Grids App Form runtime", () => {
         const filePublicId = testShortId("P");
         const imageBytes = new Uint8Array([137, 80, 78, 71]);
         await sql`
-          INSERT INTO grids.files (id, short_id, record_id, field_id, position, filename, mime_type, size_bytes, sha256, bytes)
-          VALUES (${fileId}::uuid, ${filePublicId}, ${recordId}::uuid, ${imageFieldId}::uuid, 0, 'preview.png', 'image/png', ${imageBytes.length}, 'fixture', ${imageBytes})
+          INSERT INTO grids.files (id, short_id, filename, mime_type, size_bytes, sha256, bytes)
+          VALUES (${fileId}::uuid, ${filePublicId}, 'preview.png', 'image/png', ${imageBytes.length}, 'fixture', ${imageBytes})
+        `;
+        await sql`
+          INSERT INTO grids.file_attachments (file_id, record_id, field_id, position)
+          VALUES (${fileId}::uuid, ${recordId}::uuid, ${imageFieldId}::uuid, 0)
         `;
         const previousAppSecret = process.env.APP_SECRET;
         process.env.APP_SECRET = "custom-app-file-test-secret";
@@ -684,14 +688,27 @@ describe("Grids App Form runtime", () => {
         expect(content.status).toBe(200);
         expect(content.headers.get("content-type")).toBe("application/pdf");
         expect(new Uint8Array(await content.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+        const replacementBody = new FormData();
+        replacementBody.set("file", new File([new Uint8Array([4, 5, 6])], "receipt-v2.pdf", { type: "application/pdf" }));
+        const replacedFile = await api.request(
+          `${filesUrl.slice(0, filesUrl.indexOf("?"))}/${uploadedFileBody.id}?request_id=${body.recordId}`,
+          { method: "PUT", body: replacementBody },
+        );
+        expect(replacedFile.status).toBe(200);
+        const replacedFileBody = (await replacedFile.json()) as { id: string };
+        expect(replacedFileBody.id).not.toBe(uploadedFileBody.id);
+        expect((await api.request(contentUrl)).status).toBe(404);
+        const replacedContentUrl = `${filesUrl.slice(0, filesUrl.indexOf("?"))}/${replacedFileBody.id}/content?request_id=${body.recordId}`;
+        const replacedContent = await api.request(replacedContentUrl);
+        expect(new Uint8Array(await replacedContent.arrayBuffer())).toEqual(new Uint8Array([4, 5, 6]));
         expect(
           (
-            await api.request(`${filesUrl.slice(0, filesUrl.indexOf("?"))}/${uploadedFileBody.id}?request_id=${body.recordId}`, {
+            await api.request(`${filesUrl.slice(0, filesUrl.indexOf("?"))}/${replacedFileBody.id}?request_id=${body.recordId}`, {
               method: "DELETE",
             })
           ).status,
         ).toBe(204);
-        expect((await api.request(contentUrl)).status).toBe(404);
+        expect((await api.request(replacedContentUrl)).status).toBe(404);
 
         const staleRecord = await api.request(recordUrl, {
           method: "PATCH",

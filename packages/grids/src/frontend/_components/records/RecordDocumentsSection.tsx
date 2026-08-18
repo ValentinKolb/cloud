@@ -2,6 +2,7 @@ import { fileIcons } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
 import {
   Button,
+  DetailPanel,
   Dropdown,
   dialogCore,
   isStructuredDataValue,
@@ -249,13 +250,8 @@ export default function RecordDocumentsSection(props: {
                 }}
                 maxRows={8}
               />
-              <details class="detail-section group">
-                <summary class="flex cursor-pointer select-none items-center gap-2 text-xs font-medium text-secondary">
-                  <i class="ti ti-code text-sm" />
-                  Raw snapshot data
-                  <i class="ti ti-chevron-down ml-auto text-xs text-dimmed transition-transform group-open:rotate-180" />
-                </summary>
-                <div class="mt-3 flex flex-col gap-3">
+              <DetailPanel.Section title="Raw snapshot data" icon="ti ti-code" collapsible>
+                <div class="flex flex-col gap-3">
                   <StructuredDataPreview
                     title="Root record"
                     data={isStructuredDataValue(snapshot.root) ? snapshot.root : { error: "Snapshot root is not valid JSON." }}
@@ -267,7 +263,7 @@ export default function RecordDocumentsSection(props: {
                     defaultMode="raw"
                   />
                 </div>
-              </details>
+              </DetailPanel.Section>
             </RecordReadView>
           </div>
         ),
@@ -300,9 +296,11 @@ export default function RecordDocumentsSection(props: {
   return (
     <>
       <Show when={props.live || manualSnapshots().length > 0}>
-        <section class="detail-section flex flex-col gap-3">
-          <div class="flex items-center justify-between gap-2">
-            <h3 class="detail-section-label mb-0">Snapshots</h3>
+        <DetailPanel.Section
+          title="Snapshots"
+          icon="ti ti-camera"
+          meta={manualSnapshots().length}
+          actions={
             <Show when={props.live}>
               <Button
                 variant="secondary"
@@ -316,7 +314,8 @@ export default function RecordDocumentsSection(props: {
                 Create snapshot
               </Button>
             </Show>
-          </div>
+          }
+        >
           <Show when={manualSnapshots().length === 0}>
             <Placeholder align="left" description="No snapshots yet." />
           </Show>
@@ -342,13 +341,15 @@ export default function RecordDocumentsSection(props: {
               </button>
             )}
           </For>
-        </section>
+        </DetailPanel.Section>
       </Show>
 
       <Show when={generatedRuns().length > 0 || (props.live && availableTemplates().length > 0)}>
-        <section class="detail-section flex flex-col gap-3">
-          <div class="flex items-center justify-between gap-2">
-            <h3 class="detail-section-label mb-0">Documents</h3>
+        <DetailPanel.Section
+          title="Documents"
+          icon="ti ti-file-type-pdf"
+          meta={generatedRuns().length}
+          actions={
             <Show when={props.live && availableTemplates().length > 0}>
               <Dropdown.Root position="bottom-left" width="16rem" items={generationActions()}>
                 <Dropdown.Trigger variant="secondary" size="sm" type="button" disabled={refreshDocumentsMut.loading()}>
@@ -358,7 +359,8 @@ export default function RecordDocumentsSection(props: {
                 </Dropdown.Trigger>
               </Dropdown.Root>
             </Show>
-          </div>
+          }
+        >
           <Show when={generatedRuns().length === 0}>
             <Placeholder align="left" description="No generated documents yet." />
           </Show>
@@ -390,7 +392,7 @@ export default function RecordDocumentsSection(props: {
               </button>
             )}
           </For>
-        </section>
+        </DetailPanel.Section>
       </Show>
     </>
   );

@@ -565,7 +565,7 @@ Commands are `forms list|default|get|create|update|delete|restore|submit`. `--pu
 ## Publish a Grids App
 
 Grids Apps are strict schema-v5 YAML definitions owned by one base. The current contract supports up to 12 pages containing responsive rows and
-columns plus Markdown, Records, Metrics, Chart, Record, Rendered HTML, Form, Comments, Actions, and Scanner blocks. Records and insight blocks can use a saved view
+columns plus Markdown, Records, Referenced records, Metrics, Chart, Record, Rendered HTML, Form, Comments, Actions, and Scanner blocks. Records and insight blocks can use a saved view
 or GQL. A Records block can navigate its row id or one selected single relation into one required
 record parameter on a detail page. Record and Comments blocks use that page record; Record renders only its explicit field allowlist.
 For signed-in readers, an editable displayed File field exposes App-scoped attachment controls without granting raw Base API access. File validation and limits remain owned by the field and file service. A published Comments block lets signed-in App readers comment without Base access; authors manage their own comments and Base administrators moderate. Form blocks submit existing Grids forms and may carry trusted typed `LITERAL`, `PARAMS`,
@@ -573,6 +573,8 @@ or page `RECORD` values. Records blocks may declare up to six workflow `rowActio
 the runtime rechecks the selected id against the exact published query result. Run the live reference before authoring a definition:
 
 Saved-view Records blocks can use `display: { kind: table, columnIds: [...] }` or `display: { kind: cards }`. Cards reuse and pin the saved View's existing Cards fields and file cover. Row navigation is optional, and Cards reuse the same bounded workflow `rowActions` as tables. GQL Records blocks are table-only and display the query's selected ordinary-record columns, including aliases; use an empty `columnIds` list because no second column selection is applied. Use Metrics or Chart for aggregate output. Set `searchable: true` for parameterized PostgreSQL search over displayed fields and choose `pageSize` from 5 to 100. Cursor pagination stays server-side for both saved Views and GQL; use a GQL `limit` only to cap the complete result intentionally.
+
+On a Record page, `referenced_records` pins one source table, one Relation field targeting the page record table, the exact displayed `fieldIds`, table or Cards display, search, page size, and optional row actions. The server derives and compiles the bounded GQL membership query from the page record parameter; do not add a second query or client-side reverse lookup.
 
 Pages, blocks, Forms, and actions may use one `availableWhen.query`. At least one returned row means available. An empty result, invalid query, missing context, timeout, or cancellation means unavailable. The server rechecks Forms and actions before execution.
 

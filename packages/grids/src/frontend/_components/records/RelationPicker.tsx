@@ -46,7 +46,7 @@ export default function RelationPicker(props: Props) {
   const labelFor = (id: string): string => {
     const fromProp = props.labels()[id];
     if (fromProp) return fromProp;
-    return "Unknown record";
+    return "Unavailable record";
   };
 
   const toOption = (item: LookupItem): MultiSelectOption => ({ id: item.id, label: item.label, icon: "ti ti-link" });

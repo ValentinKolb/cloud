@@ -274,6 +274,39 @@ export const CustomAppRecordsBlockSchema = z
     }
   });
 
+export const CustomAppReferencedRecordsBlockSchema = z
+  .object({
+    id: CustomAppLocalIdSchema,
+    type: z.literal("referenced_records"),
+    title: z.string().trim().min(1).max(160).optional(),
+    emptyText: z.string().trim().min(1).max(240).optional(),
+    sourceTableId: CustomAppResourceIdSchema,
+    relationFieldId: CustomAppResourceIdSchema,
+    fieldIds: z.array(CustomAppResourceIdSchema).min(1).max(30),
+    display: z.object({ kind: z.enum(["table", "cards"]) }).strict(),
+    searchable: z.boolean().default(true),
+    pageSize: z.number().int().min(5).max(100).default(25),
+    rowActions: z.array(CustomAppRowActionSchema).max(6).optional(),
+    ...CustomAppAvailabilityShape,
+  })
+  .strict()
+  .superRefine((block, ctx) => {
+    const fieldIds = new Set<string>();
+    for (const [index, fieldId] of block.fieldIds.entries()) {
+      if (fieldIds.has(fieldId)) {
+        ctx.addIssue({ code: "custom", message: `Duplicate displayed field id "${fieldId}"`, path: ["fieldIds", index] });
+      }
+      fieldIds.add(fieldId);
+    }
+    const actionIds = new Set<string>();
+    for (const [index, action] of (block.rowActions ?? []).entries()) {
+      if (actionIds.has(action.id)) {
+        ctx.addIssue({ code: "custom", message: `Duplicate row action id "${action.id}"`, path: ["rowActions", index, "id"] });
+      }
+      actionIds.add(action.id);
+    }
+  });
+
 export const CustomAppInsightSourceSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("view"), viewId: CustomAppResourceIdSchema }).strict(),
   CustomAppGqlSourceSchema,
@@ -418,6 +451,7 @@ export const CustomAppScannerBlockSchema = z
 export const CustomAppBlockSchema = z.discriminatedUnion("type", [
   CustomAppMarkdownBlockSchema,
   CustomAppRecordsBlockSchema,
+  CustomAppReferencedRecordsBlockSchema,
   CustomAppMetricsBlockSchema,
   CustomAppChartBlockSchema,
   CustomAppRecordBlockSchema,
@@ -580,6 +614,9 @@ export const CustomAppDefinitionSchema = z
             if (block.type === "record" && !page.record) {
               ctx.addIssue({ code: "custom", message: "A Record block requires a page record", path: [...blockPath, "type"] });
             }
+            if (block.type === "referenced_records" && !page.record) {
+              ctx.addIssue({ code: "custom", message: "A Referenced records block requires a page record", path: [...blockPath, "type"] });
+            }
             if (block.type === "html" && !page.record) {
               ctx.addIssue({ code: "custom", message: "A Rendered HTML block requires a page record", path: [...blockPath, "type"] });
             }
@@ -604,7 +641,7 @@ export const CustomAppDefinitionSchema = z
                 }
               }
             }
-            if (block.type === "actions" || block.type === "records") {
+            if (block.type === "actions" || block.type === "records" || block.type === "referenced_records") {
               const actions =
                 block.type === "actions" ? block.actions.filter((action) => action.kind === "workflow") : (block.rowActions ?? []);
               const segment = block.type === "actions" ? "actions" : "rowActions";
@@ -882,6 +919,18 @@ export const CustomAppCapabilitiesSchema = z
             primaryTableId: z.string().uuid(),
             planHash: z.string().regex(/^[a-f0-9]{64}$/),
             tableIds: z.array(z.string().uuid()).min(1).max(24),
+            relationLabels: z
+              .array(
+                z
+                  .object({
+                    fieldId: z.string().uuid(),
+                    targetTableId: z.string().uuid(),
+                    labelFieldIds: z.array(z.string().uuid()).max(200),
+                  })
+                  .strict(),
+              )
+              .max(30)
+              .optional(),
           })
           .strict(),
       )
@@ -1034,6 +1083,7 @@ export type CustomAppBlock = z.infer<typeof CustomAppBlockSchema>;
 export type CustomAppPage = CustomAppDefinition["pages"][number];
 export type CustomAppRowNavigation = NonNullable<Extract<CustomAppBlock, { type: "records" }>["rowNavigate"]>;
 export type CustomAppRecordsBlock = Extract<CustomAppBlock, { type: "records" }>;
+export type CustomAppReferencedRecordsBlock = Extract<CustomAppBlock, { type: "referenced_records" }>;
 export type CustomAppFormBlock = Extract<CustomAppBlock, { type: "form" }>;
 export type CustomAppCommentsBlock = Extract<CustomAppBlock, { type: "comments" }>;
 export type CustomAppActionsBlock = Extract<CustomAppBlock, { type: "actions" }>;
@@ -1118,6 +1168,14 @@ export const CUSTOM_APP_REFERENCE = {
       pagination: "Cursor-paged from 5 to 100 rows per request; a GQL limit caps the complete result",
       rowNavigate: "Optionally navigate a row id or selected single relation into a target page record parameter",
       rowActions: "Optionally invoke plural workflow actions with ROW.id and accessible label/icon presentation",
+    },
+    referencedRecords: {
+      required: ["id", "type", "sourceTableId", "relationFieldId", "fieldIds", "display", "searchable", "pageSize"],
+      source: "One exact Source table and Relation field targeting the current Record page",
+      display: "Render the explicitly selected Source fields as a table or cards",
+      search: "Optional server-side PostgreSQL search over the selected fields",
+      pagination: "Cursor-paged from 5 to 100 rows per request",
+      rowActions: "Optionally invoke workflow actions after replaying current referenced-record membership",
     },
     metrics: {
       required: ["id", "type", "source"],

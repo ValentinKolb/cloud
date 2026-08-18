@@ -1,6 +1,6 @@
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, Dropdown, IconButton, prompts, Tooltip } from "@k2b/ui";
+import { Button, DescriptionList, DetailPanel, Dropdown, IconButton, prompts, Tooltip } from "@k2b/ui";
 import { Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
@@ -16,6 +16,7 @@ import RecordDocumentsSection from "./RecordDocumentsSection";
 import RecordFileField from "./RecordFileField";
 import RecordHistorySection from "./RecordHistorySection";
 import RecordReadView from "./RecordReadView";
+import RecordReferencedBy from "./RecordReferencedBy.island";
 import { openRecordUpsertDialog } from "./RecordUpsertDialog";
 import { recordDisplayTitle } from "./record-display";
 
@@ -285,30 +286,38 @@ export default function RecordDetailPanel(props: Props) {
               </Show>
             </>
           }
+          relationsAfter={
+            <Show when={mode() === "live" && props.detail() && !props.detail()?.combinedOrigin}>
+              <RecordReferencedBy baseId={props.baseId} tableId={props.tableId} recordId={rec.id} />
+            </Show>
+          }
         >
           <Show when={props.detail()?.combinedOrigin}>
             {(origin) => (
-              <section class="detail-section flex flex-col gap-2">
-                <h3 class="detail-section-label mb-0">Combined source</h3>
-                <dl class="grid grid-cols-[minmax(6rem,0.42fr)_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2 text-sm leading-5">
-                  <dt class="text-dimmed">Published from</dt>
-                  <dd class="min-w-0 break-words text-primary">
-                    {origin().source.baseName} · {origin().source.tableName}
-                  </dd>
-                  <Show when={origin().deletedAt}>
-                    {(deletedAt) => (
-                      <>
-                        <dt class="text-dimmed">Deleted</dt>
-                        <dd class="text-primary">
-                          <time dateTime={deletedAt()}>{formatDateTime(deletedAt())}</time>
-                        </dd>
-                      </>
-                    )}
-                  </Show>
-                  <dt class="text-dimmed">Access</dt>
-                  <dd class="text-secondary">Read-only publication. Restore or edit this record in its source table.</dd>
-                </dl>
-              </section>
+              <DetailPanel.Section title="Combined source" icon="ti ti-stack-2" tone="neutral">
+                <DescriptionList
+                  layout="rows"
+                  size="sm"
+                  items={[
+                    {
+                      term: "Published from",
+                      description: `${origin().source.baseName} · ${origin().source.tableName}`,
+                    },
+                    ...(origin().deletedAt
+                      ? [
+                          {
+                            term: "Deleted",
+                            description: <time dateTime={origin().deletedAt!}>{formatDateTime(origin().deletedAt!)}</time>,
+                          },
+                        ]
+                      : []),
+                    {
+                      term: "Access",
+                      description: "Read-only publication. Restore or edit this record in its source table.",
+                    },
+                  ]}
+                />
+              </DetailPanel.Section>
             )}
           </Show>
           <RecordDocumentsSection

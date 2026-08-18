@@ -691,6 +691,10 @@ describe("CustomAppBuilder", () => {
     expect(source).toContain('<DetailPanel.Summary title="Block">');
     expect(source).toContain('<DetailPanel.Group label="Block behavior">');
     expect(source).toContain('<DetailPanel.Group label="Data settings">');
+    expect(source).toContain('<DetailPanel.Group label="Referenced records settings">');
+    expect(source).toContain('label="Source table"');
+    expect(source).toContain('label="Relation field"');
+    expect(source).toContain('type: "referenced_records"');
     expect(source).toContain('title="Data source"');
     expect(source).toContain('title="Records table"');
     expect(source).toContain('title="Row actions"');

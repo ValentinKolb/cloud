@@ -40,9 +40,12 @@ describe("FieldValue rendering", () => {
   test("keeps HTML template values escaped and exposes a preview action", () => {
     const htmlField = field({ id: "html01", name: "Email body", type: "html_template" });
     const html = renderToString(() => createComponent(FieldValue, { field: htmlField, value: "<strong>Ada</strong>" }));
+    const detail = renderToString(() => createComponent(FieldValue, { field: htmlField, value: "<strong>Ada</strong>", mode: "detail" }));
     expect(html).toContain("&lt;strong>Ada&lt;/strong>");
     expect(html).toContain("Preview");
     expect(html).not.toContain("<strong>Ada</strong>");
+    expect(detail).toContain("Preview");
+    expect(detail).not.toContain("&lt;strong>Ada&lt;/strong>");
   });
 
   test("renders relation links and label-only relation values", () => {
@@ -63,6 +66,12 @@ describe("FieldValue rendering", () => {
     expect(linked).toContain("Ada Lovelace");
     expect(labels).not.toContain("<a");
     expect(labels).toContain("Ada Lovelace");
+
+    const unavailable = renderToString(() =>
+      createComponent(FieldValue, { field: relation, value: "author-2", baseId: "base", mode: "detail" }),
+    );
+    expect(unavailable).toContain("Unavailable record");
+    expect(unavailable).not.toContain("Unknown record");
   });
 
   test("renders select badges, markdown, and empty detail values", () => {

@@ -54,11 +54,12 @@ const blockLabel: Record<CustomAppBlock["type"], string> = {
   metrics: "Metrics",
   record: "Record",
   records: "Records",
+  referenced_records: "Referenced records",
   scanner: "Scanner",
 };
 
 const blockOwnsHeading = (block: CustomAppBlock): boolean =>
-  block.type === "comments" || block.type === "record" || block.type === "records";
+  block.type === "comments" || block.type === "record" || block.type === "records" || block.type === "referenced_records";
 
 const intentTargets = (intent: CustomAppBlockDropIntent | null, activeBlockId: string | null) => {
   if (!activeBlockId || !intent) return false;

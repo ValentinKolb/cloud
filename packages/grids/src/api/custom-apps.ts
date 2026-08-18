@@ -831,7 +831,11 @@ export const createCustomAppsApi = (
       const runtime = await resolvePublishedRuntime(c);
       if (!runtime) return c.json({ message: "Records not found" }, 404);
       const block = runtime.blocks.get(c.req.param("blockId") ?? "");
-      if (!block || block.type !== "records" || !(await runtime.available("block", block.availableWhen?.query, block.id))) {
+      if (
+        !block ||
+        (block.type !== "records" && block.type !== "referenced_records") ||
+        !(await runtime.available("block", block.availableWhen?.query, block.id))
+      ) {
         return c.json({ message: "Records not found" }, 404);
       }
       const query = c.req.valid("query");
@@ -1257,6 +1261,32 @@ export const createCustomAppsApi = (
       if (!result.ok) return respond(c, () => Promise.resolve(result));
       return c.json(await projectGridFile(result.data));
     })
+    .put(
+      "/runtime/:shortId/:pageId/:blockId/record/files/:fieldId/:fileId",
+      requirePublicIdParam("fieldId", "field", "Field"),
+      requirePublicIdParam("fileId", "file", "File"),
+      async (c) => {
+        const resolved = await resolveRuntimeRecordFile(c, true);
+        if (!resolved) return c.json({ message: "File editor not found" }, 404);
+        const form = await c.req.formData().catch(() => null);
+        const file = form?.get("file");
+        if (!(file instanceof File)) return c.json({ message: "Missing 'file' field" }, 400);
+        const maxBytes = await getMaxFileSizeBytes();
+        if (file.size > maxBytes) return c.json({ message: `File exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit` }, 413);
+        const result = await gridsService.file.replace({
+          tableId: resolved.page.record!.tableId,
+          recordId: resolved.record.id,
+          fieldId: resolved.fieldId,
+          fileId: internalIdParam(c, "fileId")!,
+          filename: file.name || "untitled",
+          mimeType: file.type || "application/octet-stream",
+          bytes: new Uint8Array(await file.arrayBuffer()),
+          userId: currentActorUserId(c),
+        });
+        if (!result.ok) return respond(c, () => Promise.resolve(result));
+        return c.json(await projectGridFile(result.data));
+      },
+    )
     .get(
       "/runtime/:shortId/:pageId/:blockId/record/files/:fieldId/:fileId/content",
       requirePublicIdParam("fieldId", "field", "Field"),
@@ -1296,6 +1326,7 @@ export const createCustomAppsApi = (
           recordId: resolved.record.id,
           fieldId: resolved.fieldId,
           fileId: internalIdParam(c, "fileId")!,
+          userId: currentActorUserId(c),
         });
         if (!result.ok) return respond(c, () => Promise.resolve(result));
         return c.body(null, 204);
@@ -1373,8 +1404,13 @@ export const createCustomAppsApi = (
       if (!runtime) return c.json({ message: "Action not found" }, 404);
       const { app, capabilities, page, pageParams } = runtime;
       const block = runtime.blocks.get(c.req.param("blockId") ?? "");
-      const action = block?.type === "records" ? block.rowActions?.find((candidate) => candidate.id === c.req.param("actionId")) : null;
-      if (!block || block.type !== "records" || !action) return c.json({ message: "Action not found" }, 404);
+      const action =
+        block?.type === "records" || block?.type === "referenced_records"
+          ? block.rowActions?.find((candidate) => candidate.id === c.req.param("actionId"))
+          : null;
+      if (!block || (block.type !== "records" && block.type !== "referenced_records") || !action) {
+        return c.json({ message: "Action not found" }, 404);
+      }
       if (
         !(await runtime.available("block", block.availableWhen?.query, block.id)) ||
         !(await runtime.available("action", action.availableWhen?.query, block.id, action.id))

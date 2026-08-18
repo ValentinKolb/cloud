@@ -20,6 +20,7 @@ type RecordsSelectionControllerOptions = {
 
 const emptyDetail = (recordId: string): WorkspaceRecordDetail => ({
   recordId,
+  relationLabels: {},
   filesByField: {},
   documentRuns: [],
   snapshots: [],

@@ -157,6 +157,7 @@ const blockMeta: Record<CustomAppBlock["type"], { icon: string; label: string }>
   metrics: { icon: "ti ti-chart-dots", label: "Metrics" },
   record: { icon: "ti ti-id", label: "Record" },
   records: { icon: "ti ti-table", label: "Records" },
+  referenced_records: { icon: "ti ti-table-share", label: "Referenced records" },
   scanner: { icon: "ti ti-scan", label: "Scanner" },
 };
 
@@ -527,6 +528,11 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     const block = selectedBlock()?.block;
     return block?.type === "records" ? block : null;
   });
+  const selectedReferencedRecordsBlock = createMemo(() => {
+    const block = selectedBlock()?.block;
+    return block?.type === "referenced_records" ? block : null;
+  });
+  const selectedRecordsLikeBlock = createMemo(() => selectedRecordsBlock() ?? selectedReferencedRecordsBlock());
   const selectedFormBlock = createMemo(() => {
     const block = selectedBlock()?.block;
     return block?.type === "form" ? block : null;
@@ -545,7 +551,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     const actions = selectedActionsBlock()?.actions ?? [];
     const actionIndex = actions.findIndex((action) => action.id === actionId);
     if (actionIndex >= 0) return { action: actions[actionIndex]!, index: actionIndex, owner: "actions" };
-    const rowActions = selectedRecordsBlock()?.rowActions ?? [];
+    const rowActions = selectedRecordsLikeBlock()?.rowActions ?? [];
     const rowIndex = rowActions.findIndex((action) => action.id === actionId);
     return rowIndex < 0 ? null : { action: rowActions[rowIndex]!, index: rowIndex, owner: "rows" };
   });
@@ -558,10 +564,16 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     return action?.kind === "workflow" ? action : null;
   });
   const selectedActionCount = createMemo(() =>
-    selectedAction()?.owner === "rows" ? (selectedRecordsBlock()?.rowActions?.length ?? 0) : (selectedActionsBlock()?.actions.length ?? 0),
+    selectedAction()?.owner === "rows"
+      ? (selectedRecordsLikeBlock()?.rowActions?.length ?? 0)
+      : (selectedActionsBlock()?.actions.length ?? 0),
   );
   const contextKeys = createMemo(() => customAppContextKeys(selectedPage()));
-  const markdownInlineTokens = createMemo(() => contextKeys().filter((key) => key !== "auth.subjects").map((key) => `@${key}`));
+  const markdownInlineTokens = createMemo(() =>
+    contextKeys()
+      .filter((key) => key !== "auth.subjects")
+      .map((key) => `@${key}`),
+  );
   const blockCount = createMemo(() =>
     selectedPage().rows.reduce((total, row) => total + row.columns.reduce((sum, column) => sum + column.blocks.length, 0), 0),
   );
@@ -704,7 +716,20 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     const block = selectedBlock()?.block;
     return block?.type === "records" && block.display.kind === "table";
   });
+  const referencedRecordsCandidates = createMemo(() => {
+    const targetTableId = selectedPage().record?.tableId;
+    if (!targetTableId) return [];
+    return props.catalog.tables.flatMap((table) => {
+      const fields = (props.catalog.fieldsByTable[table.id] ?? []).filter((field) => field.deletedAt === null);
+      const relations = fields.filter(
+        (field) => field.type === "relation" && (field.config as { targetTableId?: unknown }).targetTableId === targetTableId,
+      );
+      return relations.length > 0 && fields.length > 0 ? [{ table, fields: fields.slice(0, 30), relations }] : [];
+    });
+  });
   const selectedSourceTableId = createMemo(() => {
+    const referenced = selectedReferencedRecordsBlock();
+    if (referenced) return referenced.sourceTableId;
     const block = selectedSourceBlock();
     if (!block) return null;
     if (block.source.kind === "view") return viewsById().get(block.source.viewId)?.tableId ?? null;
@@ -722,6 +747,29 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     const tableId = selectedSourceTableId();
     return tableId ? (props.catalog.fieldsByTable[tableId] ?? []).filter((field) => field.deletedAt === null).slice(0, 30) : [];
   });
+  const referencedSourceOptions = createMemo(() =>
+    referencedRecordsCandidates().map(({ table }) => ({ id: table.id, label: table.name, icon: table.icon ?? "ti ti-table" })),
+  );
+  const selectedReferencedSource = createMemo(() => {
+    const block = selectedReferencedRecordsBlock();
+    return block ? (referencedRecordsCandidates().find((candidate) => candidate.table.id === block.sourceTableId) ?? null) : null;
+  });
+  const referencedRelationOptions = createMemo(() =>
+    (selectedReferencedSource()?.relations ?? []).map((field) => ({
+      id: field.id,
+      label: field.name,
+      description: "Relation to this page record",
+      icon: field.icon ?? "ti ti-link",
+    })),
+  );
+  const referencedFieldOptions = createMemo(() =>
+    (selectedReferencedSource()?.fields ?? []).map((field) => ({
+      id: field.id,
+      label: field.name,
+      description: field.type,
+      icon: field.icon ?? "ti ti-column-insert-right",
+    })),
+  );
   const rowInputForLauncher = (launcher: CustomAppWorkflowLauncher) => {
     if (launcher.config.inputMode !== "prompt") return null;
     const tableId = selectedSourceTableId();
@@ -864,7 +912,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
           }),
         };
       }
-      if (block.type === "records") {
+      if (block.type === "records" || block.type === "referenced_records") {
         return {
           ...block,
           rowActions: (block.rowActions ?? []).map((action) => {
@@ -911,6 +959,21 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       type: "records",
       source,
       display: { kind: "table", columnIds: [] },
+      searchable: true,
+      pageSize: 25,
+    });
+  };
+  const addReferencedRecordsBlock = () => {
+    const candidate = referencedRecordsCandidates()[0];
+    const relation = candidate?.relations[0];
+    if (!candidate || !relation) return;
+    addBlock({
+      id: localId("referenced-records"),
+      type: "referenced_records",
+      sourceTableId: candidate.table.id,
+      relationFieldId: relation.id,
+      fieldIds: candidate.fields.map((field) => field.id),
+      display: { kind: "table" },
       searchable: true,
       pageSize: 25,
     });
@@ -1073,6 +1136,21 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
               description: "Add an HTML template field to the record table first.",
               disabled: true,
             },
+        selectedPage().record && referencedRecordsCandidates().length > 0
+          ? {
+              icon: "ti ti-table-share",
+              label: "Referenced records",
+              description: "Show records whose Relation points to this page record.",
+              action: addReferencedRecordsBlock,
+            }
+          : {
+              icon: "ti ti-table-share",
+              label: "Referenced records",
+              description: selectedPage().record
+                ? "Add a Relation from another table to this record table first."
+                : "This block is available on an existing Record page.",
+              disabled: true,
+            },
         selectedPage().record
           ? { icon: "ti ti-messages", label: "Comments", description: "Show comments for the page record.", action: addCommentsBlock }
           : { icon: "ti ti-messages", label: "Comments", description: "Add a Record block first.", disabled: true },
@@ -1121,7 +1199,10 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
               <For each={addBlockSections()}>
                 {(section) => (
                   <section aria-labelledby={`custom-app-block-section-${section.id}`}>
-                    <h3 id={`custom-app-block-section-${section.id}`} class="mb-2 text-xs font-semibold uppercase tracking-wide text-dimmed">
+                    <h3
+                      id={`custom-app-block-section-${section.id}`}
+                      class="mb-2 text-xs font-semibold uppercase tracking-wide text-dimmed"
+                    >
                       {section.label}
                     </h3>
                     <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -1139,14 +1220,17 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                           >
                             <div class="flex items-start gap-3">
                               <span class="thumbnail flex h-8 w-8 shrink-0 items-center justify-center bg-[var(--ui-surface-subtle)]">
-                                <i class={`${option.icon} text-base text-dimmed ${option.disabled ? "opacity-50" : ""}`} aria-hidden="true" />
+                                <i
+                                  class={`${option.icon} text-base text-dimmed ${option.disabled ? "opacity-50" : ""}`}
+                                  aria-hidden="true"
+                                />
                               </span>
                               <div class="min-w-0">
-                                <div class={`text-sm font-semibold ${option.disabled ? "text-dimmed" : "text-primary"}`}>{option.label}</div>
+                                <div class={`text-sm font-semibold ${option.disabled ? "text-dimmed" : "text-primary"}`}>
+                                  {option.label}
+                                </div>
                                 <p
-                                  class={`mt-1 text-xs leading-snug ${
-                                    option.disabled ? "text-[var(--k2b-warning-text)]" : "text-dimmed"
-                                  }`}
+                                  class={`mt-1 text-xs leading-snug ${option.disabled ? "text-[var(--k2b-warning-text)]" : "text-dimmed"}`}
                                 >
                                   {option.description}
                                 </p>
@@ -1603,7 +1687,11 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
       launcherId: launcher.id,
       inputs: defaultRowWorkflowInputs(launcher),
     };
-    updateSelectedBlock((block) => (block.type === "records" ? { ...block, rowActions: [...(block.rowActions ?? []), action] } : block));
+    updateSelectedBlock((block) =>
+      block.type === "records" || block.type === "referenced_records"
+        ? { ...block, rowActions: [...(block.rowActions ?? []), action] }
+        : block,
+    );
     selectAction(action.id);
   };
 
@@ -1618,7 +1706,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
         [actions[selected.index], actions[target]] = [actions[target]!, actions[selected.index]!];
         return { ...block, actions };
       }
-      if (selected.owner !== "rows" || block.type !== "records") return block;
+      if (selected.owner !== "rows" || (block.type !== "records" && block.type !== "referenced_records")) return block;
       const source = block.rowActions ?? [];
       const target = selected.index + direction;
       if (target < 0 || target >= source.length) return block;
@@ -1632,7 +1720,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     const selected = selectedAction();
     if (!selected) return;
     const count =
-      selected.owner === "actions" ? (selectedActionsBlock()?.actions.length ?? 0) : (selectedRecordsBlock()?.rowActions?.length ?? 0);
+      selected.owner === "actions" ? (selectedActionsBlock()?.actions.length ?? 0) : (selectedRecordsLikeBlock()?.rowActions?.length ?? 0);
     if (selected.owner === "actions" && count <= 1) return;
     const confirmed = await prompts.confirm(`Remove "${selected.action.label}"?`, {
       title: "Remove action",
@@ -1644,7 +1732,7 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
     updateSelectedBlock((candidate) =>
       selected.owner === "actions" && candidate.type === "actions"
         ? { ...candidate, actions: candidate.actions.filter((action) => action.id !== selected.action.id) }
-        : selected.owner === "rows" && candidate.type === "records"
+        : selected.owner === "rows" && (candidate.type === "records" || candidate.type === "referenced_records")
           ? { ...candidate, rowActions: (candidate.rowActions ?? []).filter((action) => action.id !== selected.action.id) }
           : candidate,
     );
@@ -2472,7 +2560,13 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                       }
                       error={() => diagnosticFor(selected().block.id, "availableWhen")}
                     />
-                    <Show when={selected().block.type === "records" || selected().block.type === "record"}>
+                    <Show
+                      when={
+                        selected().block.type === "records" ||
+                        selected().block.type === "referenced_records" ||
+                        selected().block.type === "record"
+                      }
+                    >
                       <DetailPanel.Section
                         title="Empty state"
                         icon="ti ti-placeholder"
@@ -2484,11 +2578,15 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                           label="Message"
                           value={() => {
                             const block = selected().block;
-                            return block.type === "records" || block.type === "record" ? (block.emptyText ?? "") : "";
+                            return block.type === "records" || block.type === "referenced_records" || block.type === "record"
+                              ? (block.emptyText ?? "")
+                              : "";
                           }}
                           onValueChange={(emptyText) =>
                             updateSelectedBlock((block) =>
-                              block.type === "records" || block.type === "record" ? { ...block, emptyText: emptyText || undefined } : block,
+                              block.type === "records" || block.type === "referenced_records" || block.type === "record"
+                                ? { ...block, emptyText: emptyText || undefined }
+                                : block,
                             )
                           }
                           clearable
@@ -2572,6 +2670,141 @@ function CustomAppBuilderEditor(props: CustomAppBuilderProps & { initialDefiniti
                       </DetailPanel.Section>
                     </Show>
                   </DetailPanel.Group>
+                  <Show when={selected().block.type === "referenced_records"}>
+                    <DetailPanel.Group label="Referenced records settings">
+                      <DetailPanel.Section
+                        title="Relation source"
+                        icon="ti ti-table-share"
+                        description="Pin the source table, its Relation to this page record, and the displayed fields."
+                        collapsible
+                        defaultOpen
+                      >
+                        <div class="flex flex-col gap-4">
+                          <Select
+                            label="Source table"
+                            description="Only tables with a Relation to this Record page are available."
+                            searchable
+                            value={() => selectedReferencedRecordsBlock()?.sourceTableId ?? null}
+                            options={referencedSourceOptions()}
+                            onValueChange={(sourceTableId) => {
+                              if (!sourceTableId) return;
+                              const candidate = referencedRecordsCandidates().find((item) => item.table.id === sourceTableId);
+                              const relation = candidate?.relations[0];
+                              if (!candidate || !relation) return;
+                              updateSelectedBlock((block) =>
+                                block.type === "referenced_records"
+                                  ? {
+                                      ...block,
+                                      sourceTableId,
+                                      relationFieldId: relation.id,
+                                      fieldIds: candidate.fields.map((field) => field.id),
+                                    }
+                                  : block,
+                              );
+                            }}
+                          />
+                          <Select
+                            label="Relation field"
+                            description="Rows are included when this Relation contains the current record."
+                            value={() => selectedReferencedRecordsBlock()?.relationFieldId ?? null}
+                            options={referencedRelationOptions()}
+                            error={() => diagnosticFor(selected().block.id, "relationFieldId")}
+                            onValueChange={(relationFieldId) =>
+                              relationFieldId &&
+                              updateSelectedBlock((block) => (block.type === "referenced_records" ? { ...block, relationFieldId } : block))
+                            }
+                          />
+                          <MultiSelectInput
+                            label="Fields"
+                            description="Choose the exact fields exposed by this block."
+                            placeholder="Choose fields"
+                            searchable
+                            value={() => selectedReferencedRecordsBlock()?.fieldIds ?? []}
+                            selectedOptions={() => {
+                              const options = new Map(referencedFieldOptions().map((option) => [option.id, option]));
+                              return (selectedReferencedRecordsBlock()?.fieldIds ?? []).map(
+                                (fieldId) => options.get(fieldId) ?? { id: fieldId, label: "Unavailable field" },
+                              );
+                            }}
+                            options={referencedFieldOptions()}
+                            error={() => {
+                              const block = selectedReferencedRecordsBlock();
+                              if (!block) return undefined;
+                              if (block.fieldIds.length === 0) return "Choose at least one field.";
+                              return diagnosticFor(block.id, "fieldIds");
+                            }}
+                            onValueChange={(fieldIds) =>
+                              updateSelectedBlock((block) =>
+                                block.type === "referenced_records" ? { ...block, fieldIds: fieldIds.slice(0, 30) } : block,
+                              )
+                            }
+                          />
+                          <Select
+                            label="Display"
+                            value={() => selectedReferencedRecordsBlock()?.display.kind ?? "table"}
+                            options={[
+                              { id: "table", label: "Table", icon: "ti ti-table" },
+                              { id: "cards", label: "Cards", icon: "ti ti-layout-grid" },
+                            ]}
+                            onValueChange={(kind) =>
+                              (kind === "table" || kind === "cards") &&
+                              updateSelectedBlock((block) =>
+                                block.type === "referenced_records" ? { ...block, display: { kind } } : block,
+                              )
+                            }
+                          />
+                          <Switch
+                            label="Search"
+                            description="Let readers search the displayed fields."
+                            value={() => selectedReferencedRecordsBlock()?.searchable ?? true}
+                            onValueChange={(searchable) =>
+                              updateSelectedBlock((block) => (block.type === "referenced_records" ? { ...block, searchable } : block))
+                            }
+                          />
+                          <NumberInput
+                            label="Rows per page"
+                            min={5}
+                            max={100}
+                            step={5}
+                            value={() => selectedReferencedRecordsBlock()?.pageSize ?? 25}
+                            onValueChange={(pageSize) =>
+                              pageSize !== null &&
+                              updateSelectedBlock((block) => (block.type === "referenced_records" ? { ...block, pageSize } : block))
+                            }
+                          />
+                        </div>
+                      </DetailPanel.Section>
+                      <DetailPanel.Section
+                        title="Row actions"
+                        icon="ti ti-click"
+                        description="Signed-in app readers can run workflows for selected rows."
+                        collapsible
+                        defaultOpen={(selectedReferencedRecordsBlock()?.rowActions?.length ?? 0) > 0}
+                      >
+                        <div class="flex flex-col gap-2">
+                          <For each={selectedReferencedRecordsBlock()?.rowActions ?? []}>
+                            {(action) => (
+                              <DetailPanel.Action
+                                title={action.label}
+                                description="Run workflow for this row"
+                                leading={<i class={action.icon ? `ti ti-${action.icon}` : "ti ti-player-play"} aria-hidden="true" />}
+                                trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+                                onClick={() => selectAction(action.id)}
+                              />
+                            )}
+                          </For>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={addRowWorkflowAction}
+                            disabled={workflowLaunchers().length === 0 || (selectedReferencedRecordsBlock()?.rowActions?.length ?? 0) >= 6}
+                          >
+                            <i class="ti ti-player-play" aria-hidden="true" /> Add row action
+                          </Button>
+                        </div>
+                      </DetailPanel.Section>
+                    </DetailPanel.Group>
+                  </Show>
                   <Show
                     when={selected().block.type === "records" || selected().block.type === "metrics" || selected().block.type === "chart"}
                   >

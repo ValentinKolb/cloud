@@ -5,7 +5,7 @@ import { renderToString } from "solid-js/web";
 import type { Field, GridFile } from "../../../service";
 import "../ssr-test-plugin";
 
-const { default: RecordFileField, recordFileContentHref } = await import("./RecordFileField");
+const { default: RecordFileField, recordFileContentHref, recordFileHref, recordFileRemovalPrompt } = await import("./RecordFileField");
 
 const image = {
   id: "22222222-2222-4222-8222-222222222222",
@@ -30,8 +30,30 @@ const field = {
 
 describe("RecordFileField", () => {
   test("appends the file path before preserving custom app page parameters", () => {
+    expect(recordFileHref({ endpoint: `/api/files/${field.id}?item_id=item-1` }, image)).toBe(
+      `/api/files/${field.id}/${image.id}?item_id=item-1`,
+    );
     expect(recordFileContentHref({ endpoint: `/api/files/${field.id}?item_id=item-1` }, image, true)).toBe(
       `/api/files/${field.id}/${image.id}/content?item_id=item-1&inline=true`,
+    );
+  });
+
+  test("offers atomic replace and honest removal wording to writers", () => {
+    const html = renderToString(() =>
+      createComponent(RecordFileField, {
+        tableId: field.tableId,
+        recordId: "44444444-4444-4444-8444-444444444444",
+        field,
+        canWrite: true,
+        initialFiles: [image],
+        endpoint: `/api/files/${field.id}?item_id=item-1`,
+      }),
+    );
+
+    expect(html).toContain(`aria-label="Replace ${image.filename}"`);
+    expect(html).toContain(`aria-label="Remove ${image.filename} from record"`);
+    expect(recordFileRemovalPrompt(image.filename)).toBe(
+      `Remove "${image.filename}" from this record? Protected history or artifacts may retain the exact file. Without a protected reference, it may be cleaned up later.`,
     );
   });
 
@@ -52,6 +74,8 @@ describe("RecordFileField", () => {
     expect(html).toContain(`src="/api/files/${field.id}/${image.id}/content?item_id=item-1&amp;inline=true"`);
     expect(html.match(/<img/g)).toHaveLength(2);
     expect(html).toContain(image.filename);
+    expect(html).not.toContain(`aria-label="Replace ${image.filename}"`);
+    expect(html).not.toContain(`aria-label="Remove ${image.filename} from record"`);
   });
 
   test("hard-limits thumbnails independently of generated utility coverage", async () => {

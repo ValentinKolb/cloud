@@ -66,18 +66,22 @@ export const renameCustomAppPageParameter = (
     return mapBlocks(renamedPage, (block) => {
       const availableWhen =
         ownsParameter && block.availableWhen ? { query: renameContextParameter(block.availableWhen.query, from, to) } : block.availableWhen;
-      if (block.type === "records") {
+      if (block.type === "records" || block.type === "referenced_records") {
         return {
           ...block,
           availableWhen,
-          source:
-            ownsParameter && block.source.kind === "gql"
-              ? { ...block.source, query: renameContextParameter(block.source.query, from, to) }
-              : block.source,
-          rowNavigate:
-            block.rowNavigate?.pageId === pageId
-              ? { ...block.rowNavigate, params: renameMappingKey(block.rowNavigate.params, from, to) }
-              : block.rowNavigate,
+          ...(block.type === "records"
+            ? {
+                source:
+                  ownsParameter && block.source.kind === "gql"
+                    ? { ...block.source, query: renameContextParameter(block.source.query, from, to) }
+                    : block.source,
+                rowNavigate:
+                  block.rowNavigate?.pageId === pageId
+                    ? { ...block.rowNavigate, params: renameMappingKey(block.rowNavigate.params, from, to) }
+                    : block.rowNavigate,
+              }
+            : {}),
           rowActions: block.rowActions?.map((action) => ({
             ...action,
             availableWhen:
@@ -201,7 +205,7 @@ export const customAppPageParameterUsage = (definition: CustomAppDefinition, pag
             if (block.onSuccessNavigate?.pageId === pageId && block.onSuccessNavigate.params[parameterId])
               usage.add("Form success navigation");
           }
-          if (block.type === "records") {
+          if (block.type === "records" || block.type === "referenced_records") {
             for (const action of block.rowActions ?? []) {
               if (page.id === pageId && action.availableWhen?.query.includes(contextReference)) usage.add("row action availability");
               if (

@@ -142,6 +142,31 @@ describe("Grids App definition contract", () => {
     expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(false);
   });
 
+  test("allows exact referenced records only on a matching Record page", () => {
+    const source = CustomAppDefinitionSchema.parse(structuredClone(CUSTOM_APP_REFERENCE.example));
+    const detail = source.pages.find((page) => page.record)!;
+    detail.rows[0]!.columns[0]!.blocks.push({
+      id: "related-orders",
+      type: "referenced_records",
+      sourceTableId: "ORDER1",
+      relationFieldId: "CUSTOM",
+      fieldIds: ["NUMBER", "STATUS"],
+      display: { kind: "table" },
+      searchable: true,
+      pageSize: 25,
+    });
+    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(true);
+
+    const duplicateFields = structuredClone(source);
+    const duplicateBlock = duplicateFields.pages[1]!.rows[0]!.columns[0]!.blocks.at(-1)!;
+    if (duplicateBlock.type !== "referenced_records") throw new Error("Expected Referenced records block");
+    duplicateBlock.fieldIds = ["NUMBER", "NUMBER"];
+    expect(CustomAppDefinitionSchema.safeParse(duplicateFields).success).toBe(false);
+
+    source.pages[0]!.rows[0]!.columns[0]!.blocks.push(source.pages[1]!.rows[0]!.columns[0]!.blocks.at(-1)!);
+    expect(CustomAppDefinitionSchema.safeParse(source).success).toBe(false);
+  });
+
   test("keeps the live Help YAML aligned with the public schema", async () => {
     const markdown = await Bun.file(new URL("../help/documents/grids-custom-apps.help.md", import.meta.url)).text();
     const source = markdown.match(/```yaml\n([\s\S]*?)```/)?.[1];

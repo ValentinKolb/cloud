@@ -21,6 +21,7 @@ import {
 } from "../custom-apps/form-capability";
 import { customAppViewSourceHash } from "../custom-apps/insight-source";
 import { customAppRecordsDisplayFieldHash } from "../custom-apps/records-display-capability";
+import { referencedRecordsGqlSource } from "../custom-apps/referenced-records";
 import { customAppScannerConfigHash } from "../custom-apps/scanner-capability";
 import { stableCustomAppStringify } from "../custom-apps/stable-value";
 import { customAppBindingRecordTableId } from "../custom-apps/value-bindings";
@@ -206,6 +207,12 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
   const parsed = CustomAppDefinitionSchema.safeParse(input);
   if (!parsed.success) return { ok: false, diagnostics: zodDiagnostics(parsed.error) };
   const publicDefinition = parsed.data;
+  const referencedRecordsSources = new Map(
+    blocksByType(publicDefinition, "referenced_records").flatMap(({ page, block }) => {
+      const source = referencedRecordsGqlSource(page, block);
+      return source ? [[`${page.id}\0${block.id}`, source] as const] : [];
+    }),
+  );
   const [base] = await client<Array<{ id: string; short_id: string; name: string }>>`
     SELECT id, short_id, name FROM grids.bases WHERE short_id = ${publicDefinition.baseId} AND deleted_at IS NULL
   `;
@@ -272,6 +279,13 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
                   binding.fieldId = resolve("field", binding.fieldId, [...path, "rowNavigate", "params", parameterId, "fieldId"]);
               }
             }
+          } else if (block.type === "referenced_records") {
+            block.sourceTableId = resolve("table", block.sourceTableId, [...path, "sourceTableId"]);
+            block.relationFieldId = resolve("field", block.relationFieldId, [...path, "relationFieldId"]);
+            block.fieldIds = block.fieldIds.map((id, index) => resolve("field", id, [...path, "fieldIds", index]));
+            for (const [actionIndex, action] of (block.rowActions ?? []).entries()) {
+              action.launcherId = resolve("launcher", action.launcherId, [...path, "rowActions", actionIndex, "launcherId"]);
+            }
           } else if (block.type === "metrics" || block.type === "chart") {
             if (block.source.kind === "view") block.source.viewId = resolve("view", block.source.viewId, [...path, "source", "viewId"]);
           } else if (block.type === "record") {
@@ -311,7 +325,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
     );
   }
   if (diagnostics.length > 0) return { ok: false, diagnostics };
-  const recordsBlocks = blocksByType(definition, "records");
+  const recordsBlocks = [...blocksByType(definition, "records"), ...blocksByType(definition, "referenced_records")];
   const insightBlocks = [...blocksByType(definition, "metrics"), ...blocksByType(definition, "chart")];
   const formBlocks = blocksByType(definition, "form");
   const sidebarFormActions = (definition.sidebar?.actions ?? []).filter((action) => action.kind === "form");
@@ -413,7 +427,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
                         ]
                       : [],
                   )
-                : block.type === "records"
+                : block.type === "records" || block.type === "referenced_records"
                   ? (block.rowActions ?? []).flatMap((action) =>
                       action.availableWhen
                         ? [
@@ -598,25 +612,52 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
 
   const compileRecordsSourceCapabilities = async () => {
     for (const { page, block } of recordsBlocks) {
+      if (block.type === "referenced_records") {
+        if (!page.record) {
+          diagnostics.push({ path: ["pages", page.id, "blocks", block.id, "type"], message: "Referenced records require a record page" });
+          continue;
+        }
+        const sourceFields = await resolveFields(block.sourceTableId);
+        const relationField = sourceFields.find((field) => field.id === block.relationFieldId && !field.deletedAt);
+        const relationConfig = relationField?.config as { targetTableId?: unknown } | undefined;
+        if (relationField?.type !== "relation" || relationConfig?.targetTableId !== page.record.tableId) {
+          diagnostics.push({
+            path: ["pages", page.id, "blocks", block.id, "relationFieldId"],
+            message: "Referenced records require a live Relation field targeting this record page table",
+          });
+          continue;
+        }
+        const sourceFieldIds = new Set(sourceFields.filter((field) => !field.deletedAt).map((field) => field.id));
+        if (block.fieldIds.some((fieldId) => !sourceFieldIds.has(fieldId))) {
+          diagnostics.push({
+            path: ["pages", page.id, "blocks", block.id, "fieldIds"],
+            message: "Displayed fields must be live fields from the referenced records source table",
+          });
+          continue;
+        }
+      }
+      const referencedSource = block.type === "referenced_records" ? referencedRecordsSources.get(`${page.id}\0${block.id}`) : null;
       const source =
-        block.source.kind === "view"
-          ? await client<Array<{ view_id: string; table_id: string; base_id: string; source: string; ui: unknown }>>`
+        block.type === "referenced_records"
+          ? { kind: "gql" as const, query: referencedSource ?? "" }
+          : block.source.kind === "view"
+            ? await client<Array<{ view_id: string; table_id: string; base_id: string; source: string; ui: unknown }>>`
             SELECT v.id AS view_id, v.table_id, t.base_id, v.source, v.ui
             FROM grids.views v
             JOIN grids.tables t ON t.id = v.table_id AND t.deleted_at IS NULL
             WHERE v.id = ${block.source.viewId}::uuid AND v.deleted_at IS NULL
           `.then(([view]) => {
-              if (!view || view.base_id !== definition.baseId) return null;
-              const ui = ViewUiSettingsSchema.safeParse(parseJsonbRow(view.ui, {}));
-              return {
-                kind: "view" as const,
-                query: view.source,
-                currentTableId: view.table_id,
-                viewId: view.view_id,
-                ui: ui.success ? ui.data : {},
-              };
-            })
-          : { kind: "gql" as const, query: block.source.query };
+                if (!view || view.base_id !== definition.baseId) return null;
+                const ui = ViewUiSettingsSchema.safeParse(parseJsonbRow(view.ui, {}));
+                return {
+                  kind: "view" as const,
+                  query: view.source,
+                  currentTableId: view.table_id,
+                  viewId: view.view_id,
+                  ui: ui.success ? ui.data : {},
+                };
+              })
+            : { kind: "gql" as const, query: block.source.query };
       if (!source) {
         diagnostics.push({ path: ["blocks", block.id, "source", "viewId"], message: "View is missing or belongs to another base" });
         continue;
@@ -653,7 +694,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
       }
       const primaryTableId = plan.tableId;
       recordsPrimaryTableIds.set(`${page.id}\0${block.id}`, primaryTableId);
-      if (block.rowNavigate) {
+      if (block.type === "records" && block.rowNavigate) {
         const targetPage = definition.pages.find((candidate) => candidate.id === block.rowNavigate!.pageId)!;
         const primaryFields = await resolveFields(primaryTableId);
         const selectedFieldIds = plan.outputColumns?.flatMap((column) => (column.kind === "field" ? [column.fieldId] : []));
@@ -682,7 +723,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
           }
         }
       }
-      if (source.kind === "view") {
+      if (source.kind === "view" && block.type === "records") {
         const found = new Set(tableIds.flatMap((tableId) => (compiled.data.fieldsByTableId[tableId] ?? []).map((field) => field.id)));
         for (const fieldId of block.display.kind === "table" ? block.display.columnIds : []) {
           if (!found.has(fieldId))
@@ -749,7 +790,7 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
             : {}),
         });
       } else {
-        if (block.display.kind === "table" && block.display.columnIds.length > 0) {
+        if (block.type === "records" && block.display.kind === "table" && block.display.columnIds.length > 0) {
           const outputFieldIds =
             plan.outputColumns && plan.outputColumns.length > 0
               ? new Set(plan.outputColumns.flatMap((column) => (column.kind === "computed" ? [] : [column.fieldId])))
@@ -763,7 +804,43 @@ export const compile = async (input: unknown, client: SqlClient = sql): Promise<
             }
           }
         }
-        recordQueries.push({ pageId: page.id, blockId: block.id, primaryTableId, planHash: compiled.data.planHash, tableIds });
+        if (block.type === "referenced_records" && primaryTableId !== block.sourceTableId) {
+          diagnostics.push({
+            path: ["pages", page.id, "blocks", block.id, "sourceTableId"],
+            message: "Referenced records query must use the configured source table",
+          });
+          continue;
+        }
+        const relationLabels =
+          block.type === "referenced_records"
+            ? (() => {
+                const selected = (compiled.data.fieldsByTableId[primaryTableId] ?? []).filter((field) => block.fieldIds.includes(field.id));
+                const targetTableIds = [
+                  ...new Set(
+                    selected.flatMap((field) => {
+                      const targetTableId = field.type === "relation" ? (field.config as { targetTableId?: unknown }).targetTableId : null;
+                      return typeof targetTableId === "string" ? [targetTableId] : [];
+                    }),
+                  ),
+                ];
+                return { selected, targetTableIds };
+              })()
+            : null;
+        recordQueries.push({
+          pageId: page.id,
+          blockId: block.id,
+          primaryTableId,
+          planHash: compiled.data.planHash,
+          tableIds,
+          ...(relationLabels
+            ? {
+                relationLabels: customAppRecordRelationSnapshot(
+                  relationLabels.selected,
+                  await listFieldsByTables(relationLabels.targetTableIds),
+                ),
+              }
+            : {}),
+        });
       }
     }
   };

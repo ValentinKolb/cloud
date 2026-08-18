@@ -36,7 +36,7 @@ const record = (data: Record<string, unknown>): GridRecord =>
   }) as GridRecord;
 
 describe("RecordReadView", () => {
-  test("renders a record identity hero and omits empty long-form sections", () => {
+  test("renders a compact DetailPanel with titled icon sections and omits empty long-form sections", () => {
     const name = field({ id: "name", name: "Name", type: "text", presentable: true });
     const room = field({ id: "room", name: "Room", type: "text" });
     const notes = field({ id: "notes", name: "Notes", type: "longtext" });
@@ -51,14 +51,40 @@ describe("RecordReadView", () => {
       }),
     );
 
-    expect(html).toContain("Record details");
+    expect(html).toContain("k2b-detail-panel__header");
+    expect(html).toContain("k2b-detail-panel__body");
     expect(html).toContain("ti-table-row");
     expect(html).toContain("Studio shelf");
-    expect(html).toContain('title="Studio shelf"');
-    expect(html).toContain("line-clamp-2");
     expect(html).toContain("Fields");
+    expect(html).toContain("ti-list-details");
     expect(html).toContain("Room");
     expect(html).not.toContain(">Notes<");
+    expect(html).not.toContain("detail-stack");
+    expect(html).not.toContain("detail-section-label");
+  });
+
+  test("groups relations with additional reverse-relation content", () => {
+    const name = field({ id: "name", name: "Name", type: "text", presentable: true });
+    const relation = field({ id: "camera", name: "Camera", type: "relation", config: { targetTableId: "cameras" } });
+    const html = renderToString(() =>
+      createComponent(RecordReadView, {
+        baseId: "base",
+        tableId: "table",
+        tableName: "Loans",
+        fields: [name, relation],
+        record: record({ name: "Loan", camera: ["CAM001"] }),
+        relationLabels: { CAM001: "Sony FX3" },
+        relationsAfter: "Referenced by content",
+      }),
+    );
+
+    expect(html).toContain('role="group"');
+    expect(html).toContain('aria-label="Record relationships"');
+    expect(html).toContain("Relations");
+    expect(html).toContain("Sony FX3");
+    expect(html).toContain("Referenced by content");
+    expect(html).not.toContain("Unknown record");
+    expect(html).not.toContain("No record values yet");
   });
 
   test("treats only missing and empty string values as absent", () => {

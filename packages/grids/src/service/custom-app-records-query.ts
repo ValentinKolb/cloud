@@ -1,8 +1,9 @@
 import type { DslQueryPreviewResponse, Field, GridRecord, RecordDisplayConfig } from "../contracts";
-import type { CustomAppCapabilities, CustomAppPage, CustomAppRecordsBlock, CustomAppRowNavigation } from "../custom-apps/contracts";
+import type { CustomAppCapabilities, CustomAppPage, CustomAppRowNavigation } from "../custom-apps/contracts";
 import { createCustomAppFileToken } from "../custom-apps/file-token";
 import { projectCustomAppRecord } from "../custom-apps/record-projection";
 import { customAppRecordsDisplayFieldHash, isSafeInlineCardImageMimeType } from "../custom-apps/records-display-capability";
+import { type CustomAppRecordsLikeBlock, referencedRecordsGqlSource } from "../custom-apps/referenced-records";
 import type { DslQueryContextValues } from "../query-dsl/parameters";
 import { decodeDslResultCursor, gqlResultFingerprint } from "../query-dsl/result-cursor";
 import {
@@ -65,7 +66,7 @@ export const executePublishedCustomAppRecords = async (input: {
   publishedAt: string;
   page: CustomAppPage;
   pageParams: Readonly<Record<string, string>>;
-  block: CustomAppRecordsBlock;
+  block: CustomAppRecordsLikeBlock;
   capabilities: CustomAppCapabilities;
   context: DslQueryContextValues;
   signal: AbortSignal;
@@ -77,7 +78,10 @@ export const executePublishedCustomAppRecords = async (input: {
   cursor?: string;
 }): Promise<PublishedCustomAppRecordsResult | null> => {
   const { block } = input;
-  const source = block.source;
+  const source =
+    block.type === "referenced_records"
+      ? { kind: "gql" as const, query: referencedRecordsGqlSource(input.page, block) ?? "" }
+      : block.source;
   const view = source.kind === "view" ? await getView(source.viewId) : null;
   const capability: RecordsCapability | undefined =
     source.kind === "view"
@@ -119,16 +123,18 @@ export const executePublishedCustomAppRecords = async (input: {
       ? {
           search: {
             q: search,
-            ...(source.kind === "view"
-              ? {
-                  allowedFieldIds:
-                    block.display.kind === "table"
-                      ? block.display.columnIds
-                      : "displayConfig" in capability
-                        ? capability.displayConfig?.cards?.fieldIds
-                        : undefined,
-                }
-              : {}),
+            ...(block.type === "referenced_records"
+              ? { allowedFieldIds: block.fieldIds }
+              : source.kind === "view"
+                ? {
+                    allowedFieldIds:
+                      block.display.kind === "table"
+                        ? block.display.columnIds
+                        : "displayConfig" in capability
+                          ? capability.displayConfig?.cards?.fieldIds
+                          : undefined,
+                  }
+                : {}),
           },
         }
       : {}),
@@ -144,10 +150,9 @@ export const executePublishedCustomAppRecords = async (input: {
   );
   const presentation = presentationFields.length > 0 ? { fields: presentationFields } : undefined;
   let rowNavigationParams: Record<string, Record<string, string>> | undefined;
-  const relationBindings = block.rowNavigate
-    ? Object.entries(block.rowNavigate.params).filter(([, binding]) => binding.path === "relation")
-    : [];
-  if (response.ok && relationBindings.length > 0) {
+  const rowNavigation = block.type === "records" ? block.rowNavigate : undefined;
+  const relationBindings = rowNavigation ? Object.entries(rowNavigation.params).filter(([, binding]) => binding.path === "relation") : [];
+  if (response.ok && rowNavigation && relationBindings.length > 0) {
     const allFields = await listFields(primaryTableId);
     const fieldsById = new Map(allFields.map((field) => [field.id, field]));
     const bindingsValid = relationBindings.every(([, binding]) => {
@@ -163,11 +168,75 @@ export const executePublishedCustomAppRecords = async (input: {
     if (!bindingsValid) return null;
     const recordIds = response.rows.flatMap((row) => (row.recordId ? [row.recordId] : []));
     const records = await (await createReader(primaryTableId, { fields: allFields, recordAccess: ALL_RECORD_ACCESS })).getMany(recordIds);
-    rowNavigationParams = customAppRowNavigationParams(block.rowNavigate!, recordIds, records);
+    rowNavigationParams = customAppRowNavigationParams(rowNavigation, recordIds, records);
   }
-  if (!response.ok || block.display.kind !== "cards" || source.kind !== "view" || !("displayConfig" in capability)) {
+  if (!response.ok || block.display.kind !== "cards") {
     return { response, primaryTableId, presentation, ...(rowNavigationParams ? { rowNavigationParams } : {}) };
   }
+  if (block.type === "referenced_records") {
+    const fieldsByShortId = new Map(presentationFields.map((field) => [field.shortId, field]));
+    const fields = block.fieldIds.flatMap((fieldId) => {
+      const field = fieldsByShortId.get(fieldId);
+      return field ? [field] : [];
+    });
+    if (fields.length !== block.fieldIds.length) return null;
+    const allFields = await listFields(primaryTableId);
+    const recordIds = response.rows.flatMap((row) => (row.recordId ? [row.recordId] : []));
+    const records = await (await createReader(primaryTableId, { fields: allFields, recordAccess: ALL_RECORD_ACCESS })).getMany(recordIds);
+    const allowedFieldIds = new Set(fields.map((field) => field.id));
+    const resultValuesByRecordId = new Map(
+      response.rows.flatMap((row) =>
+        row.recordId
+          ? [
+              [
+                row.recordId,
+                Object.fromEntries(
+                  response.columns.flatMap((column) =>
+                    column.fieldId && allowedFieldIds.has(column.fieldId) ? [[column.fieldId, row.values[column.key]]] : [],
+                  ),
+                ),
+              ] as const,
+            ]
+          : [],
+      ),
+    );
+    const projectedRecords = records.map((record) => {
+      const projected = projectCustomAppRecord(record, [...allowedFieldIds]);
+      return { ...projected, data: { ...projected.data, ...resultValuesByRecordId.get(record.id) } };
+    });
+    const relationCapability = capability.relationLabels ?? [];
+    const relationTargetTableIds = [...new Set(relationCapability.map((relation) => relation.targetTableId))];
+    const targetFieldsByTableId = new Map(
+      await Promise.all(relationTargetTableIds.map(async (tableId) => [tableId, await listFields(tableId)] as const)),
+    );
+    const liveRelationLabels = customAppRecordRelationSnapshot(fields, targetFieldsByTableId);
+    if (!sameCustomAppRecordRelationSnapshot(relationCapability, liveRelationLabels)) return null;
+    const relationTableIds = [primaryTableId, ...relationTargetTableIds];
+    const relationLabels = await buildPinnedRelationLabelCache(
+      projectedRecords,
+      fields,
+      customAppRelationLabelFieldIdsByTableId(relationCapability),
+      {
+        ...input.viewer,
+        isAdmin: false,
+        readableTableIds: new Set(relationTableIds),
+        recordAccessByTableId: new Map(relationTableIds.map((tableId) => [tableId, ALL_RECORD_ACCESS])),
+      },
+    );
+    return {
+      response,
+      primaryTableId,
+      presentation,
+      cards: {
+        displayConfig: { mode: "cards", cards: { fieldIds: fields.map((field) => field.id) } },
+        fields,
+        records: projectedRecords,
+        relationLabels,
+        filePreviews: {},
+      },
+    };
+  }
+  if (source.kind !== "view" || !("displayConfig" in capability)) return null;
   const displayConfig = capability.displayConfig;
   const displayFieldHash = capability.displayFieldHash;
   if (displayConfig?.mode !== "cards" || !displayFieldHash) return null;

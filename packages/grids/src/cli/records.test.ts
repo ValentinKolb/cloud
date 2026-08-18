@@ -54,3 +54,15 @@ describe("record CLI structured body precedence", () => {
     expect(composeRecordExportBody({}, {})).toEqual({ format: "csv" });
   });
 });
+
+describe("record file lifecycle commands", () => {
+  test("exposes explicit atomic replace and honest remove wording", () => {
+    const replace = recordCommands.find((command) => command.path.join(" ") === "records files replace");
+    const remove = recordCommands.find((command) => command.path.join(" ") === "records files delete");
+
+    expect(replace?.summary).toBe("Replace one record file attachment atomically");
+    expect(replace?.flags).toHaveProperty("current");
+    expect(replace?.flags).toHaveProperty("file");
+    expect(remove?.summary).toBe("Remove one file attachment from the current record");
+  });
+});

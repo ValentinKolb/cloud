@@ -402,6 +402,7 @@ export default function RecordsView(props: Props) {
   const mergedRelationLabels = () => ({
     ...props.relationLabels,
     ...liveRelationLabels(),
+    ...(selectedRecordDetail()?.relationLabels ?? {}),
   });
 
   // ── Commit handlers (called from children) ─────────────────────────

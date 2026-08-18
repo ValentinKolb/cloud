@@ -72,6 +72,10 @@ An inline query receives typed `@auth.id`, `@auth.name`, `@auth.username`, `@aut
 
 Use `ROW.id` only for that Records block's row link or workflow row actions. A row link may instead bind `{ source: ROW, path: relation, fieldId: ... }` when the field is a selected single relation to the destination parameter's table. A row action is rechecked against the exact published query result before its workflow starts. Configure up to six actions with a required accessible label and an optional icon; tables and Cards may show the label, the icon, or both.
 
+### Referenced records
+
+Referenced records is available only on a Record page. It shows rows from one pinned source table whose pinned Relation field contains the current page record. Choose the exact displayed fields, table or Cards presentation, search, page size, and optional row workflows in the block. Publication compiles this into the same bounded GQL and `recordQueries` capability used by Records; the App grant remains the outer access gate. It does not expand the page record or expose an unrestricted reverse lookup.
+
 ### Metrics and Chart
 
 Metrics and Chart read either an existing saved view or an inline GQL query. The runtime applies shared query budgets.
@@ -95,6 +99,8 @@ One app may publish up to 24 Form blocks. Each referenced Form may expose up to 
 Record requires a page record. It renders the explicit `fieldIds` list and may allow direct editing through an explicit `editableFieldIds` subset. Every editable field must also be displayed and must be a writable stored field; computed and system fields fail publication.
 
 The Edit action appears only when the publication includes that writable field and the block is available. Submission rechecks the app grant, immutable field allowlist, `availableWhen`, live field type, table audit questions, and current record version. Fields outside the block's editable subset remain read-only.
+
+An editable File field uses the same audited Add, atomic Replace, and **Remove from record** lifecycle as the Base workspace. The App grant remains the outer gate and the published editable-field capability narrows it further. Removal detaches the current attachment; protected history or artifacts may retain the exact bytes, while unprotected files may be cleaned up.
 
 An optional `documents.templateIds` allowlist shows existing generated PDFs linked to the current record. Every template must belong to the page record table when the app is published. The runtime uses the immutable capability and protected document download route. The block does not generate documents or create public links; use a Workflow for generation.
 

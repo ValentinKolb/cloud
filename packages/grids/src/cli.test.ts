@@ -375,7 +375,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(143);
+    expect(commands).toHaveLength(144);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {
@@ -1102,7 +1102,7 @@ describe("grids CLI", () => {
         `/api/grids/records/${tableId}/${recordId}/files/${fieldId}/${fileId}`,
       ]);
       expect(deleteCalls[3]?.init?.method).toBe("DELETE");
-      expect(deleteLines).toEqual([`Deleted file ${fileId}.`]);
+      expect(deleteLines).toEqual([`Removed attachment ${fileId} from the current record.`]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -115,9 +115,10 @@ const projectCatalog = async (catalog: WorkspaceCatalog): Promise<PublicWorkspac
 
 export const projectPublicWorkspaceRecordDetail = async (detail: WorkspaceRecordDetail, fields: readonly Field[]) => {
   const files = Object.values(detail.filesByField).flat();
-  const [publicFiles, fieldIds, documentRuns, snapshots] = await Promise.all([
+  const [publicFiles, fieldIds, relationRecordIds, documentRuns, snapshots] = await Promise.all([
     toPublicFiles(files),
     projectPublicIds("field", Object.keys(detail.filesByField)),
+    projectPublicIds("record", Object.keys(detail.relationLabels)),
     projectDocumentRunSummaries(detail.documentRuns),
     projectRecordSnapshotSummaries(detail.snapshots),
   ]);
@@ -130,6 +131,12 @@ export const projectPublicWorkspaceRecordDetail = async (detail: WorkspaceRecord
   return {
     ...detail,
     recordId: required(await projectPublicId("record", detail.recordId), "record detail"),
+    relationLabels: Object.fromEntries(
+      Object.entries(detail.relationLabels).flatMap(([recordId, label]) => {
+        const publicId = relationRecordIds.get(recordId);
+        return publicId ? [[publicId, label]] : [];
+      }),
+    ),
     filesByField,
     documentRuns,
     snapshots,

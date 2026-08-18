@@ -1,9 +1,22 @@
 import { sql } from "bun";
+import { z } from "zod";
 import { RecordAuditContextSchema } from "../contracts";
 import { parseJsonbRow } from "./jsonb";
 import type { AuditAction, AuditEntry } from "./types";
 
 type DbRow = Record<string, unknown>;
+
+const AuditDiffSchema = z.record(z.string(), z.object({ old: z.unknown(), new: z.unknown() }).strict()).nullable();
+
+const parseAuditDiff = (value: unknown): AuditEntry["diff"] => {
+  const parsed = AuditDiffSchema.safeParse(parseJsonbRow<unknown>(value, null));
+  return parsed.success ? parsed.data : null;
+};
+
+const parseAuditContext = (value: unknown): AuditEntry["context"] => {
+  const parsed = RecordAuditContextSchema.nullable().safeParse(parseJsonbRow<unknown>(value, null));
+  return parsed.success ? parsed.data : null;
+};
 
 /**
  * Bun.sql exposes both `sql` (pool-backed) and `tx` (transaction-backed,
@@ -21,9 +34,9 @@ const mapRow = (row: DbRow): AuditEntry => ({
   tableId: (row.table_id as string | null) ?? null,
   recordId: (row.record_id as string | null) ?? null,
   userId: (row.user_id as string | null) ?? null,
-  action: row.action as AuditAction,
-  diff: parseJsonbRow<AuditEntry["diff"]>(row.diff, null),
-  context: RecordAuditContextSchema.nullable().parse(parseJsonbRow<unknown>(row.context, null)),
+  action: String(row.action),
+  diff: parseAuditDiff(row.diff),
+  context: parseAuditContext(row.context),
   ip: (row.ip as string | null) ?? null,
   userAgent: (row.user_agent as string | null) ?? null,
   createdAt: (row.created_at as Date).toISOString(),

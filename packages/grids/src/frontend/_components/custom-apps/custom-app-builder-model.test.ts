@@ -117,6 +117,26 @@ const definition = (): CustomAppDefinition => ({
                     },
                   ],
                 },
+                {
+                  id: "related-items",
+                  type: "referenced_records",
+                  sourceTableId: "TABLE2",
+                  relationFieldId: "FIELD3",
+                  fieldIds: ["FIELD4"],
+                  display: { kind: "table" },
+                  searchable: true,
+                  pageSize: 25,
+                  rowActions: [
+                    {
+                      id: "review",
+                      kind: "workflow",
+                      label: "Review",
+                      showLabel: true,
+                      launcherId: "LAUN03",
+                      inputs: { loan: { source: "PARAMS", path: "loan_id" }, item: { source: "ROW", path: "id" } },
+                    },
+                  ],
+                },
               ],
             },
           ],
@@ -177,6 +197,9 @@ describe("App builder model", () => {
     expect(workflowInput?.source === "PARAMS" ? workflowInput.path : null).toBe("record_id");
     expect(page.availableWhen?.query).toContain("@params.record_id");
     expect(page.rows[0]!.columns[0]!.blocks[0]!.availableWhen?.query).toContain("@params.record_id");
+    const referenced = page.rows[0]!.columns[0]!.blocks.at(-1)!;
+    const referencedInput = referenced.type === "referenced_records" ? referenced.rowActions?.[0]?.inputs.loan : null;
+    expect(referencedInput?.source === "PARAMS" ? referencedInput.path : null).toBe("record_id");
   });
 
   test("reports usage before removing and reorders pages deterministically", () => {

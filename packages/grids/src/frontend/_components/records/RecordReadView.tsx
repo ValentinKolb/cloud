@@ -1,5 +1,5 @@
 import type { DateContext } from "@k2b/stdlib";
-import { Placeholder } from "@k2b/ui";
+import { DescriptionList, DetailPanel, Placeholder } from "@k2b/ui";
 import { For, type JSX, Show } from "solid-js";
 import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
 import type { ColumnSpec, FormatSpec } from "../../../contracts";
@@ -27,6 +27,7 @@ type RecordReadViewProps = {
   dateConfig?: DateContext;
   renderFileField?: (field: Field, record: GridRecord) => JSX.Element;
   scrollPreserveKey?: string;
+  relationsAfter?: JSX.Element;
   children?: JSX.Element;
 };
 
@@ -38,10 +39,7 @@ export default function RecordReadView(props: RecordReadViewProps) {
   const mode = () => props.mode ?? "live";
   const visibleFields = () => visibleFieldsFor(props.fields);
   const titleField = () => recordTitleField(visibleFields());
-  const bodyFields = () => {
-    const titleId = titleField()?.id;
-    return visibleFields().filter((field) => field.id !== titleId);
-  };
+  const bodyFields = () => visibleFields().filter((field) => field.id !== titleField()?.id);
   const fieldFormat = (field: Field): FormatSpec | undefined => fieldDisplayFormatForView(field, props.viewColumns);
   const fieldBarcodeFormat = (field: Field): Extract<FormatSpec, { kind: "barcode" }> | undefined => {
     const format = fieldFormat(field);
@@ -50,9 +48,11 @@ export default function RecordReadView(props: RecordReadViewProps) {
   const isComputedField = (field: Field) => ["formula", "lookup", "rollup", "html_template"].includes(field.type);
   const isBarcodeDisplayField = (field: Field, record: GridRecord) => {
     const format = fieldBarcodeFormat(field);
-    if (!format) return false;
-    if (!canRenderBarcode(effectiveDisplayField(field, props.fieldsByTable).type)) return false;
-    return barcodeValueText(record.data[field.id]).trim().length > 0;
+    return Boolean(
+      format &&
+        canRenderBarcode(effectiveDisplayField(field, props.fieldsByTable).type) &&
+        barcodeValueText(record.data[field.id]).trim().length > 0,
+    );
   };
   const barcodeFields = () => bodyFields().filter((field) => isBarcodeDisplayField(field, props.record));
   const barcodeFieldIds = () => new Set(barcodeFields().map((field) => field.id));
@@ -62,12 +62,8 @@ export default function RecordReadView(props: RecordReadViewProps) {
   const textBlockFields = () =>
     bodyFields().filter((field) => ["longtext", "json"].includes(field.type) && hasRecordDetailValue(props.record.data[field.id]));
   const fileFields = () => bodyFields().filter((field) => field.type === "file");
-  const hasBodyFields = () =>
-    barcodeFields().length > 0 ||
-    detailsFields().length > 0 ||
-    relationFields().length > 0 ||
-    textBlockFields().length > 0 ||
-    fileFields().length > 0;
+  const hasFieldSections = () =>
+    barcodeFields().length > 0 || detailsFields().length > 0 || textBlockFields().length > 0 || fileFields().length > 0;
 
   const renderField = (field: Field, record: GridRecord) => {
     if (field.type === "file" && props.renderFileField) return props.renderFileField(field, record);
@@ -92,37 +88,26 @@ export default function RecordReadView(props: RecordReadViewProps) {
   };
 
   const defaultHeaderMeta = () => (
-    <div class="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-[11px] text-dimmed">
+    <>
       <Show when={mode() === "trash"}>
         <span class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-          <i class="ti ti-trash" /> deleted
+          <i class="ti ti-trash" aria-hidden="true" /> Deleted
         </span>
-        <span>·</span>
       </Show>
       <Show when={mode() === "snapshot"}>
         <span class="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400">
-          <i class="ti ti-camera" /> snapshot
+          <i class="ti ti-camera" aria-hidden="true" /> Snapshot
         </span>
-        <span>·</span>
       </Show>
-      <span class="truncate">{props.tableName}</span>
-      <span>·</span>
       <span>v{props.record.version}</span>
-      <span>·</span>
       <span class="font-mono">{props.record.id.slice(0, 8)}</span>
-    </div>
+    </>
   );
 
-  const detailLabel = () => {
-    if (mode() === "snapshot") return "Record snapshot";
-    if (mode() === "trash") return "Deleted record";
-    return "Record details";
-  };
-
   const identityIcon = () => {
-    if (mode() === "snapshot") return "ti-camera";
-    if (mode() === "trash") return "ti-trash";
-    return "ti-table-row";
+    if (mode() === "snapshot") return "ti ti-camera";
+    if (mode() === "trash") return "ti ti-trash";
+    return "ti ti-table-row";
   };
   const recordTitle = () =>
     recordDisplayTitle({
@@ -134,154 +119,98 @@ export default function RecordReadView(props: RecordReadViewProps) {
       viewColumns: props.viewColumns,
     });
 
-  const Section = (sectionProps: { title: string; children: JSX.Element }) => (
-    <section class="detail-section flex flex-col gap-3">
-      <h3 class="detail-section-label mb-0">{sectionProps.title}</h3>
-      {sectionProps.children}
-    </section>
+  const fieldTerm = (field: Field, includeDescription = false) => (
+    <span class="flex min-w-0 items-start gap-1.5">
+      <i
+        class={`${fieldTypeIcon(field.type, field.icon)} mt-0.5 shrink-0 ${isComputedField(field) ? "text-blue-600 dark:text-blue-400" : ""}`}
+        aria-hidden="true"
+      />
+      <span class="min-w-0">
+        <span class="block break-words">{field.name}</span>
+        <Show when={includeDescription && field.description}>
+          {(description) => <span class="mt-0.5 block text-[11px] font-normal leading-snug text-dimmed">{description()}</span>}
+        </Show>
+      </span>
+    </span>
   );
 
-  const renderBarcodeSection = (field: Field) => {
-    const format = fieldBarcodeFormat(field);
-    if (!format) return null;
-    return (
-      <section class="detail-section flex flex-col gap-3">
-        <div class="detail-section-label mb-0 flex min-w-0 items-center gap-1.5 truncate">
-          <i class={`${fieldTypeIcon(field.type, field.icon)} shrink-0`} />
-          {field.name}
-        </div>
-        <FieldValue
-          field={field}
-          value={props.record.data[field.id]}
-          record={props.record}
-          allFields={props.fields}
-          baseId={props.baseId}
-          fieldsByTable={props.fieldsByTable}
-          relationLabels={props.relationLabels}
-          dateConfig={props.dateConfig}
-          format={format}
-          mode="detail"
-          empty="—"
-          linkLookup={mode() !== "snapshot"}
-          showBarcodeOpenAction={mode() !== "snapshot"}
-        />
-      </section>
-    );
-  };
-
   return (
-    <div class="flex h-full min-h-0 flex-col">
-      <header class="detail-header">
-        <div class="flex items-center justify-between gap-2">
-          <span class="text-xs font-semibold text-secondary">{detailLabel()}</span>
-          <Show when={props.headerActions}>
-            {(actions) => (
-              <div class="flex shrink-0 items-center gap-0.5" role="group" aria-label="Detail panel actions">
-                {actions()}
-              </div>
-            )}
-          </Show>
-        </div>
-
-        <div class="mt-4 flex flex-col items-center text-center">
-          <span class="app-accent-text flex h-12 w-12 items-center justify-center rounded-[var(--ui-radius-surface)] bg-[var(--ui-selected)]">
-            <i class={`ti ${identityIcon()} text-xl`} />
-          </span>
-          <h2 class="mt-2 line-clamp-2 max-w-full break-words text-lg font-semibold leading-tight text-primary" title={recordTitle()}>
-            {recordTitle()}
-          </h2>
-          {props.headerMeta ?? defaultHeaderMeta()}
-          <Show when={props.quickActions}>
-            {(actions) => (
-              <div class="mt-3 flex flex-wrap items-center justify-center gap-2" role="group" aria-label="Record actions">
-                {actions()}
-              </div>
-            )}
-          </Show>
-        </div>
-      </header>
-
-      <div class="detail-stack" data-scroll-preserve={props.scrollPreserveKey}>
-        <Show when={hasBodyFields()} fallback={<Placeholder surface="paper" align="left" description={<>No record values yet.</>} />}>
-          <For each={barcodeFields()}>{(field) => renderBarcodeSection(field)}</For>
-
-          <Show when={detailsFields().length > 0}>
-            <Section title="Fields">
-              <dl class="grid grid-cols-[minmax(6rem,0.42fr)_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2.5 text-sm leading-5">
-                <For each={detailsFields()}>
-                  {(field) => (
-                    <>
-                      <dt
-                        class={`flex min-w-0 items-baseline gap-1.5 ${
-                          isComputedField(field) ? "text-blue-600 dark:text-blue-400" : "text-dimmed"
-                        }`}
-                      >
-                        <i class={`${fieldTypeIcon(field.type, field.icon)} shrink-0 text-sm`} />
-                        <span class="min-w-0 break-words">{field.name}</span>
-                      </dt>
-                      <dd class="min-w-0 break-words text-primary">{renderField(field, props.record)}</dd>
-                    </>
-                  )}
-                </For>
-              </dl>
-            </Section>
-          </Show>
-
-          <Show when={relationFields().length > 0}>
-            <Section title="Relations">
-              <div class="flex flex-col gap-3">
-                <For each={relationFields()}>
-                  {(field) => (
-                    <div class="grid min-w-0 grid-cols-[minmax(6rem,0.42fr)_minmax(0,1fr)] items-baseline gap-x-4 text-sm leading-5">
-                      <div class="min-w-0 text-dimmed">
-                        <p class="flex items-baseline gap-1.5">
-                          <i class={`${fieldTypeIcon(field.type, field.icon)} shrink-0 text-sm`} />
-                          <span class="break-words">{field.name}</span>
-                        </p>
-                        <Show when={field.description}>
-                          {(description) => <p class="mt-1 text-[11px] leading-snug">{description()}</p>}
-                        </Show>
-                      </div>
-                      <div class="min-w-0 break-words text-primary">{renderField(field, props.record)}</div>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Section>
-          </Show>
-
-          <For each={textBlockFields()}>
+    <DetailPanel>
+      <DetailPanel.Header
+        icon={identityIcon()}
+        title={recordTitle()}
+        subtitle={props.tableName}
+        meta={props.headerMeta ?? defaultHeaderMeta()}
+        actions={props.headerActions}
+        primaryActions={props.quickActions}
+      />
+      <DetailPanel.Body scrollPreserveKey={props.scrollPreserveKey}>
+        <Show when={hasFieldSections()}>
+          <For each={barcodeFields()}>
             {(field) => (
-              <Section title={field.name}>
-                <div class="break-words text-sm leading-relaxed text-secondary">{renderField(field, props.record)}</div>
-              </Section>
+              <DetailPanel.Section title={field.name} icon={fieldTypeIcon(field.type, field.icon)}>
+                {renderField(field, props.record)}
+              </DetailPanel.Section>
             )}
           </For>
-
+          <Show when={detailsFields().length > 0}>
+            <DetailPanel.Section title="Fields" icon="ti ti-list-details">
+              <DescriptionList
+                layout="rows"
+                size="sm"
+                items={detailsFields().map((field) => ({
+                  term: fieldTerm(field),
+                  description: <span class="min-w-0 break-words text-primary">{renderField(field, props.record)}</span>,
+                }))}
+              />
+            </DetailPanel.Section>
+          </Show>
+          <For each={textBlockFields()}>
+            {(field) => (
+              <DetailPanel.Section title={field.name} icon={fieldTypeIcon(field.type, field.icon)}>
+                <div class="break-words text-sm leading-relaxed text-secondary">{renderField(field, props.record)}</div>
+              </DetailPanel.Section>
+            )}
+          </For>
           <Show when={fileFields().length > 0}>
-            <Section title="Files">
-              <div class="flex flex-col gap-3">
+            <DetailPanel.Section title="Files" icon="ti ti-paperclip">
+              <div class="flex flex-col gap-4">
                 <For each={fileFields()}>
                   {(field) => (
                     <div class="min-w-0">
-                      <p class="flex items-center gap-1.5 text-xs text-dimmed">
-                        <i class={`${fieldTypeIcon(field.type, field.icon)} shrink-0 text-sm`} />
-                        {field.name}
-                      </p>
-                      <Show when={field.description}>
-                        {(description) => <p class="mt-1 text-[11px] leading-snug text-dimmed">{description()}</p>}
-                      </Show>
+                      <div class="text-xs text-dimmed">{fieldTerm(field, true)}</div>
                       <div class="mt-2 min-w-0 break-words text-sm text-secondary">{renderField(field, props.record)}</div>
                     </div>
                   )}
                 </For>
               </div>
-            </Section>
+            </DetailPanel.Section>
           </Show>
         </Show>
 
+        <Show when={bodyFields().length === 0}>
+          <Placeholder surface="paper" align="left" description={<>No record values yet.</>} />
+        </Show>
+
+        <Show when={relationFields().length > 0 || props.relationsAfter !== undefined}>
+          <DetailPanel.Group label="Record relationships">
+            <Show when={relationFields().length > 0}>
+              <DetailPanel.Section title="Relations" icon="ti ti-link" tone="accent">
+                <DescriptionList
+                  layout="rows"
+                  size="sm"
+                  items={relationFields().map((field) => ({
+                    term: fieldTerm(field, true),
+                    description: <span class="min-w-0 break-words text-primary">{renderField(field, props.record)}</span>,
+                  }))}
+                />
+              </DetailPanel.Section>
+            </Show>
+            {props.relationsAfter}
+          </DetailPanel.Group>
+        </Show>
         {props.children}
-      </div>
-    </div>
+      </DetailPanel.Body>
+    </DetailPanel>
   );
 }

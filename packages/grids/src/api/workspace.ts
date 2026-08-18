@@ -61,7 +61,9 @@ export const createWorkspaceApi = (
         const detail = await loadRecordDetail({
           tableId,
           recordId: record.id,
+          record,
           fields: detailFields ?? [],
+          viewer: (deps.viewer ?? currentActorViewer)(c),
           scope: "full",
         });
         return c.json(await (deps.projectRecordDetail ?? projectPublicWorkspaceRecordDetail)(detail, detailFields ?? []));

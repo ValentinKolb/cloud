@@ -1,6 +1,7 @@
 import type { DocumentTemplateSummary } from "../../../contracts";
-import type { Field } from "../../../service";
+import type { Field, GridRecord } from "../../../service";
 import { gridsService } from "../../../service";
+import type { ExpansionViewer } from "../../../service/relation-access";
 import type { WorkspaceCommon, WorkspaceRecordDetail } from "./workspace-state-model";
 
 const DETAIL_PAGE_SIZE = 100;
@@ -14,12 +15,15 @@ export const writableDocumentTemplates = (common: WorkspaceCommon, tableId: stri
 export const loadRecordDetailData = async (params: {
   tableId: string;
   recordId: string;
+  record: GridRecord;
   fields: Field[];
+  viewer: ExpansionViewer;
   scope?: "full" | "history";
 }): Promise<WorkspaceRecordDetail> => {
   const fileFieldIds = params.fields.filter((field) => field.type === "file" && !field.deletedAt).map((field) => field.id);
   const table = await gridsService.table.get(params.tableId);
-  const [filesByField, documentRuns, snapshots, auditEntries, combinedOrigin] = await Promise.all([
+  const [relationLabels, filesByField, documentRuns, snapshots, auditEntries, combinedOrigin] = await Promise.all([
+    params.scope === "history" ? {} : gridsService.relations.buildLabelCache([params.record], params.fields, params.viewer),
     params.scope === "history"
       ? {}
       : gridsService.file.listForRecord({ tableId: params.tableId, recordId: params.recordId, fieldIds: fileFieldIds }),
@@ -40,6 +44,7 @@ export const loadRecordDetailData = async (params: {
   ]);
   return {
     recordId: params.recordId,
+    relationLabels,
     filesByField,
     documentRuns: documentRuns.map(gridsService.document.summarizeRun),
     snapshots,
@@ -50,6 +55,7 @@ export const loadRecordDetailData = async (params: {
 
 export const emptyRecordDetail = (recordId: string): WorkspaceRecordDetail => ({
   recordId,
+  relationLabels: {},
   filesByField: {},
   documentRuns: [],
   snapshots: [],

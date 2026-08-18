@@ -43,7 +43,7 @@ const valueToLabelPart = (value: unknown): string => {
 };
 
 const expandedRecordLabel = (expanded: Record<string, unknown> | undefined): string => {
-  if (!expanded) return "Unknown record";
+  if (!expanded) return "Unavailable record";
   const parts = Object.values(expanded).map(valueToLabelPart).filter(Boolean);
   return parts.length > 0 ? parts.join(" · ") : "Untitled record";
 };

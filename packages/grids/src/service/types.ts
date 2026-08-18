@@ -47,6 +47,9 @@ export type AuditAction =
   | "deleted"
   | "restored"
   | "imported"
+  | "file.added"
+  | "file.replaced"
+  | "file.removed"
   | "access.granted"
   | "access.updated"
   | "access.revoked"
@@ -95,7 +98,8 @@ export type AuditEntry = {
   tableId: string | null;
   recordId: string | null;
   userId: string | null;
-  action: AuditAction;
+  /** Persisted audit actions are additive; readers must tolerate actions from newer or older producers. */
+  action: string;
   diff: Record<string, { old: unknown; new: unknown }> | null;
   context: RecordAuditContext | null;
   ip: string | null;

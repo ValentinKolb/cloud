@@ -22,12 +22,21 @@ type RecordFileLocation = {
   endpoint: string;
 };
 
-export const recordFileContentHref = (location: RecordFileLocation, file: GridFile, inline = false) => {
+export const recordFileHref = (location: RecordFileLocation, file: GridFile) => {
   const url = new URL(location.endpoint, "http://grids.local");
-  url.pathname = `${url.pathname.replace(/\/$/, "")}/${encodeURIComponent(file.id)}/content`;
+  url.pathname = `${url.pathname.replace(/\/$/, "")}/${encodeURIComponent(file.id)}`;
+  return `${url.pathname}${url.search}`;
+};
+
+export const recordFileContentHref = (location: RecordFileLocation, file: GridFile, inline = false) => {
+  const url = new URL(recordFileHref(location, file), "http://grids.local");
+  url.pathname = `${url.pathname}/content`;
   if (inline) url.searchParams.set("inline", "true");
   return `${url.pathname}${url.search}`;
 };
+
+export const recordFileRemovalPrompt = (filename: string) =>
+  `Remove "${filename}" from this record? Protected history or artifacts may retain the exact file. Without a protected reference, it may be cleaned up later.`;
 
 function RecordFilePreviewDialog(props: { location: RecordFileLocation; file: GridFile; close: () => void }) {
   const downloadHref = () => recordFileContentHref(props.location, props.file);
@@ -151,6 +160,21 @@ export default function RecordFileField(props: {
     }
   };
 
+  const replace = async (current: GridFile, file: File) => {
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const res = await fetch(recordFileHref(location(), current), { method: "PUT", body: form });
+      if (!res.ok) throw new Error(await errorMessage(res, "Failed to replace file"));
+      await refetch();
+    } catch (error) {
+      prompts.error(error instanceof Error ? error.message : "Failed to replace file");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const chooseFile = async () => {
     if (uploading()) return;
     try {
@@ -163,16 +187,28 @@ export default function RecordFileField(props: {
     }
   };
 
+  const chooseReplacement = async (current: GridFile) => {
+    if (uploading()) return;
+    try {
+      await replace(current, await showFileDialog({ accept: accept() }));
+    } catch (error) {
+      if (error instanceof Error && (error.message === "File dialog cancelled" || error.message === "No file selected")) {
+        return;
+      }
+      prompts.error(error instanceof Error ? error.message : "Could not open the file picker");
+    }
+  };
+
   const remove = async (file: GridFile) => {
-    const confirmed = await prompts.confirm(`Delete "${file.filename}"?`, {
-      title: "Delete file?",
+    const confirmed = await prompts.confirm(recordFileRemovalPrompt(file.filename), {
+      title: "Remove attachment?",
       variant: "danger",
-      confirmText: "Delete",
+      confirmText: "Remove",
     });
     if (!confirmed) return;
-    const res = await fetch(`${location().endpoint}/${encodeURIComponent(file.id)}`, { method: "DELETE" });
+    const res = await fetch(recordFileHref(location(), file), { method: "DELETE" });
     if (!res.ok) {
-      prompts.error(await errorMessage(res, "Failed to delete file"));
+      prompts.error(await errorMessage(res, "Failed to remove attachment"));
       return;
     }
     await refetch();
@@ -221,6 +257,21 @@ export default function RecordFileField(props: {
                   </a>
                 </Tooltip.Anchor>
                 <span class="shrink-0 text-xs text-dimmed">{text.pprintBytes(file.sizeBytes)}</span>
+                <Show when={props.canWrite}>
+                  <Tooltip.Anchor content="Replace file">
+                    <IconButton
+                      variant="ghost"
+                      size="sm"
+                      type="button"
+                      class="text-dimmed hover:text-primary"
+                      label={`Replace ${file.filename}`}
+                      disabled={uploading()}
+                      onClick={() => void chooseReplacement(file)}
+                    >
+                      <i class="ti ti-refresh" aria-hidden="true" />
+                    </IconButton>
+                  </Tooltip.Anchor>
+                </Show>
                 <Show when={previewable(file)}>
                   <Tooltip.Anchor content="Preview file">
                     <IconButton
@@ -236,16 +287,17 @@ export default function RecordFileField(props: {
                   </Tooltip.Anchor>
                 </Show>
                 <Show when={props.canWrite}>
-                  <Tooltip.Anchor content="Delete file">
+                  <Tooltip.Anchor content="Remove from record">
                     <IconButton
                       variant="ghost"
                       size="sm"
                       type="button"
                       class="text-dimmed hover:text-red-500"
-                      label={`Delete ${file.filename}`}
+                      label={`Remove ${file.filename} from record`}
+                      disabled={uploading()}
                       onClick={() => void remove(file)}
                     >
-                      <i class="ti ti-trash" />
+                      <i class="ti ti-unlink" aria-hidden="true" />
                     </IconButton>
                   </Tooltip.Anchor>
                 </Show>

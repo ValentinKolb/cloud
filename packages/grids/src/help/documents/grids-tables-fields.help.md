@@ -42,9 +42,11 @@ Date-time display, date-based filters, formulas, exports, and document folders u
 
 Choose a relation when the target has its own details or lifecycle. A customer name typed into every invoice is only text; a Customer relation keeps the invoice connected when the customer's details change.
 
+The live record detail shows up to five **Referenced by** results beside its outgoing Relations. Results are grouped by source table and Relation field; **Load more** fetches the next bounded page. The list follows current read permissions and never adds incoming links to the record's field data.
+
 Principal values use the Cloud identity directory without becoming Cloud permissions. Full accounts can select from the directory. Guest accounts can select themselves and their direct or nested groups, but cannot discover other users or group members. The server applies the same visibility check again when saving, so a hidden UUID cannot be guessed through the API.
 
-HTML template fields are read-only output columns, not Documents. Use them when each record needs an email body, article description, product snippet, or export value. Use Documents when the output needs a saved run, snapshot, download, or PDF. Grids shows HTML as escaped source text and opens previews in a sandboxed frame; it never inserts the value directly into the record page.
+HTML template fields are read-only output columns, not Documents. Use them when each record needs an email body, article description, product snippet, or export value. Use Documents when the output needs a saved run, snapshot, download, or PDF. Tables can show escaped source text; the record detail shows only a **Preview** action so long markup does not obscure the other fields. Previews open in a sandboxed frame, and Grids never inserts the value directly into the record page.
 
 Templates read stable public field IDs such as `{{ record.data.aB12xZ }}`. The editor shows the matching field name in autocomplete. Other HTML template fields are intentionally unavailable, so templates cannot recurse. HTML template fields are available on stored tables only; they cannot be filtered, sorted, grouped, aggregated, used by formulas, or selected through a relation lookup.
 
@@ -85,6 +87,8 @@ Choose one short, readable **record label** for every table. It is the title sho
 If another user or tab changes a record before your edit is saved, Grids rejects the older edit instead of silently overwriting newer data. Reload the record, review the newer values, and apply the change again.
 
 Moving a record to trash is reversible. Restoring it creates a new history event; it does not erase the deletion event.
+
+Files have a separate lifecycle from their current field placement. **Replace** swaps the current attachment atomically. **Remove from record** detaches it and records the actor, time, field, and immutable file metadata in history. A protected revision or generated artifact can retain the exact bytes after detachment; an unprotected file can be cleaned up. Removing an attachment is therefore not a promise of physical erasure or permanent retention, and Grids does not claim that file history alone establishes legal compliance.
 
 ## Require change context {icon="point"}
 

@@ -5,7 +5,7 @@ section: Work
 order: 140
 description: Structured data with Bases, Views, Forms, Custom Apps, documents, and workflows.
 tags: [grids, tables, workflows]
-updated: 2026-08-10
+updated: 2026-08-18
 ---
 
 # Grids
@@ -26,6 +26,12 @@ documents, and workflows without splitting the domain across unrelated tools.
   contract and recheck selected records server-side.
 - Let signed-in App readers manage explicitly editable File fields from Record details
   without granting access to the Base record API.
+- Replace or remove a record attachment without rewriting file history. Removal
+  detaches it from the current record; protected revisions or artifacts can
+  retain exact bytes, while unprotected files can be cleaned up.
+- Open a record's **Referenced by** section to page through permission-aware
+  incoming Relations, or pin the same relationship as a Referenced records
+  block in a Custom App.
 - Keep relationships between compatible Form inputs, such as a start date that
   must not follow its due date, in server-enforced cross-field validation.
 - Generate documents or PDFs from reviewed templates and record data.

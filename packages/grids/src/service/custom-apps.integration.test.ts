@@ -34,6 +34,103 @@ beforeAll(async () => {
 });
 
 describe("Grids App lifecycle", () => {
+  postgresTest("compiles referenced records through the pinned record query capability", async () => {
+    const baseId = testUuid();
+    const baseShortId = testShortId("B");
+    const customerTableId = testUuid();
+    const customerTableShortId = testShortId("C");
+    const customerNameId = testUuid();
+    const customerNameShortId = testShortId("N");
+    const orderTableId = testUuid();
+    const orderTableShortId = testShortId("O");
+    const orderNumberId = testUuid();
+    const orderNumberShortId = testShortId("F");
+    const customerRelationId = testUuid();
+    const customerRelationShortId = testShortId("R");
+    try {
+      await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${baseShortId}, 'Referenced records App')`;
+      await sql`
+        INSERT INTO grids.tables (id, short_id, base_id, name)
+        VALUES
+          (${customerTableId}::uuid, ${customerTableShortId}, ${baseId}::uuid, 'Customers'),
+          (${orderTableId}::uuid, ${orderTableShortId}, ${baseId}::uuid, 'Orders')
+      `;
+      await sql`
+        INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position)
+        VALUES
+          (${customerNameId}::uuid, ${customerNameShortId}, ${customerTableId}::uuid, 'Name', 'text', '{}'::jsonb, 0),
+          (${orderNumberId}::uuid, ${orderNumberShortId}, ${orderTableId}::uuid, 'Number', 'text', '{}'::jsonb, 0),
+          (${customerRelationId}::uuid, ${customerRelationShortId}, ${orderTableId}::uuid, 'Customer', 'relation', ${{ targetTableId: customerTableId, cardinality: "single" }}::jsonb, 1)
+      `;
+      const definition: CustomAppDefinition = {
+        schemaVersion: 5,
+        kind: "grids.custom-app",
+        id: testShortId("A"),
+        baseId: baseShortId,
+        name: "Customers",
+        startPageId: "home",
+        pages: [
+          {
+            id: "home",
+            title: "Home",
+            navigation: { visible: true },
+            parameters: {},
+            rows: [{ id: "intro", columns: [{ id: "main", span: 12, blocks: [{ id: "intro", type: "markdown", markdown: "Home" }] }] }],
+          },
+          {
+            id: "customer",
+            title: "Customer",
+            navigation: { visible: false },
+            parameters: { customer_id: { type: "record", tableId: customerTableShortId, required: true } },
+            record: { tableId: customerTableShortId, id: { source: "PARAMS", path: "customer_id" } },
+            rows: [
+              {
+                id: "detail",
+                columns: [
+                  {
+                    id: "main",
+                    span: 12,
+                    blocks: [
+                      { id: "customer-details", type: "record", fieldIds: [customerNameShortId], editableFieldIds: [] },
+                      {
+                        id: "orders",
+                        type: "referenced_records",
+                        sourceTableId: orderTableShortId,
+                        relationFieldId: customerRelationShortId,
+                        fieldIds: [orderNumberShortId],
+                        display: { kind: "table" },
+                        searchable: true,
+                        pageSize: 25,
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      const compiled = await compile(definition);
+      if (!compiled.ok) throw new Error(compiled.diagnostics[0]?.message ?? "Compilation failed");
+      expect(compiled.ok).toBe(true);
+      expect(compiled.compiled.capabilities.recordQueries).toEqual([
+        expect.objectContaining({ pageId: "customer", blockId: "orders", primaryTableId: orderTableId, tableIds: [orderTableId] }),
+      ]);
+
+      await sql`
+        UPDATE grids.fields
+        SET config = ${{ targetTableId: orderTableId, cardinality: "single" }}::jsonb
+        WHERE id = ${customerRelationId}::uuid
+      `;
+      const rejected = await compile({ ...definition, id: testShortId("X") });
+      expect(rejected.ok).toBe(false);
+      if (!rejected.ok) expect(rejected.diagnostics.some((item) => item.path.includes("relationFieldId"))).toBe(true);
+    } finally {
+      await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
+    }
+  });
+
   postgresTest("pins one HTML template field for a record-page Rendered HTML block", async () => {
     const baseId = testUuid();
     const baseShortId = testShortId("B");
@@ -189,8 +286,8 @@ describe("Grids App lifecycle", () => {
                   type: "records",
                   searchable: true,
                   pageSize: 25,
-                  source: { kind: "view", viewId: testUuid() },
-                  display: { kind: "table", columnIds: [testUuid()] },
+                  source: { kind: "view", viewId: testShortId("V") },
+                  display: { kind: "table", columnIds: [testShortId("F")] },
                 },
               ],
             })),

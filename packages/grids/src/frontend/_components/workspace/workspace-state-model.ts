@@ -116,6 +116,7 @@ export type WorkspaceQueryResultViewRoute = {
 
 export type WorkspaceRecordDetail = {
   recordId: string;
+  relationLabels: Record<string, string>;
   filesByField: Record<string, GridFile[]>;
   documentRuns: DocumentRunSummary[];
   snapshots: RecordSnapshotSummary[];

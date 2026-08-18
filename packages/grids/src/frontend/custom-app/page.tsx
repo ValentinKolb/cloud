@@ -58,6 +58,8 @@ import SidebarActions, { type CustomAppRenderedSidebarAction } from "./SidebarAc
 import { formatCustomAppValue } from "./value-format";
 
 type RecordsBlock = Extract<CustomAppBlock, { type: "records" }>;
+type ReferencedRecordsBlock = Extract<CustomAppBlock, { type: "referenced_records" }>;
+type RecordsLikeBlock = RecordsBlock | ReferencedRecordsBlock;
 type MetricsBlock = Extract<CustomAppBlock, { type: "metrics" }>;
 type ChartBlock = Extract<CustomAppBlock, { type: "chart" }>;
 type InsightBlock = MetricsBlock | ChartBlock;
@@ -136,7 +138,7 @@ const availableIdsInBatches = async <T extends { id: string }>(
 };
 
 const Records = (props: {
-  block: RecordsBlock;
+  block: RecordsLikeBlock;
   data: BlockResult;
   baseId: string;
   dateConfig: ReturnType<typeof getDateConfig>;
@@ -162,12 +164,14 @@ const Records = (props: {
       dateConfig={props.dateConfig}
       appId={props.shortId}
       selectedColumnIds={
-        props.block.display.kind === "table" && props.block.display.columnIds.length > 0 ? props.block.display.columnIds : undefined
+        props.block.type === "records" && props.block.display.kind === "table" && props.block.display.columnIds.length > 0
+          ? props.block.display.columnIds
+          : undefined
       }
       result={props.data.result}
       endpoint={props.endpoint}
       searchable={props.block.searchable}
-      rowNavigate={props.block.rowNavigate}
+      rowNavigate={props.block.type === "records" ? props.block.rowNavigate : undefined}
       rowActions={props.rowActions}
     />
   );
@@ -291,7 +295,7 @@ const CustomAppPage = (props: {
       renderBlock={(block) =>
         block.type === "markdown" ? (
           <MarkdownView markdown={renderCustomAppMarkdown(block.markdown, props.markdownContext)} headingScale="large" />
-        ) : block.type === "records" ? (
+        ) : block.type === "records" || block.type === "referenced_records" ? (
           <Records
             block={block}
             data={props.results.get(block.id) ?? { ok: false, message: "Records are unavailable." }}
@@ -589,7 +593,9 @@ export default ssr<AuthContext>(async (c) => {
   }
 
   const blocks = runtimePage.rows.flatMap((row) =>
-    row.columns.flatMap((column) => column.blocks.filter((block): block is RecordsBlock => block.type === "records")),
+    row.columns.flatMap((column) =>
+      column.blocks.filter((block): block is RecordsLikeBlock => block.type === "records" || block.type === "referenced_records"),
+    ),
   );
   const entries = await Promise.all(
     blocks.map(async (block): Promise<[string, BlockResult]> => {

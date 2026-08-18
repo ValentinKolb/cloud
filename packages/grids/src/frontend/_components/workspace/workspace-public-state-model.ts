@@ -64,6 +64,7 @@ export type PublicWorkspaceBulkLauncher = PublicWorkflowLauncher & { workflowRev
 
 export type PublicWorkspaceRecordDetail = {
   recordId: string;
+  relationLabels: Record<string, string>;
   filesByField: Record<string, PublicGridFile[]>;
   documentRuns: PublicDocumentRunSummary[];
   snapshots: PublicRecordSnapshotSummary[];

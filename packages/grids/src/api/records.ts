@@ -29,6 +29,7 @@ import {
   toPublicRecords,
 } from "./public-dto";
 import { fromPublicExportBody, PublicExportBodySchema } from "./public-query";
+import { PublicReferencedByPageSchema, toPublicReferencedByPage } from "./referenced-by";
 import { internalIdParam, requirePublicIdParam, requireStoredPublicIdParam } from "./route-params";
 
 const RecordImportBodySchema = z.object({
@@ -57,6 +58,14 @@ const RecordCommentListQuerySchema = z
   })
   .strict();
 
+const ReferencedByQuerySchema = z
+  .object({
+    cursor: z.string().max(2_000).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    relationFieldId: ShortIdSchema.optional(),
+  })
+  .strict();
+
 const CombinedAuditQuerySchema = z.object({
   recordId: ShortIdSchema.optional(),
   sourceRef: z.string().max(20).optional(),
@@ -73,6 +82,41 @@ const app = new Hono<AuthContext>()
   // Record listing is served by the unified table query endpoint so
   // list, search, filter, sort, group, and aggregate reads share one
   // backend contract.
+
+  .get(
+    "/:tableId/:recordId/referenced-by",
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
+    describeRoute({
+      tags: ["Grids:Record"],
+      summary: "List live records that reference this record",
+      responses: {
+        200: jsonResponse(PublicReferencedByPageSchema, "Incoming record references"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid cursor or filter"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Record not found"),
+      },
+    }),
+    v("query", ReferencedByQuerySchema),
+    async (c) => {
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId }, "read");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const query = c.req.valid("query");
+      const result = await gridsService.record.listReferencedBy({
+        targetTableId: tableId,
+        targetRecordId: recordId,
+        relationFieldId: query.relationFieldId,
+        cursor: query.cursor,
+        limit: query.limit,
+        recordAccess: ALL_RECORD_ACCESS,
+      });
+      return result.ok ? c.json(toPublicReferencedByPage(result.data)) : respond(c, () => Promise.resolve(result));
+    },
+  )
 
   .get(
     "/:tableId/:recordId/files/:fieldId",
@@ -156,6 +200,59 @@ const app = new Hono<AuthContext>()
     },
   )
 
+  .put(
+    "/:tableId/:recordId/files/:fieldId/:fileId",
+    requirePublicIdParam("tableId", "table", "Table"),
+    requirePublicIdParam("recordId", "record", "Record"),
+    requirePublicIdParam("fieldId", "field", "Field"),
+    requirePublicIdParam("fileId", "file", "File"),
+    describeRoute({
+      tags: ["Grids:File"],
+      summary: "Replace a record file attachment",
+      description: "Atomically replaces the current attachment while preserving protected references to the previous file.",
+      responses: {
+        200: jsonResponse(PublicGridFileSchema, "Replacement file metadata"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid replacement"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+        413: jsonResponse(ErrorResponseSchema, "File too large"),
+      },
+    }),
+    async (c) => {
+      const tableId = internalIdParam(c, "tableId")!;
+      const recordId = internalIdParam(c, "recordId")!;
+      const fieldId = internalIdParam(c, "fieldId")!;
+      const fileId = internalIdParam(c, "fileId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      const gate = await gateAt(c, { baseId: table.baseId }, "write");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const visibleRecord = await gridsService.record.get(tableId, recordId, { recordAccess: ALL_RECORD_ACCESS });
+      if (!visibleRecord) return c.json({ message: "Record not found" }, 404);
+
+      const form = await c.req.formData().catch(() => null);
+      const file = form?.get("file");
+      if (!(file instanceof File)) return respond(c, fail(err.badInput("Missing 'file' field")));
+
+      const maxBytes = await getMaxFileSizeBytes();
+      if (file.size > maxBytes) {
+        return c.json({ message: `File exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit` }, 413);
+      }
+
+      const result = await gridsService.file.replace({
+        tableId,
+        recordId,
+        fieldId,
+        fileId,
+        filename: file.name || "untitled",
+        mimeType: file.type || "application/octet-stream",
+        bytes: new Uint8Array(await file.arrayBuffer()),
+        userId: currentActorUserId(c),
+      });
+      return result.ok ? c.json(await toPublicFile(result.data)) : respond(c, () => Promise.resolve(result));
+    },
+  )
+
   .get(
     "/:tableId/:recordId/files/:fieldId/:fileId/content",
     requirePublicIdParam("tableId", "table", "Table"),
@@ -207,9 +304,9 @@ const app = new Hono<AuthContext>()
     requirePublicIdParam("fileId", "file", "File"),
     describeRoute({
       tags: ["Grids:File"],
-      summary: "Delete a file field blob",
+      summary: "Remove a file attachment from the current record",
       responses: {
-        204: { description: "Deleted" },
+        204: { description: "Removed from the current record" },
         403: jsonResponse(ErrorResponseSchema, "Forbidden"),
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
@@ -225,7 +322,7 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const visibleRecord = await gridsService.record.get(tableId, recordId, { recordAccess: ALL_RECORD_ACCESS });
       if (!visibleRecord) return c.json({ message: "Record not found" }, 404);
-      const result = await gridsService.file.remove({ tableId, recordId, fieldId, fileId });
+      const result = await gridsService.file.remove({ tableId, recordId, fieldId, fileId, userId: currentActorUserId(c) });
       if (!result.ok) return respond(c, () => Promise.resolve(result));
       return c.body(null, 204);
     },

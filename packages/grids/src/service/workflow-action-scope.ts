@@ -200,7 +200,7 @@ const customAppAuthorizationIsAvailable = async (params: {
   );
   if (!(await evaluate(block.availableWhen?.query, blockCapability, context))) return false;
   const recordsContain = async (recordIds: readonly string[], search?: string, cursor?: string): Promise<boolean> => {
-    if (block.type !== "records") return false;
+    if (block.type !== "records" && block.type !== "referenced_records") return false;
     const published = await executePublishedCustomAppRecords({
       baseId: app.baseId,
       customAppId: app.id,
@@ -230,7 +230,7 @@ const customAppAuthorizationIsAvailable = async (params: {
   const action =
     block.type === "actions"
       ? block.actions.find((candidate) => candidate.id === authorization.actionId)
-      : block.type === "records"
+      : block.type === "records" || block.type === "referenced_records"
         ? block.rowActions?.find((candidate) => candidate.id === authorization.actionId)
         : null;
   if (!action) return false;
@@ -239,7 +239,7 @@ const customAppAuthorizationIsAvailable = async (params: {
       candidate.target === "action" && candidate.pageId === page.id && candidate.blockId === block.id && candidate.actionId === action.id,
   );
   if (!(await evaluate(action.availableWhen?.query, actionCapability, context))) return false;
-  if (block.type !== "records") return authorization.recordId === undefined;
+  if (block.type !== "records" && block.type !== "referenced_records") return authorization.recordId === undefined;
   if (!authorization.recordId) return false;
   return recordsContain([authorization.recordId], authorization.search, authorization.cursor);
 };
@@ -290,11 +290,15 @@ export const canExecuteWorkflow = async (claim: GridsWorkflowExecutionClaim, cli
     const page = app.publishedDefinition.pages.find((candidate) => candidate.id === authorization.pageId);
     const block = page?.rows
       .flatMap((row) => row.columns.flatMap((column) => column.blocks))
-      .find((candidate) => candidate.id === authorization.blockId && (candidate.type === "actions" || candidate.type === "records"));
+      .find(
+        (candidate) =>
+          candidate.id === authorization.blockId &&
+          (candidate.type === "actions" || candidate.type === "records" || candidate.type === "referenced_records"),
+      );
     const action =
       block?.type === "actions"
         ? block.actions.find((candidate) => candidate.id === authorization.actionId)
-        : block?.type === "records"
+        : block?.type === "records" || block?.type === "referenced_records"
           ? block.rowActions?.find((candidate) => candidate.id === authorization.actionId)
           : null;
     if (!action || !("launcherId" in action) || action.launcherId !== claim.launcherId) return false;

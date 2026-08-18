@@ -71,7 +71,7 @@ describe("grids schema migration", () => {
         // workflow_revisions, workflow_runs and workflow_step_runs moved into
         // the kernel, taking workflow_effect_intents with them. Grids Apps add
         // custom_apps and custom_app_access to the current Grids schema.
-        expect(row?.tableCount).toBe(34);
+        expect(row?.tableCount).toBe(36);
         const [cast] = await database<Array<{ value: number | string }>>`SELECT grids.try_numeric('12.5') AS value`;
         expect(String(cast?.value)).toBe("12.5");
 
@@ -126,6 +126,71 @@ describe("grids schema migration", () => {
           FROM grids.operational_health
         `;
         expect(health).toEqual({ status: "ok", outboxPending: 0 });
+      });
+    },
+    30_000,
+  );
+
+  postgresTest(
+    "moves legacy file ownership into durable attachment rows without changing the asset",
+    async () => {
+      await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
+        await migrate(database);
+        const baseId = uuid();
+        const tableId = uuid();
+        const fieldId = uuid();
+        const recordId = uuid();
+        const fileId = uuid();
+        await database`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${shortId("B")}, 'File migration')`;
+        await database`
+          INSERT INTO grids.tables (id, short_id, base_id, name)
+          VALUES (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Records')
+        `;
+        await database`
+          INSERT INTO grids.fields (id, short_id, table_id, name, type)
+          VALUES (${fieldId}::uuid, ${shortId("F")}, ${tableId}::uuid, 'Attachment', 'file')
+        `;
+        await database`
+          INSERT INTO grids.records (id, short_id, table_id, data)
+          VALUES (${recordId}::uuid, ${shortId("R")}, ${tableId}::uuid, '{}'::jsonb)
+        `;
+        await database`
+          ALTER TABLE grids.files
+            ADD COLUMN record_id UUID REFERENCES grids.records(id) ON DELETE CASCADE,
+            ADD COLUMN field_id UUID REFERENCES grids.fields(id) ON DELETE CASCADE,
+            ADD COLUMN position INT NOT NULL DEFAULT 0
+        `.simple();
+        const bytes = new TextEncoder().encode("legacy");
+        await database`
+          INSERT INTO grids.files (
+            id, short_id, record_id, field_id, position, filename, mime_type, size_bytes, sha256, bytes
+          ) VALUES (
+            ${fileId}::uuid, ${shortId("A")}, ${recordId}::uuid, ${fieldId}::uuid, 4,
+            'legacy.txt', 'text/plain', ${bytes.byteLength}, 'legacy-hash', ${bytes}
+          )
+        `;
+
+        await migrate(database);
+
+        const [attachment] = await database<Array<{ fileId: string; recordId: string; fieldId: string; position: number }>>`
+          SELECT file_id::text AS "fileId", record_id::text AS "recordId", field_id::text AS "fieldId", position
+          FROM grids.file_attachments
+          WHERE file_id = ${fileId}::uuid
+        `;
+        expect(attachment).toEqual({ fileId, recordId, fieldId, position: 4 });
+        const legacyColumns = await database`
+          SELECT column_name
+          FROM information_schema.columns
+          WHERE table_schema = 'grids' AND table_name = 'files'
+            AND column_name IN ('record_id', 'field_id', 'position')
+        `;
+        expect(legacyColumns).toHaveLength(0);
+        const [asset] = await database<Array<{ filename: string; bytes: Uint8Array }>>`
+          SELECT filename, bytes FROM grids.files WHERE id = ${fileId}::uuid
+        `;
+        expect(asset?.filename).toBe("legacy.txt");
+        expect(new TextDecoder().decode(asset?.bytes)).toBe("legacy");
       });
     },
     30_000,

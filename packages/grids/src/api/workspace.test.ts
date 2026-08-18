@@ -42,6 +42,7 @@ const authenticated: MiddlewareHandler<AuthContext> = async (c, next) => {
 describe("Grids workspace record detail", () => {
   const detail = {
     recordId,
+    relationLabels: {},
     filesByField: {},
     documentRuns: [],
     snapshots: [],
@@ -69,21 +70,27 @@ describe("Grids workspace record detail", () => {
   });
 
   test("returns one composed detail payload for a readable record", async () => {
+    const storedRecord = { id: recordId, tableId, data: { relation: ["target"] }, deletedAt: null } as never;
     const publicDetail = {
       recordId: recordPublicId,
+      relationLabels: { TARGET: "Camera" },
       filesByField: {},
       documentRuns: [],
       snapshots: [],
       auditEntries: [],
       combinedOrigin: null,
     };
+    let loadedParams: { record: unknown; viewer: { userId: string | null } } | undefined;
     const app = createWorkspaceApi({
       requireAuthenticated: authenticated,
       getTableByShortId: async () => ({ id: tableId, baseId }) as never,
       gate: async () => ({ ok: true, value: "read" }) as never,
-      getRecordByShortId: async () => ({ id: recordId, tableId, deletedAt: null }) as never,
+      getRecordByShortId: async () => storedRecord,
       listFields: async () => [],
-      loadRecordDetail: async () => detail,
+      loadRecordDetail: async (params) => {
+        loadedParams = params;
+        return { ...detail, relationLabels: { target: "Camera" } };
+      },
       projectRecordDetail: async () => publicDetail,
     });
 
@@ -91,6 +98,8 @@ describe("Grids workspace record detail", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(publicDetail);
+    expect(loadedParams?.record).toBe(storedRecord);
+    expect(loadedParams?.viewer.userId).toBe(user.id);
   });
 });
 

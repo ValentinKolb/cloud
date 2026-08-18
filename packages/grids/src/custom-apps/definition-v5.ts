@@ -118,6 +118,19 @@ export const migrateCustomAppDefinitionV4 = (
                   availability.query = lookup.migrateGql(availability.query);
               }
             }
+          } else if (block.type === "referenced_records") {
+            replace(block, "sourceTableId", "table", [...path, "sourceTableId"]);
+            replace(block, "relationFieldId", "field", [...path, "relationFieldId"]);
+            replaceArray(block, "fieldIds", "field", [...path, "fieldIds"]);
+            for (const [index, rawAction] of (Array.isArray(block.rowActions) ? block.rowActions : []).entries()) {
+              const action = object(rawAction);
+              if (action) {
+                replace(action, "launcherId", "launcher", [...path, "rowActions", index, "launcherId"]);
+                const availability = object(action.availableWhen);
+                if (availability && typeof availability.query === "string" && lookup.migrateGql)
+                  availability.query = lookup.migrateGql(availability.query);
+              }
+            }
           } else if (block.type === "record") {
             replaceArray(block, "fieldIds", "field", [...path, "fieldIds"]);
             replaceArray(block, "editableFieldIds", "field", [...path, "editableFieldIds"]);

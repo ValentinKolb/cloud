@@ -475,6 +475,44 @@ export const recordCommands = [
       printJsonOrMessage(ctx, file, `Uploaded ${file.filename} (${file.id}).`);
     },
   }),
+  command("records files replace", {
+    summary: "Replace one record file attachment atomically",
+    args: tableArgs,
+    flags: {
+      ...baseFlag,
+      ...tableFlag,
+      record: flag.string({ description: "Record public id" }),
+      field: flag.string({ description: "File field public id or exact name" }),
+      current: flag.string({ description: "Current file public id" }),
+      file: flag.string({ description: "Replacement local file path" }),
+      filename: flag.string({ description: "Stored filename override" }),
+      mimeType: flag.string({ name: "mime-type", description: "MIME type override" }),
+    },
+    async run({ ctx, args, flags }) {
+      const requiredTrailingArgs = [flags.table, flags.record, flags.field, flags.current, flags.file].filter(
+        (value) => value === undefined,
+      ).length;
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, requiredTrailingArgs);
+      const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
+      const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
+      const fieldRef = flags.field ?? requireRestArg(flags.table ? rest.slice(1) : rest.slice(2), 0, "field");
+      const currentFileId = requirePublicId(
+        flags.current ?? requireRestArg(flags.table ? rest.slice(2) : rest.slice(3), 0, "current file"),
+        "File id",
+      );
+      const filePath = flags.file ?? requireRestArg(flags.table ? rest.slice(3) : rest.slice(4), 0, "replacement file");
+      const field = await resolveField(ctx, table.id, fieldRef);
+      const bytes = await readFile(filePath);
+      const form = new FormData();
+      form.append("file", new Blob([bytes], { type: flags.mimeType ?? "application/octet-stream" }), flags.filename ?? basename(filePath));
+      const file = await readApi<GridFile>(
+        ctx,
+        `/records/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}/files/${encodeURIComponent(field.id)}/${encodeURIComponent(currentFileId)}`,
+        { method: "PUT", body: form },
+      );
+      printJsonOrMessage(ctx, file, `Replaced attachment with ${file.filename} (${file.id}).`);
+    },
+  }),
   command("records files download", {
     summary: "Download one file-field blob",
     args: tableArgs,
@@ -503,7 +541,7 @@ export const recordCommands = [
     },
   }),
   command("records files delete", {
-    summary: "Delete one file-field blob",
+    summary: "Remove one file attachment from the current record",
     args: tableArgs,
     flags: {
       ...baseFlag,
@@ -511,10 +549,10 @@ export const recordCommands = [
       record: flag.string({ description: "Record public id" }),
       field: flag.string({ description: "File field public id or exact name" }),
       file: flag.string({ description: "File public id" }),
-      yes: confirmFlag("Delete this record file"),
+      yes: confirmFlag("Remove this attachment from the current record"),
     },
     async run({ ctx, args, flags }) {
-      if (!flags.yes) throw new Error("Pass --yes to delete.");
+      if (!flags.yes) throw new Error("Pass --yes to remove the attachment from the current record.");
       const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table && flags.record && flags.field && flags.file ? 0 : 4);
       const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
       const recordId = requirePublicId(flags.record ?? requireRestArg(flags.table ? rest : rest.slice(1), 0, "record"), "Record id");
@@ -526,7 +564,7 @@ export const recordCommands = [
         `/records/${encodeURIComponent(table.id)}/${encodeURIComponent(recordId)}/files/${encodeURIComponent(field.id)}/${encodeURIComponent(fileId)}`,
         jsonRequest("DELETE"),
       );
-      printJsonOrMessage(ctx, { deleted: fileId }, `Deleted file ${fileId}.`);
+      printJsonOrMessage(ctx, { removed: fileId }, `Removed attachment ${fileId} from the current record.`);
     },
   }),
 ];

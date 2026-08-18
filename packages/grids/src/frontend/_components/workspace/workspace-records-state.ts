@@ -247,12 +247,20 @@ const buildRecordsRoute = async (params: {
   const canManageTable = gridsService.permission.hasAtLeast(view.activeTableLevel, "admin");
   const initialSelectedRecordDetail = selectedRecord
     ? canReadTable
-      ? await loadRecordDetailData({ tableId: activeTable.id, recordId: selectedRecord.id, fields: view.fields })
+      ? await loadRecordDetailData({
+          tableId: activeTable.id,
+          recordId: selectedRecord.id,
+          record: selectedRecord,
+          fields: view.fields,
+          viewer: buildViewer(common.params.user),
+        })
       : activeTable.kind === "federated" && view.activeViewForQuery
         ? await loadRecordDetailData({
             tableId: activeTable.id,
             recordId: selectedRecord.id,
+            record: selectedRecord,
             fields: view.fields,
+            viewer: buildViewer(common.params.user),
             scope: "history",
           })
         : emptyRecordDetail(selectedRecord.id)

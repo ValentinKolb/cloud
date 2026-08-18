@@ -14,7 +14,7 @@ const PUBLIC_ID_RESOURCES = [
   { table: "fields", key: "id", parent: "table_id", index: "idx_grids_fields_short_id" },
   { table: "records", key: "id", parent: "table_id", index: "idx_grids_records_short_id" },
   { table: "record_comments", key: "id", parent: "record_id", index: "idx_grids_record_comments_short_id" },
-  { table: "files", key: "id", parent: "record_id", index: "idx_grids_files_short_id" },
+  { table: "files", key: "id", parent: null, index: "idx_grids_files_short_id" },
   { table: "views", key: "id", parent: "table_id", index: "idx_grids_views_short_id" },
   { table: "forms", key: "id", parent: "table_id", index: "idx_grids_forms_short_id" },
   { table: "document_templates", key: "id", parent: "table_id", index: "idx_grids_document_templates_short_id" },
@@ -684,18 +684,14 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
   console.log("  ✓ grids.record_comments");
 
   // ──────────────────────────────────────────────────────────────────
-  // files — small per-record blobs stored directly in Postgres
+  // files — durable byte assets plus explicit current/protected references
   // ──────────────────────────────────────────────────────────────────
-  // File field values do not live in records.data. The blob table is the
-  // source of truth, and foreign-key cascades keep its lifecycle tied to
-  // records and fields.
+  // File field values do not live in records.data. `files` owns immutable
+  // bytes and their public identity; attachment/protection rows own lifecycle.
   await sql`
     CREATE TABLE IF NOT EXISTS grids.files (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       short_id TEXT NOT NULL,
-      record_id UUID NOT NULL REFERENCES grids.records(id) ON DELETE CASCADE,
-      field_id UUID NOT NULL REFERENCES grids.fields(id) ON DELETE CASCADE,
-      position INT NOT NULL DEFAULT 0,
       filename TEXT NOT NULL,
       mime_type TEXT NOT NULL,
       size_bytes INT NOT NULL CHECK (size_bytes >= 0),
@@ -708,12 +704,75 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
     )
   `.simple();
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_grids_files_record_field
-    ON grids.files(record_id, field_id, position, created_at)
+    CREATE TABLE IF NOT EXISTS grids.file_attachments (
+      file_id UUID PRIMARY KEY REFERENCES grids.files(id) ON DELETE RESTRICT,
+      record_id UUID NOT NULL REFERENCES grids.records(id) ON DELETE CASCADE,
+      field_id UUID NOT NULL REFERENCES grids.fields(id) ON DELETE CASCADE,
+      position INT NOT NULL DEFAULT 0,
+      attached_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      attached_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
   `.simple();
   await sql`
-    CREATE INDEX IF NOT EXISTS idx_grids_files_field
-    ON grids.files(field_id)
+    CREATE INDEX IF NOT EXISTS idx_grids_file_attachments_record_field
+    ON grids.file_attachments(record_id, field_id, position, attached_at, file_id)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_file_attachments_field
+    ON grids.file_attachments(field_id)
+  `.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.file_protected_references (
+      file_id UUID NOT NULL REFERENCES grids.files(id) ON DELETE RESTRICT,
+      owner_kind TEXT NOT NULL CHECK (owner_kind IN ('record_revision', 'document_artifact')),
+      owner_id UUID NOT NULL,
+      base_id UUID NOT NULL,
+      table_id UUID,
+      record_id UUID,
+      created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (file_id, owner_kind, owner_id)
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_file_protected_references_owner
+    ON grids.file_protected_references(owner_kind, owner_id, file_id)
+  `.simple();
+  // Hard-cut legacy rows into the single attachment source of truth. Dynamic
+  // SQL keeps this migration valid for both legacy and fresh installations.
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'grids' AND table_name = 'files' AND column_name = 'record_id'
+      ) THEN
+        EXECUTE $migration$
+          INSERT INTO grids.file_attachments (
+            file_id, record_id, field_id, position, attached_by, attached_at
+          )
+          SELECT id, record_id, field_id, position, created_by, created_at
+          FROM grids.files
+          ON CONFLICT (file_id) DO NOTHING
+        $migration$;
+        IF EXISTS (
+          SELECT 1
+          FROM grids.files file
+          LEFT JOIN grids.file_attachments attachment
+            ON attachment.file_id = file.id
+           AND attachment.record_id = file.record_id
+           AND attachment.field_id = file.field_id
+           AND attachment.position = file.position
+          WHERE attachment.file_id IS NULL
+        ) THEN
+          RAISE EXCEPTION 'grids file attachment backfill did not preserve every legacy owner';
+        END IF;
+        EXECUTE 'DROP INDEX IF EXISTS grids.idx_grids_files_record_field';
+        EXECUTE 'DROP INDEX IF EXISTS grids.idx_grids_files_field';
+        EXECUTE 'ALTER TABLE grids.files DROP COLUMN record_id, DROP COLUMN field_id, DROP COLUMN position';
+      END IF;
+    END
+    $$
   `.simple();
   console.log("  ✓ grids.files");
 
@@ -736,7 +795,11 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
   // Forward read: "all targets of (record, field)" — used on every record fetch.
   await sql`CREATE INDEX IF NOT EXISTS idx_grids_record_links_forward ON grids.record_links(from_field_id, from_record_id, position)`.simple();
   // Reverse read: "all records linking to X via field F".
-  await sql`CREATE INDEX IF NOT EXISTS idx_grids_record_links_reverse ON grids.record_links(to_record_id, from_field_id)`.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_record_links_reverse_page
+    ON grids.record_links(to_record_id, from_field_id, from_record_id)
+  `.simple();
+  await sql`DROP INDEX IF EXISTS grids.idx_grids_record_links_reverse`.simple();
   console.log("  ✓ grids.record_links");
 };
 

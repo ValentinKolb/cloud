@@ -114,6 +114,43 @@ describe("public record audit boundary", () => {
     expect(entry?.diff?.RELA01).toEqual({ old: ["RECD02"], new: "RECD03" });
   });
 
+  test("keeps audited file metadata under the public field ID", async () => {
+    const metadata = { id: "FILE01", filename: "evidence.pdf", mimeType: "application/pdf", sizeBytes: 42, sha256: "abc" };
+    const [entry] = await toPublicAuditEntries(
+      [{ ...storedEntry, action: "file.replaced", diff: { [textFieldId]: { old: metadata, new: { ...metadata, id: "FILE02" } } } }],
+      fields,
+      projectIds,
+    );
+
+    expect(entry).toMatchObject({
+      action: "file.replaced",
+      diff: { TEXT01: { old: metadata, new: { ...metadata, id: "FILE02" } } },
+    });
+  });
+
+  test("keeps additive record events readable instead of crashing the record page", async () => {
+    const actions = [
+      "record_snapshot.created",
+      "document.generated",
+      "workflow.record.updated",
+      "automation.document.generated",
+      "future.record.event",
+    ];
+    const projected = await toPublicAuditEntries(
+      actions.map((action, index) => ({
+        ...storedEntry,
+        id: `88888888-8888-4888-8888-${String(index).padStart(12, "0")}`,
+        action,
+        diff: { snapshotId: { old: null, new: "internal-metadata" } },
+      })) as RecordHistoryEntry[],
+      fields,
+      projectIds,
+    );
+
+    expect(projected.map((entry) => entry.action)).toEqual(actions);
+    expect(projected.every((entry) => entry.diff && Object.keys(entry.diff).length === 0)).toBe(true);
+  });
+
   test("projects Combined pages through the same nested boundary", async () => {
     const page: CombinedAuditPage = {
       items: [

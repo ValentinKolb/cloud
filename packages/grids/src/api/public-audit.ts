@@ -4,7 +4,10 @@ import type { CombinedAuditPage } from "../service/combined-audit";
 import { projectPublicIds } from "../service/public-resources";
 import type { RecordHistoryEntry } from "../service/record-history";
 
-const RecordAuditActionSchema = z.enum(["created", "updated", "deleted", "restored", "imported"]);
+// Audit actions are an additive server-owned event namespace. Record history
+// must remain readable when a newer producer or an older persisted row carries
+// an action that this UI does not yet render specially.
+const RecordAuditActionSchema = z.string();
 const PublicAuditDiffSchema = z.record(ShortIdSchema, z.object({ old: z.unknown(), new: z.unknown() }).strict());
 const AuditSourceSchema = z
   .object({

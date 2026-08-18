@@ -141,7 +141,7 @@ Each property declares which sources and target type it accepts. Validation reso
 
 ## Define blocks {icon="blocks"}
 
-All blocks require a local `id` and `type`. Blocks may support an optional `title` and `availableWhen`; Records and Record additionally support `emptyText`. The installed machine reference is authoritative for each block type.
+All blocks require a local `id` and `type`. Blocks may support an optional `title` and `availableWhen`; Records, Referenced records, and Record additionally support `emptyText`. A `referenced_records` block is valid only on a Record page and pins `sourceTableId`, `relationFieldId`, `fieldIds`, `display`, `searchable`, `pageSize`, and optional `rowActions`. The installed machine reference is authoritative for each block type.
 
 ```yaml
 # Guidance
@@ -262,7 +262,7 @@ cld grids gql autocomplete MyBase \
   --json
 ```
 
-Use a standalone Actions block for page-level navigation and workflows. Use `rowActions` for up to six workflows that act on one Records result row in either table or Cards presentation. Cards may instead be read-only or only navigate; no separate card action model exists. Every row action has a required accessible label, may hide that label only when it has an icon, and may bind `ROW.id` to a compatible record input. Row navigation may instead bind one selected single-relation field to a compatible target page parameter. Form validation and submission behavior remain owned by the referenced Form.
+Use a standalone Actions block for page-level navigation and workflows. Use `rowActions` for up to six workflows that act on one Records or Referenced records result row in either table or Cards presentation. Cards may instead be read-only or only navigate; no separate card action model exists. Every row action has a required accessible label, may hide that label only when it has an icon, and may bind `ROW.id` to a compatible record input. Row navigation may instead bind one selected single-relation field to a compatible target page parameter. Form validation and submission behavior remain owned by the referenced Form.
 
 Pages, blocks, Forms, and actions may declare one server-enforced availability query:
 
