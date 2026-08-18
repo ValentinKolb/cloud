@@ -79,21 +79,33 @@ export const CapabilitySemanticLinkSchema = z
 
 export type CapabilitySemanticLink = z.infer<typeof CapabilitySemanticLinkSchema>;
 
+const CapabilityReviewDateTimeSchema = z.string().datetime({ offset: true });
+const CapabilityReviewDateSchema = z.union([z.iso.date(), CapabilityReviewDateTimeSchema]);
+const CapabilityActionReviewDetailSchema = z
+  .object({
+    label: z.string().min(1).max(120),
+    value: z.string().max(10_000),
+    display: z.enum(["inline", "block"]).optional(),
+    format: z.enum(["date", "date-time"]).optional(),
+  })
+  .strict()
+  .superRefine((detail, context) => {
+    const schema =
+      detail.format === "date" ? CapabilityReviewDateSchema : detail.format === "date-time" ? CapabilityReviewDateTimeSchema : null;
+    if (schema?.safeParse(detail.value).success === false) {
+      context.addIssue({
+        code: "custom",
+        path: ["value"],
+        message:
+          detail.format === "date" ? "Date review values must use YYYY-MM-DD or RFC 3339" : "Date-time review values must use RFC 3339",
+      });
+    }
+  });
+
 export const CapabilityActionReviewSchema = z
   .object({
     message: z.string().min(1).max(1000).describe("Plain-text description of the concrete Action consequence."),
-    details: z
-      .array(
-        z
-          .object({
-            label: z.string().min(1).max(120),
-            value: z.string().max(10_000),
-            display: z.enum(["inline", "block"]).optional(),
-          })
-          .strict(),
-      )
-      .max(20)
-      .optional(),
+    details: z.array(CapabilityActionReviewDetailSchema).max(20).optional(),
     links: z.array(CapabilitySemanticLinkSchema).max(10).optional(),
   })
   .strict();

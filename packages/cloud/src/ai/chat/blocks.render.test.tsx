@@ -143,6 +143,8 @@ describe("capability tool presentation", () => {
       details: [
         { label: "Subject", value: "Release follow-up" },
         { label: "Recipients", value: "Ada", display: "inline" },
+        { label: "Send on", value: "2026-08-20", format: "date" },
+        { label: "Send at", value: "2026-08-20T09:00:00+02:00", format: "date-time" },
         { label: "Proposed body", value: "Hello **Ada**\n<script>alert('plain text')</script>", display: "block" },
       ],
       links: [{ rel: "edit", href: "/app/mail/MbA123/drafts/DrG789", title: "Edit draft" }],
@@ -153,6 +155,8 @@ describe("capability tool presentation", () => {
     expect(customHtml).toContain('<dt class="font-semibold text-primary">Subject</dt>');
     expect(customHtml).toContain('<dd class="min-w-0 whitespace-pre-wrap break-words">Release follow-up</dd>');
     expect(customHtml).toContain('<dt class="font-semibold text-primary">Recipients</dt>');
+    expect(customHtml).toContain('<time datetime="2026-08-20">');
+    expect(customHtml).toContain('<time datetime="2026-08-20T09:00:00+02:00">');
     expect(customHtml).toContain('aria-label="Proposed body"');
     expect(customHtml).toContain('aria-label="Proposed body content"');
     expect(customHtml).toContain('tabindex="0"');

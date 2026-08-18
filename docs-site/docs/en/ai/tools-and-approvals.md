@@ -247,8 +247,11 @@ choice.
 When a Capability review is available, show it instead of making the user
 interpret opaque IDs in the raw arguments. Review details default to the
 compact `inline` presentation; `display: "block"` gives long plain-text values
-their own bounded section. The hint never enables HTML or Markdown rendering,
-and semantic review links remain clickable same-origin links.
+their own bounded section. Apps can mark canonical `YYYY-MM-DD` values as
+`date` and RFC 3339 instants as `date-time`; the shared UI renders them for the
+viewer without changing the persisted value. These hints never enable HTML or
+Markdown rendering, and semantic review links remain clickable same-origin
+links.
 
 Users can list and revoke their remembered choices in Assistant under
 **Personalization → Approvals**. Revocation is ownership-scoped and takes

@@ -256,7 +256,10 @@ describe("projection reducer", () => {
             message: "Update the draft.",
             review: {
               message: "Update the draft.",
-              details: [{ label: "Proposed body", value: "Hello Ada", display: "block" }],
+              details: [
+                { label: "Due", value: "2026-08-20T09:00:00+02:00", format: "date-time" },
+                { label: "Proposed body", value: "Hello Ada", display: "block" },
+              ],
               links: [{ rel: "edit", href: "/app/mail/MbA123/drafts/DrG789" }],
             },
             allowAlways: true,
@@ -268,7 +271,7 @@ describe("projection reducer", () => {
     expect(state.activeTurn?.blocks[0]).toMatchObject({
       approval: {
         review: {
-          details: [{ display: "block" }],
+          details: [{ format: "date-time" }, { display: "block" }],
           links: [{ rel: "edit", href: "/app/mail/MbA123/drafts/DrG789" }],
         },
       },

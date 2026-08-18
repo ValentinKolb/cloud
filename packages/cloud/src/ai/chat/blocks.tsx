@@ -1,6 +1,8 @@
+import { dates } from "@k2b/stdlib";
 import { mutation } from "@k2b/stdlib/solid";
 import { Button, Chat, isStructuredDataValue, SplitButton, StructuredDataPreview } from "@k2b/ui";
 import { createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
+import type { CapabilityActionReview } from "../../contracts/capabilities";
 import { markdown } from "../../shared";
 import type { AiTurnBlock } from "../protocol";
 import { isRenderableTurnBlock } from "../protocol";
@@ -22,6 +24,25 @@ import { CloudCardBlock, CloudSurveyBlock, CloudSurveyResultBlock } from "./visu
 import { WebExtractToolBlock, WebSearchToolBlock } from "./web-tools";
 
 type ToolBlock = Extract<AiTurnBlock, { kind: "tool" }>;
+type ReviewDetail = NonNullable<CapabilityActionReview["details"]>[number];
+
+const reviewDetailText = (detail: ReviewDetail): string => {
+  if (detail.format === "date")
+    return /^\d{4}-\d{2}-\d{2}$/.test(detail.value)
+      ? dates.formatDate(`${detail.value}T12:00:00.000Z`, { timeZone: "UTC" })
+      : dates.formatDate(detail.value);
+  if (detail.format === "date-time") return dates.formatDateTime(detail.value);
+  return detail.value;
+};
+
+function ReviewDetailValue(props: { detail: ReviewDetail }) {
+  const value = () => reviewDetailText(props.detail);
+  return (
+    <Show when={props.detail.format} fallback={value()}>
+      <time dateTime={props.detail.value}>{value()}</time>
+    </Show>
+  );
+}
 
 // All state branches below live in reactive JSX (Show/Switch), never in the
 // component body: blocks are born empty/running and mutate in place while the
@@ -218,7 +239,9 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
                     {(detail) => (
                       <>
                         <dt class="font-semibold text-primary">{detail.label}</dt>
-                        <dd class="min-w-0 whitespace-pre-wrap break-words">{detail.value}</dd>
+                        <dd class="min-w-0 whitespace-pre-wrap break-words">
+                          <ReviewDetailValue detail={detail} />
+                        </dd>
                       </>
                     )}
                   </For>
@@ -234,7 +257,7 @@ function ApprovalBlockView(props: { turnId: string; block: ToolBlock }) {
                       tabIndex={0}
                       aria-label={`${detail.label} content`}
                     >
-                      {detail.value}
+                      <ReviewDetailValue detail={detail} />
                     </pre>
                   </section>
                 )}

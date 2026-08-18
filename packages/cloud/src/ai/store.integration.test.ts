@@ -482,6 +482,7 @@ suite("AI conversation store integration", () => {
         message: "Update the draft.",
         details: [
           { label: "Subject", value: "Release follow-up" },
+          { label: "Due", value: "2026-08-20T09:00:00+02:00", format: "date-time" as const },
           { label: "Proposed body", value: "Hello Ada", display: "block" as const },
         ],
         links: [{ rel: "edit" as const, href: "/app/mail/MbA123/drafts/DrG789", title: "Edit draft" }],

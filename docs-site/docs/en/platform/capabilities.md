@@ -401,6 +401,7 @@ type CapabilityActionReview = {
     label: string;
     value: string;
     display?: "inline" | "block";
+    format?: "date" | "date-time";
   }>;
   links?: CapabilitySemanticLink[];
 };
@@ -412,13 +413,21 @@ for bounded long-form plain text such as a proposed message body. `links`
 reuses the existing root-relative, same-origin semantic links so the person can
 inspect or edit the resource in its owning app.
 
+The owning app chooses date semantics without pre-formatting for one locale:
+use `format: "date"` with an exact `YYYY-MM-DD` calendar date or an RFC 3339
+instant whose time should be hidden. Use `format: "date-time"` when both date
+and time matter. Clients render those values in the viewer's locale and convert
+instants to the viewer's timezone. Omit `format` for ordinary text, including
+relative descriptions such as an undo window.
+
 The shape is intentionally fixed. Reviews have no app-defined schema, title,
 icon, severity, arbitrary JSON, HTML, Markdown, refs, pagination, or executable
-controls. `display` is only a layout hint; it does not change the value's trust
-or content type. Clients derive the title and app presentation from the live
-manifest and registry, and derive warning treatment from `openWorld` and
-`destructive`. Render every review value as escaped, untrusted plain text and
-keep semantic links as links rather than flattening them into text.
+controls. `display` is only a layout hint, and `format` only selects a fixed
+plain-text date presentation; neither changes the value's trust. Clients derive
+the title and app presentation from the live manifest and registry, and derive
+warning treatment from `openWorld` and `destructive`. Render every review value
+as escaped, untrusted plain text and keep semantic links as links rather than
+flattening them into text.
 
 Cloud bounds a review to a 1,000-character message, 20 details with a
 120-character label and 10,000-character value, and 10 semantic links. For

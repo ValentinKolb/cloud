@@ -4,7 +4,7 @@ import type { Provider } from "@k2b/nessi/ai";
 import { ok } from "@k2b/stdlib";
 import { z } from "zod";
 import { compileCapabilities } from "../_internal/capabilities";
-import { defineCapabilities, type CapabilityActionReview } from "../contracts/capabilities";
+import { type CapabilityActionReview, CapabilityActionReviewSchema, defineCapabilities } from "../contracts/capabilities";
 import type { CapabilityRegistryEntry, HelpRegistryEntry } from "../contracts/registry";
 import {
   aiCapabilityInputSchema,
@@ -23,6 +23,33 @@ import {
   searchAiCapabilities,
 } from "./capabilities";
 import { prepareAiTools } from "./tools";
+
+describe("capability action review details", () => {
+  test("validates semantic date formats without changing ordinary text", () => {
+    expect(
+      CapabilityActionReviewSchema.parse({
+        message: "Schedule the event.",
+        details: [
+          { label: "Day", value: "2026-08-20", format: "date" },
+          { label: "Local day", value: "2026-08-20T00:00:00+02:00", format: "date" },
+          { label: "Starts", value: "2026-08-20T09:00:00+02:00", format: "date-time" },
+          { label: "Window", value: "After approval" },
+        ],
+      }).details,
+    ).toEqual([
+      { label: "Day", value: "2026-08-20", format: "date" },
+      { label: "Local day", value: "2026-08-20T00:00:00+02:00", format: "date" },
+      { label: "Starts", value: "2026-08-20T09:00:00+02:00", format: "date-time" },
+      { label: "Window", value: "After approval" },
+    ]);
+    expect(
+      CapabilityActionReviewSchema.safeParse({
+        message: "Schedule the event.",
+        details: [{ label: "Starts", value: "tomorrow morning", format: "date-time" }],
+      }).success,
+    ).toBeFalse();
+  });
+});
 
 const capabilityApp = (
   appId: string,
