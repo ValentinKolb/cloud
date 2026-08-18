@@ -268,6 +268,11 @@ The referenced Query is the only read implementation; do not publish a second
 `item.get` or a Project-specific reader for the same operation. Omit `reader`
 when the resource has no useful bounded machine representation.
 
+When an application lets a user copy or paste this identity, use Cloud's
+versioned resource clipboard format instead of embedding an ID in app-specific
+JSON or inferring it from text. See
+[Copy and paste Cloud resources](/en/docs/platform/resource-references).
+
 ### Queries read data
 
 Queries do not mutate application state. Use them for bounded read, list,

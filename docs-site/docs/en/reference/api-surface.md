@@ -148,6 +148,7 @@ documents all process variables; that larger list is not the shape of `env`.
 | `@valentinkolb/cloud/access/ui` | Supported, SolidJS | Cloud permission and resource-key controls | [Resource API keys](/en/docs/identity/resource-api-keys) |
 | `@valentinkolb/cloud/browser/live` | Supported, browser | Live WebSocket transport | [Realtime UI](/en/docs/frontend/realtime-ui) |
 | `@valentinkolb/cloud/browser/notifications` | Supported, browser | Browser notification state | [Notifications](/en/docs/platform/notifications) |
+| `@valentinkolb/cloud/browser/resource-clipboard` | Supported, browser | Copy and recognize stable Cloud resource references | [Resource copy and paste](/en/docs/platform/resource-references) |
 | `@valentinkolb/cloud/browser/resource-picker` | Supported, SolidJS | Choose a stable resource reference through Universal Search | [Universal search](/en/docs/platform/search) |
 | `@valentinkolb/cloud/clients/core` | Platform-owned, browser | Typed client for the Core platform API | — |
 | `@valentinkolb/cloud/workflows/language` | Supported | Workflow compiler, parser, and authoring | [Author workflows](/en/docs/automation/author-and-publish-workflows) |

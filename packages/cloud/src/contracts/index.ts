@@ -5,6 +5,7 @@ export * from "./notification-live";
 export * from "./notification-types";
 export * from "./profile";
 export * from "./registry";
+export * from "./resource-clipboard";
 export * from "./shared";
 export * from "./user-notifications";
 export * from "./widgets";
