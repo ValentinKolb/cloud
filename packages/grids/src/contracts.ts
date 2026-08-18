@@ -168,6 +168,22 @@ export const TableAuditPolicySchema = z
   .default({});
 export type TableAuditPolicy = z.infer<typeof TableAuditPolicySchema>;
 
+export const MutationSourceSchema = z.enum(["direct", "form", "workflow"]);
+export type MutationSource = z.infer<typeof MutationSourceSchema>;
+
+export const TableMutationPolicySchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("all") }).strict(),
+  z
+    .object({ mode: z.literal("selected"), sources: z.array(MutationSourceSchema).max(3) })
+    .strict()
+    .superRefine((policy, ctx) => {
+      if (new Set(policy.sources).size !== policy.sources.length) {
+        ctx.addIssue({ code: "custom", path: ["sources"], message: "Mutation sources must be unique" });
+      }
+    }),
+]);
+export type TableMutationPolicy = z.infer<typeof TableMutationPolicySchema>;
+
 export const RecordMutationAuditSchema = z
   .object({
     answers: z.record(z.string().uuid(), z.string().max(10_000)).default({}),
@@ -236,6 +252,7 @@ export const TableSchema = z.object({
   columns: z.array(z.lazy(() => FieldColumnSpecSchema)),
   displayConfig: RecordDisplayConfigSchema,
   auditPolicy: TableAuditPolicySchema,
+  mutationPolicy: TableMutationPolicySchema,
   position: z.number().int(),
   disableDirectInsert: z.boolean(),
   deletedAt: z.string().datetime().nullable(),

@@ -32,7 +32,7 @@ describe("record parent invariants", () => {
     try {
       const result = await sql.begin(async (tx) => {
         await tx`UPDATE grids.tables SET deleted_at = now() WHERE id = ${fixture.tableId}::uuid`;
-        return createInTransaction(tx, fixture.tableId, { [fixture.fieldId]: "hidden" }, null);
+        return createInTransaction(tx, fixture.tableId, { [fixture.fieldId]: "hidden" }, null, "direct");
       });
 
       expect(result.ok).toBe(false);
@@ -56,7 +56,7 @@ describe("record parent invariants", () => {
       `;
       await sql`UPDATE grids.tables SET deleted_at = now() WHERE id = ${fixture.tableId}::uuid`;
 
-      const result = await restore(fixture.tableId, recordId, null);
+      const result = await restore(fixture.tableId, recordId, null, "direct");
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.message).toBe("Parent table or base is trashed; restore the parent first");

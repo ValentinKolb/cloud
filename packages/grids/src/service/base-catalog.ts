@@ -5,6 +5,7 @@ import {
   FieldColumnSpecSchema,
   RecordDisplayConfigSchema,
   TableAuditPolicySchema,
+  TableMutationPolicySchema,
   type View,
   ViewUiSettingsSchema,
 } from "../contracts";
@@ -59,6 +60,7 @@ const mapTable = (row: DbRow): Table => ({
   columns: parseColumns(row.columns),
   displayConfig: parseDisplayConfig(row.display_config),
   auditPolicy: TableAuditPolicySchema.parse(parseJsonbRow<unknown>(row.audit_policy, {})),
+  mutationPolicy: TableMutationPolicySchema.parse(parseJsonbRow<unknown>(row.mutation_policy, null)),
   position: row.position as number,
   disableDirectInsert: (row.disable_direct_insert as boolean | null) ?? false,
   deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,

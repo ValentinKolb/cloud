@@ -4,6 +4,7 @@ import { getRecordWritableFieldType } from "../field-types";
 import { logAudit, type SqlClient } from "./audit";
 import { captureRecordRevision, prepareRecordMutation } from "./durable-history";
 import { listByTable as listFields } from "./fields";
+import { assertMutationAllowed, type MutationOrigin } from "./mutation-policy";
 import { allocateNumberInTransaction, bindNumberAllocation } from "./number-series";
 import { requireStoredTableWritable } from "./parent-checks";
 import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
@@ -215,12 +216,15 @@ export const finalizeInTransaction = async (
     tableId: string;
     recordId: string;
     actorId: string | null;
+    origin: MutationOrigin;
     recordAccess?: AuthorizedRecordAccess;
     dateConfig?: DateContext;
   },
 ): Promise<Result<{ record: GridRecord; outboxId: string | null }>> => {
   const writable = await requireStoredTableWritable(params.tableId, client);
   if (!writable.ok) return writable;
+  const allowed = await assertMutationAllowed(client, params.tableId, params.origin);
+  if (!allowed.ok) return allowed;
   const [target] = await client<Array<{ id: string }>>`
     SELECT record.id::text
     FROM grids.records record
@@ -310,6 +314,7 @@ export const finalize = async (params: {
   tableId: string;
   recordId: string;
   actorId: string | null;
+  origin: MutationOrigin;
   recordAccess?: AuthorizedRecordAccess;
   dateConfig?: DateContext;
 }): Promise<Result<GridRecord>> => {

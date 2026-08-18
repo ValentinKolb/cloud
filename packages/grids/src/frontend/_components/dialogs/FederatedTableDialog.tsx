@@ -276,7 +276,11 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
           when={!loading()}
           fallback={<Placeholder state="loading" title="Loading combined table" description="Reading sources and mappings." />}
         >
-          <PanelDialog.Section title="Sources" subtitle="Only tables where you are an admin can be published." icon="ti ti-database-share">
+          <PanelDialog.Section
+            title="Sources"
+            subtitle="Choose the tables that should feed this combined table. You must be an admin of each source."
+            icon="ti ti-database-share"
+          >
             <TextInput
               aria-label="Search source bases and tables"
               value={candidateQuery}
@@ -346,7 +350,7 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
 
           <PanelDialog.Section
             title="Field mappings"
-            subtitle="Choose the physical field used for each canonical field."
+            subtitle="For each field in this table, choose the source field whose value should appear."
             icon="ti ti-arrows-join-2"
           >
             <Show
@@ -357,8 +361,8 @@ function FederatedTableDialog(props: { tableId: string; tableName: string; targe
                   title="No editable mappings"
                   description={
                     hiddenSourceCount() > 0
-                      ? "Existing inaccessible publications are retained automatically, but their physical schema stays private."
-                      : "Add a source and canonical fields first."
+                      ? "Existing sources you can no longer access stay connected, but their private fields are hidden."
+                      : "Add a source and create the fields you want this table to show first."
                   }
                 />
               }

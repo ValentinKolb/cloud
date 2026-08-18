@@ -194,7 +194,7 @@ export function FormulaExpressionEditor(props: {
           Search fields by name, then insert a readable reference. Use double quotes for names with spaces, for example{" "}
           <code>"Unit price"</code>.
         </span>
-        <span>Field renames update saved formulas best effort. Check formulas after renaming important columns.</span>
+        <span>If you rename a field used here, Grids updates the formula when possible. Review it afterward.</span>
         <span>Strings use single quotes. Decimal arithmetic stays exact when exact values are involved.</span>
       </div>
 
@@ -233,7 +233,8 @@ export function FormulaExpressionEditor(props: {
       </div>
 
       <p class="text-xs text-dimmed leading-snug">
-        Formulas recompute on every read. Saved expressions keep readable names; renames are rewritten best effort.
+        Formula results update automatically. If you rename a referenced field, Grids updates the formula when possible; review it
+        afterward.
       </p>
 
       <div class="flex flex-col gap-2">

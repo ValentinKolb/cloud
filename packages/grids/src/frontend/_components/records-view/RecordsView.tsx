@@ -17,6 +17,7 @@ import type {
   RecordDisplayConfig,
   RecordQuery,
   TableAuditPolicy,
+  TableMutationPolicy,
 } from "../../../contracts";
 import { simpleQueryToGqlSource } from "../../../query-dsl/record-query-source";
 import { defaultTableAggregations } from "../../../table-defaults";
@@ -75,6 +76,7 @@ type Props = {
   tableIcon?: string | null;
   tableColumns: FieldColumnSpec[];
   tableAuditPolicy: TableAuditPolicy;
+  tableMutationPolicy: TableMutationPolicy;
   /** Table-level setting: when true, records should be created through forms. */
   disableDirectInsert: boolean;
   /** Short-id of the active saved view, or null when no view. Drives
@@ -126,6 +128,12 @@ export default function RecordsView(props: Props) {
   const [tableIcon, setTableIcon] = createSignal(props.tableIcon ?? null);
   const [tableColumns, setTableColumns] = createSignal<FieldColumnSpec[]>(props.tableColumns);
   const [tableAuditPolicy, setTableAuditPolicy] = createSignal<TableAuditPolicy>(props.tableAuditPolicy);
+  const [tableMutationPolicy, setTableMutationPolicy] = createSignal<TableMutationPolicy>(props.tableMutationPolicy);
+  const mutationSourceAllowed = (source: "direct" | "form" | "workflow") => {
+    const policy = tableMutationPolicy();
+    return policy.mode === "all" || policy.sources.includes(source);
+  };
+  const canDirectWrite = () => props.canWrite && mutationSourceAllowed("direct");
   const [tableDisplayConfig, setTableDisplayConfig] = createSignal<RecordDisplayConfig>(
     props.activeView ? { mode: "table" } : props.displayConfig,
   );
@@ -596,6 +604,8 @@ export default function RecordsView(props: Props) {
     setTableDisplayConfig,
     tableAuditPolicy,
     setTableAuditPolicy,
+    tableMutationPolicy,
+    setTableMutationPolicy,
     disableDirectInsert,
     setDisableDirectInsert,
     fields,
@@ -716,6 +726,8 @@ export default function RecordsView(props: Props) {
                   currentSearch={search()}
                   forms={forms()}
                   canWrite={props.canWrite}
+                  canDirectWrite={canDirectWrite()}
+                  canSubmitForms={props.canWrite && mutationSourceAllowed("form")}
                   onCommit={onToolbarCommit}
                   onRecordCreated={onRecordCreated}
                   onRecordsChanged={() => void refreshVisibleRecords({ force: true })}
@@ -841,7 +853,7 @@ export default function RecordsView(props: Props) {
             aggregations={aggregations()}
             documentTemplates={props.documentTemplates}
             mode={detailMode}
-            canWrite={props.canWrite}
+            canWrite={canDirectWrite()}
             relationLabels={mergedRelationLabels()}
             fieldsByTable={props.fieldsByTable}
             viewColumns={effectiveViewColumns()}

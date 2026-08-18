@@ -54,6 +54,7 @@ export type AuditAction =
   | "durable_history.enabled"
   | "finalization.enabled"
   | "finalization.disabled"
+  | "mutation_policy.updated"
   | "access.granted"
   | "access.updated"
   | "access.revoked"

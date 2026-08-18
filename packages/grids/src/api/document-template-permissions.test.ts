@@ -71,6 +71,7 @@ const table = {
   columns: [],
   displayConfig: { mode: "table" as const },
   auditPolicy: {},
+  mutationPolicy: { mode: "all" as const },
   position: 0,
   disableDirectInsert: false,
   deletedAt: null,

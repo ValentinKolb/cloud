@@ -97,7 +97,7 @@ describe("record finalization Postgres integration", () => {
   postgresTest("finalizes once, allocates one final number, and blocks every record mutation owner", async () => {
     const item = await fixture();
     try {
-      const incomplete = await records.create(item.tableId, {}, null);
+      const incomplete = await records.create(item.tableId, {}, null, "direct");
       if (!incomplete.ok) throw incomplete.error;
       const required = await fields.update(item.name.id, { required: true }, null);
       if (!required.ok) throw required.error;
@@ -105,11 +105,18 @@ describe("record finalization Postgres integration", () => {
       expect(readiness.ok && readiness.data.missing).toEqual([
         { fieldId: item.name.id, fieldName: "Name", message: "A value is required." },
       ]);
-      expect((await finalization.finalize({ tableId: item.tableId, recordId: incomplete.data.id, actorId: null })).ok).toBe(false);
+      expect((await finalization.finalize({ tableId: item.tableId, recordId: incomplete.data.id, actorId: null, origin: "direct" })).ok).toBe(
+        false,
+      );
 
-      const target = await records.create(item.tableId, { [item.name.id]: "Target" }, null);
+      const target = await records.create(item.tableId, { [item.name.id]: "Target" }, null, "direct");
       if (!target.ok) throw target.error;
-      const created = await records.create(item.tableId, { [item.name.id]: "Ready", [item.relation.id]: [target.data.id] }, null);
+      const created = await records.create(
+        item.tableId,
+        { [item.name.id]: "Ready", [item.relation.id]: [target.data.id] },
+        null,
+        "direct",
+      );
       if (!created.ok) throw created.error;
       expect(created.data.data[item.number.id]).toBeUndefined();
       const attached = await files.upload({
@@ -120,11 +127,14 @@ describe("record finalization Postgres integration", () => {
         mimeType: "text/plain",
         bytes: new TextEncoder().encode("original"),
         userId: null,
+        origin: "direct",
       });
       if (!attached.ok) throw attached.error;
 
       const results = await Promise.all(
-        Array.from({ length: 8 }, () => finalization.finalize({ tableId: item.tableId, recordId: created.data.id, actorId: null })),
+        Array.from({ length: 8 }, () =>
+          finalization.finalize({ tableId: item.tableId, recordId: created.data.id, actorId: null, origin: "direct" }),
+        ),
       );
       expect(results.every((result) => result.ok)).toBe(true);
       const finalNumbers = results.flatMap((result) => (result.ok ? [result.data.data[item.number.id]] : []));
@@ -159,10 +169,10 @@ describe("record finalization Postgres integration", () => {
       if (!preview.ok) throw preview.error;
       expect(preview.data.rows.find((row) => row.recordId === created.data.id)?.recordMeta?.finalizedAt).toBeTruthy();
 
-      const update = await records.update(item.tableId, created.data.id, { [item.name.id]: "Changed" }, null);
+      const update = await records.update(item.tableId, created.data.id, { [item.name.id]: "Changed" }, null, "direct");
       expect(update.ok).toBe(false);
       if (!update.ok) expect(update.error.status).toBe(409);
-      expect((await records.softDelete(item.tableId, created.data.id, null)).ok).toBe(false);
+      expect((await records.softDelete(item.tableId, created.data.id, null, "direct")).ok).toBe(false);
       const upload = await files.upload({
         tableId: item.tableId,
         recordId: created.data.id,
@@ -171,6 +181,7 @@ describe("record finalization Postgres integration", () => {
         mimeType: "text/plain",
         bytes: new TextEncoder().encode("late"),
         userId: null,
+        origin: "direct",
       });
       expect(upload.ok).toBe(false);
       if (!upload.ok) expect(upload.error.status).toBe(409);
@@ -183,6 +194,7 @@ describe("record finalization Postgres integration", () => {
         mimeType: "text/plain",
         bytes: new TextEncoder().encode("replacement"),
         userId: null,
+        origin: "direct",
       });
       expect(replaced.ok).toBe(false);
       if (!replaced.ok) expect(replaced.error.status).toBe(409);
@@ -192,6 +204,7 @@ describe("record finalization Postgres integration", () => {
         fieldId: item.attachment.id,
         fileId: attached.data.id,
         userId: null,
+        origin: "direct",
       });
       expect(removed.ok).toBe(false);
       if (!removed.ok) expect(removed.error.status).toBe(409);
@@ -206,11 +219,16 @@ describe("record finalization Postgres integration", () => {
   postgresTest("refuses finalization when a linked record is no longer live", async () => {
     const item = await fixture();
     try {
-      const target = await records.create(item.tableId, { [item.name.id]: "Temporary target" }, null);
+      const target = await records.create(item.tableId, { [item.name.id]: "Temporary target" }, null, "direct");
       if (!target.ok) throw target.error;
-      const source = await records.create(item.tableId, { [item.name.id]: "Source", [item.relation.id]: [target.data.id] }, null);
+      const source = await records.create(
+        item.tableId,
+        { [item.name.id]: "Source", [item.relation.id]: [target.data.id] },
+        null,
+        "direct",
+      );
       if (!source.ok) throw source.error;
-      const removed = await records.softDelete(item.tableId, target.data.id, null);
+      const removed = await records.softDelete(item.tableId, target.data.id, null, "direct");
       if (!removed.ok) throw removed.error;
 
       const readiness = await finalization.inspect({ tableId: item.tableId, recordId: source.data.id });
@@ -219,7 +237,7 @@ describe("record finalization Postgres integration", () => {
         fieldName: "Related case",
         message: "A linked record is no longer available.",
       });
-      const finalized = await finalization.finalize({ tableId: item.tableId, recordId: source.data.id, actorId: null });
+      const finalized = await finalization.finalize({ tableId: item.tableId, recordId: source.data.id, actorId: null, origin: "direct" });
       expect(finalized.ok).toBe(false);
       if (!finalized.ok) expect(finalized.error.status).toBe(400);
     } finally {
@@ -232,12 +250,12 @@ describe("record finalization Postgres integration", () => {
     const triggerName = `fail_final_${item.tableId.replaceAll("-", "")}`;
     const functionName = `${triggerName}_fn`;
     try {
-      const primer = await records.create(item.tableId, { [item.name.id]: "Primer" }, null);
+      const primer = await records.create(item.tableId, { [item.name.id]: "Primer" }, null, "direct");
       if (!primer.ok) throw primer.error;
-      const primed = await finalization.finalize({ tableId: item.tableId, recordId: primer.data.id, actorId: null });
+      const primed = await finalization.finalize({ tableId: item.tableId, recordId: primer.data.id, actorId: null, origin: "direct" });
       if (!primed.ok) throw primed.error;
       expect(primed.data.data[item.number.id]).toBe("FIN-001");
-      const draft = await records.create(item.tableId, { [item.name.id]: "Rollback" }, null);
+      const draft = await records.create(item.tableId, { [item.name.id]: "Rollback" }, null, "direct");
       if (!draft.ok) throw draft.error;
       await sql.unsafe(`
         CREATE FUNCTION grids.${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -248,7 +266,9 @@ describe("record finalization Postgres integration", () => {
         CREATE TRIGGER ${triggerName} BEFORE INSERT ON grids.record_revisions
         FOR EACH ROW EXECUTE FUNCTION grids.${functionName}();
       `);
-      await expect(finalization.finalize({ tableId: item.tableId, recordId: draft.data.id, actorId: null })).rejects.toThrow(
+      await expect(
+        finalization.finalize({ tableId: item.tableId, recordId: draft.data.id, actorId: null, origin: "direct" }),
+      ).rejects.toThrow(
         "forced final revision failure",
       );
       const [rolledBack] = await sql<Array<{ finalized_at: Date | null; value: string | null; allocations: number }>>`
@@ -259,7 +279,7 @@ describe("record finalization Postgres integration", () => {
       `;
       expect(rolledBack).toEqual({ finalized_at: null, value: null, allocations: 1 });
       await sql.unsafe(`DROP TRIGGER ${triggerName} ON grids.record_revisions; DROP FUNCTION grids.${functionName}()`);
-      const finalized = await finalization.finalize({ tableId: item.tableId, recordId: draft.data.id, actorId: null });
+      const finalized = await finalization.finalize({ tableId: item.tableId, recordId: draft.data.id, actorId: null, origin: "direct" });
       if (!finalized.ok) throw finalized.error;
       expect(finalized.data.data[item.number.id]).toBe("FIN-003");
     } finally {

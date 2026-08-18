@@ -446,7 +446,7 @@ describe("combined table integration", () => {
       });
       expect(previews[fixture.recordId]?.[fixture.targetFileFieldId]?.fileId).toBe(fixture.fileId);
 
-      const write = await createRecord(fixture.targetTableId, { [fixture.targetTextFieldId]: "No" }, null);
+      const write = await createRecord(fixture.targetTableId, { [fixture.targetTextFieldId]: "No" }, null, "direct");
       expect(write.ok).toBe(false);
       if (!write.ok) expect(write.error.message).toContain("read-only");
     } finally {

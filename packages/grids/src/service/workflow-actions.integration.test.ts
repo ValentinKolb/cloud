@@ -18,6 +18,7 @@ import { migrate } from "../migrate";
 import type { GridsWorkflowPrincipal } from "../workflows/contracts";
 import { gridsWorkflows } from "../workflows/module";
 import { enable as enableDurableHistory, listRecordRevisions } from "./durable-history";
+import { update as updateMutationPolicy } from "./mutation-policy";
 import { provisionFieldNumberSeries } from "./number-series";
 import { enable as enableFinalization } from "./record-finalization";
 import { GRIDS_APP_ID, gridsAuthorizationSnapshot } from "./workflow-runs";
@@ -336,6 +337,28 @@ describe("declared Grids workflow actions", () => {
       const [step] = await stepRuns(runId);
       expect(step).toMatchObject({ step_key: "steps.0", state: "completed", effect_state: "succeeded" });
       expect(step?.effect_output).toEqual({ kind: "record", tableId: fixture.tableId, recordId: fixture.recordId });
+    } finally {
+      await cleanupFixture(fixture);
+    }
+  });
+
+  postgresTest("workflow actions obey the table mutation policy at execution time", async () => {
+    const fixture = createFixture();
+    try {
+      await insertFixture(fixture);
+      const runId = await queueRun(fixture, {
+        plan: boundPlan([actionStep(0, "updateRecord", { record: "inputs.record", set: { Status: "Approved" } })], {
+          "steps.0.updateRecord.set.Status": fixture.statusFieldId,
+        }),
+        inputs: { record: { kind: "record", tableId: fixture.tableId, recordId: fixture.recordId } },
+      });
+      const policy = await updateMutationPolicy(fixture.tableId, { mode: "selected", sources: ["direct", "form"] }, fixture.actorId);
+      if (!policy.ok) throw policy.error;
+
+      expect(await drive(runId)).toBe("failed");
+      expect((await runRow(runId)).error).toMatchObject({ code: "FORBIDDEN" });
+      expect((await recordData(fixture.recordId))[fixture.statusFieldId]).toBe("Open");
+      expect((await stepRuns(runId))[0]).toMatchObject({ state: "failed", effect_state: null });
     } finally {
       await cleanupFixture(fixture);
     }

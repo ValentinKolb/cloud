@@ -19,6 +19,7 @@ import {
   type Table,
   type TableAuditPolicy,
   TableAuditPolicySchema,
+  TableMutationPolicySchema,
   TableQueryResponseSchema,
   TableSchema,
   UpdateTableSchema,
@@ -73,6 +74,33 @@ export const PublicUpdateTableSchema = UpdateTableSchema.omit({ columns: true, d
   displayConfig: PublicRecordDisplayConfigSchema.optional(),
   auditPolicy: PublicTableAuditPolicySchema.optional(),
 });
+
+export const PublicMutationPolicyInputSchema = z.object({ policy: TableMutationPolicySchema }).strict();
+export const PublicMutationPolicyUpdateSchema = z
+  .object({ policy: TableMutationPolicySchema, confirmFreeze: z.literal(true).optional() })
+  .strict()
+  .superRefine((input, ctx) => {
+    if (input.policy.mode === "selected" && input.policy.sources.length === 0 && input.confirmFreeze !== true) {
+      ctx.addIssue({ code: "custom", path: ["confirmFreeze"], message: "Freezing all record changes requires confirmation" });
+    }
+  });
+export const PublicMutationPolicyResponseSchema = z.object({ policy: TableMutationPolicySchema }).strict();
+export const PublicMutationPolicyImpactItemSchema = z
+  .object({
+    kind: z.enum(["form", "workflow", "action"]),
+    id: ShortIdSchema,
+    name: z.string(),
+  })
+  .strict();
+export const PublicMutationPolicyImpactSchema = z
+  .object({
+    items: z.array(PublicMutationPolicyImpactItemSchema),
+    total: z.number().int().nonnegative(),
+    limit: z.number().int().positive(),
+    truncated: z.boolean(),
+    complete: z.boolean(),
+  })
+  .strict();
 const PublicRelationConfigSchema = z.object({
   targetTableId: ShortIdSchema.optional(),
   cardinality: z.enum(["single", "multiple"]).optional(),

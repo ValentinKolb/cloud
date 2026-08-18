@@ -38,6 +38,7 @@ export const createPublicFormRoutes = (deps: PublicFormRoutesDeps = {}) =>
         responses: {
           201: jsonResponse(z.object({ recordId: ShortIdSchema }), "Created"),
           400: jsonResponse(ErrorResponseSchema, "Invalid input"),
+          403: jsonResponse(ErrorResponseSchema, "Record changes from Forms are not allowed"),
           404: jsonResponse(ErrorResponseSchema, "Not found"),
         },
       }),

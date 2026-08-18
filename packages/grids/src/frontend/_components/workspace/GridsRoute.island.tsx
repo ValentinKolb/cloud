@@ -86,6 +86,7 @@ export default function GridsRoute(props: { state: PublicOkWorkspaceState; cloud
         tableIcon={records.activeTable.icon ?? null}
         tableColumns={records.activeTable.columns}
         tableAuditPolicy={records.activeTable.auditPolicy}
+        tableMutationPolicy={records.activeTable.mutationPolicy}
         disableDirectInsert={records.activeTable.disableDirectInsert}
         viewId={records.activeView?.id ?? null}
         fields={records.fields}

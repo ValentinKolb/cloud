@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { generateSpecs } from "hono-openapi";
 import basesRoutes from "./bases";
 import fieldsRoutes from "./fields";
+import { publicFormRoutes } from "./form-public-routes";
 import recordsRoutes from "./records";
 import tablesRoutes from "./tables";
 import viewsRoutes from "./views";
@@ -12,6 +13,7 @@ const app = () =>
   new Hono<AuthContext>()
     .route("/bases", basesRoutes)
     .route("/fields", fieldsRoutes)
+    .route("/forms", publicFormRoutes)
     .route("/records", recordsRoutes)
     .route("/tables", tablesRoutes)
     .route("/views", viewsRoutes);
@@ -35,6 +37,7 @@ describe("core resource OpenAPI contracts", () => {
       ["patch", "/fields/{fieldId}", ["200", "400", "403", "404", "409"]],
       ["delete", "/fields/{fieldId}", ["204", "403", "404", "409"]],
       ["post", "/fields/{fieldId}/restore", ["200", "400", "403", "404", "409"]],
+      ["post", "/forms/public/{token}/submit", ["201", "400", "403", "404"]],
       ["get", "/records/{tableId}/{recordId}/files/{fieldId}", ["200", "400", "403", "404", "409"]],
       ["post", "/records/{tableId}/{recordId}/files/{fieldId}", ["200", "400", "403", "404", "409", "413"]],
       ["put", "/records/{tableId}/{recordId}/files/{fieldId}/{fileId}", ["200", "400", "403", "404", "409", "413"]],
@@ -62,6 +65,8 @@ describe("core resource OpenAPI contracts", () => {
       ["get", "/tables/{tableId}/finalization", ["200", "400", "403", "404"]],
       ["post", "/tables/{tableId}/finalization/enable", ["200", "400", "403", "404"]],
       ["post", "/tables/{tableId}/finalization/disable", ["200", "403", "404", "409"]],
+      ["post", "/tables/{tableId}/mutation-policy/impact", ["200", "400", "403", "404"]],
+      ["put", "/tables/{tableId}/mutation-policy", ["200", "400", "403", "404"]],
       ["get", "/tables/{tableId}", ["200", "403", "404"]],
       ["patch", "/tables/{tableId}", ["200", "400", "403", "404", "409"]],
       ["delete", "/tables/{tableId}", ["204", "403", "404"]],

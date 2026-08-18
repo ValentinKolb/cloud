@@ -36,6 +36,8 @@ type Props = {
   currentSearch: { q: string; fieldIds: string[] };
   forms?: Form[];
   canWrite: boolean;
+  canDirectWrite: boolean;
+  canSubmitForms: boolean;
   /**
    * Emit the toolbar's current filter / sort / group / aggregations
    * shape to the parent (RecordsView). The parent owns the canonical
@@ -267,6 +269,8 @@ export default function GridToolbar(props: Props) {
           fields={props.fields}
           forms={props.forms}
           canWrite={props.canWrite}
+          canDirectWrite={props.canDirectWrite}
+          canSubmitForms={props.canSubmitForms}
           onRecordCreated={props.onRecordCreated}
           onRecordsChanged={props.onRecordsChanged}
           dateConfig={props.dateConfig}

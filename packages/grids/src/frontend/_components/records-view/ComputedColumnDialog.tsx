@@ -56,10 +56,11 @@ export const openComputedColumnDialog = (args: {
           close={() => close(null)}
         />
         <PanelDialog.Body>
-          <NoticeCard tone="info" icon={false}>
-            Computed columns are view-only. They recalculate from the current row whenever the table is read and are saved with the view
-            setup.
-          </NoticeCard>
+          <NoticeCard
+            tone="info"
+            title="Show a value calculated for this view"
+            detail="The value updates automatically from the current record. This column appears only in this view and does not change the original record."
+          />
           <TextInput
             label="Name"
             value={label}

@@ -5,6 +5,7 @@ import {
   dialogCore,
   IconButton,
   MultiSelectInput,
+  NoticeCard,
   PanelDialog,
   panelDialogOptions,
   prompts,
@@ -249,10 +250,10 @@ function RequirementEditor(props: {
     props.operation === "delete" ? "Move to trash" : props.operation === "restore" ? "Restore from trash" : "Edit record";
   const description = () =>
     props.operation === "delete"
-      ? "Collect operation metadata before a record is moved to trash."
+      ? "Ask for a reason before a record is moved to trash."
       : props.operation === "restore"
-        ? "Collect new metadata for the restore event without changing the original deletion reason."
-        : "Collect operation metadata when configured fields actually change.";
+        ? "Ask for a reason before a record is restored."
+        : "Ask for a reason before selected edits are saved.";
   const updateRequirement = () => props.requirement() as AuditUpdateRequirement;
 
   return (
@@ -263,7 +264,7 @@ function RequirementEditor(props: {
     >
       <CheckboxCard
         label="Require audit answers"
-        description="The operation is rejected by the backend when required answers are missing."
+        description="Users must answer the questions below before they can continue."
         icon="ti ti-shield-check"
         variant="input"
         value={() => props.requirement().enabled}
@@ -327,10 +328,11 @@ export const openAuditPolicyDialog = (args: {
         <PanelDialog>
           <PanelDialog.Header title="Audit requirements" subtitle={args.tableName} icon="ti ti-shield-check" close={() => close(null)} />
           <PanelDialog.Body>
-            <p class="text-sm text-secondary">
-              Ask for structured reasons only on operations where the extra accountability is useful. Answers are stored with that audit
-              event and remain readable if labels change later.
-            </p>
+            <NoticeCard
+              tone="info"
+              title="Ask for a reason before important changes"
+              detail="Choose which actions need an answer. The answer is saved with the record’s history, so you can later see why it was edited, moved to trash, or restored."
+            />
             <RequirementEditor
               operation="update"
               requirement={() => requirement("update")}

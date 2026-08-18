@@ -214,6 +214,7 @@ const app = new Hono<AuthContext>()
         tableId,
         recordId,
         actorId: currentActorUserId(c),
+        origin: "direct",
         recordAccess: ALL_RECORD_ACCESS,
         dateConfig: await getDateConfig(c),
       });
@@ -336,6 +337,7 @@ const app = new Hono<AuthContext>()
         mimeType: file.type || "application/octet-stream",
         bytes: new Uint8Array(await file.arrayBuffer()),
         userId: currentActorUserId(c),
+        origin: "direct",
       });
       return result.ok ? c.json(await toPublicFile(result.data)) : respond(c, () => Promise.resolve(result));
     },
@@ -390,6 +392,7 @@ const app = new Hono<AuthContext>()
         mimeType: file.type || "application/octet-stream",
         bytes: new Uint8Array(await file.arrayBuffer()),
         userId: currentActorUserId(c),
+        origin: "direct",
       });
       return result.ok ? c.json(await toPublicFile(result.data)) : respond(c, () => Promise.resolve(result));
     },
@@ -465,7 +468,14 @@ const app = new Hono<AuthContext>()
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const visibleRecord = await gridsService.record.get(tableId, recordId, { recordAccess: ALL_RECORD_ACCESS });
       if (!visibleRecord) return c.json({ message: "Record not found" }, 404);
-      const result = await gridsService.file.remove({ tableId, recordId, fieldId, fileId, userId: currentActorUserId(c) });
+      const result = await gridsService.file.remove({
+        tableId,
+        recordId,
+        fieldId,
+        fileId,
+        userId: currentActorUserId(c),
+        origin: "direct",
+      });
       if (!result.ok) return respond(c, () => Promise.resolve(result));
       return c.body(null, 204);
     },
@@ -495,7 +505,7 @@ const app = new Hono<AuthContext>()
       const fields = await gridsService.field.listByTable(tableId);
       const values = await fromPublicRecordValues(tableId, c.req.valid("json"));
       if (!values.ok) return c.json({ message: values.error.message }, values.error.status);
-      const result = await gridsService.record.create(tableId, values.data, currentActorUserId(c), {
+      const result = await gridsService.record.create(tableId, values.data, currentActorUserId(c), "direct", {
         dateConfig: await getDateConfig(c),
         viewer: currentActorViewer(c),
         recordAccess: ALL_RECORD_ACCESS,
@@ -536,6 +546,7 @@ const app = new Hono<AuthContext>()
         tableId,
         items.flatMap((item) => (item.ok ? [item.data] : [])),
         currentActorUserId(c),
+        "direct",
         {
           dateConfig: await getDateConfig(c),
           viewer: currentActorViewer(c),
@@ -619,7 +630,7 @@ const app = new Hono<AuthContext>()
       const fields = await gridsService.field.listByTable(tableId);
       const values = await fromPublicRecordValues(tableId, body.values);
       if (!values.ok) return c.json({ message: values.error.message }, values.error.status);
-      const result = await gridsService.record.update(tableId, recordId, values.data, currentActorUserId(c), ifMatchVersion, {
+      const result = await gridsService.record.update(tableId, recordId, values.data, currentActorUserId(c), "direct", ifMatchVersion, {
         dateConfig: await getDateConfig(c),
         viewer: currentActorViewer(c),
         audit: body.audit,
@@ -656,6 +667,7 @@ const app = new Hono<AuthContext>()
         tableId,
         recordId,
         currentActorUserId(c),
+        "direct",
         c.req.valid("json").audit,
         ALL_RECORD_ACCESS,
       );
@@ -786,6 +798,7 @@ const app = new Hono<AuthContext>()
         tableId,
         recordId,
         currentActorUserId(c),
+        "direct",
         c.req.valid("json").audit,
         ALL_RECORD_ACCESS,
       );

@@ -17,6 +17,7 @@ import * as forms from "./forms";
 import * as formulaPreview from "./formula-preview";
 import * as htmlTemplatePreview from "./html-template-preview";
 import * as metadataEvents from "./metadata-events";
+import * as mutationPolicy from "./mutation-policy";
 import { getOperationalHealth } from "./operational-health";
 import {
   hasAtLeast,
@@ -92,6 +93,10 @@ export const gridsService = {
       getStatus: recordFinalization.getStatus,
       enable: recordFinalization.enable,
       disable: recordFinalization.disable,
+    },
+    mutationPolicy: {
+      getImpact: mutationPolicy.getImpact,
+      update: mutationPolicy.update,
     },
     federation: {
       getDraft: federatedTables.getDraft,

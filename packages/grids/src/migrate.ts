@@ -296,6 +296,7 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
       columns JSONB NOT NULL DEFAULT '[]'::jsonb,
       display_config JSONB NOT NULL DEFAULT '{"mode":"table"}'::jsonb,
       audit_policy JSONB NOT NULL DEFAULT '{}'::jsonb,
+      mutation_policy JSONB NOT NULL DEFAULT '{"mode":"all"}'::jsonb,
       position INT NOT NULL DEFAULT 0,
       disable_direct_insert BOOLEAN NOT NULL DEFAULT FALSE,
       deleted_at TIMESTAMPTZ,
@@ -315,12 +316,14 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
     END $$
   `.simple();
   await sql`ALTER TABLE grids.tables ADD COLUMN IF NOT EXISTS audit_policy JSONB NOT NULL DEFAULT '{}'::jsonb`.simple();
+  await sql`ALTER TABLE grids.tables ADD COLUMN IF NOT EXISTS mutation_policy JSONB NOT NULL DEFAULT '{"mode":"all"}'::jsonb`.simple();
   await sql`
     UPDATE grids.tables
     SET disable_direct_insert = TRUE,
-        audit_policy = '{}'::jsonb
+        audit_policy = '{}'::jsonb,
+        mutation_policy = '{"mode":"all"}'::jsonb
     WHERE kind = 'federated'
-      AND (disable_direct_insert IS NOT TRUE OR audit_policy <> '{}'::jsonb)
+      AND (disable_direct_insert IS NOT TRUE OR audit_policy <> '{}'::jsonb OR mutation_policy <> '{"mode":"all"}'::jsonb)
   `.simple();
   await sql`
     DO $$
@@ -329,6 +332,11 @@ const migrateCoreRecords = async (sql: SQL): Promise<void> => {
         ALTER TABLE grids.tables
           ADD CONSTRAINT tables_federated_read_only_chk
           CHECK (kind <> 'federated' OR (disable_direct_insert AND audit_policy = '{}'::jsonb));
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tables_federated_mutation_policy_chk' AND conrelid = 'grids.tables'::regclass) THEN
+        ALTER TABLE grids.tables
+          ADD CONSTRAINT tables_federated_mutation_policy_chk
+          CHECK (kind <> 'federated' OR mutation_policy = '{"mode":"all"}'::jsonb);
       END IF;
     END $$
   `.simple();

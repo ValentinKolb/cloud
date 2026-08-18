@@ -1,7 +1,7 @@
 import { refreshCurrentPath } from "@k2b/ssr/nav";
 import type { DateContext } from "@k2b/stdlib";
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, Dropdown, prompts } from "@k2b/ui";
+import { Button, Dropdown, prompts, Tooltip } from "@k2b/ui";
 import { createMemo, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import type { PublicField as Field, PublicForm as Form, PublicGridRecord } from "../../../api/public-dto";
@@ -18,13 +18,19 @@ type Props = {
   fields: Field[];
   forms?: Form[];
   canWrite: boolean;
+  canDirectWrite: boolean;
+  canSubmitForms: boolean;
   onRecordCreated?: (record: PublicGridRecord) => void;
   onRecordsChanged?: () => void;
   dateConfig?: DateContext;
 };
 
 export function GridCreateActions(props: Props) {
-  const activeForms = createMemo(() => (props.forms ?? []).filter((form) => form.isActive));
+  const activeForms = createMemo(() => (props.canSubmitForms ? (props.forms ?? []).filter((form) => form.isActive) : []));
+  const blockedReason = () =>
+    props.canSubmitForms
+      ? "Add an active form before creating records in this table."
+      : "This table does not allow changes from direct editing or forms.";
   const addMutation = mutations.create<PublicGridRecord, Record<string, unknown>>({
     mutation: async (payload) => {
       const response = await apiClient.records["by-table"][":tableId"].$post({
@@ -69,14 +75,23 @@ export function GridCreateActions(props: Props) {
       <Show
         when={activeForms().length > 0}
         fallback={
-          <Show when={!props.disableDirectInsert}>
-            <Button variant="primary" size="sm" type="button" onClick={addRecord} disabled={addMutation.loading()}>
-              <Show when={addMutation.loading()} fallback={<i class="ti ti-plus" />}>
-                <i class="ti ti-loader-2 animate-spin" />
-              </Show>
-              Add record
-            </Button>
-          </Show>
+          <>
+            <Show when={props.canDirectWrite && !props.disableDirectInsert}>
+              <Button variant="primary" size="sm" type="button" onClick={addRecord} disabled={addMutation.loading()}>
+                <Show when={addMutation.loading()} fallback={<i class="ti ti-plus" />}>
+                  <i class="ti ti-loader-2 animate-spin" />
+                </Show>
+                Add record
+              </Button>
+            </Show>
+            <Show when={!props.canDirectWrite}>
+              <Tooltip.Anchor content={blockedReason()}>
+                <Button variant="secondary" size="sm" type="button" disabled aria-label={`Add record unavailable: ${blockedReason()}`}>
+                  <i class="ti ti-lock" aria-hidden="true" /> Add record
+                </Button>
+              </Tooltip.Anchor>
+            </Show>
+          </>
         }
       >
         <Show
@@ -105,7 +120,7 @@ export function GridCreateActions(props: Props) {
             </Button>
           )}
         </Show>
-        <Show when={!props.disableDirectInsert}>
+        <Show when={props.canDirectWrite && !props.disableDirectInsert}>
           <Button variant="primary" size="sm" type="button" onClick={addRecord} disabled={addMutation.loading()}>
             <Show when={addMutation.loading()} fallback={<i class="ti ti-plus" />}>
               <i class="ti ti-loader-2 animate-spin" />

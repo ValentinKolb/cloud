@@ -4,6 +4,7 @@ import {
   Button,
   CheckboxCard,
   confirmDiscardIfDirty,
+  DetailPanel,
   dialogCore,
   IconButton,
   IconInput,
@@ -17,9 +18,8 @@ import {
 } from "@k2b/ui";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { apiClient } from "@/api/client";
-import type { PublicDurableHistoryStatus } from "../../../api/durable-history";
 import type { PublicFederatedSourcePublication, PublicField, PublicForm, PublicTable } from "../../../api/public-dto";
-import type { PublicRecordFinalizationStatus } from "../../../api/record-finalization";
+import type { TableMutationPolicy } from "../../../contracts";
 import { createDraft } from "../editor-draft";
 import { defaultConfigForType, TYPE_LABELS, TYPE_OPTIONS } from "../fields/field-config-editor";
 import { FIELD_TYPE_ICONS } from "../fields/field-type-meta";
@@ -28,6 +28,8 @@ import FormsManager from "../forms/FormsManager";
 import { errorMessage } from "../utils/api-helpers";
 import { auditPolicySummary, openAuditPolicyDialog } from "./AuditPolicyDialog";
 import { openFederatedTableDialog } from "./FederatedTableDialog";
+import { openHistoryProtectionDialog } from "./HistoryProtectionDialog";
+import { mutationPolicySummary, openMutationPolicyDialog } from "./MutationPolicyDialog";
 import { RecordDisplayConfigEditor } from "./RecordDisplayConfigEditor";
 
 export { openDocumentTemplateEditorDialog, openDocumentTemplatesDialog } from "./DocumentTemplateDialogs";
@@ -37,6 +39,7 @@ export const openTableSettingsDialog = (args: {
   fields: PublicField[];
   canManageBase: boolean;
   onSaved: (table: PublicTable) => void;
+  onMutationPolicySaved: (policy: TableMutationPolicy) => void;
   onDeleted?: () => void;
 }) => dialogCore.open<void>((close) => <TableSettingsDialog args={args} close={close} />, panelDialogOptions);
 
@@ -46,6 +49,7 @@ function TableSettingsDialog(props: {
     fields: PublicField[];
     canManageBase: boolean;
     onSaved: (table: PublicTable) => void;
+    onMutationPolicySaved: (policy: TableMutationPolicy) => void;
     onDeleted?: () => void;
   };
   close: () => void;
@@ -66,6 +70,7 @@ function TableSettingsDialog(props: {
           setDirty(false);
           props.args.onSaved(table);
         }}
+        onMutationPolicySaved={props.args.onMutationPolicySaved}
         onDeleted={props.args.onDeleted}
         onCancel={closeIfClean}
       />
@@ -147,7 +152,11 @@ const chooseFieldType = (tableKind: TableHeader["kind"]) =>
       <PanelDialog>
         <PanelDialog.Header title="Choose field type" icon="ti ti-plus" close={() => close(null)} />
         <PanelDialog.Body>
-          <p class="text-sm text-secondary">Pick the basic data shape first. You can tune details after the field exists.</p>
+          <NoticeCard
+            tone="info"
+            title="Choose what this field stores"
+            detail="Pick the closest type for the values you want to enter. You can adjust its rules and display after creating the field."
+          />
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <For
               each={CREATE_TYPE_OPTIONS.filter(
@@ -235,6 +244,7 @@ function TableSettingsBody(props: {
   fields: PublicField[];
   canManageBase: boolean;
   onSaved: (table: PublicTable) => void;
+  onMutationPolicySaved: (policy: TableMutationPolicy) => void;
   onDeleted?: () => void;
   onDirtyChange?: (dirty: boolean) => void;
   onCancel: () => void;
@@ -259,19 +269,7 @@ function TableSettingsBody(props: {
   const disableDirectInsert = () => draft.draft().disableDirectInsert;
   const [publications, setPublications] = createSignal<PublicFederatedSourcePublication[]>([]);
   const [publicationsLoading, setPublicationsLoading] = createSignal(false);
-  const [historyStatus, setHistoryStatus] = createSignal<PublicDurableHistoryStatus | null>(null);
-  const enabledHistoryStatus = () => {
-    const status = historyStatus();
-    return status?.enabled ? status : null;
-  };
-  const [historyLoading, setHistoryLoading] = createSignal(false);
-  const [historyLoadError, setHistoryLoadError] = createSignal<string | null>(null);
-  const [finalizationStatus, setFinalizationStatus] = createSignal<PublicRecordFinalizationStatus | null>(null);
-  const enabledFinalizationStatus = () => {
-    const status = finalizationStatus();
-    return status?.enabled ? status : null;
-  };
-  const [finalizationLoading, setFinalizationLoading] = createSignal(false);
+  const [mutationPolicy, setMutationPolicy] = createSignal(props.table.mutationPolicy);
 
   const loadPublications = async () => {
     if (props.table.kind !== "stored" || !props.canManageBase) return;
@@ -286,101 +284,9 @@ function TableSettingsBody(props: {
       setPublicationsLoading(false);
     }
   };
-  const loadHistoryStatus = async () => {
-    if (props.table.kind !== "stored" || !props.canManageBase) return;
-    setHistoryLoading(true);
-    setHistoryLoadError(null);
-    try {
-      const response = await apiClient.tables[":tableId"]["durable-history"].$get({ param: { tableId: props.table.id } });
-      if (!response.ok) throw new Error(await errorMessage(response, "Could not load durable history status"));
-      setHistoryStatus(await response.json());
-    } catch (error) {
-      setHistoryLoadError(error instanceof Error ? error.message : "Could not load durable history status");
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-  const loadFinalizationStatus = async () => {
-    if (props.table.kind !== "stored" || !props.canManageBase) return;
-    setFinalizationLoading(true);
-    try {
-      const response = await apiClient.tables[":tableId"].finalization.$get({ param: { tableId: props.table.id } });
-      if (!response.ok) throw new Error(await errorMessage(response, "Could not load finalization status"));
-      setFinalizationStatus(await response.json());
-    } catch (error) {
-      prompts.error(error instanceof Error ? error.message : "Could not load finalization status");
-    } finally {
-      setFinalizationLoading(false);
-    }
-  };
   onMount(() => {
     void loadPublications();
-    void loadHistoryStatus();
-    void loadFinalizationStatus();
   });
-
-  const historyMut = mutations.create<PublicDurableHistoryStatus, "enable" | "continue">({
-    mutation: async (operation) => {
-      let response =
-        operation === "enable"
-          ? await apiClient.tables[":tableId"]["durable-history"].enable.$post({ param: { tableId: props.table.id } })
-          : await apiClient.tables[":tableId"]["durable-history"].continue.$post({ param: { tableId: props.table.id } });
-      if (!response.ok) throw new Error(await errorMessage(response, "Could not activate durable history"));
-      let status = await response.json();
-      setHistoryStatus(status);
-      while (status.enabled && status.status === "activating") {
-        const captured = status.baseline.captured;
-        response = await apiClient.tables[":tableId"]["durable-history"].continue.$post({ param: { tableId: props.table.id } });
-        if (!response.ok) throw new Error(await errorMessage(response, "Could not continue the history baseline"));
-        status = await response.json();
-        setHistoryStatus(status);
-        if (status.enabled && status.status === "activating" && status.baseline.captured <= captured) {
-          throw new Error("The baseline is waiting for records that are currently changing. Try Continue baseline again.");
-        }
-      }
-      return status;
-    },
-    onSuccess: (status) => {
-      setHistoryStatus(status);
-      void loadFinalizationStatus();
-    },
-    onError: (error) => prompts.error(error.message),
-  });
-
-  const enableHistory = async () => {
-    const confirmed = await prompts.confirm(
-      "History starts with a baseline of the records that exist now. Earlier changes are not reconstructed. Future versions and their files are retained permanently, storage use increases, and this cannot be disabled.",
-      { title: "Enable durable history?", confirmText: "Enable durable history" },
-    );
-    if (confirmed) historyMut.mutate("enable");
-  };
-
-  const finalizationMut = mutations.create<PublicRecordFinalizationStatus, "enable" | "disable">({
-    mutation: async (operation) => {
-      const response =
-        operation === "enable"
-          ? await apiClient.tables[":tableId"].finalization.enable.$post({ param: { tableId: props.table.id } })
-          : await apiClient.tables[":tableId"].finalization.disable.$post({ param: { tableId: props.table.id } });
-      if (!response.ok) throw new Error(await errorMessage(response, `Could not ${operation} finalization`));
-      return response.json();
-    },
-    onSuccess: setFinalizationStatus,
-    onError: (error) => prompts.error(error.message),
-  });
-
-  const changeFinalization = async (operation: "enable" | "disable") => {
-    const confirmed = await prompts.confirm(
-      operation === "enable"
-        ? "Records stay drafts until someone finalizes them. A finalized record, its files and relations can never be changed or removed."
-        : "Draft records remain editable. You can enable Finalization again later.",
-      {
-        title: operation === "enable" ? "Enable record finalization?" : "Disable record finalization?",
-        confirmText: operation === "enable" ? "Enable finalization" : "Disable finalization",
-        ...(operation === "disable" ? { variant: "danger" as const } : {}),
-      },
-    );
-    if (confirmed) finalizationMut.mutate(operation);
-  };
 
   const revokePublication = async (publication: PublicFederatedSourcePublication) => {
     const confirmed = await prompts.confirm(
@@ -458,6 +364,17 @@ function TableSettingsBody(props: {
     if (next) patch({ auditPolicy: next });
   };
 
+  const configureMutationPolicy = async () => {
+    const next = await openMutationPolicyDialog({
+      tableId: props.table.id,
+      tableName: name(),
+      value: mutationPolicy(),
+    });
+    if (!next) return;
+    setMutationPolicy(next);
+    props.onMutationPolicySaved(next);
+  };
+
   return (
     <>
       <PanelDialog.Body>
@@ -501,7 +418,7 @@ function TableSettingsBody(props: {
         <Show when={props.table.kind === "federated" && props.canManageBase}>
           <PanelDialog.Section
             title="Combined data"
-            subtitle="Select source tables, map canonical fields, and publish a revision."
+            subtitle="Combine records from other tables into one read-only table."
             icon="ti ti-table-share"
           >
             <button
@@ -512,7 +429,7 @@ function TableSettingsBody(props: {
               <i class="ti ti-table-share text-lg text-dimmed" />
               <span class="min-w-0 flex-1">
                 <span class="block text-sm font-medium text-primary">Configure sources and mappings</span>
-                <span class="block text-xs text-dimmed">Draft changes are isolated until you publish them.</span>
+                <span class="block text-xs text-dimmed">Choose sources and decide which values appear in each field.</span>
               </span>
               <i class="ti ti-chevron-right text-dimmed" aria-hidden="true" />
             </button>
@@ -570,149 +487,33 @@ function TableSettingsBody(props: {
         </Show>
 
         <Show when={props.table.kind === "stored"}>
-          <PanelDialog.Section
-            title="Data integrity"
-            subtitle="Require structured context for sensitive record operations."
-            icon="ti ti-shield-check"
-          >
-            <button
-              type="button"
-              class="paper flex w-full items-center gap-3 p-3 text-left hover:paper-highlighted"
-              onClick={() => void configureAudit()}
-            >
-              <i class="ti ti-shield-check text-lg text-dimmed" />
-              <span class="min-w-0 flex-1">
-                <span class="block text-sm font-medium text-primary">Audit requirements</span>
-                <span class="block truncate text-xs text-dimmed">{auditPolicySummary(auditPolicy())}</span>
-              </span>
-              <i class="ti ti-chevron-right text-dimmed" aria-hidden="true" />
-            </button>
-          </PanelDialog.Section>
-        </Show>
-
-        <Show when={props.table.kind === "stored" && props.canManageBase}>
-          <PanelDialog.Section
-            title="History and protection"
-            subtitle="Keep an append-only version of every future record change."
-            icon="ti ti-history"
-          >
-            <Show when={!historyLoading()} fallback={<Placeholder state="loading" align="left" title="Loading history status…" />}>
-              <Show
-                when={!historyLoadError()}
-                fallback={
-                  <NoticeCard tone="danger" icon={false} bodyClass="flex flex-col items-start gap-3">
-                    <span>{historyLoadError()}</span>
-                    <Button variant="secondary" size="sm" type="button" onClick={() => void loadHistoryStatus()}>
-                      Retry
-                    </Button>
-                  </NoticeCard>
-                }
-              >
-                <Show
-                  when={enabledHistoryStatus()}
-                  fallback={
-                    <NoticeCard tone="info" icon={false} bodyClass="flex flex-col items-start gap-3">
-                      <span>
-                        Existing tables stay lightweight until you enable this. The first baseline records the current state; it does not
-                        claim earlier history.
-                      </span>
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        type="button"
-                        onClick={() => void enableHistory()}
-                        loading={historyMut.loading()}
-                        loadingLabel="Enabling durable history"
-                      >
-                        <i class="ti ti-history" aria-hidden="true" /> Enable durable history
-                      </Button>
-                    </NoticeCard>
-                  }
-                >
-                  {(status) => (
-                    <NoticeCard
-                      tone={status().status === "active" ? "success" : "warning"}
-                      icon={false}
-                      bodyClass="flex flex-col items-start gap-3"
-                    >
-                      <span>
-                        {status().status === "active"
-                          ? `Durable history has been active since ${new Date(status().activatedAt).toLocaleString()}. It cannot be disabled.`
-                          : `Baseline in progress: ${status().baseline.captured} of ${status().baseline.total} records protected.`}
-                      </span>
-                      <Show when={status().status === "activating"}>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          type="button"
-                          onClick={() => historyMut.mutate("continue")}
-                          loading={historyMut.loading()}
-                          loadingLabel="Protecting records"
-                        >
-                          Continue baseline
-                        </Button>
-                      </Show>
-                    </NoticeCard>
-                  )}
-                </Show>
-              </Show>
-            </Show>
-            <div class="mt-4">
-              <div class="mb-2 text-sm font-medium text-primary">Record finalization</div>
-              <Show
-                when={!finalizationLoading() && finalizationStatus()}
-                fallback={<Placeholder state="loading" align="left" title="Loading finalization status…" />}
-              >
-                {(status) => (
-                  <Show
-                    when={enabledFinalizationStatus()}
-                    fallback={
-                      <NoticeCard
-                        tone={status().durableHistory === "active" ? "info" : "neutral"}
-                        icon={false}
-                        bodyClass="flex flex-col items-start gap-3"
-                      >
-                        <span>
-                          Finalization turns selected drafts into permanently read-only records. It requires an active Durable History
-                          baseline.
-                        </span>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          type="button"
-                          disabled={status().durableHistory !== "active"}
-                          onClick={() => void changeFinalization("enable")}
-                          loading={finalizationMut.loading()}
-                          loadingLabel="Enabling finalization"
-                        >
-                          <i class="ti ti-lock" /> Enable finalization
-                        </Button>
-                      </NoticeCard>
-                    }
-                  >
-                    {(enabled) => (
-                      <NoticeCard tone="success" icon={false} bodyClass="flex flex-col items-start gap-3">
-                        <span>
-                          {enabled().finalizedCount === 0
-                            ? "Finalization is enabled. Records remain drafts until explicitly finalized."
-                            : `${enabled().finalizedCount} record(s) are finalized. Finalization is now permanently enabled for this table.`}
-                        </span>
-                        <Show when={enabled().canDisable}>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            type="button"
-                            onClick={() => void changeFinalization("disable")}
-                            loading={finalizationMut.loading()}
-                            loadingLabel="Disabling finalization"
-                          >
-                            Disable finalization
-                          </Button>
-                        </Show>
-                      </NoticeCard>
-                    )}
-                  </Show>
-                )}
+          <PanelDialog.Section title="Data integrity" subtitle="Configure audit, history, and immutable records." icon="ti ti-shield-check">
+            <div class="flex flex-col gap-1">
+              <DetailPanel.Action
+                type="button"
+                onClick={() => void configureAudit()}
+                leading={<i class="ti ti-shield-check" aria-hidden="true" />}
+                title="Audit requirements"
+                description={auditPolicySummary(auditPolicy())}
+                trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+              />
+              <Show when={props.canManageBase}>
+                <DetailPanel.Action
+                  type="button"
+                  onClick={() => void configureMutationPolicy()}
+                  leading={<i class="ti ti-route" aria-hidden="true" />}
+                  title="Record changes"
+                  description={mutationPolicySummary(mutationPolicy())}
+                  trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+                />
+                <DetailPanel.Action
+                  type="button"
+                  onClick={() => void openHistoryProtectionDialog({ tableId: props.table.id, tableName: name() })}
+                  leading={<i class="ti ti-history" aria-hidden="true" />}
+                  title="History and protection"
+                  description="Configure durable history and record finalization."
+                  trailing={<i class="ti ti-chevron-right" aria-hidden="true" />}
+                />
               </Show>
             </div>
           </PanelDialog.Section>

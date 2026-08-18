@@ -61,7 +61,7 @@ export function PublicDocumentShare(props: {
             />
 
             <div class="mt-6 flex flex-wrap items-center justify-between gap-3">
-              <ButtonLink href={props.downloadHref} navigation="document" size="md" variant="primary" download>
+              <ButtonLink href={props.downloadHref} navigation="document" size="md" variant="primary" download="">
                 <i class="ti ti-download" aria-hidden="true" />
                 Download PDF
               </ButtonLink>

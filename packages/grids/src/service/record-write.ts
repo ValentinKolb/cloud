@@ -6,6 +6,7 @@ import { logAudit, type SqlClient } from "./audit";
 import { captureRecordRevision, lockDurableHistoryMutationBoundary, prepareRecordMutation } from "./durable-history";
 import { listByTable as listFields, materializeFieldDefault } from "./fields";
 import { generatedIdRequiresRetry, generateIdValue, isGeneratedIdUniqueCollision } from "./generated-ids";
+import { assertMutationAllowed, type MutationOrigin } from "./mutation-policy";
 import { bindFieldNumberAllocations } from "./number-series";
 import { requireStoredTableWritable } from "./parent-checks";
 import { validatePrincipalValuesForActor } from "./principal-values";
@@ -206,8 +207,8 @@ export const createInTransaction = async (
   tableId: string,
   payload: Record<string, unknown>,
   actorId: string | null,
+  origin: MutationOrigin,
   opts: {
-    bypassDirectInsertCheck?: boolean;
     dateConfig?: DateContext;
     recordAccess?: AuthorizedRecordAccess;
     viewer?: ExpansionViewer;
@@ -215,9 +216,11 @@ export const createInTransaction = async (
 ): Promise<Result<CreateRecordInTransactionResult>> => {
   const writable = await requireStoredTableWritable(tableId, client);
   if (!writable.ok) return writable;
+  const allowed = await assertMutationAllowed(client, tableId, origin);
+  if (!allowed.ok) return allowed;
   await lockDurableHistoryMutationBoundary(client, tableId);
 
-  if (!opts.bypassDirectInsertCheck) {
+  if (origin !== "form") {
     const [row] = await client<{ disable_direct_insert: boolean }[]>`
       SELECT disable_direct_insert FROM grids.tables WHERE id = ${tableId}::uuid AND deleted_at IS NULL
     `;
@@ -349,8 +352,8 @@ export const create = async (
   tableId: string,
   payload: Record<string, unknown>,
   actorId: string | null,
+  origin: MutationOrigin,
   opts: {
-    bypassDirectInsertCheck?: boolean;
     includeRelations?: boolean;
     viewer?: ExpansionViewer;
     dateConfig?: DateContext;
@@ -359,8 +362,7 @@ export const create = async (
 ): Promise<Result<GridRecord>> => {
   const created = await sql
     .begin((tx) =>
-      createInTransaction(tx, tableId, payload, actorId, {
-        bypassDirectInsertCheck: opts.bypassDirectInsertCheck,
+      createInTransaction(tx, tableId, payload, actorId, origin, {
         dateConfig: opts.dateConfig,
         recordAccess: opts.recordAccess,
         viewer: opts.viewer,
@@ -382,8 +384,8 @@ export const createMany = async (
   tableId: string,
   payloads: Record<string, unknown>[],
   actorId: string | null,
+  origin: MutationOrigin,
   opts: {
-    bypassDirectInsertCheck?: boolean;
     includeRelations?: boolean;
     viewer?: ExpansionViewer;
     dateConfig?: DateContext;
@@ -396,8 +398,7 @@ export const createMany = async (
     .begin(async (tx) => {
       const results: CreateRecordInTransactionResult[] = [];
       for (const payload of payloads) {
-        const result = await createInTransaction(tx, tableId, payload, actorId, {
-          bypassDirectInsertCheck: opts.bypassDirectInsertCheck,
+        const result = await createInTransaction(tx, tableId, payload, actorId, origin, {
           dateConfig: opts.dateConfig,
           recordAccess: opts.recordAccess,
           viewer: opts.viewer,
@@ -437,11 +438,14 @@ export const updateInTransaction = async (
   recordId: string,
   payload: Record<string, unknown>,
   actorId: string | null,
+  origin: MutationOrigin,
   ifMatchVersion?: number,
   opts: { dateConfig?: DateContext; audit?: RecordMutationAudit; recordAccess?: AuthorizedRecordAccess; viewer?: ExpansionViewer } = {},
 ): Promise<Result<UpdateRecordInTransactionResult>> => {
   const writable = await requireStoredTableWritable(tableId, client);
   if (!writable.ok) return writable;
+  const allowed = await assertMutationAllowed(client, tableId, origin);
+  if (!allowed.ok) return allowed;
   await lockDurableHistoryMutationBoundary(client, tableId);
   const fields = await listFields(tableId, false, client);
   const existing = await loadStoredRecordForUpdate(client, tableId, recordId, fields, opts.recordAccess);
@@ -532,6 +536,7 @@ export const update = async (
   recordId: string,
   payload: Record<string, unknown>,
   actorId: string | null,
+  origin: MutationOrigin,
   ifMatchVersion?: number,
   opts: {
     includeRelations?: boolean;
@@ -544,7 +549,7 @@ export const update = async (
   const fields = await listFields(tableId);
   const updated = await sql
     .begin((tx) =>
-      updateInTransaction(tx, tableId, recordId, payload, actorId, ifMatchVersion, {
+      updateInTransaction(tx, tableId, recordId, payload, actorId, origin, ifMatchVersion, {
         dateConfig: opts.dateConfig,
         audit: opts.audit,
         recordAccess: opts.recordAccess,
@@ -568,6 +573,7 @@ export const softDelete = async (
   tableId: string,
   recordId: string,
   actorId: string | null,
+  origin: MutationOrigin,
   audit?: RecordMutationAudit,
   recordAccess?: AuthorizedRecordAccess,
 ): Promise<Result<void>> => {
@@ -584,6 +590,8 @@ export const softDelete = async (
   };
   const deleted = await sql
     .begin(async (tx): Promise<Result<string>> => {
+      const allowed = await assertMutationAllowed(tx, tableId, origin);
+      if (!allowed.ok) return allowed;
       await lockDurableHistoryMutationBoundary(tx, tableId);
       const auditPolicy = await loadTableAuditPolicy(tx, tableId);
       if (!auditPolicy.ok) return auditPolicy;
@@ -636,6 +644,7 @@ export const restore = async (
   tableId: string,
   recordId: string,
   actorId: string | null,
+  origin: MutationOrigin,
   audit?: RecordMutationAudit,
   recordAccess?: AuthorizedRecordAccess,
 ): Promise<Result<void>> => {
@@ -651,6 +660,8 @@ export const restore = async (
     .begin(async (tx): Promise<Result<string>> => {
       const writable = await requireStoredTableWritable(tableId, tx);
       if (!writable.ok) return writable;
+      const allowed = await assertMutationAllowed(tx, tableId, origin);
+      if (!allowed.ok) return allowed;
       await lockDurableHistoryMutationBoundary(tx, tableId);
       const auditPolicy = await loadTableAuditPolicy(tx, tableId);
       if (!auditPolicy.ok) return auditPolicy;

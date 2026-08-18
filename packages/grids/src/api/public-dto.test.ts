@@ -9,6 +9,9 @@ import {
   PublicFederatedSourcePublicationSchema,
   PublicFieldSchema,
   PublicFormSchema,
+  PublicMutationPolicyImpactSchema,
+  PublicMutationPolicyInputSchema,
+  PublicMutationPolicyUpdateSchema,
   PublicTableSchema,
   PublicUpdateTableSchema,
   PublicUpdateViewSchema,
@@ -72,6 +75,7 @@ describe("Grids public DTO ID boundary", () => {
       columns: [{ fieldId: "FILD01" }],
       displayConfig: { mode: "cards", cards: { imageFieldId: "FILD01", fieldIds: ["FILD01"] } },
       auditPolicy: {},
+      mutationPolicy: { mode: "all" },
       position: 0,
       disableDirectInsert: false,
       deletedAt: null,
@@ -84,6 +88,35 @@ describe("Grids public DTO ID boundary", () => {
     expect(PublicUpdateTableSchema.safeParse({ columns: [{ fieldId: "FILD01" }] }).success).toBe(true);
     expect(PublicUpdateTableSchema.safeParse({ columns: [{ fieldId: uuid }] }).success).toBe(false);
     expect(PublicUpdateTableSchema.safeParse({ auditPolicy: { update: { fieldIds: [uuid] } } }).success).toBe(false);
+  });
+
+  test("mutation policy inputs and impact use only the bounded public contract", () => {
+    expect(PublicMutationPolicyInputSchema.parse({ policy: { mode: "selected", sources: ["form", "workflow"] } })).toEqual({
+      policy: { mode: "selected", sources: ["form", "workflow"] },
+    });
+    expect(PublicMutationPolicyInputSchema.safeParse({ policy: { mode: "selected", sources: ["form", "form"] } }).success).toBe(false);
+    expect(PublicMutationPolicyUpdateSchema.safeParse({ policy: { mode: "selected", sources: [] } }).success).toBe(false);
+    expect(PublicMutationPolicyUpdateSchema.safeParse({ policy: { mode: "selected", sources: [] }, confirmFreeze: true }).success).toBe(
+      true,
+    );
+    expect(
+      PublicMutationPolicyImpactSchema.safeParse({
+        items: [{ kind: "workflow", id: "WORK01", name: "Notify owners" }],
+        total: 1,
+        limit: 50,
+        truncated: false,
+        complete: true,
+      }).success,
+    ).toBe(true);
+    expect(
+      PublicMutationPolicyImpactSchema.safeParse({
+        items: [{ kind: "workflow", id: uuid, name: "Internal UUID leak" }],
+        total: 1,
+        limit: 50,
+        truncated: false,
+        complete: true,
+      }).success,
+    ).toBe(false);
   });
 
   test("view and form schemas reject nested UUID field references", () => {

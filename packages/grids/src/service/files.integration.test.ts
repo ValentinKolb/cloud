@@ -23,7 +23,7 @@ const createFixture = async () => {
   `;
   const field = await fields.create({ tableId, name: "Attachments", type: "file", config: { maxFiles: 3 } }, null);
   if (!field.ok) throw field.error;
-  const record = await records.create(tableId, {}, null);
+  const record = await records.create(tableId, {}, null, "direct");
   if (!record.ok) throw record.error;
   return { baseId, tableId, fieldId: field.data.id, recordId: record.data.id };
 };
@@ -51,6 +51,7 @@ describe("durable file asset lifecycle Postgres integration", () => {
         mimeType: "text/plain",
         bytes: bytes("exact evidence"),
         userId: null,
+        origin: "direct",
       });
       expect(added.ok).toBe(true);
       if (!added.ok) throw added.error;
@@ -66,7 +67,7 @@ describe("durable file asset lifecycle Postgres integration", () => {
           })
         ).ok,
       ).toBe(true);
-      expect((await remove({ ...fixture, fileId: added.data.id, userId: null })).ok).toBe(true);
+      expect((await remove({ ...fixture, fileId: added.data.id, userId: null, origin: "direct" })).ok).toBe(true);
       await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
 
       const retained = await getProtectedContent({ fileId: added.data.id, ownerKind: "record_revision", ownerId });
@@ -105,6 +106,7 @@ describe("durable file asset lifecycle Postgres integration", () => {
         mimeType: "text/plain",
         bytes: bytes("original"),
         userId: null,
+        origin: "direct",
       });
       if (!original.ok) throw original.error;
       const protectedResult = await protect({
@@ -123,6 +125,7 @@ describe("durable file asset lifecycle Postgres integration", () => {
         mimeType: "text/plain",
         bytes: bytes("corrected"),
         userId: null,
+        origin: "direct",
       });
       expect(replaced.ok).toBe(true);
       if (!replaced.ok) throw replaced.error;
@@ -142,7 +145,7 @@ describe("durable file asset lifecycle Postgres integration", () => {
       expect(previous.ok).toBe(true);
       if (previous.ok) expect(previous.data.bytes).toEqual(bytes("original"));
 
-      expect((await remove({ ...fixture, fileId: replaced.data.id, userId: null })).ok).toBe(true);
+      expect((await remove({ ...fixture, fileId: replaced.data.id, userId: null, origin: "direct" })).ok).toBe(true);
       const cleaned = await cleanup(replaced.data.id);
       expect(cleaned.ok).toBe(true);
       if (cleaned.ok) expect(cleaned.data).toBe(false);
@@ -166,11 +169,12 @@ describe("durable file asset lifecycle Postgres integration", () => {
         mimeType: "text/plain",
         bytes: bytes("current"),
         userId: null,
+        origin: "direct",
       });
       if (!added.ok) throw added.error;
-      expect((await records.softDelete(fixture.tableId, fixture.recordId, null)).ok).toBe(true);
+      expect((await records.softDelete(fixture.tableId, fixture.recordId, null, "direct")).ok).toBe(true);
       expect((await listForRecordField(fixture)).ok).toBe(false);
-      expect((await records.restore(fixture.tableId, fixture.recordId, null)).ok).toBe(true);
+      expect((await records.restore(fixture.tableId, fixture.recordId, null, "direct")).ok).toBe(true);
       const restored = await listForRecordField(fixture);
       expect(restored.ok).toBe(true);
       if (restored.ok) expect(restored.data.map((file) => file.id)).toEqual([added.data.id]);
@@ -208,6 +212,7 @@ describe("durable file asset lifecycle Postgres integration", () => {
           mimeType: "text/plain",
           bytes: bytes("must rollback"),
           userId: null,
+          origin: "direct",
         }),
       ).rejects.toThrow("intentional file audit failure");
       const [state] = await sql<Array<{ assets: number; attachments: number }>>`
@@ -233,6 +238,7 @@ describe("durable file asset lifecycle Postgres integration", () => {
           mimeType: "text/plain",
           bytes: bytes(`race-${index}`),
           userId: null,
+          origin: "direct",
         });
         if (!added.ok) throw added.error;
         const ownerId = testUuid();
@@ -244,7 +250,7 @@ describe("durable file asset lifecycle Postgres integration", () => {
             ...fixture,
             userId: null,
           }),
-          remove({ ...fixture, fileId: added.data.id, userId: null }),
+          remove({ ...fixture, fileId: added.data.id, userId: null, origin: "direct" }),
         ]);
         expect(detached.ok).toBe(true);
         if (protectedResult.ok) {

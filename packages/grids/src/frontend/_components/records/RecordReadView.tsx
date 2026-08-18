@@ -1,6 +1,6 @@
 import type { DateContext } from "@k2b/stdlib";
 import { clipboard } from "@k2b/stdlib/solid";
-import { DescriptionList, DetailPanel, IconButton, Placeholder, Tooltip } from "@k2b/ui";
+import { DescriptionList, DetailPanel, IconButton, Placeholder, StatusBadge, Tooltip } from "@k2b/ui";
 import { cloudResourceClipboard } from "@valentinkolb/cloud/browser/resource-clipboard";
 import { For, type JSX, Show } from "solid-js";
 import type { PublicField as Field, PublicGridRecord as GridRecord } from "../../../api/public-dto";
@@ -131,12 +131,12 @@ export default function RecordReadView(props: RecordReadViewProps) {
         </span>
       </Show>
       <Show when={mode() === "live" && props.showFinalizationStatus}>
-        <span
-          class={`inline-flex items-center gap-1 text-[0.6875rem] leading-4 ${props.record.finalizedAt ? "text-emerald-700 dark:text-emerald-300" : "text-dimmed"}`}
-        >
-          <i class={props.record.finalizedAt ? "ti ti-lock" : "ti ti-pencil"} aria-hidden="true" />
-          {props.record.finalizedAt ? "Finalized" : "Draft"}
-        </span>
+        <StatusBadge
+          variant="text"
+          tone={props.record.finalizedAt ? "ok" : "neutral"}
+          icon={props.record.finalizedAt ? "ti ti-lock" : "ti ti-pencil"}
+          label={props.record.finalizedAt ? "Finalized" : "Finalization on · Draft"}
+        />
       </Show>
       <span class="text-[0.6875rem] leading-4 text-dimmed">v{props.record.version}</span>
       <span class="text-[0.6875rem] leading-4 text-dimmed">{props.record.id}</span>

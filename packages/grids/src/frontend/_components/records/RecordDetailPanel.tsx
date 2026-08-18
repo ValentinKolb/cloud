@@ -343,6 +343,18 @@ export default function RecordDetailPanel(props: Props) {
                 >
                   <i class="ti ti-pencil" /> Edit
                 </Button>
+                <Show when={finalization()?.enabled}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    type="button"
+                    onClick={() => void handleFinalize(rec)}
+                    loading={finalizeMut.loading()}
+                    loadingLabel="Finalizing record"
+                  >
+                    <i class="ti ti-lock" /> Finalize
+                  </Button>
+                </Show>
               </Show>
               <Show when={props.canWrite && mode() === "trash"}>
                 <Button variant="secondary" size="sm" type="button" onClick={() => handleRestore(rec)} disabled={restoreMut.loading()}>

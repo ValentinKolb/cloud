@@ -164,6 +164,10 @@ describe("grids help", () => {
     }
 
     expect(tables).toContain("browser's timezone");
+    expect(tables).toContain("Choose where record changes can start");
+    expect(tables).toContain("Direct editing and record API");
+    expect(tables).toContain("Choosing no source freezes record changes");
+    expect(tables).toContain("does not by itself provide a legal or regulatory guarantee");
     expect(documents).toContain('class="pageNumber"');
   });
 

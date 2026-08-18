@@ -45,6 +45,24 @@ const withIsolatedDatabase = async (run: (database: SQL) => Promise<void>) => {
 
 describe("grids schema migration", () => {
   postgresTest(
+    "defines a non-null allow-all mutation policy default",
+    async () => {
+      await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
+        await migrate(database);
+        const [mutationPolicyColumn] = await database<Array<{ nullable: string; defaultValue: string | null }>>`
+          SELECT is_nullable AS nullable, column_default AS "defaultValue"
+          FROM information_schema.columns
+          WHERE table_schema = 'grids' AND table_name = 'tables' AND column_name = 'mutation_policy'
+        `;
+        expect(mutationPolicyColumn?.nullable).toBe("NO");
+        expect(mutationPolicyColumn?.defaultValue).toContain('"mode": "all"');
+      });
+    },
+    30_000,
+  );
+
+  postgresTest(
     "says which container has not run yet when the kernel schema is missing",
     async () => {
       await withIsolatedDatabase(async (database) => {

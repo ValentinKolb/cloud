@@ -130,6 +130,7 @@ const table = {
   icon: "ti ti-table",
   columns: [],
   displayConfig: { mode: "table" },
+  mutationPolicy: { mode: "all" as const },
   position: 0,
   disableDirectInsert: false,
   deletedAt: null,
@@ -375,7 +376,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(152);
+    expect(commands).toHaveLength(155);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {
@@ -899,6 +900,71 @@ describe("grids CLI", () => {
       [`/api/grids/tables/${tableId}/durable-history/continue`, "POST"],
     ]);
     expect(enabled.jsonValues).toEqual([active]);
+  });
+
+  test("shows and previews a table mutation policy through public ids", async () => {
+    const show = createContext(["tables", "mutation-policy", baseId, "Authors"], {}, [jsonResponse(basePage), jsonResponse([table])], {
+      output: "json",
+    });
+
+    await gridsCli.run(show.ctx);
+
+    expect(show.jsonValues).toEqual([{ mode: "all" }]);
+
+    const impact = {
+      items: [{ kind: "form", id: formId, name: "Author intake" }],
+      total: 1,
+      limit: 50,
+      truncated: false,
+      complete: true,
+    };
+    const preview = createContext(
+      ["tables", "mutation-policy", "impact", baseId, "Authors"],
+      { allow: "direct,form" },
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse(impact)],
+      { output: "json" },
+    );
+
+    await gridsCli.run(preview.ctx);
+
+    expect(preview.calls.at(-1)?.path).toBe(`/api/grids/tables/${tableId}/mutation-policy/impact`);
+    expect(preview.calls.at(-1)?.init?.method).toBe("POST");
+    expect(JSON.parse(String(preview.calls.at(-1)?.init?.body))).toEqual({
+      policy: { mode: "selected", sources: ["direct", "form"] },
+    });
+    expect(preview.jsonValues).toEqual([impact]);
+  });
+
+  test("sets a table mutation policy and requires confirmation to freeze changes", async () => {
+    const policy = { mode: "selected" as const, sources: ["direct" as const] };
+    const update = createContext(
+      ["tables", "mutation-policy", "set", baseId, "Authors"],
+      { allow: "direct" },
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse({ policy })],
+      { output: "json" },
+    );
+
+    await gridsCli.run(update.ctx);
+
+    expect(update.calls.at(-1)?.path).toBe(`/api/grids/tables/${tableId}/mutation-policy`);
+    expect(update.calls.at(-1)?.init?.method).toBe("PUT");
+    expect(JSON.parse(String(update.calls.at(-1)?.init?.body))).toEqual({ policy });
+    expect(update.jsonValues).toEqual([{ policy }]);
+
+    const freeze = createContext(["tables", "mutation-policy", "set", baseId, "Authors"], { allow: "none" });
+    await expect(gridsCli.run(freeze.ctx)).rejects.toThrow("Pass --yes with --allow none to freeze all record changes.");
+    expect(freeze.calls).toHaveLength(0);
+
+    const frozenPolicy = { mode: "selected" as const, sources: [] };
+    const confirmedFreeze = createContext(
+      ["tables", "mutation-policy", "set", baseId, "Authors"],
+      { allow: "none", yes: true },
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse({ policy: frozenPolicy })],
+      { output: "json" },
+    );
+    await gridsCli.run(confirmedFreeze.ctx);
+    expect(JSON.parse(String(confirmedFreeze.calls.at(-1)?.init?.body))).toEqual({ policy: frozenPolicy, confirmFreeze: true });
+    expect(confirmedFreeze.jsonValues).toEqual([{ policy: frozenPolicy }]);
   });
 
   test("manages table finalization and finalizes records through public ids", async () => {

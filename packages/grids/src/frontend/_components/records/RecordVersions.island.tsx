@@ -1,5 +1,5 @@
 import { query } from "@k2b/stdlib/solid";
-import { Button, DescriptionList, DetailPanel, dialogCore, PanelDialog, Placeholder, panelDialogOptions } from "@k2b/ui";
+import { Button, DescriptionList, DetailPanel, dialogCore, PanelDialog, Placeholder, panelDialogOptions, StatusBadge } from "@k2b/ui";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import type { PublicRecordRevision, PublicRecordRevisionPage } from "../../../api/durable-history";
 
@@ -122,10 +122,17 @@ export default function RecordVersions(props: { tableId: string; recordId: strin
     <Show when={status()?.enabled !== false}>
       <DetailPanel.Group label="Record versions">
         <DetailPanel.Section
-          title="Versions"
+          title="Durable history"
           icon="ti ti-history"
           tone="accent"
-          meta={revisions().length || undefined}
+          meta={
+            enabledStatus() ? (
+              <span class="flex items-center gap-2">
+                <StatusBadge tone="ok" variant="text" label="On" />
+                <Show when={revisions().length > 0}>{revisions().length}</Show>
+              </span>
+            ) : undefined
+          }
           description={enabledStatus() ? `History is provable from ${new Date(enabledStatus()!.activatedAt).toLocaleString()}.` : undefined}
         >
           <div class="flex flex-col gap-2">

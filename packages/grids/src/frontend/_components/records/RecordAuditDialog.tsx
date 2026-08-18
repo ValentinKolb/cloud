@@ -1,4 +1,4 @@
-import { dialogCore, PanelDialog, panelDialogOptions, Select, TextInput, Button } from "@k2b/ui";
+import { Button, dialogCore, NoticeCard, PanelDialog, panelDialogOptions, Select, TextInput } from "@k2b/ui";
 import { createSignal, For, Show } from "solid-js";
 import type { AuditRequirement, AuditUpdateRequirement, RecordMutationAudit } from "../../../contracts";
 
@@ -61,7 +61,7 @@ export const openRecordAuditDialog = (args: OpenRecordAuditDialogArgs): Promise<
         <PanelDialog>
           <PanelDialog.Header title={copy.title} subtitle={args.recordTitle} icon={copy.icon} close={() => close(null)} />
           <PanelDialog.Body>
-            <p class="text-sm text-secondary">{copy.subtitle}</p>
+            <NoticeCard tone="info" title="Why this is required" detail={copy.subtitle} />
             <PanelDialog.Section
               title="Audit details"
               subtitle="These answers become part of the permanent record history."

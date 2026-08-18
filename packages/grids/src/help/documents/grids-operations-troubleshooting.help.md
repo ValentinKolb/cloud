@@ -29,6 +29,8 @@ Another user or tab may have saved a newer version. Reload the record, compare t
 
 If the message asks for change context, answer the questions configured under **Table settings → Data integrity**. Protected updates, trash actions, and restores cannot proceed without the required answers.
 
+If the message says this source is not allowed to change the table, a Base admin must open **Table settings → Data integrity → Record changes** and allow the matching source. The Base UI, API, CLI, Forms, Workflows, and Grids App actions all follow this setting; retrying through another client does not bypass it.
+
 ## A view or Grids App result is wrong {icon="layout"}
 
 Open the source query and verify it before changing presentation:

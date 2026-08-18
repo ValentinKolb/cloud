@@ -1193,6 +1193,7 @@ export const createCustomAppsApi = (
         resolved.record.id,
         values,
         currentActorUserId(c),
+        "direct",
         ifMatch,
         {
           dateConfig: getDateConfig(c),
@@ -1260,6 +1261,7 @@ export const createCustomAppsApi = (
         mimeType: file.type || "application/octet-stream",
         bytes: new Uint8Array(await file.arrayBuffer()),
         userId: currentActorUserId(c),
+        origin: "direct",
       });
       if (!result.ok) return respond(c, () => Promise.resolve(result));
       return c.json(await projectGridFile(result.data));
@@ -1285,6 +1287,7 @@ export const createCustomAppsApi = (
           mimeType: file.type || "application/octet-stream",
           bytes: new Uint8Array(await file.arrayBuffer()),
           userId: currentActorUserId(c),
+          origin: "direct",
         });
         if (!result.ok) return respond(c, () => Promise.resolve(result));
         return c.json(await projectGridFile(result.data));
@@ -1330,6 +1333,7 @@ export const createCustomAppsApi = (
           fieldId: resolved.fieldId,
           fileId: internalIdParam(c, "fileId")!,
           userId: currentActorUserId(c),
+          origin: "direct",
         });
         if (!result.ok) return respond(c, () => Promise.resolve(result));
         return c.body(null, 204);

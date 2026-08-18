@@ -3,7 +3,7 @@ import { prompts } from "@k2b/ui";
 import type { Accessor, Setter } from "solid-js";
 import { apiClient } from "../../../api/client";
 import type { PublicField as Field, PublicForm as Form, PublicView as View } from "../../../api/public-dto";
-import type { FieldColumnSpec, RecordDisplayConfig, TableAuditPolicy } from "../../../contracts";
+import type { FieldColumnSpec, RecordDisplayConfig, TableAuditPolicy, TableMutationPolicy } from "../../../contracts";
 import {
   createFieldFromPrompt,
   deleteFieldWithChecks,
@@ -33,6 +33,8 @@ type RecordsAdminControllerOptions = {
   setTableDisplayConfig: Setter<RecordDisplayConfig>;
   tableAuditPolicy: Accessor<TableAuditPolicy>;
   setTableAuditPolicy: Setter<TableAuditPolicy>;
+  tableMutationPolicy: Accessor<TableMutationPolicy>;
+  setTableMutationPolicy: Setter<TableMutationPolicy>;
   disableDirectInsert: Accessor<boolean>;
   setDisableDirectInsert: Setter<boolean>;
   fields: Accessor<Field[]>;
@@ -66,6 +68,7 @@ export const createRecordsAdminController = (options: RecordsAdminControllerOpti
     columns: options.tableColumns(),
     displayConfig: options.tableDisplayConfig(),
     auditPolicy: options.tableAuditPolicy(),
+    mutationPolicy: options.tableMutationPolicy(),
     disableDirectInsert: options.disableDirectInsert(),
   });
 
@@ -101,6 +104,7 @@ export const createRecordsAdminController = (options: RecordsAdminControllerOpti
         options.setTableAuditPolicy(table.auditPolicy);
         options.setDisableDirectInsert(table.disableDirectInsert);
       },
+      onMutationPolicySaved: options.setTableMutationPolicy,
     });
   };
 

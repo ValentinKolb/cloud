@@ -13,13 +13,28 @@ describe("record finalization UI contract", () => {
   });
 
   test("keeps activation next to Durable History with shared feedback and confirmation", async () => {
-    const source = await Bun.file(new URL("../dialogs/TableAdminDialogs.tsx", import.meta.url)).text();
+    const settingsSource = await Bun.file(new URL("../dialogs/TableAdminDialogs.tsx", import.meta.url)).text();
+    const dialogSource = await Bun.file(new URL("../dialogs/HistoryProtectionDialog.tsx", import.meta.url)).text();
 
-    expect(source).toContain('title="History and protection"');
-    expect(source).toContain("<NoticeCard");
-    expect(source).toContain(".finalization.enable.$post");
-    expect(source).toContain(".finalization.disable.$post");
-    expect(source).toContain('title: operation === "enable" ? "Enable record finalization?" : "Disable record finalization?"');
+    expect(settingsSource).toContain('title="Data integrity"');
+    expect(settingsSource).toContain("<DetailPanel.Action");
+    expect(settingsSource).toContain('title="History and protection"');
+    expect(settingsSource).not.toContain(".finalization.$get");
+    expect(settingsSource).not.toContain('["durable-history"].$get');
+    expect(dialogSource).toContain("query.create");
+    expect(dialogSource).toContain("Promise.all");
+    expect(dialogSource).not.toContain("onMount");
+    expect(dialogSource).not.toContain("setHistoryStatus");
+    expect(dialogSource).not.toContain("setFinalizationStatus");
+    expect(dialogSource).toContain("<NoticeCard");
+    expect(dialogSource).toContain('title="Keep a history, then lock finished records"');
+    expect(dialogSource).toContain('"Durable history is on"');
+    expect(dialogSource).toContain("<InlineGuidance");
+    expect(dialogSource).toContain('title="Durable history"');
+    expect(dialogSource).toContain('title="Record finalization"');
+    expect(dialogSource).toContain(".finalization.enable.$post");
+    expect(dialogSource).toContain(".finalization.disable.$post");
+    expect(dialogSource).toContain('title: operation === "enable" ? "Enable record finalization?" : "Disable record finalization?"');
   });
 
   test("does not expose finalized Custom App records as editable", async () => {
@@ -33,6 +48,6 @@ describe("record finalization UI contract", () => {
     const source = await Bun.file(new URL("./RecordReadView.tsx", import.meta.url)).text();
 
     expect(source).toContain('mode() === "live" && props.showFinalizationStatus');
-    expect(source).toContain('props.record.finalizedAt ? "Finalized" : "Draft"');
+    expect(source).toContain('props.record.finalizedAt ? "Finalized" : "Finalization on · Draft"');
   });
 });

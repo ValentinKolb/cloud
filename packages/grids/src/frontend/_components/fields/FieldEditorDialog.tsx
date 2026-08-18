@@ -234,12 +234,9 @@ function FieldEditor(props: {
       <PanelDialog.Body>
         {/* Type primer — short, type-specific blurb so the constraint
           inputs further down ("precision", "decimal places", "regex" etc.) make
-          immediate sense to non-power users. */}
+        immediate sense to non-power users. */}
         <Show when={typeDescription}>
-          <NoticeCard tone="info" icon={false} bodyClass="flex items-start gap-2">
-            <i class="ti ti-info-circle text-sm mt-0.5 shrink-0" />
-            <span>{typeDescription}</span>
-          </NoticeCard>
+          <NoticeCard tone="info" title={`About ${typeLabel} fields`} detail={typeDescription} />
         </Show>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -468,16 +465,12 @@ function FieldEditor(props: {
           />
           <Show when={props.field.type === "id" && props.field.numberSeries} keyed>
             {(series) => (
-              <NoticeCard tone={series.migrationNote ? "warning" : "info"} icon={false} role="status">
-                <p>
-                  Number series <strong>{series.id}</strong> · Assign on{" "}
-                  {series.assignment === "finalization" ? "finalization" : "record creation"} · Last allocated {series.lastValue}
-                  {series.preview ? ` · Next preview ${series.preview}` : ""}
-                </p>
-                <Show when={series.migrationNote}>
-                  <p class="mt-1 text-xs">{series.migrationNote}</p>
-                </Show>
-              </NoticeCard>
+              <NoticeCard
+                tone={series.migrationNote ? "warning" : "info"}
+                role="status"
+                title="Number series"
+                detail={`Numbers are assigned when the record is ${series.assignment === "finalization" ? "finalized" : "created"}. Last number: ${series.lastValue}.${series.preview ? ` Next number: ${series.preview}.` : ""}${series.migrationNote ? ` ${series.migrationNote}` : ""}`}
+              />
             )}
           </Show>
         </PanelDialog.Section>

@@ -1,6 +1,6 @@
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
-import { FieldColumnSpecSchema, RecordDisplayConfigSchema, TableAuditPolicySchema } from "../contracts";
+import { FieldColumnSpecSchema, RecordDisplayConfigSchema, TableAuditPolicySchema, TableMutationPolicySchema } from "../contracts";
 import { normalizeRefKey } from "../ref-syntax";
 import { logAudit, type SqlClient } from "./audit";
 import { degradeForTableSchemaChange, refreshForTableSchemaChange } from "./federated-tables";
@@ -11,7 +11,7 @@ import type { CreateTableInput, Table, UpdateTableInput } from "./types";
 
 type DbRow = Record<string, unknown>;
 
-const COLS = sql`id, short_id, base_id, kind, name, description, icon, columns, display_config, audit_policy, position, disable_direct_insert, deleted_at, created_at, updated_at`;
+const COLS = sql`id, short_id, base_id, kind, name, description, icon, columns, display_config, audit_policy, mutation_policy, position, disable_direct_insert, deleted_at, created_at, updated_at`;
 
 const parseColumns = (raw: unknown) => {
   const parsed = FieldColumnSpecSchema.array().safeParse(raw ?? []);
@@ -24,6 +24,7 @@ const parseDisplayConfig = (raw: unknown) => {
 };
 
 const parseAuditPolicy = (raw: unknown) => TableAuditPolicySchema.parse(raw ?? {});
+const parseMutationPolicy = (raw: unknown) => TableMutationPolicySchema.parse(raw);
 
 const tableFieldReferences = (
   columns: ReturnType<typeof parseColumns>,
@@ -48,6 +49,7 @@ const mapRow = (row: DbRow): Table => ({
   columns: parseColumns(row.columns),
   displayConfig: parseDisplayConfig(row.display_config),
   auditPolicy: parseAuditPolicy(row.audit_policy),
+  mutationPolicy: parseMutationPolicy(row.mutation_policy),
   position: row.position as number,
   disableDirectInsert: (row.disable_direct_insert as boolean | null) ?? false,
   deletedAt: row.deleted_at ? (row.deleted_at as Date).toISOString() : null,

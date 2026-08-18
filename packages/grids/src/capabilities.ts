@@ -279,6 +279,9 @@ const fieldValueHint = (field: Field): string | null => {
 type GqlContextItem = z.infer<typeof GqlContextItemSchema>;
 type TableContextItem = Extract<GqlContextItem, { kind: "table" }>;
 
+const allowsDirectMutations = (table: Table): boolean =>
+  table.mutationPolicy.mode === "all" || table.mutationPolicy.sources.includes("direct");
+
 const tableContextItem = (table: Table, base: Base, permission: "read" | "write" | "admin"): TableContextItem => ({
   kind: "table",
   id: table.shortId,
@@ -288,8 +291,8 @@ const tableContextItem = (table: Table, base: Base, permission: "read" | "write"
   description: table.description,
   icon: table.icon ?? null,
   permission,
-  canCreateRecords: table.kind === "stored" && permission !== "read" && !table.disableDirectInsert,
-  canUpdateRecords: table.kind === "stored" && permission !== "read",
+  canCreateRecords: table.kind === "stored" && permission !== "read" && allowsDirectMutations(table) && !table.disableDirectInsert,
+  canUpdateRecords: table.kind === "stored" && permission !== "read" && allowsDirectMutations(table),
 });
 
 const fieldContextItem = (
@@ -323,7 +326,7 @@ const fieldContextItem = (
 };
 
 const recordWriteContext = (table: Table, fieldsById: ReadonlyMap<string, Field>, permission: "read" | "write" | "admin") => {
-  const canUpdateRecords = table.kind === "stored" && permission !== "read";
+  const canUpdateRecords = table.kind === "stored" && permission !== "read" && allowsDirectMutations(table);
   const updateAudit = canUpdateRecords && table.auditPolicy.update?.enabled ? table.auditPolicy.update : null;
   return {
     tableId: table.shortId,
@@ -806,7 +809,7 @@ const runRecordCreate = async (input: z.infer<typeof RecordCreateInputSchema>, c
   const values = await resolveRecordValues(table.data.table.id, input.values);
   if (!values.ok) return values;
   const dateConfig = await capabilityDateConfig();
-  const result = await gridsService.record.create(table.data.table.id, values.data.values, accessActorUser(access)?.id ?? null, {
+  const result = await gridsService.record.create(table.data.table.id, values.data.values, accessActorUser(access)?.id ?? null, "direct", {
     dateConfig,
     viewer: actorViewerFor(access),
     recordAccess: table.data.recordAccess,
@@ -829,6 +832,7 @@ const runRecordUpdate = async (input: z.infer<typeof RecordUpdateInputSchema>, c
     record.id,
     values.data.values,
     accessActorUser(access)?.id ?? null,
+    "direct",
     input.ifVersion,
     { dateConfig, viewer: actorViewerFor(access), audit: input.audit, recordAccess: table.data.recordAccess },
   );

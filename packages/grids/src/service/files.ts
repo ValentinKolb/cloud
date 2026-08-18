@@ -4,6 +4,7 @@ import { sql } from "bun";
 import { logAudit, type SqlClient } from "./audit";
 import { captureRecordRevision, lockDurableHistoryMutationBoundary, prepareRecordMutation } from "./durable-history";
 import { type FederatedRevisionScope, getActive, verifyRevisionScope } from "./federated-tables";
+import { assertMutationAllowed, type MutationOrigin } from "./mutation-policy";
 import { assertRecordMutable } from "./record-finalization";
 import { insertWithShortIdForDb } from "./short-id";
 import { get as getTable } from "./tables";
@@ -407,6 +408,7 @@ export const upload = async (params: {
   mimeType: string;
   bytes: Uint8Array;
   userId: string | null;
+  origin: MutationOrigin;
 }): Promise<Result<GridFile>> => {
   const target = await verifyTarget(params.tableId, params.recordId, params.fieldId);
   if (!target.ok) return target;
@@ -417,6 +419,8 @@ export const upload = async (params: {
   const maxFiles = target.data.config.maxFiles;
 
   return sql.begin(async (tx) => {
+    const allowed = await assertMutationAllowed(tx, params.tableId, params.origin);
+    if (!allowed.ok) return allowed;
     await lockDurableHistoryMutationBoundary(tx, params.tableId);
     await lockMutationTarget(tx, params.recordId, params.fieldId);
     await prepareRecordMutation(tx, params.tableId, params.recordId);
@@ -500,6 +504,7 @@ export const replace = async (params: {
   mimeType: string;
   bytes: Uint8Array;
   userId: string | null;
+  origin: MutationOrigin;
 }): Promise<Result<GridFile>> => {
   const target = await verifyTarget(params.tableId, params.recordId, params.fieldId);
   if (!target.ok) return target;
@@ -510,6 +515,8 @@ export const replace = async (params: {
   }
 
   return sql.begin(async (tx): Promise<Result<GridFile>> => {
+    const allowed = await assertMutationAllowed(tx, params.tableId, params.origin);
+    if (!allowed.ok) return allowed;
     await lockDurableHistoryMutationBoundary(tx, params.tableId);
     await lockMutationTarget(tx, params.recordId, params.fieldId);
     await prepareRecordMutation(tx, params.tableId, params.recordId);
@@ -622,10 +629,13 @@ export const remove = async (params: {
   fieldId: string;
   fileId: string;
   userId?: string | null;
+  origin: MutationOrigin;
 }): Promise<Result<void>> => {
   const target = await verifyTarget(params.tableId, params.recordId, params.fieldId);
   if (!target.ok) return target;
   return sql.begin(async (tx): Promise<Result<void>> => {
+    const allowed = await assertMutationAllowed(tx, params.tableId, params.origin);
+    if (!allowed.ok) return allowed;
     await lockDurableHistoryMutationBoundary(tx, params.tableId);
     await lockMutationTarget(tx, params.recordId, params.fieldId);
     await prepareRecordMutation(tx, params.tableId, params.recordId);

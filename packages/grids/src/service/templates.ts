@@ -313,7 +313,7 @@ const createRecords = async (template: GridTemplate, actorId: string | null, ctx
       data[field.id] = resolveValue(value, ctx);
     }
 
-    const created = requireResult(await records.create(tableId, data, actorId));
+    const created = requireResult(await records.create(tableId, data, actorId, "direct"));
     ctx.records.set(record.key, created.id);
     ctx.publicRefs.set(`record:${record.key}`, created.shortId);
 
@@ -335,6 +335,7 @@ const createRecords = async (template: GridTemplate, actorId: string | null, ctx
           mimeType: parsed.mimeType,
           bytes: parsed.bytes,
           userId: actorId,
+          origin: "direct",
         }),
       );
     }

@@ -55,31 +55,31 @@ describe("record audit requirements Postgres integration", () => {
       if (!blockedFieldDelete.ok) expect(blockedFieldDelete.error.status).toBe(409);
       expect((await fields.get(fieldId))?.deletedAt).toBeNull();
 
-      const created = await create(tableId, { [fieldId]: "Available" }, null);
+      const created = await create(tableId, { [fieldId]: "Available" }, null, "direct");
       if (!created.ok) throw new Error(created.error.message);
       const recordId = created.data.id;
 
-      expect((await update(tableId, recordId, { [fieldId]: "Available" }, null)).ok).toBe(true);
-      expect((await update(tableId, recordId, { [fieldId]: "Retired" }, null)).ok).toBe(false);
+      expect((await update(tableId, recordId, { [fieldId]: "Available" }, null, "direct")).ok).toBe(true);
+      expect((await update(tableId, recordId, { [fieldId]: "Retired" }, null, "direct")).ok).toBe(false);
       expect((await get(tableId, recordId))?.data[fieldId]).toBe("Available");
 
-      const updated = await update(tableId, recordId, { [fieldId]: "Retired" }, null, undefined, {
+      const updated = await update(tableId, recordId, { [fieldId]: "Retired" }, null, "direct", undefined, {
         audit: { answers: { [updateQuestionId]: "Annual inventory review" } },
       });
       expect(updated.ok).toBe(true);
 
-      expect((await softDelete(tableId, recordId, null)).ok).toBe(false);
+      expect((await softDelete(tableId, recordId, null, "direct")).ok).toBe(false);
       expect((await get(tableId, recordId))?.deletedAt).toBeNull();
-      expect((await softDelete(tableId, recordId, null, { answers: { [deleteQuestionId]: "Decommissioned" } })).ok).toBe(true);
+      expect((await softDelete(tableId, recordId, null, "direct", { answers: { [deleteQuestionId]: "Decommissioned" } })).ok).toBe(true);
 
-      expect((await restore(tableId, recordId, null)).ok).toBe(false);
+      expect((await restore(tableId, recordId, null, "direct")).ok).toBe(false);
       const [deletedRecord] = await sql<{ deleted_at: Date | null }[]>`
         SELECT deleted_at
         FROM grids.records
         WHERE table_id = ${tableId}::uuid AND id = ${recordId}::uuid
       `;
       expect(deletedRecord?.deleted_at).not.toBeNull();
-      expect((await restore(tableId, recordId, null, { answers: { [restoreQuestionId]: "Returned to service" } })).ok).toBe(true);
+      expect((await restore(tableId, recordId, null, "direct", { answers: { [restoreQuestionId]: "Returned to service" } })).ok).toBe(true);
 
       const renamedPolicy: TableAuditPolicy = {
         update: {

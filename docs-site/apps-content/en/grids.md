@@ -5,7 +5,7 @@ section: Work
 order: 140
 description: Structured data with Bases, Views, Forms, Custom Apps, documents, and workflows.
 tags: [grids, tables, workflows]
-updated: 2026-08-18
+updated: 2026-08-19
 ---
 
 # Grids
@@ -32,6 +32,9 @@ documents, and workflows without splitting the domain across unrelated tools.
 - Irreversibly enable Durable History for a stored table when every future
   Record, Relation, and File state must remain inspectable from an honest
   activation baseline. Existing tables stay unchanged until an admin opts in.
+- Keep the default open mutation policy, or let a Base admin limit record,
+  Relation, and File changes to direct editing and APIs, Forms, or Workflows
+  and actions. Every client follows the same server-enforced policy.
 - Open a record's **Referenced by** section to page through permission-aware
   incoming Relations, or pin the same relationship as a Referenced records
   block in a Custom App.

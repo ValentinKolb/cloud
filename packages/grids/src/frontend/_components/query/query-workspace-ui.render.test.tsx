@@ -17,6 +17,7 @@ const table: Table = {
   columns: [],
   displayConfig: { mode: "table" },
   auditPolicy: {},
+  mutationPolicy: { mode: "all" },
   position: 0,
   disableDirectInsert: false,
   createdAt: "2026-08-02T00:00:00.000Z",
@@ -88,5 +89,7 @@ describe("query workspace UI contracts", () => {
 
     expect(html).toContain('<strong class="truncate">Name</strong>');
     expect(html).toContain('<small class="shrink-0 text-dimmed">text</small>');
+    expect(html).toContain("flex-[1_1_24rem]");
+    expect(html).toContain("flex-[0_1_16rem]");
   });
 });

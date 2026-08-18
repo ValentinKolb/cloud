@@ -68,6 +68,7 @@ describe("RecordReadView", () => {
     expect(html).toContain("12345678-abcd-4000-8000-000000000000");
     expect(html).toContain("Copy record reference");
     expect(html).toContain("ti-copy");
+    expect(html).not.toContain(">Draft<");
     expect(html).not.toContain("font-mono");
     expect(html).toContain("Fields");
     expect(html).toContain("ti-list-details");
@@ -76,6 +77,37 @@ describe("RecordReadView", () => {
     expect(html).not.toContain(">Notes<");
     expect(html).not.toContain("detail-stack");
     expect(html).not.toContain("detail-section-label");
+  });
+
+  test("shows finalization state only for opted-in tables or finalized records", () => {
+    const name = field({ id: "name", name: "Name", type: "text", presentable: true });
+    const draftHtml = renderToString(() =>
+      createComponent(RecordReadView, {
+        cloudUrl: "https://cloud.example",
+        baseId: "base",
+        tableId: "table",
+        tableName: "Items",
+        fields: [name],
+        record: record({ name: "Draft item" }),
+        showFinalizationStatus: true,
+      }),
+    );
+    const finalizedHtml = renderToString(() =>
+      createComponent(RecordReadView, {
+        cloudUrl: "https://cloud.example",
+        baseId: "base",
+        tableId: "table",
+        tableName: "Items",
+        fields: [name],
+        record: { ...record({ name: "Final item" }), finalizedAt: "2026-08-18T12:00:00.000Z" },
+        showFinalizationStatus: true,
+      }),
+    );
+
+    expect(draftHtml).toContain("Finalization on · Draft");
+    expect(draftHtml).toContain("ti-pencil");
+    expect(finalizedHtml).toContain(">Finalized<");
+    expect(finalizedHtml).toContain("ti-lock");
   });
 
   test("groups relations with additional reverse-relation content", () => {

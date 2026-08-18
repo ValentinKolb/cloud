@@ -112,6 +112,20 @@ In **Table settings → Data integrity**, an admin can require answers before se
 
 The submitted answers are stored with the record history. Grids copies the question and option labels into the event, so old history remains understandable after the policy changes.
 
+## Choose where record changes can start {icon="route"}
+
+A Base admin can open **Table settings → Data integrity → Record changes** to choose which parts of Grids may change a stored table. **All** is the default and keeps the normal behavior of existing tables.
+
+When **All** is off, choose one or more sources:
+
+- **Direct editing and record API** covers editing in the Base or a Grids App, Record Editor, API, CLI, and imports.
+- **Forms** covers active Forms, including Forms published in a Grids App.
+- **Workflows and actions** covers enabled Workflows, run options, and published Grids App actions.
+
+The policy applies to creating, editing, trashing, and restoring records, as well as changing Relations and Files. Before an admin removes Forms or Workflows and actions, Grids shows the active entry points that will stop changing the table. For a table used by very many Workflows, the preview says clearly when more may be affected than it can list.
+
+Choosing no source freezes record changes until an admin allows one again. Existing records remain readable. The policy does not replace permissions, field rules, audit requirements, Durable History, or Finalization, and does not by itself provide a legal or regulatory guarantee.
+
 :::note Model before display
 Field type controls stored meaning. Views and column settings control how that value is presented in a particular context.
 :::

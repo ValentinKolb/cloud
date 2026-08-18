@@ -4,5 +4,15 @@ export { openFieldEditDialog } from "./FieldEditorDialog";
 
 export type TableHeader = Pick<
   PublicTable,
-  "id" | "baseId" | "kind" | "name" | "description" | "icon" | "columns" | "displayConfig" | "auditPolicy" | "disableDirectInsert"
+  | "id"
+  | "baseId"
+  | "kind"
+  | "name"
+  | "description"
+  | "icon"
+  | "columns"
+  | "displayConfig"
+  | "auditPolicy"
+  | "mutationPolicy"
+  | "disableDirectInsert"
 >;

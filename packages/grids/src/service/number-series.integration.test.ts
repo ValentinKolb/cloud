@@ -80,7 +80,7 @@ describe("durable number series Postgres integration", () => {
         if (!createdField.ok) throw new Error(createdField.error.message);
         const fieldId = createdField.data.id;
 
-        const parallel = await Promise.all(Array.from({ length: 20 }, () => records.create(fixture.tableId, {}, null)));
+        const parallel = await Promise.all(Array.from({ length: 20 }, () => records.create(fixture.tableId, {}, null, "direct")));
         expect(parallel.every((result) => result.ok)).toBe(true);
         const values = parallel.map((result) => (result.ok ? String(result.data.data[fieldId]) : ""));
         expect(new Set(values).size).toBe(20);
@@ -102,14 +102,14 @@ describe("durable number series Postgres integration", () => {
         let rolledBackDatedValue = 0;
         await expect(
           sql.begin(async (tx) => {
-            const result = await records.createInTransaction(tx, fixture.tableId, {}, null);
+            const result = await records.createInTransaction(tx, fixture.tableId, {}, null, "direct");
             if (!result.ok) throw new Error(result.error.message);
             rolledBackValue = numberOf(result.data.record.data[fieldId]);
             rolledBackDatedValue = numberOf(result.data.record.data[datedField.data.id]);
             throw new Error("intentional rollback");
           }),
         ).rejects.toThrow("intentional rollback");
-        const afterRollback = await records.create(fixture.tableId, {}, null);
+        const afterRollback = await records.create(fixture.tableId, {}, null, "direct");
         expect(afterRollback.ok).toBe(true);
         if (!afterRollback.ok) throw new Error(afterRollback.error.message);
         expect(numberOf(afterRollback.data.data[fieldId])).toBe(rolledBackValue + 1);
@@ -128,14 +128,14 @@ describe("durable number series Postgres integration", () => {
         `;
         expect(archived).toEqual({ id: beforeDelete!.id, archived: true });
         expect((await fields.restore(fieldId, null)).ok).toBe(true);
-        const afterRestore = await records.create(fixture.tableId, {}, null);
+        const afterRestore = await records.create(fixture.tableId, {}, null, "direct");
         expect(afterRestore.ok).toBe(true);
         if (!afterRestore.ok) throw new Error(afterRestore.error.message);
         expect(numberOf(afterRestore.data.data[fieldId])).toBe(beforeDelete!.lastValue + 1);
 
         const updated = await fields.update(fieldId, { config: { strategy: "sequence", prefix: "NEW-", padding: 5 } }, null);
         expect(updated.ok).toBe(true);
-        const afterFormat = await records.create(fixture.tableId, {}, null);
+        const afterFormat = await records.create(fixture.tableId, {}, null, "direct");
         expect(afterFormat.ok).toBe(true);
         if (!afterFormat.ok) throw new Error(afterFormat.error.message);
         expect(afterFormat.data.data[fieldId]).toMatch(/^NEW-[0-9]{5}$/);
@@ -165,7 +165,7 @@ describe("durable number series Postgres integration", () => {
       await migrate();
       const fixture = await createFixture();
       try {
-        const record = await records.create(fixture.tableId, {}, null);
+        const record = await records.create(fixture.tableId, {}, null, "direct");
         expect(record.ok).toBe(true);
         if (!record.ok) throw new Error(record.error.message);
         const table = await getTable(fixture.tableId);

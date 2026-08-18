@@ -32,8 +32,8 @@ const fixture = async () => {
   );
   const targetName = await fields.create({ tableId: targetTableId, name: "Name", type: "text", presentable: true }, null);
   if (!name.ok || !attachment.ok || !relation.ok || !targetName.ok) throw new Error("fixture field creation failed");
-  const target = await records.create(targetTableId, { [targetName.data.id]: "Camera" }, null);
-  const record = await records.create(tableId, { [name.data.id]: "FX3" }, null);
+  const target = await records.create(targetTableId, { [targetName.data.id]: "Camera" }, null, "direct");
+  const record = await records.create(tableId, { [name.data.id]: "FX3" }, null, "direct");
   if (!target.ok || !record.ok) throw new Error("fixture record creation failed");
   return {
     baseId,
@@ -73,7 +73,7 @@ describe("durable record history Postgres integration", () => {
       `;
       const initialStatus = await getStatus(item.tableId);
       expect(initialStatus.ok && initialStatus.data).toEqual({ enabled: false });
-      expect((await records.update(item.tableId, item.recordId, { [item.nameFieldId]: "FX3 II" }, null)).ok).toBe(true);
+      expect((await records.update(item.tableId, item.recordId, { [item.nameFieldId]: "FX3 II" }, null, "direct")).ok).toBe(true);
       expect(
         (
           await sql<Array<{ count: number }>>`
@@ -85,7 +85,7 @@ describe("durable record history Postgres integration", () => {
       const activated = await enable(item.tableId, actorId);
       expect(activated.ok && activated.data.enabled && activated.data.status).toBe("active");
       await sql`DELETE FROM auth.users WHERE id = ${actorId}::uuid`;
-      const createdAfterActivation = await records.create(item.tableId, { [item.nameFieldId]: "FX9" }, null);
+      const createdAfterActivation = await records.create(item.tableId, { [item.nameFieldId]: "FX9" }, null, "direct");
       if (!createdAfterActivation.ok) throw createdAfterActivation.error;
       const createdHistory = await listRecordRevisions({
         tableId: item.tableId,
@@ -99,9 +99,9 @@ describe("durable record history Postgres integration", () => {
       `;
       expect(activationAudit?.action).toBe("durable_history.enabled");
       expect(activationAudit?.diff).toMatchObject({ durableHistory: { old: false, new: { enabled: true } } });
-      expect((await records.update(item.tableId, item.recordId, { [item.relationFieldId]: [item.targetRecordId] }, null)).ok).toBe(true);
+      expect((await records.update(item.tableId, item.recordId, { [item.relationFieldId]: [item.targetRecordId] }, null, "direct")).ok).toBe(true);
       expect((await fields.update(item.nameFieldId, { name: "Asset name" }, null)).ok).toBe(true);
-      expect((await records.update(item.tableId, item.recordId, { [item.nameFieldId]: "FX6" }, null)).ok).toBe(true);
+      expect((await records.update(item.tableId, item.recordId, { [item.nameFieldId]: "FX6" }, null, "direct")).ok).toBe(true);
 
       const added = await files.upload({
         tableId: item.tableId,
@@ -111,6 +111,7 @@ describe("durable record history Postgres integration", () => {
         mimeType: "text/plain",
         bytes: new TextEncoder().encode("exact manual"),
         userId: null,
+        origin: "direct",
       });
       if (!added.ok) throw added.error;
       const replaced = await files.replace({
@@ -122,13 +123,14 @@ describe("durable record history Postgres integration", () => {
         mimeType: "text/plain",
         bytes: new TextEncoder().encode("exact manual v2"),
         userId: null,
+        origin: "direct",
       });
       if (!replaced.ok) throw replaced.error;
-      expect((await files.remove({ ...item, fieldId: item.fileFieldId, fileId: replaced.data.id, userId: null })).ok).toBe(true);
-      expect((await records.softDelete(item.tableId, item.recordId, null)).ok).toBe(true);
-      expect((await records.restore(item.tableId, item.recordId, null)).ok).toBe(true);
+      expect((await files.remove({ ...item, fieldId: item.fileFieldId, fileId: replaced.data.id, userId: null, origin: "direct" })).ok).toBe(true);
+      expect((await records.softDelete(item.tableId, item.recordId, null, "direct")).ok).toBe(true);
+      expect((await records.restore(item.tableId, item.recordId, null, "direct")).ok).toBe(true);
       expect((await fields.softDelete(item.nameFieldId, null)).ok).toBe(true);
-      expect((await records.softDelete(item.targetTableId, item.targetRecordId, null)).ok).toBe(true);
+      expect((await records.softDelete(item.targetTableId, item.targetRecordId, null, "direct")).ok).toBe(true);
 
       const page = await listRecordRevisions({ tableId: item.tableId, recordId: item.recordId, limit: 20 });
       if (!page.ok) throw page.error;
@@ -237,7 +239,7 @@ describe("durable record history Postgres integration", () => {
       `;
       if (!pending) throw new Error("missing pending baseline record");
       const [updated, completed] = await Promise.all([
-        records.update(item.tableId, pending.id, { [item.nameFieldId]: "Changed during activation" }, null),
+        records.update(item.tableId, pending.id, { [item.nameFieldId]: "Changed during activation" }, null, "direct"),
         continueActivation(item.tableId),
       ]);
       expect(updated.ok).toBe(true);
@@ -278,7 +280,7 @@ describe("durable record history Postgres integration", () => {
         BEFORE INSERT ON grids.record_revisions
         FOR EACH ROW EXECUTE FUNCTION grids.${functionName}()
       `);
-      await expect(records.update(item.tableId, item.recordId, { [item.nameFieldId]: "Must roll back" }, null)).rejects.toThrow(
+      await expect(records.update(item.tableId, item.recordId, { [item.nameFieldId]: "Must roll back" }, null, "direct")).rejects.toThrow(
         "intentional revision failure",
       );
       const [record] = await sql<Array<{ data: Record<string, unknown> }>>`

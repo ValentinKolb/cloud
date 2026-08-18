@@ -27,6 +27,10 @@ import {
   PublicFederatedSourcePublicationListSchema,
   PublicFederatedTableConfigSchema,
   PublicFederatedValidationSchema,
+  PublicMutationPolicyImpactSchema,
+  PublicMutationPolicyInputSchema,
+  PublicMutationPolicyResponseSchema,
+  PublicMutationPolicyUpdateSchema,
   PublicTableListSchema,
   PublicTableSchema,
   PublicUpdateFederatedDraftSchema,
@@ -395,6 +399,58 @@ const app = new Hono<AuthContext>()
         currentActorUserId(c),
       );
       return result.ok ? c.json(await toPublicTable(result.data), 201) : c.json({ message: result.error.message }, result.error.status);
+    },
+  )
+
+  .post(
+    "/:tableId/mutation-policy/impact",
+    requirePublicIdParam("tableId", "table", "Table"),
+    describeRoute({
+      tags: ["Grids:Table"],
+      summary: "Preview resources affected by a table mutation policy",
+      responses: {
+        200: jsonResponse(PublicMutationPolicyImpactSchema, "Mutation policy impact"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid policy or unsupported table"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    v("json", PublicMutationPolicyInputSchema),
+    async (c) => {
+      const tableId = internalIdParam(c, "tableId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      if (table.kind !== "stored") return c.json({ message: "Mutation policies are only available for stored tables." }, 400);
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.table.mutationPolicy.getImpact(tableId, c.req.valid("json").policy);
+      return result.ok ? c.json(result.data) : respond(c, () => Promise.resolve(result));
+    },
+  )
+
+  .put(
+    "/:tableId/mutation-policy",
+    requirePublicIdParam("tableId", "table", "Table"),
+    describeRoute({
+      tags: ["Grids:Table"],
+      summary: "Update a table mutation policy",
+      responses: {
+        200: jsonResponse(PublicMutationPolicyResponseSchema, "Updated mutation policy"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid policy or unsupported table"),
+        403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+        404: jsonResponse(ErrorResponseSchema, "Not found"),
+      },
+    }),
+    v("json", PublicMutationPolicyUpdateSchema),
+    async (c) => {
+      const tableId = internalIdParam(c, "tableId")!;
+      const table = await gridsService.table.get(tableId);
+      if (!table) return c.json({ message: "Table not found" }, 404);
+      if (table.kind !== "stored") return c.json({ message: "Mutation policies are only available for stored tables." }, 400);
+      const gate = await gateAt(c, { baseId: table.baseId }, "admin");
+      if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const result = await gridsService.table.mutationPolicy.update(tableId, c.req.valid("json").policy, currentActorUserId(c));
+      return result.ok ? c.json({ policy: result.data }) : respond(c, () => Promise.resolve(result));
     },
   )
 

@@ -158,6 +158,7 @@ describe("record access integration", () => {
             [fixture.relationFieldId]: [fixture.ownedParentId],
           },
           fixture.userId,
+          "direct",
           { recordAccess: ALL_RECORD_ACCESS },
         ),
       );
@@ -172,6 +173,7 @@ describe("record access integration", () => {
             [fixture.relationFieldId]: [fixture.otherParentId],
           },
           fixture.userId,
+          "direct",
           { recordAccess: ALL_RECORD_ACCESS },
         ),
       );
@@ -184,6 +186,7 @@ describe("record access integration", () => {
           fixture.linkedChildId,
           { [fixture.relationFieldId]: [fixture.otherParentId] },
           fixture.userId,
+          "direct",
           undefined,
           { recordAccess: ALL_RECORD_ACCESS },
         ),

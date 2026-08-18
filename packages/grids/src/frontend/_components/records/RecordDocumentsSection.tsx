@@ -88,10 +88,11 @@ function DocumentGenerationReviewDialog(props: {
               </Show>
             </div>
 
-            <NoticeCard tone="info" icon={false}>
-              Generating creates a recursive record snapshot and stores a document run. The PDF can be redownloaded later from the generated
-              document history.
-            </NoticeCard>
+            <NoticeCard
+              tone="info"
+              title="The generated PDF stays unchanged"
+              detail="Grids saves the PDF and the record information used to create it. You can download the same PDF again later."
+            />
 
             <StructuredDataPreview
               title="Selected record"

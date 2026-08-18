@@ -186,8 +186,7 @@ export const submitForm = async (params: {
               throw err.badInput(`Field "${inlineEntry.label?.trim() || targetField.name}" is required`);
             }
           }
-          const created = await createInTransaction(tx, targetTableId, draftPayload, params.actorId, {
-            bypassDirectInsertCheck: true,
+          const created = await createInTransaction(tx, targetTableId, draftPayload, params.actorId, "form", {
             dateConfig: params.dateConfig,
             viewer: params.viewer,
           });
@@ -205,8 +204,7 @@ export const submitForm = async (params: {
         payload[relationFieldId] = sourceIds.map((id) => replacements.get(id) ?? id);
       }
 
-      const created = await createInTransaction(tx, params.form.tableId, payload, params.actorId, {
-        bypassDirectInsertCheck: true,
+      const created = await createInTransaction(tx, params.form.tableId, payload, params.actorId, "form", {
         dateConfig: params.dateConfig,
         recordAccess: params.recordAccess,
         viewer: params.viewer,

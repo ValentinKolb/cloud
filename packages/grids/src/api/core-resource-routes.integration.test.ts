@@ -273,6 +273,80 @@ describe("classic resource route contracts", () => {
         expect((await app.request(`/tables/${fixture.foreignTablePublicId}`, bearer(fixture.tokens.delegated))).status).toBe(403);
         expect((await app.request(`/views/${fixture.foreignViewPublicId}`, bearer(fixture.tokens.delegated))).status).toBe(404);
 
+        const formId = testUuid();
+        const formPublicId = testShortId("M");
+        await sql`
+          INSERT INTO grids.forms (id, short_id, table_id, name, config, is_active)
+          VALUES (${formId}::uuid, ${formPublicId}, ${fixture.tableId}::uuid, 'Public intake', '{"fields":[]}'::jsonb, TRUE)
+        `;
+        const policyInput = { policy: { mode: "selected", sources: ["direct"] } };
+        expect(
+          (await app.request(`/tables/${fixture.tablePublicId}/mutation-policy/impact`, jsonRequest(fixture.tokens.read, policyInput)))
+            .status,
+        ).toBe(403);
+        const impact = await app.request(
+          `/tables/${fixture.tablePublicId}/mutation-policy/impact`,
+          jsonRequest(fixture.tokens.admin, policyInput),
+        );
+        expect(impact.status).toBe(200);
+        expect(await impact.json()).toEqual({
+          items: [{ kind: "form", id: formPublicId, name: "Public intake" }],
+          total: 1,
+          limit: 50,
+          truncated: false,
+          complete: true,
+        });
+        const storedPolicyInput = { policy: { mode: "selected", sources: ["form"] } };
+        expect(
+          (
+            await app.request(
+              `/tables/${fixture.tablePublicId}/mutation-policy`,
+              jsonRequest(fixture.tokens.read, storedPolicyInput, "PUT"),
+            )
+          ).status,
+        ).toBe(403);
+        const updatedPolicy = await app.request(
+          `/tables/${fixture.tablePublicId}/mutation-policy`,
+          jsonRequest(fixture.tokens.admin, storedPolicyInput, "PUT"),
+        );
+        expect(updatedPolicy.status).toBe(200);
+        expect(await updatedPolicy.json()).toEqual(storedPolicyInput);
+        const unconfirmedFreeze = await app.request(
+          `/tables/${fixture.tablePublicId}/mutation-policy`,
+          jsonRequest(fixture.tokens.admin, { policy: { mode: "selected", sources: [] } }, "PUT"),
+        );
+        expect(unconfirmedFreeze.status).toBe(400);
+        const [policyAudit] = await sql<Array<{ action: string; diff: unknown }>>`
+          SELECT action, diff FROM grids.audit_log
+          WHERE table_id = ${fixture.tableId}::uuid AND action = 'mutation_policy.updated'
+          ORDER BY created_at DESC LIMIT 1
+        `;
+        expect(policyAudit).toMatchObject({ action: "mutation_policy.updated" });
+        expect(JSON.stringify(policyAudit?.diff)).not.toContain(formId);
+
+        const beforeForgedCreate = {
+          records: await count("records", "table_id", fixture.tableId),
+          sideEffects: await sideEffectCounts(fixture.baseId),
+        };
+        const forgedCreate = await app.request(`/records/by-table/${fixture.tablePublicId}?origin=form`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${fixture.tokens.admin}`,
+            "content-type": "application/json",
+            "x-grids-mutation-origin": "form",
+          },
+          body: JSON.stringify({ [fixture.uniqueFieldPublicId]: "forged-source" }),
+        });
+        expect(forgedCreate.status).toBe(403);
+        expect(await count("records", "table_id", fixture.tableId)).toBe(beforeForgedCreate.records);
+        expect(await sideEffectCounts(fixture.baseId)).toEqual(beforeForgedCreate.sideEffects);
+
+        const resetPolicy = await app.request(
+          `/tables/${fixture.tablePublicId}/mutation-policy`,
+          jsonRequest(fixture.tokens.admin, { policy: { mode: "all" } }, "PUT"),
+        );
+        expect(resetPolicy.status).toBe(200);
+
         const unknown = await app.request(`/fields/by-table/${testUuid()}`, bearer(fixture.tokens.admin));
         expect(unknown.status).toBe(404);
         expect(await unknown.json()).toEqual({ message: "Table not found" });

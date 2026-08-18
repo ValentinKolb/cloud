@@ -6,6 +6,7 @@ import {
   confirmDiscardIfDirty,
   dialogCore,
   IconInput,
+  NoticeCard,
   PanelDialog,
   panelDialogOptions,
   prompts,
@@ -134,7 +135,7 @@ function GeneralSection(props: {
   });
 
   return (
-    <PanelDialog.Section title="General" subtitle="Name and visibility scope." icon="ti ti-id">
+    <PanelDialog.Section title="General" subtitle="Choose the view’s name, display, and who can use it." icon="ti ti-id">
       <TextInput label="Name" value={name} onValueChange={(v) => patch({ name: v })} icon="ti ti-typography" required />
       <IconInput
         label="Icon"
@@ -271,7 +272,12 @@ function QuerySourceSection(props: {
   });
 
   return (
-    <PanelDialog.Section title="Query" subtitle="The saved GQL source for this view." icon="ti ti-code">
+    <PanelDialog.Section title="Query" subtitle="Choose which records appear and how they are ordered." icon="ti ti-code">
+      <NoticeCard
+        tone="info"
+        title="Control what this view shows"
+        detail="Use the query to filter, sort, and limit records. Saving it changes this view only; it does not change the records themselves."
+      />
       <label class="text-sm font-medium text-primary" for={`view-source-${props.viewId}`}>
         GQL source
       </label>

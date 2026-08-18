@@ -60,8 +60,8 @@ export default function SearchBar(props: Props) {
   };
 
   return (
-    <div class="grid w-full min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-2">
-      <div class="min-w-0">
+    <div class="flex w-full min-w-0 flex-wrap gap-2">
+      <div class="min-w-64 flex-[1_1_24rem]">
         <TextInput
           name="grids-record-search"
           type="search"
@@ -79,7 +79,7 @@ export default function SearchBar(props: Props) {
         />
       </div>
       <Show when={props.fields.length > 0}>
-        <div class="min-w-0">
+        <div class="min-w-40 flex-[0_1_16rem]">
           <MultiSelectInput
             aria-label="Search record columns"
             icon="ti ti-columns"

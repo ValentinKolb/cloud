@@ -21,6 +21,7 @@ const table = (id: string, deletedAt: string | null = null): Table => ({
   columns: [],
   displayConfig: { mode: "table" },
   auditPolicy: {},
+  mutationPolicy: { mode: "all" },
   position: 0,
   disableDirectInsert: false,
   deletedAt,

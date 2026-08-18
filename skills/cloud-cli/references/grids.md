@@ -118,13 +118,25 @@ cld grids templates instantiate inventory --name "Equipment" --use --json
 cld grids bases create Bookshop --description "Books and loans" --use --json
 cld grids tables create --name Authors --description "People who wrote books" --json
 cld grids tables get Authors --json
+cld grids tables mutation-policy Authors --json
 ```
 
 Built-in templates create complete example bases with schema, views, Grids Apps, documents, workflows, and optional sample records. Sample
 records are included by default; pass `--empty` to keep the complete configuration without those records. Commands are
 `templates list|instantiate`.
 
-Base commands are `list`, `use`, `current`, and `bases list|get|create|update|delete|restore|trash`. Table commands are `tables list|get|create|update|delete|restore|history|history enable|finalization|finalization enable|finalization disable`.
+Base commands are `list`, `use`, `current`, and `bases list|get|create|update|delete|restore|trash`. Table commands are `tables list|get|create|update|delete|restore|mutation-policy|mutation-policy impact|mutation-policy set|history|history enable|finalization|finalization enable|finalization disable`.
+
+Stored tables allow every record change source by default. Before tightening that setting, preview the active Forms, Actions, and Workflows that would stop changing the table, then apply the same policy:
+
+```bash
+cld grids tables mutation-policy impact Authors --allow direct,form --json
+cld grids tables mutation-policy set Authors --allow direct,form --json
+```
+
+The impact preview is bounded. If a table is used by more Workflows than it can inspect in one request, the result says that additional entry points may be affected.
+
+The source names are `direct`, `form`, and `workflow`; `direct` includes editing in the Base or a Grids App, Record Editor, API, CLI, and imports. Use `--allow all` for normal Grids behavior. `--allow none --yes` freezes creates, edits, trash, restore, Relations, and Files while leaving existing records readable. Permissions, field rules, audit requirements, history, and finalization still apply, and another client cannot bypass this server-side setting.
 
 Pass `--kind stored` for a normal table or `--kind federated` for a user-facing Combined table. Stored is the default.
 
@@ -1025,8 +1037,9 @@ list, use, current
 templates list|instantiate
 bases list|get|create|update|delete|restore|trash
 access reference|list|grant|set|revoke|search-principals
-tables list|get|create|update|delete|restore|history|finalization
+tables list|get|create|update|delete|restore|history|finalization|mutation-policy
 tables history enable|finalization enable|finalization disable
+tables mutation-policy impact|set
 tables combined get|candidates|publications|validate|draft|publish|revoke
 fields types|type|list|get|create|update|delete|restore|dependents|reorder
 records shape|list|query|get|create|import|export|update|finalize|delete|restore|audit|audit list|versions

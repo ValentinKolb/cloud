@@ -402,6 +402,7 @@ export const GRIDS_WORKFLOW_ACTIONS = {
             tableId: record.tableId,
             recordId: record.recordId,
             actorId: actorId(scope),
+            origin: "workflow",
             recordAccess,
             dateConfig: await dateContext(),
           }),
@@ -465,7 +466,7 @@ export const GRIDS_WORKFLOW_ACTIONS = {
         const values = fieldPayload(ctx, "set", config.set);
         const audit = auditAnswerPayload(config.audit);
         const updated = requireOk(
-          await updateRecordInTransaction(tx, record.tableId, record.recordId, values, actorId(scope), undefined, {
+          await updateRecordInTransaction(tx, record.tableId, record.recordId, values, actorId(scope), "workflow", undefined, {
             dateConfig: await dateContext(),
             recordAccess,
             viewer: viewerForScope(scope),
@@ -532,7 +533,7 @@ export const GRIDS_WORKFLOW_ACTIONS = {
         const recordAccess = await requireRecordAccess(scope, tableId, "write", tx);
         const values = fieldPayload(ctx, "values", config.values);
         const created = requireOk(
-          await createRecordInTransaction(tx, tableId, values, actorId(scope), {
+          await createRecordInTransaction(tx, tableId, values, actorId(scope), "workflow", {
             dateConfig: await dateContext(),
             recordAccess,
             viewer: viewerForScope(scope),
@@ -738,7 +739,7 @@ export const GRIDS_WORKFLOW_ACTIONS = {
             const access = await accessFor(tableId, "write");
             const values = atomicFieldPayloadAt(ctx, ["changes", changeIndex, "createRecord", "values"], change.createRecord.values);
             const result = requireOk(
-              await createRecordInTransaction(tx, tableId, values, actorId(scope), {
+              await createRecordInTransaction(tx, tableId, values, actorId(scope), "workflow", {
                 dateConfig: dates,
                 recordAccess: access,
                 viewer: viewerForScope(scope),
@@ -764,12 +765,21 @@ export const GRIDS_WORKFLOW_ACTIONS = {
           const values = atomicFieldPayloadAt(ctx, ["changes", changeIndex, "updateRecord", "set"], change.updateRecord.set);
           const audit = auditAnswerPayload(change.updateRecord.audit);
           const result = requireOk(
-            await updateRecordInTransaction(tx, record.tableId, record.recordId, values, actorId(scope), change.updateRecord.ifVersion, {
-              dateConfig: dates,
-              recordAccess: access,
-              viewer: viewerForScope(scope),
-              ...(audit ? { audit } : {}),
-            }),
+            await updateRecordInTransaction(
+              tx,
+              record.tableId,
+              record.recordId,
+              values,
+              actorId(scope),
+              "workflow",
+              change.updateRecord.ifVersion,
+              {
+                dateConfig: dates,
+                recordAccess: access,
+                viewer: viewerForScope(scope),
+                ...(audit ? { audit } : {}),
+              },
+            ),
           );
           await logAudit(
             {

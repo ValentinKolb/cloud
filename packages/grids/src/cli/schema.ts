@@ -9,7 +9,7 @@ import type {
 } from "../api/public-dto";
 import { PublicFederatedDraftInputSchema } from "../api/public-dto";
 import type { PublicRecordFinalizationStatus } from "../api/record-finalization";
-import type { TableKind } from "../contracts";
+import type { MutationSource, TableKind, TableMutationPolicy } from "../contracts";
 
 type FederatedDraftInput = ReturnType<typeof PublicFederatedDraftInputSchema.parse>;
 type FederatedTableConfig = { current: FederatedRevisionView | null; draft: FederatedRevisionView };
@@ -21,6 +21,32 @@ type FederatedSourceCandidatePage = {
   limit: number;
   offset: number;
 };
+
+type MutationPolicyImpact = {
+  items: Array<{ kind: "form" | "workflow" | "action"; id: string; name: string }>;
+  total: number;
+  limit: number;
+  truncated: boolean;
+  complete: boolean;
+};
+
+const MUTATION_SOURCES = ["direct", "form", "workflow"] as const satisfies readonly MutationSource[];
+
+const parseMutationPolicy = (value: string | undefined): TableMutationPolicy => {
+  const input = value?.trim().toLowerCase();
+  if (!input) throw new Error("Missing allowed sources. Pass --allow all, none, or a comma-separated list of direct,form,workflow.");
+  if (input === "all") return { mode: "all" };
+  if (input === "none") return { mode: "selected", sources: [] };
+  const requested = input.split(",").map((source) => source.trim());
+  const unknown = requested.filter((source) => !MUTATION_SOURCES.includes(source as MutationSource));
+  if (unknown.length > 0) {
+    throw new Error(`Unknown record change source: ${unknown.join(", ")}. Use direct, form, workflow, all, or none.`);
+  }
+  return { mode: "selected", sources: MUTATION_SOURCES.filter((source) => requested.includes(source)) };
+};
+
+const mutationPolicyText = (policy: TableMutationPolicy): string =>
+  policy.mode === "all" ? "all" : policy.sources.length === 0 ? "none" : policy.sources.join(",");
 
 import {
   baseArgs,
@@ -178,6 +204,87 @@ export const tableCommands = [
         ctx.print(`kind: ${table.kind === "federated" ? "combined" : "stored"}`);
         ctx.print(`fields: ${table.columns.length}`);
       }
+    },
+  }),
+  command("tables mutation-policy", {
+    summary: "Show where a table's record changes may start",
+    args: tableArgs,
+    flags: { ...baseFlag, ...tableFlag },
+    async run({ ctx, args, flags }) {
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
+      const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
+      if (table.kind !== "stored") throw new Error("Record change policies are only available for stored tables.");
+      if (!printCliStructured(ctx, table.mutationPolicy)) {
+        ctx.print(`Allowed record change sources for ${table.name}: ${mutationPolicyText(table.mutationPolicy)}.`);
+      }
+    },
+  }),
+  command("tables mutation-policy impact", {
+    summary: "Preview active entry points affected by a record change policy",
+    description: "Checks Forms, Actions, and Workflows that would stop changing this table before you tighten its policy.",
+    args: tableArgs,
+    flags: {
+      ...baseFlag,
+      ...tableFlag,
+      allow: flag.string({ required: true, description: "Allowed sources: all, none, or direct,form,workflow" }),
+    },
+    async run({ ctx, args, flags }) {
+      const policy = parseMutationPolicy(flags.allow);
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
+      const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
+      if (table.kind !== "stored") throw new Error("Record change policies are only available for stored tables.");
+      const impact = await readApi<MutationPolicyImpact>(
+        ctx,
+        `/tables/${encodeURIComponent(table.id)}/mutation-policy/impact`,
+        jsonRequest("POST", { policy }),
+      );
+      if (!printCliStructured(ctx, impact)) {
+        if (impact.total === 0 && impact.complete) {
+          ctx.print("No active configured Forms, Actions, or Workflows were found. The policy still applies to matching requests.");
+          return;
+        }
+        printJsonOrTable(ctx, impact, impact.items, [
+          { key: "kind", label: "KIND" },
+          { key: "name", label: "NAME" },
+          { key: "id", label: "ID" },
+        ]);
+        if (!impact.complete) {
+          ctx.print(
+            impact.total > 0
+              ? `Found at least ${impact.total} affected entry points. More Workflows may be affected than this bounded preview can list.`
+              : "More Workflows may be affected than this bounded preview can inspect.",
+          );
+        } else if (impact.truncated) {
+          ctx.print(`Showing ${impact.items.length} of ${impact.total} affected entry points.`);
+        }
+      }
+    },
+  }),
+  command("tables mutation-policy set", {
+    summary: "Set where a table's record changes may start",
+    description:
+      "The policy is enforced by the server for direct changes, Forms, Actions, Workflows, API, and CLI. Use the impact command before removing a source.",
+    args: tableArgs,
+    flags: {
+      ...baseFlag,
+      ...tableFlag,
+      allow: flag.string({ required: true, description: "Allowed sources: all, none, or direct,form,workflow" }),
+      yes: confirmFlag("Freeze all record changes when --allow none is used"),
+    },
+    async run({ ctx, args, flags }) {
+      const policy = parseMutationPolicy(flags.allow);
+      if (policy.mode === "selected" && policy.sources.length === 0 && !flags.yes) {
+        throw new Error("Pass --yes with --allow none to freeze all record changes.");
+      }
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, flags.table ? 0 : 1);
+      const table = await resolveTable(ctx, base.id, flags.table ?? requireRestArg(rest, 0, "table"));
+      if (table.kind !== "stored") throw new Error("Record change policies are only available for stored tables.");
+      const result = await readApi<{ policy: TableMutationPolicy }>(
+        ctx,
+        `/tables/${encodeURIComponent(table.id)}/mutation-policy`,
+        jsonRequest("PUT", { policy, ...(policy.mode === "selected" && policy.sources.length === 0 ? { confirmFreeze: true } : {}) }),
+      );
+      printJsonOrMessage(ctx, result, `Allowed record change sources for ${table.name}: ${mutationPolicyText(result.policy)}.`);
     },
   }),
   command("tables history", {

@@ -4,6 +4,7 @@ import { postgresTest, testShortId as shortId, testUuid as uuid } from "../integ
 import { migrate } from "../migrate";
 import { submitForm } from "./form-submission";
 import type { Form } from "./forms";
+import { update as updateMutationPolicy } from "./mutation-policy";
 
 type Fixture = {
   baseId: string;
@@ -240,6 +241,41 @@ describe("form submission integration", () => {
           (SELECT count(*)::int FROM grids.record_event_outbox WHERE base_id = ${item.baseId}::uuid) AS events
       `;
       expect({ records, events }).toEqual({ records: 2, events: 2 });
+    } finally {
+      await cleanup(item);
+    }
+  });
+
+  postgresTest("rolls back the whole submission when an inline target blocks Forms", async () => {
+    const item = fixture();
+    try {
+      await insertFixture(item);
+      const policy = await updateMutationPolicy(item.targetTableId, { mode: "selected", sources: ["direct", "workflow"] }, null);
+      if (!policy.ok) throw policy.error;
+
+      const result = await submitForm({
+        form: formFor(item),
+        actorId: null,
+        dateConfig: { timeZone: "UTC" },
+        submission: {
+          data: { [item.sourceNameFieldId]: "ORDER-BLOCKED", [item.relationFieldId]: ["tmp_contact"] },
+          inlineCreates: {
+            [item.relationFieldId]: [{ tempId: "tmp_contact", data: { [item.targetNameFieldId]: "Ada" } }],
+          },
+        },
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.status).toBe(403);
+
+      const [{ records, links, events } = { records: 0, links: 0, events: 0 }] = await sql<
+        Array<{ records: number; links: number; events: number }>
+      >`
+        SELECT
+          (SELECT count(*)::int FROM grids.records record JOIN grids.tables table_ref ON table_ref.id = record.table_id WHERE table_ref.base_id = ${item.baseId}::uuid) AS records,
+          (SELECT count(*)::int FROM grids.record_links link JOIN grids.records record ON record.id = link.from_record_id JOIN grids.tables table_ref ON table_ref.id = record.table_id WHERE table_ref.base_id = ${item.baseId}::uuid) AS links,
+          (SELECT count(*)::int FROM grids.record_event_outbox WHERE base_id = ${item.baseId}::uuid) AS events
+      `;
+      expect({ records, links, events }).toEqual({ records: 0, links: 0, events: 0 });
     } finally {
       await cleanup(item);
     }

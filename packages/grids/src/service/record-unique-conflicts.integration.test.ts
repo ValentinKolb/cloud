@@ -36,16 +36,16 @@ describe("record unique-field Postgres integration", () => {
         if (!field.ok) throw new Error(field.error.message);
         const fieldId = field.data.id;
 
-        const original = await create(tableId, { [fieldId]: "A" }, null);
+        const original = await create(tableId, { [fieldId]: "A" }, null, "direct");
         if (!original.ok) throw new Error(original.error.message);
-        expectUniqueConflict(await create(tableId, { [fieldId]: "A" }, null));
+        expectUniqueConflict(await create(tableId, { [fieldId]: "A" }, null, "direct"));
 
-        const bulk = await createMany(tableId, [{ [fieldId]: "B" }, { [fieldId]: "C" }], null);
+        const bulk = await createMany(tableId, [{ [fieldId]: "B" }, { [fieldId]: "C" }], null, "direct");
         expect(bulk.ok).toBe(true);
         const [beforeFailedBulk] = await sql<Array<{ count: number }>>`
           SELECT count(*)::int AS count FROM grids.records WHERE table_id = ${tableId}::uuid
         `;
-        expectUniqueConflict(await createMany(tableId, [{ [fieldId]: "D" }, { [fieldId]: "B" }], null));
+        expectUniqueConflict(await createMany(tableId, [{ [fieldId]: "D" }, { [fieldId]: "B" }], null, "direct"));
         const [afterFailedBulk] = await sql<Array<{ count: number }>>`
           SELECT count(*)::int AS count FROM grids.records WHERE table_id = ${tableId}::uuid
         `;
@@ -54,11 +54,11 @@ describe("record unique-field Postgres integration", () => {
         if (!bulk.ok) throw new Error(bulk.error.message);
         const updateTarget = bulk.data.find((record) => record.data[fieldId] === "C");
         if (!updateTarget) throw new Error("update target missing");
-        expectUniqueConflict(await update(tableId, updateTarget.id, { [fieldId]: "A" }, null));
+        expectUniqueConflict(await update(tableId, updateTarget.id, { [fieldId]: "A" }, null, "direct"));
 
-        expect((await softDelete(tableId, original.data.id, null)).ok).toBe(true);
-        expect((await create(tableId, { [fieldId]: "A" }, null)).ok).toBe(true);
-        expectUniqueConflict(await restore(tableId, original.data.id, null));
+        expect((await softDelete(tableId, original.data.id, null, "direct")).ok).toBe(true);
+        expect((await create(tableId, { [fieldId]: "A" }, null, "direct")).ok).toBe(true);
+        expectUniqueConflict(await restore(tableId, original.data.id, null, "direct"));
         const [deleted] = await sql<Array<{ deleted: boolean }>>`
           SELECT deleted_at IS NOT NULL AS deleted FROM grids.records WHERE id = ${original.data.id}::uuid
         `;

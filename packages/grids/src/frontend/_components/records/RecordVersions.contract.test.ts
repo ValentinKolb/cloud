@@ -5,6 +5,8 @@ describe("record durable history UI contract", () => {
     const source = await Bun.file(new URL("./RecordVersions.island.tsx", import.meta.url)).text();
     expect(source).toContain("query.createInfinite");
     expect(source).toContain("RECORD_VERSION_PAGE_SIZE = 5");
+    expect(source).toContain('title="Durable history"');
+    expect(source).toContain('<StatusBadge tone="ok" variant="text" label="On" />');
     expect(source).toContain("<DetailPanel.Group");
     expect(source).toContain("<DetailPanel.Section");
     expect(source).toContain("<DetailPanel.Action");
@@ -13,12 +15,12 @@ describe("record durable history UI contract", () => {
   });
 
   test("uses the shared irreversible confirmation in table settings", async () => {
-    const source = await Bun.file(new URL("../dialogs/TableAdminDialogs.tsx", import.meta.url)).text();
-    expect(source).toContain('title="History and protection"');
+    const source = await Bun.file(new URL("../dialogs/HistoryProtectionDialog.tsx", import.meta.url)).text();
+    expect(source).toContain('title="Durable history"');
     expect(source).toContain("prompts.confirm(");
     expect(source).toContain('confirmText: "Enable durable history"');
-    expect(source).toContain("Earlier changes are not reconstructed");
-    expect(source).toContain("historyLoadError");
+    expect(source).toContain("Earlier changes are not added later");
+    expect(source).toContain("statusQuery.error()");
     expect(source).toContain("Retry");
     expect(source).not.toContain("Disable durable history");
   });

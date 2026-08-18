@@ -111,6 +111,7 @@ const catalogWithAuthoringResources = (): CustomAppCatalog => {
       columns: [],
       displayConfig: { mode: "table" },
       auditPolicy: {},
+      mutationPolicy: { mode: "all" },
       position: 0,
       disableDirectInsert: false,
       deletedAt: null,
