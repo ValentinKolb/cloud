@@ -1103,6 +1103,12 @@ const migrateDocumentArtifacts = async (sql: SQL): Promise<void> => {
       tags TEXT[] NOT NULL DEFAULT '{}',
       template_snapshot JSONB NOT NULL,
       render_data JSONB NOT NULL,
+      artifact_file_id UUID NOT NULL REFERENCES grids.files(id) ON DELETE RESTRICT,
+      artifact_mime_type TEXT NOT NULL,
+      artifact_size_bytes INT NOT NULL,
+      artifact_sha256 TEXT NOT NULL,
+      renderer_version TEXT NOT NULL,
+      template_revision TEXT NOT NULL,
       generated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       CONSTRAINT document_runs_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$'),
@@ -1122,6 +1128,15 @@ const migrateDocumentArtifacts = async (sql: SQL): Promise<void> => {
   await sql`ALTER TABLE grids.document_runs ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'`.simple();
   await sql`UPDATE grids.document_runs SET tags = '{}' WHERE tags IS NULL`.simple();
   await sql`ALTER TABLE grids.document_runs ALTER COLUMN tags SET NOT NULL`.simple();
+  await sql`
+    ALTER TABLE grids.document_runs
+    ADD COLUMN IF NOT EXISTS artifact_file_id UUID REFERENCES grids.files(id) ON DELETE RESTRICT
+  `.simple();
+  await sql`ALTER TABLE grids.document_runs ADD COLUMN IF NOT EXISTS artifact_mime_type TEXT`.simple();
+  await sql`ALTER TABLE grids.document_runs ADD COLUMN IF NOT EXISTS artifact_size_bytes INT`.simple();
+  await sql`ALTER TABLE grids.document_runs ADD COLUMN IF NOT EXISTS artifact_sha256 TEXT`.simple();
+  await sql`ALTER TABLE grids.document_runs ADD COLUMN IF NOT EXISTS renderer_version TEXT`.simple();
+  await sql`ALTER TABLE grids.document_runs ADD COLUMN IF NOT EXISTS template_revision TEXT`.simple();
   await sql`
     DO $$
     BEGIN
@@ -1204,6 +1219,54 @@ const migrateDocumentArtifacts = async (sql: SQL): Promise<void> => {
     WHERE revoked_at IS NULL
   `.simple();
   console.log("  ✓ grids.document_links");
+};
+
+const finalizeDocumentArtifacts = async (sql: SQL): Promise<void> => {
+  await sql`
+    DELETE FROM grids.document_runs
+    WHERE artifact_file_id IS NULL
+       OR artifact_mime_type IS NULL
+       OR artifact_size_bytes IS NULL
+       OR artifact_sha256 IS NULL
+       OR renderer_version IS NULL
+       OR template_revision IS NULL
+  `.simple();
+  await sql`ALTER TABLE grids.document_runs ALTER COLUMN artifact_file_id SET NOT NULL`.simple();
+  await sql`ALTER TABLE grids.document_runs ALTER COLUMN artifact_mime_type SET NOT NULL`.simple();
+  await sql`ALTER TABLE grids.document_runs ALTER COLUMN artifact_size_bytes SET NOT NULL`.simple();
+  await sql`ALTER TABLE grids.document_runs ALTER COLUMN artifact_sha256 SET NOT NULL`.simple();
+  await sql`ALTER TABLE grids.document_runs ALTER COLUMN renderer_version SET NOT NULL`.simple();
+  await sql`ALTER TABLE grids.document_runs ALTER COLUMN template_revision SET NOT NULL`.simple();
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'document_runs_artifact_complete_chk'
+          AND connamespace = 'grids'::regnamespace
+          AND pg_get_constraintdef(oid) LIKE '%artifact_file_id IS NULL%'
+      ) THEN
+        ALTER TABLE grids.document_runs DROP CONSTRAINT document_runs_artifact_complete_chk;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'document_runs_artifact_complete_chk' AND connamespace = 'grids'::regnamespace
+      ) THEN
+        ALTER TABLE grids.document_runs
+        ADD CONSTRAINT document_runs_artifact_complete_chk CHECK (
+          artifact_mime_type = 'application/pdf'
+          AND artifact_size_bytes > 0
+          AND artifact_sha256 ~ '^[a-f0-9]{64}$'
+          AND length(renderer_version) > 0
+          AND template_revision ~ '^[a-f0-9]{64}$'
+        );
+      END IF;
+    END $$;
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_document_runs_artifact_file
+    ON grids.document_runs(artifact_file_id)
+  `.simple();
 };
 
 const migrateNumberSeries = async (sql: SQL): Promise<void> => {
@@ -1423,7 +1486,7 @@ const migrateNumberSeries = async (sql: SQL): Promise<void> => {
           ${template.id}::uuid,
           ${template.deletedAt},
           'inferred_from_document_runs',
-          'Legacy document runs did not store allocations; the run count is the conservative baseline.'
+          'Artifact-less alpha document runs did not store allocations; the run count is the conservative baseline.'
         )
         RETURNING id::text
       `;
@@ -2093,6 +2156,7 @@ export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
     await migrateDocumentTemplates(connection);
     await migrateDocumentArtifacts(connection);
     await migrateNumberSeries(connection);
+    await finalizeDocumentArtifacts(connection);
     await cleanupAlphaSchema(connection);
     await migrateFormsAndEvents(connection);
     await migrateCustomApps(connection);

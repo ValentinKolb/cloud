@@ -3,6 +3,7 @@ import type { User } from "@valentinkolb/cloud/contracts";
 import type { AuthContext } from "@valentinkolb/cloud/server";
 import { sql } from "bun";
 import { Hono, type MiddlewareHandler } from "hono";
+import { insertTestDocumentArtifact } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { createDocumentsApi } from "./documents";
 
@@ -17,6 +18,8 @@ type DocumentLinkApiFixture = {
   recordId: string;
   snapshotId: string;
   runId: string;
+  runShortId: string;
+  artifactFileId: string;
   accessIds: string[];
 };
 
@@ -77,6 +80,7 @@ const insertFixture = async (userId: string): Promise<DocumentLinkApiFixture> =>
   const recordId = uuid();
   const snapshotId = uuid();
   const runId = uuid();
+  const runShortId = shortId("D");
   const documentNumber = `INV-API-${runId.slice(0, 8)}`;
 
   await sql`
@@ -88,9 +92,14 @@ const insertFixture = async (userId: string): Promise<DocumentLinkApiFixture> =>
     VALUES (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Invoices', 0)
   `;
   await sql`
-    INSERT INTO grids.record_snapshots (id, base_id, table_id, record_id, root, graph)
+    INSERT INTO grids.records (id, short_id, table_id, data)
+    VALUES (${recordId}::uuid, ${shortId("R")}, ${tableId}::uuid, '{}'::jsonb)
+  `;
+  await sql`
+    INSERT INTO grids.record_snapshots (id, short_id, base_id, table_id, record_id, root, graph)
     VALUES (
       ${snapshotId}::uuid,
+      ${shortId("S")},
       ${baseId}::uuid,
       ${tableId}::uuid,
       ${recordId}::uuid,
@@ -98,14 +107,16 @@ const insertFixture = async (userId: string): Promise<DocumentLinkApiFixture> =>
       ${{ rootId: `${tableId}:${recordId}`, records: {} }}::jsonb
     )
   `;
+  const artifact = await insertTestDocumentArtifact({ runId, baseId, tableId, recordId });
   await sql`
     INSERT INTO grids.document_runs (
       id, short_id, template_id, snapshot_id, base_id, table_id, record_id,
-      document_number, filename, tags, template_snapshot, render_data
+      document_number, filename, tags, template_snapshot, render_data,
+      artifact_file_id, artifact_mime_type, artifact_size_bytes, artifact_sha256, renderer_version, template_revision
     )
     VALUES (
       ${runId}::uuid,
-      ${shortId("D")},
+      ${runShortId},
       NULL,
       ${snapshotId}::uuid,
       ${baseId}::uuid,
@@ -115,7 +126,9 @@ const insertFixture = async (userId: string): Promise<DocumentLinkApiFixture> =>
       'invoice-api-1.pdf',
       '{}'::text[],
       ${{ html: "<p>{{ document.number }}</p>", headerHtml: null, footerHtml: null, pageCss: null }}::jsonb,
-      ${{ document: { number: documentNumber, generatedAt: "2026-07-07T00:00:00.000Z" } }}::jsonb
+      ${{ document: { number: documentNumber, generatedAt: "2026-07-07T00:00:00.000Z" } }}::jsonb,
+      ${artifact.fileId}::uuid, ${artifact.mimeType}, ${artifact.sizeBytes}, ${artifact.sha256},
+      ${artifact.rendererVersion}, ${artifact.templateRevision}
     )
   `;
 
@@ -125,11 +138,18 @@ const insertFixture = async (userId: string): Promise<DocumentLinkApiFixture> =>
     recordId,
     snapshotId,
     runId,
+    runShortId,
+    artifactFileId: artifact.fileId,
     accessIds: [await insertAccess(baseId, userId, "read")],
   };
 };
 
 const cleanupFixture = async (fixture: DocumentLinkApiFixture): Promise<void> => {
+  await sql`DELETE FROM grids.document_links WHERE document_run_id = ${fixture.runId}::uuid`;
+  await sql`DELETE FROM grids.document_runs WHERE id = ${fixture.runId}::uuid`;
+  await sql`DELETE FROM grids.file_protected_references WHERE owner_kind = 'document_artifact' AND owner_id = ${fixture.runId}::uuid`;
+  await sql`DELETE FROM grids.files WHERE id = ${fixture.artifactFileId}::uuid`;
+  await sql`DELETE FROM grids.record_snapshots WHERE id = ${fixture.snapshotId}::uuid`;
   await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
   for (const accessId of fixture.accessIds) {
     await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;
@@ -152,7 +172,7 @@ describe("document link API permissions", () => {
     const app = apiFor(testUser(userId));
     const fixture = await insertFixture(userId);
     try {
-      const linksPath = `/documents/runs/${fixture.runId}/links`;
+      const linksPath = `/documents/runs/${fixture.runShortId}/links`;
       const readList = await app.request(linksPath);
       expect(readList.status).toBe(403);
 

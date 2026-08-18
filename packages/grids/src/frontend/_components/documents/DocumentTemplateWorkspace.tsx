@@ -174,6 +174,18 @@ export default function DocumentTemplateWorkspace(props: Props) {
     if (!props.canWriteTemplate) return;
     void openDocumentLinkDialog({ run, onCreated: async () => {} });
   };
+  const openGenerate = (recordId = props.initialRecordId, mode: "generate" | "generate-again" = "generate") => {
+    if (!props.canWriteTemplate) return;
+    void openDocumentGenerateDialog({
+      table: props.table,
+      template: props.template,
+      initialRecordId: recordId,
+      mode,
+      onGenerated: async () => {
+        await refetchBrowser();
+      },
+    });
+  };
   const openRunDetails = (run: PublicDocumentRunSummary) =>
     void openDocumentRunDetailsDialog({
       run,
@@ -181,18 +193,8 @@ export default function DocumentTemplateWorkspace(props: Props) {
       dateConfig: props.dateConfig,
       onSaved: replaceRun,
       onDownload: (item) => downloadRun(item),
+      onGenerateAgain: (item) => openGenerate(item.recordId, "generate-again"),
     });
-  const openGenerate = () => {
-    if (!props.canWriteTemplate) return;
-    void openDocumentGenerateDialog({
-      table: props.table,
-      template: props.template,
-      initialRecordId: props.initialRecordId,
-      onGenerated: async () => {
-        await refetchBrowser();
-      },
-    });
-  };
 
   const downloadMut = mutations.create<void, PublicDocumentRunSummary, { runId: string }>({
     onBefore: (run) => {
@@ -221,7 +223,7 @@ export default function DocumentTemplateWorkspace(props: Props) {
         activeMode={activeViewMode() === "folders" ? "folders" : "list"}
         searching={Boolean(search().trim())}
         countLabel={countLabel()}
-        onGenerate={openGenerate}
+        onGenerate={() => openGenerate()}
         onMode={setMode}
       />
       <Show when={props.editMode && props.canManageTemplate ? props.editableTemplate : null}>

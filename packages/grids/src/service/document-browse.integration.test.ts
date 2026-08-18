@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect } from "bun:test";
 import { sql } from "bun";
-import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
+import { insertTestDocumentArtifact, postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import {
   browseRunsForTemplate,
@@ -20,6 +20,7 @@ type Fixture = {
   workflowId: string;
   workflowRunId: string;
   runIds: string[];
+  artifactFileIds: string[];
 };
 
 beforeAll(async () => {
@@ -46,8 +47,8 @@ const insertFixture = async (): Promise<Fixture> => {
     VALUES (${templateId}::uuid, ${testShortId("D")}, ${tableId}::uuid, 'Invoice', 'from table Invoices', '<p>Invoice</p>')
   `;
   await sql`
-    INSERT INTO grids.record_snapshots (id, base_id, table_id, record_id, root, graph)
-    VALUES (${snapshotId}::uuid, ${baseId}::uuid, ${tableId}::uuid, ${recordId}::uuid, '{}'::jsonb, '{}'::jsonb)
+    INSERT INTO grids.record_snapshots (id, short_id, base_id, table_id, record_id, root, graph)
+    VALUES (${snapshotId}::uuid, ${testShortId("S")}, ${baseId}::uuid, ${tableId}::uuid, ${recordId}::uuid, '{}'::jsonb, '{}'::jsonb)
   `;
   await insertTestWorkflow({
     id: workflowId,
@@ -66,23 +67,32 @@ const insertFixture = async (): Promise<Fixture> => {
     { id: runIds[3]!, number: "INV-103", filename: "invoice-103.pdf", tags: ["internal"], at: "2026-03-01T10:00:00.000Z" },
     { id: runIds[4]!, number: "INV-104", filename: "invoice-104.pdf", tags: [], at: "2026-03-01T10:00:00.000Z" },
   ];
+  const artifactFileIds: string[] = [];
   for (const row of rows) {
+    const artifact = await insertTestDocumentArtifact({ runId: row.id, baseId, tableId, recordId });
+    artifactFileIds.push(artifact.fileId);
     await sql`
       INSERT INTO grids.document_runs (
         id, short_id, template_id, snapshot_id, base_id, table_id, record_id,
-        workflow_run_id, document_number, filename, tags, template_snapshot, render_data, generated_at
+        workflow_run_id, document_number, filename, tags, template_snapshot, render_data,
+        artifact_file_id, artifact_mime_type, artifact_size_bytes, artifact_sha256, renderer_version, template_revision,
+        generated_at
       ) VALUES (
         ${row.id}::uuid, ${testShortId("R")}, ${templateId}::uuid, ${snapshotId}::uuid, ${baseId}::uuid,
         ${tableId}::uuid, ${recordId}::uuid, ${workflowRunId}::uuid, ${row.number}, ${row.filename}, ${sql.array(row.tags, "TEXT")},
-        '{}'::jsonb, '{}'::jsonb, ${row.at}::timestamptz
+        '{}'::jsonb, '{}'::jsonb,
+        ${artifact.fileId}::uuid, ${artifact.mimeType}, ${artifact.sizeBytes}, ${artifact.sha256},
+        ${artifact.rendererVersion}, ${artifact.templateRevision}, ${row.at}::timestamptz
       )
     `;
   }
-  return { baseId, tableId, templateId, snapshotId, recordId, workflowId, workflowRunId, runIds };
+  return { baseId, tableId, templateId, snapshotId, recordId, workflowId, workflowRunId, runIds, artifactFileIds };
 };
 
 const cleanupFixture = async (fixture: Fixture): Promise<void> => {
   await sql`DELETE FROM grids.document_runs WHERE template_id = ${fixture.templateId}::uuid`;
+  await sql`DELETE FROM grids.file_protected_references WHERE owner_kind = 'document_artifact' AND owner_id = ANY(${sql.array(fixture.runIds, "UUID")}::uuid[])`;
+  await sql`DELETE FROM grids.files WHERE id = ANY(${sql.array(fixture.artifactFileIds, "UUID")}::uuid[])`;
   await sql`DELETE FROM grids.record_snapshots WHERE id = ${fixture.snapshotId}::uuid`;
   await deleteTestWorkflowScope(fixture.baseId);
   await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
@@ -94,6 +104,7 @@ describe("document browsing integration", () => {
     try {
       const escaped = await listRunsForTemplate({ templateId: fixture.templateId, q: "%_done\\" });
       expect(escaped.items.map((run) => run.id)).toEqual([fixture.runIds[0]!]);
+      expect(escaped.items[0]?.artifact.mimeType).toBe("application/pdf");
 
       const tagged = await listRunsForTemplate({ templateId: fixture.templateId, tags: [" customer ", "paid", "paid"] });
       expect(new Set(tagged.items.map((run) => run.id))).toEqual(new Set([fixture.runIds[0]!, fixture.runIds[2]!]));

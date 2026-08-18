@@ -56,23 +56,43 @@ export const mapRecordSnapshotSummary = (row: DocumentDbRow): RecordSnapshotSumm
   createdAt: (row.created_at as Date).toISOString(),
 });
 
-export const mapDocumentRun = (row: DocumentDbRow): DocumentRun => ({
-  id: row.id as string,
-  shortId: row.short_id as string,
-  templateId: (row.template_id as string | null) ?? null,
-  workflowRunId: (row.workflow_run_id as string | null) ?? null,
-  snapshotId: row.snapshot_id as string,
-  baseId: row.base_id as string,
-  tableId: row.table_id as string,
-  recordId: row.record_id as string,
-  documentNumber: row.document_number as string,
-  filename: (row.filename as string | null) ?? `${row.document_number as string}.pdf`,
-  tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
-  templateSnapshot: parseJsonbRow<Record<string, unknown>>(row.template_snapshot, {}),
-  renderData: parseJsonbRow<Record<string, unknown>>(row.render_data, {}),
-  generatedBy: (row.generated_by as string | null) ?? null,
-  generatedAt: (row.generated_at as Date).toISOString(),
-});
+export const mapDocumentRun = (row: DocumentDbRow): DocumentRun => {
+  if (
+    !row.artifact_file_id ||
+    row.artifact_mime_type !== "application/pdf" ||
+    !row.artifact_size_bytes ||
+    !row.artifact_sha256 ||
+    !row.renderer_version ||
+    !row.template_revision
+  ) {
+    throw new Error("document run artifact invariant violated");
+  }
+  return {
+    id: row.id as string,
+    shortId: row.short_id as string,
+    templateId: (row.template_id as string | null) ?? null,
+    workflowRunId: (row.workflow_run_id as string | null) ?? null,
+    snapshotId: row.snapshot_id as string,
+    baseId: row.base_id as string,
+    tableId: row.table_id as string,
+    recordId: row.record_id as string,
+    documentNumber: row.document_number as string,
+    filename: (row.filename as string | null) ?? `${row.document_number as string}.pdf`,
+    tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
+    templateSnapshot: parseJsonbRow<Record<string, unknown>>(row.template_snapshot, {}),
+    renderData: parseJsonbRow<Record<string, unknown>>(row.render_data, {}),
+    artifactFileId: row.artifact_file_id as string,
+    artifact: {
+      mimeType: "application/pdf",
+      sizeBytes: Number(row.artifact_size_bytes),
+      sha256: String(row.artifact_sha256),
+      rendererVersion: String(row.renderer_version),
+      templateRevision: String(row.template_revision),
+    },
+    generatedBy: (row.generated_by as string | null) ?? null,
+    generatedAt: (row.generated_at as Date).toISOString(),
+  };
+};
 
 export const mapDocumentLink = (row: DocumentDbRow): DocumentLink => ({
   id: row.id as string,
@@ -115,6 +135,7 @@ export const summarizeDocumentRun = (run: DocumentRun): DocumentRunSummary => ({
   documentNumber: run.documentNumber,
   filename: run.filename,
   tags: run.tags,
+  artifact: run.artifact,
   generatedBy: run.generatedBy,
   generatedAt: run.generatedAt,
 });

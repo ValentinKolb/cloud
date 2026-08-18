@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "bun";
+import { insertTestDocumentArtifact } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import {
   createDocumentLink,
@@ -21,6 +22,7 @@ type DocumentLinkFixture = {
   recordId: string;
   snapshotId: string;
   runId: string;
+  artifactFileId: string;
 };
 
 const insertFixture = async (): Promise<DocumentLinkFixture> => {
@@ -40,9 +42,10 @@ const insertFixture = async (): Promise<DocumentLinkFixture> => {
     VALUES (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Invoices', 0)
   `;
   await sql`
-    INSERT INTO grids.record_snapshots (id, base_id, table_id, record_id, root, graph)
+    INSERT INTO grids.record_snapshots (id, short_id, base_id, table_id, record_id, root, graph)
     VALUES (
       ${snapshotId}::uuid,
+      ${shortId("S")},
       ${baseId}::uuid,
       ${tableId}::uuid,
       ${recordId}::uuid,
@@ -50,10 +53,12 @@ const insertFixture = async (): Promise<DocumentLinkFixture> => {
       ${{ rootId: `${tableId}:${recordId}`, records: {} }}::jsonb
     )
   `;
+  const artifact = await insertTestDocumentArtifact({ runId, baseId, tableId, recordId });
   await sql`
     INSERT INTO grids.document_runs (
       id, short_id, template_id, snapshot_id, base_id, table_id, record_id,
-      document_number, filename, tags, template_snapshot, render_data
+      document_number, filename, tags, template_snapshot, render_data,
+      artifact_file_id, artifact_mime_type, artifact_size_bytes, artifact_sha256, renderer_version, template_revision
     )
     VALUES (
       ${runId}::uuid,
@@ -67,16 +72,20 @@ const insertFixture = async (): Promise<DocumentLinkFixture> => {
       'invoice-1.pdf',
       '{}'::text[],
       ${{ html: "<p>{{ document.number }}</p>", headerHtml: null, footerHtml: null, pageCss: null }}::jsonb,
-      ${{ document: { number: documentNumber, generatedAt: "2026-07-07T00:00:00.000Z" } }}::jsonb
+      ${{ document: { number: documentNumber, generatedAt: "2026-07-07T00:00:00.000Z" } }}::jsonb,
+      ${artifact.fileId}::uuid, ${artifact.mimeType}, ${artifact.sizeBytes}, ${artifact.sha256},
+      ${artifact.rendererVersion}, ${artifact.templateRevision}
     )
   `;
 
-  return { baseId, tableId, recordId, snapshotId, runId };
+  return { baseId, tableId, recordId, snapshotId, runId, artifactFileId: artifact.fileId };
 };
 
 const cleanupFixture = async (fixture: DocumentLinkFixture): Promise<void> => {
   await sql`DELETE FROM grids.document_links WHERE document_run_id = ${fixture.runId}::uuid`;
   await sql`DELETE FROM grids.document_runs WHERE id = ${fixture.runId}::uuid`;
+  await sql`DELETE FROM grids.file_protected_references WHERE owner_kind = 'document_artifact' AND owner_id = ${fixture.runId}::uuid`;
+  await sql`DELETE FROM grids.files WHERE id = ${fixture.artifactFileId}::uuid`;
   await sql`DELETE FROM grids.record_snapshots WHERE id = ${fixture.snapshotId}::uuid`;
   await sql`DELETE FROM grids.tables WHERE id = ${fixture.tableId}::uuid`;
   await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;

@@ -5,6 +5,7 @@ import { migrate } from "../migrate";
 import { listByTable } from "./fields";
 import { createReader } from "./record-read";
 import { attachRelationExpansion } from "./relation-expansion";
+import { lookupRecords } from "./relation-labels";
 import type { GridRecord } from "./types";
 
 beforeAll(async () => {
@@ -19,6 +20,7 @@ describe("relation expansion integration", () => {
     const targetTableId = testUuid();
     const relationFieldId = testUuid();
     const lookupFieldId = testUuid();
+    const nameFieldId = testUuid();
     const labelFieldId = testUuid();
     const sourceRecordId = testUuid();
     const targetRecordId = testUuid();
@@ -37,12 +39,13 @@ describe("relation expansion integration", () => {
         INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position, presentable) VALUES
           (${relationFieldId}::uuid, ${testShortId("F")}, ${sourceTableId}::uuid, 'Target', 'relation', ${{ targetTableId }}::jsonb, 0, FALSE),
           (${lookupFieldId}::uuid, ${testShortId("F")}, ${sourceTableId}::uuid, 'Target name', 'lookup', ${{ relationFieldId, targetFieldId: labelFieldId }}::jsonb, 1, FALSE),
-          (${labelFieldId}::uuid, ${testShortId("F")}, ${targetTableId}::uuid, 'Name', 'text', '{}'::jsonb, 0, TRUE)
+          (${nameFieldId}::uuid, ${testShortId("F")}, ${targetTableId}::uuid, 'Name', 'text', '{}'::jsonb, 0, FALSE),
+          (${labelFieldId}::uuid, ${testShortId("F")}, ${targetTableId}::uuid, 'Display name', 'formula', ${{ expression: 'IFEMPTY("Name", "Name")' }}::jsonb, 1, TRUE)
       `;
       await sql`
-        INSERT INTO grids.records (id, table_id, data) VALUES
-          (${sourceRecordId}::uuid, ${sourceTableId}::uuid, ${{ [relationFieldId]: [targetRecordId] }}::jsonb),
-          (${targetRecordId}::uuid, ${targetTableId}::uuid, ${{ [labelFieldId]: "Secret target" }}::jsonb)
+        INSERT INTO grids.records (id, short_id, table_id, data) VALUES
+          (${sourceRecordId}::uuid, ${testShortId("R")}, ${sourceTableId}::uuid, ${{ [relationFieldId]: [targetRecordId] }}::jsonb),
+          (${targetRecordId}::uuid, ${testShortId("R")}, ${targetTableId}::uuid, ${{ [nameFieldId]: "Secret target" }}::jsonb)
       `;
       await sql`
         INSERT INTO grids.record_links (from_record_id, from_field_id, to_record_id, position)
@@ -80,6 +83,9 @@ describe("relation expansion integration", () => {
       const readable = record();
       await attachRelationExpansion([readable], sourceFields, { userId, userGroups: [] });
       expect(readable.expanded).toEqual({ [targetRecordId]: { [labelFieldId]: "Secret target" } });
+      expect((await lookupRecords({ targetTableId })).items).toEqual([{ id: targetRecordId, label: "Secret target" }]);
+      expect((await lookupRecords({ targetTableId, q: "secret" })).items).toEqual([{ id: targetRecordId, label: "Secret target" }]);
+      expect((await lookupRecords({ targetTableId, q: "missing" })).items).toEqual([]);
       const readableRead = await (await createReader(sourceTableId, { fields: sourceFields, viewer: { userId, userGroups: [] } })).get(
         sourceRecordId,
       );

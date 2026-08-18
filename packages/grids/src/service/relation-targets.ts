@@ -5,6 +5,7 @@ import { mapFieldRow } from "./field-read";
 import { parseJsonbRow } from "./jsonb";
 import { liveRecordParentJoinSql } from "./parent-checks";
 import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
+import { enrichRecordsWithFormulas } from "./relation-formulas";
 import { readRecordLinksBatch } from "./relation-links";
 import { get as getTable } from "./tables";
 import type { Field, GridRecord } from "./types";
@@ -163,6 +164,9 @@ export const loadRelationTargetsBatch = async (
       id: row.id,
       data: parseJsonbRow<Record<string, unknown>>(row.data, {}),
     }));
+  }
+  for (const [targetTableId, targets] of targetsByTable) {
+    enrichRecordsWithFormulas(targets.records, fieldsByTable.get(targetTableId) ?? []);
   }
   return targetsByTable;
 };

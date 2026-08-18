@@ -241,7 +241,7 @@ export const gridsService = {
     recordDocumentLinkAccess: documents.recordDocumentLinkAccess,
     publicDocumentLinkPath: documents.publicDocumentLinkPath,
     publicDocumentLinkUrl: documents.publicDocumentLinkUrl,
-    renderRunPdf: documents.renderRunPdf,
+    getRunPdf: documents.getRunPdf,
     renderWorkflowRunPdf: documents.renderWorkflowRunPdf,
   },
   emailTemplate: {

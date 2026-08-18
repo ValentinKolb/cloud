@@ -1,5 +1,5 @@
 import { mutation as mutations } from "@k2b/stdlib/solid";
-import { Button, dialogCore, NoticeCard, PanelDialog, PdfPreview, panelDialogWideOptions, prompts, TagsInput, TextInput } from "@k2b/ui";
+import { Button, dialogCore, NoticeCard, PanelDialog, PdfPreview, panelDialogFixedOptions, prompts, TagsInput, TextInput } from "@k2b/ui";
 import { createSignal } from "solid-js";
 import type { PublicTable as Table } from "../../../api/public-dto";
 import RecordPicker from "../records/RecordPicker";
@@ -11,11 +11,15 @@ type DocumentGenerateDialogArgs = {
   table: Table;
   template: PublicDocumentTemplateSummary;
   initialRecordId: string | null;
+  mode?: "generate" | "generate-again";
   onGenerated: () => void | Promise<void>;
 };
 
 export const openDocumentGenerateDialog = (args: DocumentGenerateDialogArgs) =>
-  dialogCore.open<void>((close) => <DocumentGenerateDialog args={args} close={close} />, panelDialogWideOptions);
+  dialogCore.open<void>((close) => <DocumentGenerateDialog args={args} close={close} />, {
+    ...panelDialogFixedOptions,
+    panelClassName: `${panelDialogFixedOptions.panelClassName} is-wide`,
+  });
 
 function DocumentGenerateDialog(props: { args: DocumentGenerateDialogArgs; close: () => void }) {
   const [recordId, setRecordId] = createSignal(props.args.initialRecordId ?? "");
@@ -64,7 +68,7 @@ function DocumentGenerateDialog(props: { args: DocumentGenerateDialogArgs; close
   return (
     <PanelDialog>
       <PanelDialog.Header
-        title={`Generate — ${props.args.template.name}`}
+        title={`${props.args.mode === "generate-again" ? "Generate again" : "Generate"} — ${props.args.template.name}`}
         subtitle={props.args.table.name}
         icon="ti ti-file-type-pdf"
         close={props.close}
@@ -77,25 +81,33 @@ function DocumentGenerateDialog(props: { args: DocumentGenerateDialogArgs; close
             value={recordId}
             onChange={setSelectedRecord}
             label="Record"
+            description="Choose the record whose current data should be used for this PDF."
             placeholder="Search records..."
           />
           <TextInput
             label="Filename"
-            description="Optional override. Leave empty to use the template's Liquid filename pattern."
+            description="Optional. Leave empty to use the filename defined by the template."
             value={filename}
             onValueChange={setFilename}
             icon="ti ti-file-text"
             placeholder="Use template default"
           />
-          <TagsInput label="Tags" placeholder="customer, signed, 2026" value={tags} onValueChange={setTags} />
-          <NoticeCard tone="info" icon={false}>
-            <i class="ti ti-camera" />
-            Generating stores a recursive snapshot. Redownloads use the stored snapshot and filename.
-          </NoticeCard>
+          <TagsInput
+            label="Tags"
+            description="Optional labels for finding and organizing the generated document."
+            placeholder="customer, signed, 2026"
+            value={tags}
+            onValueChange={setTags}
+          />
+          <NoticeCard
+            tone="info"
+            title="The generated PDF stays unchanged"
+            detail="Later changes to the record or template do not update it. Generate again to create a new PDF."
+          />
         </section>
         <PdfPreview
           title="PDF preview"
-          class="min-h-[30rem] shrink-0"
+          class="h-[min(56rem,62dvh)] min-h-[36rem] shrink-0"
           buttonLabel="Render preview"
           emptyText="Choose a record and render a PDF preview before generating."
           disabled={() => !recordId().trim()}
@@ -116,7 +128,7 @@ function DocumentGenerateDialog(props: { args: DocumentGenerateDialogArgs; close
             disabled={generateMut.loading() || !hasCurrentPreview()}
           >
             {generateMut.loading() ? <i class="ti ti-loader-2 animate-spin" /> : <i class="ti ti-download" />}
-            Generate PDF
+            {props.args.mode === "generate-again" ? "Generate again" : "Generate PDF"}
           </Button>
         </div>
       </PanelDialog.Footer>

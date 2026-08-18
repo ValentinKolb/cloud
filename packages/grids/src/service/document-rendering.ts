@@ -45,7 +45,7 @@ const DOCUMENT_QUERY_MAX_ROWS = 10_000;
 const DOCUMENT_IMAGE_MAX_BYTES = 2_000_000;
 const DOCUMENT_IMAGE_MAX_COUNT = 12;
 
-type DocumentTemplateRecordContext = Pick<GridRecord, "id" | "tableId" | "version" | "data" | "createdAt" | "updatedAt">;
+type DocumentTemplateRecordContext = Pick<GridRecord, "id" | "shortId" | "tableId" | "version" | "data" | "createdAt" | "updatedAt">;
 type DocumentTemplateTableContext = Pick<Table, "id" | "shortId" | "name">;
 type DocumentTemplateRecordMeta = {
   scan?: {
@@ -189,8 +189,9 @@ export const buildTemplateInputContext = (
 ): Record<string, unknown> => ({
   record: recordContextWithMeta(
     {
-      id: record.id,
-      tableId: record.tableId,
+      id: record.shortId,
+      shortId: record.shortId,
+      tableId: table.shortId,
       version: record.version,
       data: record.data,
       createdAt: record.createdAt,
@@ -199,7 +200,7 @@ export const buildTemplateInputContext = (
     recordMeta,
   ),
   table: {
-    id: table.id,
+    id: table.shortId,
     shortId: table.shortId,
     name: table.name,
   },
@@ -447,7 +448,9 @@ export const buildDocumentRunRenderData = async (params: {
   return ok({ documentNumber: documentNumber.data, filename, tags, data });
 };
 
-export const renderRunPdf = async (run: DocumentRun): Promise<Result<RenderHtmlToPdfResult>> => {
+export const renderRunPdf = async (
+  run: Pick<DocumentRun, "templateSnapshot" | "renderData" | "filename">,
+): Promise<Result<RenderHtmlToPdfResult>> => {
   const rendered = await renderTemplatePdfPreview({
     htmlTemplate: String(run.templateSnapshot.html ?? ""),
     headerHtmlTemplate: typeof run.templateSnapshot.headerHtml === "string" ? run.templateSnapshot.headerHtml : null,

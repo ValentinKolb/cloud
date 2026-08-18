@@ -74,11 +74,11 @@ const orderFormulasByDeps = (
   return { ordered, cycle };
 };
 
-export const enrichRecordsWithFormulas = (
-  records: GridRecord[],
+export const enrichRecordsWithFormulas = <T extends Pick<GridRecord, "data">>(
+  records: T[],
   fields: Field[],
   options: FormulaRuntimeContext & { skipFormulaFieldIds?: ReadonlySet<string> } = {},
-): GridRecord[] => {
+): T[] => {
   const formulaFields = fields.filter(
     (field) => !field.deletedAt && field.type === "formula" && !options.skipFormulaFieldIds?.has(field.id),
   );

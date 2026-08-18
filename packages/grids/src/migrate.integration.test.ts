@@ -10,6 +10,18 @@ const postgresTest = process.env.GRIDS_DB_TEST === "1" ? test : test.skip;
 const uuid = () => Bun.randomUUIDv7();
 const shortId = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 7)}`.slice(0, 6);
 
+const allowArtifactlessAlphaDocumentRuns = async (database: SQL): Promise<void> => {
+  await database`
+    ALTER TABLE grids.document_runs DROP CONSTRAINT IF EXISTS document_runs_artifact_complete_chk;
+    ALTER TABLE grids.document_runs ALTER COLUMN artifact_file_id DROP NOT NULL;
+    ALTER TABLE grids.document_runs ALTER COLUMN artifact_mime_type DROP NOT NULL;
+    ALTER TABLE grids.document_runs ALTER COLUMN artifact_size_bytes DROP NOT NULL;
+    ALTER TABLE grids.document_runs ALTER COLUMN artifact_sha256 DROP NOT NULL;
+    ALTER TABLE grids.document_runs ALTER COLUMN renderer_version DROP NOT NULL;
+    ALTER TABLE grids.document_runs ALTER COLUMN template_revision DROP NOT NULL;
+  `.simple();
+};
+
 const withIsolatedDatabase = async (run: (database: SQL) => Promise<void>) => {
   const sourceUrl = process.env.DATABASE_URL;
   if (!sourceUrl) throw new Error("DATABASE_URL is required for migration integration tests");
@@ -545,11 +557,12 @@ describe("grids schema migration", () => {
   );
 
   postgresTest(
-    "drops obsolete access metadata without changing domain rows or base and Grids App grants",
+    "drops obsolete access metadata and artifact-less alpha documents without changing supported domain rows or grants",
     async () => {
       await withIsolatedDatabase(async (database) => {
         await migrateCoreWorkflows(database);
         await migrate(database);
+        await allowArtifactlessAlphaDocumentRuns(database);
         expect(GRIDS_WORKFLOW_SCHEMA_VERSION).toBe(8);
 
         const userId = uuid();
@@ -993,17 +1006,18 @@ describe("grids schema migration", () => {
         `;
 
         const before = await readPreservedRows();
+        const afterHardCut = before.filter((row) => row.entity !== "grids.document_runs");
         const workflowMigrationVersions = await readWorkflowMigrationVersions();
         expect(before).toHaveLength(22);
 
         await migrateCoreWorkflows(database);
         await migrate(database);
-        expect(await readPreservedRows()).toEqual(before);
+        expect(await readPreservedRows()).toEqual(afterHardCut);
         expect(await readWorkflowMigrationVersions()).toEqual(workflowMigrationVersions);
 
         await migrateCoreWorkflows(database);
         await migrate(database);
-        expect(await readPreservedRows()).toEqual(before);
+        expect(await readPreservedRows()).toEqual(afterHardCut);
         expect(await readWorkflowMigrationVersions()).toEqual(workflowMigrationVersions);
 
         const obsoleteTables = await database<Array<{ tableName: string }>>`
@@ -1169,11 +1183,12 @@ describe("grids schema migration", () => {
   );
 
   postgresTest(
-    "preserves document runs while resetting alpha workflow runs",
+    "removes artifact-less alpha documents after preserving their number-series floor",
     async () => {
       await withIsolatedDatabase(async (database) => {
         await migrateCoreWorkflows(database);
         await migrate(database);
+        await allowArtifactlessAlphaDocumentRuns(database);
 
         const baseId = uuid();
         const workflowId = uuid();
@@ -1215,18 +1230,30 @@ describe("grids schema migration", () => {
         await migrateCoreWorkflows(database);
         await migrate(database);
 
-        const [document] = await database<Array<{ workflowRunId: string | null }>>`
-          SELECT workflow_run_id::text AS "workflowRunId"
-          FROM grids.document_runs
-          WHERE id = ${documentRunId}::uuid
-        `;
         const [surviving] = await database<Array<{ count: number }>>`
           SELECT count(*)::int AS count FROM grids.document_runs WHERE id = ${documentRunId}::uuid
         `;
-        // The document is real user data and survives; only its link to a run
-        // that no longer exists is cleared.
-        expect(document).toEqual({ workflowRunId: null });
-        expect(surviving).toEqual({ count: 1 });
+        const [series] = await database<Array<{ baselineFloor: number }>>`
+          SELECT baseline_floor::int AS "baselineFloor"
+          FROM grids.number_series
+          WHERE document_template_id = ${templateId}::uuid
+        `;
+        expect(surviving).toEqual({ count: 0 });
+        expect(series?.baselineFloor).toBe(1);
+        await expect(
+          (async () => {
+            await database`
+              INSERT INTO grids.document_runs (
+                id, short_id, template_id, snapshot_id, base_id, table_id, record_id,
+                document_number, filename, template_snapshot, render_data
+              ) VALUES (
+                ${uuid()}::uuid, ${shortId("D")}, ${templateId}::uuid, ${snapshotId}::uuid,
+                ${baseId}::uuid, ${tableId}::uuid, ${recordId}::uuid,
+                'DOC-2', 'DOC-2.pdf', '{}'::jsonb, '{}'::jsonb
+              )
+            `;
+          })(),
+        ).rejects.toThrow("artifact_file_id");
       });
     },
     30_000,

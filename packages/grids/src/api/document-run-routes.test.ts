@@ -83,6 +83,13 @@ type RunFixture = {
   tags: string[];
   templateSnapshot: { html: string };
   renderData: { snapshot: { root: { id: string } } };
+  artifact: {
+    mimeType: "application/pdf";
+    sizeBytes: number;
+    sha256: string;
+    rendererVersion: string;
+    templateRevision: string;
+  };
   generatedBy: string;
   generatedAt: string;
 };
@@ -101,6 +108,13 @@ const run: RunFixture = {
   tags: ["finance"],
   templateSnapshot: { html: "<p>Stored</p>" },
   renderData: { snapshot: { root: { id: recordId } } },
+  artifact: {
+    mimeType: "application/pdf",
+    sizeBytes: 4,
+    sha256: "a".repeat(64),
+    rendererVersion: "test",
+    templateRevision: "b".repeat(64),
+  },
   generatedBy: userId,
   generatedAt: "2026-07-11T08:00:00.000Z",
 };
@@ -118,6 +132,7 @@ const summarizeRun = (row: RunFixture) => ({
   documentNumber: row.documentNumber,
   filename: row.filename,
   tags: row.tags,
+  artifact: row.artifact,
   generatedBy: row.generatedBy,
   generatedAt: row.generatedAt,
 });
@@ -132,6 +147,7 @@ const publicSummary = (row: RunFixture) => ({
   documentNumber: row.documentNumber,
   filename: row.filename,
   tags: row.tags,
+  artifact: row.artifact,
   generatedBy: row.generatedBy,
   generatedAt: row.generatedAt,
 });
@@ -219,7 +235,7 @@ describe("document run routes", () => {
       updateInput = { id, input, actorId };
       return { ok: true, data: { ...run, ...(input as object) } } as never;
     });
-    spyOn(gridsService.document, "renderRunPdf").mockImplementation(async (input) => {
+    spyOn(gridsService.document, "getRunPdf").mockImplementation(async (input) => {
       renderedRun = input;
       return renderRunResult as never;
     });
@@ -508,6 +524,7 @@ describe("document run routes", () => {
       expect(response.headers.get("x-grids-document-run-id")).toBe(runPublicId);
       expect(response.headers.get("x-grids-document-number")).toBe("DOC-001");
       expect(response.headers.get("x-grids-document-filename")).toBe("Invoice%20July.pdf");
+      expect(response.headers.get("x-grids-document-artifact")).toBe("stored");
       expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array([37, 80, 68, 70]));
     });
 

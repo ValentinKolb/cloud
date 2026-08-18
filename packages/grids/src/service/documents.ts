@@ -40,7 +40,6 @@ export {
   renderDocumentHtml,
   renderDocumentPdfPreview,
   renderDocumentSource,
-  renderRunPdf,
   rowsWithColumnLabels,
 } from "./document-rendering";
 export type { DocumentPdfRenderer } from "./document-runs";
@@ -50,6 +49,7 @@ export {
   createRunForRecord,
   getDocumentRun,
   getDocumentRunByShortId,
+  getRunPdf,
   renderWorkflowRunPdf,
   updateRunMetadata,
 } from "./document-runs";

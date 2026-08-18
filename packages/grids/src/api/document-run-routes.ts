@@ -185,7 +185,7 @@ export const createDocumentRunRoutes = () =>
       "/runs/:runId/download",
       describeRoute({
         tags: ["Grids:Document"],
-        summary: "Redownload a generated document PDF from stored snapshot data",
+        summary: "Download the stored document artifact",
         responses: {
           200: { description: "Generated PDF" },
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
@@ -198,12 +198,13 @@ export const createDocumentRunRoutes = () =>
         if (!run) return c.json({ message: "Document run not found" }, 404);
         const gate = await gateRun(c, run, "read");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-        const pdf = await gridsService.document.renderRunPdf(run);
+        const pdf = await gridsService.document.getRunPdf(run);
         if (!pdf.ok) return c.json({ message: pdf.error.message }, pdf.error.status);
         return pdfResponse(pdf.data.pdf, run.filename, {
           "X-Grids-Document-Run-Id": run.shortId,
           "X-Grids-Document-Number": run.documentNumber,
           "X-Grids-Document-Filename": encodeHeaderValue(run.filename),
+          "X-Grids-Document-Artifact": "stored",
         });
       },
     );

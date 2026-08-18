@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { type DateContext, err, fail, ok, type Result, type ServiceError } from "@k2b/stdlib";
 import { GotenbergRenderError, isUniqueViolation, mergePdfs, type RenderHtmlToPdfResult } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
@@ -14,6 +15,7 @@ import {
   type RecordSnapshotDraft,
   type SnapshotRecordAccessResolver,
 } from "./document-snapshots";
+import { createProtected, getProtectedContent } from "./files";
 import { allocateNumber, bindNumberAllocation } from "./number-series";
 import type { AuthorizedRecordAccess } from "./record-access";
 import { get as getRecord } from "./records";
@@ -22,8 +24,25 @@ import { insertWithShortId } from "./short-id";
 import type { Table } from "./types";
 
 const WORKFLOW_RUN_DOWNLOAD_MAX_DOCUMENTS = 1_000;
+const DOCUMENT_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
+export const DOCUMENT_RENDERER_VERSION = "grids-liquid-gotenberg-v1";
 
-export type DocumentPdfRenderer = (run: DocumentRun) => Promise<Result<RenderHtmlToPdfResult>>;
+export type DocumentPdfRenderer = typeof renderRunPdf;
+
+const sha256Hex = (value: string | Uint8Array): string => createHash("sha256").update(value).digest("hex");
+
+const validatePdfArtifact = (rendered: RenderHtmlToPdfResult): Result<RenderHtmlToPdfResult> => {
+  const mimeType = rendered.contentType.split(";", 1)[0]?.trim().toLowerCase();
+  if (mimeType !== "application/pdf") return fail(err.badInput("Document renderer did not return a PDF."));
+  if (rendered.pdf.byteLength === 0) return fail(err.badInput("Document renderer returned an empty PDF."));
+  if (rendered.pdf.byteLength > DOCUMENT_ARTIFACT_MAX_BYTES) {
+    return fail(err.badInput(`Document PDF exceeds the ${DOCUMENT_ARTIFACT_MAX_BYTES} byte artifact limit.`));
+  }
+  if (String.fromCharCode(...rendered.pdf.subarray(0, 4)) !== "%PDF") {
+    return fail(err.badInput("Document renderer returned invalid PDF bytes."));
+  }
+  return ok({ pdf: rendered.pdf, contentType: "application/pdf" });
+};
 
 const isServiceError = (error: unknown): error is ServiceError =>
   typeof error === "object" &&
@@ -125,7 +144,6 @@ type CreateDocumentRunParams = {
 
 const createDocumentRunInternal = async (
   params: CreateDocumentRunParams,
-  renderBeforePersist: boolean,
 ): Promise<Result<{ run: DocumentRun; pdf: RenderHtmlToPdfResult | null }>> => {
   const runId = Bun.randomUUIDv7();
   const generatedAt = params.generatedAt ?? new Date();
@@ -141,6 +159,7 @@ const createDocumentRunInternal = async (
     numberTemplate: params.template.numberTemplate,
     filenameTemplate: params.template.filenameTemplate,
   };
+  const templateRevision = sha256Hex(JSON.stringify(templateSnapshot));
   try {
     const created = await insertWithShortId<{ row: DocumentDbRow; pdf: RenderHtmlToPdfResult | null }>(async (shortId) => {
       const allocation = await allocateNumber({
@@ -172,7 +191,7 @@ const createDocumentRunInternal = async (
         numberSeries: { id: allocation.seriesShortId, value: allocation.value },
       });
       if (!built.ok) throw built.error;
-      const candidate: DocumentRun = {
+      const candidate = {
         id: runId,
         shortId,
         templateId: params.template.id,
@@ -189,17 +208,36 @@ const createDocumentRunInternal = async (
         generatedBy: params.actorId,
         generatedAt: generatedAt.toISOString(),
       };
-      const pdf = renderBeforePersist ? await (params.renderPdf ?? renderRunPdf)(candidate) : null;
-      if (pdf && !pdf.ok) throw pdf.error;
+      const renderedPdf = await (params.renderPdf ?? renderRunPdf)(candidate);
+      if (!renderedPdf.ok) throw renderedPdf.error;
+      const pdf = validatePdfArtifact(renderedPdf.data);
+      if (!pdf.ok) throw pdf.error;
       return sql.begin(async (tx) => {
         if (params.persistSnapshot) {
           const persistedSnapshot = await persistRecordSnapshot(params.snapshot, tx);
           if (!persistedSnapshot.ok) throw persistedSnapshot.error;
         }
+        const artifact = await createProtected(
+          {
+            ownerKind: "document_artifact",
+            ownerId: runId,
+            baseId: params.snapshot.baseId,
+            tableId: params.snapshot.tableId,
+            recordId: params.snapshot.recordId,
+            userId: params.actorId,
+            filename: built.data.filename,
+            mimeType: pdf.data.contentType,
+            bytes: pdf.data.pdf,
+          },
+          tx,
+        );
+        if (!artifact.ok) throw artifact.error;
         const [inserted] = await tx<DocumentDbRow[]>`
           INSERT INTO grids.document_runs (
             id, short_id, template_id, workflow_run_id, workflow_step_key, snapshot_id, base_id, table_id, record_id,
-            document_number, filename, tags, template_snapshot, render_data, generated_by, generated_at
+            document_number, filename, tags, template_snapshot, render_data,
+            artifact_file_id, artifact_mime_type, artifact_size_bytes, artifact_sha256, renderer_version, template_revision,
+            generated_by, generated_at
           )
           VALUES (
             ${runId}::uuid,
@@ -216,6 +254,12 @@ const createDocumentRunInternal = async (
             ${tx.array(built.data.tags, "TEXT")},
             ${templateSnapshot}::jsonb,
             ${built.data.data}::jsonb,
+            ${artifact.data.id}::uuid,
+            ${artifact.data.mimeType},
+            ${artifact.data.sizeBytes},
+            ${artifact.data.sha256},
+            ${DOCUMENT_RENDERER_VERSION},
+            ${templateRevision},
             ${params.actorId}::uuid,
             ${generatedAt}
           )
@@ -239,12 +283,15 @@ const createDocumentRunInternal = async (
                 documentNumber: { old: null, new: run.documentNumber },
                 filename: { old: null, new: run.filename },
                 tags: { old: null, new: run.tags },
+                artifactSha256: { old: null, new: run.artifact.sha256 },
+                artifactSizeBytes: { old: null, new: run.artifact.sizeBytes },
+                rendererVersion: { old: null, new: run.artifact.rendererVersion },
               },
             },
             tx,
           );
         }
-        return { row: inserted, pdf: pdf?.data ?? null };
+        return { row: inserted, pdf: pdf.data };
       });
     }, "idx_grids_document_runs_short_id");
     return ok({ run: mapDocumentRun(created.row), pdf: created.pdf });
@@ -271,18 +318,36 @@ const createDocumentRunInternal = async (
 };
 
 export const createDocumentRun = async (params: CreateDocumentRunParams): Promise<Result<DocumentRun>> => {
-  const created = await createDocumentRunInternal(params, false);
+  const created = await createDocumentRunInternal(params);
   return created.ok ? ok(created.data.run) : created;
 };
 
 export const createRenderedDocumentRun = async (
   params: CreateDocumentRunParams,
 ): Promise<Result<{ run: DocumentRun; pdf: RenderHtmlToPdfResult }>> => {
-  const created = await createDocumentRunInternal(params, true);
+  const created = await createDocumentRunInternal(params);
   if (!created.ok) return created;
   if (created.data.pdf) return ok({ run: created.data.run, pdf: created.data.pdf });
-  const rendered = await (params.renderPdf ?? renderRunPdf)(created.data.run);
-  return rendered.ok ? ok({ run: created.data.run, pdf: rendered.data }) : rendered;
+  const stored = await getRunPdf(created.data.run);
+  return stored.ok ? ok({ run: created.data.run, pdf: stored.data }) : stored;
+};
+
+export const getRunPdf = async (run: DocumentRun): Promise<Result<RenderHtmlToPdfResult>> => {
+  const stored = await getProtectedContent({
+    fileId: run.artifactFileId,
+    ownerKind: "document_artifact",
+    ownerId: run.id,
+  });
+  if (!stored.ok) return fail(err.internal("Stored document artifact is missing."));
+  if (
+    stored.data.mimeType !== run.artifact.mimeType ||
+    stored.data.sizeBytes !== run.artifact.sizeBytes ||
+    stored.data.sha256 !== run.artifact.sha256 ||
+    sha256Hex(stored.data.bytes) !== run.artifact.sha256
+  ) {
+    return fail(err.internal("Stored document artifact failed its integrity check."));
+  }
+  return ok({ pdf: stored.data.bytes, contentType: run.artifact.mimeType });
 };
 
 export const getDocumentRun = async (runId: string): Promise<DocumentRun | null> => {
@@ -365,7 +430,7 @@ export const renderWorkflowRunPdf = async (
   const runs = rows.map(mapDocumentRun);
   const rendered: Array<{ pdf: Uint8Array; filename: string }> = [];
   for (const run of runs) {
-    const pdf = await renderRunPdf(run);
+    const pdf = await getRunPdf(run);
     if (!pdf.ok) return fail(pdf.error);
     rendered.push({ pdf: pdf.data.pdf, filename: run.filename });
   }

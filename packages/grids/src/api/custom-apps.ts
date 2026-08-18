@@ -815,7 +815,7 @@ export const createCustomAppsApi = (
     requireAuthenticated?: MiddlewareHandler<AuthContext>;
     invokeCustomAppLauncher?: typeof gridsService.workflow.launcher.invokeCustomApp;
     invokeScannerLauncher?: typeof gridsService.workflow.launcher.invokeScanner;
-    renderDocumentRunPdf?: typeof gridsService.document.renderRunPdf;
+    getDocumentRunPdf?: typeof gridsService.document.getRunPdf;
     getWorkflowRunScope?: typeof getWorkflowRunScope;
     getWorkflowRun?: typeof gridsService.workflow.getRun;
   } = {},
@@ -823,7 +823,7 @@ export const createCustomAppsApi = (
   const loadOptionalActor = deps.loadOptionalActor ?? auth.requireRole("*");
   const invokeCustomAppLauncher = deps.invokeCustomAppLauncher ?? gridsService.workflow.launcher.invokeCustomApp;
   const invokeScannerLauncher = deps.invokeScannerLauncher ?? gridsService.workflow.launcher.invokeScanner;
-  const renderDocumentRunPdf = deps.renderDocumentRunPdf ?? gridsService.document.renderRunPdf;
+  const getDocumentRunPdf = deps.getDocumentRunPdf ?? gridsService.document.getRunPdf;
   const loadWorkflowRunScope = deps.getWorkflowRunScope ?? getWorkflowRunScope;
   const getWorkflowRun = deps.getWorkflowRun ?? gridsService.workflow.getRun;
   return new Hono<AuthContext>()
@@ -903,12 +903,13 @@ export const createCustomAppsApi = (
         ) {
           return c.json({ message: "Document not found" }, 404);
         }
-        const pdf = await renderDocumentRunPdf(run);
+        const pdf = await getDocumentRunPdf(run);
         if (!pdf.ok) return c.json({ message: pdf.error.message }, pdf.error.status);
         return pdfResponse(pdf.data.pdf, run.filename, {
           "X-Grids-Document-Run-Id": c.req.param("runId")!,
           "X-Grids-Document-Number": run.documentNumber,
           "X-Grids-Document-Filename": encodeHeaderValue(run.filename),
+          "X-Grids-Document-Artifact": "stored",
         });
       },
     )

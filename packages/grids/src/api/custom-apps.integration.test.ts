@@ -8,7 +8,7 @@ import type { DslQueryPreviewResponse } from "../contracts";
 import { CustomAppCapabilitiesSchema, type CustomAppDefinition } from "../custom-apps/contracts";
 import { customAppViewSourceHash } from "../custom-apps/insight-source";
 import { buildCustomAppRuntimeContext } from "../custom-apps/runtime-context";
-import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
+import { insertTestDocumentArtifact, postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
 import { grantAccess } from "../service/access";
 import { compileCustomAppQuery } from "../service/custom-app-query";
@@ -113,6 +113,8 @@ describe("Grids App Form runtime", () => {
       const [authUser] = await sql<Array<{ id: string }>>`SELECT id::text FROM auth.users ORDER BY id LIMIT 1`;
       if (!authUser) throw new Error("Grids App API integration test needs one auth user");
       const accessIds: string[] = [];
+      const artifactFileIds: string[] = [];
+      const artifactRunIds: string[] = [];
       try {
         await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${basePublicId}, 'Grids App API')`;
         await sql`
@@ -315,12 +317,12 @@ describe("Grids App Form runtime", () => {
             )
           `;
         };
-        const renderDocumentRunPdf = async () => ok({ pdf: new Uint8Array([37, 80, 68, 70]), contentType: "application/pdf" as const });
+        const getDocumentRunPdf = async () => ok({ pdf: new Uint8Array([37, 80, 68, 70]), contentType: "application/pdf" as const });
         const publicApi = new Hono<AuthContext>().route(
           "/apps",
           createCustomAppsApi({
             requireAuthenticated: async (c) => c.json({ message: "Authentication required" }, 401),
-            renderDocumentRunPdf,
+            getDocumentRunPdf,
           }),
         );
         const api = new Hono<AuthContext>().route(
@@ -356,7 +358,7 @@ describe("Grids App Form runtime", () => {
                 status: "queued",
               });
             },
-            renderDocumentRunPdf,
+            getDocumentRunPdf,
           }),
         );
         const appResponse = await api.request(`/apps/${applied.data.shortId}`);
@@ -526,10 +528,15 @@ describe("Grids App Form runtime", () => {
           '{}'::jsonb
         )
       `;
+        const documentArtifact = await insertTestDocumentArtifact({ runId: documentRunId, baseId, tableId, recordId });
+        const otherDocumentArtifact = await insertTestDocumentArtifact({ runId: otherDocumentRunId, baseId, tableId, recordId });
+        artifactFileIds.push(documentArtifact.fileId, otherDocumentArtifact.fileId);
+        artifactRunIds.push(documentRunId, otherDocumentRunId);
         await sql`
         INSERT INTO grids.document_runs (
           id, short_id, template_id, snapshot_id, base_id, table_id, record_id,
-          document_number, filename, template_snapshot, render_data
+          document_number, filename, template_snapshot, render_data,
+          artifact_file_id, artifact_mime_type, artifact_size_bytes, artifact_sha256, renderer_version, template_revision
         ) VALUES (
           ${documentRunId}::uuid,
           ${documentRunPublicId},
@@ -541,13 +548,16 @@ describe("Grids App Form runtime", () => {
           'CERT-1',
           'certificate.pdf',
           '{}'::jsonb,
-          '{}'::jsonb
+          '{}'::jsonb,
+          ${documentArtifact.fileId}::uuid, ${documentArtifact.mimeType}, ${documentArtifact.sizeBytes},
+          ${documentArtifact.sha256}, ${documentArtifact.rendererVersion}, ${documentArtifact.templateRevision}
         )
       `;
         await sql`
         INSERT INTO grids.document_runs (
           id, short_id, template_id, snapshot_id, base_id, table_id, record_id,
-          document_number, filename, template_snapshot, render_data
+          document_number, filename, template_snapshot, render_data,
+          artifact_file_id, artifact_mime_type, artifact_size_bytes, artifact_sha256, renderer_version, template_revision
         ) VALUES (
           ${otherDocumentRunId}::uuid,
           ${otherDocumentRunPublicId},
@@ -559,7 +569,9 @@ describe("Grids App Form runtime", () => {
           'INTERNAL-1',
           'internal-certificate.pdf',
           '{}'::jsonb,
-          '{}'::jsonb
+          '{}'::jsonb,
+          ${otherDocumentArtifact.fileId}::uuid, ${otherDocumentArtifact.mimeType}, ${otherDocumentArtifact.sizeBytes},
+          ${otherDocumentArtifact.sha256}, ${otherDocumentArtifact.rendererVersion}, ${otherDocumentArtifact.templateRevision}
         )
       `;
         const documentResponse = await publicApi.request(
@@ -569,6 +581,7 @@ describe("Grids App Form runtime", () => {
         expect(documentResponse.status).toBe(200);
         expect(documentResponse.headers.get("content-type")).toBe("application/pdf");
         expect(documentResponse.headers.get("X-Grids-Document-Run-Id")).toBe(documentRunPublicId);
+        expect(documentResponse.headers.get("X-Grids-Document-Artifact")).toBe("stored");
         expect(new Uint8Array(await documentResponse.arrayBuffer())).toEqual(new Uint8Array([37, 80, 68, 70]));
         expect(
           (
@@ -1349,6 +1362,12 @@ describe("Grids App Form runtime", () => {
         await sql`DELETE FROM grids.audit_log WHERE base_id = ${baseId}::uuid`;
         await sql`DELETE FROM grids.record_event_outbox WHERE base_id = ${baseId}::uuid`;
         await sql`DELETE FROM grids.document_runs WHERE base_id = ${baseId}::uuid`;
+        if (artifactRunIds.length > 0) {
+          await sql`DELETE FROM grids.file_protected_references WHERE owner_kind = 'document_artifact' AND owner_id = ANY(${sql.array(artifactRunIds, "UUID")}::uuid[])`;
+        }
+        if (artifactFileIds.length > 0) {
+          await sql`DELETE FROM grids.files WHERE id = ANY(${sql.array(artifactFileIds, "UUID")}::uuid[])`;
+        }
         await sql`DELETE FROM grids.record_snapshots WHERE base_id = ${baseId}::uuid`;
         await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
         for (const accessId of accessIds) await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;

@@ -1,4 +1,5 @@
 import { describe, expect } from "bun:test";
+import { ok } from "@k2b/stdlib";
 import { sql } from "bun";
 import { migrate as migrateCoreWorkflows } from "../../../core/src/migrate/core/workflows";
 import { projectDocumentTemplates } from "../api/documents-api-shared";
@@ -27,7 +28,24 @@ const createFixture = async () => {
   return { baseId, tableId };
 };
 
+const cleanupFixture = async (baseId: string) => {
+  const artifactRows = await sql<Array<{ id: string }>>`
+    SELECT artifact_file_id::text AS id FROM grids.document_runs
+    WHERE base_id = ${baseId}::uuid AND artifact_file_id IS NOT NULL
+  `;
+  await sql`DELETE FROM grids.document_runs WHERE base_id = ${baseId}::uuid`;
+  await sql`DELETE FROM grids.file_protected_references WHERE base_id = ${baseId}::uuid`;
+  if (artifactRows.length > 0)
+    await sql`DELETE FROM grids.files WHERE id = ANY(${sql.array(
+      artifactRows.map((row) => row.id),
+      "UUID",
+    )}::uuid[])`;
+  await sql`DELETE FROM grids.record_snapshots WHERE base_id = ${baseId}::uuid`;
+  await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
+};
+
 const numberOf = (value: unknown): number => Number(String(value).replace(/^.*-/, ""));
+const renderPdf = async () => ok({ pdf: new TextEncoder().encode("%PDF-1.7\nnumber series"), contentType: "application/pdf" });
 
 describe("durable number series Postgres integration", () => {
   postgresTest(
@@ -134,7 +152,7 @@ describe("durable number series Postgres integration", () => {
         expect(publicField.numberSeries?.id).toMatch(/^[A-Za-z0-9]{6}$/);
         expect(publicField.numberSeries?.id).not.toBe(beforeDelete!.id);
       } finally {
-        await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
+        await cleanupFixture(fixture.baseId);
       }
     },
     45_000,
@@ -180,6 +198,7 @@ describe("durable number series Postgres integration", () => {
           renderData: { record: record.data, table },
           actorId: null,
           persistSnapshot: true,
+          renderPdf,
         });
         expect(first.ok).toBe(true);
         if (!first.ok) throw new Error(first.error.message);
@@ -195,6 +214,7 @@ describe("durable number series Postgres integration", () => {
           renderData: { record: record.data, table },
           actorId: null,
           persistSnapshot: true,
+          renderPdf,
         });
         expect(second.ok).toBe(true);
         if (!second.ok) throw new Error(second.error.message);
@@ -218,7 +238,7 @@ describe("durable number series Postgres integration", () => {
         `;
         expect(active).toEqual({ id: archived!.id, archived: false });
       } finally {
-        await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
+        await cleanupFixture(fixture.baseId);
       }
     },
     45_000,

@@ -130,19 +130,21 @@ function DocumentLinkDialog(props: { args: DocumentLinkDialogArgs; close: () => 
                 icon="ti ti-message"
                 placeholder="Why this link exists"
               />
-              <NoticeCard tone="info" icon={false}>
-                <i class="ti ti-shield-lock" />
-                The URL works without login until it expires or is revoked. It downloads this stored document snapshot only.
-              </NoticeCard>
+              <NoticeCard
+                tone="info"
+                title="Anyone with the link can download this PDF"
+                detail="The link works without login until it expires or you revoke it. It does not provide access to other documents."
+              />
             </section>
           }
         >
           {(url) => (
             <section class="flex flex-col gap-3">
-              <NoticeCard tone="success" icon={false}>
-                <i class="ti ti-check" />
-                {copiedOnCreate() ? "Link created and copied to clipboard." : "Link created. Use Copy link to copy the URL."}
-              </NoticeCard>
+              <NoticeCard
+                tone="success"
+                title={copiedOnCreate() ? "Link created and copied" : "Link created"}
+                detail={copiedOnCreate() ? "You can paste it wherever you want to share the PDF." : "Use Copy link to copy the URL."}
+              />
               <code class="block break-all rounded-[var(--ui-radius-control)] bg-[var(--ui-field)] p-2 font-mono text-xs text-secondary">
                 {url()}
               </code>

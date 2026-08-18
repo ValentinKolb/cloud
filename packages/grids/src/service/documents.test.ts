@@ -39,6 +39,7 @@ describe("document rendering", () => {
     const table = { id: "table-1", shortId: "tbl1", name: "Items" };
     const record = {
       id: "record-1",
+      shortId: "rec001",
       tableId: "table-1",
       version: 1,
       data: { name: "Camera" },
@@ -57,13 +58,20 @@ describe("document rendering", () => {
     expect(publicDocumentLinkUrlForAppUrl("cloud.example.test", "gdl_token/with/slashes")).toBe(
       "https://cloud.example.test/share/grids/documents/gdl_token%2Fwith%2Fslashes",
     );
-    expect(publicDocumentLinkUrlForAppUrl("", "gdl_defaultToken")).toBe("https://localhost:3000/share/grids/documents/gdl_defaultToken");
+    expect(publicDocumentLinkUrlForAppUrl("", "gdl_defaultToken")).toBe("http://localhost:3000/share/grids/documents/gdl_defaultToken");
+    expect(publicDocumentLinkUrlForAppUrl("localhost:3000", "gdl_localToken")).toBe(
+      "http://localhost:3000/share/grids/documents/gdl_localToken",
+    );
+    expect(publicDocumentLinkUrlForAppUrl("https://localhost:3000", "gdl_explicitTlsToken")).toBe(
+      "https://localhost:3000/share/grids/documents/gdl_explicitTlsToken",
+    );
   });
 
   test("exposes base document business profile to document templates", () => {
     const table = { id: "table-1", shortId: "tbl1", name: "Items" };
     const record = {
       id: "record-1",
+      shortId: "rec001",
       tableId: "table-1",
       version: 1,
       data: { name: "Camera" },
@@ -103,6 +111,7 @@ describe("document rendering", () => {
     const table = { id: "table-1", shortId: "tbl1", name: "Items" };
     const record = {
       id: "record-1",
+      shortId: "rec001",
       tableId: "table-1",
       version: 1,
       data: { name: "Camera" },
@@ -119,7 +128,7 @@ describe("document rendering", () => {
     const input = buildTemplateInputContext(record, table, undefined, undefined, undefined, undefined, undefined, meta);
     const render = buildRenderData({ record, table, columns: [], rows: [], recordMeta: meta });
 
-    expect(input.record).toMatchObject({ id: "record-1", data: { name: "Camera" }, meta });
+    expect(input.record).toMatchObject({ id: "rec001", tableId: "tbl1", data: { name: "Camera" }, meta });
     expect(render.record).toMatchObject({ id: "record-1", data: { name: "Camera" }, meta });
     expect((input.record as { data: Record<string, unknown> }).data).not.toHaveProperty("scan");
   });
@@ -149,6 +158,7 @@ describe("document rendering", () => {
     const table = { id: "table-1", shortId: "tbl1", name: "Items" };
     const record = {
       id: "record-1",
+      shortId: "rec001",
       tableId: "table-1",
       version: 1,
       data: {},
@@ -219,6 +229,7 @@ describe("document rendering", () => {
     const table = { id: "11111111-1111-4111-8111-111111111111", shortId: "tbl11", name: "Assets" };
     const record = {
       id: "22222222-2222-4222-8222-222222222222",
+      shortId: "rec222",
       tableId: table.id,
       version: 1,
       data: { Name: "Camera kit" },
@@ -397,6 +408,25 @@ describe("document rendering", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.data).toContain("11111111-1111-4111-8111-111111111111");
+  });
+
+  test("uses public resource ids when Liquid binds the current record into GQL", async () => {
+    const context = buildTemplateInputContext(
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        shortId: "REC001",
+        tableId: "22222222-2222-4222-8222-222222222222",
+        version: 1,
+        data: {},
+        createdAt: "2026-08-18T00:00:00.000Z",
+        updatedAt: "2026-08-18T00:00:00.000Z",
+      },
+      { id: "22222222-2222-4222-8222-222222222222", shortId: "TAB001", name: "Loans" },
+    );
+    const result = await renderDocumentSource({ source: "where Loan = '{{ record.id }}'" }, context);
+
+    expect(context.record).toMatchObject({ id: "REC001", tableId: "TAB001" });
+    expect(result).toEqual({ ok: true, data: "where Loan = 'REC001'" });
   });
 
   test("document number is stable for a run and uses the template pattern", () => {

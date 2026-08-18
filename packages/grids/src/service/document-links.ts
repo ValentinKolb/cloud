@@ -39,12 +39,13 @@ const documentLinkExpiresAt = (expiresIn: DocumentLinkTtl): Date => new Date(Dat
 const publicUrlValue = (value: unknown): string => {
   const url = typeof value === "string" ? value.trim() : "";
   if (!url) return "";
-  return /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${/^localhost(?::|\/|$)/i.test(url) ? "http" : "https"}://${url}`;
 };
 
 export const publicDocumentLinkPath = (token: string): string => `/share/grids/documents/${encodeURIComponent(token)}`;
 
-const publicDocumentLinkOrigin = (appUrl: unknown): string => publicUrlValue(appUrl).replace(/\/+$/, "") || "https://localhost:3000";
+const publicDocumentLinkOrigin = (appUrl: unknown): string => publicUrlValue(appUrl).replace(/\/+$/, "") || "http://localhost:3000";
 
 export const publicDocumentLinkBaseUrlForAppUrl = (appUrl: unknown): string =>
   `${publicDocumentLinkOrigin(appUrl)}${publicDocumentLinkPath("")}`;

@@ -1214,6 +1214,17 @@ export const RecordSnapshotListResponseSchema = z.object({
 });
 export type RecordSnapshotListResponse = z.infer<typeof RecordSnapshotListResponseSchema>;
 
+export const DocumentArtifactSummarySchema = z
+  .object({
+    mimeType: z.literal("application/pdf"),
+    sizeBytes: z.number().int().positive(),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    rendererVersion: z.string().min(1),
+    templateRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict();
+export type DocumentArtifactSummary = z.infer<typeof DocumentArtifactSummarySchema>;
+
 const DocumentRunSchema = z.object({
   id: z.string().uuid(),
   shortId: ShortIdSchema,
@@ -1228,6 +1239,8 @@ const DocumentRunSchema = z.object({
   tags: z.array(z.string()),
   templateSnapshot: z.record(z.string(), z.unknown()),
   renderData: z.record(z.string(), z.unknown()),
+  artifactFileId: z.string().uuid(),
+  artifact: DocumentArtifactSummarySchema,
   generatedBy: z.string().uuid().nullable(),
   generatedAt: z.string().datetime(),
 });
@@ -1245,6 +1258,7 @@ export const DocumentRunSummarySchema = DocumentRunSchema.pick({
   documentNumber: true,
   filename: true,
   tags: true,
+  artifact: true,
   generatedBy: true,
   generatedAt: true,
 });

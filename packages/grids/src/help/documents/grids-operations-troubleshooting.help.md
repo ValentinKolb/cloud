@@ -60,7 +60,7 @@ Choose a preview record, then inspect the template in this order:
 
 Correct the source when rows are empty, and copy paths from Data instead of guessing. For barcodes, verify both the symbol id and a non-empty compatible value. For multipage output, test with enough rows and keep repeated letterhead or page-number content in header and footer parts.
 
-Generated documents redownload from their stored snapshot and template data. Later record or template changes do not rewrite an existing run.
+New generated documents download their exact stored PDF bytes. Later record, template, or renderer changes cannot rewrite an existing artifact.
 
 ## A workflow did not do what you expected {icon="route"}
 

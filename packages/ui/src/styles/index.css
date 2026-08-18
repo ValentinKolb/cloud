@@ -4061,6 +4061,7 @@
 }
 
 .k2b-ui .k2b-tags-input {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.25rem;
@@ -4132,9 +4133,19 @@
   pointer-events: none;
 }
 
-.k2b-ui .k2b-tags-input:focus-within .k2b-tags-input__values,
-.k2b-ui .k2b-tags-input:not(:focus-within) > input {
+.k2b-ui .k2b-tags-input:focus-within .k2b-tags-input__values {
   display: none;
+}
+
+/* Keep the native editor focusable by click and keyboard while the pill
+   presentation is visible. `display: none` made an unfocused TagsInput
+   impossible to enter. */
+.k2b-ui .k2b-tags-input:not(:focus-within) > input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
 }
 
 .k2b-ui .k2b-tags-input[data-disabled="true"] {

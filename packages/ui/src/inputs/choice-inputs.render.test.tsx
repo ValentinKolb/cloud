@@ -735,4 +735,12 @@ describe("@k2b/ui complete choice input migrations", () => {
     expect(editable).toMatch(/overflow:\s*hidden/);
     expect(editable).toMatch(/overflow-x:\s*auto/);
   });
+
+  test("keeps the native tags editor focusable while pills are visible", () => {
+    const hiddenEditor = cssRule(".k2b-ui .k2b-tags-input:not(:focus-within) > input");
+
+    expect(hiddenEditor).not.toMatch(/display:\s*none/);
+    expect(hiddenEditor).toMatch(/position:\s*absolute/);
+    expect(hiddenEditor).toMatch(/opacity:\s*0/);
+  });
 });

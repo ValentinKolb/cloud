@@ -40,6 +40,8 @@ export type ProtectedFileContent = {
   bytes: Uint8Array;
 };
 
+export type ProtectedFileAsset = Omit<ProtectedFileContent, "bytes">;
+
 const mapRow = (row: DbRow, targetFieldId = row.field_id, exposeCreatedBy = true): GridFile => ({
   id: row.id,
   shortId: row.short_id,
@@ -660,6 +662,48 @@ const protectWithClient = async (params: ProtectParams, client: SqlClient): Prom
 
 export const protect = async (params: ProtectParams, client?: SqlClient): Promise<Result<void>> =>
   client ? protectWithClient(params, client) : sql.begin((tx) => protectWithClient(params, tx));
+
+export const createProtected = async (
+  params: Omit<ProtectParams, "fileId"> & { filename: string; mimeType: string; bytes: Uint8Array },
+  client: SqlClient,
+): Promise<Result<ProtectedFileAsset>> => {
+  const filename = normalizeFilename(params.filename);
+  const mimeType = params.mimeType || "application/octet-stream";
+  const sha256 = sha256Hex(params.bytes);
+  const row = await insertWithShortIdForDb(client, "idx_grids_files_short_id", async (attempt, shortId) => {
+    const [created] = await attempt<
+      Array<{
+        id: string;
+        short_id: string;
+        filename: string;
+        mime_type: string;
+        size_bytes: number | string;
+        sha256: string;
+        created_by: string | null;
+        created_at: Date | string;
+      }>
+    >`
+      INSERT INTO grids.files (short_id, filename, mime_type, size_bytes, sha256, bytes, created_by)
+      VALUES (${shortId}, ${filename}, ${mimeType}, ${params.bytes.byteLength}, ${sha256}, ${params.bytes}, ${params.userId}::uuid)
+      RETURNING id::text AS id, short_id, filename, mime_type, size_bytes, sha256,
+                created_by::text AS created_by, created_at
+    `;
+    if (!created) throw new Error("insert returned no row");
+    return created;
+  });
+  const protectedResult = await protectWithClient({ ...params, fileId: row.id }, client);
+  if (!protectedResult.ok) return protectedResult;
+  return ok({
+    id: row.id,
+    shortId: row.short_id,
+    filename: row.filename,
+    mimeType: row.mime_type,
+    sizeBytes: Number(row.size_bytes),
+    sha256: row.sha256,
+    createdBy: row.created_by,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
+  });
+};
 
 type ProtectionIdentity = Pick<ProtectParams, "fileId" | "ownerKind" | "ownerId">;
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { RecordQuerySchema, ShortIdSchema } from "../contracts";
+import { DocumentArtifactSummarySchema, RecordQuerySchema, ShortIdSchema } from "../contracts";
 import {
   GRIDS_WORKFLOW_CHANNELS,
   type GridsWorkflow,
@@ -327,6 +327,7 @@ export const PublicDocumentRunSummarySchema = z
     documentNumber: z.string(),
     filename: z.string(),
     tags: z.array(z.string()),
+    artifact: DocumentArtifactSummarySchema,
     generatedBy: z.string().uuid().nullable(),
     generatedAt: z.string().datetime(),
   })

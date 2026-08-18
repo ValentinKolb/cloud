@@ -145,7 +145,7 @@ export default function DocumentBrowser(props: Props) {
                     {(folder) => (
                       <button
                         type="button"
-                        class="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2 text-left text-sm transition-colors hover:paper-highlighted"
+                        class="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--ui-paper-highlighted)]"
                         onClick={() => props.onFolder(folder)}
                       >
                         <div class="flex min-w-0 items-center gap-2">
@@ -165,7 +165,7 @@ export default function DocumentBrowser(props: Props) {
                 <Show when={props.mode !== "folders" || props.runs.length > 0 || props.searching}>
                   <For each={props.runs}>
                     {(run) => (
-                      <div class="grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2 text-sm transition-colors hover:paper-highlighted">
+                      <div class="grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 rounded-[var(--ui-radius-control)] px-3 py-2 text-sm transition-colors hover:bg-[var(--ui-paper-highlighted)]">
                         <button type="button" class="min-w-0 text-left" onClick={() => props.onRun(run)}>
                           <div class="flex min-w-0 items-center gap-2">
                             <i class="ti ti-file-type-pdf shrink-0 text-dimmed" />

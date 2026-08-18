@@ -78,7 +78,7 @@ The Data tab is the source of truth for the current preview record. It shows the
 Think of the data in layers: `record` is the selected record, `rows` and `columns` are the GQL result, and `document` describes a saved run. `template`, `run`, and `date` provide stable metadata for numbers and filenames. `app` contains public platform branding. `business` contains the base's document profile. Rows also expose GQL output labels, so readable aliases make templates easier to maintain.
 
 :::reference
-- **record:** The current record: `record.id`, `record.tableId`, `record.version`, `record.data`, created and updated timestamps.
+- **record:** The current record: public `record.id` and `record.tableId`, `record.version`, `record.data`, created and updated timestamps.
 - **rows and columns:** The rows and columns returned by the GQL source. Use column.key for row access and column.label for human-readable headers.
 - **template, run, date:** Stable metadata for patterns and document copy: `{{ template.name }}`, `{{ template.id }}`, `{{ run.id }}`, `{{ date.iso }}`, and `{{ date.yyyyMMdd }}`. Draft previews use draft run values until a saved run exists.
 - **app:** Public platform values for document branding: `{{ app.name }}`, `{{ app.contactEmail }}`, `{{ app.url }}`, `{{ app.logoDataUri }}`, and `{{ app.timezone }}`.
@@ -409,15 +409,17 @@ Before generation you can override the template filename and add tags. With Base
 
 Base Read allows browsing and redownloading generated documents. Base Write also allows generation and metadata changes. Base Admin manages templates. A Grids App reader may download only a run for the current page record whose template is in that Record block's published capability. This App-scoped download does not grant the reader generic Base document access.
 
-To share one generated PDF without a Cloud login, create a public link for 1, 7, 30, or 90 days. The link downloads only that stored document snapshot. An optional comment explains its purpose. The creator or a document editor can revoke the link before it expires.
+To share one generated PDF without a Cloud login, create a public link for 1, 7, 30, or 90 days. The link opens a minimal page with the document filename, its remaining validity, and a PDF download button. It never grants access to other documents or records. An optional comment explains the link's purpose to document editors. The creator or a document editor can revoke the link before it expires.
 
 ## Snapshots and runs {icon="point"}
 
-Generating a PDF creates a recursive snapshot of the root record and related records reached through relation fields. A snapshot includes at most four relation levels and 500 records. Grids keeps the template, data, stable document number, and generation time used for that document. Redownloading reproduces it from this saved state even after live records or the template change.
+Generating a PDF creates a recursive snapshot of the root record and related records reached through relation fields. A snapshot includes at most four relation levels and 500 records. Grids renders once and stores the exact completed PDF bytes together with their SHA-256, MIME type, size, renderer version, template revision, document number, and source snapshot. Downloads return those stored bytes even after live records, the template, or the renderer change.
+
+Use **Generate again** to create a new run and artifact. It never replaces an older run. Open **Technical details** on a run for its artifact metadata.
 
 :::reference
 - **Document numbers:** Each run receives one durable series allocation and a stable document number from the template's current pattern. Allocations are never reused; technical gaps are expected. Pattern changes affect future runs only.
-- **Template edits:** Changing a template affects future generations. Existing runs redownload from the template snapshot and data captured for that run.
+- **Template edits:** Changing a template affects future generations. Existing stored artifacts never render again.
 - **Manual snapshots:** The record detail panel also has a Snapshot button for capturing a record state without generating a PDF.
 - **Deleted templates:** Deleting a template archives its number series and removes it from the active list. Restoring the template reconnects the same series and high-water mark. Existing generated documents remain available through their runs.
 :::

@@ -13,6 +13,7 @@ import viewRecordsPage from "./[baseId]/table/[tableId]/view/[viewId]/page";
 import adminPage from "./admin";
 import customAppPage from "./custom-app/page";
 import indexPage from "./page";
+import publicDocumentPage from "./public/documents/[token]/page";
 import publicFormPage from "./public/forms/[token]/page";
 
 /** Admin pages mounted at `/admin/grids` — platform-admin only. */
@@ -26,19 +27,21 @@ const auditRequestContext = (c: Context<AuthContext>) => ({
 /** Public pages mounted at `/share/grids` — anonymous-friendly. */
 export const publicRoutes = new Hono<AuthContext>()
   .get("/forms/:token", auth.requireRole("*"), ...publicFormPage)
-  .get("/documents/:token", rateLimit({ keyBy: "ip", limitPerSecond: 10, windowSecs: 60 }), auth.requireRole("*"), async (c) => {
+  .get("/documents/:token/download", rateLimit({ keyBy: "ip", limitPerSecond: 10, windowSecs: 60 }), auth.requireRole("*"), async (c) => {
     const requestAudit = auditRequestContext(c);
     const resolved = await gridsService.document.resolveDocumentLinkDownload(c.req.param("token") ?? "");
     if (!resolved.ok) return c.json({ message: "Document link not found" }, 404);
-    const pdf = await gridsService.document.renderRunPdf(resolved.data.run);
+    const pdf = await gridsService.document.getRunPdf(resolved.data.run);
     if (!pdf.ok) return c.json({ message: pdf.error.message }, pdf.error.status);
     const access = await gridsService.document.recordDocumentLinkAccess(resolved.data.link.id, requestAudit);
     if (!access.ok) return c.json({ message: "Document link not found" }, 404);
     return pdfResponse(pdf.data.pdf, resolved.data.run.filename, {
-      "X-Grids-Document-Run-Id": resolved.data.run.id,
-      "X-Grids-Document-Link-Id": resolved.data.link.id,
+      "X-Grids-Document-Run-Id": resolved.data.run.shortId,
+      "X-Grids-Document-Link-Id": resolved.data.link.shortId,
+      "X-Grids-Document-Artifact": "stored",
     });
-  });
+  })
+  .get("/documents/:token", rateLimit({ keyBy: "ip", limitPerSecond: 10, windowSecs: 60 }), auth.requireRole("*"), ...publicDocumentPage);
 
 /** Standalone published Apps mounted at `/apps`. */
 export const customAppRoutes = new Hono<AuthContext>()

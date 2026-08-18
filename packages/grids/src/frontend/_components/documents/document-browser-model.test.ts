@@ -22,6 +22,13 @@ const run = (id: string): PublicDocumentRunSummary => ({
   snapshotId: "snapshot",
   documentNumber: id,
   tags: [],
+  artifact: {
+    mimeType: "application/pdf",
+    sizeBytes: 4,
+    sha256: "a".repeat(64),
+    rendererVersion: "test",
+    templateRevision: "b".repeat(64),
+  },
   generatedBy: null,
   generatedAt: "2026-01-01T00:00:00.000Z",
 });

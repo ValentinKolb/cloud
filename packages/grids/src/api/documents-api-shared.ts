@@ -1,7 +1,7 @@
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import type { Context } from "hono";
 import { z } from "zod";
-import { type DocumentTemplateSummary, ShortIdSchema } from "../contracts";
+import { DocumentArtifactSummarySchema, type DocumentTemplateSummary, ShortIdSchema } from "../contracts";
 import { gridsService } from "../service";
 import { decodeDocumentRunCursor } from "../service/document-run-values";
 import { loadDocumentNumberSeries } from "../service/number-series";
@@ -70,6 +70,7 @@ export const PublicDocumentRunSummarySchema = z.object({
   documentNumber: z.string(),
   filename: z.string(),
   tags: z.array(z.string()),
+  artifact: DocumentArtifactSummarySchema,
   generatedBy: z.string().uuid().nullable(),
   generatedAt: z.string().datetime(),
 });

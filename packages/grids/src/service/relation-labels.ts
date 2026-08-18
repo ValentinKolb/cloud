@@ -1,10 +1,12 @@
 import { sql } from "bun";
 import { assertFederatedPublication, buildDslSqlRecordSource } from "../query-dsl/sql-record-source";
+import { buildFormulaSqlProjections } from "./computed-projections";
 import { listByTable as listFields } from "./fields";
 import { parseJsonbRow } from "./jsonb";
 import { liveRecordParentJoinSql } from "./parent-checks";
 import { type AuthorizedRecordAccess, recordAccessPredicate } from "./record-access";
 import { type ExpansionViewer, resolveRecordAccessByTableIds } from "./relation-access";
+import { enrichRecordsWithFormulas } from "./relation-formulas";
 import { collectRelationTargetIds, loadRelationTargetsBatch, relationLabelFields } from "./relation-targets";
 import { get as getTable } from "./tables";
 import type { Field, GridRecord } from "./types";
@@ -119,6 +121,10 @@ export const lookupRecords = async (params: {
   const fields = await listFields(params.targetTableId);
   const presentable = relationLabelFields(fields);
   const searchTargets = presentable.filter((field) => LABEL_TEXT_TYPES.has(field.type));
+  const presentableIds = new Set(presentable.map((field) => field.id));
+  const formulaSearchTargets = buildFormulaSqlProjections(fields).filter(
+    (projection) => presentableIds.has(projection.fieldId) && projection.expr,
+  );
   const table = await getTable(params.targetTableId);
   const recordSource =
     table?.kind === "federated"
@@ -133,11 +139,12 @@ export const lookupRecords = async (params: {
   if (!recordSource) conditions.push(sql`r.table_id = ${params.targetTableId}::uuid`);
   conditions.push(recordAccessPredicate(params.recordAccess, "r"));
   const query = params.q?.trim();
-  if (query && searchTargets.length > 0) {
+  if (query && (searchTargets.length > 0 || formulaSearchTargets.length > 0)) {
     const pattern = `%${query.replace(/[\\%_]/g, (match) => `\\${match}`)}%`;
-    const search = searchTargets
-      .map((field) => sql`r.data->>${field.id} ILIKE ${pattern}`)
-      .reduce((left, right) => sql`${left} OR ${right}`);
+    const search = [
+      ...searchTargets.map((field) => sql`r.data->>${field.id} ILIKE ${pattern}`),
+      ...formulaSearchTargets.map((projection) => sql`(${projection.expr})::text ILIKE ${pattern}`),
+    ].reduce((left, right) => sql`${left} OR ${right}`);
     conditions.push(sql`(${search})`);
   }
   if (params.excludeIds && params.excludeIds.length > 0) {
@@ -161,11 +168,12 @@ export const lookupRecords = async (params: {
         ORDER BY r.created_at DESC
         LIMIT ${limit}
       `;
+  const records = rows.map((row) => ({ id: row.id as string, data: parseJsonbRow<Record<string, unknown>>(row.data, {}) }));
+  enrichRecordsWithFormulas(records, fields);
   return {
-    items: rows.map((row) => {
-      const data = parseJsonbRow<Record<string, unknown>>(row.data, {});
-      const parts = presentable.map((field) => formatLabelPart(data[field.id])).filter((part) => part.length > 0);
-      return { id: row.id as string, label: parts.length > 0 ? parts.join(" · ") : "Untitled record" };
+    items: records.map((record) => {
+      const parts = presentable.map((field) => formatLabelPart(record.data[field.id])).filter((part) => part.length > 0);
+      return { id: record.id, label: parts.length > 0 ? parts.join(" · ") : "Untitled record" };
     }),
   };
 };
