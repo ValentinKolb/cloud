@@ -12,6 +12,7 @@ import {
   RecordQuerySchema,
   ShortIdSchema,
 } from "../contracts";
+import { rewriteGroupedColumnKeys } from "../presentation-ids";
 import { gridsService } from "../service";
 import { projectPublicIds, resolvePublicIds } from "../service/public-resources";
 
@@ -208,6 +209,10 @@ export const toPublicRecordQuery = async (query: RecordQuery, fields: readonly F
         : {}),
     };
   };
+  const groupedColumnOrder = rewriteGroupedColumnKeys(query.groupedColumnOrder, publicFieldId);
+  if (!groupedColumnOrder.ok) throw new Error(groupedColumnOrder.error.message);
+  const hiddenGroupedColumns = rewriteGroupedColumnKeys(query.hiddenGroupedColumns, publicFieldId);
+  if (!hiddenGroupedColumns.ok) throw new Error(hiddenGroupedColumns.error.message);
   return PublicRecordQuerySchema.parse({
     ...query,
     filter: projectFilter(query.filter),
@@ -218,6 +223,8 @@ export const toPublicRecordQuery = async (query: RecordQuery, fields: readonly F
     groupSort: query.groupSort?.map((item) => ({ ...item, fieldId: publicFieldId(item.fieldId) })),
     aggregations: query.aggregations?.map((item) => ({ ...item, fieldId: publicFieldId(item.fieldId) })),
     columns: query.columns?.map((item) => ("kind" in item ? item : { ...item, fieldId: publicFieldId(item.fieldId) })),
+    groupedColumnOrder: groupedColumnOrder.data,
+    hiddenGroupedColumns: hiddenGroupedColumns.data,
   });
 };
 
@@ -286,12 +293,10 @@ export const fromPublicRecordQuery = async (
     return id ? { ...column, fieldId: id } : null;
   });
   if (columns?.some((column) => !column)) return fail(err.badInput("Unknown field ID"));
-  const replaceKey = (key: string) => {
-    for (const [publicId, field] of fieldsByPublicId) {
-      if (key === publicId || key.startsWith(`${publicId}__`)) return `${field.id}${key.slice(publicId.length)}`;
-    }
-    return key;
-  };
+  const groupedColumnOrder = rewriteGroupedColumnKeys(query.groupedColumnOrder, resolveField);
+  if (!groupedColumnOrder.ok) return groupedColumnOrder;
+  const hiddenGroupedColumns = rewriteGroupedColumnKeys(query.hiddenGroupedColumns, resolveField);
+  if (!hiddenGroupedColumns.ok) return hiddenGroupedColumns;
   const rewriteRelationFilter = (value: RecordQuery["filter"]): RecordQuery["filter"] => {
     if (!value) return value;
     if ("filters" in value) {
@@ -318,8 +323,8 @@ export const fromPublicRecordQuery = async (
     groupSort: groupSort.data,
     aggregations: aggregations.data,
     columns: columns?.filter((column): column is NonNullable<typeof column> => Boolean(column)),
-    groupedColumnOrder: query.groupedColumnOrder?.map(replaceKey),
-    hiddenGroupedColumns: query.hiddenGroupedColumns?.map(replaceKey),
+    groupedColumnOrder: groupedColumnOrder.data,
+    hiddenGroupedColumns: hiddenGroupedColumns.data,
   } satisfies RecordQuery;
   return ok(internal);
 };

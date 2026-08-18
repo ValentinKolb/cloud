@@ -4,21 +4,22 @@ import { Hono } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import {
-  CreateTableSchema,
   type FederatedDraftInput,
   type FederatedRevision,
   FederatedSourceCandidateQuerySchema,
   RecordActorListResponseSchema,
   RecordMetaUserKeySchema,
   ShortIdSchema,
-  UpdateTableSchema,
 } from "../contracts";
 import { gridsService } from "../service";
 import { projectPublicIds, resolvePublicIds } from "../service/public-resources";
 import { ALL_RECORD_ACCESS } from "../service/record-access";
 import { currentAccessSubject, currentActorUserId, currentCredentialPermission, currentResourceBoundBaseId, gateAt } from "./permissions";
 import {
+  fromPublicCreateTable,
   fromPublicFederatedDraft,
+  fromPublicUpdateTable,
+  PublicCreateTableSchema,
   PublicFederatedDraftInputSchema,
   PublicFederatedRevisionViewSchema,
   PublicFederatedSourceCandidatePageSchema,
@@ -28,6 +29,7 @@ import {
   PublicTableListSchema,
   PublicTableSchema,
   PublicUpdateFederatedDraftSchema,
+  PublicUpdateTableSchema,
   toPublicFederatedDiagnostics,
   toPublicFederatedRevision,
   toPublicFederatedSourceCandidates,
@@ -373,21 +375,20 @@ const app = new Hono<AuthContext>()
         409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
-    v("json", CreateTableSchema),
+    v("json", PublicCreateTableSchema),
     async (c) => {
       const baseId = internalIdParam(c, "baseId")!;
       const gate = await gateAt(c, { baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
       const body = c.req.valid("json");
+      const converted = await fromPublicCreateTable(body);
+      if (!converted.ok) return c.json({ message: converted.error.message }, converted.error.status);
       const result = await gridsService.table.create(
         {
           baseId,
-          kind: body.kind,
-          name: body.name,
-          description: body.description ?? null,
-          icon: body.icon ?? null,
-          columns: body.columns,
-          displayConfig: body.displayConfig,
+          ...converted.data,
+          description: converted.data.description ?? null,
+          icon: converted.data.icon ?? null,
         },
         currentActorUserId(c),
       );
@@ -431,14 +432,16 @@ const app = new Hono<AuthContext>()
         409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
-    v("json", UpdateTableSchema),
+    v("json", PublicUpdateTableSchema),
     async (c) => {
       const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
       if (!table) return c.json({ message: "Table not found" }, 404);
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      const result = await gridsService.table.update(tableId, c.req.valid("json"), currentActorUserId(c));
+      const converted = await fromPublicUpdateTable(tableId, c.req.valid("json"));
+      if (!converted.ok) return c.json({ message: converted.error.message }, converted.error.status);
+      const result = await gridsService.table.update(tableId, converted.data, currentActorUserId(c));
       return result.ok ? c.json(await toPublicTable(result.data)) : c.json({ message: result.error.message }, result.error.status);
     },
   )

@@ -397,6 +397,40 @@ describe("grids CLI", () => {
     expect(lines).toEqual(["Using Grids base Bookshop (bk001A)."]);
   });
 
+  test("forwards public field ids in table and view presentation updates", async () => {
+    const tableBody = {
+      columns: [{ fieldId }],
+      displayConfig: { mode: "cards", cards: { imageFieldId: fieldId, fieldIds: [fieldId] } },
+    };
+    const tableUpdate = createContext(["tables", "update", baseId, "Authors"], { body: JSON.stringify(tableBody) }, [
+      jsonResponse(basePage),
+      jsonResponse([table]),
+      jsonResponse({ ...table, ...tableBody }),
+    ]);
+    await gridsCli.run(tableUpdate.ctx);
+    expect(tableUpdate.calls.at(-1)?.path).toBe(`/api/grids/tables/${tableId}`);
+    expect(tableUpdate.calls.at(-1)?.init?.method).toBe("PATCH");
+    expect(JSON.parse(String(tableUpdate.calls.at(-1)?.init?.body))).toEqual(tableBody);
+
+    const viewBody = {
+      ui: {
+        columns: [{ fieldId }],
+        groupedColumnOrder: [`group:0:${fieldId}:year`],
+        hiddenGroupedColumns: [`agg:0:${fieldId}:sum`],
+      },
+    };
+    const viewUpdate = createContext(["views", "update", baseId, "Authors", "Recent authors"], { body: JSON.stringify(viewBody) }, [
+      jsonResponse(basePage),
+      jsonResponse([table]),
+      jsonResponse([view]),
+      jsonResponse({ ...view, ...viewBody }),
+    ]);
+    await gridsCli.run(viewUpdate.ctx);
+    expect(viewUpdate.calls.at(-1)?.path).toBe(`/api/grids/views/${viewId}`);
+    expect(viewUpdate.calls.at(-1)?.init?.method).toBe("PATCH");
+    expect(JSON.parse(String(viewUpdate.calls.at(-1)?.init?.body))).toEqual(viewBody);
+  });
+
   test("lists built-in base templates", async () => {
     const template = {
       id: "inventory",

@@ -25,6 +25,18 @@ const parseDisplayConfig = (raw: unknown) => {
 
 const parseAuditPolicy = (raw: unknown) => TableAuditPolicySchema.parse(raw ?? {});
 
+const tableFieldReferences = (
+  columns: ReturnType<typeof parseColumns>,
+  displayConfig: ReturnType<typeof parseDisplayConfig>,
+  auditPolicy: ReturnType<typeof parseAuditPolicy>,
+): string[] => [
+  ...columns.map((column) => column.fieldId),
+  ...(displayConfig.cards?.imageFieldId ? [displayConfig.cards.imageFieldId] : []),
+  ...(displayConfig.cards?.fieldIds ?? []),
+  ...(displayConfig.calendar?.dateFieldId ? [displayConfig.calendar.dateFieldId] : []),
+  ...(auditPolicy.update?.fieldIds ?? []),
+];
+
 const mapRow = (row: DbRow): Table => ({
   id: row.id as string,
   shortId: row.short_id as string,
@@ -166,6 +178,9 @@ export const create = async (input: CreateTableInput, actorId: string | null): P
   if (!columnsParsed.success) return fail(err.badInput("invalid table columns"));
   const displayConfigParsed = RecordDisplayConfigSchema.safeParse(input.displayConfig ?? { mode: "table" });
   if (!displayConfigParsed.success) return fail(err.badInput("invalid table display config"));
+  if (tableFieldReferences(columnsParsed.data, displayConfigParsed.data, {}).length > 0) {
+    return fail(err.badInput("new tables cannot reference fields before those fields exist"));
+  }
 
   const kind = input.kind ?? "stored";
   const inserted = await writeNamedResource(
@@ -260,9 +275,10 @@ export const update = async (id: string, input: UpdateTableInput, actorId: strin
       WHERE table_id = ${id}::uuid AND deleted_at IS NULL
     `;
     const liveFieldIds = new Set(fieldRows.map((field) => field.id));
-    const updateAudit = auditPolicyParsed.data.update;
-    const staleAuditFieldId = updateAudit?.enabled ? updateAudit.fieldIds.find((fieldId) => !liveFieldIds.has(fieldId)) : undefined;
-    if (staleAuditFieldId) return fail(err.badInput("table audit policy references an unknown field"));
+    const staleFieldId = tableFieldReferences(columnsParsed.data, displayConfigParsed.data, auditPolicyParsed.data).find(
+      (fieldId) => !liveFieldIds.has(fieldId),
+    );
+    if (staleFieldId) return fail(err.badInput("table configuration references an unknown field"));
 
     const updated = await writeNamedResource(
       () =>

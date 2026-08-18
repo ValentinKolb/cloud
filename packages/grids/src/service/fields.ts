@@ -1,7 +1,9 @@
 import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { isUniqueViolation, logger, toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
+import { FieldColumnSpecSchema, RecordDisplayConfigSchema, ViewUiSettingsSchema } from "../contracts";
 import { isKnownFieldType } from "../field-types";
+import { groupedColumnFieldId } from "../presentation-ids";
 import { normalizeRefKey } from "../ref-syntax";
 import { logAudit, type SqlClient } from "./audit";
 import { buildFormulaSqlProjections } from "./computed-projections";
@@ -28,6 +30,37 @@ import type { CreateFieldInput, Field, UpdateFieldInput } from "./types";
 type DbRow = Record<string, unknown>;
 
 const log = logger("grids:fields");
+
+const withoutFieldDisplayReference = (raw: unknown, fieldId: string) => {
+  const parsed = RecordDisplayConfigSchema.safeParse(raw ?? { mode: "table" });
+  if (!parsed.success) return raw;
+  const config = parsed.data;
+  return {
+    ...config,
+    ...(config.cards
+      ? {
+          cards: {
+            ...config.cards,
+            ...(config.cards.imageFieldId === fieldId ? { imageFieldId: null } : {}),
+            ...(config.cards.fieldIds ? { fieldIds: config.cards.fieldIds.filter((id) => id !== fieldId) } : {}),
+          },
+        }
+      : {}),
+    ...(config.calendar?.dateFieldId === fieldId ? { calendar: { ...config.calendar, dateFieldId: null } } : {}),
+  };
+};
+
+const withoutFieldViewUiReference = (raw: unknown, fieldId: string) => {
+  const parsed = ViewUiSettingsSchema.safeParse(raw ?? {});
+  if (!parsed.success) return raw;
+  return {
+    ...parsed.data,
+    columns: parsed.data.columns?.filter((column) => !("fieldId" in column) || column.fieldId !== fieldId),
+    displayConfig: withoutFieldDisplayReference(parsed.data.displayConfig, fieldId),
+    groupedColumnOrder: parsed.data.groupedColumnOrder?.filter((key) => groupedColumnFieldId(key) !== fieldId),
+    hiddenGroupedColumns: parsed.data.hiddenGroupedColumns?.filter((key) => groupedColumnFieldId(key) !== fieldId),
+  };
+};
 
 type FieldUpdateState = {
   name: string;
@@ -699,8 +732,8 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
     // Serialize policy edits and field deletion through the parent table.
     // This keeps selected-field audit requirements valid under concurrent
     // admin requests.
-    const [table] = await tx<{ id: string; kind: string }[]>`
-      SELECT id::text AS id, kind
+    const [table] = await tx<{ id: string; kind: string; columns: unknown; display_config: unknown }[]>`
+      SELECT id::text AS id, kind, columns, display_config
       FROM grids.tables
       WHERE id = ${existing.tableId}::uuid AND deleted_at IS NULL
       FOR UPDATE
@@ -741,6 +774,30 @@ export const softDelete = async (id: string, actorId: string | null): Promise<Re
       WHERE table_id = ${existing.tableId}::uuid
         AND config->'fields' @> jsonb_build_array(jsonb_build_object('fieldId', ${id}::text))
     `;
+    const columns = FieldColumnSpecSchema.array().safeParse(table.columns ?? []);
+    if (columns.success) {
+      await tx`
+        UPDATE grids.tables
+        SET columns = ${columns.data.filter((column) => column.fieldId !== id)}::jsonb,
+            display_config = ${withoutFieldDisplayReference(table.display_config, id)}::jsonb,
+            updated_at = now()
+        WHERE id = ${existing.tableId}::uuid
+      `;
+    }
+    const viewRows = await tx<{ id: string; ui: unknown }[]>`
+      SELECT id::text AS id, ui
+      FROM grids.views
+      WHERE table_id = ${existing.tableId}::uuid AND deleted_at IS NULL
+      FOR UPDATE
+    `;
+    for (const view of viewRows) {
+      await tx`
+        UPDATE grids.views
+        SET ui = ${withoutFieldViewUiReference(view.ui, id)}::jsonb,
+            updated_at = now()
+        WHERE id = ${view.id}::uuid
+      `;
+    }
     return ok();
   });
   if (!deleted.ok) return deleted;

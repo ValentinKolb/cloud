@@ -16,11 +16,17 @@ import viewsRoutes from "./views";
 type Fixture = {
   user: User;
   baseId: string;
+  basePublicId: string;
   foreignBaseId: string;
+  foreignBasePublicId: string;
   tableId: string;
+  tablePublicId: string;
   foreignTableId: string;
+  foreignTablePublicId: string;
   foreignViewId: string;
+  foreignViewPublicId: string;
   uniqueFieldId: string;
+  uniqueFieldPublicId: string;
   serviceAccountIds: string[];
   accessIds: string[];
   tokens: Record<"read" | "write" | "admin" | "delegated", string>;
@@ -85,11 +91,17 @@ const newFixture = (): Fixture => {
   return {
     user,
     baseId: testUuid(),
+    basePublicId: testShortId("B"),
     foreignBaseId: testUuid(),
+    foreignBasePublicId: testShortId("X"),
     tableId: testUuid(),
+    tablePublicId: testShortId("T"),
     foreignTableId: testUuid(),
+    foreignTablePublicId: testShortId("F"),
     foreignViewId: testUuid(),
+    foreignViewPublicId: testShortId("V"),
     uniqueFieldId: testUuid(),
+    uniqueFieldPublicId: testShortId("U"),
     serviceAccountIds: [],
     accessIds: [],
     tokens: { read: "", write: "", admin: "", delegated: "" },
@@ -112,20 +124,20 @@ const setupFixture = async (fixture: Fixture): Promise<void> => {
   await sql`
     INSERT INTO grids.bases (id, short_id, name)
     VALUES
-      (${fixture.baseId}::uuid, ${testShortId("B")}, 'Route matrix'),
-      (${fixture.foreignBaseId}::uuid, ${testShortId("X")}, 'Foreign route matrix')
+      (${fixture.baseId}::uuid, ${fixture.basePublicId}, 'Route matrix'),
+      (${fixture.foreignBaseId}::uuid, ${fixture.foreignBasePublicId}, 'Foreign route matrix')
   `;
   await sql`
     INSERT INTO grids.tables (id, short_id, base_id, name, position)
     VALUES
-      (${fixture.tableId}::uuid, ${testShortId("T")}, ${fixture.baseId}::uuid, 'Items', 0),
-      (${fixture.foreignTableId}::uuid, ${testShortId("F")}, ${fixture.foreignBaseId}::uuid, 'Foreign items', 0)
+      (${fixture.tableId}::uuid, ${fixture.tablePublicId}, ${fixture.baseId}::uuid, 'Items', 0),
+      (${fixture.foreignTableId}::uuid, ${fixture.foreignTablePublicId}, ${fixture.foreignBaseId}::uuid, 'Foreign items', 0)
   `;
   await sql`
     INSERT INTO grids.fields (id, short_id, table_id, name, type, config, position, unique_constraint)
     VALUES (
       ${fixture.uniqueFieldId}::uuid,
-      ${testShortId("U")},
+      ${fixture.uniqueFieldPublicId},
       ${fixture.tableId}::uuid,
       'Serial',
       'text',
@@ -139,7 +151,7 @@ const setupFixture = async (fixture: Fixture): Promise<void> => {
     INSERT INTO grids.views (id, short_id, table_id, base_id, name, source, ui, position)
     VALUES (
       ${fixture.foreignViewId}::uuid,
-      ${testShortId("V")},
+      ${fixture.foreignViewPublicId},
       ${fixture.foreignTableId}::uuid,
       ${fixture.foreignBaseId}::uuid,
       'Foreign view',
@@ -247,19 +259,19 @@ describe("classic resource route contracts", () => {
       try {
         await setupFixture(fixture);
 
-        expect((await app.request(`/tables/by-base/${fixture.baseId}`)).status).toBe(401);
+        expect((await app.request(`/tables/by-base/${fixture.basePublicId}`)).status).toBe(401);
 
-        const readable = await app.request(`/tables/by-base/${fixture.baseId}`, bearer(fixture.tokens.read));
+        const readable = await app.request(`/tables/by-base/${fixture.basePublicId}`, bearer(fixture.tokens.read));
         expect(readable.status).toBe(200);
-        expect((await readable.json()).map((table: { id: string }) => table.id)).toContain(fixture.tableId);
+        expect((await readable.json()).map((table: { id: string }) => table.id)).toContain(fixture.tablePublicId);
 
-        const foreign = await app.request(`/tables/by-base/${fixture.foreignBaseId}`, bearer(fixture.tokens.admin));
+        const foreign = await app.request(`/tables/by-base/${fixture.foreignBasePublicId}`, bearer(fixture.tokens.admin));
         expect(foreign.status).toBe(403);
 
-        expect((await app.request(`/bases/${fixture.baseId}`, bearer(fixture.tokens.delegated))).status).toBe(200);
-        expect((await app.request(`/bases/${fixture.foreignBaseId}`, bearer(fixture.tokens.delegated))).status).toBe(403);
-        expect((await app.request(`/tables/${fixture.foreignTableId}`, bearer(fixture.tokens.delegated))).status).toBe(403);
-        expect((await app.request(`/views/${fixture.foreignViewId}`, bearer(fixture.tokens.delegated))).status).toBe(404);
+        expect((await app.request(`/bases/${fixture.basePublicId}`, bearer(fixture.tokens.delegated))).status).toBe(200);
+        expect((await app.request(`/bases/${fixture.foreignBasePublicId}`, bearer(fixture.tokens.delegated))).status).toBe(403);
+        expect((await app.request(`/tables/${fixture.foreignTablePublicId}`, bearer(fixture.tokens.delegated))).status).toBe(403);
+        expect((await app.request(`/views/${fixture.foreignViewPublicId}`, bearer(fixture.tokens.delegated))).status).toBe(404);
 
         const unknown = await app.request(`/fields/by-table/${testUuid()}`, bearer(fixture.tokens.admin));
         expect(unknown.status).toBe(404);
@@ -273,7 +285,7 @@ describe("classic resource route contracts", () => {
           ["/bases/not-a-uuid", bearer(fixture.tokens.admin), "Base not found"],
           ["/tables/by-base/not-a-uuid", bearer(fixture.tokens.admin), "Base not found"],
           ["/records/by-table/not-a-uuid", jsonRequest(fixture.tokens.admin, {}), "Table not found"],
-          [`/records/${fixture.tableId}/not-a-uuid`, bearer(fixture.tokens.admin), "Record not found"],
+          [`/records/${fixture.tablePublicId}/not-a-uuid`, bearer(fixture.tokens.admin), "Record not found"],
           ["/views/not-a-uuid", bearer(fixture.tokens.admin), "View not found"],
           ["/tables/not-a-uuid/query", jsonRequest(fixture.tokens.admin, { query: {} }), "Table not found"],
         ] as const) {
@@ -285,21 +297,24 @@ describe("classic resource route contracts", () => {
         const tableCount = await count("tables", "base_id", fixture.baseId);
         const initialSideEffects = await sideEffectCounts(fixture.baseId);
         const deniedTableCreate = await app.request(
-          `/tables/by-base/${fixture.baseId}`,
+          `/tables/by-base/${fixture.basePublicId}`,
           jsonRequest(fixture.tokens.write, { name: "Denied table" }),
         );
         expect(deniedTableCreate.status).toBe(403);
         expect(await count("tables", "base_id", fixture.baseId)).toBe(tableCount);
         expect(await sideEffectCounts(fixture.baseId)).toEqual(initialSideEffects);
 
-        const invalidTableCreate = await app.request(`/tables/by-base/${fixture.baseId}`, jsonRequest(fixture.tokens.admin, { name: "" }));
+        const invalidTableCreate = await app.request(
+          `/tables/by-base/${fixture.basePublicId}`,
+          jsonRequest(fixture.tokens.admin, { name: "" }),
+        );
         expect(invalidTableCreate.status).toBe(400);
         expect(await count("tables", "base_id", fixture.baseId)).toBe(tableCount);
         expect(await sideEffectCounts(fixture.baseId)).toEqual(initialSideEffects);
 
         const fieldCount = await count("fields", "table_id", fixture.tableId);
         const deniedFieldCreate = await app.request(
-          `/fields/by-table/${fixture.tableId}`,
+          `/fields/by-table/${fixture.tablePublicId}`,
           jsonRequest(fixture.tokens.write, { name: "Denied field", type: "text" }),
         );
         expect(deniedFieldCreate.status).toBe(403);
@@ -307,7 +322,7 @@ describe("classic resource route contracts", () => {
         expect(await sideEffectCounts(fixture.baseId)).toEqual(initialSideEffects);
 
         const invalidFieldCreate = await app.request(
-          `/fields/by-table/${fixture.tableId}`,
+          `/fields/by-table/${fixture.tablePublicId}`,
           jsonRequest(fixture.tokens.admin, { name: "", type: "text" }),
         );
         expect(invalidFieldCreate.status).toBe(400);
@@ -315,16 +330,74 @@ describe("classic resource route contracts", () => {
         expect(await sideEffectCounts(fixture.baseId)).toEqual(initialSideEffects);
 
         const createdField = await app.request(
-          `/fields/by-table/${fixture.tableId}`,
+          `/fields/by-table/${fixture.tablePublicId}`,
           jsonRequest(fixture.tokens.admin, { name: "Notes", type: "text" }),
         );
         expect(createdField.status).toBe(201);
+        const createdFieldBody = (await createdField.json()) as { id: string };
         expect(await count("fields", "table_id", fixture.tableId)).toBe(fieldCount + 1);
+
+        const tableUpdate = await app.request(
+          `/tables/${fixture.tablePublicId}`,
+          jsonRequest(
+            fixture.tokens.admin,
+            {
+              columns: [{ fieldId: createdFieldBody.id, label: "Public notes" }],
+              displayConfig: { mode: "cards", cards: { imageFieldId: createdFieldBody.id, fieldIds: [createdFieldBody.id] } },
+              auditPolicy: {
+                update: { enabled: false, questions: [], scope: "selected", fieldIds: [createdFieldBody.id] },
+              },
+            },
+            "PATCH",
+          ),
+        );
+        expect(tableUpdate.status).toBe(200);
+        expect(await tableUpdate.json()).toMatchObject({
+          id: fixture.tablePublicId,
+          columns: [{ fieldId: createdFieldBody.id }],
+          displayConfig: { cards: { imageFieldId: createdFieldBody.id, fieldIds: [createdFieldBody.id] } },
+          auditPolicy: { update: { fieldIds: [createdFieldBody.id] } },
+        });
+        expect(
+          (
+            await app.request(
+              `/tables/${fixture.tablePublicId}`,
+              jsonRequest(fixture.tokens.admin, { columns: [{ fieldId: "MISS01" }] }, "PATCH"),
+            )
+          ).status,
+        ).toBe(400);
+
+        const createdView = await app.request(
+          `/views/by-table/${fixture.tablePublicId}`,
+          jsonRequest(fixture.tokens.admin, {
+            name: "Public presentation",
+            shared: true,
+            ui: {
+              columns: [{ fieldId: createdFieldBody.id }],
+              groupedColumnOrder: [`group:0:${createdFieldBody.id}:year`],
+              hiddenGroupedColumns: [`agg:0:${createdFieldBody.id}:count`],
+            },
+          }),
+        );
+        const createdViewText = await createdView.text();
+        expect(createdView.status, createdViewText).toBe(201);
+        const createdViewBody = JSON.parse(createdViewText) as { id: string; ui: Record<string, unknown> };
+        expect(createdViewBody.ui).toMatchObject({
+          columns: [{ fieldId: createdFieldBody.id }],
+          groupedColumnOrder: [`group:0:${createdFieldBody.id}:year`],
+          hiddenGroupedColumns: [`agg:0:${createdFieldBody.id}:count`],
+        });
+        const viewRoundTrip = await app.request(
+          `/views/${createdViewBody.id}`,
+          jsonRequest(fixture.tokens.admin, { name: "Renamed presentation", ui: createdViewBody.ui }, "PATCH"),
+        );
+        expect(viewRoundTrip.status).toBe(200);
+        expect(await viewRoundTrip.json()).toMatchObject({ name: "Renamed presentation", ui: createdViewBody.ui });
 
         const beforeDeniedRecord = await sideEffectCounts(fixture.baseId);
         const deniedRecordCreate = await app.request(
-          `/records/by-table/${fixture.tableId}`,
-          jsonRequest(fixture.tokens.read, { [fixture.uniqueFieldId]: "SERIAL-1" }),
+          `/records/by-table/${fixture.tablePublicId}`,
+          jsonRequest(fixture.tokens.read, { [fixture.uniqueFieldPublicId]: "SERIAL-1" }),
         );
         expect(deniedRecordCreate.status).toBe(403);
         expect(await count("records", "table_id", fixture.tableId)).toBe(0);
@@ -332,8 +405,8 @@ describe("classic resource route contracts", () => {
 
         const beforeCreatedRecord = await sideEffectCounts(fixture.baseId);
         const createdRecord = await app.request(
-          `/records/by-table/${fixture.tableId}`,
-          jsonRequest(fixture.tokens.write, { [fixture.uniqueFieldId]: "SERIAL-1" }),
+          `/records/by-table/${fixture.tablePublicId}`,
+          jsonRequest(fixture.tokens.write, { [fixture.uniqueFieldPublicId]: "SERIAL-1" }),
         );
         expect(createdRecord.status).toBe(201);
         expect(await count("records", "table_id", fixture.tableId)).toBe(1);
@@ -349,8 +422,8 @@ describe("classic resource route contracts", () => {
         `;
         const beforeConflict = await sideEffectCounts(fixture.baseId);
         const duplicateRecord = await app.request(
-          `/records/by-table/${fixture.tableId}`,
-          jsonRequest(fixture.tokens.write, { [fixture.uniqueFieldId]: "SERIAL-1" }),
+          `/records/by-table/${fixture.tablePublicId}`,
+          jsonRequest(fixture.tokens.write, { [fixture.uniqueFieldPublicId]: "SERIAL-1" }),
         );
         expect(duplicateRecord.status).toBe(409);
         expect(await count("records", "table_id", fixture.tableId)).toBe(1);
@@ -362,13 +435,13 @@ describe("classic resource route contracts", () => {
         expect(recordAfterConflict).toEqual(recordBeforeConflict);
         expect(await sideEffectCounts(fixture.baseId)).toEqual(beforeConflict);
 
-        const views = await app.request(`/views/by-table/${fixture.tableId}`, bearer(fixture.tokens.read));
+        const views = await app.request(`/views/by-table/${fixture.tablePublicId}`, bearer(fixture.tokens.read));
         expect(views.status).toBe(200);
 
         const viewCount = await count("views", "table_id", fixture.tableId);
         const beforeInvalidView = await sideEffectCounts(fixture.baseId);
         const invalidView = await app.request(
-          `/views/by-table/${fixture.tableId}`,
+          `/views/by-table/${fixture.tablePublicId}`,
           jsonRequest(fixture.tokens.admin, { name: "Broken view", shared: true, source: "from table Missing" }),
         );
         expect(invalidView.status).toBe(400);

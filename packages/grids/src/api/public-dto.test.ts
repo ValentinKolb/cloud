@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   fromPublicFieldWrite,
+  fromPublicUpdateTable,
+  fromPublicUpdateView,
   PublicCreateFieldSchema,
   PublicFederatedDraftInputSchema,
   PublicFederatedRevisionViewSchema,
@@ -8,6 +10,8 @@ import {
   PublicFieldSchema,
   PublicFormSchema,
   PublicTableSchema,
+  PublicUpdateTableSchema,
+  PublicUpdateViewSchema,
   PublicViewSchema,
   publicFieldKey,
   resourceTypeForKnownIdKey,
@@ -77,6 +81,9 @@ describe("Grids public DTO ID boundary", () => {
     expect(PublicTableSchema.safeParse(table).success).toBe(true);
     expect(PublicTableSchema.safeParse({ ...table, columns: [{ fieldId: uuid }] }).success).toBe(false);
     expect(PublicTableSchema.safeParse({ ...table, displayConfig: { mode: "cards", cards: { imageFieldId: uuid } } }).success).toBe(false);
+    expect(PublicUpdateTableSchema.safeParse({ columns: [{ fieldId: "FILD01" }] }).success).toBe(true);
+    expect(PublicUpdateTableSchema.safeParse({ columns: [{ fieldId: uuid }] }).success).toBe(false);
+    expect(PublicUpdateTableSchema.safeParse({ auditPolicy: { update: { fieldIds: [uuid] } } }).success).toBe(false);
   });
 
   test("view and form schemas reject nested UUID field references", () => {
@@ -95,6 +102,8 @@ describe("Grids public DTO ID boundary", () => {
     };
     expect(PublicViewSchema.safeParse(view).success).toBe(true);
     expect(PublicViewSchema.safeParse({ ...view, ui: { columns: [{ fieldId: uuid }] } }).success).toBe(false);
+    expect(PublicUpdateViewSchema.safeParse({ ui: { columns: [{ fieldId: "FILD01" }] } }).success).toBe(true);
+    expect(PublicUpdateViewSchema.safeParse({ ui: { groupedColumnOrder: [`group:0:${uuid}:year`] } }).success).toBe(false);
 
     const form = {
       id: "FORM01",
@@ -112,6 +121,76 @@ describe("Grids public DTO ID boundary", () => {
     };
     expect(PublicFormSchema.safeParse(form).success).toBe(true);
     expect(PublicFormSchema.safeParse({ ...form, config: { fields: [{ kind: "user_input", fieldId: uuid }] } }).success).toBe(false);
+  });
+
+  test("resolves every table and view presentation field through the owning table", async () => {
+    const fieldId = "22222222-2222-4222-8222-222222222222";
+    const field = {
+      id: fieldId,
+      shortId: "FILD01",
+      tableId: uuid,
+      name: "Name",
+      description: null,
+      icon: null,
+      type: "text",
+      config: {},
+      position: 0,
+      required: false,
+      presentable: true,
+      hideInTable: false,
+      defaultValue: null,
+      indexed: false,
+      uniqueConstraint: false,
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const listFields = async () => [field];
+    const table = await fromPublicUpdateTable(
+      uuid,
+      {
+        columns: [{ fieldId: "FILD01" }],
+        displayConfig: { mode: "cards", cards: { imageFieldId: "FILD01", fieldIds: ["FILD01"] } },
+        auditPolicy: { update: { enabled: false, questions: [], scope: "selected", fieldIds: ["FILD01"] } },
+      },
+      { listFields },
+    );
+    expect(table).toMatchObject({
+      ok: true,
+      data: {
+        columns: [{ fieldId }],
+        displayConfig: { cards: { imageFieldId: fieldId, fieldIds: [fieldId] } },
+        auditPolicy: { update: { fieldIds: [fieldId] } },
+      },
+    });
+
+    const view = await fromPublicUpdateView(
+      uuid,
+      {
+        ui: {
+          columns: [{ fieldId: "FILD01" }],
+          displayConfig: { mode: "calendar", calendar: { dateFieldId: "FILD01" } },
+          groupedColumnOrder: ["group:0:FILD01:year", "agg:0:FILD01:sum"],
+          hiddenGroupedColumns: ["agg:1:*:count"],
+        },
+      },
+      { listFields },
+    );
+    expect(view).toMatchObject({
+      ok: true,
+      data: {
+        ui: {
+          columns: [{ fieldId }],
+          displayConfig: { calendar: { dateFieldId: fieldId } },
+          groupedColumnOrder: [`group:0:${fieldId}:year`, `agg:0:${fieldId}:sum`],
+          hiddenGroupedColumns: ["agg:1:*:count"],
+        },
+      },
+    });
+    expect(await fromPublicUpdateView(uuid, { ui: { columns: [{ fieldId: "MISS01" }] } }, { listFields })).toMatchObject({
+      ok: false,
+      error: { status: 400 },
+    });
   });
 
   test("field schemas reject UUIDs in typed config and relation defaults", async () => {

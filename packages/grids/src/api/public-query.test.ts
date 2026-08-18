@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { fromPublicExportBody, fromPublicRecordQuery, PublicExportBodySchema, PublicRecordQuerySchema } from "./public-query";
+import {
+  fromPublicExportBody,
+  fromPublicRecordQuery,
+  PublicExportBodySchema,
+  PublicRecordQuerySchema,
+  toPublicRecordQuery,
+} from "./public-query";
 
 const tableId = "11111111-1111-4111-8111-111111111111";
 const fieldId = "22222222-2222-4222-8222-222222222222";
@@ -47,6 +53,19 @@ describe("structured query public ID boundary", () => {
         columns: [{ fieldId }],
       },
     });
+  });
+
+  test("round-trips grouped presentation keys without exposing UUIDs", async () => {
+    const internal = {
+      groupBy: [{ fieldId, granularity: "year" as const }],
+      aggregations: [{ fieldId, agg: "sum" as const }],
+      groupedColumnOrder: [`group:0:${fieldId}:year`, `agg:0:${fieldId}:sum`, "agg:1:*:count"],
+      hiddenGroupedColumns: [`agg:0:${fieldId}:sum`],
+    };
+    const projected = await toPublicRecordQuery(internal, fields as never);
+    expect(projected.groupedColumnOrder).toEqual(["group:0:FILD01:year", "agg:0:FILD01:sum", "agg:1:*:count"]);
+    expect(projected.hiddenGroupedColumns).toEqual(["agg:0:FILD01:sum"]);
+    expect(await fromPublicRecordQuery(tableId, projected, { listFields })).toEqual({ ok: true, data: internal });
   });
 
   test("resolves export selection and relation target fields", async () => {

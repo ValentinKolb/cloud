@@ -2,8 +2,9 @@ import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { toPgUuidArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { type View, type ViewUiSettings, ViewUiSettingsSchema } from "../contracts";
+import { groupedColumnFieldId } from "../presentation-ids";
 import { normalizeRefKey } from "../ref-syntax";
-import { logAudit } from "./audit";
+import { logAudit, type SqlClient } from "./audit";
 import { parseJsonbRow } from "./jsonb";
 import { emitTableMetadataEvent } from "./metadata-events";
 import { writeNamedResource } from "./named-resource-conflict";
@@ -14,6 +15,28 @@ type DbRow = Record<string, unknown>;
 const parseUi = (raw: unknown): ViewUiSettings => {
   const parsed = ViewUiSettingsSchema.safeParse(parseJsonbRow<unknown>(raw, {}));
   return parsed.success ? parsed.data : {};
+};
+
+const viewUiFieldReferences = (ui: ViewUiSettings): string[] => [
+  ...(ui.columns ?? []).flatMap((column) => ("fieldId" in column ? [column.fieldId] : [])),
+  ...(ui.displayConfig?.cards?.imageFieldId ? [ui.displayConfig.cards.imageFieldId] : []),
+  ...(ui.displayConfig?.cards?.fieldIds ?? []),
+  ...(ui.displayConfig?.calendar?.dateFieldId ? [ui.displayConfig.calendar.dateFieldId] : []),
+  ...[...(ui.groupedColumnOrder ?? []), ...(ui.hiddenGroupedColumns ?? [])]
+    .map(groupedColumnFieldId)
+    .filter((fieldId): fieldId is string => fieldId !== null && fieldId !== "*"),
+];
+
+const validateViewUiFields = async (tableId: string, ui: ViewUiSettings, client: SqlClient = sql): Promise<Result<void>> => {
+  const references = [...new Set(viewUiFieldReferences(ui))];
+  if (references.length === 0) return ok();
+  const rows = await client<{ id: string }[]>`
+    SELECT id::text AS id
+    FROM grids.fields
+    WHERE table_id = ${tableId}::uuid AND deleted_at IS NULL
+  `;
+  const live = new Set(rows.map((row) => row.id));
+  return references.every((fieldId) => live.has(fieldId)) ? ok() : fail(err.badInput("view UI references an unknown field"));
 };
 
 const mapRow = (row: DbRow): View => {
@@ -157,11 +180,20 @@ export const create = async (input: CreateViewServiceInput, actorId: string | nu
   if (source.length > 20_000) return fail(err.badInput("view source is too long"));
   const uiParsed = ViewUiSettingsSchema.safeParse(input.ui ?? {});
   if (!uiParsed.success) return fail(err.badInput("invalid view UI settings"));
-
-  const inserted = await writeNamedResource(
-    () =>
-      insertWithShortId<DbRow>(async (shortId) => {
-        const [r] = await sql<DbRow[]>`
+  const inserted = await sql.begin(async (tx): Promise<Result<DbRow>> => {
+    const [table] = await tx<{ id: string }[]>`
+      SELECT id::text AS id FROM grids.tables
+      WHERE id = ${input.tableId}::uuid AND deleted_at IS NULL
+      FOR UPDATE
+    `;
+    if (!table) return fail(err.notFound("Table"));
+    const validUi = await validateViewUiFields(input.tableId, uiParsed.data, tx);
+    if (!validUi.ok) return validUi;
+    return writeNamedResource(
+      () =>
+        tx.savepoint(() =>
+          insertWithShortId<DbRow>(async (shortId) => {
+            const [r] = await tx<DbRow[]>`
         INSERT INTO grids.views (short_id, table_id, base_id, name, description, icon, source, ui, owner_user_id, position)
         VALUES (
           ${shortId},
@@ -177,12 +209,14 @@ export const create = async (input: CreateViewServiceInput, actorId: string | nu
         )
         RETURNING id, short_id, table_id, name, description, icon, source, ui, owner_user_id, position, deleted_at, created_at, updated_at
       `;
-        if (!r) throw new Error("insert returned no row");
-        return r;
-      }, "idx_grids_views_short_id"),
-    "idx_grids_views_live_name",
-    "view name must be unique within this grid",
-  );
+            if (!r) throw new Error("insert returned no row");
+            return r;
+          }, "idx_grids_views_short_id"),
+        ),
+      "idx_grids_views_live_name",
+      "view name must be unique within this grid",
+    );
+  });
   if (!inserted.ok) return inserted;
   const view = mapRow(inserted.data);
   await logAudit({
@@ -237,9 +271,19 @@ export const update = async (id: string, input: UpdateViewServiceInput, actorId:
     position: input.position ?? existing.position,
   };
 
-  const updated = await writeNamedResource(
-    async () => {
-      const [row] = await sql<DbRow[]>`
+  const updated = await sql.begin(async (tx): Promise<Result<DbRow | undefined>> => {
+    const [table] = await tx<{ id: string }[]>`
+      SELECT id::text AS id FROM grids.tables
+      WHERE id = ${existing.tableId}::uuid AND deleted_at IS NULL
+      FOR UPDATE
+    `;
+    if (!table) return fail(err.notFound("Table"));
+    const validUi = await validateViewUiFields(existing.tableId, uiParsed.data, tx);
+    if (!validUi.ok) return validUi;
+    return writeNamedResource(
+      () =>
+        tx.savepoint(async (sp) => {
+          const [row] = await sp<DbRow[]>`
         UPDATE grids.views
         SET name = ${next.name},
             description = ${next.description},
@@ -252,11 +296,12 @@ export const update = async (id: string, input: UpdateViewServiceInput, actorId:
         WHERE id = ${id}::uuid AND deleted_at IS NULL
         RETURNING id, short_id, table_id, name, description, icon, source, ui, owner_user_id, position, deleted_at, created_at, updated_at
       `;
-      return row;
-    },
-    "idx_grids_views_live_name",
-    "view name must be unique within this grid",
-  );
+          return row;
+        }),
+      "idx_grids_views_live_name",
+      "view name must be unique within this grid",
+    );
+  });
   if (!updated.ok) return updated;
   const row = updated.data;
   if (!row) return fail(err.internal("update failed"));

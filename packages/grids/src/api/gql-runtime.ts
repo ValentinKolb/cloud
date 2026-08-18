@@ -80,10 +80,10 @@ export const sourceAst = (ast: DslQueryAst, source: DslCurrentSource, ctx: DslRe
   if (ast.source || !source) return ast;
   if (source.kind === "table") {
     const table = ctx.tables.find((item) => item.id === source.tableId);
-    return table ? { ...ast, source: { kind: "table", ref: table.id } } : ast;
+    return table ? { ...ast, source: { kind: "table", ref: table.shortId } } : ast;
   }
   const view = (ctx.views ?? []).find((item) => item.id === source.viewId);
-  return view ? { ...ast, source: { kind: "view", ref: view.id } } : ast;
+  return view ? { ...ast, source: { kind: "view", ref: view.shortId } } : ast;
 };
 
 export const buildPermissionedGqlResolverContextForAccess = async (
@@ -560,7 +560,7 @@ export const compileGqlViewWrite = async (
   c: Context<AuthContext>,
   params: { baseId: string; tableId: string; source?: string },
 ): Promise<{ ok: true; source: string } | { ok: false; diagnostics: DslQueryPreviewDiagnostic[] }> => {
-  const source = params.source?.trim() || `from table {${params.tableId}}`;
+  const source = params.source?.trim() ?? "";
 
   const parsed = parseGridsQueryDsl(source);
   if (!parsed.ok) return { ok: false, diagnostics: parsed.diagnostics };

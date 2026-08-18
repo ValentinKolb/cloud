@@ -2,11 +2,19 @@ import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, type PermissionLevel, respond, v } from "@valentinkolb/cloud/server";
 import { type Context, Hono } from "hono";
 import { describeRoute } from "hono-openapi";
-import { CreateViewSchema, UpdateViewSchema } from "../contracts";
 import { gridsService } from "../service";
 import { compileGqlViewWrite } from "./gql-runtime";
 import { currentActorUser, currentActorUserId, currentActorViewer, gateAt } from "./permissions";
-import { PublicViewListSchema, PublicViewSchema, toPublicView, toPublicViews } from "./public-dto";
+import {
+  fromPublicCreateView,
+  fromPublicUpdateView,
+  PublicCreateViewSchema,
+  PublicUpdateViewSchema,
+  PublicViewListSchema,
+  PublicViewSchema,
+  toPublicView,
+  toPublicViews,
+} from "./public-dto";
 import { internalIdParam, requirePublicIdParam, requireStoredPublicIdParam } from "./route-params";
 
 const gqlDiagnosticMessage = (diagnostics: Array<{ message: string }>): string =>
@@ -70,7 +78,7 @@ const app = new Hono<AuthContext>()
         409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
-    v("json", CreateViewSchema),
+    v("json", PublicCreateViewSchema),
     async (c) => {
       const tableId = internalIdParam(c, "tableId")!;
       const table = await gridsService.table.get(tableId);
@@ -78,10 +86,12 @@ const app = new Hono<AuthContext>()
       const body = c.req.valid("json");
       const gate = await gateAt(c, { baseId: table.baseId }, "admin");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+      const converted = await fromPublicCreateView(tableId, body);
+      if (!converted.ok) return c.json({ message: converted.error.message }, converted.error.status);
       const compiled = await compileGqlViewWrite(c, {
         baseId: table.baseId,
         tableId,
-        ...(body.source !== undefined ? { source: body.source } : {}),
+        ...(converted.data.source !== undefined ? { source: converted.data.source } : {}),
       });
       if (!compiled.ok) return c.json({ message: gqlDiagnosticMessage(compiled.diagnostics) }, 400);
       const user = currentActorUser(c);
@@ -89,11 +99,11 @@ const app = new Hono<AuthContext>()
       const result = await gridsService.view.create(
         {
           tableId,
-          name: body.name,
-          description: body.description ?? null,
-          icon: body.icon ?? null,
+          name: converted.data.name,
+          description: converted.data.description ?? null,
+          icon: converted.data.icon ?? null,
           source: compiled.source,
-          ui: body.ui,
+          ui: converted.data.ui,
           ownerUserId: body.shared ? null : (user?.id ?? null),
         },
         currentActorUserId(c),
@@ -142,7 +152,7 @@ const app = new Hono<AuthContext>()
         409: jsonResponse(ErrorResponseSchema, "Conflict"),
       },
     }),
-    v("json", UpdateViewSchema),
+    v("json", PublicUpdateViewSchema),
     async (c) => {
       const viewId = internalIdParam(c, "viewId")!;
       const view = await gridsService.view.get(viewId);
@@ -159,12 +169,15 @@ const app = new Hono<AuthContext>()
         if (!shareGate.ok) return respond(c, () => Promise.resolve(shareGate));
       }
 
+      const converted = await fromPublicUpdateView(view.tableId, body);
+      if (!converted.ok) return c.json({ message: converted.error.message }, converted.error.status);
+
       const compiled =
-        body.source !== undefined
+        converted.data.source !== undefined
           ? await compileGqlViewWrite(c, {
               baseId: table.baseId,
               tableId: view.tableId,
-              ...(body.source !== undefined ? { source: body.source } : {}),
+              source: converted.data.source,
             })
           : null;
       if (compiled && !compiled.ok) return c.json({ message: gqlDiagnosticMessage(compiled.diagnostics) }, 400);
@@ -172,7 +185,7 @@ const app = new Hono<AuthContext>()
       const result = await gridsService.view.update(
         viewId,
         {
-          ...body,
+          ...converted.data,
           ...(compiled?.ok ? { source: compiled.source } : {}),
         },
         currentActorUserId(c),

@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   type Base,
   BaseSchema,
+  CreateTableSchema,
+  CreateViewSchema,
   type FederatedDiagnostic,
   type FederatedDraftInput,
   type FederatedRevision,
@@ -16,11 +18,16 @@ import {
   ShortIdSchema,
   type Table,
   type TableAuditPolicy,
+  TableAuditPolicySchema,
   TableQueryResponseSchema,
   TableSchema,
+  UpdateTableSchema,
+  UpdateViewSchema,
   type View,
   ViewSchema,
 } from "../contracts";
+import { groupedColumnFieldId, rewriteGroupedColumnKeys } from "../presentation-ids";
+import { listByTable } from "../service/field-read";
 import type { Form } from "../service/forms";
 import { isSequentialNumberSeriesConfig, loadFieldNumberSeries } from "../service/number-series";
 import { projectPublicIds, resolvePublicIds } from "../service/public-resources";
@@ -29,18 +36,42 @@ import type { GridFile } from "../service/types";
 import { PublicNumberSeriesSummarySchema, toPublicNumberSeries } from "./number-series-dto";
 
 export const PublicBaseSchema = BaseSchema.omit({ id: true, shortId: true }).extend({ id: ShortIdSchema });
-const PublicRecordDisplayConfigSchema = z.object({
+export const PublicRecordDisplayConfigSchema = z.object({
   mode: z.enum(["table", "cards", "calendar"]),
   cards: z.object({ imageFieldId: ShortIdSchema.nullable().optional(), fieldIds: z.array(ShortIdSchema).optional() }).optional(),
   calendar: z.object({ dateFieldId: ShortIdSchema.nullable().optional() }).optional(),
 });
-const PublicFieldColumnSchema = z.object({ fieldId: ShortIdSchema, label: z.string().optional(), format: FormatSpecSchema.optional() });
+export const PublicFieldColumnSchema = z.object({
+  fieldId: ShortIdSchema,
+  label: z.string().optional(),
+  format: FormatSpecSchema.optional(),
+});
+
+const TableAuditPolicyObjectSchema = TableAuditPolicySchema.removeDefault();
+const PublicAuditUpdateRequirementSchema = TableAuditPolicyObjectSchema.shape.update
+  .unwrap()
+  .safeExtend({ fieldIds: z.array(ShortIdSchema).max(200).default([]) });
+export const PublicTableAuditPolicySchema = TableAuditPolicyObjectSchema.extend({
+  update: PublicAuditUpdateRequirementSchema.optional(),
+}).default({});
+
 export const PublicTableSchema = TableSchema.omit({ id: true, shortId: true, baseId: true }).extend({
   id: ShortIdSchema,
   baseId: ShortIdSchema,
   columns: z.array(PublicFieldColumnSchema),
   displayConfig: PublicRecordDisplayConfigSchema,
-  auditPolicy: z.custom<TableAuditPolicy>(),
+  auditPolicy: PublicTableAuditPolicySchema,
+});
+
+export const PublicCreateTableSchema = CreateTableSchema.omit({ columns: true, displayConfig: true }).extend({
+  columns: z.array(PublicFieldColumnSchema).optional(),
+  displayConfig: PublicRecordDisplayConfigSchema.optional(),
+});
+
+export const PublicUpdateTableSchema = UpdateTableSchema.omit({ columns: true, displayConfig: true, auditPolicy: true }).extend({
+  columns: z.array(PublicFieldColumnSchema).optional(),
+  displayConfig: PublicRecordDisplayConfigSchema.optional(),
+  auditPolicy: PublicTableAuditPolicySchema.optional(),
 });
 const PublicRelationConfigSchema = z.object({
   targetTableId: ShortIdSchema.optional(),
@@ -214,29 +245,44 @@ export const PublicFederatedSourcePublicationListSchema = z.array(PublicFederate
 export type PublicFederatedRevisionView = z.infer<typeof PublicFederatedRevisionViewSchema>;
 export type PublicFederatedSourceCandidate = z.infer<typeof PublicFederatedSourceCandidateSchema>;
 export type PublicFederatedSourcePublication = z.infer<typeof PublicFederatedSourcePublicationSchema>;
+const PublicGroupedColumnKeySchema = z
+  .string()
+  .min(1)
+  .superRefine((key, ctx) => {
+    const fieldId = groupedColumnFieldId(key);
+    if (fieldId !== null && fieldId !== "*" && !ShortIdSchema.safeParse(fieldId).success) {
+      ctx.addIssue({ code: "custom", message: "Grouped columns must reference a public field ID" });
+    }
+  });
+
+export const PublicViewUiSettingsSchema = z.object({
+  displayConfig: PublicRecordDisplayConfigSchema.optional(),
+  columns: z
+    .array(
+      z.union([
+        PublicFieldColumnSchema,
+        z.object({
+          kind: z.literal("computed"),
+          id: z.string(),
+          label: z.string(),
+          expression: z.string(),
+          format: FormatSpecSchema.optional(),
+        }),
+      ]),
+    )
+    .optional(),
+  groupedColumnOrder: z.array(PublicGroupedColumnKeySchema).optional(),
+  hiddenGroupedColumns: z.array(PublicGroupedColumnKeySchema).optional(),
+});
+
 export const PublicViewSchema = ViewSchema.omit({ id: true, shortId: true, tableId: true }).extend({
   id: ShortIdSchema,
   tableId: ShortIdSchema,
-  ui: z.object({
-    displayConfig: PublicRecordDisplayConfigSchema.optional(),
-    columns: z
-      .array(
-        z.union([
-          PublicFieldColumnSchema,
-          z.object({
-            kind: z.literal("computed"),
-            id: z.string(),
-            label: z.string(),
-            expression: z.string(),
-            format: FormatSpecSchema.optional(),
-          }),
-        ]),
-      )
-      .optional(),
-    groupedColumnOrder: z.array(z.string()).optional(),
-    hiddenGroupedColumns: z.array(z.string()).optional(),
-  }),
+  ui: PublicViewUiSettingsSchema,
 });
+
+export const PublicCreateViewSchema = CreateViewSchema.omit({ ui: true }).extend({ ui: PublicViewUiSettingsSchema.optional() });
+export const PublicUpdateViewSchema = UpdateViewSchema.omit({ ui: true }).extend({ ui: PublicViewUiSettingsSchema.optional() });
 const PublicInlineCreateFieldSchema = z.object({
   fieldId: ShortIdSchema,
   label: z.string().optional(),
@@ -325,6 +371,135 @@ export type PublicGridRecord = z.infer<typeof PublicGridRecordSchema>;
 export type PublicGridFile = z.infer<typeof PublicGridFileSchema>;
 export type PublicRecordComment = z.infer<typeof PublicRecordCommentSchema>;
 export type PublicForm = z.infer<typeof PublicFormSchema>;
+
+type PublicWriteDeps = { listFields?: typeof listByTable };
+
+const convertPublicDisplayConfig = (config: z.infer<typeof PublicRecordDisplayConfigSchema> | undefined, fields: Map<string, Field>) => {
+  if (!config) return config;
+  const resolve = (id: string | null | undefined): string | null | undefined => (id === null || id === undefined ? id : fields.get(id)?.id);
+  const imageFieldId = resolve(config.cards?.imageFieldId);
+  const cardFieldIds = config.cards?.fieldIds?.map((id) => resolve(id));
+  const dateFieldId = resolve(config.calendar?.dateFieldId);
+  if (imageFieldId === undefined && config.cards?.imageFieldId !== undefined) return null;
+  if (cardFieldIds?.some((id) => id === undefined)) return null;
+  if (dateFieldId === undefined && config.calendar?.dateFieldId !== undefined) return null;
+  return {
+    ...config,
+    ...(config.cards
+      ? {
+          cards: {
+            ...config.cards,
+            ...(config.cards.imageFieldId !== undefined ? { imageFieldId } : {}),
+            ...(cardFieldIds ? { fieldIds: cardFieldIds.filter((id): id is string => id !== undefined && id !== null) } : {}),
+          },
+        }
+      : {}),
+    ...(config.calendar ? { calendar: { ...config.calendar, ...(config.calendar.dateFieldId !== undefined ? { dateFieldId } : {}) } } : {}),
+  };
+};
+
+const convertPublicColumns = (columns: z.infer<typeof PublicFieldColumnSchema>[] | undefined, fields: Map<string, Field>) => {
+  if (!columns) return columns;
+  const converted = columns.map((column) => {
+    const field = fields.get(column.fieldId);
+    return field ? { ...column, fieldId: field.id } : null;
+  });
+  return converted.some((column) => column === null)
+    ? null
+    : converted.filter((column): column is NonNullable<typeof column> => column !== null);
+};
+
+const convertPublicAuditPolicy = (
+  policy: TableAuditPolicy | undefined,
+  fields: Map<string, Field>,
+): TableAuditPolicy | null | undefined => {
+  if (!policy?.update?.fieldIds) return policy;
+  const fieldIds = policy.update.fieldIds.map((id) => fields.get(id)?.id);
+  if (fieldIds.some((id) => !id)) return null;
+  return { ...policy, update: { ...policy.update, fieldIds: fieldIds.filter((id): id is string => Boolean(id)) } };
+};
+
+const fieldsForPublicWrite = async (tableId: string | null, deps: PublicWriteDeps): Promise<Map<string, Field>> =>
+  new Map((tableId ? await (deps.listFields ?? listByTable)(tableId) : []).map((field) => [field.shortId, field]));
+
+const invalidReference = <T>(): Result<T> => fail(err.badInput("Unknown field ID"));
+
+export const fromPublicCreateTable = async (
+  input: z.infer<typeof PublicCreateTableSchema>,
+  deps: PublicWriteDeps = {},
+): Promise<Result<z.infer<typeof CreateTableSchema>>> => {
+  const fields = await fieldsForPublicWrite(null, deps);
+  const columns = convertPublicColumns(input.columns, fields);
+  const displayConfig = convertPublicDisplayConfig(input.displayConfig, fields);
+  if (columns === null || displayConfig === null) return invalidReference();
+  const parsed = CreateTableSchema.safeParse({ ...input, columns, displayConfig });
+  return parsed.success ? ok(parsed.data) : fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid table"));
+};
+
+export const fromPublicUpdateTable = async (
+  tableId: string,
+  input: z.infer<typeof PublicUpdateTableSchema>,
+  deps: PublicWriteDeps = {},
+): Promise<Result<z.infer<typeof UpdateTableSchema>>> => {
+  const fields = await fieldsForPublicWrite(tableId, deps);
+  const columns = convertPublicColumns(input.columns, fields);
+  const displayConfig = convertPublicDisplayConfig(input.displayConfig, fields);
+  const auditPolicy = convertPublicAuditPolicy(input.auditPolicy, fields);
+  if (columns === null || displayConfig === null || auditPolicy === null) return invalidReference();
+  const parsed = UpdateTableSchema.safeParse({ ...input, columns, displayConfig, auditPolicy });
+  return parsed.success ? ok(parsed.data) : fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid table"));
+};
+
+const convertPublicViewUi = async (
+  tableId: string,
+  ui: z.infer<typeof PublicViewUiSettingsSchema> | undefined,
+  deps: PublicWriteDeps,
+): Promise<Result<z.infer<typeof ViewSchema>["ui"] | undefined>> => {
+  if (!ui) return ok(undefined);
+  const fields = await fieldsForPublicWrite(tableId, deps);
+  const columns = ui.columns?.map((column) => {
+    if (!("fieldId" in column)) return column;
+    const field = fields.get(column.fieldId);
+    return field ? { ...column, fieldId: field.id } : null;
+  });
+  if (columns?.some((column) => column === null)) return invalidReference();
+  const displayConfig = convertPublicDisplayConfig(ui.displayConfig, fields);
+  if (displayConfig === null) return invalidReference();
+  const resolve = (id: string) => fields.get(id)?.id ?? null;
+  const groupedColumnOrder = rewriteGroupedColumnKeys(ui.groupedColumnOrder, resolve);
+  if (!groupedColumnOrder.ok) return groupedColumnOrder;
+  const hiddenGroupedColumns = rewriteGroupedColumnKeys(ui.hiddenGroupedColumns, resolve);
+  if (!hiddenGroupedColumns.ok) return hiddenGroupedColumns;
+  return ok({
+    ...ui,
+    displayConfig,
+    columns: columns?.filter((column): column is NonNullable<typeof column> => column !== null),
+    groupedColumnOrder: groupedColumnOrder.data,
+    hiddenGroupedColumns: hiddenGroupedColumns.data,
+  });
+};
+
+export const fromPublicCreateView = async (
+  tableId: string,
+  input: z.infer<typeof PublicCreateViewSchema>,
+  deps: PublicWriteDeps = {},
+): Promise<Result<z.infer<typeof CreateViewSchema>>> => {
+  const ui = await convertPublicViewUi(tableId, input.ui, deps);
+  if (!ui.ok) return ui;
+  const parsed = CreateViewSchema.safeParse({ ...input, ui: ui.data });
+  return parsed.success ? ok(parsed.data) : fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid view"));
+};
+
+export const fromPublicUpdateView = async (
+  tableId: string,
+  input: z.infer<typeof PublicUpdateViewSchema>,
+  deps: PublicWriteDeps = {},
+): Promise<Result<z.infer<typeof UpdateViewSchema>>> => {
+  const ui = await convertPublicViewUi(tableId, input.ui, deps);
+  if (!ui.ok) return ui;
+  const parsed = UpdateViewSchema.safeParse({ ...input, ui: ui.data });
+  return parsed.success ? ok(parsed.data) : fail(err.badInput(parsed.error.issues[0]?.message ?? "Invalid view"));
+};
 
 export const PublicBaseListSchema = z.object({
   items: z.array(PublicBaseSchema),
@@ -711,17 +886,33 @@ export const toPublicFields = async (fields: readonly Field[]): Promise<PublicFi
 export const toPublicField = async (field: Field) => (await toPublicFields([field]))[0]!;
 
 export const toPublicViews = async (views: readonly View[]): Promise<PublicView[]> => {
-  const tableIds = await projectPublicIds(
-    "table",
-    views.map((view) => view.tableId),
+  const groupedFieldIds = views.flatMap((view) =>
+    [...(view.ui.groupedColumnOrder ?? []), ...(view.ui.hiddenGroupedColumns ?? [])]
+      .map(groupedColumnFieldId)
+      .filter((id): id is string => id !== null && id !== "*"),
   );
+  const [tableIds, groupedFields] = await Promise.all([
+    projectPublicIds(
+      "table",
+      views.map((view) => view.tableId),
+    ),
+    projectPublicIds("field", groupedFieldIds),
+  ]);
   const projected = await Promise.all(
-    views.map(async (view) => ({
-      ...omitShortId(view),
-      id: view.shortId,
-      tableId: publicId(tableIds, view.tableId, "table"),
-      ui: await projectKnownIds(view.ui),
-    })),
+    views.map(async (view) => {
+      const ui = (await projectKnownIds(view.ui)) as View["ui"];
+      const resolveGroupedField = (id: string) => groupedFields.get(id) ?? null;
+      const groupedColumnOrder = rewriteGroupedColumnKeys(view.ui.groupedColumnOrder, resolveGroupedField);
+      if (!groupedColumnOrder.ok) throw new Error(groupedColumnOrder.error.message);
+      const hiddenGroupedColumns = rewriteGroupedColumnKeys(view.ui.hiddenGroupedColumns, resolveGroupedField);
+      if (!hiddenGroupedColumns.ok) throw new Error(hiddenGroupedColumns.error.message);
+      return {
+        ...omitShortId(view),
+        id: view.shortId,
+        tableId: publicId(tableIds, view.tableId, "table"),
+        ui: { ...ui, groupedColumnOrder: groupedColumnOrder.data, hiddenGroupedColumns: hiddenGroupedColumns.data },
+      };
+    }),
   );
   return projected.map((view) => PublicViewSchema.parse(view));
 };

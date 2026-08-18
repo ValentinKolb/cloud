@@ -317,6 +317,75 @@ describe("field lifecycle Postgres integration", () => {
   );
 
   postgresTest(
+    "removes deleted fields from table and view presentation settings",
+    async () => {
+      await migrate();
+      const fixture = await createTableFixture(`Presentation cleanup ${Bun.randomUUIDv7()}`);
+      try {
+        const created = await fields.create({ tableId: fixture.tableId, name: "Presented", type: "text" }, null);
+        expect(created.ok).toBe(true);
+        if (!created.ok) throw new Error(created.error.message);
+        const viewId = Bun.randomUUIDv7();
+        await sql`
+          UPDATE grids.tables
+          SET columns = ${[{ fieldId: created.data.id }]}::jsonb,
+              display_config = ${{
+                mode: "cards",
+                cards: { imageFieldId: created.data.id, fieldIds: [created.data.id] },
+              }}::jsonb
+          WHERE id = ${fixture.tableId}::uuid
+        `;
+        await sql`
+          INSERT INTO grids.views (id, short_id, table_id, base_id, name, source, ui)
+          VALUES (
+            ${viewId}::uuid,
+            ${shortId("V")},
+            ${fixture.tableId}::uuid,
+            ${fixture.baseId}::uuid,
+            'Presented view',
+            'from table Fields',
+            ${{
+              columns: [{ fieldId: created.data.id }],
+              displayConfig: { mode: "calendar", calendar: { dateFieldId: created.data.id } },
+              groupedColumnOrder: [`group:0:${created.data.id}:year`],
+              hiddenGroupedColumns: [`agg:0:${created.data.id}:count`],
+            }}::jsonb
+          )
+        `;
+
+        expect((await fields.softDelete(created.data.id, null)).ok).toBe(true);
+        const [table] = await sql<
+          Array<{ columns: unknown[]; display_config: { cards?: { imageFieldId?: string | null; fieldIds?: string[] } } }>
+        >`
+          SELECT columns, display_config FROM grids.tables WHERE id = ${fixture.tableId}::uuid
+        `;
+        const [view] = await sql<
+          Array<{
+            ui: {
+              columns?: unknown[];
+              displayConfig?: { mode?: string; calendar?: { dateFieldId?: string | null } };
+              groupedColumnOrder?: string[];
+              hiddenGroupedColumns?: string[];
+            };
+          }>
+        >`SELECT ui FROM grids.views WHERE id = ${viewId}::uuid`;
+        expect(table).toMatchObject({ columns: [], display_config: { cards: { imageFieldId: null, fieldIds: [] } } });
+        expect(view).toEqual({
+          ui: {
+            columns: [],
+            displayConfig: { mode: "calendar", calendar: { dateFieldId: null } },
+            groupedColumnOrder: [],
+            hiddenGroupedColumns: [],
+          },
+        });
+      } finally {
+        await sql`DELETE FROM grids.bases WHERE id = ${fixture.baseId}::uuid`;
+      }
+    },
+    30_000,
+  );
+
+  postgresTest(
     "does not list trashed fields from a trashed base",
     async () => {
       await migrate();
