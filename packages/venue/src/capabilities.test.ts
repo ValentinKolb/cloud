@@ -294,6 +294,14 @@ describe("Venue capabilities", () => {
         if (!signupReview) throw new Error("Template signup review missing");
         const reviewedSignup = await signupReview({ venueId: venueShortId, templateId: templateShortId, date: shiftDate }, context);
         expect(reviewedSignup).toMatchObject({ ok: true, data: { message: "Sign up for Agent shift at Agent Venue." } });
+        if (reviewedSignup.ok) {
+          expect(reviewedSignup.data.details).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({ label: "Starts", format: "date-time" }),
+              expect.objectContaining({ label: "Ends", format: "date-time" }),
+            ]),
+          );
+        }
 
         const signup = await invokeAction(
           "assignment.signup",
@@ -332,6 +340,15 @@ describe("Venue capabilities", () => {
           context,
         );
         expect(reviewedFreeSignup).toMatchObject({ ok: true, data: { message: "Create a free shift assignment at Agent Venue." } });
+        if (reviewedFreeSignup.ok) {
+          expect(reviewedFreeSignup.data.details).toEqual(
+            expect.arrayContaining([
+              { label: "Starts", value: freeStart.toISOString(), format: "date-time" },
+              { label: "Ends", value: freeEnd.toISOString(), format: "date-time" },
+              { label: "Private note", value: "Agent-created shift", display: "block" },
+            ]),
+          );
+        }
         const freeSignup = await invokeAction(
           "assignment.signup_free",
           { venueId: venueShortId, startsAt: freeStart.toISOString(), endsAt: freeEnd.toISOString(), note: "Agent-created shift" },

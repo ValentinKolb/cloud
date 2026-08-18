@@ -551,8 +551,8 @@ export const venueCapabilities = defineCapabilities({
           details: [
             { label: "Venue", value: actor.data.venue.name },
             { label: "Shift", value: shift.template.title },
-            { label: "Starts", value: shift.startsAt },
-            { label: "Ends", value: shift.endsAt },
+            { label: "Starts", value: shift.startsAt, format: "date-time" },
+            { label: "Ends", value: shift.endsAt, format: "date-time" },
           ],
           links: [{ rel: "open" as const, href: shiftHref(actor.data.venue.publicId) }],
         });
@@ -578,8 +578,9 @@ export const venueCapabilities = defineCapabilities({
           details: [
             { label: "Venue", value: actor.data.venue.name },
             { label: "Timezone", value: actor.data.venue.timezone },
-            { label: "Starts", value: window.data.start.toISOString() },
-            { label: "Ends", value: window.data.end.toISOString() },
+            { label: "Starts", value: window.data.start.toISOString(), format: "date-time" },
+            { label: "Ends", value: window.data.end.toISOString(), format: "date-time" },
+            ...(input.note ? [{ label: "Private note", value: input.note, display: "block" as const }] : []),
           ],
           links: [{ rel: "open" as const, href: myShiftsHref(actor.data.venue.publicId) }],
         });
@@ -605,8 +606,8 @@ export const venueCapabilities = defineCapabilities({
           message: `Cancel your shift assignment at ${actor.data.venue.name}.`,
           details: [
             { label: "Venue", value: actor.data.venue.name },
-            { label: "Starts", value: assignment.startsAt },
-            { label: "Ends", value: assignment.endsAt },
+            { label: "Starts", value: assignment.startsAt, format: "date-time" },
+            { label: "Ends", value: assignment.endsAt, format: "date-time" },
           ],
           links: [{ rel: "open" as const, href: myShiftsHref(actor.data.venue.publicId) }],
         });
