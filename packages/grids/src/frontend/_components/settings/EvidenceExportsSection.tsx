@@ -370,27 +370,27 @@ export function EvidenceExportsSection(props: { base: PublicBase }) {
                         Cancel
                       </Button>
                     </Show>
+                    <Show when={item.error || item.package}>
+                      <details class="mt-2 text-xs text-muted">
+                        <summary class="cursor-pointer">Technical details</summary>
+                        <Show when={item.error}>
+                          <p class="mt-1 text-danger">{item.error}</p>
+                        </Show>
+                        <Show when={item.package} keyed>
+                          {(pkg) => (
+                            <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 font-mono">
+                              <dt>Size</dt>
+                              <dd>{bytesLabel(pkg.sizeBytes)}</dd>
+                              <dt>Package SHA-256</dt>
+                              <dd class="break-all">{pkg.sha256}</dd>
+                              <dt>Manifest SHA-256</dt>
+                              <dd class="break-all">{pkg.manifestSha256}</dd>
+                            </dl>
+                          )}
+                        </Show>
+                      </details>
+                    </Show>
                   </SettingsCollection.Item.Actions>
-                  <Show when={item.error || item.package}>
-                    <details class="mt-2 text-xs text-muted">
-                      <summary class="cursor-pointer">Technical details</summary>
-                      <Show when={item.error}>
-                        <p class="mt-1 text-danger">{item.error}</p>
-                      </Show>
-                      <Show when={item.package} keyed>
-                        {(pkg) => (
-                          <dl class="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 font-mono">
-                            <dt>Size</dt>
-                            <dd>{bytesLabel(pkg.sizeBytes)}</dd>
-                            <dt>Package SHA-256</dt>
-                            <dd class="break-all">{pkg.sha256}</dd>
-                            <dt>Manifest SHA-256</dt>
-                            <dd class="break-all">{pkg.manifestSha256}</dd>
-                          </dl>
-                        )}
-                      </Show>
-                    </details>
-                  </Show>
                 </SettingsCollection.Item>
               )}
             </For>

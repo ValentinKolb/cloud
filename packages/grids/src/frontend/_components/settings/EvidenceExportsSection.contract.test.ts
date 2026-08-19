@@ -14,6 +14,12 @@ describe("Evidence exports settings contract", () => {
     expect(section).toContain("Scope could not be checked");
     expect(section).toContain("No evidence exports yet");
     expect(section).toContain("Technical details");
+    const actionsStart = section.indexOf("<SettingsCollection.Item.Actions>");
+    const actionsEnd = section.indexOf("</SettingsCollection.Item.Actions>", actionsStart);
+    const technicalDetails = section.indexOf("Technical details", actionsStart);
+    expect(actionsStart).toBeGreaterThanOrEqual(0);
+    expect(technicalDetails).toBeGreaterThan(actionsStart);
+    expect(technicalDetails).toBeLessThan(actionsEnd);
     expect(section).toContain("Packages expire after seven days");
     expect(section).toContain('item.status === "failed" || item.status === "canceled"');
     expect(section).toContain('item.status === "queued" || item.status === "running"');
