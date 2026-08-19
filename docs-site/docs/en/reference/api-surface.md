@@ -143,7 +143,7 @@ documents all process variables; that larger list is not the shape of `env`.
 | --- | --- | --- | --- |
 | `@valentinkolb/cloud/ai/browser` | Supported, browser | Create a personal Assistant conversation with an initial structured draft | [Chat and streaming](/en/docs/ai/chat-runtime-and-streaming) |
 | `@valentinkolb/cloud/ai/solid` | Supported, browser | AI chat controller | [Chat interface](/en/docs/ai/chat-interface) |
-| `@valentinkolb/cloud/ai/tools` | Advanced, server-only | Mount Cloud's standard agent-tool factories, including document-aware `read_file` | [Files and Projects](/en/docs/ai/files-projects-and-personalization) |
+| `@valentinkolb/cloud/ai/tools` | Advanced, server-only | Mount Cloud's standard agent-tool factories, including document-aware `read_file` and conversation-file `markdown_to_pdf` | [Files and Projects](/en/docs/ai/files-projects-and-personalization) |
 | `@valentinkolb/cloud/ai/ui` | Supported, SolidJS | Shared AI chat components | [Chat interface](/en/docs/ai/chat-interface) |
 | `@valentinkolb/cloud/ai/live` | Supported, server-only | AI Realtime UI route and SSR cursor | [Chat and streaming](/en/docs/ai/chat-runtime-and-streaming) |
 | `@valentinkolb/cloud/ai/live-events` | Supported, browser and server | AI Realtime UI wire contracts and parser | [Chat and streaming](/en/docs/ai/chat-runtime-and-streaming) |

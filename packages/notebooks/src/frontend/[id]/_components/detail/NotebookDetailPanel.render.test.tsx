@@ -100,6 +100,7 @@ describe("Notebook note detail panel", () => {
     expect(html).toContain('aria-label="Show Markdown source"');
     expect(html).toContain('aria-label="Copy note content"');
     expect(html).toContain('aria-label="Download note as Markdown"');
+    expect(html).toContain('aria-label="Download note as PDF"');
     expect(html).toContain('href="/app/notebooks/book01/notes/note01?mode=versions"');
     expect(html).toContain('href="/app/notebooks/book01?mode=graph&amp;note=note01"');
     expect(html).toContain('href="#overview"');
@@ -129,6 +130,7 @@ describe("Notebook note detail panel", () => {
     expect(html).not.toContain('aria-label="Show Markdown source"');
     expect(html).toContain('aria-label="Copy note content"');
     expect(html).toContain('aria-label="Download note as Markdown"');
+    expect(html).toContain('aria-label="Download note as PDF"');
     expect(html).toContain("Info");
     expect(html).toContain("Locked");
     expect(html.match(/k2b-detail-panel__body/g)).toHaveLength(1);

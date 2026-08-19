@@ -82,7 +82,9 @@ stylesheets, fonts, and CSS resource URLs are rejected.
 
 The authenticated and rate-limited `/tools/api/markdown/pdf` endpoint returns
 the PDF directly with a private no-store policy. The Markdown, CSS, and PDF are
-processed in memory and are not persisted.
+processed in memory and are not persisted. API callers may also combine a
+preset with CSS overrides; omitting the preset makes the CSS the complete
+stylesheet.
 
 ## How Tools fits Cloud
 

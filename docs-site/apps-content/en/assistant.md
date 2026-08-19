@@ -5,7 +5,7 @@ section: Work
 order: 100
 description: A personal AI workspace for conversations, files, Projects, and reusable preferences.
 tags: [assistant, ai, chats]
-updated: 2026-08-18
+updated: 2026-08-19
 ---
 
 # Assistant
@@ -27,6 +27,9 @@ available when the work continues later.
 - Ask Assistant to read supported PDF, Office, OpenDocument, RTF, EPUB, or CSV
   attachments. Assistant converts them to bounded untrusted text behind the same
   `read_file` tool; images remain a separate visual inspection.
+- Ask for a PDF when the result should be downloadable. Assistant first writes
+  or edits a Markdown file in the chat, converts it with an optional A4 print
+  preset and custom CSS, then presents the generated PDF.
 - Return to saved work through the 15 general chats in the sidebar, Project branches, search, or **See all** for the full chat list.
 - Fork a useful point when another direction should not replace the existing
   conversation.

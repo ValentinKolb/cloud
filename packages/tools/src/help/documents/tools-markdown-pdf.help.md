@@ -27,4 +27,5 @@ Cancelling stops the browser request and ignores a late result. The bounded Gote
 
 :::info Web and API utility
 Markdown to PDF has no dedicated `cld tools` command. Authenticated integrations can call the Tools-owned `/tools/api/markdown/pdf` endpoint documented through OpenAPI. It accepts Markdown and CSS directly; it does not fetch URLs or resolve resources owned by another application.
+API callers may layer CSS overrides on Document, Report, or Compact. When no preset is sent, custom CSS is the complete stylesheet.
 :::

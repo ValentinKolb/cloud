@@ -24,6 +24,8 @@ import {
   ATTACHMENTS_UPDATE_EVENT,
   EDITOR_COPY_EVENT,
   EDITOR_DOWNLOAD_EVENT,
+  EDITOR_PDF_EVENT,
+  type EditorPdfEventDetail,
   EDITOR_INSERT_ATTACHMENT_EVENT,
   NAMED_BLOCK_SCROLL_EVENT,
   NAMED_BLOCKS_UPDATE_EVENT,
@@ -586,6 +588,11 @@ function EditorInstance(props: EditorInstanceProps) {
     files.downloadFileFromContent(ytext.toString(), filename, "text/markdown");
   };
 
+  const onPdf = (event: Event) => {
+    const detail = (event as CustomEvent<EditorPdfEventDetail>).detail;
+    if (typeof detail?.open === "function") detail.open(ytext.toString());
+  };
+
   const onScrollToHeading = (event: Event) => {
     const detail = (event as CustomEvent<{ id: string }>).detail;
     if (!detail?.id) return;
@@ -737,6 +744,7 @@ function EditorInstance(props: EditorInstanceProps) {
     window.addEventListener(TOGGLE_RICH_MODE_EVENT, onToggleRich);
     window.addEventListener(EDITOR_COPY_EVENT, onCopy);
     window.addEventListener(EDITOR_DOWNLOAD_EVENT, onDownload);
+    window.addEventListener(EDITOR_PDF_EVENT, onPdf);
     window.addEventListener(EDITOR_INSERT_ATTACHMENT_EVENT, onInsertAttachment);
 
     themeObserver = new MutationObserver(() => {
@@ -765,6 +773,7 @@ function EditorInstance(props: EditorInstanceProps) {
     window.removeEventListener(TOGGLE_RICH_MODE_EVENT, onToggleRich);
     window.removeEventListener(EDITOR_COPY_EVENT, onCopy);
     window.removeEventListener(EDITOR_DOWNLOAD_EVENT, onDownload);
+    window.removeEventListener(EDITOR_PDF_EVENT, onPdf);
     window.removeEventListener(EDITOR_INSERT_ATTACHMENT_EVENT, onInsertAttachment);
     themeObserver?.disconnect();
     provider?.dispose();

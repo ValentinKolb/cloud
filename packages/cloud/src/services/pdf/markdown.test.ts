@@ -10,18 +10,26 @@ const config = {
 } satisfies GotenbergConfig;
 
 describe("Markdown PDF renderer", () => {
-  test("builds standalone CSP-protected preset and custom documents", () => {
+  test("builds standalone CSP-protected preset, layered, and custom documents", () => {
     const html = buildMarkdownPdfHtml({
       markdown: "# Report\n\n| A | B |\n| - | - |\n| 1 | 2 |",
       templateId: "report",
     });
-    const custom = buildMarkdownPdfHtml({ markdown: "# Custom", templateId: "custom", customCss: "h1 { color: rebeccapurple; }" });
+    const layered = buildMarkdownPdfHtml({
+      markdown: "# Layered",
+      templateId: "report",
+      customCss: "h1 { color: rebeccapurple; }",
+    });
+    const custom = buildMarkdownPdfHtml({ markdown: "# Custom", customCss: "h1 { color: rebeccapurple; }" });
 
     expect(html).toContain('<meta http-equiv="Content-Security-Policy"');
     expect(html).toContain("default-src 'none'");
     expect(html).toContain('<main class="markdown-document"><h1>Report</h1>');
     expect(html).toContain("<table>");
     expect(html).toContain("font-family: system-ui");
+    expect(layered).toContain("font-family: system-ui");
+    expect(layered).toContain("/* Custom CSS overrides */");
+    expect(layered).toContain("h1 { color: rebeccapurple; }");
     expect(custom).toContain("h1 { color: rebeccapurple; }");
     expect(custom).not.toContain("margin: 22mm 20mm 24mm");
   });
@@ -47,30 +55,25 @@ describe("Markdown PDF renderer", () => {
     expect(html).not.toContain("Please report this to");
   });
 
-  test("rejects empty input, ambiguous templates, invalid CSS, remote CSS resources, and oversized CSS", () => {
+  test("rejects empty input, invalid CSS, remote CSS resources, and oversized CSS", () => {
     expect(() => buildMarkdownPdfHtml({ markdown: "  " })).toThrow(MarkdownPdfError);
-    expect(() => buildMarkdownPdfHtml({ markdown: "Hello", templateId: "custom" })).toThrow("Enter CSS");
-    expect(() => buildMarkdownPdfHtml({ markdown: "Hello", templateId: "report", customCss: "body {}" })).toThrow(
-      "requires the Custom template",
+    expect(() => buildMarkdownPdfHtml({ markdown: "Hello", customCss: "main {" })).toThrow("not valid CSS");
+    expect(() => buildMarkdownPdfHtml({ markdown: "Hello", customCss: '@import "https://example.test/style.css";' })).toThrow(
+      "cannot load external resources",
     );
-    expect(() => buildMarkdownPdfHtml({ markdown: "Hello", templateId: "custom", customCss: "main {" })).toThrow("not valid CSS");
-    expect(() =>
-      buildMarkdownPdfHtml({ markdown: "Hello", templateId: "custom", customCss: '@import "https://example.test/style.css";' }),
-    ).toThrow("cannot load external resources");
-    expect(() =>
-      buildMarkdownPdfHtml({ markdown: "Hello", templateId: "custom", customCss: "body { background: url(https://example.test/x); }" }),
-    ).toThrow("cannot load external resources");
+    expect(() => buildMarkdownPdfHtml({ markdown: "Hello", customCss: "body { background: url(https://example.test/x); }" })).toThrow(
+      "cannot load external resources",
+    );
     expect(() =>
       buildMarkdownPdfHtml({
         markdown: "Hello",
-        templateId: "custom",
         customCss: "a".repeat(MARKDOWN_PDF_MAX_CUSTOM_CSS_BYTES + 1),
       }),
     ).toThrow("32 KiB");
   });
 
   test("keeps custom CSS inside the style element", () => {
-    const html = buildMarkdownPdfHtml({ markdown: "Cloud", templateId: "custom", customCss: "</style><script>alert(1)</script> {}" });
+    const html = buildMarkdownPdfHtml({ markdown: "Cloud", customCss: "</style><script>alert(1)</script> {}" });
 
     expect(html).not.toContain("</style><script>");
     expect(html).toContain("\\3c /style><script>");

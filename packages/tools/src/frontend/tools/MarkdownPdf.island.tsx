@@ -121,14 +121,15 @@ export function MarkdownPdfView(props: MarkdownPdfViewProps = {}) {
     setBusy(true);
     setError("");
     const snapshot = currentInput();
+    const selectedTemplate = templateId();
 
     try {
       const response = await apiClient.markdown.pdf.$post(
         {
           json: {
             markdown: markdown(),
-            templateId: templateId(),
-            customCss: templateId() === "custom" ? customCss() : undefined,
+            templateId: selectedTemplate === "custom" ? undefined : selectedTemplate,
+            customCss: selectedTemplate === "custom" ? customCss() : undefined,
             filename: markdownPdfFilename(filename()),
           },
         },
@@ -187,15 +188,17 @@ export function MarkdownPdfView(props: MarkdownPdfViewProps = {}) {
             />
           </div>
 
-          <MarkdownEditor
-            label="Markdown"
-            value={markdown}
-            onValueChange={setMarkdown}
-            placeholder="# Document title\n\nWrite or paste Markdown here…"
-            lines={18}
-            fill
-            showStats
-          />
+          <div class="h-[28rem] min-h-0 shrink-0 lg:h-auto lg:flex-1 lg:shrink">
+            <MarkdownEditor
+              label="Markdown"
+              value={markdown}
+              onValueChange={setMarkdown}
+              placeholder="# Document title\n\nWrite or paste Markdown here…"
+              lines={18}
+              fill
+              showStats
+            />
+          </div>
 
           <Show when={templateId() === "custom"}>
             <div>

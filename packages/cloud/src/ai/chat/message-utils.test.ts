@@ -83,6 +83,7 @@ describe("AI tool icons", () => {
     ["list_files", "ti ti-file-spark"],
     ["read_file", "ti ti-file-spark"],
     ["write_file", "ti ti-file-spark"],
+    ["markdown_to_pdf", "ti ti-file-type-pdf"],
     ["present", "ti ti-file-spark"],
     ["view_image", "ti ti-photo-spark"],
     ["memory", "ti ti-brain"],

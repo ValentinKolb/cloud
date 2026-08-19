@@ -273,6 +273,7 @@ const BUILT_IN_TOOL_ICONS = new Map<string, string>([
   ["list_files", "ti ti-file-spark"],
   ["read_file", "ti ti-file-spark"],
   ["write_file", "ti ti-file-spark"],
+  ["markdown_to_pdf", "ti ti-file-type-pdf"],
   ["present", "ti ti-file-spark"],
   ["calculate", "ti ti-calculator"],
   ["web_search", "ti ti-search"],

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { AuthContext } from "@valentinkolb/cloud/server";
-import { GotenbergRenderError, MarkdownPdfError } from "@valentinkolb/cloud/services/pdf";
+import { GotenbergRenderError, MARKDOWN_PDF_MAX_MARKDOWN_BYTES, MarkdownPdfError } from "@valentinkolb/cloud/services/pdf";
 import type { MiddlewareHandler } from "hono";
 import { generateSpecs } from "hono-openapi";
-import { createMarkdownPdfRoutes, MARKDOWN_PDF_MAX_MARKDOWN_BYTES, MARKDOWN_PDF_MAX_REQUEST_BYTES } from "./markdown-pdf";
+import { createMarkdownPdfRoutes, MARKDOWN_PDF_MAX_REQUEST_BYTES } from "./markdown-pdf";
 
 const pass: MiddlewareHandler<AuthContext> = async (_c, next) => next();
 const request = (body: unknown) => ({
@@ -45,38 +45,30 @@ describe("Markdown to PDF API", () => {
       },
     });
 
-    const response = await app.request(
-      "/pdf",
-      request({ markdown: "# Cloud", templateId: "custom", customCss: "h1 { color: navy; }", filename: "Q3 review" }),
-    );
+    const response = await app.request("/pdf", request({ markdown: "# Cloud", customCss: "h1 { color: navy; }", filename: "Q3 review" }));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("application/pdf");
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(response.headers.get("content-disposition")).toContain('filename="Q3 review.pdf"');
     expect(new TextDecoder().decode(await response.arrayBuffer())).toBe("%PDF-cloud");
-    expect(received).toEqual({ markdown: "# Cloud", templateId: "custom", customCss: "h1 { color: navy; }" });
+    expect(received).toEqual({ markdown: "# Cloud", templateId: undefined, customCss: "h1 { color: navy; }" });
   });
 
-  test("keeps preset templates and custom CSS mutually exclusive", async () => {
-    let rendered = false;
+  test("forwards a preset with CSS overrides", async () => {
+    let received: unknown;
     const app = createMarkdownPdfRoutes({
       authenticate: pass,
       rateLimiter: pass,
-      render: async () => {
-        rendered = true;
-        throw new Error("must not run");
+      render: async (input) => {
+        received = input;
+        return { pdf: new Uint8Array([37, 80, 68, 70]), contentType: "application/pdf" };
       },
     });
 
-    const missing = await app.request("/pdf", request({ markdown: "Cloud", templateId: "custom" }));
-    expect(missing.status).toBe(400);
-    expect(await missing.json()).toEqual({ code: "bad_input", message: "Enter CSS for the Custom template." });
-
-    const ambiguous = await app.request("/pdf", request({ markdown: "Cloud", templateId: "document", customCss: "body { color: navy; }" }));
-    expect(ambiguous.status).toBe(400);
-    expect(await ambiguous.json()).toEqual({ code: "bad_input", message: "Custom CSS requires the Custom template." });
-    expect(rendered).toBe(false);
+    const response = await app.request("/pdf", request({ markdown: "Cloud", templateId: "document", customCss: "body { color: navy; }" }));
+    expect(response.status).toBe(200);
+    expect(received).toEqual({ markdown: "Cloud", templateId: "document", customCss: "body { color: navy; }" });
   });
 
   test("sanitizes download filenames", async () => {

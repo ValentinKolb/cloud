@@ -5,7 +5,7 @@ section: Work
 order: 120
 description: Collaborative Markdown notebooks with structured blocks, links, files, and small tools.
 tags: [notebooks, markdown, collaboration]
-updated: 2026-08-02
+updated: 2026-08-19
 ---
 
 # Notebooks
@@ -23,6 +23,9 @@ link to other notes, tags, and uploaded files.
 - Keep small tables, lists, todos, data blocks, and sections beside the prose
   that explains them.
 - Attach images and files to the notebook and reference them from notes.
+- Download the current note as Markdown or as an A4 PDF using the Document,
+  Report, Compact, or Custom print style. PDF generation uses the current live
+  editor content and does not store a generated copy.
 - Enable trusted scripts when a notebook needs summaries, dashboards, charts,
   prompts, or buttons over its own data.
 

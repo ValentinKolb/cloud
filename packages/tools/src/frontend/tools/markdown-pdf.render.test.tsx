@@ -27,6 +27,7 @@ describe("Markdown to PDF tool", () => {
     expect(html).toContain("No PDF generated yet");
     expect(html).toContain("processed in memory and are not stored");
     expect(html).toContain('class="ti ti-file-type-pdf');
+    expect(html).toContain("h-[28rem] min-h-0 shrink-0 lg:h-auto lg:flex-1 lg:shrink");
     expect(html.indexOf("processed in memory and are not stored")).toBeLessThan(html.indexOf("Generate PDF"));
   });
 

@@ -17,6 +17,7 @@ import {
   DETAIL_PANEL_TOGGLE_EVENT,
   EDITOR_COPY_EVENT,
   EDITOR_DOWNLOAD_EVENT,
+  EDITOR_PDF_EVENT,
   NAMED_BLOCK_SCROLL_EVENT,
   NAMED_BLOCKS_UPDATE_EVENT,
   NOTE_SOFT_NAVIGATED_EVENT,
@@ -28,6 +29,7 @@ import {
   TOC_UPDATE_EVENT,
   TOGGLE_RICH_MODE_EVENT,
 } from "./events";
+import { openNotePdfDialog } from "./NotePdfDialog";
 import type { TaskProgress } from "./tasks";
 import type { TocItem } from "./toc";
 
@@ -199,6 +201,23 @@ export default function NotebookDetailPanel(props: Props) {
     }
   };
 
+  const openPdf = (markdown: string) => {
+    void openNotePdfDialog({
+      notebookId: props.notebookId,
+      noteId: noteId(),
+      noteTitle: noteTitle(),
+      markdown,
+    });
+  };
+
+  const downloadPdf = () => {
+    if (props.mode === "edit") {
+      window.dispatchEvent(new CustomEvent(EDITOR_PDF_EVENT, { detail: { open: openPdf } }));
+    } else {
+      openPdf(contentMd() ?? "");
+    }
+  };
+
   const onTocItemClick = (event: MouseEvent, id: string) => {
     if (props.mode === "read") return;
     event.preventDefault();
@@ -322,6 +341,11 @@ export default function NotebookDetailPanel(props: Props) {
               <Tooltip.Anchor content="Download Markdown">
                 <IconButton label="Download note as Markdown" size="sm" onClick={downloadContent}>
                   <i class="ti ti-download" aria-hidden="true" />
+                </IconButton>
+              </Tooltip.Anchor>
+              <Tooltip.Anchor content="Download PDF">
+                <IconButton label="Download note as PDF" size="sm" onClick={downloadPdf}>
+                  <i class="ti ti-file-type-pdf" aria-hidden="true" />
                 </IconButton>
               </Tooltip.Anchor>
               <Tooltip.Anchor content="Version history">

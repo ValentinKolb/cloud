@@ -32,6 +32,7 @@ export type {
 export {
   buildMarkdownPdfHtml,
   MARKDOWN_PDF_MAX_CUSTOM_CSS_BYTES,
+  MARKDOWN_PDF_MAX_MARKDOWN_BYTES,
   MARKDOWN_PDF_TEMPLATE_IDS,
   MarkdownPdfError,
   renderMarkdownToPdf,

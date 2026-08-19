@@ -25,3 +25,8 @@ export {
   evaluateAiMath,
 } from "./file-tools";
 export { createCloudAiViewImageTool } from "./vision-tool";
+export {
+  CloudAiMarkdownToPdfInputSchema,
+  CloudAiMarkdownToPdfOutputSchema,
+  createCloudAiMarkdownToPdfTool,
+} from "./markdown-pdf-tool";

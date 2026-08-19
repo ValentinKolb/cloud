@@ -61,7 +61,11 @@ attachments.
 
 The default Assistant tools can list files, read bounded UTF-8 slices, write
 assistant-owned text files, inspect supported images when configured, and
-present downloads. `read_file` returns text directly and automatically converts
+present downloads. They can also turn an assistant-written conversation `.md`
+file into a sibling `.pdf`: the agent writes or edits the Markdown with
+`write_file`, calls `markdown_to_pdf` with an optional A4 preset and custom CSS,
+then presents the returned PDF path. Project files remain read-only and cannot
+be converted directly. `read_file` returns text directly and automatically converts
 PDF, Office, OpenDocument, RTF, EPUB, and CSV files to bounded Markdown. Its
 `mediaType` remains the original file type while `representation` is `text` or
 `markdown`. Offsets count bytes in that UTF-8 representation; continue with

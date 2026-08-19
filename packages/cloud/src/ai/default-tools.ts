@@ -14,6 +14,7 @@ import {
   createCloudAiWriteFileTool,
 } from "./file-tools";
 import { createCloudAiWebExtractTool, createCloudAiWebSearchTool, isCloudAiFirecrawlConfigured } from "./firecrawl-tools";
+import { createCloudAiMarkdownToPdfTool } from "./markdown-pdf-tool";
 import { defineAiTool } from "./tools";
 import type { AiDataBoundary, AiRuntimeTool } from "./types";
 import { createCloudAiViewImageTool } from "./vision-tool";
@@ -79,6 +80,7 @@ export const createConfiguredDefaultCloudAiTools = async (config?: {
     createCloudAiListFilesTool(),
     createCloudAiReadFileTool(),
     createCloudAiWriteFileTool(),
+    createCloudAiMarkdownToPdfTool(),
     createCloudAiPresentTool(),
     createCloudAiCalculateTool(),
     createCloudAiViewImageTool(),

@@ -24,6 +24,11 @@ export const PRESENCE_EVENT = "notebooks.presence.changed";
  */
 export const EDITOR_COPY_EVENT = "notebooks.editor.copy";
 export const EDITOR_DOWNLOAD_EVENT = "notebooks.editor.download";
+export const EDITOR_PDF_EVENT = "notebooks.editor.pdf";
+
+export type EditorPdfEventDetail = {
+  open: (markdown: string) => void;
+};
 
 /**
  * Picker-modal → editor: insert an attachment reference at the cursor.

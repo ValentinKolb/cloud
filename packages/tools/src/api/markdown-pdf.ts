@@ -2,6 +2,7 @@ import { type AuthContext, auth, jsonResponse, type RateLimitConfig, rateLimit, 
 import {
   GotenbergRenderError,
   MARKDOWN_PDF_MAX_CUSTOM_CSS_BYTES,
+  MARKDOWN_PDF_MAX_MARKDOWN_BYTES,
   MARKDOWN_PDF_TEMPLATE_IDS,
   MarkdownPdfError,
   renderMarkdownToPdf,
@@ -11,14 +12,13 @@ import { bodyLimit } from "hono/body-limit";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 
-export const MARKDOWN_PDF_MAX_MARKDOWN_BYTES = 256 * 1024;
 export const MARKDOWN_PDF_MAX_REQUEST_BYTES = 320 * 1024;
 const MARKDOWN_PDF_MAX_ACTIVE_CONVERSIONS = 2;
 
 export const MarkdownPdfRequestSchema = z
   .object({
     markdown: z.string().min(1),
-    templateId: z.enum(MARKDOWN_PDF_TEMPLATE_IDS).default("document"),
+    templateId: z.enum(MARKDOWN_PDF_TEMPLATE_IDS).optional(),
     customCss: z.string().optional(),
     filename: z.string().trim().min(1).max(255).default("document.pdf"),
   })
@@ -193,13 +193,6 @@ export const createMarkdownPdfRoutes = (dependencies: MarkdownPdfRouteDependenci
       if (input.customCss && byteLength(input.customCss) > MARKDOWN_PDF_MAX_CUSTOM_CSS_BYTES) {
         return c.json({ code: "css_too_large" as const, message: "Custom CSS exceeds the 32 KiB limit." }, 413);
       }
-      if (input.templateId === "custom" && !input.customCss?.trim()) {
-        return c.json({ code: "bad_input" as const, message: "Enter CSS for the Custom template." }, 400);
-      }
-      if (input.templateId !== "custom" && input.customCss?.trim()) {
-        return c.json({ code: "bad_input" as const, message: "Custom CSS requires the Custom template." }, 400);
-      }
-
       try {
         const result = await render({ markdown: input.markdown, templateId: input.templateId, customCss: input.customCss });
         return pdfResponse(result.pdf, input.filename);

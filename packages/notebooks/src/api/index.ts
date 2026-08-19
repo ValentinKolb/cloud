@@ -25,7 +25,16 @@ import {
   v,
 } from "@valentinkolb/cloud/server";
 import { settings, settingsService } from "@valentinkolb/cloud/services";
+import {
+  GotenbergRenderError,
+  MARKDOWN_PDF_MAX_CUSTOM_CSS_BYTES,
+  MARKDOWN_PDF_MAX_MARKDOWN_BYTES,
+  MARKDOWN_PDF_TEMPLATE_IDS,
+  MarkdownPdfError,
+  renderMarkdownToPdf,
+} from "@valentinkolb/cloud/services/pdf";
 import { type Context, Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { notebooksService, reindexRuntime } from "../service";
@@ -100,6 +109,18 @@ const NoteSchema = z.object({
 const NoteWithContentSchema = NoteSchema.extend({
   yjsSnapshot: z.string().nullable().describe("Base64-encoded Yjs snapshot"),
 });
+
+const NotePdfRequestSchema = z
+  .object({
+    markdown: z.string().min(1),
+    templateId: z.enum(MARKDOWN_PDF_TEMPLATE_IDS).optional(),
+    customCss: z.string().optional(),
+  })
+  .strict();
+
+const NOTE_PDF_MAX_REQUEST_BYTES = 300 * 1024;
+const NOTE_PDF_MAX_ACTIVE_CONVERSIONS = 2;
+let activeNotePdfConversions = 0;
 
 const NoteSearchSummarySchema = NoteSchema.omit({ contentMd: true });
 
@@ -603,6 +624,50 @@ const fileTooLarge = (c: Context, maxBytes: number) =>
     error: `File exceeds ${Math.round(maxBytes / 1024 / 1024)} MB limit`,
     status: 413,
   });
+
+const byteLength = (value: string): number => new TextEncoder().encode(value).byteLength;
+
+const notePdfFilename = (title: string): string => {
+  const cleaned =
+    title
+      .replace(/[\r\n/:*?"<>|\\]/gu, "-")
+      .replace(/\s+/gu, " ")
+      .trim() || "note";
+  return `${cleaned.slice(0, 251)}.pdf`;
+};
+
+const notePdfDisposition = (filename: string): string => {
+  const fallback =
+    filename
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/gu, "")
+      .replace(/[^\x20-\x7e]/gu, "_")
+      .replace(/["\\]/gu, "_") || "note.pdf";
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename).replace(
+    /['()*]/gu,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  )}`;
+};
+
+const notePdfError = (error: unknown): { message: string; status: 413 | 422 | 502 | 503 | 504 } => {
+  if (error instanceof MarkdownPdfError) {
+    return { message: error.message, status: 422 };
+  }
+  if (error instanceof GotenbergRenderError) {
+    switch (error.code) {
+      case "html_too_large":
+      case "pdf_too_large":
+        return { message: error.message, status: 413 };
+      case "not_configured":
+        return { message: "PDF rendering is not configured.", status: 503 };
+      case "timeout":
+        return { message: "PDF rendering timed out. Try again.", status: 504 };
+      default:
+        return { message: "The PDF could not be generated.", status: 502 };
+    }
+  }
+  return { message: "The PDF could not be generated.", status: 502 };
+};
 
 // ==========================
 // Routes
@@ -1163,6 +1228,81 @@ const app = new Hono<AuthContext>()
       }
       const [data] = await toPublicNotes([note], notebook!.shortId);
       return respond(c, ok({ ...data!, yjsSnapshot: note.yjsSnapshot }));
+    },
+  )
+
+  // Render the current browser-side Markdown snapshot without persisting it.
+  .post(
+    "/:id/notes/:noteId/pdf",
+    describeRoute({
+      tags: ["Notebooks"],
+      summary: "Download note as PDF",
+      description: "Render a bounded Markdown snapshot as PDF without storing the input or generated file.",
+      ...requiresAuth,
+      responses: {
+        200: {
+          description: "Generated PDF",
+          content: { "application/pdf": { schema: { type: "string", format: "binary" } } },
+        },
+        400: jsonResponse(ErrorResponseSchema, "Invalid request"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+        404: jsonResponse(ErrorResponseSchema, "Note not found"),
+        413: jsonResponse(ErrorResponseSchema, "Input or output too large"),
+        422: jsonResponse(ErrorResponseSchema, "Markdown or CSS could not be rendered"),
+        502: jsonResponse(ErrorResponseSchema, "PDF renderer failed"),
+        503: jsonResponse(ErrorResponseSchema, "PDF renderer unavailable or busy"),
+        504: jsonResponse(ErrorResponseSchema, "PDF renderer timed out"),
+      },
+    }),
+    bodyLimit({
+      maxSize: NOTE_PDF_MAX_REQUEST_BYTES,
+      onError: (c) => respond(c, { ok: false, error: "The request body exceeds the 300 KiB limit.", status: 413 }),
+    }),
+    v("json", NotePdfRequestSchema),
+    async (c) => {
+      let notebookId = c.req.param("id")!;
+      const noteId = c.req.param("noteId")!;
+      const input = c.req.valid("json");
+
+      const { notebook, error } = await checkNotebookAccess(c, notebookId);
+      if (error) return error;
+      notebookId = notebook!.id;
+      const note = await requireNoteInNotebook(notebookId, noteId);
+      if (!note.ok) return respond(c, note);
+
+      if (byteLength(input.markdown) > MARKDOWN_PDF_MAX_MARKDOWN_BYTES) {
+        return respond(c, { ok: false, error: "Markdown exceeds the 256 KiB limit.", status: 413 });
+      }
+      if (input.customCss && byteLength(input.customCss) > MARKDOWN_PDF_MAX_CUSTOM_CSS_BYTES) {
+        return respond(c, { ok: false, error: "Custom CSS exceeds the 32 KiB limit.", status: 413 });
+      }
+      if (activeNotePdfConversions >= NOTE_PDF_MAX_ACTIVE_CONVERSIONS) {
+        return respond(c, { ok: false, error: "PDF rendering is busy. Try again in a moment.", status: 503 });
+      }
+
+      activeNotePdfConversions += 1;
+      try {
+        const rendered = await renderMarkdownToPdf({
+          markdown: input.markdown,
+          templateId: input.templateId,
+          customCss: input.customCss,
+        });
+        const filename = notePdfFilename(note.data.title);
+        const buffer = rendered.pdf.buffer.slice(rendered.pdf.byteOffset, rendered.pdf.byteOffset + rendered.pdf.byteLength) as ArrayBuffer;
+        return new Response(new Blob([buffer], { type: "application/pdf" }), {
+          headers: {
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": notePdfDisposition(filename),
+            "Content-Type": "application/pdf",
+            "X-Content-Type-Options": "nosniff",
+          },
+        });
+      } catch (cause) {
+        const projected = notePdfError(cause);
+        return respond(c, { ok: false, error: projected.message, status: projected.status });
+      } finally {
+        activeNotePdfConversions -= 1;
+      }
     },
   )
 

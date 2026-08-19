@@ -9,10 +9,10 @@ import {
 } from "./gotenberg";
 
 export const MARKDOWN_PDF_MAX_CUSTOM_CSS_BYTES = 32 * 1024;
+export const MARKDOWN_PDF_MAX_MARKDOWN_BYTES = 256 * 1024;
 
-export const MARKDOWN_PDF_TEMPLATE_IDS = ["document", "report", "compact", "custom"] as const;
+export const MARKDOWN_PDF_TEMPLATE_IDS = ["document", "report", "compact"] as const;
 export type MarkdownPdfTemplateId = (typeof MARKDOWN_PDF_TEMPLATE_IDS)[number];
-type MarkdownPdfPresetId = Exclude<MarkdownPdfTemplateId, "custom">;
 
 export type MarkdownPdfErrorCode = "bad_input" | "invalid_css" | "external_asset_unsupported";
 
@@ -34,7 +34,7 @@ export type RenderMarkdownToPdfInput = {
 
 export type RenderMarkdownToPdfOptions = RenderHtmlToPdfOptions;
 
-const TEMPLATE_CSS: Record<MarkdownPdfPresetId, string> = {
+const TEMPLATE_CSS: Record<MarkdownPdfTemplateId, string> = {
   document: `
 @page { size: A4; margin: 22mm 20mm 24mm; }
 :root { color: #1f2937; font: 11pt/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -172,20 +172,15 @@ export const buildMarkdownPdfHtml = (input: RenderMarkdownToPdfInput): string =>
   if (typeof input.markdown !== "string" || !input.markdown.trim()) {
     throw new MarkdownPdfError("bad_input", "Markdown must not be empty.");
   }
-  const templateId = input.templateId ?? "document";
-  if (!MARKDOWN_PDF_TEMPLATE_IDS.includes(templateId)) {
+  const templateId = input.templateId;
+  if (templateId !== undefined && !MARKDOWN_PDF_TEMPLATE_IDS.includes(templateId)) {
     throw new MarkdownPdfError("bad_input", "Unknown Markdown PDF template.");
   }
 
   const suppliedCustomCss = input.customCss?.trim() ?? "";
-  if (templateId === "custom" && !suppliedCustomCss) {
-    throw new MarkdownPdfError("bad_input", "Enter CSS for the Custom template.");
-  }
-  if (templateId !== "custom" && suppliedCustomCss) {
-    throw new MarkdownPdfError("bad_input", "Custom CSS requires the Custom template.");
-  }
-
-  const stylesheet = templateId === "custom" ? validateCustomCss(input.customCss ?? "") : TEMPLATE_CSS[templateId];
+  const customCss = suppliedCustomCss ? validateCustomCss(input.customCss ?? "") : "";
+  const presetCss = templateId ? TEMPLATE_CSS[templateId] : customCss ? "" : TEMPLATE_CSS.document;
+  const stylesheet = `${presetCss}${presetCss && customCss ? `\n/* Custom CSS overrides */\n` : ""}${customCss}`;
   const content = renderMarkdown(input.markdown);
   return `<!doctype html>
 <html lang="en">
