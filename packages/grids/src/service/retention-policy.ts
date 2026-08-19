@@ -1,9 +1,14 @@
+import { err, fail, ok, type Result } from "@k2b/stdlib";
 import { sql } from "bun";
-import type { RetentionPolicyInput, RetentionPreview } from "../retention-policy-contracts";
+import type { RetentionFile, RetentionFileStatus, RetentionPolicyInput, RetentionPreview } from "../retention-policy-contracts";
 import { RETENTION_PREVIEW_LIMIT } from "../retention-policy-contracts";
 import { logAudit } from "./audit";
 
 type Policy = { minimumDays: number; updatedAt: string };
+type RetentionFileContent = { filename: string; mimeType: string; bytes: Uint8Array };
+type RetentionFileList = { items: RetentionFile[]; total: number; observedAt: string };
+
+const escapeLikePattern = (value: string): string => value.replace(/[\\%_]/g, "\\$&");
 
 export const get = async (baseId: string): Promise<Policy | null> => {
   const [row] = await sql<Array<{ minimum_days: number; updated_at: Date | string }>>`
@@ -129,4 +134,66 @@ export const preview = async (baseId: string, input: RetentionPolicyInput): Prom
       truncated: Number(fileValues.unreferenced) > fileExamples.length,
     },
   };
+};
+
+export const listFiles = async (
+  baseId: string,
+  input: { minimumDays: number; search: string; status: RetentionFileStatus; perPage: number; offset: number },
+): Promise<RetentionFileList> => {
+  const [observed] = await sql<Array<{ observed_at: Date }>>`SELECT now() AS observed_at`;
+  if (!observed) throw new Error("Could not establish retention file observation time");
+  const observedAt = observed.observed_at.toISOString();
+  const searchPattern = `%${escapeLikePattern(input.search)}%`;
+  const [countRow] = await sql<Array<{ total: number }>>`
+    SELECT count(*)::int AS total
+    FROM grids.file_retention_candidates candidate
+    JOIN grids.files file ON file.id = candidate.file_id
+    WHERE candidate.base_id = ${baseId}::uuid
+      AND (${input.search} = '' OR file.filename ILIKE ${searchPattern} ESCAPE '\\' OR file.short_id ILIKE ${searchPattern} ESCAPE '\\')
+      AND (
+        ${input.status} = 'all'
+        OR (${input.status} = 'retained' AND candidate.unreferenced_at + (${input.minimumDays} * interval '1 day') > ${observedAt}::timestamptz)
+        OR (${input.status} = 'reached' AND candidate.unreferenced_at + (${input.minimumDays} * interval '1 day') <= ${observedAt}::timestamptz)
+      )
+  `;
+  const rows = await sql<
+    Array<{ file_id: string; filename: string; mime_type: string; size_bytes: number; unreferenced_at: Date; not_before: Date }>
+  >`
+    SELECT file.short_id AS file_id, file.filename, file.mime_type, file.size_bytes, candidate.unreferenced_at,
+      candidate.unreferenced_at + (${input.minimumDays} * interval '1 day') AS not_before
+    FROM grids.file_retention_candidates candidate
+    JOIN grids.files file ON file.id = candidate.file_id
+    WHERE candidate.base_id = ${baseId}::uuid
+      AND (${input.search} = '' OR file.filename ILIKE ${searchPattern} ESCAPE '\\' OR file.short_id ILIKE ${searchPattern} ESCAPE '\\')
+      AND (
+        ${input.status} = 'all'
+        OR (${input.status} = 'retained' AND candidate.unreferenced_at + (${input.minimumDays} * interval '1 day') > ${observedAt}::timestamptz)
+        OR (${input.status} = 'reached' AND candidate.unreferenced_at + (${input.minimumDays} * interval '1 day') <= ${observedAt}::timestamptz)
+      )
+    ORDER BY not_before, file.id
+    LIMIT ${input.perPage} OFFSET ${input.offset}
+  `;
+  return {
+    observedAt,
+    total: Number(countRow?.total ?? 0),
+    items: rows.map((row) => ({
+      fileId: row.file_id,
+      filename: row.filename,
+      mimeType: row.mime_type,
+      sizeBytes: Number(row.size_bytes),
+      unreferencedAt: row.unreferenced_at.toISOString(),
+      notBefore: row.not_before.toISOString(),
+      status: row.not_before.toISOString() > observedAt ? "retained" : "reached",
+    })),
+  };
+};
+
+export const getFileContent = async (baseId: string, fileId: string): Promise<Result<RetentionFileContent>> => {
+  const [row] = await sql<Array<{ filename: string; mime_type: string; bytes: Uint8Array }>>`
+    SELECT file.filename, file.mime_type, file.bytes
+    FROM grids.file_retention_candidates candidate
+    JOIN grids.files file ON file.id = candidate.file_id
+    WHERE candidate.base_id = ${baseId}::uuid AND candidate.file_id = ${fileId}::uuid
+  `;
+  return row ? ok({ filename: row.filename, mimeType: row.mime_type, bytes: row.bytes }) : fail(err.notFound("Retained File"));
 };

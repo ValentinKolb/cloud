@@ -13,8 +13,9 @@ You need **Admin** access to the Base. Custom Apps, Workflows, API clients, and 
 
 1. Open the Base settings and select **Retention and preservation**.
 2. Enter **Minimum retention days** between 1 and 36,500.
-3. Review the live impact. It distinguishes Records and unreferenced Files still retained by the proposed floor, items that have reached the floor, and evidence protected independently.
-4. Select **Save changes**.
+3. Review the live **Lifecycle ledger**. It distinguishes Records and unreferenced Files still retained by the proposed floor, items that have reached the floor, and evidence protected independently.
+4. Select **Review Files** to search and filter every currently unreferenced File in a paginated table. You can preview supported formats or download the exact stored bytes.
+5. Select **Save changes**.
 
 Existing Bases have no retention floor by default, so their behavior does not change. The clock starts when a Record is moved to trash. Restoring and later trashing it starts a new clock from the new trash timestamp.
 
@@ -23,6 +24,7 @@ You can inspect and manage the same Base setting from the Cloud CLI. Use a 6-cha
 ```bash
 cld grids bases retention 8yMtTb --json
 cld grids bases retention preview 8yMtTb --days 30 --json
+cld grids bases retention files list 8yMtTb --days 30 --status retained --page 1 --per-page 25 --json
 cld grids bases retention set 8yMtTb --days 30 --json
 ```
 
@@ -41,9 +43,18 @@ The preview uses one stated observation time and returns bounded examples. **Rea
 
 When an attachment loses its last current or protected reference, Grids normally cleans up its stored bytes. With a retention floor active, Grids instead keeps newly unreferenced bytes until the same minimum time has elapsed.
 
-The preview shows how many unreferenced Files are retained until later, how many have reached the floor, their total stored size, and a bounded example list. Current attachments and Files retained by Durable History or immutable Documents are protected by those owners and are not listed as unreferenced candidates.
+The ledger shows how many unreferenced Files are retained until later, how many have reached the floor, and their total stored size. **Review Files** opens the complete current candidate list with server-side filename or File ID search, a floor-status filter, and pagination. Supported formats can be viewed read-only; every listed File can be downloaded. The list reflects the proposed number of days, including an unsaved draft.
 
-Replacing or removing an attachment can create a candidate. A new protection removes it from the candidate list; when the last protection is later released, its retention clock starts again. Grids does not provide a separate orphan-file browser or make unreferenced Files downloadable through the normal Record API.
+The CLI uses the same Admin-only list and download boundary:
+
+```bash
+cld grids bases retention files list 8yMtTb --days 30 --search invoice --status all --json
+cld grids bases retention files download 8yMtTb HeUB3M --out ./retained-file.bin
+```
+
+Current attachments and Files retained by Durable History or immutable Documents are protected by those owners and are not listed as unreferenced candidates.
+
+Replacing or removing an attachment can create a candidate. A new protection removes it from the list; when the last protection is later released, its retention clock starts again. Review and download stay inside this Admin-only retention surface; the normal Record API still cannot expose an unreferenced File.
 
 ## Change or remove the floor {icon="edit"}
 

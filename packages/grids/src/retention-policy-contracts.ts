@@ -1,9 +1,13 @@
 import { z } from "zod";
+import { PaginationQuerySchema, PaginationResponseSchema } from "@valentinkolb/cloud/contracts";
 import { ShortIdSchema } from "./contracts";
 
 export const RETENTION_MIN_DAYS = 1;
 export const RETENTION_MAX_DAYS = 36_500;
 export const RETENTION_PREVIEW_LIMIT = 100;
+export const RETENTION_FILE_SEARCH_MAX_LENGTH = 100;
+export const RetentionFileStatusSchema = z.enum(["all", "retained", "reached"]);
+export type RetentionFileStatus = z.infer<typeof RetentionFileStatusSchema>;
 
 export const RetentionPolicyInputSchema = z
   .object({ minimumDays: z.number().int().min(RETENTION_MIN_DAYS).max(RETENTION_MAX_DAYS) })
@@ -67,3 +71,36 @@ export const RetentionPreviewSchema = z
   })
   .strict();
 export type RetentionPreview = z.infer<typeof RetentionPreviewSchema>;
+
+export const RetentionFilesQuerySchema = z
+  .object({
+    ...PaginationQuerySchema.shape,
+    minimumDays: z.coerce.number().int().min(RETENTION_MIN_DAYS).max(RETENTION_MAX_DAYS),
+    search: z.string().trim().max(RETENTION_FILE_SEARCH_MAX_LENGTH).optional().default(""),
+    status: RetentionFileStatusSchema.optional().default("all"),
+  })
+  .strict();
+export type RetentionFilesQuery = z.infer<typeof RetentionFilesQuerySchema>;
+
+export const RetentionFileSchema = z
+  .object({
+    fileId: ShortIdSchema,
+    filename: z.string(),
+    mimeType: z.string(),
+    sizeBytes: z.number().int().nonnegative(),
+    unreferencedAt: z.string().datetime({ offset: true }),
+    notBefore: z.string().datetime({ offset: true }),
+    status: z.enum(["retained", "reached"]),
+  })
+  .strict();
+export type RetentionFile = z.infer<typeof RetentionFileSchema>;
+
+export const RetentionFilesResponseSchema = z
+  .object({
+    observedAt: z.string().datetime({ offset: true }),
+    minimumDays: z.number().int().positive(),
+    items: z.array(RetentionFileSchema),
+    pagination: PaginationResponseSchema,
+  })
+  .strict();
+export type RetentionFilesResponse = z.infer<typeof RetentionFilesResponseSchema>;

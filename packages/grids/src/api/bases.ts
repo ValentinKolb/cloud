@@ -1,10 +1,16 @@
-import { ErrorResponseSchema } from "@valentinkolb/cloud/contracts";
+import { createPagination, ErrorResponseSchema, parsePagination } from "@valentinkolb/cloud/contracts";
 import { type AuthContext, auth, jsonResponse, respond, v } from "@valentinkolb/cloud/server";
 import { Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { CreateBaseSchema, UpdateBaseSchema } from "../contracts";
-import { RetentionPolicyInputSchema, RetentionPolicyResponseSchema, RetentionPreviewSchema } from "../retention-policy-contracts";
+import {
+  RetentionFilesQuerySchema,
+  RetentionFilesResponseSchema,
+  RetentionPolicyInputSchema,
+  RetentionPolicyResponseSchema,
+  RetentionPreviewSchema,
+} from "../retention-policy-contracts";
 import { gridsService } from "../service";
 import {
   currentActorUser,
@@ -188,6 +194,70 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         const gate = await gateAt(c, { baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         return c.json(await gridsService.base.retentionPolicy.preview(baseId, c.req.valid("json")));
+      },
+    )
+
+    .get(
+      "/:baseId/retention-policy/files",
+      requirePublicIdParam("baseId", "base", "Base"),
+      describeRoute({
+        tags: ["Grids:Base"],
+        summary: "List unreferenced Files under a Base retention floor",
+        responses: {
+          200: jsonResponse(RetentionFilesResponseSchema, "Retained Files"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid query"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Base not found"),
+        },
+      }),
+      v("query", RetentionFilesQuerySchema),
+      async (c) => {
+        const baseId = internalIdParam(c, "baseId")!;
+        const gate = await gateAt(c, { baseId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const query = c.req.valid("query");
+        const pagination = parsePagination(query);
+        const result = await gridsService.base.retentionPolicy.listFiles(baseId, {
+          minimumDays: query.minimumDays,
+          search: query.search,
+          status: query.status,
+          perPage: pagination.perPage,
+          offset: pagination.offset,
+        });
+        return c.json({
+          observedAt: result.observedAt,
+          minimumDays: query.minimumDays,
+          items: result.items,
+          pagination: createPagination(pagination, result.total),
+        });
+      },
+    )
+
+    .get(
+      "/:baseId/retention-policy/files/:fileId/content",
+      requirePublicIdParam("baseId", "base", "Base"),
+      requirePublicIdParam("fileId", "file", "File"),
+      describeRoute({
+        tags: ["Grids:Base"],
+        summary: "Read an unreferenced retained File",
+        responses: {
+          200: { description: "Exact File bytes" },
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "File not found"),
+        },
+      }),
+      v("query", z.object({ inline: z.enum(["true", "false"]).optional() })),
+      async (c) => {
+        const baseId = internalIdParam(c, "baseId")!;
+        const gate = await gateAt(c, { baseId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const result = await gridsService.base.retentionPolicy.getFileContent(baseId, internalIdParam(c, "fileId")!);
+        if (!result.ok) return c.json({ message: result.error.message }, result.error.status);
+        const disposition = c.req.valid("query").inline === "true" ? "inline" : "attachment";
+        c.header("Content-Type", result.data.mimeType);
+        c.header("Content-Disposition", `${disposition}; filename="${encodeURIComponent(result.data.filename)}"`);
+        c.header("Cache-Control", "private, no-store");
+        return c.body(new Uint8Array(result.data.bytes).buffer);
       },
     )
 

@@ -401,7 +401,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(160);
+    expect(commands).toHaveLength(162);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {
@@ -472,6 +472,50 @@ describe("grids CLI", () => {
     expect(impact.calls.at(-1)?.init?.method).toBe("POST");
     expect(JSON.parse(String(impact.calls.at(-1)?.init?.body))).toEqual({ minimumDays: 30 });
     expect(impact.jsonValues).toEqual([preview]);
+  });
+
+  test("lists and downloads unreferenced retained Files through public ids", async () => {
+    const payload = {
+      observedAt: "2026-08-19T12:05:00.000Z",
+      minimumDays: 30,
+      items: [{
+        fileId,
+        filename: "evidence.txt",
+        mimeType: "text/plain",
+        sizeBytes: 5,
+        status: "retained",
+        unreferencedAt: "2026-08-18T12:05:00.000Z",
+        notBefore: "2026-09-17T12:05:00.000Z",
+      }],
+      pagination: { page: 2, per_page: 10, total: 11, total_pages: 2, has_next: false },
+    };
+    const list = createContext(
+      ["bases", "retention", "files", "list", baseId],
+      { days: "30", search: "evidence", status: "retained", page: "2", "per-page": "10" },
+      [jsonResponse(basePage), jsonResponse(payload)],
+      { output: "json" },
+    );
+    await gridsCli.run(list.ctx);
+    expect(list.calls.at(-1)?.path).toBe(
+      `/api/grids/bases/${baseId}/retention-policy/files?minimumDays=30&search=evidence&status=retained&page=2&per_page=10`,
+    );
+    expect(list.jsonValues).toEqual([payload]);
+
+    const dir = await mkdtemp(join(tmpdir(), "grids-retention-file-"));
+    const out = join(dir, "evidence.txt");
+    try {
+      const download = createContext(
+        ["bases", "retention", "files", "download", baseId, fileId],
+        { out },
+        [jsonResponse(basePage), new Response("hello")],
+      );
+      await gridsCli.run(download.ctx);
+      expect(download.calls.at(-1)?.path).toBe(`/api/grids/bases/${baseId}/retention-policy/files/${fileId}/content`);
+      expect(await readFile(out, "utf8")).toBe("hello");
+      expect(download.lines).toEqual([`Wrote ${out}.`]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test("sets a Base retention floor and confirms only shorter floors", async () => {

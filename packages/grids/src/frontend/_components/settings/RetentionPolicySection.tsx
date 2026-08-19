@@ -11,10 +11,11 @@ import {
   SettingsPanelFooter,
   toast,
 } from "@k2b/ui";
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
 import { RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, type RetentionPolicy, type RetentionPreview } from "../../../retention-policy-contracts";
 import { errorMessage } from "../utils/api-helpers";
+import { openRetentionFilesDialog } from "./RetentionFilesDialog";
 
 export function RetentionPolicySection(props: {
   baseId: string;
@@ -188,47 +189,42 @@ export function RetentionPolicySection(props: {
             </Show>
             <Show when={currentPreview()} keyed>
               {(impact) => (
-                <>
-                  <NoticeCard
-                    tone="neutral"
-                    title={`${impact.counts.retainedUntilLater} retained until later · ${impact.counts.floorReached} reached the floor`}
-                    detail={`${impact.counts.protectedFinalized} finalized Records stay protected · ${impact.counts.trashedRecords} total in trash${impact.truncated ? " · example list is bounded" : ""}. Calculated ${new Date(impact.observedAt).toLocaleString()}. Reaching the floor does not itself permit or perform destruction.`}
-                  />
-                  <NoticeCard
-                    tone="neutral"
-                    title={`${impact.files.counts.retainedUntilLater} unreferenced Files retained until later · ${impact.files.counts.floorReached} reached the floor`}
-                    detail={`${impact.files.counts.unreferenced} unreferenced Files · ${formatFileViewSize(impact.files.counts.sizeBytes)} stored${impact.files.truncated ? " · example list is bounded" : ""}. Current attachments and Files protected by Durable History or Documents are not candidates. No File is deleted by this preview.`}
-                  />
-                  <Show when={impact.examples.length > 0}>
-                    <details class="text-sm">
-                      <summary class="cursor-pointer font-medium">Example Record dates ({impact.examples.length})</summary>
-                      <ul class="mt-2 space-y-1 text-xs text-muted">
-                        <For each={impact.examples}>
-                          {(item) => (
-                            <li>
-                              Record {item.recordId} · table {item.tableId} · not before {new Date(item.notBefore).toLocaleString()}
-                            </li>
-                          )}
-                        </For>
-                      </ul>
-                    </details>
-                  </Show>
-                  <Show when={impact.files.examples.length > 0}>
-                    <details class="text-sm">
-                      <summary class="cursor-pointer font-medium">Example unreferenced Files ({impact.files.examples.length})</summary>
-                      <ul class="mt-2 space-y-1 text-xs text-muted">
-                        <For each={impact.files.examples}>
-                          {(item) => (
-                            <li>
-                              {item.filename} ({item.fileId}) · {formatFileViewSize(item.sizeBytes)} · not before{" "}
-                              {new Date(item.notBefore).toLocaleString()}
-                            </li>
-                          )}
-                        </For>
-                      </ul>
-                    </details>
-                  </Show>
-                </>
+                <section class="overflow-hidden border-y border-subtle" aria-labelledby="retention-ledger-title">
+                  <div class="py-3">
+                    <h3 id="retention-ledger-title" class="font-semibold text-primary">Lifecycle ledger</h3>
+                    <p class="text-xs text-dimmed">
+                      Calculated {new Date(impact.observedAt).toLocaleString()}{changed() ? ` for the unsaved ${days()}-day floor` : ""}.
+                    </p>
+                  </div>
+                  <div class="grid gap-3 border-t border-subtle py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <div>
+                      <p class="font-medium text-primary">Records</p>
+                      <p class="text-sm text-secondary">
+                        {impact.counts.retainedUntilLater} retained until later · {impact.counts.floorReached} reached the floor · {impact.counts.protectedFinalized} finalized
+                      </p>
+                      <p class="text-xs text-dimmed">{impact.counts.trashedRecords} total in trash. Reaching the floor does not permit or perform destruction.</p>
+                    </div>
+                  </div>
+                  <div class="grid gap-3 border-t border-subtle py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <div>
+                      <p class="font-medium text-primary">Files</p>
+                      <p class="text-sm text-secondary">
+                        {impact.files.counts.retainedUntilLater} retained until later · {impact.files.counts.floorReached} reached the floor
+                      </p>
+                      <p class="text-xs text-dimmed">
+                        {impact.files.counts.unreferenced} unreferenced Files · {formatFileViewSize(impact.files.counts.sizeBytes)} stored. Protected references are excluded.
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={impact.files.counts.unreferenced === 0}
+                      onClick={() => void openRetentionFilesDialog(props.baseId, impact.minimumDays)}
+                    >
+                      Review Files
+                    </Button>
+                  </div>
+                </section>
               )}
             </Show>
           </Show>

@@ -17,6 +17,8 @@ describe("retention policy routes", () => {
     const baseId = testUuid();
     const accessId = testUuid();
     const baseShortId = testShortId("B");
+    const fileId = testUuid();
+    const fileShortId = testShortId("F");
     const user: User = {
       id: userId,
       uid: `retention-${userId}`,
@@ -50,6 +52,7 @@ describe("retention policy routes", () => {
       await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${accessId}::uuid)`;
       const path = `/${baseShortId}/retention-policy`;
       expect((await app.request(path)).status).toBe(403);
+      expect((await app.request(`${path}/files?minimumDays=30`)).status).toBe(403);
       await sql`UPDATE auth.access SET permission = 'admin' WHERE id = ${accessId}::uuid`;
       const initial = await app.request(path);
       expect(initial.status).toBe(200);
@@ -72,6 +75,25 @@ describe("retention policy routes", () => {
         counts: { trashedRecords: 0 },
         files: { counts: { unreferenced: 0, sizeBytes: 0 }, examples: [], truncated: false },
       });
+      await sql`
+        INSERT INTO grids.files (id, short_id, filename, mime_type, size_bytes, sha256, bytes)
+        VALUES (${fileId}::uuid, ${fileShortId}, 'retained-note.txt', 'text/plain', 5, ${"a".repeat(64)}, ${new TextEncoder().encode("hello")})
+      `;
+      await sql`
+        INSERT INTO grids.file_retention_candidates (file_id, base_id, unreferenced_at)
+        VALUES (${fileId}::uuid, ${baseId}::uuid, now() - interval '10 days')
+      `;
+      const files = await app.request(`${path}/files?minimumDays=30&search=note&status=retained&page=1&per_page=10`);
+      expect(files.status).toBe(200);
+      expect(await files.json()).toMatchObject({
+        minimumDays: 30,
+        items: [{ fileId: fileShortId, filename: "retained-note.txt", status: "retained" }],
+        pagination: { page: 1, per_page: 10, total: 1, total_pages: 1, has_next: false },
+      });
+      const content = await app.request(`${path}/files/${fileShortId}/content`);
+      expect(content.status).toBe(200);
+      expect(await content.text()).toBe("hello");
+      expect(content.headers.get("cache-control")).toBe("private, no-store");
       expect(
         (
           await app.request(path, {
@@ -84,6 +106,8 @@ describe("retention policy routes", () => {
       expect((await app.request(`/${baseId}/retention-policy`)).status).toBe(404);
       expect((await app.request(path, { method: "DELETE" })).status).toBe(204);
     } finally {
+      await sql`DELETE FROM grids.file_retention_candidates WHERE file_id = ${fileId}::uuid`;
+      await sql`DELETE FROM grids.files WHERE id = ${fileId}::uuid`;
       await sql`DELETE FROM grids.audit_log WHERE base_id = ${baseId}::uuid`;
       await sql`DELETE FROM grids.bases WHERE id = ${baseId}::uuid`;
       await sql`DELETE FROM auth.access WHERE id = ${accessId}::uuid`;

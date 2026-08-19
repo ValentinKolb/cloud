@@ -1,12 +1,19 @@
 import { arg, command, confirmFlag, flag, paginationFlags } from "@valentinkolb/cloud/cli";
 import type { PublicBase as Base, PublicField as Field, PublicTable as Table } from "../api/public-dto";
-import { RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, type RetentionPolicy, type RetentionPreview } from "../retention-policy-contracts";
+import {
+  RETENTION_MAX_DAYS,
+  RETENTION_MIN_DAYS,
+  type RetentionFilesResponse,
+  type RetentionPolicy,
+  type RetentionPreview,
+} from "../retention-policy-contracts";
 import {
   baseArgs,
   baseFlag,
   baseRows,
   GRIDS_BASE_DEFAULT_KEY,
   listBases,
+  requirePublicId,
   requireDefaultBaseRef,
   resolveBase,
   resolveBaseFromCommand,
@@ -19,8 +26,11 @@ import {
   printCliStructured,
   printJsonOrMessage,
   printJsonOrTable,
+  queryString,
   readApi,
   readJsonInput,
+  requireRestArg,
+  writeApiFile,
 } from "./runtime";
 
 type TrashedForm = {
@@ -204,6 +214,73 @@ export const baseCrudCommands = [
           { key: "notBefore", label: "FLOOR REACHED" },
         ]);
       }
+    },
+  }),
+  command("bases retention files list", {
+    summary: "List unreferenced Files under a retention floor",
+    description: "Requires Base admin access. Search, status filtering, and pagination run on the server.",
+    args: baseArgs,
+    flags: {
+      ...baseFlag,
+      days: flag.int({ required: true, min: RETENTION_MIN_DAYS, max: RETENTION_MAX_DAYS, description: "Minimum retention days" }),
+      search: flag.string({ description: "Search filename or File public id" }),
+      status: flag.enum(["all", "retained", "reached"] as const, { default: "all", description: "Retention floor status" }),
+      ...paginationFlags({ defaultPerPage: 25, maxPerPage: 100 }),
+    },
+    async run({ ctx, args, flags }) {
+      const minimumDays = flags.days;
+      if (minimumDays === undefined) throw new Error("Pass --days <number>.");
+      const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
+      const page = flags.page ?? 1;
+      const perPage = flags.perPage ?? 25;
+      const payload = await readApi<RetentionFilesResponse>(
+        ctx,
+        `/bases/${encodeURIComponent(base.id)}/retention-policy/files${queryString({
+          minimumDays,
+          search: flags.search,
+          status: flags.status,
+          page,
+          per_page: perPage,
+        })}`,
+      );
+      printJsonOrTable(
+        ctx,
+        payload,
+        payload.items.map((item) => ({
+          id: item.fileId,
+          filename: item.filename,
+          type: item.mimeType,
+          bytes: item.sizeBytes,
+          status: item.status,
+          unreferencedAt: item.unreferencedAt,
+          notBefore: item.notBefore,
+        })),
+        [
+          { key: "id", label: "FILE" },
+          { key: "filename", label: "FILENAME" },
+          { key: "type", label: "TYPE" },
+          { key: "bytes", label: "BYTES" },
+          { key: "status", label: "STATUS" },
+          { key: "unreferencedAt", label: "UNREFERENCED" },
+          { key: "notBefore", label: "FLOOR REACHED" },
+        ],
+      );
+    },
+  }),
+  command("bases retention files download", {
+    summary: "Download one unreferenced retained File",
+    description: "Requires Base admin access and a File public id from `bases retention files list`.",
+    args: baseArgs,
+    flags: { ...baseFlag, out: flag.string({ aliases: ["o"], required: true, description: "Output file path" }) },
+    async run({ ctx, args, flags }) {
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, 1);
+      const fileId = requirePublicId(requireRestArg(rest, 0, "File public id"), "File id");
+      await writeApiFile(
+        ctx,
+        `/bases/${encodeURIComponent(base.id)}/retention-policy/files/${encodeURIComponent(fileId)}/content`,
+        undefined,
+        flags.out,
+      );
     },
   }),
   command("bases retention set", {

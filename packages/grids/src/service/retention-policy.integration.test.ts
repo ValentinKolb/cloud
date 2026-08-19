@@ -2,7 +2,7 @@ import { beforeAll, describe, expect } from "bun:test";
 import { sql } from "bun";
 import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
-import { get, preview, remove, update } from "./retention-policy";
+import { get, getFileContent, listFiles, preview, remove, update } from "./retention-policy";
 
 beforeAll(async () => {
   if (process.env.GRIDS_DB_TEST === "1") await migrate();
@@ -77,6 +77,42 @@ describe("Record retention policy integration", () => {
       expect(fileImpact.files.examples).toHaveLength(100);
       expect(fileImpact.files.examples.every((item) => item.fileId.startsWith(boundedFilePrefix))).toBe(true);
       expect(fileImpact.files.truncated).toBe(true);
+      await sql`
+        UPDATE grids.file_retention_candidates candidate
+        SET unreferenced_at = now() - interval '40 days'
+        FROM grids.files file
+        WHERE candidate.file_id = file.id AND candidate.base_id = ${baseId}::uuid AND file.filename = 'retention-candidate-1.txt'
+      `;
+      const firstPage = await listFiles(baseId, {
+        minimumDays: 30,
+        search: "retention-candidate",
+        status: "all",
+        perPage: 2,
+        offset: 0,
+      });
+      expect(firstPage.total).toBe(101);
+      expect(firstPage.items).toHaveLength(2);
+      expect(firstPage.items[0]).toMatchObject({ filename: "retention-candidate-1.txt", status: "reached" });
+      expect(firstPage.items[0]!.fileId).toMatch(/^[A-Za-z0-9]{6}$/);
+      const retained = await listFiles(baseId, {
+        minimumDays: 30,
+        search: "candidate-2.txt",
+        status: "retained",
+        perPage: 25,
+        offset: 0,
+      });
+      expect(retained.total).toBe(1);
+      expect(retained.items[0]).toMatchObject({ filename: "retention-candidate-2.txt", status: "retained" });
+      const [contentTarget] = await sql<Array<{ id: string }>>`
+        SELECT id FROM grids.files WHERE filename = 'retention-candidate-1.txt'
+      `;
+      const content = await getFileContent(baseId, contentTarget!.id);
+      expect(content.ok).toBe(true);
+      if (content.ok) {
+        expect(content.data.filename).toBe("retention-candidate-1.txt");
+        expect(new TextDecoder().decode(content.data.bytes)).toBe("x");
+      }
+      expect((await getFileContent(testUuid(), contentTarget!.id)).ok).toBe(false);
       const [records] = await sql<
         Array<{ count: number }>
       >`SELECT count(*)::int AS count FROM grids.records WHERE table_id = ${tableId}::uuid`;

@@ -30,8 +30,10 @@ documents, and workflows without splitting the domain across unrelated tools.
   detaches it from the current record; protected revisions or artifacts can
   retain exact bytes, while unprotected files can be cleaned up.
 - Let a Base admin set one optional retention floor for trashed Records and
-  newly unreferenced Files. The bounded preview reports when the technical
-  floor is reached; it neither deletes data nor makes a compliance claim.
+  newly unreferenced Files. The lifecycle ledger reports when the technical
+  floor is reached and opens a paginated, server-filtered File list with
+  read-only preview and exact-byte download. It neither deletes data nor makes
+  a compliance claim.
 - Irreversibly enable Durable History for a stored table when every future
   Record, Relation, and File state must remain inspectable from an honest
   activation baseline. Existing tables stay unchanged until an admin opts in.
