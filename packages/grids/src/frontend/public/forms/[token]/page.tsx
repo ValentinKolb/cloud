@@ -1,5 +1,7 @@
 import { listLegalLinks } from "@valentinkolb/cloud";
 import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
+import { toPublicForm } from "../../../../api/form-api-shared";
+import { toPublicFields } from "../../../../api/public-dto";
 import { ssr } from "../../../../config";
 import { gridsService } from "../../../../service";
 import PublicFormSubmit from "../../../_components/forms/PublicFormSubmit.island";
@@ -50,7 +52,13 @@ export default ssr<AuthContext>(async (c) => {
   // applied server-side).
   const userInputIds = new Set(form.config.fields.filter((e) => e.kind === "user_input").map((e) => e.fieldId));
   const liveFields = await gridsService.field.listByTable(form.tableId);
-  const fields = liveFields.filter((f) => userInputIds.has(f.id));
+  const internalFields = liveFields.filter((f) => userInputIds.has(f.id));
+  const fields = await toPublicFields(internalFields);
+  const publicFieldsByInternalId = new Map<string, (typeof fields)[number]>();
+  for (const [index, field] of internalFields.entries()) {
+    const publicField = fields[index];
+    if (publicField) publicFieldsByInternalId.set(field.id, publicField);
+  }
   const fieldsById = new Map(liveFields.map((field) => [field.id, field]));
   const inlineTargetFields: Record<string, typeof fields> = {};
   for (const entry of form.config.fields) {
@@ -59,9 +67,12 @@ export default ssr<AuthContext>(async (c) => {
     if (relationField?.type !== "relation") continue;
     const targetTableId = (relationField.config as { targetTableId?: unknown }).targetTableId;
     if (typeof targetTableId !== "string") continue;
+    const publicTargetTableId = (publicFieldsByInternalId.get(entry.fieldId)?.config as { targetTableId?: unknown } | undefined)
+      ?.targetTableId;
+    if (typeof publicTargetTableId !== "string") continue;
     const allowedIds = new Set((entry.inlineCreate.fields ?? []).map((inlineField) => inlineField.fieldId));
     const targetFields = await gridsService.field.listByTable(targetTableId);
-    inlineTargetFields[targetTableId] = targetFields.filter((field) => allowedIds.has(field.id));
+    inlineTargetFields[publicTargetTableId] = await toPublicFields(targetFields.filter((field) => allowedIds.has(field.id)));
   }
 
   c.get("page").title = form.config.title ?? form.name;
@@ -70,7 +81,7 @@ export default ssr<AuthContext>(async (c) => {
 
   // Mirrors the public API DTO: only form render config, no table ids,
   // share tokens, owner metadata, timestamps, or server-applied values.
-  const safeForm = gridsService.form.toPublicRenderableForm(form);
+  const safeForm = await toPublicForm(form);
 
   return () => (
     <PublicShell legalLinks={legalLinks}>
