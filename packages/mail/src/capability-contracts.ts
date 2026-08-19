@@ -7,6 +7,7 @@ import {
   type MailSearchExpression,
   mailAddressSchema,
   mailComposeFormatSchema,
+  mailFocusViewSchema,
   mailPrioritySchema,
   mailSearchAllSchema,
   mailSearchAssignedToMeSchema,
@@ -210,6 +211,34 @@ export const ConversationListInputSchema = z
       .nullable()
       .optional()
       .describe("Optional saved work queue view."),
+    cursor: CursorSchema,
+    limit: VocabularyLimitSchema,
+  })
+  .strict();
+
+export const ConversationFocusDataSchema = z
+  .object({
+    id: ResourceShortIdSchema,
+    mailboxId: ResourceShortIdSchema,
+    mailboxName: z.string().min(1).max(160),
+    subject: z.string().max(500),
+    subjectTruncated: z.boolean(),
+    participantSummary: z.string().max(500),
+    participantSummaryTruncated: z.boolean(),
+    latestMessageAt: TimestampSchema,
+    workStatus: z.enum(["needs_action", "waiting", "done"]),
+    assigneeUserId: UuidSchema.nullable(),
+    unread: z.boolean(),
+    flagged: z.boolean(),
+    hasAttachments: z.boolean(),
+    preview: z.string().max(320).nullable(),
+    ...OptionalResourceLinksShape,
+  })
+  .strict();
+export const ConversationFocusListDataSchema = z.array(ConversationFocusDataSchema).max(100);
+export const ConversationFocusInputSchema = z
+  .object({
+    view: mailFocusViewSchema.default("mine").describe("Cross-mailbox work queue to list."),
     cursor: CursorSchema,
     limit: VocabularyLimitSchema,
   })

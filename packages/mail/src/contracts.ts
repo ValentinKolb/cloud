@@ -1534,6 +1534,36 @@ export type ActorRef = z.infer<typeof actorRefSchema>;
 export const conversationWorkStatusSchema = z.enum(["needs_action", "waiting", "done"]);
 export type ConversationWorkStatus = z.infer<typeof conversationWorkStatusSchema>;
 
+export const mailFocusViewSchema = z.enum(["mine", "unassigned", "waiting", "all"]);
+export type MailFocusView = z.infer<typeof mailFocusViewSchema>;
+
+export const mailFocusItemSchema = z
+  .object({
+    id: ResourceShortIdSchema,
+    mailboxId: ResourceShortIdSchema,
+    mailboxName: z.string().min(1).max(160),
+    subject: z.string().max(32_768),
+    participantSummary: z.string().max(32_768),
+    latestMessageAt: z.string().datetime(),
+    workStatus: conversationWorkStatusSchema,
+    assigneeUserId: z.string().uuid().nullable(),
+    unread: z.boolean(),
+    flagged: z.boolean(),
+    hasAttachments: z.boolean(),
+    preview: z.string().max(320).nullable(),
+  })
+  .strict();
+export type MailFocusItem = z.infer<typeof mailFocusItemSchema>;
+
+export const mailFocusPageSchema = z
+  .object({
+    items: z.array(mailFocusItemSchema).max(100),
+    counts: z.record(mailFocusViewSchema, z.number().int().nonnegative()),
+    nextCursor: z.string().max(2_000).nullable(),
+  })
+  .strict();
+export type MailFocusPage = z.infer<typeof mailFocusPageSchema>;
+
 export const workflowEffectBudgetSchema = z
   .object({
     maxTargets: z.number().int().min(1).max(50_000).default(1_000),

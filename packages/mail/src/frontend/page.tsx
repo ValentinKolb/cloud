@@ -1,11 +1,12 @@
-import type { AuthContext } from "@valentinkolb/cloud/server";
+import { type AuthContext, getDateConfig } from "@valentinkolb/cloud/server";
 import { Layout } from "@valentinkolb/cloud/ssr";
 import { ssr } from "../config";
+import { mailFocusViewSchema } from "../contracts";
 import type { MailRequestContext } from "../service";
-import { mailboxes } from "../service";
+import { focus, mailboxes } from "../service";
 import { readMailWorkspacePreferences } from "./_components/mail-workspace-preferences";
 import MailOverview from "./MailOverview.island";
-import { projectSsrMailboxList } from "./ssr-public-boundary";
+import { projectSsrFocusItems, projectSsrMailboxList } from "./ssr-public-boundary";
 
 export default ssr<AuthContext>(async (c) => {
   const actor = c.get("actor");
@@ -16,8 +17,8 @@ export default ssr<AuthContext>(async (c) => {
     accessSubject: c.get("accessSubject"),
     requestId: c.req.header("x-request-id") ?? null,
   };
-  const query = c.req.query("q")?.trim() || undefined;
-  const result = await mailboxes.listMailboxes(context, 200, undefined, query);
+  const view = mailFocusViewSchema.catch("mine").parse(c.req.query("view"));
+  const result = await mailboxes.listMailboxes(context, 200);
   const list = result.ok
     ? result.data.filter((mailbox): mailbox is typeof mailbox & { permission: "read" | "write" | "admin" } => mailbox.permission !== "none")
     : [];
@@ -30,14 +31,20 @@ export default ssr<AuthContext>(async (c) => {
   }
   const deletedResult = await mailboxes.listDeletedMailboxes(context, { limit: 200 });
   const deletedMailboxes = await projectSsrMailboxList(deletedResult.ok ? deletedResult.data.items : []);
+  const focusResult = await focus.listFocusConversations({ context, view });
+  const initialFocus = focusResult.ok
+    ? { ...focusResult.data, items: await projectSsrFocusItems(focusResult.data.items) }
+    : { items: [], counts: { mine: 0, unassigned: 0, waiting: 0, all: 0 }, nextCursor: null };
   return () => (
     <Layout c={c} title={[{ title: "Start", href: "/" }, { title: "Mail" }]}>
       <MailOverview
         mailboxes={publicMailboxes}
         deletedMailboxes={deletedMailboxes}
         initialDeletedCursor={deletedResult.ok ? deletedResult.data.nextCursor : null}
-        initialQuery={query ?? ""}
+        initialFocus={initialFocus}
+        initialView={view}
         currentUserEmail={user.mail}
+        dateConfig={getDateConfig(c)}
       />
     </Layout>
   );

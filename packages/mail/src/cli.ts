@@ -54,6 +54,7 @@ import {
   type MailCommand,
   type MailConversationContext,
   type MailDraft,
+  type MailFocusPage,
   type MailingListDispositionResult,
   type MailPriority,
   type MailSearchExpression,
@@ -3572,6 +3573,46 @@ export default defineCliCommands({
           idempotencyKey: flags.idempotencyKey ?? crypto.randomUUID(),
           correlationId: flags.correlationId,
         });
+      },
+    }),
+    command("focus", {
+      summary: "List active conversations across readable mailboxes",
+      flags: {
+        view: flag.enum(["mine", "unassigned", "waiting", "all"] as const, {
+          default: "mine",
+          description: "Cross-mailbox work queue",
+        }),
+        cursor: flag.string({ description: "Opaque cursor returned by a previous page" }),
+        limit: flag.int({ min: 1, max: 100, default: 50 }),
+      },
+      run: async ({ ctx, flags }) => {
+        const query = new URLSearchParams({ view: flags.view ?? "mine", limit: String(flags.limit ?? 50) });
+        if (flags.cursor) query.set("cursor", flags.cursor);
+        const page = await readApi<MailFocusPage>(ctx, `/overview/conversations?${query}`);
+        printTable(
+          ctx,
+          page,
+          page.items.map((thread) => ({
+            date: thread.latestMessageAt,
+            unread: thread.unread ? "yes" : "",
+            status: thread.workStatus,
+            mailbox: thread.mailboxName,
+            participants: thread.participantSummary,
+            subject: thread.subject,
+            id: thread.id,
+            mailboxId: thread.mailboxId,
+          })),
+          [
+            { key: "date", label: "DATE" },
+            { key: "unread", label: "UNREAD" },
+            { key: "status", label: "STATUS" },
+            { key: "mailbox", label: "MAILBOX" },
+            { key: "participants", label: "PARTICIPANTS" },
+            { key: "subject", label: "SUBJECT" },
+            { key: "id", label: "THREAD ID" },
+            { key: "mailboxId", label: "MAILBOX ID" },
+          ],
+        );
       },
     }),
     command("conversation list", {

@@ -224,6 +224,22 @@ Read [Mail operations](mail-operations.md) before replacing or revoking credenti
 
 ## Read and search mail
 
+Start with the same cross-mailbox work queue as the Mail overview when you do not yet know which mailbox contains the next task:
+
+```bash
+cld --json mail focus
+cld --json mail focus --view unassigned --limit 25
+cld --json mail focus --view waiting --cursor <next-cursor>
+```
+
+`focus` needs no mailbox selector. Every item includes its mailbox ID and name. `mine` and `waiting` are personal to the user behind the current credential; `unassigned` and `all` still include only readable mailboxes. For an agent using the generic capability surface, `mail conversation.focus` exposes the same bounded queue and cursor:
+
+```bash
+cld capabilities query mail conversation.focus \
+  --input '{"view":"mine","limit":25}' \
+  --json
+```
+
 Queue a durable sync command, then wait for a unique expected message:
 
 ```bash
@@ -509,7 +525,7 @@ Use `cld mail <group> help` for all flags. The durable day-to-day surface is:
 | Mailboxes | `list`, `create`, `use`, `current`, `mailbox get`, `mailbox deleted list|get`, `mailbox restore`, `mailbox wait`, `configure`, `delete` |
 | Access | `access list|search-principals|grant|set|revoke` |
 | Discovery | `provider discover|list`, `binding list|attach`, `identity list|add|setup-default|configure|verify|disable`, `folders`, `status` |
-| Read and search | `search`, `message get|wait|inspect|source|edit-as-new|resend`, `conversation list|get|messages|counts`, `remote-content list|allow-sender|allow-domain|remove` |
+| Read and search | `focus`, `search`, `message get|wait|inspect|source|edit-as-new|resend`, `conversation list|get|messages|counts`, `remote-content list|allow-sender|allow-domain|remove` |
 | Collaboration | `conversation collaboration|update|users|activity|context|related|contact-history`, `tag ...`, `conversation tag ...`, `comment list|add|edit|delete`, `reminder get|set|cancel` |
 | Views and repair | `saved-view list|get|create|update|delete|conversations`, `conversation split|merge|reassign-message` |
 

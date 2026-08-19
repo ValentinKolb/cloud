@@ -114,6 +114,46 @@ const withMailbox = (handler: (request: Request) => Response | Promise<Response>
     },
   });
 
+test("focus lists a cross-mailbox queue without resolving one mailbox", async () => {
+  const requests: string[] = [];
+  const page = {
+    items: [
+      {
+        id: CONVERSATION_ID,
+        mailboxId: MAILBOX_ID,
+        mailboxName: "Support",
+        subject: "Release update",
+        participantSummary: "Ada",
+        latestMessageAt: "2026-08-19T10:00:00.000Z",
+        workStatus: "needs_action",
+        assigneeUserId: USER_ID,
+        unread: true,
+        flagged: false,
+        hasAttachments: false,
+        preview: "Ready to ship",
+      },
+    ],
+    counts: { mine: 1, unassigned: 0, waiting: 0, all: 1 },
+    nextCursor: null,
+  };
+  const server = Bun.serve({
+    port: 0,
+    fetch: (request) => {
+      const url = new URL(request.url);
+      requests.push(`${request.method} ${url.pathname}${url.search}`);
+      if (request.method === "GET" && url.pathname === "/api/mail/overview/conversations") return api(page);
+      return api({ message: "unexpected" }, { status: 500 });
+    },
+  });
+  servers.push(server);
+
+  const result = await runCli(`http://127.0.0.1:${server.port}`, ["--json", "mail", "focus", "--view", "mine", "--limit", "25"]);
+
+  expect(result.exitCode).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual(page);
+  expect(requests).toEqual(["GET /api/mail/overview/conversations?view=mine&limit=25"]);
+});
+
 test("message report-phishing submits an explicit confirmed report", async () => {
   const received: Array<{ method: string; path: string; body: unknown }> = [];
   const report = {

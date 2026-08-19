@@ -12,11 +12,13 @@ The email provider remains the source for portable mail state. Moving a message,
 
 ## Choose the right starting point {icon="square-plus"}
 
-- Opening Mail from the app navigation returns to the last mailbox you opened and can still read. Use the **Mail** breadcrumb when you want the mailbox overview.
-- Open a mailbox card under **Your mailboxes** to work with an existing mailbox.
-- Use **Search mailboxes** to filter the overview by mailbox name or description.
+- Opening Mail from the app navigation shows **Focus**, a combined work queue across every mailbox you may read.
+- Use **For me** for assigned conversations that need action, **Unassigned** for unowned work, **Waiting** for your assigned conversations waiting on a reply, or **All active** for every unfinished, unsnoozed conversation you may read.
+- Open a conversation to enter its mailbox directly. Open a mailbox under **Mailboxes** when you need folders, mailbox-wide search, or settings.
 - Select **New mailbox** when you need to connect another email account.
 - A new mailbox starts private. You are its administrator until you grant access in **Settings > Access**.
+
+Focus does not copy or move mail between mailboxes. Each row keeps its source mailbox, and opening it checks your current mailbox permission again.
 
 ## Connect your first mailbox {icon="square-plus"}
 

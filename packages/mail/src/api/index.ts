@@ -55,6 +55,8 @@ import {
   type MailCommand,
   type MailCommandInput,
   mailCommandInputSchema,
+  mailFocusPageSchema,
+  mailFocusViewSchema,
   mailConversationContextQuerySchema,
   mailConversationContextSchema,
   mailConversationSpaceCreateInputSchema,
@@ -112,6 +114,7 @@ import {
   drafts,
   draftUploads,
   folders,
+  focus,
   health,
   listSubscriptions,
   type MailRequestContext,
@@ -201,6 +204,9 @@ const conversationQuerySchema = cursorQuerySchema.extend({
   folderId: ResourceShortIdSchema.optional(),
   status: z.enum(["needs_action", "waiting", "done"]).optional(),
   view: conversationViewSchema.optional(),
+});
+const mailFocusQuerySchema = cursorQuerySchema.extend({
+  view: mailFocusViewSchema.default("mine"),
 });
 const collaboratorQuerySchema = z.object({
   search: z.string().trim().max(200).optional(),
@@ -372,6 +378,18 @@ const respondFolders = async <T>(c: Context<MailApiContext>, result: Result<T> |
   respondPublic(c, await projectRootRelation(await result, "parentId", "folders"), "folders");
 const respondConversations = <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) =>
   respondPublic(c, result, "conversations");
+const respondFocus = async <T extends { items: Array<{ id: string; mailboxId: string }> }>(
+  c: Context<MailApiContext>,
+  result: Result<T> | Promise<Result<T>>,
+) => {
+  const resolved = await result;
+  if (!resolved.ok) return respondPublic(c, resolved);
+  const paths = resolved.data.items.flatMap((_item, index) => [
+    { path: ["items", String(index), "id"], table: "conversations" as const },
+    { path: ["items", String(index), "mailboxId"], table: "mailboxes" as const },
+  ]);
+  return respondPublic(c, await projectResourcePaths(resolved, paths));
+};
 const respondMessages = async <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) => {
   const resolved = await result;
   if (!resolved.ok) return respondPublic(c, resolved);
@@ -703,6 +721,32 @@ const mailOperationsApi = new Hono<MailApiContext>()
   .use("/mailboxes/:mailboxId/scheduled-sends/:scheduledSendId", resolveScheduledSendParam)
   .use("/mailboxes/:mailboxId/scheduled-sends/:scheduledSendId/*", resolveScheduledSendParam)
   .use(auth.requireRole("authenticated"))
+  .get(
+    "/overview/conversations",
+    describeRoute({
+      tags: ["Mail:Conversations"],
+      summary: "List focused conversations across readable mailboxes",
+      ...requiresAuth,
+      responses: {
+        200: jsonResponse(mailFocusPageSchema, "Cross-mailbox focus page"),
+        400: jsonResponse(ErrorResponseSchema, "Invalid view or cursor"),
+        403: jsonResponse(ErrorResponseSchema, "Access denied"),
+      },
+    }),
+    v("query", mailFocusQuerySchema),
+    async (c) => {
+      const query = c.req.valid("query");
+      return respondFocus(
+        c,
+        focus.listFocusConversations({
+          context: requestContext(c),
+          view: query.view,
+          cursor: query.cursor,
+          limit: query.limit,
+        }),
+      );
+    },
+  )
   .get("/mailboxes/:mailboxId/provider-discovery", v("param", mailboxParamSchema), v("query", providerDiscoveryQuerySchema), async (c) => {
     const mailboxId = internalMailboxId(c);
     const allowed = await mailboxAccess.requireMailboxPermission(requestContext(c), mailboxId, "admin");

@@ -27,6 +27,7 @@ import {
   conversationSummaries,
   drafts,
   draftUploads,
+  focus,
   listSubscriptions,
   localTags,
   type MailRequestContext,
@@ -800,6 +801,45 @@ const queryDefinitions = {
       ]);
       return ok({
         data: result.data.items.map((item) => mapConversation(scope.data.shortId, item, { conversations, folders })),
+        page: capabilityPage(result.data.nextCursor),
+      });
+    },
+  },
+  "conversation.focus": {
+    title: "List focused mail",
+    description: "List active conversations across every readable mailbox without enumerating mailboxes first.",
+    input: c.ConversationFocusInputSchema,
+    data: c.ConversationFocusListDataSchema,
+    openWorld: true,
+    run: async (input: z.output<typeof c.ConversationFocusInputSchema>, context: CapabilityExecutionContext) => {
+      const result = await focus.listFocusConversations({
+        context: requestContext(context),
+        view: input.view,
+        cursor: input.cursor,
+        limit: input.limit,
+      });
+      if (!result.ok) return result;
+      const [conversationIds, mailboxIds] = await Promise.all([
+        publicResources.publicIds("conversations", result.data.items.map((item) => item.id)),
+        publicResources.publicIds("mailboxes", result.data.items.map((item) => item.mailboxId)),
+      ]);
+      return ok({
+        data: result.data.items.map((item) => {
+          const conversationId = requirePublicId(conversationIds, item.id);
+          const mailboxId = requirePublicId(mailboxIds, item.mailboxId);
+          const subject = truncateText(item.subject, 500);
+          const participantSummary = truncateText(item.participantSummary, 500);
+          return {
+            ...item,
+            id: conversationId,
+            mailboxId,
+            subject: subject.text,
+            subjectTruncated: subject.truncated,
+            participantSummary: participantSummary.text,
+            participantSummaryTruncated: participantSummary.truncated,
+            links: [openLink(conversationHref(mailboxId, conversationId))],
+          };
+        }),
         page: capabilityPage(result.data.nextCursor),
       });
     },

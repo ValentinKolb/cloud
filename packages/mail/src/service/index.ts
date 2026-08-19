@@ -24,6 +24,7 @@ import * as events from "./events";
 import { startMailInvalidationRuntime, stopMailInvalidationRuntime } from "./events";
 import * as execution from "./execution";
 import * as folders from "./folders";
+import * as focus from "./focus";
 import * as health from "./health";
 import { imapPushRuntime } from "./imap-push-runtime";
 import * as incomingAutomations from "./incoming-automations";
@@ -104,6 +105,7 @@ export {
   draftUploads,
   enqueueMailboxSync,
   events,
+  focus,
   folders,
   health,
   incomingAutomations,
@@ -155,6 +157,7 @@ export const mailService = {
   drafts,
   execution,
   events,
+  focus,
   health,
   incomingAutomations,
   localTags,

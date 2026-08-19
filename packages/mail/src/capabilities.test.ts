@@ -12,6 +12,7 @@ import {
   AttachmentContentReadDataSchema,
   AttachmentReadDataSchema,
   CommentListDataSchema,
+  ConversationFocusListDataSchema,
   ConversationGetDataSchema,
   ConversationListDataSchema,
   ConversationMarkInputSchema,
@@ -34,6 +35,7 @@ import {
   conversationContext,
   conversationSummaries,
   drafts,
+  focus,
   listSubscriptions,
   localTags,
   mailboxAccess,
@@ -185,6 +187,7 @@ describe("mail capabilities", () => {
       "comment.read",
       "conversation.activity.list",
       "conversation.comment.list",
+      "conversation.focus",
       "conversation.list",
       "conversation.read",
       "conversation.related",
@@ -645,6 +648,52 @@ describe("mail capabilities", () => {
     if (!result.ok) throw new Error("Expected conversation list success");
     expect(ConversationListDataSchema.safeParse(result.data.data).success).toBeTrue();
     expect(ConversationListDataSchema.safeParse(result.data.data.map(({ links: _, ...item }) => item)).success).toBeTrue();
+    expect(JSON.stringify(result)).not.toContain(internalConversationId);
+    expect(JSON.stringify(result)).not.toContain(internalMailboxId);
+  });
+
+  test("lists focused conversations across mailboxes with public links", async () => {
+    spyOn(focus, "listFocusConversations").mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: internalConversationId,
+            mailboxId: internalMailboxId,
+            mailboxName: "Support",
+            subject: "Release update",
+            participantSummary: "Ada",
+            latestMessageAt: "2026-08-04T10:00:00.000Z",
+            workStatus: "needs_action",
+            assigneeUserId: userId,
+            unread: true,
+            flagged: false,
+            hasAttachments: false,
+            preview: "Ready to ship",
+          },
+        ],
+        counts: { mine: 1, unassigned: 0, waiting: 0, all: 1 },
+        nextCursor: "next-focus-page",
+      },
+    });
+
+    const result = await mailCapabilities.queries["conversation.focus"].run({ view: "mine", limit: 25 }, context);
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        data: [
+          {
+            id: conversationId,
+            mailboxId,
+            mailboxName: "Support",
+            links: [{ rel: "open", href: `/app/mail/${mailboxId}?conversation=${conversationId}` }],
+          },
+        ],
+        page: { nextCursor: "next-focus-page" },
+      },
+    });
+    if (!result.ok) throw new Error("Expected conversation focus success");
+    expect(ConversationFocusListDataSchema.safeParse(result.data.data).success).toBeTrue();
     expect(JSON.stringify(result)).not.toContain(internalConversationId);
     expect(JSON.stringify(result)).not.toContain(internalMailboxId);
   });

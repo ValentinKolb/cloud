@@ -2,6 +2,7 @@ import { ResourceShortIdSchema } from "../contracts";
 import { activityPublic, publicResources } from "../service";
 import type { MailAutomationAccessData } from "../service/automation-workspace";
 import type { MailboxPageData } from "../service/workspace";
+import type { MailFocusItem as InternalMailFocusItem } from "../service/focus";
 
 type Table = publicResources.MailPublicResourceTable;
 export type SsrPublicPath = { table: Table; segments: Array<string | number> };
@@ -56,6 +57,15 @@ export const projectSsrMailboxList = async <T extends { id: string }>(mailboxes:
   const paths: Path[] = [];
   addResourceList(paths, "mailboxes", [], mailboxes);
   return projectSsrPaths(mailboxes, paths, loadPublicIds);
+};
+
+export const projectSsrFocusItems = async (items: InternalMailFocusItem[], loadPublicIds?: LoadPublicIds) => {
+  const paths: Path[] = [];
+  items.forEach((item, index) => {
+    add(paths, "conversations", [index, "id"], item.id);
+    add(paths, "mailboxes", [index, "mailboxId"], item.mailboxId);
+  });
+  return projectSsrPaths(items, paths, loadPublicIds);
 };
 
 export const resolveSsrMailboxId = async (
