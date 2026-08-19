@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SQL } from "bun";
-import { projectPublicIds, resolvePublicIds } from "./public-resources";
+import { queryInternalResourceIds, queryPublicResourceIds } from "./public-resource-ids";
 
 const database = (rows: unknown[], calls: Array<{ query: string; parameters: unknown[] }>): SQL =>
   ({
@@ -13,7 +13,7 @@ const database = (rows: unknown[], calls: Array<{ query: string; parameters: unk
 describe("public resource ID batches", () => {
   test("binds public IDs as one Postgres text array", async () => {
     const calls: Array<{ query: string; parameters: unknown[] }> = [];
-    const ids = await resolvePublicIds(
+    const ids = await queryPublicResourceIds(
       "base",
       ["8yMtTb", "Ab12Cd", "8yMtTb"],
       database(
@@ -35,7 +35,7 @@ describe("public resource ID batches", () => {
     const calls: Array<{ query: string; parameters: unknown[] }> = [];
     const first = "11111111-1111-4111-8111-111111111111";
     const second = "22222222-2222-4222-8222-222222222222";
-    const ids = await projectPublicIds(
+    const ids = await queryInternalResourceIds(
       "base",
       [first, second, first],
       database(

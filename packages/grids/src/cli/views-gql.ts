@@ -1,4 +1,4 @@
-import { arg, command, confirmFlag, flag } from "@valentinkolb/cloud/cli";
+import { arg, command, confirmFlag, flag, printStructured } from "@valentinkolb/cloud/cli";
 import type { PublicView as View } from "../api/public-dto";
 import type { DslQueryAutocompleteResponse, DslQueryCompileViewResponse, DslQueryExecuteResponse } from "../contracts";
 import { customAppContextKeys } from "../custom-apps/context-keys";
@@ -176,10 +176,7 @@ export const gqlCommands = [
         `/gql/by-base/${encodeURIComponent(base.id)}/compile-view`,
         jsonRequest("POST", body),
       );
-      if (ctx.options.output === "json") {
-        ctx.json(payload);
-        return payload.ok ? 0 : 1;
-      }
+      if (printStructured(ctx, payload)) return payload.ok ? 0 : 1;
       if (!payload.ok) {
         printGqlDiagnostics(ctx, payload.diagnostics);
         return 1;

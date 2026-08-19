@@ -68,7 +68,7 @@ const createContext = (
   args: string[],
   flags: CloudCliFlags = {},
   responses: Response[] = [],
-  options: { output?: "text" | "json"; defaultBase?: string } = {},
+  options: { output?: "text" | "json" | "jsonl"; defaultBase?: string } = {},
 ) => {
   const calls: FetchCall[] = [];
   const lines: string[] = [];
@@ -523,6 +523,28 @@ describe("grids CLI", () => {
     expect(calls[1]?.init?.method).toBe("POST");
     expect(JSON.parse(String(calls[1]?.init?.body))).toEqual({ query, pageSize: 100 });
     expect(tables[0]).toEqual([{ recordId, Name: "Ursula K. Le Guin" }]);
+  });
+
+  test("prints compiled GQL as one structured JSONL value", async () => {
+    const query = "from table Authors select Name";
+    const payload = { ok: true as const, tableId, source: "from table #auth1A select #name1A" };
+    const { ctx, calls, jsonValues, lines, tables } = createContext(
+      ["gql", "compile-view", baseId],
+      { query },
+      [jsonResponse(basePage), jsonResponse(payload)],
+      { output: "jsonl" },
+    );
+
+    const exitCode = await gridsCli.run(ctx);
+
+    expect(exitCode).toBe(0);
+    expect(calls.map((call) => call.path)).toEqual([
+      `/api/grids/bases?q=${baseId}&limit=500&offset=0`,
+      `/api/grids/gql/by-base/${baseId}/compile-view`,
+    ]);
+    expect(jsonValues).toEqual([payload]);
+    expect(lines).toEqual([]);
+    expect(tables).toEqual([]);
   });
 
   test("creates schema objects through resolved base and table references", async () => {
