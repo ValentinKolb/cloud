@@ -209,10 +209,12 @@ describe("@k2b/ui complete advanced layout migrations", () => {
     expect(rule).not.toContain("resize: both");
   });
 
-  test("reveals hover sidebar actions for pointer and keyboard users without hiding them on touch", async () => {
+  test("reveals hover sidebar and section actions for pointer and keyboard users without hiding them on touch", async () => {
     const css = await Bun.file(resolve(import.meta.dir, "../styles/index.css")).text();
 
     expect(css).toContain("@media (hover: hover) and (pointer: fine)");
+    expect(css).toContain(".k2b-app-workspace__sidebar-section-actions");
+    expect(css).toContain(".k2b-app-workspace__sidebar-section-header:is(:hover, :focus-within)");
     expect(css).toContain('.k2b-app-workspace__sidebar-item-action[data-visibility="hover"]');
     expect(css).toContain('.k2b-app-workspace__sidebar-item-meta[data-visibility="hover"]');
     expect(css).toContain('.k2b-app-workspace__sidebar-item-actions[data-visibility="hover"]');
@@ -772,9 +774,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(rule(".k2b-panes__separator[data-direction=horizontal]>span")).not.toContain("width:1px");
       const activeSeparator = rule(".k2b-panes__separator:not([aria-disabled=true]):active>span");
       expect(activeSeparator).toContain("background:var(--k2b-success-500)");
-      expect(rule(".k2b-panes__separator:not([aria-disabled=true]):focus-visible>span")).toContain(
-        "background:var(--k2b-success-600)",
-      );
+      expect(rule(".k2b-panes__separator:not([aria-disabled=true]):focus-visible>span")).toContain("background:var(--k2b-success-600)");
       expect(rule(".k2b-panes__separator:focus-visible>span")).toContain("var(--k2b-success-600)");
       const targets = rule(".k2b-panes__drop-target");
       expect(targets).toContain("pointer-events:auto");
@@ -810,9 +810,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(targetFrame).toContain("--k2b-panes-drop-gap:.375rem");
       expect(targetFrame).toContain("container-type:size");
       expect(rule(".k2b-panes__drop-target[data-zone=top]")).toContain("height:var(--k2b-panes-drop-edge)");
-      expect(rule(".k2b-panes__drop-target[data-zone=top]")).toContain(
-        "calc(var(--k2b-panes-drop-gap) + var(--k2b-panes-drop-gap))",
-      );
+      expect(rule(".k2b-panes__drop-target[data-zone=top]")).toContain("calc(var(--k2b-panes-drop-gap) + var(--k2b-panes-drop-gap))");
       expect(rule(".k2b-panes__drop-target[data-zone=left]")).toContain("width:var(--k2b-panes-drop-edge)");
       const splitTarget = rule(".k2b-panes__drop-target[data-kind=split]");
       expect(splitTarget).not.toContain("border:");
@@ -827,8 +825,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(css).toContain(
         ".k2b-panes__drop-target[data-zone=left]>span,.k2b-ui .k2b-panes__drop-target[data-zone=right]>span{display:none}",
       );
-      const dragSurface =
-        css.match(/\.k2b-ui \.k2b-panes__drag-surface,\.k2b-ui\.k2b-panes__drag-surface\{([^}]*)\}/)?.[1] ?? "";
+      const dragSurface = css.match(/\.k2b-ui \.k2b-panes__drag-surface,\.k2b-ui\.k2b-panes__drag-surface\{([^}]*)\}/)?.[1] ?? "";
       expect(dragSurface).toContain("background:0 0");
       expect(dragSurface).toContain("font:inherit");
       expect(dragSurface).toContain("width:100%");
@@ -852,7 +849,7 @@ describe("@k2b/ui complete advanced layout migrations", () => {
       expect(close).toContain("pointer-events:none");
       expect(css).toContain(".k2b-panes__tab:hover>.k2b-panes__close");
       expect(css).toContain(".k2b-panes__tab:focus-within>.k2b-panes__close");
-      expect(css).toContain('.k2b-panes__tab[data-closable=true]:hover>.k2b-panes__tab-button .k2b-panes__drag-surface');
+      expect(css).toContain(".k2b-panes__tab[data-closable=true]:hover>.k2b-panes__tab-button .k2b-panes__drag-surface");
       expect(css).toContain("padding-right:1.5rem");
       expect(css).toContain("pointer-events:auto");
     });

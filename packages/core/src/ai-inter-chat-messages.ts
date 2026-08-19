@@ -2,19 +2,17 @@ import {
   type AiInterChatMessage,
   aiConversations,
   aiProjects,
-  deliverAiInterChatMessage,
   personalAiModelPolicy,
   personalAiSystemPrompt,
 } from "@valentinkolb/cloud/ai";
+import { deliverAiInterChatMessage } from "@valentinkolb/cloud/ai/runtime";
 import { accounts, logger } from "@valentinkolb/cloud/services";
 
 const log = logger("core:ai-inter-chat-messages");
 
 export type AiMessageDeliveryStatus = "queued" | "delivered" | "failed";
 
-export const deliverPendingAiMessages = async (
-  targetConversationId?: string,
-): Promise<Map<string, AiMessageDeliveryStatus>> => {
+export const deliverPendingAiMessages = async (targetConversationId?: string): Promise<Map<string, AiMessageDeliveryStatus>> => {
   const outcomes = new Map<string, AiMessageDeliveryStatus>();
   let pending: AiInterChatMessage[];
   try {
@@ -45,9 +43,7 @@ export const deliverPendingAiMessages = async (
           archived: true,
         }));
       if (!target) continue;
-      const project = target.projectId
-        ? await aiProjects.snapshot(target.projectId, { type: "user", userId: user.id })
-        : null;
+      const project = target.projectId ? await aiProjects.snapshot(target.projectId, { type: "user", userId: user.id }) : null;
       if (target.projectId && !project) {
         await aiConversations.failInterChatMessage({ messageId: message.id, error: "Target Project is unavailable" });
         outcomes.set(message.id, "failed");

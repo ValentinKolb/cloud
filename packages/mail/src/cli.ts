@@ -891,7 +891,7 @@ const waitForCommands = async (
 
 const searchTermFlags = {
   any: flag.stringList({
-    description: "Search all indexed fields; repeatable",
+    description: "Search all indexed fields, including extracted attachment text; repeatable",
     separator: "\0",
   }),
   subject: flag.stringList({ description: "Search subject; repeatable", separator: "\0" }),

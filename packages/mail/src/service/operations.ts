@@ -151,7 +151,10 @@ const loadMailboxOperations = async (
       COUNT(*) FILTER (WHERE message.plain_text IS NOT NULL AND message.plain_text <> '')::int AS search_total,
       COUNT(*) FILTER (
         WHERE message.plain_text IS NOT NULL AND message.plain_text <> ''
-          AND EXISTS (SELECT 1 FROM mail.message_search_chunks chunk WHERE chunk.message_id = message.id)
+          AND EXISTS (
+            SELECT 1 FROM mail.message_search_chunks chunk
+            WHERE chunk.message_id = message.id AND chunk.source_kind = 'body'
+          )
       )::int AS indexed,
       COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM mail.conversation_messages link WHERE link.message_id = message.id))::int AS threaded
     FROM mail.message_contents message
@@ -564,7 +567,10 @@ export const getPlatformMailOperations = async (
             COUNT(*) FILTER (WHERE message.plain_text IS NOT NULL AND message.plain_text <> '') AS search_total,
             COUNT(*) FILTER (
               WHERE message.plain_text IS NOT NULL AND message.plain_text <> ''
-                AND EXISTS (SELECT 1 FROM mail.message_search_chunks chunk WHERE chunk.message_id = message.id)
+                AND EXISTS (
+                  SELECT 1 FROM mail.message_search_chunks chunk
+                  WHERE chunk.message_id = message.id AND chunk.source_kind = 'body'
+                )
             ) AS indexed,
             COUNT(*) FILTER (
               WHERE EXISTS (SELECT 1 FROM mail.conversation_messages link WHERE link.message_id = message.id)

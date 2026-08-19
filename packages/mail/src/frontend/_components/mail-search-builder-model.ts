@@ -17,7 +17,7 @@ export type MailSearchFieldKey =
   | "assigned_to_me";
 
 export const MAIL_SEARCH_FIELD_OPTIONS: Array<{ id: MailSearchFieldKey; label: string; icon: string }> = [
-  { id: "text:any", label: "Anywhere", icon: "ti ti-search" },
+  { id: "text:any", label: "Anywhere, including attachments", icon: "ti ti-search" },
   { id: "text:subject", label: "Subject", icon: "ti ti-letter-case" },
   { id: "text:body", label: "Message body", icon: "ti ti-align-left" },
   { id: "text:from", label: "From", icon: "ti ti-user-up" },

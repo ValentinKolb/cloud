@@ -1,5 +1,7 @@
 import { type AuthContext, rateLimit } from "@valentinkolb/cloud/server";
 import { Hono } from "hono";
+import documentMarkdownRoutes from "./document-markdown";
+import markdownPdfRoutes from "./markdown-pdf";
 import speedtestRoutes from "./speedtest";
 import speedtestCliRoutes from "./speedtest-cli";
 import webhookRoutes from "./webhooks";
@@ -9,6 +11,8 @@ const buildToolsApi = () =>
     .route("/speedtest", speedtestRoutes)
     .use(rateLimit())
     .route("/speedtest", speedtestCliRoutes)
+    .route("/documents", documentMarkdownRoutes)
+    .route("/markdown", markdownPdfRoutes)
     .route("/webhooks", webhookRoutes);
 
 export type ApiType = ReturnType<typeof buildToolsApi>;

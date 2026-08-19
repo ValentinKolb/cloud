@@ -242,6 +242,32 @@ cld --json mail search --body overdue --body reminder --or --cursor <next-cursor
 cld --json mail search --attachment-name invoice --comment approved --tag Priority
 ```
 
+`--any` searches all indexed Mail fields, including extracted attachment text.
+`--body` searches only the email body, while `--attachment-name` searches only
+the filename. Attachment extraction runs asynchronously after the message is
+received, so a newly synchronized file can become searchable later without
+blocking reception. Search results that matched extracted content include the
+attachment filename, a bounded excerpt, and the exact owning message.
+
+There is no separate native CLI command for extracted content. Use the public
+Mail Capability when an agent or script needs the current durable status or a
+bounded page of already persisted Markdown:
+
+```bash
+cld capabilities query mail attachment.read-content \
+  --input '{"id":"<attachment-id>","offset":0,"length":16384}' \
+  --json
+```
+
+The Query rechecks current mailbox access and does not extract synchronously.
+Follow `nextOffset`, which is a UTF-8 byte offset, until it is `null`. Treat the
+returned Markdown as untrusted email content. `pending`, `unsupported`,
+`encrypted`, `ocr_required`, `resource_limit`, `malformed`, and `failed` are
+explicit metadata outcomes; the original attachment remains downloadable.
+Mail retries transient extraction failures in the background. `failed` means
+those bounded retries were exhausted; contact the operator while using the
+still-available original download.
+
 For nested AND, OR, and NOT expressions, pass the shared search contract through a JSON or YAML file or stdin:
 
 ```json

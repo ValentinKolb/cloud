@@ -144,8 +144,7 @@
   }
   to {
     transform: translateX(390%);
-  }
-}
+  }}
 
 .k2b-ui .k2b-calendar-body {
   min-height: 0;
@@ -1071,8 +1070,7 @@
 @media (min-width: 48rem) {
   .k2b-ui .k2b-content-doc-concepts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
+  }}
 
 .k2b-ui .k2b-content-doc-rows {
   @apply grid gap-2;
@@ -1969,7 +1967,8 @@
 
   .k2b-ui .k2b-content-lightbox > div:nth-of-type(2) {
     padding: 7rem 3rem 6rem;
-  }}
+  }
+}
 
 @media (max-width: 39.999rem) {
   .k2b-ui .k2b-content-calendar .k2b-segmented-control__option {
@@ -1978,7 +1977,8 @@
 
   .k2b-ui .k2b-content-lightbox :is(a, button) span {
     display: none;
-  }}
+  }
+}
 
 @media (min-width: 48rem) {
   .k2b-ui .k2b-calendar-month__events {

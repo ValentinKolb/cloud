@@ -4,6 +4,7 @@ import { escapeLikePattern } from "@valentinkolb/cloud/services/postgres";
 import { sql } from "bun";
 import { z } from "zod";
 import type { MailSearchExpression, SearchRequest } from "../contracts";
+import { MAIL_ATTACHMENT_EXTRACTOR_VERSION } from "./attachment-extraction-contract";
 import { type MailRequestContext, userBackedActor } from "./auth";
 import { sha256Json } from "./canonical";
 import { resolveMailExecution } from "./execution";
@@ -29,6 +30,13 @@ export type MessageSearchHit = {
   flagged: boolean;
   hasAttachments: boolean;
   snippet: string | null;
+  attachmentMatch: {
+    attachmentId: string;
+    messageId: string;
+    filename: string | null;
+    snippet: string;
+    reason: "attachment_content";
+  } | null;
   unread: boolean;
   messageCount: number;
   workStatus: "needs_action" | "waiting" | "done" | null;
@@ -67,6 +75,10 @@ type DbSearchHit = {
   flagged: boolean;
   has_attachments: boolean;
   snippet: string | null;
+  attachment_match_id: string | null;
+  attachment_match_message_id: string | null;
+  attachment_match_filename: string | null;
+  attachment_match_snippet: string | null;
   unread: boolean;
   message_count: number;
   work_status: "needs_action" | "waiting" | "done" | null;
@@ -146,6 +158,7 @@ const bodyChunkMatch = (query: string, match: "words" | "phrase"): SqlFragment =
       FROM mail.message_search_chunks body_chunk
       WHERE body_chunk.message_id = mc.id
         AND body_chunk.mailbox_id = mc.mailbox_id
+        AND body_chunk.source_kind = 'body'
         AND body_chunk.search_document @@ phraseto_tsquery('simple', ${query})
     )`;
   }
@@ -155,11 +168,54 @@ const bodyChunkMatch = (query: string, match: "words" | "phrase"): SqlFragment =
       FROM mail.message_search_chunks body_chunk
       WHERE body_chunk.message_id = mc.id
         AND body_chunk.mailbox_id = mc.mailbox_id
+        AND body_chunk.source_kind = 'body'
         AND body_chunk.search_document @@ plainto_tsquery('simple', ${token})
     )`,
   );
   return tokens.slice(1).reduce((combined, part) => sql`(${combined} AND ${part})`, tokens[0]!);
 };
+
+const attachmentChunksMatch = (attachmentId: SqlFragment, query: string, match: "words" | "phrase"): SqlFragment => {
+  if (match === "phrase") {
+    return sql`EXISTS (
+      SELECT 1
+      FROM mail.message_search_chunks attachment_chunk
+      WHERE attachment_chunk.attachment_id = ${attachmentId}
+        AND attachment_chunk.source_kind = 'attachment'
+        AND attachment_chunk.extractor_version = ${MAIL_ATTACHMENT_EXTRACTOR_VERSION}
+        AND attachment_chunk.search_document @@ phraseto_tsquery('simple', ${query})
+    )`;
+  }
+  const tokens = wordTokens(query).map(
+    (token) => sql`EXISTS (
+      SELECT 1
+      FROM mail.message_search_chunks attachment_chunk
+      WHERE attachment_chunk.attachment_id = ${attachmentId}
+        AND attachment_chunk.source_kind = 'attachment'
+        AND attachment_chunk.extractor_version = ${MAIL_ATTACHMENT_EXTRACTOR_VERSION}
+        AND attachment_chunk.search_document @@ plainto_tsquery('simple', ${token})
+    )`,
+  );
+  return tokens.slice(1).reduce((combined, part) => sql`(${combined} AND ${part})`, tokens[0]!);
+};
+
+const attachmentWordOrPhraseMatch = (query: string, match: "words" | "phrase"): SqlFragment => sql`EXISTS (
+  SELECT 1
+  FROM mail.attachments matched_attachment
+  WHERE matched_attachment.message_id = mc.id
+    AND ${attachmentChunksMatch(sql`matched_attachment.id`, query, match)}
+)`;
+
+const attachmentContentMatch = (query: string, match: Extract<MailSearchExpression, { type: "text" }>["match"]): SqlFragment => sql`EXISTS (
+  SELECT 1
+  FROM mail.attachments attachment_content
+  JOIN mail.attachment_extractions extraction
+    ON extraction.blob_id = attachment_content.blob_id
+   AND extraction.extractor_version = ${MAIL_ATTACHMENT_EXTRACTOR_VERSION}
+   AND extraction.status = 'complete'
+  WHERE attachment_content.message_id = mc.id
+    AND ${textMatch(sql`extraction.markdown`, query, match)}
+)`;
 
 const textMatch = (value: SqlFragment, query: string, match: "words" | "phrase" | "contains" | "exact"): SqlFragment => {
   if (match === "exact") return sql`lower(COALESCE(${value}, '')) = ${query.toLowerCase()}`;
@@ -288,18 +344,20 @@ const compileTextTerm = (term: Extract<MailSearchExpression, { type: "text" }>, 
 
   const body =
     term.match === "words" || term.match === "phrase"
-      ? bodyChunkMatch(query, term.match)
+      ? combineOr([bodyChunkMatch(query, term.match), attachmentWordOrPhraseMatch(query, term.match)])
       : textMatch(sql`mc.plain_text`, query, term.match);
   const subject =
     term.match === "words" || term.match === "phrase"
       ? ftsMatch(sql`mc.subject_search_document`, query, term.match)
       : textMatch(sql`mc.subject`, query, term.match);
+  const attachmentContent = term.match === "contains" || term.match === "exact" ? [attachmentContentMatch(query, term.match)] : [];
   return combineOr([
     subject,
     body,
     addressMatch(null, query, term.match),
     textMatch(sql`mc.message_id`, query, term.match),
     attachmentNameMatch(query, term.match),
+    ...attachmentContent,
     commentMatch(query, term.match, conversationId),
     referenceMatch(query, term.match, conversationId),
     folderMatch(query, term.match),
@@ -407,6 +465,15 @@ const positiveQueries = (expression: MailSearchExpression, negated = false): str
   return [expression.query];
 };
 
+type AttachmentSearchTerm = Extract<MailSearchExpression, { type: "text" }>;
+const positiveAttachmentTerms = (expression: MailSearchExpression, negated = false): AttachmentSearchTerm[] => {
+  if (expression.type === "and" || expression.type === "or") {
+    return expression.expressions.flatMap((child) => positiveAttachmentTerms(child, negated));
+  }
+  if (expression.type === "not") return positiveAttachmentTerms(expression.expression, !negated);
+  return !negated && expression.type === "text" && expression.field === "any" ? [expression] : [];
+};
+
 type FullTextSeed =
   | (Extract<MailSearchExpression, { type: "text" }> & { field: "subject"; match: "words" | "phrase" })
   | (Extract<MailSearchExpression, { type: "text" }> & { field: "body"; match: "phrase" });
@@ -445,10 +512,24 @@ const compileAnyWordsSeed = (seed: AnyWordsSeed, mailboxId: string): SqlFragment
       SELECT seed_chunk.message_id
       FROM mail.message_search_chunks seed_chunk
       WHERE seed_chunk.mailbox_id = ${mailboxId}::uuid
+        AND seed_chunk.source_kind = 'body'
         AND seed_chunk.search_document @@ plainto_tsquery('simple', ${token})
     `,
   );
   const bodySeed = bodyTokenQueries.slice(1).reduce((combined, part) => sql`${combined} INTERSECT ${part}`, bodyTokenQueries[0]!);
+  const attachmentTokenQueries = wordTokens(query).map(
+    (token) => sql`
+      SELECT seed_chunk.message_id, seed_chunk.attachment_id
+      FROM mail.message_search_chunks seed_chunk
+      WHERE seed_chunk.mailbox_id = ${mailboxId}::uuid
+        AND seed_chunk.source_kind = 'attachment'
+        AND seed_chunk.extractor_version = ${MAIL_ATTACHMENT_EXTRACTOR_VERSION}
+        AND seed_chunk.search_document @@ plainto_tsquery('simple', ${token})
+    `,
+  );
+  const attachmentSeed = attachmentTokenQueries
+    .slice(1)
+    .reduce((combined, part) => sql`${combined} INTERSECT ${part}`, attachmentTokenQueries[0]!);
   return sql`
     SELECT seed_message.id AS message_id
     FROM mail.message_contents seed_message
@@ -460,6 +541,13 @@ const compileAnyWordsSeed = (seed: AnyWordsSeed, mailboxId: string): SqlFragment
     SELECT seed_body.message_id
     FROM (${bodySeed}) seed_body
     JOIN mail.message_contents seed_message ON seed_message.id = seed_body.message_id
+    WHERE seed_message.mailbox_id = ${mailboxId}::uuid
+
+    UNION
+
+    SELECT seed_attachment_body.message_id
+    FROM (${attachmentSeed}) seed_attachment_body
+    JOIN mail.message_contents seed_message ON seed_message.id = seed_attachment_body.message_id
     WHERE seed_message.mailbox_id = ${mailboxId}::uuid
 
     UNION
@@ -554,6 +642,7 @@ const compileIndexedSeed = (seed: IndexedSeed, mailboxId: string): SqlFragment =
     SELECT DISTINCT seed_chunk.message_id
     FROM mail.message_search_chunks seed_chunk
     WHERE seed_chunk.mailbox_id = ${mailboxId}::uuid
+      AND seed_chunk.source_kind = 'body'
       AND seed_chunk.search_document @@ phraseto_tsquery('simple', ${seed.query.trim()})
   `;
 };
@@ -628,6 +717,16 @@ const mapHit = (row: DbSearchHit): MessageSearchHit => ({
   flagged: row.flagged,
   hasAttachments: row.has_attachments,
   snippet: row.snippet,
+  attachmentMatch:
+    row.attachment_match_id && row.attachment_match_message_id && row.attachment_match_snippet
+      ? {
+          attachmentId: row.attachment_match_id,
+          messageId: row.attachment_match_message_id,
+          filename: row.attachment_match_filename,
+          snippet: row.attachment_match_snippet,
+          reason: "attachment_content",
+        }
+      : null,
   unread: row.unread,
   messageCount: row.message_count,
   workStatus: row.work_status,
@@ -752,6 +851,17 @@ const runSearch = async (params: {
       )`
     : sql`true`;
   const queryText = positiveQueries(params.expression).join(" OR ").slice(0, 4_000);
+  const attachmentTerms = positiveAttachmentTerms(params.expression);
+  const attachmentQueryText = attachmentTerms
+    .map((term) => term.query)
+    .join(" OR ")
+    .slice(0, 4_000);
+  const attachmentPredicates = attachmentTerms.map((term) =>
+    term.match === "words" || term.match === "phrase"
+      ? attachmentChunksMatch(sql`attachment_match_source.id`, term.query, term.match)
+      : textMatch(sql`attachment_extraction.markdown`, term.query, term.match),
+  );
+  const attachmentPredicate = attachmentPredicates.length > 0 ? combineOr(attachmentPredicates) : sql`false`;
   const messageNewestPage =
     !params.groupByConversation && params.sort === "newest"
       ? sql`
@@ -776,6 +886,10 @@ const runSearch = async (params: {
               FROM mail.message_search_chunks rank_chunk
               WHERE rank_chunk.message_id = mc.id
                 AND rank_chunk.mailbox_id = ${params.mailboxId}::uuid
+                AND (
+                  rank_chunk.source_kind = 'body'
+                  OR rank_chunk.extractor_version = ${MAIL_ATTACHMENT_EXTRACTOR_VERSION}
+                )
             ), 0)
           )::double precision`;
   const snippet = queryText
@@ -966,6 +1080,10 @@ const runSearch = async (params: {
             ''
           )
         ) AS snippet,
+        attachment_match.id AS attachment_match_id,
+        attachment_match.message_id AS attachment_match_message_id,
+        attachment_match.filename AS attachment_match_filename,
+        attachment_match.snippet AS attachment_match_snippet,
         cardinality(
           CASE
             WHEN NOT ${params.groupByConversation} OR deduplicated.conversation_id IS NULL THEN message_unread_state.folder_ids
@@ -1006,6 +1124,30 @@ const runSearch = async (params: {
         ORDER BY reference.allocated_at, reference.id
         LIMIT 1
       ) primary_reference ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          attachment_match_source.id,
+          attachment_match_source.message_id,
+          attachment_match_source.filename,
+          LEFT(
+            ts_headline(
+              'simple',
+              attachment_extraction.markdown,
+              websearch_to_tsquery('simple', ${attachmentQueryText}),
+              'StartSel="", StopSel="", MaxWords=36, MinWords=12, MaxFragments=2, FragmentDelimiter= … '
+            ),
+            500
+          ) AS snippet
+        FROM mail.attachments attachment_match_source
+        JOIN mail.attachment_extractions attachment_extraction
+          ON attachment_extraction.blob_id = attachment_match_source.blob_id
+         AND attachment_extraction.extractor_version = ${MAIL_ATTACHMENT_EXTRACTOR_VERSION}
+         AND attachment_extraction.status = 'complete'
+        WHERE attachment_match_source.message_id = deduplicated.id
+          AND (${attachmentPredicate})
+        ORDER BY attachment_match_source.id
+        LIMIT 1
+      ) attachment_match ON true
       LEFT JOIN LATERAL (
         SELECT ARRAY(
           SELECT DISTINCT unread_placement.folder_id::text

@@ -12,6 +12,7 @@ const item = (unread: boolean, flagged: boolean, overrides: Partial<MailListItem
   participantLabels: ["Sender"],
   latestMessageAt: "2026-07-22T00:00:00.000Z",
   preview: null,
+  attachmentMatch: null,
   unread,
   activeFolderIds: [],
   flagged,

@@ -3054,6 +3054,18 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
+  .k2b-ui .k2b-app-workspace__sidebar-section-actions {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .k2b-ui
+    .k2b-app-workspace__sidebar-section-header:is(:hover, :focus-within)
+    > .k2b-app-workspace__sidebar-section-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
   .k2b-ui .k2b-app-workspace__sidebar-item-meta[data-visibility="hover"],
   .k2b-ui .k2b-app-workspace__sidebar-item-actions[data-visibility="hover"] {
     display: none;

@@ -43,6 +43,7 @@ export type MailListItem = {
   participantLabels: string[];
   latestMessageAt: string;
   preview: string | null;
+  attachmentMatch: search.MessageSearchHit["attachmentMatch"];
   unread: boolean;
   activeFolderIds: string[];
   flagged: boolean;
@@ -195,6 +196,7 @@ const conversationToListItem = (conversation: ConversationSummary): MailListItem
   participantLabels: conversation.participantLabels,
   latestMessageAt: conversation.latestMessageAt,
   preview: conversation.preview,
+  attachmentMatch: null,
   unread: conversation.unread,
   activeFolderIds: conversation.activeFolderIds,
   flagged: conversation.flagged,
@@ -227,6 +229,7 @@ export const searchHitToListItem = (item: search.MessageSearchHit, listMode: Mai
     participantLabels: item.participantLabels,
     latestMessageAt: item.latestMessageAt,
     preview: item.snippet,
+    attachmentMatch: item.attachmentMatch,
     unread: item.unread,
     activeFolderIds: item.activeFolderIds,
     flagged: item.flagged,

@@ -131,6 +131,10 @@ describe("mailHelp", () => {
     expect(mailHelp.getMarkdown("mail-compose")).toContain("Select **Write with AI**");
     expect(mailHelp.getMarkdown("mail-compose")).toContain("does not gain additional mailbox access");
     expect(mailHelp.getMarkdown("mail-work")).toContain("section for the conversation as a whole");
+    expect(mailHelp.getMarkdown("mail-work")).toContain("**Everything** is selected by default");
+    expect(mailHelp.getMarkdown("mail-work")).toContain("default broad search includes that extracted attachment text");
+    expect(mailHelp.getMarkdown("mail-work")).toContain("opens the exact message that owns it");
+    expect(mailHelp.getMarkdown("mail-troubleshooting")).toContain("Attachment extraction never blocks receiving");
   });
 
   test("documents permission-scoped Contacts context", () => {

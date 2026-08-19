@@ -58,6 +58,12 @@ cld tools speedtest --server https://cloud.example.org
 
 The speedtest contacts the specified Cloud instance. It is the only Tools command in this reference that needs a Cloud URL.
 
+Document to Markdown and Markdown to PDF intentionally have no dedicated local
+`cld tools` commands. Use the signed-in Tools pages, or call their authenticated
+Tools-owned endpoints from an integration. To inspect those HTTP contracts,
+use `cld api-docs operations tools` against a Cloud installation that
+advertises the Tools OpenAPI description.
+
 ## Complete command catalogue
 
 Run `cld tools <command> --help` for the accepted input and flags.

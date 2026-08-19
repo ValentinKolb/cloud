@@ -3,6 +3,8 @@
  * Migrations, background jobs — nothing generic here.
  */
 
+import { aiChatTasks, aiMaintenanceJobs, migrateCloudAi } from "@valentinkolb/cloud/ai";
+import { startAiRuntime } from "@valentinkolb/cloud/ai/runtime";
 import {
   browserNotifications,
   lifecycleJobs,
@@ -10,7 +12,6 @@ import {
   startNotificationRuntime,
   stopNotificationRuntime,
 } from "@valentinkolb/cloud/services";
-import { aiChatTasks, aiMaintenanceJobs, migrateCloudAi, startAiRuntime } from "@valentinkolb/cloud/ai";
 import { aiChatTaskRuntime } from "./ai-chat-tasks-runtime";
 import { deliverPendingAiMessages } from "./ai-inter-chat-messages";
 import type { createAiNotificationService } from "./ai-notifications";

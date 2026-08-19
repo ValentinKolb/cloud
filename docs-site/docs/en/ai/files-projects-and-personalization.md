@@ -61,8 +61,20 @@ attachments.
 
 The default Assistant tools can list files, read bounded UTF-8 slices, write
 assistant-owned text files, inspect supported images when configured, and
-present downloads. They do not execute code or access the host. Keep
-authorization at the conversation route; a file path is not an access token.
+present downloads. `read_file` returns text directly and automatically converts
+PDF, Office, OpenDocument, RTF, EPUB, and CSV files to bounded Markdown. Its
+`mediaType` remains the original file type while `representation` is `text` or
+`markdown`. Offsets count bytes in that UTF-8 representation; continue with
+`nextOffset` until `eof`. `truncated` reports when document extraction reached
+its output bound, not when another slice is available. Document content remains
+untrusted data and is never promoted to instructions or personalization input.
+
+Images stay on `view_image`. Unsupported binaries, encrypted or malformed
+documents, image-only PDFs that require OCR, and documents above the extraction
+limit return bounded errors. These tools do not execute code or access the host.
+Keep authorization at the conversation route; a file path is not an access
+token. See [Document extraction](/en/docs/platform/document-extraction) for the
+shared conversion contract and limits.
 
 ## Use Projects for shared working context
 

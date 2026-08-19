@@ -94,7 +94,9 @@ describe("Assistant sidebar", () => {
     );
 
     expect(idle.match(/New Chat|New chat/g)?.length).toBe(pending.match(/New Chat|New chat/g)?.length);
-    expect(pending).toContain("ti ti-message-plus");
+    expect(pending).toContain("ti ti-plus");
+    expect(pending).toContain("ti ti-folder-plus");
+    expect(pending).not.toContain("ti ti-message-plus");
     expect(idle).not.toMatch(/k2b-app-workspace__sidebar-icon-action is-active[^>]+aria-label="New chat"/);
     expect(pending).not.toContain("Creating Chat");
     expect(pending).not.toContain("Creating chat");

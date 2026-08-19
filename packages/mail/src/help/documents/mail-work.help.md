@@ -8,7 +8,7 @@ order: 20
 
 ## Find the conversation you need {icon="search"}
 
-Use **Search mailbox** for a quick search across the current mailbox. The search-in button includes **Sender**, **Subject**, and **Message body** by default. Select any combination of **Sender**, **Recipients**, **Subject**, **Message body**, and **Attachments** to widen or narrow the search.
+Use **Search mailbox** for a quick search across the current mailbox. **Everything** is selected by default and includes synchronized message fields plus extracted attachment text. Use the search-in button to narrow the search to any combination of **Sender**, **Recipients**, **Subject**, **Message body**, and **Attachment names**.
 
 Select **Search filters** when you need additional conditions such as dates, recipients, attachments, folders, tags, or collaboration state.
 
@@ -31,6 +31,10 @@ Choose **Any condition** to match at least one filled field, or **All conditions
 Provider keywords are advanced synchronized metadata rather than a normal labeling system. Existing keyword search URLs continue to work and remain editable, but new filters use local tags for human-facing labels.
 
 Search results are permission-checked and use the synchronized Cloud copy. During an initial sync, older messages or bodies can become searchable later as synchronization and body hydration continue.
+
+After an attachment has synchronized, Mail extracts readable text from supported PDF, office-document, spreadsheet, presentation, RTF, EPUB, and CSV files in the background. The default broad search includes that extracted attachment text. An explicit **Message body** filter searches only the email body, while **Attachment name** searches filenames. Password-protected, scanned, unsupported, malformed, or oversized files remain downloadable but do not contribute searchable text.
+
+When extracted attachment text matches, the result names the attachment, shows a short matching excerpt, and opens the exact message that owns it. Use the download action on the result when you need the original file.
 
 ## Use follow-up, assignment, and folders for different purposes {icon="layout-list"}
 

@@ -218,7 +218,9 @@ const rebuildSearchProjection = async (db: SqlClient, mailboxId: string): Promis
   const removed = await db<{ message_id: string }[]>`
     DELETE FROM mail.message_search_chunks chunk
     USING mail.message_contents message
-    WHERE chunk.message_id = message.id AND message.mailbox_id = ${mailboxId}::uuid
+    WHERE chunk.message_id = message.id
+      AND chunk.source_kind = 'body'
+      AND message.mailbox_id = ${mailboxId}::uuid
     RETURNING chunk.message_id
   `;
   const inserted = await db<{ message_id: string }[]>`

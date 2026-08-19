@@ -5,7 +5,7 @@ section: Platform services
 order: 500
 description: Choose the platform boundary that removes shared infrastructure from an application.
 tags: [platform, api, applications]
-updated: 2026-08-12
+updated: 2026-08-18
 ---
 
 # Platform services
@@ -34,6 +34,7 @@ do not copy files into an application or take ownership of its data model.
 | Dashboard summaries | Authenticated JSON endpoints | Widget discovery, layout, and rendering |
 | Product guidance | Markdown help documents | Search, rendering, and the shared Help surface |
 | Documents | HTML or Liquid templates and data | Shared Gotenberg configuration and PDF limits |
+| Document extraction | Authorized document bytes | Bounded untrusted Markdown without storage or authorization |
 | Command-line operations | A typed CLI module | Authentication, profiles, output modes, and dispatch |
 
 Start from the need in this table, then open the linked page in the navigation

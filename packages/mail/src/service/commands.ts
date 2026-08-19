@@ -15,6 +15,7 @@ import {
 } from "../contracts";
 import { withShortIdDb } from "../lib/short-id";
 import { requireMailboxPermission } from "./access";
+import { enqueueAttachmentExtractionsForMessage, logAttachmentExtractionEnqueueFailure } from "./attachment-extraction";
 import { actorRefFromRequest, auditActorFromRequest, durableCredentialSnapshot, type MailRequestContext } from "./auth";
 import { sha256Json } from "./canonical";
 import { enqueueMailCommand } from "./command-runtime";
@@ -926,6 +927,9 @@ const publishCreatedOutboundProjection = async (command: MailCommand): Promise<v
     reason: "outbound",
     targetId: messageId,
     activityId: `outbound-message-created:${outboxId}`,
+  });
+  await enqueueAttachmentExtractionsForMessage(messageId).catch((error) => {
+    logAttachmentExtractionEnqueueFailure(messageId, error);
   });
 };
 

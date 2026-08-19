@@ -5,7 +5,7 @@ section: Work
 order: 110
 description: Connected mailboxes with search, team context, reliable sending, and automation.
 tags: [mail, email, collaboration]
-updated: 2026-08-15
+updated: 2026-08-19
 ---
 
 # Mail
@@ -16,8 +16,8 @@ context such as assignments, comments, local tags, reminders, and follow-up stat
 
 ## Use Mail
 
-- Read complete conversations and search synchronized message content across a
-  mailbox.
+- Read complete conversations and search synchronized message and attachment
+  content across a mailbox.
 - Organize provider mail with folders, read state, flags, archive, junk, and
   trash actions.
 - Assign conversations, maintain a shared summary, leave internal comments,
@@ -76,6 +76,25 @@ cld mail list --json
 cld mail search --any "renewal" --json
 cld mail conversation get <conversation-id> --json
 ```
+
+`--any` searches every indexed Mail field, including text extracted from
+supported attachments in a traced background job. Attachment matches identify
+the file and show a bounded excerpt; an explicit body search excludes
+attachment text, and `--attachment-name` searches only filenames.
+
+Agents and other Cloud clients can inspect one attachment's current extraction
+status and page through already persisted text with the public Mail Capability:
+
+```bash
+cld capabilities query mail attachment.read-content \
+  --input '{"id":"<attachment-id>","offset":0,"length":16384}' \
+  --json
+```
+
+This Query rechecks current mailbox access, never parses a document inline,
+and labels extracted Markdown as untrusted email content. Continue with the
+returned UTF-8 byte `nextOffset`; a pending or terminal status returns metadata
+without invented content.
 
 The conversation view includes its shared summary, collaboration state, local
 tags, and the most recent messages. It marks the result when earlier messages

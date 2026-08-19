@@ -8,6 +8,49 @@ const enabled = process.env.MAIL_INTEGRATION_TESTS === "1";
 const suite = enabled ? describe : describe.skip;
 
 suite("mail migrations", () => {
+  test("installs versioned attachment extraction and source-aware search chunks", async () => {
+    await migrate();
+    await migrate();
+
+    const [shape] = await sql<
+      {
+        applied_count: number;
+        extraction_table_present: boolean;
+        source_columns: number;
+        body_unique_index_present: boolean;
+        attachment_unique_index_present: boolean;
+        recovery_index_present: boolean;
+      }[]
+    >`
+      SELECT
+        (
+          SELECT COUNT(*)::int
+          FROM mail.schema_migrations
+          WHERE version = 119 AND name = 'attachment_document_extraction'
+        ) AS applied_count,
+        to_regclass('mail.attachment_extractions') IS NOT NULL AS extraction_table_present,
+        (
+          SELECT COUNT(*)::int
+          FROM information_schema.columns
+          WHERE table_schema = 'mail'
+            AND table_name = 'message_search_chunks'
+            AND column_name IN ('source_kind', 'attachment_id', 'blob_id', 'extractor_version')
+        ) AS source_columns,
+        to_regclass('mail.message_search_chunks_body_source_idx') IS NOT NULL AS body_unique_index_present,
+        to_regclass('mail.message_search_chunks_attachment_source_idx') IS NOT NULL AS attachment_unique_index_present,
+        to_regclass('mail.attachment_extractions_recovery_idx') IS NOT NULL AS recovery_index_present
+    `;
+
+    expect(shape).toEqual({
+      applied_count: 1,
+      extraction_table_present: true,
+      source_columns: 4,
+      body_unique_index_present: true,
+      attachment_unique_index_present: true,
+      recovery_index_present: true,
+    });
+  });
+
   test("removes comment reply relationships", async () => {
     await migrate();
     await migrate();

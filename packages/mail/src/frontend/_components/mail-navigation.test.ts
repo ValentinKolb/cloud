@@ -3,6 +3,7 @@ import { MAIL_SEARCH_PARAMETER, parseMailSearchState, serializeMailSearchState }
 import {
   buildExactParticipantSearchHref,
   buildExactSenderSearchHref,
+  buildMailAttachmentDownloadHref,
   buildMailingListHref,
   buildMailListHref,
   buildMailSelectionHref,
@@ -22,6 +23,7 @@ const item: MailListItem = {
   participantLabels: ["Sender"],
   latestMessageAt: "2026-07-20T00:00:00.000Z",
   preview: null,
+  attachmentMatch: null,
   unread: false,
   activeFolderIds: [],
   flagged: false,
@@ -84,6 +86,26 @@ describe("Mail search navigation", () => {
     expect(href.searchParams.get("conversation")).toBe(item.conversationId);
     expect(href.searchParams.get("message")).toBe(item.id);
     expect(isMailListItemActive(messageItem, item.conversationId, item.id)).toBe(true);
+  });
+
+  test("opens and downloads the exact message attachment that matched", () => {
+    const attachmentItem: MailListItem = {
+      ...item,
+      attachmentMatch: {
+        attachmentId: "Attach1",
+        messageId: "Msg002",
+        filename: "roadmap.pdf",
+        snippet: "roadmap milestone",
+        reason: "attachment_content",
+      },
+    };
+    const url = new URL("https://cloud.example/app/mail/Box001?q=roadmap");
+
+    const selected = new URL(buildMailSelectionHref(url, attachmentItem), url.origin);
+    expect(selected.searchParams.get("conversation")).toBe(item.conversationId);
+    expect(selected.searchParams.get("message")).toBe("Msg002");
+    expect(buildMailAttachmentDownloadHref(url, attachmentItem)).toBe("/api/mail/mailboxes/Box001/messages/Msg002/attachments/Attach1");
+    expect(buildMailAttachmentDownloadHref(new URL("https://cloud.example/app/mail/Box001/automations"), attachmentItem)).toBeNull();
   });
 
   test("builds an exact URL-backed sender search and normalizes a usable domain", () => {

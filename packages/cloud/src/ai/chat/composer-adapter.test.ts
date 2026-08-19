@@ -186,6 +186,14 @@ describe("Cloud chat composer adapter", () => {
     expect(result.errors).toEqual(["photo.png: choose a Vision model or configure the view_image fallback."]);
   });
 
+  test("accepts every document format supported by read_file", () => {
+    const accepted = new Set(aiComposerFileAccept.split(","));
+
+    for (const extension of ["pdf", "doc", "docx", "odt", "ppt", "pptx", "odp", "xlsx", "ods", "rtf", "epub", "csv"]) {
+      expect(accepted).toContain(`.${extension}`);
+    }
+  });
+
   test("preflights the aggregate image limit across composer selections", async () => {
     const result = await readAiComposerFiles([new File(["image"], "photo.png", { type: "image/png" })], {
       acceptsImages: true,

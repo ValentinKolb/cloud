@@ -85,7 +85,9 @@ needs a compact header action such as creating a resource. The section owns
 the header alignment; the control still owns its accessible name and action
 behavior. Section headers and their actions are hidden with the compact rail
 and mobile section layout, so expose an equivalent reachable action in those
-compositions.
+compositions. On hover-capable fine pointers, section actions remain quiet
+until the header is hovered or contains keyboard focus. They remain visible on
+touch and coarse-pointer devices.
 
 Section titles are quiet sentence-case labels. Keep them short and let the
 navigation rows carry the stronger visual emphasis.
@@ -100,7 +102,7 @@ the shared focus ring. Standalone themes can override
   title="Projects"
   actions={
     <IconButton size="xs" variant="ghost" label="Create Project">
-      <i class="ti ti-plus" aria-hidden="true" />
+      <i class="ti ti-folder-plus" aria-hidden="true" />
     </IconButton>
   }
 >

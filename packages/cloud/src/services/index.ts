@@ -125,9 +125,15 @@ export { getFreeIpaConfig } from "./freeipa-config";
 export type { FreeIpaConfig } from "./freeipa-config";
 export {
   GotenbergRenderError,
+  MARKDOWN_PDF_MAX_CUSTOM_CSS_BYTES,
+  MARKDOWN_PDF_TEMPLATE_IDS,
+  MarkdownPdfError,
+  buildMarkdownPdfHtml,
   getGotenbergConfig,
   mergePdfs,
   mergePdfsWithConfig,
+  renderMarkdownToPdf,
+  renderMarkdownToPdfWithConfig,
   renderHtmlToPdf,
   renderHtmlToPdfWithConfig,
   renderTemplatePdfPreview,
@@ -136,7 +142,11 @@ export {
 export type {
   GotenbergConfig,
   GotenbergRenderErrorCode,
+  MarkdownPdfErrorCode,
+  MarkdownPdfTemplateId,
   MergePdfsInput,
+  RenderMarkdownToPdfInput,
+  RenderMarkdownToPdfOptions,
   RenderTemplatePdfPreviewInput,
   RenderTemplatePdfPreviewOptions,
   RenderHtmlToPdfInput,

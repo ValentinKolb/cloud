@@ -23,3 +23,17 @@ export type {
   TemplatePdfPreviewResult,
 } from "./template-preview";
 export { renderTemplatePdfPreview } from "./template-preview";
+export type {
+  MarkdownPdfErrorCode,
+  MarkdownPdfTemplateId,
+  RenderMarkdownToPdfInput,
+  RenderMarkdownToPdfOptions,
+} from "./markdown";
+export {
+  buildMarkdownPdfHtml,
+  MARKDOWN_PDF_MAX_CUSTOM_CSS_BYTES,
+  MARKDOWN_PDF_TEMPLATE_IDS,
+  MarkdownPdfError,
+  renderMarkdownToPdf,
+  renderMarkdownToPdfWithConfig,
+} from "./markdown";

@@ -68,10 +68,10 @@ import {
   providerConnectionInputSchema,
   ResourceShortIdSchema,
   reassignConversationMessageInputSchema,
-  relatedMailPageSchema,
-  relatedMailQuerySchema,
   relatedConversationListSchema,
   relatedConversationQuerySchema,
+  relatedMailPageSchema,
+  relatedMailQuerySchema,
   renderComposeSnippetInputSchema,
   searchBackendSchema,
   searchRequestSchema,
@@ -390,7 +390,19 @@ const respondMessages = async <T>(c: Context<MailApiContext>, result: Result<T> 
         : [];
     return [{ path: [...prefix, "delivery", "submissionId"], table: "deliveries" as const }];
   });
-  return respondPublic(c, await projectResourcePaths(resolved, deliveryPaths), "messages");
+  const attachmentMatchPaths = items.flatMap((item, index) => {
+    if (!item || typeof item !== "object" || !("attachmentMatch" in item) || !item.attachmentMatch) return [];
+    const prefix = Array.isArray(data)
+      ? [String(index)]
+      : data && typeof data === "object" && "items" in data
+        ? ["items", String(index)]
+        : [];
+    return [
+      { path: [...prefix, "attachmentMatch", "attachmentId"], table: "attachments" as const },
+      { path: [...prefix, "attachmentMatch", "messageId"], table: "messages" as const },
+    ];
+  });
+  return respondPublic(c, await projectResourcePaths(resolved, [...deliveryPaths, ...attachmentMatchPaths]), "messages");
 };
 const respondComments = <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) => respondPublic(c, result, "comments");
 const respondReminders = <T>(c: Context<MailApiContext>, result: Result<T> | Promise<Result<T>>) => respondPublic(c, result, "reminders");
@@ -533,6 +545,12 @@ const aggregateResourcePaths = (data: unknown) => {
         path: ["listItems", String(index), "id"],
         table: "selectionKind" in item && item.selectionKind === "conversation" ? "conversations" : "messages",
       });
+      if ("attachmentMatch" in item && item.attachmentMatch) {
+        paths.push(
+          { path: ["listItems", String(index), "attachmentMatch", "attachmentId"], table: "attachments" },
+          { path: ["listItems", String(index), "attachmentMatch", "messageId"], table: "messages" },
+        );
+      }
       many(["listItems", String(index), "localTags"], "tags");
     });
   }

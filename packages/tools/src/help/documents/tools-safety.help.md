@@ -9,6 +9,7 @@ order: 120
 ## Know where the work happens {icon="route"}
 
 - Generators, encoders, color conversion, hashing, passwords, encryption, and image processing are intended for direct interactive use in the page.
+- Document to Markdown sends one selected document to this Cloud server for bounded in-memory conversion. The utility does not persist the upload or result.
 - Internet Speed Test exchanges data with the Cloud server to measure the connection.
 - Webhook Tester creates server-side endpoints and stores request history so incoming calls can be inspected later.
 

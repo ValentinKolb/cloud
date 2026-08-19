@@ -25,11 +25,12 @@ import { buildMailListHref, type MailListItem } from "./mail-navigation";
 import { summarizeMailSearchExpression } from "./mail-search-builder-model";
 
 const QUICK_SEARCH_FIELD_OPTIONS = [
+  { value: "any", label: "Everything", icon: "ti ti-search" },
   { value: "from", label: "Sender", icon: "ti ti-user-up" },
   { value: "recipients", label: "Recipients", icon: "ti ti-user-down" },
   { value: "subject", label: "Subject", icon: "ti ti-letter-case" },
   { value: "body", label: "Message body", icon: "ti ti-align-left" },
-  { value: "attachment_name", label: "Attachments", icon: "ti ti-paperclip" },
+  { value: "attachment_name", label: "Attachment names", icon: "ti ti-paperclip" },
 ] satisfies Array<{ value: MailQuickSearchField; label: string; icon: string }>;
 
 const selectedQuickSearchFields = (url: URL): MailQuickSearchField[] => {

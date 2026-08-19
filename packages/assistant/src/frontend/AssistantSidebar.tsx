@@ -217,7 +217,7 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
       title="Projects"
       actions={
         <IconButton size="xs" label="Create Project" onClick={() => void props.onCreateProject?.()}>
-          <i class="ti ti-plus" aria-hidden="true" />
+          <i class="ti ti-folder-plus" aria-hidden="true" />
         </IconButton>
       }
     >
@@ -308,11 +308,7 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
 
       <AppWorkspace.SidebarMobile>
         <AppWorkspace.SidebarMobileItems>
-          <AppWorkspace.SidebarItem
-            icon="ti ti-message-plus"
-            disabled={creatingConversation()}
-            onClick={() => void props.onNewConversation?.()}
-          >
+          <AppWorkspace.SidebarItem icon="ti ti-plus" disabled={creatingConversation()} onClick={() => void props.onNewConversation?.()}>
             New Chat
           </AppWorkspace.SidebarItem>
           <AssistantSpotlightButton openConversation={openConversationFromCommand} />
@@ -349,7 +345,7 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
       <AppWorkspace.SidebarDesktop>
         <AppWorkspace.SidebarIconGrid columns={2} sidebarMode="expanded">
           <AppWorkspace.SidebarIconAction
-            icon="ti ti-message-plus"
+            icon="ti ti-plus"
             label="New chat"
             disabled={creatingConversation()}
             onClick={() => void props.onNewConversation?.()}
@@ -359,7 +355,7 @@ export default function AssistantSidebar(props: AssistantSidebarProps) {
 
         <AppWorkspace.SidebarIconGrid columns={3} sidebarMode="collapsed">
           <AppWorkspace.SidebarIconAction
-            icon="ti ti-message-plus"
+            icon="ti ti-plus"
             label="New chat"
             disabled={creatingConversation()}
             onClick={() => void props.onNewConversation?.()}

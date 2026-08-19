@@ -5,7 +5,7 @@ section: Everyday
 order: 230
 description: Small generators, converters, security helpers, media utilities, and network tests.
 tags: [tools, utilities, generators, network, cli]
-updated: 2026-08-02
+updated: 2026-08-19
 ---
 
 # Tools
@@ -18,14 +18,17 @@ testing tasks that do not need their own application.
 
 - Generate mailto links, QR codes, UUIDs, placeholder text, and passwords.
 - Encode or decode Base64, Hex, or Base32 and convert color formats.
+- Extract readable document text as plain Markdown, then copy or download it.
+- Render Markdown as a styled PDF with a print preset or custom CSS.
 - Calculate hashes or encrypt and decrypt text for controlled workflows.
 - Crop, adjust, annotate, redact, and export an image in the browser.
 - Measure a connection or create a temporary endpoint to inspect webhooks.
 
 Check where each task runs before entering sensitive data. Most generators,
 converters, security helpers, and image operations are interactive page tools.
-Speed tests call the Cloud server, and webhook endpoints and request history
-are stored server-side.
+Speed tests, document extraction, and PDF rendering call the Cloud server.
+Document conversion holds its input and result only in memory; webhook
+endpoints and request history are stored server-side.
 
 ## Understand the Tools model
 
@@ -33,12 +36,53 @@ are stored server-side.
 | --- | --- |
 | Tool definition | A named utility grouped by task and category for browsing and search |
 | Browser utility | Processes its interactive input in the page and offers copy or download output |
+| Document to Markdown | Converts one signed-in user's document in memory and returns plain Markdown without persisting either side |
+| Markdown to PDF | Renders one signed-in user's Markdown with a bounded print template or custom CSS without persisting either side |
 | Speed test | Measures ping, download, upload, and jitter against the Cloud server |
 | Webhook endpoint | A user-owned receiving URL with server-side request history |
 
 Webhook logs redact common sensitive headers such as `Authorization` and
 `Cookie`, but paths and bodies can still contain private data. Use synthetic
 payloads when possible.
+
+## Convert a document to Markdown
+
+Open **Document to Markdown**, then select or drop one PDF, Word document,
+OpenDocument text, RTF, PowerPoint or OpenDocument presentation, `.xlsx` or
+OpenDocument spreadsheet, CSV, or EPUB file. The signed-in browser sends the
+file to the Tools server. The tool previews the result as plain text and lets
+you copy it or download a `.md` file.
+
+Documents are limited to 20 MB, filenames to 255 characters, and extracted
+Markdown to 1 MB. A shortened result is labelled. The converter does not
+perform OCR, so image-only scans need OCR elsewhere first. Encrypted,
+password-protected, malformed, and
+unsupported files return a clear error. Cancelling stops the browser request;
+the current bounded native conversion may still finish on the server.
+
+The upload and result are never stored by this utility. The authenticated,
+rate-limited endpoint marks responses as private and non-cacheable. It is
+documented in the Tools OpenAPI description at
+`/tools/api/openapi.json`.
+
+## Convert Markdown to PDF
+
+Open **Markdown to PDF**, enter Markdown, then choose **Document**, **Report**,
+**Compact**, or **Custom**. Choosing **Custom** reveals a complete minimal
+stylesheet directly below the Markdown editor. Generate the PDF explicitly,
+review the rendered pages, and download the result. Changing the Markdown,
+template, or custom CSS marks the existing preview as out of date instead of
+silently rendering again.
+
+Markdown is limited to 256 KiB and custom CSS to 32 KiB. Custom CSS replaces a
+preset rather than overriding one and can define print rules such as `@page`,
+type, spacing, colors, and tables. Raw HTML remains inert. Markdown images
+appear as links in the PDF; the server does not fetch them. External
+stylesheets, fonts, and CSS resource URLs are rejected.
+
+The authenticated and rate-limited `/tools/api/markdown/pdf` endpoint returns
+the PDF directly with a private no-store policy. The Markdown, CSS, and PDF are
+processed in memory and are not persisted.
 
 ## How Tools fits Cloud
 
@@ -69,3 +113,9 @@ cld tools color "#2563eb" --json
 Run `cld tools help` to see the available generators, encoders, security
 helpers, and speed test. Run `cld tools <command> --help` for exact inputs and
 output options.
+
+Document to Markdown and Markdown to PDF deliberately have no dedicated `cld
+tools` commands. Signed-in users can use the Tools pages; authenticated
+integrations can call `/tools/api/documents/markdown` or
+`/tools/api/markdown/pdf`. Neither endpoint fetches URLs or resolves resources
+owned by another application.

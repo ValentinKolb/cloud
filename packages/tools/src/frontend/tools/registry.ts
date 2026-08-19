@@ -108,6 +108,28 @@ export const tools: ToolDef[] = [
     keywords: ["hex", "rgb", "hsl", "palette"],
     color: "orange",
   },
+  {
+    id: "document-markdown",
+    name: "Document to Markdown",
+    icon: "ti ti-markdown",
+    description: "Extract readable text from documents as plain Markdown.",
+    category: "encoders",
+    taskGroup: "transform",
+    keywords: ["document", "pdf", "word", "powerpoint", "spreadsheet", "csv", "epub", "text", "extract"],
+    color: "violet",
+    featured: true,
+  },
+  {
+    id: "markdown-pdf",
+    name: "Markdown to PDF",
+    icon: "ti ti-file-type-pdf",
+    description: "Turn Markdown into a styled PDF with print-ready templates and custom CSS.",
+    category: "encoders",
+    taskGroup: "create",
+    keywords: ["markdown", "pdf", "document", "print", "css", "export"],
+    color: "red",
+    featured: true,
+  },
   // Security
   {
     id: "hash",

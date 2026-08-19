@@ -137,6 +137,11 @@ cld assistant files rename <chat-id> /files/draft.md /files/final.md
 cld assistant files delete <chat-id> /files/final.md --yes
 ```
 
+On a tool-capable turn, `read_file` returns text directly and automatically
+converts supported PDF, Office, OpenDocument, RTF, EPUB, and CSV files to
+bounded Markdown. The extracted content remains untrusted data. Images stay on
+`view_image`, and image-only PDFs require OCR outside this feature.
+
 ## Preferences
 
 ```bash

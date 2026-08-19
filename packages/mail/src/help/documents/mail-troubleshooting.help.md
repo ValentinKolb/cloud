@@ -110,10 +110,13 @@ Starting another reply does not hide existing work. The **Continue a draft?** di
 2. Open **Search filters** and check whether **Any condition** or **All conditions** matches your intent.
 3. Remove stale fields such as Folder, Local tag, or Provider keyword.
 4. If the message body is still synchronizing, retry after hydration completes.
-5. Ask an administrator to check **Status > Search index** if broad search fails across the mailbox.
+5. If the missing words are inside a newly received attachment, wait for background extraction to finish and retry.
+6. Ask an administrator to check **Status > Search index** if broad search fails across the mailbox.
 :::
 
 Local tags and internal comments exist only in Cloud. Provider folders and keywords depend on the synchronized remote state.
+
+Attachment extraction never blocks receiving, reading, or sending a message. Mail automatically retries interrupted extraction work and regularly recovers attachments that were committed before a worker could be queued. Encrypted, scanned, unsupported, malformed, or oversized attachments are terminal outcomes: the original file remains available, but its contents are not searchable.
 
 If **Status > Repair and projection coverage** shows a gap, an administrator can queue **Hydrate missing bodies**, **Rebuild search**, or **Repair thread projection**. Wait for the durable command to finish before repeating it. Search and thread repairs rebuild derived data and preserve mailbox content and collaboration state.
 

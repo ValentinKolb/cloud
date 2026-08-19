@@ -39,7 +39,15 @@ export const buildMailSelectionHref = (requestUrl: URL, item: MailListItem): str
   const next = new URL(buildMailListHref(requestUrl), requestUrl.origin);
   if (item.conversationId) next.searchParams.set("conversation", item.conversationId);
   if (item.selectionKind === "message" || !item.conversationId) next.searchParams.set("message", item.id);
+  if (item.attachmentMatch) next.searchParams.set("message", item.attachmentMatch.messageId);
   return `${next.pathname}${next.search}`;
+};
+
+export const buildMailAttachmentDownloadHref = (requestUrl: URL, item: MailListItem): string | null => {
+  if (!item.attachmentMatch) return null;
+  const match = /^\/app\/mail\/([^/]+)$/.exec(requestUrl.pathname);
+  if (!match?.[1]) return null;
+  return `/api/mail/mailboxes/${match[1]}/messages/${encodeURIComponent(item.attachmentMatch.messageId)}/attachments/${encodeURIComponent(item.attachmentMatch.attachmentId)}`;
 };
 
 export const buildMailingListHref = (requestUrl: URL, listKey: string): string => {

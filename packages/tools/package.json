@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit --pretty false 2>&1 | grep -v node_modules | (! grep -q 'error TS')"
   },
   "dependencies": {
+    "hono-openapi": "catalog:",
     "@k2b/ui": "workspace:*",
     "@valentinkolb/cloud": "workspace:*",
     "@k2b/ssr": "catalog:",

@@ -3,7 +3,7 @@ import { Dropdown, Tooltip } from "@k2b/ui";
 import { For, Show } from "solid-js";
 import { getMailAction, type MailActionId, spamActionForFolder } from "./mail-actions";
 import { MAX_MAIL_CONVERSATION_SELECTION } from "./mail-conversation-selection";
-import { buildMailSelectionHref, isMailListItemActive, type MailListItem } from "./mail-navigation";
+import { buildMailAttachmentDownloadHref, buildMailSelectionHref, isMailListItemActive, type MailListItem } from "./mail-navigation";
 
 const statusLabel = (item: MailListItem): string | null => {
   if (item.workStatus === "needs_action") return "Needs action";
@@ -56,6 +56,7 @@ export default function MailConversationRow(props: {
   const additionalCorrespondents = () => Math.max(0, correspondents().length - 1);
   const tagLabel = () => props.item.localTags.map((tag) => tag.name).join(", ");
   const bulkSelected = () => Boolean(props.item.conversationId && props.state.selectedConversationIds.has(props.item.conversationId));
+  const attachmentDownloadHref = () => buildMailAttachmentDownloadHref(props.requestUrl, props.item);
   let activation: "keyboard" | "pointer" = "keyboard";
   let selectRange = false;
 
@@ -164,7 +165,19 @@ export default function MailConversationRow(props: {
             </Show>
             {props.item.subject || "(no subject)"}
           </span>
-          <span class="mail-list-preview">{props.item.preview || "\u00a0"}</span>
+          <Show when={props.item.attachmentMatch} fallback={<span class="mail-list-preview">{props.item.preview || "\u00a0"}</span>}>
+            {(match) => (
+              <span
+                class="mail-list-preview flex min-w-0 items-center gap-1"
+                title={`Matched in attachment ${match().filename ?? "Untitled attachment"}`}
+              >
+                <i class="ti ti-paperclip shrink-0" aria-hidden="true" />
+                <span class="min-w-0 truncate">
+                  Matched in {match().filename?.trim() || "attachment"}: {match().snippet}
+                </span>
+              </span>
+            )}
+          </Show>
         </span>
         <span class="mail-list-meta">
           <time
@@ -213,6 +226,22 @@ export default function MailConversationRow(props: {
           </span>
         </span>
       </a>
+      <Show when={attachmentDownloadHref()}>
+        {(href) => (
+          <a
+            class="focus-ui absolute bottom-1.5 right-3 z-10 inline-flex h-7 w-7 items-center justify-center rounded-md text-dimmed opacity-0 transition-opacity hover:text-current group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+            href={href()}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Download matched attachment ${props.item.attachmentMatch?.filename?.trim() || "attachment"}`}
+            title="Download matched attachment"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <i class="ti ti-download" aria-hidden="true" />
+            <span class="sr-only">Download matched attachment {props.item.attachmentMatch?.filename?.trim() || "attachment"}</span>
+          </a>
+        )}
+      </Show>
       <Show when={props.state.canWrite && !props.state.selectionMode && props.item.conversationId}>
         <div class="absolute right-3 top-2 z-10 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100">
           <Dropdown.Root

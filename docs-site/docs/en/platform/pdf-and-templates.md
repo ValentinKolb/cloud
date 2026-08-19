@@ -5,7 +5,7 @@ section: Platform services
 order: 590
 description: Render documents from application data with shared template and PDF services.
 tags: [pdf, templates, gotenberg]
-updated: 2026-07-27
+updated: 2026-08-19
 ---
 
 # PDF and templates
@@ -38,6 +38,37 @@ return new Response(result.pdf, {
 
 Cloud sends the HTML to Gotenberg with background printing and CSS page sizes
 enabled. The result contains PDF bytes and the returned content type.
+
+## Render untrusted Markdown
+
+Use `renderMarkdownToPdf()` for a deterministic Markdown document with a
+code-owned print preset:
+
+```ts
+import { renderMarkdownToPdf } from "@valentinkolb/cloud/services/pdf";
+
+const result = await renderMarkdownToPdf({
+  markdown: "# Stock report\n\n| Item | Remaining |\n| --- | ---: |\n| Cable | 4 |",
+  templateId: "custom",
+  customCss: "h1 { color: #244f75; }",
+});
+```
+
+The available choices are `document`, `report`, `compact`, and `custom`.
+`custom` requires a complete stylesheet limited to 32 KiB; preset templates
+do not accept CSS overrides. Raw HTML stays inert. Markdown image references
+become safe links, so the renderer never fetches them. CSS imports, URLs, and
+other external resources are rejected. The generated HTML also carries a
+restrictive Content Security Policy before it is sent through the same bounded
+Gotenberg HTML renderer.
+
+The service owns conversion only. Callers still own authentication,
+authorization, request limits, filenames, response headers, and persistence.
+
+`MarkdownPdfError.code` is `bad_input`, `invalid_css`, or
+`external_asset_unsupported`. These errors are safe to translate into a
+bounded caller-owned API response. Gotenberg failures continue to use
+`GotenbergRenderError`.
 
 ## Render a Liquid template
 

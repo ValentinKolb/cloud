@@ -1,6 +1,8 @@
 import { createRuntimeLifecycle, stopRuntimeResources } from "@valentinkolb/cloud/services";
 import * as mailboxAccess from "./access";
 import * as activityPublic from "./activity-public";
+import * as attachmentExtraction from "./attachment-extraction";
+import { attachmentExtractionRuntime } from "./attachment-extraction";
 import * as attachmentLinks from "./attachment-links";
 import * as automaticReplyConfigurations from "./automatic-reply-configuration";
 import * as bindings from "./bindings";
@@ -58,6 +60,7 @@ import * as workflows from "./workflows";
 const mailRuntimeLifecycle = createRuntimeLifecycle({
   start: async () => {
     await startMailInvalidationRuntime();
+    await attachmentExtractionRuntime.start();
     await scheduledMailRuntime.start();
     await imapPushRuntime.start();
     incomingAutomations.startIncomingAutomationBackfillRuntime();
@@ -67,6 +70,7 @@ const mailRuntimeLifecycle = createRuntimeLifecycle({
       incomingAutomations.stopIncomingAutomationBackfillRuntime,
       () => imapPushRuntime.stop(),
       () => scheduledMailRuntime.stop(),
+      () => attachmentExtractionRuntime.stop(),
       stopMailInvalidationRuntime,
     ]),
 });
@@ -79,6 +83,7 @@ export const mailRuntime = {
 export type { MailRequestContext } from "./auth";
 export {
   activityPublic,
+  attachmentExtraction,
   attachmentLinks,
   automaticReplyConfigurations,
   bindings,
@@ -134,6 +139,7 @@ export const mailService = {
   access: mailboxAccess,
   automaticReplyConfigurations,
   attachmentLinks,
+  attachmentExtraction,
   bindings,
   calendarInvitations,
   commands,

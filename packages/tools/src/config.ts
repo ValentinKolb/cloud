@@ -13,6 +13,7 @@ export const app = defineApp({
     match: "/tools",
     section: "more",
   },
+  openapi: "/tools/api/openapi.json",
   // Top-level `/tools` (no `/app/tools` for the legacy short URL).
   routes: ["/tools", "/public/tools"],
 });

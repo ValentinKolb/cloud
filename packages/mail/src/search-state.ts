@@ -2,9 +2,9 @@ import { type MailSearchExpression, type MailSearchState, mailSearchExpressionSc
 
 export const MAIL_SEARCH_PARAMETER = "search";
 export const MAIL_QUICK_SEARCH_FIELDS_PARAMETER = "qFields";
-export const MAIL_QUICK_SEARCH_FIELDS = ["from", "recipients", "subject", "body", "attachment_name"] as const;
+export const MAIL_QUICK_SEARCH_FIELDS = ["any", "from", "recipients", "subject", "body", "attachment_name"] as const;
 export type MailQuickSearchField = (typeof MAIL_QUICK_SEARCH_FIELDS)[number];
-export const DEFAULT_MAIL_QUICK_SEARCH_FIELDS = ["from", "subject", "body"] as const satisfies readonly MailQuickSearchField[];
+export const DEFAULT_MAIL_QUICK_SEARCH_FIELDS = ["any"] as const satisfies readonly MailQuickSearchField[];
 
 // The workspace-route API accepts hrefs up to 4,000 characters. Keeping the
 // encoded search value below 3,000 leaves room for the mailbox path and future

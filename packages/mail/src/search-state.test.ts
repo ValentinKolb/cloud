@@ -74,12 +74,10 @@ describe("Mail search URL state", () => {
 
   test("keeps simple query search as a canonical text expression", () => {
     expect(simpleMailSearchExpression("  invoice  ")).toEqual({
-      type: "or",
-      expressions: [
-        { type: "text", field: "from", query: "invoice", match: "words" },
-        { type: "text", field: "subject", query: "invoice", match: "words" },
-        { type: "text", field: "body", query: "invoice", match: "words" },
-      ],
+      type: "text",
+      field: "any",
+      query: "invoice",
+      match: "words",
     });
     expect(simpleMailSearchExpression(" ")).toBeNull();
   });
@@ -115,12 +113,10 @@ describe("Mail search URL state", () => {
     expect(resolveMailSearchRoute(simple)).toEqual({
       query: "invoice",
       expression: {
-        type: "or",
-        expressions: [
-          { type: "text", field: "from", query: "invoice", match: "words" },
-          { type: "text", field: "subject", query: "invoice", match: "words" },
-          { type: "text", field: "body", query: "invoice", match: "words" },
-        ],
+        type: "text",
+        field: "any",
+        query: "invoice",
+        match: "words",
       },
       sort: "relevance",
       error: null,

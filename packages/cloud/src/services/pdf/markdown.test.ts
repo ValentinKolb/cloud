@@ -1,0 +1,95 @@
+import { describe, expect, test } from "bun:test";
+import type { GotenbergConfig } from "./gotenberg";
+import { buildMarkdownPdfHtml, MARKDOWN_PDF_MAX_CUSTOM_CSS_BYTES, MarkdownPdfError, renderMarkdownToPdfWithConfig } from "./markdown";
+
+const config = {
+  url: "http://gotenberg:3000",
+  timeoutMs: 5_000,
+  maxHtmlBytes: 1024 * 1024,
+  maxPdfBytes: 1024 * 1024,
+} satisfies GotenbergConfig;
+
+describe("Markdown PDF renderer", () => {
+  test("builds standalone CSP-protected preset and custom documents", () => {
+    const html = buildMarkdownPdfHtml({
+      markdown: "# Report\n\n| A | B |\n| - | - |\n| 1 | 2 |",
+      templateId: "report",
+    });
+    const custom = buildMarkdownPdfHtml({ markdown: "# Custom", templateId: "custom", customCss: "h1 { color: rebeccapurple; }" });
+
+    expect(html).toContain('<meta http-equiv="Content-Security-Policy"');
+    expect(html).toContain("default-src 'none'");
+    expect(html).toContain('<main class="markdown-document"><h1>Report</h1>');
+    expect(html).toContain("<table>");
+    expect(html).toContain("font-family: system-ui");
+    expect(custom).toContain("h1 { color: rebeccapurple; }");
+    expect(custom).not.toContain("margin: 22mm 20mm 24mm");
+  });
+
+  test("uses the document preset by default and keeps raw HTML inert", () => {
+    const html = buildMarkdownPdfHtml({ markdown: "<script>alert('x')</script>\n\n[unsafe](javascript:alert(1))" });
+
+    expect(html).toContain("margin: 22mm 20mm 24mm");
+    expect(html).toContain("&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;");
+    expect(html).not.toContain("<script>alert");
+    expect(html).not.toContain('href="javascript:');
+  });
+
+  test("renders images as safe links without fetching them", () => {
+    const html = buildMarkdownPdfHtml({
+      markdown: "![Architecture](https://example.test/diagram.png) ![Unsafe](javascript:alert(1))",
+    });
+
+    expect(html).toContain('<a href="https://example.test/diagram.png">Image: Architecture</a>');
+    expect(html).toContain("Image: Unsafe");
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain('href="javascript:');
+    expect(html).not.toContain("Please report this to");
+  });
+
+  test("rejects empty input, ambiguous templates, invalid CSS, remote CSS resources, and oversized CSS", () => {
+    expect(() => buildMarkdownPdfHtml({ markdown: "  " })).toThrow(MarkdownPdfError);
+    expect(() => buildMarkdownPdfHtml({ markdown: "Hello", templateId: "custom" })).toThrow("Enter CSS");
+    expect(() => buildMarkdownPdfHtml({ markdown: "Hello", templateId: "report", customCss: "body {}" })).toThrow(
+      "requires the Custom template",
+    );
+    expect(() => buildMarkdownPdfHtml({ markdown: "Hello", templateId: "custom", customCss: "main {" })).toThrow("not valid CSS");
+    expect(() =>
+      buildMarkdownPdfHtml({ markdown: "Hello", templateId: "custom", customCss: '@import "https://example.test/style.css";' }),
+    ).toThrow("cannot load external resources");
+    expect(() =>
+      buildMarkdownPdfHtml({ markdown: "Hello", templateId: "custom", customCss: "body { background: url(https://example.test/x); }" }),
+    ).toThrow("cannot load external resources");
+    expect(() =>
+      buildMarkdownPdfHtml({
+        markdown: "Hello",
+        templateId: "custom",
+        customCss: "a".repeat(MARKDOWN_PDF_MAX_CUSTOM_CSS_BYTES + 1),
+      }),
+    ).toThrow("32 KiB");
+  });
+
+  test("keeps custom CSS inside the style element", () => {
+    const html = buildMarkdownPdfHtml({ markdown: "Cloud", templateId: "custom", customCss: "</style><script>alert(1)</script> {}" });
+
+    expect(html).not.toContain("</style><script>");
+    expect(html).toContain("\\3c /style><script>");
+  });
+
+  test("posts the generated HTML through the existing Gotenberg HTML renderer", async () => {
+    let uploaded = "";
+    const result = await renderMarkdownToPdfWithConfig({ markdown: "# Rendered", templateId: "compact" }, config, {
+      fetch: async (url, init) => {
+        expect(String(url)).toBe("http://gotenberg:3000/forms/chromium/convert/html");
+        const file = (init?.body as FormData).get("files");
+        expect(file).toBeInstanceOf(File);
+        uploaded = await (file as File).text();
+        return new Response(new TextEncoder().encode("%PDF-test"), { headers: { "content-type": "application/pdf" } });
+      },
+    });
+
+    expect(uploaded).toContain("#f7f7f8");
+    expect(uploaded).toContain("<h1>Rendered</h1>");
+    expect(new TextDecoder().decode(result.pdf)).toBe("%PDF-test");
+  });
+});

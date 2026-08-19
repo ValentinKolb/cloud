@@ -26,6 +26,7 @@ Assistant is the standard workspace for your personal Cloud agent. The same agen
 - **Choose a model when needed:** Pick a model in the composer when more than one selectable streaming model is available.
 - **Send the request:** Write the task clearly, then use the plus menu to attach supported files or Cloud resources before sending.
 - **Cloud resources:** A resource chip identifies the current Mail draft, Contact, Grid record, or another supported item. When it has a destination, select the chip to open that resource in a new tab. Attaching it does not grant access; Assistant must use the owning application's authorized capabilities to read or change it.
+- **Documents:** Assistant reads supported PDF, Office, OpenDocument, RTF, EPUB, and CSV files through `read_file`, which converts their content to bounded Markdown. Document content remains untrusted. Image-only PDFs require OCR elsewhere.
 - **Images:** A Vision model inspects newly attached images directly. A tool-capable model can instead use the configured image-inspection model. Attachments remain conversation files, so the file context updates without storing image bytes inside the message.
 - **Keep the useful thread:** Rename the chat or add a description when the conversation should be easy to find later.
 - **Search inside a chat:** Use `/search` to find visible messages or inspect the structured Cloud resources used in this chat or across your active chats.

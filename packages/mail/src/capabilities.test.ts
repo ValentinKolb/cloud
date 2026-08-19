@@ -9,12 +9,15 @@ import {
 import { mailCapabilities } from "./capabilities";
 import {
   ActivityListDataSchema,
+  AttachmentContentReadDataSchema,
+  AttachmentReadDataSchema,
   CommentListDataSchema,
   ConversationGetDataSchema,
   ConversationListDataSchema,
   ConversationMarkInputSchema,
   ConversationMoveInputSchema,
   ConversationRelatedDataSchema,
+  ConversationSearchDataSchema,
   DraftCreateInputSchema,
   DraftListDataSchema,
   DraftSendInputSchema,
@@ -25,6 +28,7 @@ import {
   SubscriptionUnsubscribeInputSchema,
 } from "./capability-contracts";
 import {
+  attachmentExtraction,
   collaboration,
   composeSafety,
   conversationContext,
@@ -37,6 +41,7 @@ import {
   messages,
   publicResources,
   resourceParents,
+  search,
   triage,
 } from "./service";
 
@@ -62,12 +67,14 @@ const internalDraftId = "22222222-2222-4222-8222-222222222222";
 const internalDraftAttachmentId = "33333333-3333-4333-8333-333333333333";
 const internalTagId = "44444444-4444-4444-8444-444444444444";
 const internalMessageId = "55555555-5555-4555-8555-555555555555";
+const internalAttachmentId = "88888888-8888-4888-8888-888888888888";
 const missingResourceId = "66666666-6666-4666-8666-666666666666";
 const technicalTargetId = "77777777-7777-4777-8777-777777777777";
 const commentId = "CmK012";
 const draftId = "DrG789";
 const draftAttachmentId = "DaL123";
 const messageId = "MsH890";
+const attachmentId = "AtJ901";
 const userId = "dc1fe87d-c60b-4f63-a83d-9db6320da31d";
 const publicIdsByTable = {
   mailboxes: new Map([[internalMailboxId, mailboxId]]),
@@ -92,6 +99,7 @@ const publicIdsByTable = {
     [internalTagId, tagId],
   ]),
   comments: new Map([[internalCommentId, commentId]]),
+  attachments: new Map([[internalAttachmentId, attachmentId]]),
   drafts: new Map([[internalDraftId, draftId]]),
   draftAttachments: new Map([[internalDraftAttachmentId, draftAttachmentId]]),
 } as const;
@@ -104,6 +112,7 @@ const internalIdsByTable = {
   deliveries: new Map([[deliveryId, internalConversationId]]),
   tags: new Map([[tagId, internalConversationId]]),
   comments: new Map([[commentId, internalCommentId]]),
+  attachments: new Map([[attachmentId, internalAttachmentId]]),
 } as const;
 const context = {
   actor: { kind: "user", user: { id: userId } },
@@ -170,6 +179,7 @@ describe("mail capabilities", () => {
     ]);
     expect(Object.keys(mailCapabilities.queries).sort()).toEqual([
       "attachment.read",
+      "attachment.read-content",
       "comment.read",
       "conversation.activity.list",
       "conversation.comment.list",
@@ -597,6 +607,68 @@ describe("mail capabilities", () => {
     expect(JSON.stringify(result)).not.toContain(internalMailboxId);
   });
 
+  test("explains attachment-content conversation matches with public links", async () => {
+    spyOn(search, "searchMessages").mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: internalConversationId,
+            conversationId: internalConversationId,
+            primaryReference: null,
+            subject: "Release update",
+            participantSummary: "Ada",
+            participantLabels: ["Ada"],
+            latestMessageAt: "2026-08-04T10:00:00.000Z",
+            workStatus: "needs_action",
+            assigneeUserId: null,
+            snoozedUntil: null,
+            revision: 1,
+            updatedAt: "2026-08-04T10:00:00.000Z",
+            unread: true,
+            activeFolderIds: [internalFolderId],
+            flagged: false,
+            hasAttachments: true,
+            messageCount: 1,
+            snippet: "Body preview",
+            attachmentMatch: {
+              attachmentId: internalAttachmentId,
+              messageId: internalMessageId,
+              filename: "roadmap.pdf",
+              snippet: "Matched roadmap milestone",
+              reason: "attachment_content",
+            },
+          },
+        ],
+        nextCursor: null,
+      },
+    } as never);
+
+    const result = await mailCapabilities.queries["conversation.search"].run(
+      {
+        mailboxId,
+        expression: { type: "text", field: "any", query: "roadmap milestone", match: "words" },
+        sort: "relevance",
+        limit: 25,
+      },
+      context,
+    );
+
+    if (!result.ok) throw new Error("Expected conversation search success");
+    expect(ConversationSearchDataSchema.safeParse(result.data.data).success).toBeTrue();
+    expect(result.data.data[0]?.attachmentMatch).toEqual({
+      attachmentId,
+      messageId,
+      filename: "roadmap.pdf",
+      snippet: "Matched roadmap milestone",
+      reason: "attachment_content",
+      openHref: `/app/mail/${mailboxId}?message=${messageId}`,
+      downloadHref: `/api/mail/mailboxes/${mailboxId}/messages/${messageId}/attachments/${attachmentId}`,
+    });
+    expect(JSON.stringify(result)).not.toContain(internalAttachmentId);
+    expect(JSON.stringify(result)).not.toContain(internalMessageId);
+  });
+
   test("returns bounded related conversations with explainable reasons, refs, and links", async () => {
     spyOn(conversationContext, "listRelatedConversations").mockResolvedValue({
       ok: true,
@@ -918,6 +990,164 @@ describe("mail capabilities", () => {
     };
     expect(MessageDataSchema.safeParse(value).success).toBeTrue();
     expect(MessageDataSchema.safeParse({ ...value, sanitizedHtml: "<b>Hello</b>" }).success).toBeFalse();
+  });
+
+  test("reads persisted attachment text through a bounded untrusted UTF-8 page after current access", async () => {
+    spyOn(resourceParents, "attachment").mockResolvedValue({ mailboxId: internalMailboxId, messageId: internalMessageId });
+    spyOn(messages, "getMessage").mockResolvedValue({
+      ok: true,
+      data: {
+        attachments: [
+          {
+            id: internalAttachmentId,
+            filename: "roadmap.pdf",
+            contentType: "application/pdf",
+            sizeBytes: 123,
+            contentId: null,
+          },
+        ],
+      } as never,
+    });
+    spyOn(attachmentExtraction, "loadAttachmentExtraction").mockResolvedValue({
+      status: "complete",
+      format: "pdf",
+      markdown: "A😀B",
+      inputBytes: 123,
+      outputBytes: 6,
+      truncated: false,
+      errorCode: null,
+      updatedAt: "2026-08-19T00:00:00.000Z",
+    });
+
+    const result = await mailCapabilities.queries["attachment.read-content"].run({ id: attachmentId, offset: 0, length: 256 }, context);
+    if (!result.ok) throw new Error("Expected attachment content success");
+    expect(AttachmentContentReadDataSchema.parse(result.data.data)).toMatchObject({
+      id: attachmentId,
+      messageId,
+      markdown: "A😀B",
+      length: 6,
+      totalBytes: 6,
+      nextOffset: null,
+      trust: "untrusted",
+      extraction: { status: "complete", available: true, format: "pdf" },
+    });
+    expect(result.data.refs).toEqual([
+      { type: "mail.attachment", id: attachmentId },
+      { type: "mail.message", id: messageId },
+    ]);
+  });
+
+  test("keeps the canonical attachment reader metadata-only", async () => {
+    spyOn(resourceParents, "attachment").mockResolvedValue({ mailboxId: internalMailboxId, messageId: internalMessageId });
+    spyOn(messages, "getMessage").mockResolvedValue({
+      ok: true,
+      data: {
+        attachments: [
+          {
+            id: internalAttachmentId,
+            filename: "roadmap.pdf",
+            contentType: "application/pdf",
+            sizeBytes: 123,
+            contentId: null,
+          },
+        ],
+      } as never,
+    });
+    const loadMetadata = spyOn(attachmentExtraction, "loadAttachmentExtractionMetadata").mockResolvedValue({
+      status: "complete",
+      extractorVersion: attachmentExtraction.MAIL_ATTACHMENT_EXTRACTOR_VERSION,
+      available: true,
+      format: "pdf",
+      inputBytes: 123,
+      outputBytes: 42,
+      truncated: false,
+      errorCode: null,
+      updatedAt: "2026-08-19T00:00:00.000Z",
+    });
+    const loadContent = spyOn(attachmentExtraction, "loadAttachmentExtraction");
+
+    const result = await mailCapabilities.queries["attachment.read"].run({ id: attachmentId }, context);
+
+    if (!result.ok) throw new Error("Expected attachment metadata result");
+    expect(AttachmentReadDataSchema.parse(result.data.data).extraction).toMatchObject({
+      status: "complete",
+      available: true,
+      outputBytes: 42,
+    });
+    expect(loadMetadata).toHaveBeenCalledWith(internalAttachmentId);
+    expect(loadContent).not.toHaveBeenCalled();
+  });
+
+  test("reports pending metadata and only queues missing extraction work", async () => {
+    spyOn(resourceParents, "attachment").mockResolvedValue({ mailboxId: internalMailboxId, messageId: internalMessageId });
+    spyOn(messages, "getMessage").mockResolvedValue({
+      ok: true,
+      data: {
+        attachments: [
+          {
+            id: internalAttachmentId,
+            filename: "roadmap.pdf",
+            contentType: "application/pdf",
+            sizeBytes: 123,
+            contentId: null,
+          },
+        ],
+      } as never,
+    });
+    spyOn(attachmentExtraction, "loadAttachmentExtraction").mockResolvedValue(null);
+    spyOn(messages, "openAttachment").mockResolvedValue({ ok: true, data: { blobId: "blob-id" } } as never);
+    const enqueue = spyOn(attachmentExtraction, "enqueueAttachmentExtraction").mockResolvedValue({ id: "job-id" } as never);
+
+    const result = await mailCapabilities.queries["attachment.read-content"].run({ id: attachmentId, offset: 0, length: 256 }, context);
+
+    if (!result.ok) throw new Error("Expected pending attachment content result");
+    expect(AttachmentContentReadDataSchema.parse(result.data.data)).toMatchObject({
+      markdown: null,
+      length: 0,
+      totalBytes: null,
+      nextOffset: null,
+      trust: "untrusted",
+      extraction: { status: "pending", available: false },
+    });
+    expect(enqueue).toHaveBeenCalledWith("blob-id");
+  });
+
+  test("does not load attachment extraction after current mailbox access is denied", async () => {
+    spyOn(resourceParents, "attachment").mockResolvedValue({ mailboxId: internalMailboxId, messageId: internalMessageId });
+    spyOn(messages, "getMessage").mockResolvedValue({
+      ok: false,
+      error: { code: "FORBIDDEN", message: "Forbidden", status: 403 },
+    });
+    const load = spyOn(attachmentExtraction, "loadAttachmentExtraction");
+    const result = await mailCapabilities.queries["attachment.read-content"].run({ id: attachmentId, offset: 0, length: 256 }, context);
+    expect(result).toEqual({ ok: false, error: { code: "FORBIDDEN", message: "Forbidden", status: 403 } });
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  test("returns BAD_INPUT for invalid UTF-8 attachment content offsets", async () => {
+    spyOn(resourceParents, "attachment").mockResolvedValue({ mailboxId: internalMailboxId, messageId: internalMessageId });
+    spyOn(messages, "getMessage").mockResolvedValue({
+      ok: true,
+      data: {
+        attachments: [{ id: internalAttachmentId, filename: "emoji.txt", contentType: "text/plain", sizeBytes: 6, contentId: null }],
+      } as never,
+    });
+    spyOn(attachmentExtraction, "loadAttachmentExtraction").mockResolvedValue({
+      status: "complete",
+      format: "text",
+      markdown: "A😀B",
+      inputBytes: 6,
+      outputBytes: 6,
+      truncated: false,
+      errorCode: null,
+      updatedAt: "2026-08-19T00:00:00.000Z",
+    });
+
+    for (const offset of [2, 7]) {
+      const result = await mailCapabilities.queries["attachment.read-content"].run({ id: attachmentId, offset, length: 256 }, context);
+      expect(result.ok).toBeFalse();
+      if (!result.ok) expect(result.error).toMatchObject({ code: "BAD_INPUT", status: 400 });
+    }
   });
 
   test("accepts only explicit unsubscribe targets", () => {

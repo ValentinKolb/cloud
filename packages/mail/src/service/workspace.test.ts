@@ -23,6 +23,7 @@ const hit: MessageSearchHit = {
   flagged: false,
   hasAttachments: false,
   snippet: "Planning",
+  attachmentMatch: null,
   unread: true,
   messageCount: 2,
   workStatus: null,

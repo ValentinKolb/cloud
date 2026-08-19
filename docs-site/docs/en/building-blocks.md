@@ -5,7 +5,7 @@ section: Start
 order: 30
 description: Match a third-party application task to its supported public Cloud entry point.
 tags: [platform, api, services]
-updated: 2026-08-13
+updated: 2026-08-18
 ---
 
 # Find a platform API
@@ -31,6 +31,7 @@ import from another application.
 | Add a dashboard summary | Widget declaration and response contract | `@valentinkolb/cloud`, `@valentinkolb/cloud/contracts` | [Dashboard widgets](/en/docs/platform/dashboard-widgets) |
 | Add product guidance | Help collection | `@valentinkolb/cloud/server` | [In-product Help](/en/docs/platform/help) |
 | Render documents | Template and PDF services | `@valentinkolb/cloud/services` | [PDF and templates](/en/docs/platform/pdf-and-templates) |
+| Read document content | Bounded document-to-Markdown service | `@valentinkolb/cloud/services/document-extraction` | [Document extraction](/en/docs/platform/document-extraction) |
 | Add CLI commands | CLI module builders | `@valentinkolb/cloud/cli` | [CLI modules](/en/docs/platform/cli-modules) |
 | Run jobs or coordinate instances | Jobs, queues, schedulers, topics, and mutexes | `@k2b/sync` | [Automation](/en/docs/automation) |
 | Add durable workflows | Workflow definitions and runtime adapters | `@valentinkolb/cloud/workflows` | [Workflow overview](/en/docs/automation/workflow-overview) |

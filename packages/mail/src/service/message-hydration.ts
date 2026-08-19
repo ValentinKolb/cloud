@@ -6,6 +6,7 @@ import { sql } from "bun";
 import { type AttachmentStream, MailParser, type MessageText } from "mailparser";
 import sanitizeHtml from "sanitize-html";
 import { withShortIdDb } from "../lib/short-id";
+import { enqueueAttachmentExtractionsForMessage, logAttachmentExtractionEnqueueFailure } from "./attachment-extraction";
 import { deriveConversationWorkState, isAutomaticSubmission } from "./conversation-work-state";
 import { allowedEmailInlineStyles } from "./email-inline-style-policy";
 import { type MailCollaborationEvent, publishMailCollaborationEvent } from "./events";
@@ -781,7 +782,11 @@ export const hydrateMessageFromSource = async (params: {
       canonicalMessageId = duplicate.canonicalMessageId;
       if (canonicalMessageId) return;
       await tx`DELETE FROM mail.message_parts WHERE message_id = ${params.messageId}::uuid`;
-      await tx`DELETE FROM mail.message_search_chunks WHERE message_id = ${params.messageId}::uuid`;
+      await tx`
+        DELETE FROM mail.message_search_chunks
+        WHERE message_id = ${params.messageId}::uuid
+          AND source_kind = 'body'
+      `;
       await tx`DELETE FROM mail.message_remote_images WHERE message_id = ${params.messageId}::uuid`;
       for (const part of parts) {
         const [partRow] = await tx<{ id: string }[]>`
@@ -911,6 +916,9 @@ export const hydrateMessageFromSource = async (params: {
       dependency: { kind: "mail.hydration", key: params.messageId },
     });
     if (canonicalMessageId) return { status: "deduplicated", sourceHash, canonicalMessageId };
+    await enqueueAttachmentExtractionsForMessage(params.messageId).catch((error) => {
+      logAttachmentExtractionEnqueueFailure(params.messageId, error);
+    });
     return { status: "hydrated", sourceHash };
   } catch (error) {
     params.source.destroy();

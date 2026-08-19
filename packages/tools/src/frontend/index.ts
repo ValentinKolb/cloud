@@ -1,8 +1,20 @@
 import { type AuthContext, auth } from "@valentinkolb/cloud/server";
-import { Hono } from "hono";
+import { type Handler, Hono, type MiddlewareHandler } from "hono";
 import toolDetailPage from "./[tool]/page";
 import toolsPage from "./page";
 
-export default new Hono<AuthContext>()
-  .get("/", auth.requireRole("*"), ...toolsPage)
-  .get("/:toolId", auth.requireRole("*"), ...toolDetailPage);
+type ToolsPageRouteDependencies = {
+  requireAny?: MiddlewareHandler<AuthContext>;
+  requireAuthenticated?: MiddlewareHandler<AuthContext>;
+  toolsPage?: Handler<AuthContext>[];
+  toolDetailPage?: Handler<AuthContext>[];
+};
+
+export const createToolsPageRoutes = (dependencies: ToolsPageRouteDependencies = {}) =>
+  new Hono<AuthContext>()
+    .get("/", dependencies.requireAny ?? auth.requireRole("*"), ...(dependencies.toolsPage ?? toolsPage))
+    .use("/document-markdown", dependencies.requireAuthenticated ?? auth.requireRole("authenticated", auth.redirectToLogin))
+    .use("/markdown-pdf", dependencies.requireAuthenticated ?? auth.requireRole("authenticated", auth.redirectToLogin))
+    .get("/:toolId", dependencies.requireAny ?? auth.requireRole("*"), ...(dependencies.toolDetailPage ?? toolDetailPage));
+
+export default createToolsPageRoutes();

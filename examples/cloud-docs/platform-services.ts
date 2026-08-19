@@ -2,6 +2,8 @@ import { defineApp, notification } from "@valentinkolb/cloud";
 import type { WidgetResponse } from "@valentinkolb/cloud/contracts";
 import type { AppContext } from "@valentinkolb/cloud/server";
 import { audit, logger, notifications, renderHtmlToPdf, trace } from "@valentinkolb/cloud/services";
+import { extractDocumentMarkdown } from "@valentinkolb/cloud/services/document-extraction";
+import { renderMarkdownToPdf } from "@valentinkolb/cloud/services/pdf";
 import { z } from "zod";
 
 const INVENTORY_NOTIFICATIONS = {
@@ -107,3 +109,9 @@ export const inventoryWidget = (count: number): WidgetResponse => ({
 });
 
 export const renderReport = async (): Promise<Uint8Array> => (await renderHtmlToPdf({ html: "<h1>Stock report</h1>" })).pdf;
+
+export const renderMarkdownReport = async (markdown: string): Promise<Uint8Array> =>
+  (await renderMarkdownToPdf({ markdown, templateId: "report" })).pdf;
+
+export const readAuthorizedDocument = async (bytes: Uint8Array, filename: string): Promise<string> =>
+  (await extractDocumentMarkdown({ bytes, filename })).markdown;

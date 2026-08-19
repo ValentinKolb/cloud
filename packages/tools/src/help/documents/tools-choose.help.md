@@ -18,6 +18,8 @@ The Tools overview groups utilities by what you want to accomplish. Search accep
 | Add placeholder copy | `Lorem Ipsum` | Words, sentences, or paragraphs |
 | Encode or decode text | `Base64 / Hex / Base32` | Text converted between the selected encodings |
 | Translate a color value | `Color Converter` | HEX, RGB, and HSL representations |
+| Extract a document | `Document to Markdown` | Readable document text as plain Markdown |
+| Print Markdown | `Markdown to PDF` | A styled A4 PDF using a preset and optional custom CSS |
 | Calculate a digest | `Hash Generator` | SHA-256 or FNV-1a output |
 | Create a credential | `Password Generator` | Random, memorable, or PIN-style password |
 | Protect or recover text | `Encryption` | AES-GCM or ECDH encryption and decryption data |

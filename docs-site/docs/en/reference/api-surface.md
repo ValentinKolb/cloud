@@ -5,7 +5,7 @@ section: Reference
 order: 1205
 description: Choose a supported Cloud import and check its runtime and stability.
 tags: [api, imports, boundaries, compatibility]
-updated: 2026-08-10
+updated: 2026-08-18
 ---
 
 # API surface
@@ -89,6 +89,7 @@ Use the capability guide to choose the narrow API:
 - [Logging](/en/docs/platform/logging)
 - [App capabilities](/en/docs/platform/capabilities)
 - [Universal search](/en/docs/platform/search)
+- [Document extraction](/en/docs/platform/document-extraction)
 
 Raw stores, runtime starters, gateway telemetry, migrations, and platform
 composition helpers from the same barrel are maintainer APIs unless a guide
@@ -142,9 +143,11 @@ documents all process variables; that larger list is not the shape of `env`.
 | --- | --- | --- | --- |
 | `@valentinkolb/cloud/ai/browser` | Supported, browser | Create a personal Assistant conversation with an initial structured draft | [Chat and streaming](/en/docs/ai/chat-runtime-and-streaming) |
 | `@valentinkolb/cloud/ai/solid` | Supported, browser | AI chat controller | [Chat interface](/en/docs/ai/chat-interface) |
+| `@valentinkolb/cloud/ai/tools` | Advanced, server-only | Mount Cloud's standard agent-tool factories, including document-aware `read_file` | [Files and Projects](/en/docs/ai/files-projects-and-personalization) |
 | `@valentinkolb/cloud/ai/ui` | Supported, SolidJS | Shared AI chat components | [Chat interface](/en/docs/ai/chat-interface) |
 | `@valentinkolb/cloud/ai/live` | Supported, server-only | AI Realtime UI route and SSR cursor | [Chat and streaming](/en/docs/ai/chat-runtime-and-streaming) |
 | `@valentinkolb/cloud/ai/live-events` | Supported, browser and server | AI Realtime UI wire contracts and parser | [Chat and streaming](/en/docs/ai/chat-runtime-and-streaming) |
+| `@valentinkolb/cloud/ai/runtime` | Platform-owned, server-only | Core-owned conversation runtime and turn submission | [Chat and streaming](/en/docs/ai/chat-runtime-and-streaming) |
 | `@valentinkolb/cloud/account/ui` | Supported, SolidJS | Cloud account selectors and avatars | [Building blocks](/en/docs/building-blocks) |
 | `@valentinkolb/cloud/access/ui` | Supported, SolidJS | Cloud permission and resource-key controls | [Resource API keys](/en/docs/identity/resource-api-keys) |
 | `@valentinkolb/cloud/browser/live` | Supported, browser | Live WebSocket transport | [Realtime UI](/en/docs/frontend/realtime-ui) |
@@ -157,6 +160,8 @@ documents all process variables; that larger list is not the shape of `env`.
 | `@valentinkolb/cloud/workflows/store` | Supported, server-only | Durable workflow store and workers | [Start runs](/en/docs/automation/emit-events-and-start-runs) |
 | `@valentinkolb/cloud/workflows/ai` | Supported, server-only | Durable AI task migration and lifecycle for opted-in workflow apps | [Structured and background AI](/en/docs/ai/structured-and-background-ai) |
 | `@valentinkolb/cloud/workflows/testing` | Supported, tests | Workflow process fixtures | [Test workflows](/en/docs/automation/workflow-observability-and-testing) |
+| `@valentinkolb/cloud/services/document-extraction` | Supported, server-only | Convert authorized document bytes to bounded untrusted Markdown | [Document extraction](/en/docs/platform/document-extraction) |
+| `@valentinkolb/cloud/services/pdf` | Supported, server-only | Render bounded HTML or untrusted Markdown as PDF and merge PDF files | [PDF and templates](/en/docs/platform/pdf-and-templates) |
 | `@valentinkolb/cloud/ssr/islands` | Supported, server-only | Shared SSR island helpers | [In-product help](/en/docs/platform/help) |
 | `@valentinkolb/cloud/ssr/*` | Advanced | Named SSR modules; prefer the barrel | — |
 | `@valentinkolb/cloud/workflows/editor` | Supported, SolidJS | Workflow authoring controls | [Shared components](/en/docs/frontend#choose-shared-components) |

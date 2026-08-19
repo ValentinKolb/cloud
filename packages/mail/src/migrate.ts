@@ -4140,6 +4140,73 @@ const flattenConversationComments = async (db: SqlClient): Promise<void> => {
   await db`ALTER TABLE mail.conversation_comments DROP COLUMN IF EXISTS parent_comment_id`;
 };
 
+const addAttachmentDocumentExtraction = async (db: SqlClient): Promise<void> => {
+  await db`
+    CREATE TABLE mail.attachment_extractions (
+      blob_id UUID NOT NULL REFERENCES mail.message_part_blobs(id) ON DELETE CASCADE,
+      extractor_version TEXT NOT NULL CHECK (char_length(extractor_version) BETWEEN 1 AND 100),
+      status TEXT NOT NULL CHECK (
+        status IN (
+          'pending', 'complete', 'unsupported', 'encrypted', 'ocr_required',
+          'resource_limit', 'malformed', 'failed'
+        )
+      ),
+      format TEXT,
+      markdown TEXT,
+      input_bytes BIGINT CHECK (input_bytes IS NULL OR input_bytes >= 0),
+      output_bytes BIGINT CHECK (output_bytes IS NULL OR output_bytes >= 0),
+      truncated BOOLEAN NOT NULL DEFAULT false,
+      error_code TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+      next_attempt_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      completed_at TIMESTAMPTZ,
+      PRIMARY KEY (blob_id, extractor_version),
+      CHECK (
+        (status = 'complete' AND markdown IS NOT NULL AND completed_at IS NOT NULL)
+        OR (status <> 'complete' AND markdown IS NULL)
+      )
+    )
+  `;
+  await db`
+    CREATE INDEX attachment_extractions_recovery_idx
+    ON mail.attachment_extractions (next_attempt_at, updated_at, blob_id)
+    WHERE status IN ('pending', 'failed')
+  `;
+
+  await db`ALTER TABLE mail.message_search_chunks DROP CONSTRAINT message_search_chunks_pkey`;
+  await db`ALTER TABLE mail.message_search_chunks ADD COLUMN id BIGINT GENERATED ALWAYS AS IDENTITY`;
+  await db`ALTER TABLE mail.message_search_chunks ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'body'`;
+  await db`ALTER TABLE mail.message_search_chunks ADD COLUMN attachment_id UUID REFERENCES mail.attachments(id) ON DELETE CASCADE`;
+  await db`ALTER TABLE mail.message_search_chunks ADD COLUMN blob_id UUID REFERENCES mail.message_part_blobs(id) ON DELETE CASCADE`;
+  await db`ALTER TABLE mail.message_search_chunks ADD COLUMN extractor_version TEXT`;
+  await db`ALTER TABLE mail.message_search_chunks ADD PRIMARY KEY (id)`;
+  await db`
+    ALTER TABLE mail.message_search_chunks
+    ADD CONSTRAINT message_search_chunks_source_chk CHECK (
+      (source_kind = 'body' AND attachment_id IS NULL AND blob_id IS NULL AND extractor_version IS NULL)
+      OR
+      (source_kind = 'attachment' AND attachment_id IS NOT NULL AND blob_id IS NOT NULL AND extractor_version IS NOT NULL)
+    )
+  `;
+  await db`
+    CREATE UNIQUE INDEX message_search_chunks_body_source_idx
+    ON mail.message_search_chunks (message_id, position)
+    WHERE source_kind = 'body'
+  `;
+  await db`
+    CREATE UNIQUE INDEX message_search_chunks_attachment_source_idx
+    ON mail.message_search_chunks (attachment_id, extractor_version, position)
+    WHERE source_kind = 'attachment'
+  `;
+  await db`
+    CREATE INDEX message_search_chunks_attachment_projection_idx
+    ON mail.message_search_chunks (blob_id, extractor_version, attachment_id)
+    WHERE source_kind = 'attachment'
+  `;
+};
+
 const migrations: readonly MailMigration[] = [
   { version: 1, name: "initial_mail_schema", run: createInitialSchema },
   { version: 2, name: "message_hydration_claims", run: addHydrationClaims },
@@ -4243,6 +4310,7 @@ const migrations: readonly MailMigration[] = [
   { version: 116, name: "detached_live_invalidation_scope", run: detachLiveInvalidationScope },
   { version: 117, name: "public_short_ids", run: finalizePublicShortIds },
   { version: 118, name: "flat_conversation_comments", run: flattenConversationComments },
+  { version: 119, name: "attachment_document_extraction", run: addAttachmentDocumentExtraction },
 ];
 
 const ensureMigrationFoundation = async (db: SqlClient): Promise<void> => {

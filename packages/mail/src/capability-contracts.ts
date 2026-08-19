@@ -224,7 +224,21 @@ export const ConversationSearchInputSchema = z
     limit: VocabularyLimitSchema,
   })
   .strict();
-export const ConversationSearchDataSchema = z.array(ConversationDataSchema).max(100);
+export const AttachmentSearchMatchDataSchema = z
+  .object({
+    attachmentId: ResourceShortIdSchema,
+    messageId: ResourceShortIdSchema,
+    filename: z.string().max(255).nullable(),
+    snippet: z.string().max(500),
+    reason: z.literal("attachment_content"),
+    openHref: z.string().startsWith("/app/mail/"),
+    downloadHref: z.string().startsWith("/api/mail/"),
+  })
+  .strict();
+export const ConversationSearchItemDataSchema = ConversationDataSchema.extend({
+  attachmentMatch: AttachmentSearchMatchDataSchema.nullable(),
+}).strict();
+export const ConversationSearchDataSchema = z.array(ConversationSearchItemDataSchema).max(100);
 
 export const ConversationRelatedInputSchema = z
   .object({
@@ -265,6 +279,55 @@ export const AttachmentDataSchema = z
     downloadHref: z.string().startsWith("/api/mail/"),
   })
   .strict();
+export const AttachmentExtractionStatusSchema = z.enum([
+  "pending",
+  "complete",
+  "unsupported",
+  "encrypted",
+  "ocr_required",
+  "resource_limit",
+  "malformed",
+  "failed",
+]);
+export const AttachmentExtractionMetadataSchema = z
+  .object({
+    status: AttachmentExtractionStatusSchema,
+    extractorVersion: z.string().min(1).max(100),
+    available: z.boolean(),
+    format: z.string().max(100).nullable(),
+    inputBytes: z.number().int().nonnegative().nullable(),
+    outputBytes: z.number().int().nonnegative().nullable(),
+    truncated: z.boolean(),
+    errorCode: z.string().max(100).nullable(),
+    updatedAt: TimestampSchema.nullable(),
+  })
+  .strict();
+export const AttachmentReadDataSchema = AttachmentDataSchema.extend({ extraction: AttachmentExtractionMetadataSchema }).strict();
+export const AttachmentContentReadInputSchema = z
+  .object({
+    id: ResourceShortIdSchema.describe("Stable attachment ID."),
+    offset: z.number().int().nonnegative().default(0).describe("UTF-8 byte offset. Continue with nextOffset from the previous page."),
+    length: z
+      .number()
+      .int()
+      .min(256)
+      .max(64 * 1024)
+      .default(16 * 1024)
+      .describe("Maximum UTF-8 bytes to return."),
+  })
+  .strict();
+export const AttachmentContentReadDataSchema = AttachmentReadDataSchema.extend({
+  messageId: ResourceShortIdSchema,
+  markdown: z
+    .string()
+    .max(64 * 1024)
+    .nullable(),
+  offset: z.number().int().nonnegative(),
+  length: z.number().int().nonnegative(),
+  totalBytes: z.number().int().nonnegative().nullable(),
+  nextOffset: z.number().int().positive().nullable(),
+  trust: z.literal("untrusted"),
+}).strict();
 const HeaderDataSchema = z
   .object({
     name: z.string().min(1).max(128),

@@ -85,6 +85,20 @@ export const TEXT_ATTACHMENT_EXTENSIONS = [
   "xml",
   "log",
 ] as const;
+export const DOCUMENT_ATTACHMENT_EXTENSIONS = [
+  "pdf",
+  "doc",
+  "docx",
+  "odt",
+  "ppt",
+  "pptx",
+  "odp",
+  "xlsx",
+  "ods",
+  "rtf",
+  "epub",
+  "csv",
+] as const;
 export const TEXT_ATTACHMENT_MEDIA_TYPES = new Set([
   "application/json",
   "application/ld+json",
@@ -99,7 +113,7 @@ export const FILE_INPUT_ACCEPT = [
   ...AI_IMAGE_MEDIA_TYPES,
   "text/*",
   ...Array.from(TEXT_ATTACHMENT_MEDIA_TYPES),
-  ...TEXT_ATTACHMENT_EXTENSIONS.map((extension) => `.${extension}`),
+  ...Array.from(new Set([...TEXT_ATTACHMENT_EXTENSIONS, ...DOCUMENT_ATTACHMENT_EXTENSIONS]), (extension) => `.${extension}`),
 ].join(",");
 
 /** Seconds-granular work duration ("8s", "2m 14s") — stdlib's dates.formatDuration is deliberately minute-granular. */

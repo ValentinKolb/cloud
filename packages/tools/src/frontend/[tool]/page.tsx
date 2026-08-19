@@ -5,11 +5,13 @@ import { resolveSpeedtestBase } from "../../api/_url";
 import { ssr } from "../../config";
 import { ToolsWorkspace } from "../ToolsWorkspace";
 import ColorConverter from "../tools/ColorConverter.island";
+import DocumentMarkdown from "../tools/DocumentMarkdown.island";
 import EncodingTool from "../tools/EncodingTool.island";
 import EncryptionTool from "../tools/EncryptionTool.island";
 import HashGenerator from "../tools/HashGenerator.island";
 import ImageProcessor from "../tools/ImageProcessor.island";
 import LoremIpsumGenerator from "../tools/LoremIpsumGenerator.island";
+import MarkdownPdf from "../tools/MarkdownPdf.island";
 import MailtoGenerator from "../tools/MailtoGenerator.island";
 import PasswordGenerator from "../tools/PasswordGenerator.island";
 import QrCodeGenerator from "../tools/QrCodeGenerator.island";
@@ -29,6 +31,8 @@ const toolComponents: Record<
   hash: () => <HashGenerator />,
   lorem: () => <LoremIpsumGenerator />,
   color: () => <ColorConverter />,
+  "document-markdown": () => <DocumentMarkdown />,
+  "markdown-pdf": () => <MarkdownPdf />,
   image: () => <ImageProcessor />,
   encryption: () => <EncryptionTool />,
   password: () => <PasswordGenerator />,

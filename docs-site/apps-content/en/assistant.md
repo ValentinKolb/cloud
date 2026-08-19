@@ -5,7 +5,7 @@ section: Work
 order: 100
 description: A personal AI workspace for conversations, files, Projects, and reusable preferences.
 tags: [assistant, ai, chats]
-updated: 2026-08-05
+updated: 2026-08-18
 ---
 
 # Assistant
@@ -24,6 +24,9 @@ available when the work continues later.
   the composer. A long plain-text paste becomes a durable **Pasted text** attachment;
   **Show in text field** moves a bounded text attachment back into the draft.
   Up to 16 attachments remain in one horizontally scrollable row.
+- Ask Assistant to read supported PDF, Office, OpenDocument, RTF, EPUB, or CSV
+  attachments. Assistant converts them to bounded untrusted text behind the same
+  `read_file` tool; images remain a separate visual inspection.
 - Return to saved work through the 15 general chats in the sidebar, Project branches, search, or **See all** for the full chat list.
 - Fork a useful point when another direction should not replace the existing
   conversation.

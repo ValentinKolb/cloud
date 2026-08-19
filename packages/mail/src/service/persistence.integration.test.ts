@@ -8,6 +8,7 @@ import { unavailableProviderLimitSnapshot } from "../contracts";
 import { newShortId } from "../lib/short-id";
 import { migrate } from "../migrate";
 import { grantMailboxAccess, listMailboxAccess, revokeMailboxAccess } from "./access";
+import { MAIL_ATTACHMENT_EXTRACTOR_VERSION } from "./attachment-extraction-contract";
 import type { MailRequestContext } from "./auth";
 import { executeMutationCommand, executeOutboxSubmission, executeOutboxSubmissionWithHeartbeat } from "./command-runtime";
 import { createActorCommand } from "./commands";
@@ -2078,6 +2079,154 @@ suite("mail PostgreSQL foundation", () => {
       },
     });
     expect(crossChunkWords.ok && crossChunkWords.data.items.map((item) => item.conversationId)).toContain(attachmentConversation!.id);
+
+    const searchableAttachmentBytes = Buffer.from("nebula zircon attachment fixture");
+    const searchableAttachmentBlob = await storeReadableBlob(Readable.from([searchableAttachmentBytes]), searchableAttachmentBytes.length);
+    ids.blobIds.push(searchableAttachmentBlob.id);
+    const [searchableAttachmentPart] = await sql<{ id: string }[]>`
+      INSERT INTO mail.message_parts (
+        message_id, part_path, content_type, disposition, filename, size_bytes, blob_id, hydration_status
+      ) VALUES (
+        ${secondMatchingMessage!.id}::uuid, 'searchable-attachment', 'text/plain', 'attachment',
+        'searchable-notes.txt', ${searchableAttachmentBytes.length}, ${searchableAttachmentBlob.id}::uuid, 'complete'
+      )
+      RETURNING id
+    `;
+    const [searchableAttachment] = await sql<{ id: string }[]>`
+      INSERT INTO mail.attachments (
+        short_id, message_id, part_id, filename, content_type, disposition, checksum, size_bytes, blob_id
+      ) VALUES (
+        ${newShortId()}, ${secondMatchingMessage!.id}::uuid, ${searchableAttachmentPart!.id}::uuid, 'searchable-notes.txt', 'text/plain',
+        'attachment', ${searchableAttachmentBlob.contentHash}, ${searchableAttachmentBytes.length}, ${searchableAttachmentBlob.id}::uuid
+      )
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.attachment_extractions (
+        blob_id, extractor_version, status, format, markdown, input_bytes, output_bytes, completed_at
+      ) VALUES (
+        ${searchableAttachmentBlob.id}::uuid, ${MAIL_ATTACHMENT_EXTRACTOR_VERSION}, 'complete', 'text',
+        'nebula zircon attachment fixture', ${searchableAttachmentBytes.length}, ${searchableAttachmentBytes.length}, now()
+      )
+    `;
+    await sql`
+      INSERT INTO mail.message_search_chunks (
+        message_id, mailbox_id, position, search_document, source_kind, attachment_id, blob_id, extractor_version
+      ) VALUES
+        (
+          ${secondMatchingMessage!.id}::uuid, ${mailbox.data.id}::uuid, 0, to_tsvector('simple'::regconfig, 'nebula'),
+          'attachment', ${searchableAttachment!.id}::uuid, ${searchableAttachmentBlob.id}::uuid, ${MAIL_ATTACHMENT_EXTRACTOR_VERSION}
+        ),
+        (
+          ${secondMatchingMessage!.id}::uuid, ${mailbox.data.id}::uuid, 1, to_tsvector('simple'::regconfig, 'zircon'),
+          'attachment', ${searchableAttachment!.id}::uuid, ${searchableAttachmentBlob.id}::uuid, ${MAIL_ATTACHMENT_EXTRACTOR_VERSION}
+        )
+    `;
+    const crossChunkAttachmentWords = await searchMessages({
+      context,
+      mailboxId: mailbox.data.id,
+      request: {
+        expression: { type: "text", field: "any", query: "nebula zircon", match: "words" },
+        sort: "relevance",
+        limit: 10,
+      },
+    });
+    expect(crossChunkAttachmentWords.ok).toBe(true);
+    if (crossChunkAttachmentWords.ok) {
+      expect(
+        crossChunkAttachmentWords.data.items.find((item) => item.conversationId === attachmentConversation!.id)?.attachmentMatch,
+      ).toMatchObject({
+        attachmentId: searchableAttachment!.id,
+        messageId: secondMatchingMessage!.id,
+        filename: "searchable-notes.txt",
+        reason: "attachment_content",
+      });
+    }
+    await sql`
+      INSERT INTO mail.message_search_chunks (
+        message_id, mailbox_id, position, search_document, source_kind, attachment_id, blob_id, extractor_version
+      ) VALUES (
+        ${secondMatchingMessage!.id}::uuid, ${mailbox.data.id}::uuid, 0, to_tsvector('simple'::regconfig, 'staleonly'),
+        'attachment', ${searchableAttachment!.id}::uuid, ${searchableAttachmentBlob.id}::uuid, 'previous-extractor-version'
+      )
+    `;
+    const staleAttachmentVersion = await searchMessages({
+      context,
+      mailboxId: mailbox.data.id,
+      request: {
+        expression: { type: "text", field: "any", query: "staleonly", match: "words" },
+        sort: "relevance",
+        limit: 10,
+      },
+    });
+    expect(staleAttachmentVersion.ok).toBe(true);
+    if (staleAttachmentVersion.ok) {
+      expect(staleAttachmentVersion.data.items.map((item) => item.conversationId)).not.toContain(attachmentConversation!.id);
+    }
+    const crossBodyAttachmentWords = await searchMessages({
+      context,
+      mailboxId: mailbox.data.id,
+      request: {
+        expression: { type: "text", field: "any", query: "second nebula", match: "words" },
+        sort: "relevance",
+        limit: 10,
+      },
+    });
+    expect(crossBodyAttachmentWords.ok).toBe(true);
+    if (crossBodyAttachmentWords.ok) {
+      expect(crossBodyAttachmentWords.data.items.map((item) => item.conversationId)).not.toContain(attachmentConversation!.id);
+    }
+
+    const secondAttachmentBytes = Buffer.from("quasar attachment fixture");
+    const secondAttachmentBlob = await storeReadableBlob(Readable.from([secondAttachmentBytes]), secondAttachmentBytes.length);
+    ids.blobIds.push(secondAttachmentBlob.id);
+    const [secondAttachmentPart] = await sql<{ id: string }[]>`
+      INSERT INTO mail.message_parts (
+        message_id, part_path, content_type, disposition, filename, size_bytes, blob_id, hydration_status
+      ) VALUES (
+        ${secondMatchingMessage!.id}::uuid, 'second-searchable-attachment', 'text/plain', 'attachment',
+        'quasar-notes.txt', ${secondAttachmentBytes.length}, ${secondAttachmentBlob.id}::uuid, 'complete'
+      )
+      RETURNING id
+    `;
+    const [secondAttachment] = await sql<{ id: string }[]>`
+      INSERT INTO mail.attachments (
+        short_id, message_id, part_id, filename, content_type, disposition, checksum, size_bytes, blob_id
+      ) VALUES (
+        ${newShortId()}, ${secondMatchingMessage!.id}::uuid, ${secondAttachmentPart!.id}::uuid, 'quasar-notes.txt', 'text/plain',
+        'attachment', ${secondAttachmentBlob.contentHash}, ${secondAttachmentBytes.length}, ${secondAttachmentBlob.id}::uuid
+      )
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO mail.attachment_extractions (
+        blob_id, extractor_version, status, format, markdown, input_bytes, output_bytes, completed_at
+      ) VALUES (
+        ${secondAttachmentBlob.id}::uuid, ${MAIL_ATTACHMENT_EXTRACTOR_VERSION}, 'complete', 'text',
+        'quasar attachment fixture', ${secondAttachmentBytes.length}, ${secondAttachmentBytes.length}, now()
+      )
+    `;
+    await sql`
+      INSERT INTO mail.message_search_chunks (
+        message_id, mailbox_id, position, search_document, source_kind, attachment_id, blob_id, extractor_version
+      ) VALUES (
+        ${secondMatchingMessage!.id}::uuid, ${mailbox.data.id}::uuid, 0, to_tsvector('simple'::regconfig, 'quasar'),
+        'attachment', ${secondAttachment!.id}::uuid, ${secondAttachmentBlob.id}::uuid, ${MAIL_ATTACHMENT_EXTRACTOR_VERSION}
+      )
+    `;
+    const crossAttachmentWords = await searchMessages({
+      context,
+      mailboxId: mailbox.data.id,
+      request: {
+        expression: { type: "text", field: "any", query: "nebula quasar", match: "words" },
+        sort: "relevance",
+        limit: 10,
+      },
+    });
+    expect(crossAttachmentWords.ok).toBe(true);
+    if (crossAttachmentWords.ok) {
+      expect(crossAttachmentWords.data.items.map((item) => item.conversationId)).not.toContain(attachmentConversation!.id);
+    }
     const [secondaryFolder] = await sql<{ id: string; short_id: string }[]>`
       INSERT INTO mail.folders (short_id, remote_resource_id, stable_key, name, role, sync_status)
       VALUES (${newShortId()}, ${resource!.id}::uuid, ${`secondary-${suffix}`}, 'Secondary', 'other', 'current')
