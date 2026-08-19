@@ -29,7 +29,10 @@ describe("record snapshot relation access", () => {
         INSERT INTO grids.tables (id, short_id, base_id, name, position)
         VALUES (${tableId}::uuid, ${shortId("T")}, ${baseId}::uuid, 'Root', 0)
       `;
-      await sql`INSERT INTO grids.records (id, table_id, data) VALUES (${recordId}::uuid, ${tableId}::uuid, '{}'::jsonb)`;
+      await sql`
+        INSERT INTO grids.records (id, short_id, table_id, data)
+        VALUES (${recordId}::uuid, ${shortId("R")}, ${tableId}::uuid, '{}'::jsonb)
+      `;
 
       const snapshot = await createRecordSnapshot({
         baseId: wrongBaseId,
@@ -82,11 +85,11 @@ describe("record snapshot relation access", () => {
           (${uuid()}::uuid, ${shortId("F")}, ${deniedTableId}::uuid, 'Secret value', 'text', '{}'::jsonb, 0)
       `;
       await sql`
-        INSERT INTO grids.records (id, table_id, data)
+        INSERT INTO grids.records (id, short_id, table_id, data)
         VALUES
-          (${rootRecordId}::uuid, ${rootTableId}::uuid, '{}'::jsonb),
-          (${readableRecordId}::uuid, ${readableTableId}::uuid, '{}'::jsonb),
-          (${deniedRecordId}::uuid, ${deniedTableId}::uuid, '{}'::jsonb)
+          (${rootRecordId}::uuid, ${shortId("R")}, ${rootTableId}::uuid, '{}'::jsonb),
+          (${readableRecordId}::uuid, ${shortId("R")}, ${readableTableId}::uuid, '{}'::jsonb),
+          (${deniedRecordId}::uuid, ${shortId("R")}, ${deniedTableId}::uuid, '{}'::jsonb)
       `;
       await sql`
         INSERT INTO grids.record_links (from_record_id, from_field_id, to_record_id)
@@ -152,6 +155,8 @@ describe("record snapshot relation access", () => {
       const formulaFieldId = uuid();
       const lookupFieldId = uuid();
       const recordIds = Array.from({ length: 500 }, uuid);
+      const recordShortIdPrefix = Math.random().toString(36).slice(2, 5).padEnd(3, "0");
+      const recordShortIds = recordIds.map((_, index) => `R${recordShortIdPrefix}${index.toString(36).padStart(2, "0")}`);
       const relatedIds = recordIds.slice(1);
       const fromIds = [...relatedIds.map(() => recordIds[0]!), ...relatedIds];
       const targetIds = [...relatedIds, ...relatedIds.map(() => recordIds[0]!)];
@@ -171,9 +176,12 @@ describe("record snapshot relation access", () => {
             (${lookupFieldId}::uuid, ${shortId("F")}, ${tableId}::uuid, 'Next name length', 'lookup', ${{ relationFieldId, targetFieldId: formulaFieldId }}::jsonb, 3)
         `;
         await sql`
-          INSERT INTO grids.records (id, table_id, data)
-          SELECT ids.id, ${tableId}::uuid, jsonb_build_object(${nameFieldId}::text, 'Node')
-          FROM unnest(${sql.array(recordIds, "UUID")}::uuid[]) AS ids(id)
+          INSERT INTO grids.records (id, short_id, table_id, data)
+          SELECT ids.id, ids.short_id, ${tableId}::uuid, jsonb_build_object(${nameFieldId}::text, 'Node')
+          FROM unnest(
+            ${sql.array(recordIds, "UUID")}::uuid[],
+            ${sql.array(recordShortIds, "TEXT")}::text[]
+          ) AS ids(id, short_id)
         `;
         await sql`
           INSERT INTO grids.record_links (from_record_id, from_field_id, to_record_id)
