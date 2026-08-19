@@ -2194,6 +2194,19 @@ const migrateEvidenceExports = async (sql: SQL): Promise<void> => {
   console.log("  ✓ grids.evidence_exports");
 };
 
+const migrateRetentionPolicies = async (sql: SQL): Promise<void> => {
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.retention_policies (
+      base_id UUID PRIMARY KEY REFERENCES grids.bases(id) ON DELETE CASCADE,
+      minimum_days INT NOT NULL CHECK (minimum_days BETWEEN 1 AND 36500),
+      updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  console.log("  ✓ grids.retention_policies");
+};
+
 const assertWorkflowKernelReady = async (sql: SQL): Promise<void> => {
   /*
    * Public-reference migration and operational health read kernel tables that
@@ -2327,6 +2340,7 @@ export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
     await migrateRecordFinalization(connection);
     await finalizeDocumentArtifacts(connection);
     await migrateEvidenceExports(connection);
+    await migrateRetentionPolicies(connection);
     await cleanupAlphaSchema(connection);
     await migrateFormsAndEvents(connection);
     await migrateCustomApps(connection);

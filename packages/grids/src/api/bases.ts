@@ -4,6 +4,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { CreateBaseSchema, UpdateBaseSchema } from "../contracts";
+import { RetentionPolicyInputSchema, RetentionPolicyResponseSchema, RetentionPreviewSchema } from "../retention-policy-contracts";
 import { gridsService } from "../service";
 import {
   currentActorUser,
@@ -144,6 +145,93 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         const body = c.req.valid("json");
         const result = await gridsService.base.update(baseId, body, currentActorUserId(c));
         return result.ok ? c.json(toPublicBase(result.data)) : c.json({ message: result.error.message }, result.error.status);
+      },
+    )
+
+    .get(
+      "/:baseId/retention-policy",
+      requirePublicIdParam("baseId", "base", "Base"),
+      describeRoute({
+        tags: ["Grids:Base"],
+        summary: "Read the Base Record retention floor",
+        responses: {
+          200: jsonResponse(RetentionPolicyResponseSchema, "Retention policy"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Base not found"),
+        },
+      }),
+      async (c) => {
+        const baseId = internalIdParam(c, "baseId")!;
+        const gate = await gateAt(c, { baseId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const policy = await gridsService.base.retentionPolicy.get(baseId);
+        return c.json({ policy: policy ? { baseId: c.req.param("baseId"), ...policy } : null });
+      },
+    )
+
+    .post(
+      "/:baseId/retention-policy/preview",
+      requirePublicIdParam("baseId", "base", "Base"),
+      describeRoute({
+        tags: ["Grids:Base"],
+        summary: "Preview a Base Record retention floor",
+        responses: {
+          200: jsonResponse(RetentionPreviewSchema, "Bounded retention preview"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid retention floor"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Base not found"),
+        },
+      }),
+      v("json", RetentionPolicyInputSchema),
+      async (c) => {
+        const baseId = internalIdParam(c, "baseId")!;
+        const gate = await gateAt(c, { baseId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        return c.json(await gridsService.base.retentionPolicy.preview(baseId, c.req.valid("json")));
+      },
+    )
+
+    .put(
+      "/:baseId/retention-policy",
+      requirePublicIdParam("baseId", "base", "Base"),
+      describeRoute({
+        tags: ["Grids:Base"],
+        summary: "Set the Base Record retention floor",
+        responses: {
+          200: jsonResponse(RetentionPolicyResponseSchema, "Retention policy updated"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid retention floor"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Base not found"),
+        },
+      }),
+      v("json", RetentionPolicyInputSchema),
+      async (c) => {
+        const baseId = internalIdParam(c, "baseId")!;
+        const gate = await gateAt(c, { baseId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const policy = await gridsService.base.retentionPolicy.update(baseId, c.req.valid("json"), currentActorUserId(c));
+        return c.json({ policy: { baseId: c.req.param("baseId"), ...policy } });
+      },
+    )
+
+    .delete(
+      "/:baseId/retention-policy",
+      requirePublicIdParam("baseId", "base", "Base"),
+      describeRoute({
+        tags: ["Grids:Base"],
+        summary: "Remove the Base Record retention floor",
+        responses: {
+          204: { description: "Retention policy removed" },
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Base not found"),
+        },
+      }),
+      async (c) => {
+        const baseId = internalIdParam(c, "baseId")!;
+        const gate = await gateAt(c, { baseId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        await gridsService.base.retentionPolicy.remove(baseId, currentActorUserId(c));
+        return c.body(null, 204);
       },
     )
 

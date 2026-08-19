@@ -4,6 +4,7 @@ import { createSignal } from "solid-js";
 import type { PublicBase } from "../../../api/public-dto";
 import { DangerZone, DocumentProfileForm, GeneralForm, PermissionsSection, TrashSection } from "./BaseSettingsSections";
 import { EvidenceExportsSection } from "./EvidenceExportsSection";
+import { RetentionPolicySection } from "./RetentionPolicySection";
 
 type Props = {
   base: PublicBase;
@@ -110,6 +111,18 @@ export default function BaseSettingsPanel(props: Props) {
         </SettingsModal.Group>
 
         <SettingsModal.Group title="Lifecycle">
+          <SettingsModal.Tab
+            id="retention"
+            title="Retention and preservation"
+            icon="ti ti-archive"
+            description="Technical minimum preservation before future controlled destruction."
+          >
+            <RetentionPolicySection
+              baseId={props.base.id}
+              onDirtyChange={(value) => setSectionDirty("retention", value)}
+              onSavingChange={(value) => setSectionSaving("retention", value)}
+            />
+          </SettingsModal.Tab>
           <SettingsModal.Tab
             id="evidence"
             title="Evidence exports"

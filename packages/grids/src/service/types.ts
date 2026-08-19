@@ -55,6 +55,8 @@ export type AuditAction =
   | "finalization.enabled"
   | "finalization.disabled"
   | "mutation_policy.updated"
+  | "retention_policy.updated"
+  | "retention_policy.removed"
   | "access.granted"
   | "access.updated"
   | "access.revoked"

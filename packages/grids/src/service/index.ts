@@ -34,6 +34,7 @@ import * as recordHistory from "./record-history";
 import * as records from "./records";
 import * as referencedBy from "./referenced-by";
 import * as relationsModule from "./relations";
+import * as retentionPolicy from "./retention-policy";
 import * as tables from "./tables";
 import * as templates from "./templates";
 import * as views from "./views";
@@ -70,6 +71,7 @@ export const gridsService = {
     update: bases.update,
     remove: bases.remove,
     restore: bases.restore,
+    retentionPolicy,
     admin: {
       list: bases.adminList,
       summary: bases.adminSummary,
