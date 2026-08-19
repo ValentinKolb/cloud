@@ -6,6 +6,7 @@ import {
   type RetentionFilesResponse,
   type RetentionPolicy,
   type RetentionPreview,
+  type RetentionRecordsResponse,
 } from "../retention-policy-contracts";
 import {
   baseArgs,
@@ -13,8 +14,8 @@ import {
   baseRows,
   GRIDS_BASE_DEFAULT_KEY,
   listBases,
-  requirePublicId,
   requireDefaultBaseRef,
+  requirePublicId,
   resolveBase,
   resolveBaseFromCommand,
 } from "./resources";
@@ -262,6 +263,56 @@ export const baseCrudCommands = [
           { key: "bytes", label: "BYTES" },
           { key: "status", label: "STATUS" },
           { key: "unreferencedAt", label: "UNREFERENCED" },
+          { key: "notBefore", label: "FLOOR REACHED" },
+        ],
+      );
+    },
+  }),
+  command("bases retention records list", {
+    summary: "List trashed Records under a retention floor",
+    description: "Requires Base admin access. Search, status filtering, and pagination run on the server.",
+    args: baseArgs,
+    flags: {
+      ...baseFlag,
+      days: flag.int({ required: true, min: RETENTION_MIN_DAYS, max: RETENTION_MAX_DAYS, description: "Minimum retention days" }),
+      search: flag.string({ description: "Search Record id, Table id, or Table name" }),
+      status: flag.enum(["all", "protected", "retained", "reached"] as const, {
+        default: "all",
+        description: "Retention floor status",
+      }),
+      ...paginationFlags({ defaultPerPage: 25, maxPerPage: 100 }),
+    },
+    async run({ ctx, args, flags }) {
+      const minimumDays = flags.days;
+      if (minimumDays === undefined) throw new Error("Pass --days <number>.");
+      const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
+      const payload = await readApi<RetentionRecordsResponse>(
+        ctx,
+        `/bases/${encodeURIComponent(base.id)}/retention-policy/records${queryString({
+          minimumDays,
+          search: flags.search,
+          status: flags.status,
+          page: flags.page ?? 1,
+          per_page: flags.perPage ?? 25,
+        })}`,
+      );
+      printJsonOrTable(
+        ctx,
+        payload,
+        payload.items.map((item) => ({
+          id: item.recordId,
+          table: item.tableName,
+          tableId: item.tableId,
+          status: item.status,
+          deletedAt: item.deletedAt,
+          notBefore: item.notBefore ?? "-",
+        })),
+        [
+          { key: "id", label: "RECORD" },
+          { key: "table", label: "TABLE" },
+          { key: "tableId", label: "TABLE ID" },
+          { key: "status", label: "STATUS" },
+          { key: "deletedAt", label: "TRASHED" },
           { key: "notBefore", label: "FLOOR REACHED" },
         ],
       );

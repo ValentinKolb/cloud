@@ -2,7 +2,7 @@ import { beforeAll, describe, expect } from "bun:test";
 import { sql } from "bun";
 import { postgresTest, testShortId, testUuid } from "../integration-test-utils";
 import { migrate } from "../migrate";
-import { get, getFileContent, listFiles, preview, remove, update } from "./retention-policy";
+import { get, getFileContent, listFiles, listRecords, preview, remove, update } from "./retention-policy";
 
 beforeAll(async () => {
   if (process.env.GRIDS_DB_TEST === "1") await migrate();
@@ -53,6 +53,35 @@ describe("Record retention policy integration", () => {
       expect(impact.examples.map((item) => item.recordId)).toEqual([oldShortId, recentShortId]);
       expect(impact.examples.every((item) => item.tableId === tableShortId)).toBe(true);
       expect(impact.truncated).toBe(false);
+      const recordPage = await listRecords(baseId, {
+        minimumDays: 30,
+        search: "Cases",
+        status: "all",
+        perPage: 2,
+        offset: 0,
+      });
+      expect(recordPage.total).toBe(3);
+      expect(recordPage.items).toHaveLength(2);
+      expect(recordPage.items.map((item) => item.recordId)).toEqual([recentShortId, oldShortId]);
+      expect(recordPage.items.every((item) => item.tableId === tableShortId && item.tableName === "Cases")).toBe(true);
+      expect(recordPage.items.map((item) => item.status)).toEqual(["retained", "reached"]);
+      const protectedRecords = await listRecords(baseId, {
+        minimumDays: 30,
+        search: finalShortId,
+        status: "protected",
+        perPage: 25,
+        offset: 0,
+      });
+      expect(protectedRecords.items).toEqual([
+        {
+          recordId: finalShortId,
+          tableId: tableShortId,
+          tableName: "Cases",
+          deletedAt: expect.any(String),
+          notBefore: null,
+          status: "protected",
+        },
+      ]);
       await sql`
         INSERT INTO grids.records (id, short_id, table_id, data, deleted_at)
         SELECT gen_random_uuid(), ${boundedPrefix} || lpad(value::text, 4, '0'), ${tableId}::uuid, '{}'::jsonb, now() - interval '100 days'

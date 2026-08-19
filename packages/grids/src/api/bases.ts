@@ -10,6 +10,8 @@ import {
   RetentionPolicyInputSchema,
   RetentionPolicyResponseSchema,
   RetentionPreviewSchema,
+  RetentionRecordsQuerySchema,
+  RetentionRecordsResponseSchema,
 } from "../retention-policy-contracts";
 import { gridsService } from "../service";
 import {
@@ -194,6 +196,42 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         const gate = await gateAt(c, { baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         return c.json(await gridsService.base.retentionPolicy.preview(baseId, c.req.valid("json")));
+      },
+    )
+
+    .get(
+      "/:baseId/retention-policy/records",
+      requirePublicIdParam("baseId", "base", "Base"),
+      describeRoute({
+        tags: ["Grids:Base"],
+        summary: "List trashed Records under a Base retention floor",
+        responses: {
+          200: jsonResponse(RetentionRecordsResponseSchema, "Retained Records"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid query"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Base not found"),
+        },
+      }),
+      v("query", RetentionRecordsQuerySchema),
+      async (c) => {
+        const baseId = internalIdParam(c, "baseId")!;
+        const gate = await gateAt(c, { baseId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const query = c.req.valid("query");
+        const pagination = parsePagination(query);
+        const result = await gridsService.base.retentionPolicy.listRecords(baseId, {
+          minimumDays: query.minimumDays,
+          search: query.search,
+          status: query.status,
+          perPage: pagination.perPage,
+          offset: pagination.offset,
+        });
+        return c.json({
+          observedAt: result.observedAt,
+          minimumDays: query.minimumDays,
+          items: result.items,
+          pagination: createPagination(pagination, result.total),
+        });
       },
     )
 

@@ -8,19 +8,19 @@ import {
   dialogCore,
   FileView,
   type FileViewContent,
+  FilterChip,
   formatFileViewSize,
   getFileViewPreviewKind,
   IconButtonLink,
   PanelDialog,
-  panelDialogWorkspaceOptions,
   Placeholder,
-  Select,
+  panelDialogWorkspaceOptions,
   StatusBadge,
   TextInput,
   Tooltip,
 } from "@k2b/ui";
 import { createMemo, createSignal, Show } from "solid-js";
-import type { RetentionFile, RetentionFilesResponse, RetentionFileStatus } from "../../../retention-policy-contracts";
+import type { RetentionFile, RetentionFileStatus, RetentionFilesResponse } from "../../../retention-policy-contracts";
 import { errorMessage } from "../utils/api-helpers";
 
 const PAGE_SIZE = 25;
@@ -181,152 +181,163 @@ function RetentionFilesDialog(props: { baseId: string; minimumDays: number; clos
         close={props.close}
       />
       <PanelDialog.Body>
-        <div class="min-h-0">
-          <DataTable.Panel class="min-h-[28rem] overflow-hidden">
-            <DataTable.Header title="Lifecycle ledger" subtitle={rangeLabel()}>
-              <Button size="sm" variant="secondary" disabled={files.loading()} onClick={() => void files.refresh()}>
-                <i class={files.loading() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} aria-hidden="true" /> Refresh
-              </Button>
-            </DataTable.Header>
-            <DataTable.Controls class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_14rem]">
+        <DataTable.Panel class="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <DataTable.Header title={rangeLabel()} size="sm">
+            <Button size="sm" variant="secondary" disabled={files.loading() || files.refreshing()} onClick={() => void files.refresh()}>
+              <i class={files.refreshing() ? "ti ti-loader-2 animate-spin" : "ti ti-refresh"} aria-hidden="true" /> Refresh
+            </Button>
+          </DataTable.Header>
+          <DataTable.Controls class="flex flex-wrap items-center gap-2">
+            <div class="min-w-56 flex-1">
               <TextInput
-                label="Search Files"
-                placeholder="Filename or File ID"
+                type="search"
+                aria-label="Search retained Files"
+                placeholder="Search filename or File ID"
+                icon="ti ti-search"
+                activeIcon="ti ti-search"
+                clearable
                 value={searchInput}
+                onClear={() => {
+                  setSearchInput("");
+                  searchDebounce.trigger("");
+                }}
                 onValueChange={(value) => {
                   setSearchInput(value);
                   searchDebounce.debouncedFn(value);
                 }}
               />
-              <Select
-                label="Floor status"
-                value={status}
-                options={[
-                  { id: "all", label: "All Files" },
-                  { id: "retained", label: "Retained until later" },
-                  { id: "reached", label: "Floor reached" },
-                ]}
-                onValueChange={(value) => {
-                  setPage(1);
-                  setStatus((value ?? "all") as RetentionFileStatus);
-                }}
-              />
-            </DataTable.Controls>
-            <Show
-              when={!files.error()}
-              fallback={
-                <Placeholder
-                  state="error"
-                  title="Retained Files are unavailable"
-                  description={files.error() instanceof Error ? files.error()!.message : "Could not load retained Files"}
-                  action={
-                    <Button size="sm" variant="secondary" onClick={() => void files.refresh()}>
-                      Retry
-                    </Button>
-                  }
-                />
-              }
-            >
-              <DataTable
-                rows={result()?.items ?? []}
-                columns={columns}
-                getRowId={(row) => row.fileId}
-                ariaLabel="Unreferenced retained Files"
-                density="compact"
-                surface="plain"
-                hoverRows
-                class="min-h-0 flex-1 overflow-auto"
-                empty={
-                  files.loading() ? (
-                    <span>Loading retained Files…</span>
-                  ) : search() || status() !== "all" ? (
-                    <span>No Files match these filters.</span>
-                  ) : (
-                    <span>No unreferenced Files are currently tracked for this Base.</span>
-                  )
+            </div>
+            <FilterChip
+              label="Floor status"
+              icon="ti ti-filter"
+              options={[
+                {
+                  options: [
+                    { value: "all", label: "All Files" },
+                    { value: "retained", label: "Retained until later" },
+                    { value: "reached", label: "Floor reached" },
+                  ],
+                },
+              ]}
+              value={[status()]}
+              defaultValue={["all"]}
+              isActive={status() !== "all"}
+              onValueChange={(value) => {
+                setPage(1);
+                setStatus((value[0] ?? "all") as RetentionFileStatus);
+              }}
+            />
+          </DataTable.Controls>
+          <Show
+            when={!files.error()}
+            fallback={
+              <Placeholder
+                state="error"
+                title="Retained Files are unavailable"
+                description={files.error() instanceof Error ? files.error()!.message : "Could not load retained Files"}
+                action={
+                  <Button size="sm" variant="secondary" onClick={() => void files.refresh()}>
+                    Retry
+                  </Button>
                 }
-                renderCell={({ row, col, render, value }) => {
-                  if (col.id === "file") {
-                    return (
-                      <div class="min-w-0">
-                        <div class="truncate font-medium text-primary">{row.filename}</div>
-                        <div class="truncate text-xs text-dimmed">
-                          {row.fileId} · {row.mimeType}
-                        </div>
-                      </div>
-                    );
-                  }
-                  if (col.id === "size") return formatFileViewSize(row.sizeBytes);
-                  if (col.id === "status") {
-                    return (
-                      <StatusBadge
-                        tone={row.status === "retained" ? "running" : "neutral"}
-                        label={row.status === "retained" ? "Retained" : "Floor reached"}
-                      />
-                    );
-                  }
-                  if (col.id === "notBefore") return new Date(row.notBefore).toLocaleString();
-                  if (col.id === "actions") {
-                    return (
-                      <div class="flex justify-end gap-1">
-                        <Show
-                          when={canPreviewFile({
-                            path: row.filename,
-                            mediaType: row.mimeType,
-                            size: row.sizeBytes,
-                          })}
-                        >
-                          <Tooltip.Anchor content="View File">
-                            <Button size="sm" variant="ghost" onClick={() => void openPreview(props.baseId, row)}>
-                              <i class="ti ti-eye" aria-hidden="true" /> View
-                            </Button>
-                          </Tooltip.Anchor>
-                        </Show>
-                        <Tooltip.Anchor content="Download File">
-                          <IconButtonLink
-                            size="sm"
-                            variant="ghost"
-                            href={contentHref(props.baseId, row)}
-                            download={row.filename}
-                            label={`Download ${row.filename}`}
-                          >
-                            <i class="ti ti-download" aria-hidden="true" />
-                          </IconButtonLink>
-                        </Tooltip.Anchor>
-                      </div>
-                    );
-                  }
-                  return render(value);
-                }}
               />
-            </Show>
-            <Show when={(result()?.pagination.total_pages ?? 0) > 1}>
-              <DataTable.Footer class="flex items-center justify-between gap-3">
-                <span class="text-xs text-dimmed">
-                  Page {page()} of {result()?.pagination.total_pages}
-                </span>
-                <div class="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={files.loading() || page() <= 1}
-                    onClick={() => setPage((value) => value - 1)}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={files.loading() || !result()?.pagination.has_next}
-                    onClick={() => setPage((value) => value + 1)}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </DataTable.Footer>
-            </Show>
-          </DataTable.Panel>
-        </div>
+            }
+          >
+            <DataTable
+              rows={result()?.items ?? []}
+              columns={columns}
+              getRowId={(row) => row.fileId}
+              ariaLabel="Unreferenced retained Files"
+              density="compact"
+              surface="plain"
+              hoverRows
+              fillHeight
+              class="min-h-0 flex-1 overflow-auto"
+              empty={
+                files.loading() ? (
+                  <span>Loading retained Files…</span>
+                ) : search() || status() !== "all" ? (
+                  <span>No Files match these filters.</span>
+                ) : (
+                  <span>No unreferenced Files are currently tracked for this Base.</span>
+                )
+              }
+              renderCell={({ row, col, render, value }) => {
+                if (col.id === "file") {
+                  return (
+                    <div class="min-w-0">
+                      <div class="truncate font-medium text-primary">{row.filename}</div>
+                      <div class="truncate text-xs text-dimmed">
+                        {row.fileId} · {row.mimeType}
+                      </div>
+                    </div>
+                  );
+                }
+                if (col.id === "size") return formatFileViewSize(row.sizeBytes);
+                if (col.id === "status") {
+                  return <StatusBadge tone="neutral" label={row.status === "retained" ? "Retained" : "Floor reached"} />;
+                }
+                if (col.id === "notBefore") return new Date(row.notBefore).toLocaleString();
+                if (col.id === "actions") {
+                  return (
+                    <div class="flex justify-end gap-1">
+                      <Show
+                        when={canPreviewFile({
+                          path: row.filename,
+                          mediaType: row.mimeType,
+                          size: row.sizeBytes,
+                        })}
+                      >
+                        <Tooltip.Anchor content="View File">
+                          <Button size="sm" variant="ghost" onClick={() => void openPreview(props.baseId, row)}>
+                            <i class="ti ti-eye" aria-hidden="true" /> View
+                          </Button>
+                        </Tooltip.Anchor>
+                      </Show>
+                      <Tooltip.Anchor content="Download File">
+                        <IconButtonLink
+                          size="sm"
+                          variant="ghost"
+                          href={contentHref(props.baseId, row)}
+                          download={row.filename}
+                          label={`Download ${row.filename}`}
+                        >
+                          <i class="ti ti-download" aria-hidden="true" />
+                        </IconButtonLink>
+                      </Tooltip.Anchor>
+                    </div>
+                  );
+                }
+                return render(value);
+              }}
+            />
+          </Show>
+          <Show when={(result()?.pagination.total_pages ?? 0) > 1}>
+            <DataTable.Footer class="flex items-center justify-between gap-3">
+              <span class="text-xs text-dimmed">
+                Page {page()} of {result()?.pagination.total_pages}
+              </span>
+              <div class="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={files.loading() || page() <= 1}
+                  onClick={() => setPage((value) => value - 1)}
+                >
+                  Previous
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={files.loading() || !result()?.pagination.has_next}
+                  onClick={() => setPage((value) => value + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </DataTable.Footer>
+          </Show>
+        </DataTable.Panel>
       </PanelDialog.Body>
     </PanelDialog>
   );

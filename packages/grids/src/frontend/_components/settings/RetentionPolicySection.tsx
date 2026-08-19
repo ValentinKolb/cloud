@@ -4,6 +4,7 @@ import {
   formatFileViewSize,
   NoticeCard,
   NumberInput,
+  Paper,
   Placeholder,
   prompts,
   SettingsGroup,
@@ -16,6 +17,7 @@ import { apiClient } from "@/api/client";
 import { RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, type RetentionPolicy, type RetentionPreview } from "../../../retention-policy-contracts";
 import { errorMessage } from "../utils/api-helpers";
 import { openRetentionFilesDialog } from "./RetentionFilesDialog";
+import { openRetentionRecordsDialog } from "./RetentionRecordsDialog";
 
 export function RetentionPolicySection(props: {
   baseId: string;
@@ -189,42 +191,60 @@ export function RetentionPolicySection(props: {
             </Show>
             <Show when={currentPreview()} keyed>
               {(impact) => (
-                <section class="overflow-hidden border-y border-subtle" aria-labelledby="retention-ledger-title">
-                  <div class="py-3">
-                    <h3 id="retention-ledger-title" class="font-semibold text-primary">Lifecycle ledger</h3>
+                <Paper as="section" class="space-y-4 p-4" aria-labelledby="retention-preview-title">
+                  <div>
+                    <h3 id="retention-preview-title" class="font-semibold text-primary">
+                      Retention preview
+                    </h3>
                     <p class="text-xs text-dimmed">
-                      Calculated {new Date(impact.observedAt).toLocaleString()}{changed() ? ` for the unsaved ${days()}-day floor` : ""}.
+                      Calculated {new Date(impact.observedAt).toLocaleString()}
+                      {changed() ? ` for the unsaved ${days()}-day floor` : ""}.
                     </p>
                   </div>
-                  <div class="grid gap-3 border-t border-subtle py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                    <div>
-                      <p class="font-medium text-primary">Records</p>
-                      <p class="text-sm text-secondary">
-                        {impact.counts.retainedUntilLater} retained until later · {impact.counts.floorReached} reached the floor · {impact.counts.protectedFinalized} finalized
-                      </p>
-                      <p class="text-xs text-dimmed">{impact.counts.trashedRecords} total in trash. Reaching the floor does not permit or perform destruction.</p>
+                  <div class="grid gap-5 sm:grid-cols-2">
+                    <div class="flex min-w-0 flex-col items-start gap-3">
+                      <div>
+                        <p class="font-medium text-primary">Records</p>
+                        <p class="text-sm text-secondary">
+                          {impact.counts.retainedUntilLater} retained until later · {impact.counts.floorReached} reached the floor ·{" "}
+                          {impact.counts.protectedFinalized} finalized
+                        </p>
+                        <p class="text-xs text-dimmed">
+                          {impact.counts.trashedRecords} total in trash. Reaching the floor does not permit or perform destruction.
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={impact.counts.trashedRecords === 0}
+                        onClick={() => void openRetentionRecordsDialog(props.baseId, impact.minimumDays)}
+                      >
+                        Review Records
+                      </Button>
+                    </div>
+                    <div class="flex min-w-0 flex-col items-start gap-3">
+                      <div>
+                        <p class="font-medium text-primary">Files</p>
+                        <p class="text-sm text-secondary">
+                          {impact.files.counts.retainedUntilLater} retained until later · {impact.files.counts.floorReached} reached the
+                          floor
+                        </p>
+                        <p class="text-xs text-dimmed">
+                          {impact.files.counts.unreferenced} unreferenced Files · {formatFileViewSize(impact.files.counts.sizeBytes)}{" "}
+                          stored. Protected references are excluded.
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={impact.files.counts.unreferenced === 0}
+                        onClick={() => void openRetentionFilesDialog(props.baseId, impact.minimumDays)}
+                      >
+                        Review Files
+                      </Button>
                     </div>
                   </div>
-                  <div class="grid gap-3 border-t border-subtle py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                    <div>
-                      <p class="font-medium text-primary">Files</p>
-                      <p class="text-sm text-secondary">
-                        {impact.files.counts.retainedUntilLater} retained until later · {impact.files.counts.floorReached} reached the floor
-                      </p>
-                      <p class="text-xs text-dimmed">
-                        {impact.files.counts.unreferenced} unreferenced Files · {formatFileViewSize(impact.files.counts.sizeBytes)} stored. Protected references are excluded.
-                      </p>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={impact.files.counts.unreferenced === 0}
-                      onClick={() => void openRetentionFilesDialog(props.baseId, impact.minimumDays)}
-                    >
-                      Review Files
-                    </Button>
-                  </div>
-                </section>
+                </Paper>
               )}
             </Show>
           </Show>

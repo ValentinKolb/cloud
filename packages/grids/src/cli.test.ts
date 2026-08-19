@@ -401,7 +401,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(162);
+    expect(commands).toHaveLength(163);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {
@@ -478,15 +478,17 @@ describe("grids CLI", () => {
     const payload = {
       observedAt: "2026-08-19T12:05:00.000Z",
       minimumDays: 30,
-      items: [{
-        fileId,
-        filename: "evidence.txt",
-        mimeType: "text/plain",
-        sizeBytes: 5,
-        status: "retained",
-        unreferencedAt: "2026-08-18T12:05:00.000Z",
-        notBefore: "2026-09-17T12:05:00.000Z",
-      }],
+      items: [
+        {
+          fileId,
+          filename: "evidence.txt",
+          mimeType: "text/plain",
+          sizeBytes: 5,
+          status: "retained",
+          unreferencedAt: "2026-08-18T12:05:00.000Z",
+          notBefore: "2026-09-17T12:05:00.000Z",
+        },
+      ],
       pagination: { page: 2, per_page: 10, total: 11, total_pages: 2, has_next: false },
     };
     const list = createContext(
@@ -504,11 +506,10 @@ describe("grids CLI", () => {
     const dir = await mkdtemp(join(tmpdir(), "grids-retention-file-"));
     const out = join(dir, "evidence.txt");
     try {
-      const download = createContext(
-        ["bases", "retention", "files", "download", baseId, fileId],
-        { out },
-        [jsonResponse(basePage), new Response("hello")],
-      );
+      const download = createContext(["bases", "retention", "files", "download", baseId, fileId], { out }, [
+        jsonResponse(basePage),
+        new Response("hello"),
+      ]);
       await gridsCli.run(download.ctx);
       expect(download.calls.at(-1)?.path).toBe(`/api/grids/bases/${baseId}/retention-policy/files/${fileId}/content`);
       expect(await readFile(out, "utf8")).toBe("hello");
@@ -516,6 +517,35 @@ describe("grids CLI", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  test("lists trashed Records under a retention floor through public ids", async () => {
+    const payload = {
+      observedAt: "2026-08-19T12:05:00.000Z",
+      minimumDays: 30,
+      items: [
+        {
+          recordId,
+          tableId,
+          tableName: "Cases",
+          status: "retained",
+          deletedAt: "2026-08-18T12:05:00.000Z",
+          notBefore: "2026-09-17T12:05:00.000Z",
+        },
+      ],
+      pagination: { page: 2, per_page: 10, total: 11, total_pages: 2, has_next: false },
+    };
+    const list = createContext(
+      ["bases", "retention", "records", "list", baseId],
+      { days: "30", search: "Cases", status: "retained", page: "2", "per-page": "10" },
+      [jsonResponse(basePage), jsonResponse(payload)],
+      { output: "json" },
+    );
+    await gridsCli.run(list.ctx);
+    expect(list.calls.at(-1)?.path).toBe(
+      `/api/grids/bases/${baseId}/retention-policy/records?minimumDays=30&search=Cases&status=retained&page=2&per_page=10`,
+    );
+    expect(list.jsonValues).toEqual([payload]);
   });
 
   test("sets a Base retention floor and confirms only shorter floors", async () => {

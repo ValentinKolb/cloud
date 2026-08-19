@@ -13,9 +13,10 @@ You need **Admin** access to the Base. Custom Apps, Workflows, API clients, and 
 
 1. Open the Base settings and select **Retention and preservation**.
 2. Enter **Minimum retention days** between 1 and 36,500.
-3. Review the live **Lifecycle ledger**. It distinguishes Records and unreferenced Files still retained by the proposed floor, items that have reached the floor, and evidence protected independently.
-4. Select **Review Files** to search and filter every currently unreferenced File in a paginated table. You can preview supported formats or download the exact stored bytes.
-5. Select **Save changes**.
+3. Review the live **Retention preview**. It distinguishes Records and unreferenced Files still retained by the proposed floor, items that have reached the floor, and evidence protected independently.
+4. Select **Review Records** to inspect the complete paginated list. **Open in Trash** hands restoration or record actions to the existing table Trash view.
+5. Select **Review Files** to search and filter every currently unreferenced File. You can preview supported formats or download the exact stored bytes.
+6. Select **Save changes**.
 
 Existing Bases have no retention floor by default, so their behavior does not change. The clock starts when a Record is moved to trash. Restoring and later trashing it starts a new clock from the new trash timestamp.
 
@@ -24,6 +25,7 @@ You can inspect and manage the same Base setting from the Cloud CLI. Use a 6-cha
 ```bash
 cld grids bases retention 8yMtTb --json
 cld grids bases retention preview 8yMtTb --days 30 --json
+cld grids bases retention records list 8yMtTb --days 30 --status retained --page 1 --per-page 25 --json
 cld grids bases retention files list 8yMtTb --days 30 --status retained --page 1 --per-page 25 --json
 cld grids bases retention set 8yMtTb --days 30 --json
 ```
@@ -38,6 +40,8 @@ cld grids bases retention remove 8yMtTb --yes --json
 The CLI calls the same Admin-only API as Base settings. A script, Workflow, Custom App, or direct API client cannot bypass the floor or its permission check.
 
 The preview uses one stated observation time and returns bounded examples. **Reached the floor** means only that the configured number of days has elapsed. It does not mean that Grids deleted the Record or File or that deletion is permitted.
+
+**Review Records** and `bases retention records list` search Record ID, Table ID, or Table name and filter the current Trash set on the server. Finalized Records are labelled as independently protected. The review does not duplicate Trash actions: use **Open in Trash** to inspect or restore a Record through the normal table view.
 
 ## Understand File retention {icon="paperclip"}
 

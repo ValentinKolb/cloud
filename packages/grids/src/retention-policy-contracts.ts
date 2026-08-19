@@ -1,5 +1,5 @@
-import { z } from "zod";
 import { PaginationQuerySchema, PaginationResponseSchema } from "@valentinkolb/cloud/contracts";
+import { z } from "zod";
 import { ShortIdSchema } from "./contracts";
 
 export const RETENTION_MIN_DAYS = 1;
@@ -8,6 +8,8 @@ export const RETENTION_PREVIEW_LIMIT = 100;
 export const RETENTION_FILE_SEARCH_MAX_LENGTH = 100;
 export const RetentionFileStatusSchema = z.enum(["all", "retained", "reached"]);
 export type RetentionFileStatus = z.infer<typeof RetentionFileStatusSchema>;
+export const RetentionRecordStatusSchema = z.enum(["all", "protected", "retained", "reached"]);
+export type RetentionRecordStatus = z.infer<typeof RetentionRecordStatusSchema>;
 
 export const RetentionPolicyInputSchema = z
   .object({ minimumDays: z.number().int().min(RETENTION_MIN_DAYS).max(RETENTION_MAX_DAYS) })
@@ -104,3 +106,35 @@ export const RetentionFilesResponseSchema = z
   })
   .strict();
 export type RetentionFilesResponse = z.infer<typeof RetentionFilesResponseSchema>;
+
+export const RetentionRecordsQuerySchema = z
+  .object({
+    ...PaginationQuerySchema.shape,
+    minimumDays: z.coerce.number().int().min(RETENTION_MIN_DAYS).max(RETENTION_MAX_DAYS),
+    search: z.string().trim().max(RETENTION_FILE_SEARCH_MAX_LENGTH).optional().default(""),
+    status: RetentionRecordStatusSchema.optional().default("all"),
+  })
+  .strict();
+export type RetentionRecordsQuery = z.infer<typeof RetentionRecordsQuerySchema>;
+
+export const RetentionRecordSchema = z
+  .object({
+    recordId: ShortIdSchema,
+    tableId: ShortIdSchema,
+    tableName: z.string(),
+    deletedAt: z.string().datetime({ offset: true }),
+    notBefore: z.string().datetime({ offset: true }).nullable(),
+    status: z.enum(["protected", "retained", "reached"]),
+  })
+  .strict();
+export type RetentionRecord = z.infer<typeof RetentionRecordSchema>;
+
+export const RetentionRecordsResponseSchema = z
+  .object({
+    observedAt: z.string().datetime({ offset: true }),
+    minimumDays: z.number().int().positive(),
+    items: z.array(RetentionRecordSchema),
+    pagination: PaginationResponseSchema,
+  })
+  .strict();
+export type RetentionRecordsResponse = z.infer<typeof RetentionRecordsResponseSchema>;

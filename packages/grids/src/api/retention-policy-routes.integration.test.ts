@@ -19,6 +19,10 @@ describe("retention policy routes", () => {
     const baseShortId = testShortId("B");
     const fileId = testUuid();
     const fileShortId = testShortId("F");
+    const tableId = testUuid();
+    const tableShortId = testShortId("T");
+    const recordId = testUuid();
+    const recordShortId = testShortId("R");
     const user: User = {
       id: userId,
       uid: `retention-${userId}`,
@@ -53,6 +57,7 @@ describe("retention policy routes", () => {
       const path = `/${baseShortId}/retention-policy`;
       expect((await app.request(path)).status).toBe(403);
       expect((await app.request(`${path}/files?minimumDays=30`)).status).toBe(403);
+      expect((await app.request(`${path}/records?minimumDays=30`)).status).toBe(403);
       await sql`UPDATE auth.access SET permission = 'admin' WHERE id = ${accessId}::uuid`;
       const initial = await app.request(path);
       expect(initial.status).toBe(200);
@@ -74,6 +79,18 @@ describe("retention policy routes", () => {
         minimumDays: 90,
         counts: { trashedRecords: 0 },
         files: { counts: { unreferenced: 0, sizeBytes: 0 }, examples: [], truncated: false },
+      });
+      await sql`INSERT INTO grids.tables (id, short_id, base_id, name) VALUES (${tableId}::uuid, ${tableShortId}, ${baseId}::uuid, 'Cases')`;
+      await sql`
+        INSERT INTO grids.records (id, short_id, table_id, data, deleted_at)
+        VALUES (${recordId}::uuid, ${recordShortId}, ${tableId}::uuid, '{}'::jsonb, now() - interval '10 days')
+      `;
+      const records = await app.request(`${path}/records?minimumDays=30&search=Cases&status=retained&page=1&per_page=10`);
+      expect(records.status).toBe(200);
+      expect(await records.json()).toMatchObject({
+        minimumDays: 30,
+        items: [{ recordId: recordShortId, tableId: tableShortId, tableName: "Cases", status: "retained" }],
+        pagination: { page: 1, per_page: 10, total: 1, total_pages: 1, has_next: false },
       });
       await sql`
         INSERT INTO grids.files (id, short_id, filename, mime_type, size_bytes, sha256, bytes)

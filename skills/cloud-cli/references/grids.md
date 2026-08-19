@@ -133,12 +133,13 @@ A Base Admin can configure a technical minimum age for trashed Records. Read and
 ```bash
 cld grids bases retention Bookshop --json
 cld grids bases retention preview Bookshop --days 30 --json
+cld grids bases retention records list Bookshop --days 30 --search Cases --status all --page 1 --per-page 25 --json
 cld grids bases retention files list Bookshop --days 30 --search invoice --status all --page 1 --per-page 25 --json
 cld grids bases retention files download Bookshop HeUB3M --out ./retained-file.bin
 cld grids bases retention set Bookshop --days 30 --json
 ```
 
-The preview is bounded and uses one stated observation time. It reports both trashed Records and newly unreferenced Files, including retained byte totals and bounded examples. `bases retention files list` exposes the complete current candidate set through server-side search, floor-status filtering, and pagination; `download` accepts only a File public ID returned by that list. Both routes require Base Admin permission. Current attachments and Files protected by Durable History or Documents are not unreferenced candidates. Reaching the floor does not delete a Record or File or state that destruction is appropriate. Shortening an existing floor requires `--yes`; removing it always requires `bases retention remove <base> --yes`. Existing Bases have no floor by default.
+The preview is bounded and uses one stated observation time. It reports both trashed Records and newly unreferenced Files, including retained byte totals and bounded examples. `bases retention records list` exposes the complete current Trash set through server-side search, floor-status filtering, and pagination; finalized Records are labelled as independently protected. Use the normal table Trash view for restore or other Record actions. `bases retention files list` exposes the complete current candidate set through the same bounded pattern; `download` accepts only a File public ID returned by that list. All routes require Base Admin permission. Current attachments and Files protected by Durable History or Documents are not unreferenced candidates. Reaching the floor does not delete a Record or File or state that destruction is appropriate. Shortening an existing floor requires `--yes`; removing it always requires `bases retention remove <base> --yes`. Existing Bases have no floor by default.
 
 Stored tables allow every record change source by default. Before tightening that setting, preview the active Forms, Actions, and Workflows that would stop changing the table, then apply the same policy:
 
@@ -1068,6 +1069,7 @@ list, use, current
 templates list|instantiate
 bases list|get|create|update|delete|restore|trash|retention
 bases retention preview|set|remove
+bases retention records list
 bases retention files list|download
 access reference|list|grant|set|revoke|search-principals
 tables list|get|create|update|delete|restore|history|finalization|mutation-policy
