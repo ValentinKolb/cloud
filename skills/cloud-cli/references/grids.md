@@ -126,7 +126,17 @@ Built-in templates create complete example bases with schema, views, Grids Apps,
 records are included by default; pass `--empty` to keep the complete configuration without those records. Commands are
 `templates list|instantiate`.
 
-Base commands are `list`, `use`, `current`, and `bases list|get|create|update|delete|restore|trash`. Table commands are `tables list|get|create|update|delete|restore|mutation-policy|mutation-policy impact|mutation-policy set|history|history enable|finalization|finalization enable|finalization disable`.
+Base commands are `list`, `use`, `current`, and `bases list|get|create|update|delete|restore|trash|retention`. Table commands are `tables list|get|create|update|delete|restore|mutation-policy|mutation-policy impact|mutation-policy set|history|history enable|finalization|finalization enable|finalization disable`.
+
+A Base Admin can configure a technical minimum age for trashed Records. Read and preview it before changing it:
+
+```bash
+cld grids bases retention Bookshop --json
+cld grids bases retention preview Bookshop --days 30 --json
+cld grids bases retention set Bookshop --days 30 --json
+```
+
+The preview is bounded and uses one stated observation time. Reaching the floor does not delete a Record or state that destruction is appropriate. Shortening an existing floor requires `--yes`; removing it always requires `bases retention remove <base> --yes`. Existing Bases have no floor by default.
 
 Stored tables allow every record change source by default. Before tightening that setting, preview the active Forms, Actions, and Workflows that would stop changing the table, then apply the same policy:
 
@@ -1054,7 +1064,8 @@ Use `cld grids <command> --help` for every flag, positional form, constraint, an
 ```text
 list, use, current
 templates list|instantiate
-bases list|get|create|update|delete|restore|trash
+bases list|get|create|update|delete|restore|trash|retention
+bases retention preview|set|remove
 access reference|list|grant|set|revoke|search-principals
 tables list|get|create|update|delete|restore|history|finalization|mutation-policy
 tables history enable|finalization enable|finalization disable

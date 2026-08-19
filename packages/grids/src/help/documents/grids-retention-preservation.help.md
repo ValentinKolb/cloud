@@ -18,6 +18,23 @@ You need **Admin** access to the Base. Custom Apps, Workflows, API clients, and 
 
 Existing Bases have no retention floor by default, so their behavior does not change. The clock starts when a Record is moved to trash. Restoring and later trashing it starts a new clock from the new trash timestamp.
 
+You can inspect and manage the same Base setting from the Cloud CLI. Use a 6-character Base ID or its exact name:
+
+```bash
+cld grids bases retention 8yMtTb --json
+cld grids bases retention preview 8yMtTb --days 30 --json
+cld grids bases retention set 8yMtTb --days 30 --json
+```
+
+Shortening an existing floor requires `--yes`. Removing it always requires `--yes`:
+
+```bash
+cld grids bases retention set 8yMtTb --days 14 --yes --json
+cld grids bases retention remove 8yMtTb --yes --json
+```
+
+The CLI calls the same Admin-only API as Base settings. A script, Workflow, Custom App, or direct API client cannot bypass the floor or its permission check.
+
 The preview uses one stated observation time and returns bounded examples. **Reached the floor** means only that the configured number of days has elapsed. It does not mean that Grids deleted the Record or that deletion is permitted.
 
 ## Change or remove the floor {icon="edit"}

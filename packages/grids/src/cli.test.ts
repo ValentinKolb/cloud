@@ -401,7 +401,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(156);
+    expect(commands).toHaveLength(160);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {
@@ -421,6 +421,99 @@ describe("grids CLI", () => {
     expect(calls.map((call) => call.path)).toEqual(["/api/grids/bases?q=bk001A&limit=500&offset=0"]);
     expect(defaults["grids.base"]).toBe("bk001A");
     expect(lines).toEqual(["Using Grids base Bookshop (bk001A)."]);
+  });
+
+  test("shows and previews a Base Record retention floor through public ids", async () => {
+    const policy = { baseId, minimumDays: 30, updatedAt: "2026-08-19T12:00:00.000Z" };
+    const show = createContext(
+      ["bases", "retention", baseId],
+      {},
+      [jsonResponse(basePage), jsonResponse({ policy })],
+      { output: "json" },
+    );
+
+    await gridsCli.run(show.ctx);
+
+    expect(show.calls.at(-1)?.path).toBe(`/api/grids/bases/${baseId}/retention-policy`);
+    expect(show.jsonValues).toEqual([{ policy }]);
+
+    const preview = {
+      observedAt: "2026-08-19T12:05:00.000Z",
+      minimumDays: 30,
+      counts: { trashedRecords: 2, floorReached: 1, retainedUntilLater: 1, protectedFinalized: 0 },
+      examples: [
+        {
+          recordId,
+          tableId,
+          deletedAt: "2026-08-18T12:05:00.000Z",
+          notBefore: "2026-09-17T12:05:00.000Z",
+        },
+      ],
+      truncated: false,
+    };
+    const impact = createContext(
+      ["bases", "retention", "preview", baseId],
+      { days: "30" },
+      [jsonResponse(basePage), jsonResponse(preview)],
+      { output: "json" },
+    );
+
+    await gridsCli.run(impact.ctx);
+
+    expect(impact.calls.at(-1)?.path).toBe(`/api/grids/bases/${baseId}/retention-policy/preview`);
+    expect(impact.calls.at(-1)?.init?.method).toBe("POST");
+    expect(JSON.parse(String(impact.calls.at(-1)?.init?.body))).toEqual({ minimumDays: 30 });
+    expect(impact.jsonValues).toEqual([preview]);
+  });
+
+  test("sets a Base Record retention floor and confirms only shorter floors", async () => {
+    const existing = { baseId, minimumDays: 30, updatedAt: "2026-08-19T12:00:00.000Z" };
+    const longer = { ...existing, minimumDays: 60, updatedAt: "2026-08-19T12:10:00.000Z" };
+    const update = createContext(
+      ["bases", "retention", "set", baseId],
+      { days: "60" },
+      [jsonResponse(basePage), jsonResponse({ policy: existing }), jsonResponse({ policy: longer })],
+      { output: "json" },
+    );
+
+    await gridsCli.run(update.ctx);
+
+    expect(update.calls.at(-1)?.init?.method).toBe("PUT");
+    expect(JSON.parse(String(update.calls.at(-1)?.init?.body))).toEqual({ minimumDays: 60 });
+    expect(update.jsonValues).toEqual([{ policy: longer }]);
+
+    const shorter = createContext(
+      ["bases", "retention", "set", baseId],
+      { days: "10" },
+      [jsonResponse(basePage), jsonResponse({ policy: existing })],
+    );
+    await expect(gridsCli.run(shorter.ctx)).rejects.toThrow("Pass --yes to shorten the existing Record retention floor.");
+    expect(shorter.calls.at(-1)?.init?.method).toBeUndefined();
+
+    const confirmed = createContext(
+      ["bases", "retention", "set", baseId],
+      { days: "10", yes: true },
+      [jsonResponse(basePage), jsonResponse({ policy: existing }), jsonResponse({ policy: { ...existing, minimumDays: 10 } })],
+    );
+    await gridsCli.run(confirmed.ctx);
+    expect(confirmed.calls.at(-1)?.init?.method).toBe("PUT");
+  });
+
+  test("requires confirmation before removing a Base Record retention floor", async () => {
+    const unconfirmed = createContext(["bases", "retention", "remove", baseId]);
+    await expect(gridsCli.run(unconfirmed.ctx)).rejects.toThrow("Pass --yes to remove the Record retention floor.");
+    expect(unconfirmed.calls).toEqual([]);
+
+    const confirmed = createContext(
+      ["bases", "retention", "remove", baseId],
+      { yes: true },
+      [jsonResponse(basePage), new Response(null, { status: 204 })],
+      { output: "json" },
+    );
+    await gridsCli.run(confirmed.ctx);
+    expect(confirmed.calls.at(-1)?.path).toBe(`/api/grids/bases/${baseId}/retention-policy`);
+    expect(confirmed.calls.at(-1)?.init?.method).toBe("DELETE");
+    expect(confirmed.jsonValues).toEqual([{ removed: true, baseId }]);
   });
 
   test("forwards public field ids in table and view presentation updates", async () => {
