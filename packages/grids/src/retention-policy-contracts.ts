@@ -40,6 +40,30 @@ export const RetentionPreviewSchema = z
         .strict(),
     ),
     truncated: z.boolean(),
+    files: z
+      .object({
+        counts: z
+          .object({
+            unreferenced: z.number().int().nonnegative(),
+            floorReached: z.number().int().nonnegative(),
+            retainedUntilLater: z.number().int().nonnegative(),
+            sizeBytes: z.number().int().nonnegative(),
+          })
+          .strict(),
+        examples: z.array(
+          z
+            .object({
+              fileId: ShortIdSchema,
+              filename: z.string(),
+              sizeBytes: z.number().int().nonnegative(),
+              unreferencedAt: z.string().datetime({ offset: true }),
+              notBefore: z.string().datetime({ offset: true }),
+            })
+            .strict(),
+        ),
+        truncated: z.boolean(),
+      })
+      .strict(),
   })
   .strict();
 export type RetentionPreview = z.infer<typeof RetentionPreviewSchema>;

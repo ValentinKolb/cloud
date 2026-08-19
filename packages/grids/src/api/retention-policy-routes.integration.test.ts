@@ -67,7 +67,11 @@ describe("retention policy routes", () => {
         body: JSON.stringify({ minimumDays: 90 }),
       });
       expect(preview.status).toBe(200);
-      expect(await preview.json()).toMatchObject({ minimumDays: 90, counts: { trashedRecords: 0 } });
+      expect(await preview.json()).toMatchObject({
+        minimumDays: 90,
+        counts: { trashedRecords: 0 },
+        files: { counts: { unreferenced: 0, sizeBytes: 0 }, examples: [], truncated: false },
+      });
       expect(
         (
           await app.request(path, {

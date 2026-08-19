@@ -2204,6 +2204,17 @@ const migrateRetentionPolicies = async (sql: SQL): Promise<void> => {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.file_retention_candidates (
+      file_id UUID PRIMARY KEY REFERENCES grids.files(id) ON DELETE CASCADE,
+      base_id UUID NOT NULL,
+      unreferenced_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_file_retention_candidates_base
+    ON grids.file_retention_candidates(base_id, unreferenced_at, file_id)
+  `.simple();
   console.log("  ✓ grids.retention_policies");
 };
 

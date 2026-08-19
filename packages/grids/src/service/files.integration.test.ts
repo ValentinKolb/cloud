@@ -96,6 +96,111 @@ describe("durable file asset lifecycle Postgres integration", () => {
     }
   });
 
+  postgresTest("retains newly unreferenced assets under the Base floor and resets candidacy through protection", async () => {
+    const fixture = await createFixture();
+    const ownerId = testUuid();
+    try {
+      await sql`INSERT INTO grids.retention_policies (base_id, minimum_days) VALUES (${fixture.baseId}::uuid, 30)`;
+      const original = await upload({
+        ...fixture,
+        filename: "retained-original.txt",
+        mimeType: "text/plain",
+        bytes: bytes("retained original"),
+        userId: null,
+        origin: "direct",
+      });
+      if (!original.ok) throw original.error;
+
+      const replacement = await replace({
+        ...fixture,
+        fileId: original.data.id,
+        filename: "retained-replacement.txt",
+        mimeType: "text/plain",
+        bytes: bytes("retained replacement"),
+        userId: null,
+        origin: "direct",
+      });
+      if (!replacement.ok) throw replacement.error;
+      expect((await remove({ ...fixture, fileId: replacement.data.id, userId: null, origin: "direct" })).ok).toBe(true);
+
+      const candidates = await sql<Array<{ file_id: string; base_id: string; unreferenced_at: Date }>>`
+        SELECT file_id::text, base_id::text, unreferenced_at
+        FROM grids.file_retention_candidates
+        WHERE file_id IN (${original.data.id}::uuid, ${replacement.data.id}::uuid)
+        ORDER BY file_id
+      `;
+      expect(candidates).toHaveLength(2);
+      expect(candidates.every((candidate) => candidate.base_id === fixture.baseId)).toBe(true);
+      const retainedCleanup = await cleanup(original.data.id);
+      expect(retainedCleanup.ok).toBe(true);
+      if (retainedCleanup.ok) expect(retainedCleanup.data).toBe(false);
+
+      const firstUnreferencedAt = candidates.find((candidate) => candidate.file_id === original.data.id)?.unreferenced_at;
+      expect(
+        (
+          await protect({
+            fileId: original.data.id,
+            ownerKind: "record_revision",
+            ownerId,
+            ...fixture,
+            userId: null,
+          })
+        ).ok,
+      ).toBe(true);
+      expect(
+        (
+          await sql<Array<{ exists: boolean }>>`
+            SELECT EXISTS (
+              SELECT 1 FROM grids.file_retention_candidates WHERE file_id = ${original.data.id}::uuid
+            ) AS exists
+          `
+        )[0]?.exists,
+      ).toBe(false);
+      expect((await releaseProtection({ fileId: original.data.id, ownerKind: "record_revision", ownerId })).ok).toBe(true);
+      const [renewed] = await sql<Array<{ unreferenced_at: Date; bytes: Uint8Array }>>`
+        SELECT candidate.unreferenced_at, file.bytes
+        FROM grids.file_retention_candidates candidate
+        JOIN grids.files file ON file.id = candidate.file_id
+        WHERE candidate.file_id = ${original.data.id}::uuid
+      `;
+      expect(renewed?.bytes).toEqual(bytes("retained original"));
+      expect(renewed && firstUnreferencedAt && renewed.unreferenced_at >= firstUnreferencedAt).toBe(true);
+    } finally {
+      await destroyFixture(fixture.baseId);
+    }
+  });
+
+  postgresTest("serializes detach and protection without exposing a retention deletion race", async () => {
+    const fixture = await createFixture();
+    try {
+      await sql`INSERT INTO grids.retention_policies (base_id, minimum_days) VALUES (${fixture.baseId}::uuid, 30)`;
+      for (let index = 0; index < 4; index += 1) {
+        const added = await upload({
+          ...fixture,
+          filename: `retained-race-${index}.txt`,
+          mimeType: "text/plain",
+          bytes: bytes(`retained-race-${index}`),
+          userId: null,
+          origin: "direct",
+        });
+        if (!added.ok) throw added.error;
+        const ownerId = testUuid();
+        const [protectedResult, detached] = await Promise.all([
+          protect({ fileId: added.data.id, ownerKind: "record_revision", ownerId, ...fixture, userId: null }),
+          remove({ ...fixture, fileId: added.data.id, userId: null, origin: "direct" }),
+        ]);
+        expect(protectedResult.ok).toBe(true);
+        expect(detached.ok).toBe(true);
+        const content = await getProtectedContent({ fileId: added.data.id, ownerKind: "record_revision", ownerId });
+        expect(content.ok).toBe(true);
+        if (content.ok) expect(content.data.bytes).toEqual(bytes(`retained-race-${index}`));
+        await releaseProtection({ fileId: added.data.id, ownerKind: "record_revision", ownerId });
+      }
+    } finally {
+      await destroyFixture(fixture.baseId);
+    }
+  });
+
   postgresTest("replaces the current attachment atomically without destroying a protected previous asset", async () => {
     const fixture = await createFixture();
     const artifactId = testUuid();

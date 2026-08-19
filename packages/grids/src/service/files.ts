@@ -78,7 +78,38 @@ const lockMutationTarget = async (client: SqlClient, recordId: string, fieldId: 
   await client`SELECT pg_advisory_xact_lock(hashtext(${recordId}), hashtext(${fieldId}))`;
 };
 
-const cleanupUnreferenced = async (client: SqlClient, fileId: string): Promise<boolean> => {
+const settleUnreferenced = async (client: SqlClient, fileId: string, ownerBaseId?: string): Promise<boolean> => {
+  const [state] = await client<Array<{ attached: boolean; protected: boolean; candidate_base_id: string | null }>>`
+    SELECT
+      EXISTS (SELECT 1 FROM grids.file_attachments attachment WHERE attachment.file_id = file.id) AS attached,
+      EXISTS (SELECT 1 FROM grids.file_protected_references protected WHERE protected.file_id = file.id) AS protected,
+      candidate.base_id::text AS candidate_base_id
+    FROM grids.files file
+    LEFT JOIN grids.file_retention_candidates candidate ON candidate.file_id = file.id
+    WHERE file.id = ${fileId}::uuid
+  `;
+  if (!state) return false;
+  if (state.attached || state.protected) {
+    await client`DELETE FROM grids.file_retention_candidates WHERE file_id = ${fileId}::uuid`;
+    return false;
+  }
+
+  const baseId = ownerBaseId ?? state.candidate_base_id;
+  if (baseId) {
+    const [policy] = await client<{ exists: boolean }[]>`
+      SELECT EXISTS (SELECT 1 FROM grids.retention_policies WHERE base_id = ${baseId}::uuid) AS exists
+    `;
+    if (policy?.exists) {
+      await client`
+        INSERT INTO grids.file_retention_candidates (file_id, base_id)
+        VALUES (${fileId}::uuid, ${baseId}::uuid)
+        ON CONFLICT (file_id) DO NOTHING
+      `;
+      return false;
+    }
+  }
+
+  await client`DELETE FROM grids.file_retention_candidates WHERE file_id = ${fileId}::uuid`;
   const rows = await client<{ id: string }[]>`
     DELETE FROM grids.files file
     WHERE file.id = ${fileId}::uuid
@@ -89,7 +120,11 @@ const cleanupUnreferenced = async (client: SqlClient, fileId: string): Promise<b
   return rows.length > 0;
 };
 
-const verifyTarget = async (tableId: string, recordId: string, fieldId: string): Promise<Result<{ config: FileFieldConfig }>> => {
+const verifyTarget = async (
+  tableId: string,
+  recordId: string,
+  fieldId: string,
+): Promise<Result<{ baseId: string; config: FileFieldConfig }>> => {
   const table = await getTable(tableId);
   if (!table) return fail(err.notFound("Table"));
   if (table.kind === "federated") return fail(err.badInput("combined tables are read-only"));
@@ -123,7 +158,7 @@ const verifyTarget = async (tableId: string, recordId: string, fieldId: string):
   `;
   if (!row?.record_ok) return fail(err.notFound("Record"));
   if (!row.field_ok) return fail(err.badInput("field is not a live file field on this table"));
-  return ok({ config: (row.config && typeof row.config === "object" ? row.config : {}) as FileFieldConfig });
+  return ok({ baseId: table.baseId, config: (row.config && typeof row.config === "object" ? row.config : {}) as FileFieldConfig });
 };
 
 type ReadTarget = {
@@ -578,7 +613,7 @@ export const replace = async (params: {
       },
       tx,
     );
-    await cleanupUnreferenced(tx, params.fileId);
+    await settleUnreferenced(tx, params.fileId, target.data.baseId);
     return ok(next);
   });
 };
@@ -672,7 +707,7 @@ export const remove = async (params: {
       },
       tx,
     );
-    await cleanupUnreferenced(tx, params.fileId);
+    await settleUnreferenced(tx, params.fileId, target.data.baseId);
     return ok();
   });
 };
@@ -702,6 +737,7 @@ const protectWithClient = async (params: ProtectParams, client: SqlClient): Prom
     )
     ON CONFLICT (file_id, owner_kind, owner_id) DO NOTHING
   `;
+  await client`DELETE FROM grids.file_retention_candidates WHERE file_id = ${params.fileId}::uuid`;
   return ok();
 };
 
@@ -757,13 +793,14 @@ const releaseProtectionWithClient = async (params: ProtectionIdentity, client: S
     SELECT id::text AS id FROM grids.files WHERE id = ${params.fileId}::uuid FOR UPDATE
   `;
   if (!asset) return ok();
-  await client`
+  const [released] = await client<Array<{ base_id: string }>>`
     DELETE FROM grids.file_protected_references
     WHERE file_id = ${params.fileId}::uuid
       AND owner_kind = ${params.ownerKind}
       AND owner_id = ${params.ownerId}::uuid
+    RETURNING base_id::text AS base_id
   `;
-  await cleanupUnreferenced(client, params.fileId);
+  if (released) await settleUnreferenced(client, params.fileId, released.base_id);
   return ok();
 };
 
@@ -811,7 +848,7 @@ const cleanupWithClient = async (fileId: string, client: SqlClient): Promise<Res
     SELECT id::text AS id FROM grids.files WHERE id = ${fileId}::uuid FOR UPDATE
   `;
   if (!asset) return ok(false);
-  return ok(await cleanupUnreferenced(client, fileId));
+  return ok(await settleUnreferenced(client, fileId));
 };
 
 export const cleanup = async (fileId: string, client?: SqlClient): Promise<Result<boolean>> =>

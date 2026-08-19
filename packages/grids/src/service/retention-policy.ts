@@ -75,7 +75,27 @@ export const preview = async (baseId: string, input: RetentionPolicyInput): Prom
     WHERE table_info.base_id = ${baseId}::uuid AND record.deleted_at IS NOT NULL AND record.finalized_at IS NULL
     ORDER BY not_before, record.id LIMIT ${RETENTION_PREVIEW_LIMIT}
   `;
+  const [fileCounts] = await sql<Array<{ unreferenced: number; reached: number; later: number; size_bytes: number | string }>>`
+    SELECT count(*)::int AS unreferenced,
+      count(*) FILTER (WHERE candidate.unreferenced_at + (${input.minimumDays} * interval '1 day') <= ${observedAt}::timestamptz)::int AS reached,
+      count(*) FILTER (WHERE candidate.unreferenced_at + (${input.minimumDays} * interval '1 day') > ${observedAt}::timestamptz)::int AS later,
+      COALESCE(sum(file.size_bytes), 0)::bigint AS size_bytes
+    FROM grids.file_retention_candidates candidate
+    JOIN grids.files file ON file.id = candidate.file_id
+    WHERE candidate.base_id = ${baseId}::uuid
+  `;
+  const fileExamples = await sql<
+    Array<{ file_id: string; filename: string; size_bytes: number | string; unreferenced_at: Date; not_before: Date }>
+  >`
+    SELECT file.short_id AS file_id, file.filename, file.size_bytes, candidate.unreferenced_at,
+      candidate.unreferenced_at + (${input.minimumDays} * interval '1 day') AS not_before
+    FROM grids.file_retention_candidates candidate
+    JOIN grids.files file ON file.id = candidate.file_id
+    WHERE candidate.base_id = ${baseId}::uuid
+    ORDER BY not_before, file.id LIMIT ${RETENTION_PREVIEW_LIMIT}
+  `;
   const values = counts ?? { trashed: 0, reached: 0, later: 0, finalized: 0 };
+  const fileValues = fileCounts ?? { unreferenced: 0, reached: 0, later: 0, size_bytes: 0 };
   return {
     observedAt,
     minimumDays: input.minimumDays,
@@ -92,5 +112,21 @@ export const preview = async (baseId: string, input: RetentionPolicyInput): Prom
       notBefore: row.not_before.toISOString(),
     })),
     truncated: Number(values.reached) + Number(values.later) > examples.length,
+    files: {
+      counts: {
+        unreferenced: Number(fileValues.unreferenced),
+        floorReached: Number(fileValues.reached),
+        retainedUntilLater: Number(fileValues.later),
+        sizeBytes: Number(fileValues.size_bytes),
+      },
+      examples: fileExamples.map((row) => ({
+        fileId: row.file_id,
+        filename: row.filename,
+        sizeBytes: Number(row.size_bytes),
+        unreferencedAt: row.unreferenced_at.toISOString(),
+        notBefore: row.not_before.toISOString(),
+      })),
+      truncated: Number(fileValues.unreferenced) > fileExamples.length,
+    },
   };
 };

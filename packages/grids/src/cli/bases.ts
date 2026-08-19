@@ -1,11 +1,6 @@
 import { arg, command, confirmFlag, flag, paginationFlags } from "@valentinkolb/cloud/cli";
 import type { PublicBase as Base, PublicField as Field, PublicTable as Table } from "../api/public-dto";
-import {
-  RETENTION_MAX_DAYS,
-  RETENTION_MIN_DAYS,
-  type RetentionPolicy,
-  type RetentionPreview,
-} from "../retention-policy-contracts";
+import { RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, type RetentionPolicy, type RetentionPreview } from "../retention-policy-contracts";
 import {
   baseArgs,
   baseFlag,
@@ -149,8 +144,8 @@ export const baseCrudCommands = [
     },
   }),
   command("bases retention", {
-    summary: "Show the Record retention floor for a Grids base",
-    description: "Requires base admin access. The floor preserves trashed Records but never deletes them or starts cleanup.",
+    summary: "Show the retention floor for a Grids base",
+    description: "Requires base admin access. The floor preserves trashed Records and newly unreferenced Files without deleting data.",
     args: baseArgs,
     flags: baseFlag,
     async run({ ctx, args }) {
@@ -159,19 +154,19 @@ export const baseCrudCommands = [
       if (!printCliStructured(ctx, payload)) {
         ctx.print(
           payload.policy
-            ? `Minimum Record retention for ${base.name} (${base.id}): ${payload.policy.minimumDays} days in trash.`
-            : `No minimum Record retention is configured for ${base.name} (${base.id}).`,
+            ? `Minimum retention for ${base.name} (${base.id}): ${payload.policy.minimumDays} days.`
+            : `No minimum retention is configured for ${base.name} (${base.id}).`,
         );
       }
     },
   }),
   command("bases retention preview", {
-    summary: "Preview a Record retention floor for a Grids base",
-    description: "Returns a bounded impact at one observation time. Reaching the floor never deletes a Record.",
+    summary: "Preview a retention floor for a Grids base",
+    description: "Returns a bounded impact at one observation time. Reaching the floor never deletes a Record or File.",
     args: baseArgs,
     flags: {
       ...baseFlag,
-      days: flag.int({ required: true, min: RETENTION_MIN_DAYS, max: RETENTION_MAX_DAYS, description: "Minimum days in trash" }),
+      days: flag.int({ required: true, min: RETENTION_MIN_DAYS, max: RETENTION_MAX_DAYS, description: "Minimum retention days" }),
     },
     async run({ ctx, args, flags }) {
       const minimumDays = flags.days;
@@ -186,7 +181,12 @@ export const baseCrudCommands = [
       ctx.print(
         `${preview.counts.retainedUntilLater} retained until later; ${preview.counts.floorReached} reached the floor; ${preview.counts.protectedFinalized} finalized and independently protected; ${preview.counts.trashedRecords} total in trash.`,
       );
-      ctx.print(`Observed ${preview.observedAt}.${preview.truncated ? " Example list is bounded." : ""}`);
+      ctx.print(
+        `${preview.files.counts.retainedUntilLater} unreferenced Files retained until later; ${preview.files.counts.floorReached} reached the floor; ${preview.files.counts.unreferenced} total (${preview.files.counts.sizeBytes} bytes).`,
+      );
+      ctx.print(
+        `Observed ${preview.observedAt}.${preview.truncated || preview.files.truncated ? " At least one example list is bounded." : ""}`,
+      );
       if (preview.examples.length > 0) {
         ctx.table(preview.examples, [
           { key: "recordId", label: "RECORD" },
@@ -195,16 +195,25 @@ export const baseCrudCommands = [
           { key: "notBefore", label: "FLOOR REACHED" },
         ]);
       }
+      if (preview.files.examples.length > 0) {
+        ctx.table(preview.files.examples, [
+          { key: "fileId", label: "FILE" },
+          { key: "filename", label: "FILENAME" },
+          { key: "sizeBytes", label: "BYTES" },
+          { key: "unreferencedAt", label: "UNREFERENCED" },
+          { key: "notBefore", label: "FLOOR REACHED" },
+        ]);
+      }
     },
   }),
   command("bases retention set", {
-    summary: "Set the Record retention floor for a Grids base",
-    description: "Requires --yes only when shortening an existing floor. Saving never deletes Records or starts cleanup.",
+    summary: "Set the retention floor for a Grids base",
+    description: "Requires --yes only when shortening an existing floor. Saving never deletes Records or Files or starts cleanup.",
     args: baseArgs,
     flags: {
       ...baseFlag,
-      days: flag.int({ required: true, min: RETENTION_MIN_DAYS, max: RETENTION_MAX_DAYS, description: "Minimum days in trash" }),
-      yes: confirmFlag("Shorten the existing Record retention floor"),
+      days: flag.int({ required: true, min: RETENTION_MIN_DAYS, max: RETENTION_MAX_DAYS, description: "Minimum retention days" }),
+      yes: confirmFlag("Shorten the existing retention floor"),
     },
     async run({ ctx, args, flags }) {
       const minimumDays = flags.days;
@@ -212,26 +221,26 @@ export const baseCrudCommands = [
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
       const current = await readApi<RetentionPolicyResponse>(ctx, `/bases/${encodeURIComponent(base.id)}/retention-policy`);
       if (current.policy && minimumDays < current.policy.minimumDays && !flags.yes) {
-        throw new Error("Pass --yes to shorten the existing Record retention floor.");
+        throw new Error("Pass --yes to shorten the existing retention floor.");
       }
       const updated = await readApi<RetentionPolicyResponse>(
         ctx,
         `/bases/${encodeURIComponent(base.id)}/retention-policy`,
         jsonRequest("PUT", { minimumDays }),
       );
-      printJsonOrMessage(ctx, updated, `Minimum Record retention for ${base.name} (${base.id}) set to ${minimumDays} days in trash.`);
+      printJsonOrMessage(ctx, updated, `Minimum retention for ${base.name} (${base.id}) set to ${minimumDays} days.`);
     },
   }),
   command("bases retention remove", {
-    summary: "Remove the Record retention floor from a Grids base",
+    summary: "Remove the retention floor from a Grids base",
     description: "Removing the floor may allow future controlled destruction earlier. It does not delete anything now.",
     args: baseArgs,
-    flags: { ...baseFlag, yes: confirmFlag("Remove the Record retention floor") },
+    flags: { ...baseFlag, yes: confirmFlag("Remove the retention floor") },
     async run({ ctx, args, flags }) {
-      if (!flags.yes) throw new Error("Pass --yes to remove the Record retention floor.");
+      if (!flags.yes) throw new Error("Pass --yes to remove the retention floor.");
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
       await readApi<void>(ctx, `/bases/${encodeURIComponent(base.id)}/retention-policy`, jsonRequest("DELETE"));
-      printJsonOrMessage(ctx, { removed: true, baseId: base.id }, `Removed minimum Record retention from ${base.name} (${base.id}).`);
+      printJsonOrMessage(ctx, { removed: true, baseId: base.id }, `Removed minimum retention from ${base.name} (${base.id}).`);
     },
   }),
   command("bases create", {

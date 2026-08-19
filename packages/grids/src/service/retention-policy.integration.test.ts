@@ -23,6 +23,7 @@ describe("Record retention policy integration", () => {
     const recentShortId = testShortId("R");
     const finalShortId = testShortId("F");
     const boundedPrefix = testShortId("X").slice(0, 2);
+    const boundedFilePrefix = testShortId("L").slice(0, 2);
     try {
       await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${baseShortId}, 'Retention fixture')`;
       await sql`INSERT INTO grids.tables (id, short_id, base_id, name) VALUES (${tableId}::uuid, ${tableShortId}, ${baseId}::uuid, 'Cases')`;
@@ -44,6 +45,11 @@ describe("Record retention policy integration", () => {
       expect(saved.minimumDays).toBe(30);
       const impact = await preview(baseId, { minimumDays: 30 });
       expect(impact.counts).toEqual({ trashedRecords: 3, floorReached: 1, retainedUntilLater: 1, protectedFinalized: 1 });
+      expect(impact.files).toEqual({
+        counts: { unreferenced: 0, floorReached: 0, retainedUntilLater: 0, sizeBytes: 0 },
+        examples: [],
+        truncated: false,
+      });
       expect(impact.examples.map((item) => item.recordId)).toEqual([oldShortId, recentShortId]);
       expect(impact.examples.every((item) => item.tableId === tableShortId)).toBe(true);
       expect(impact.truncated).toBe(false);
@@ -55,6 +61,22 @@ describe("Record retention policy integration", () => {
       const bounded = await preview(baseId, { minimumDays: 30 });
       expect(bounded.examples).toHaveLength(100);
       expect(bounded.truncated).toBe(true);
+      await sql`
+        WITH inserted AS (
+          INSERT INTO grids.files (short_id, filename, mime_type, size_bytes, sha256, bytes)
+          SELECT ${boundedFilePrefix} || lpad(value::text, 4, '0'), 'retention-candidate-' || value || '.txt',
+            'text/plain', 1, repeat('a', 64), decode('78', 'hex')
+          FROM generate_series(1, 101) value
+          RETURNING id
+        )
+        INSERT INTO grids.file_retention_candidates (file_id, base_id, unreferenced_at)
+        SELECT id, ${baseId}::uuid, now() - interval '10 days' FROM inserted
+      `;
+      const fileImpact = await preview(baseId, { minimumDays: 30 });
+      expect(fileImpact.files.counts).toEqual({ unreferenced: 101, floorReached: 0, retainedUntilLater: 101, sizeBytes: 101 });
+      expect(fileImpact.files.examples).toHaveLength(100);
+      expect(fileImpact.files.examples.every((item) => item.fileId.startsWith(boundedFilePrefix))).toBe(true);
+      expect(fileImpact.files.truncated).toBe(true);
       const [records] = await sql<
         Array<{ count: number }>
       >`SELECT count(*)::int AS count FROM grids.records WHERE table_id = ${tableId}::uuid`;
@@ -67,6 +89,8 @@ describe("Record retention policy integration", () => {
       >`SELECT action FROM grids.audit_log WHERE base_id = ${baseId}::uuid ORDER BY created_at`;
       expect(audits.map((entry) => entry.action)).toEqual(["retention_policy.updated", "retention_policy.removed"]);
     } finally {
+      await sql`DELETE FROM grids.file_retention_candidates WHERE base_id = ${baseId}::uuid`;
+      await sql`DELETE FROM grids.files WHERE filename LIKE 'retention-candidate-%'`;
       await sql`DELETE FROM grids.audit_log WHERE base_id = ${baseId}::uuid`;
       await sql`UPDATE grids.records SET finalized_at = NULL, finalized_by = NULL, final_revision_id = NULL WHERE table_id = ${tableId}::uuid`;
       await sql`DELETE FROM grids.record_revisions WHERE table_id = ${tableId}::uuid`;
