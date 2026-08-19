@@ -110,7 +110,12 @@ describe("evidence export route permissions", () => {
 
       const preflight = await app.request(`${url}/preflight?sections=records,revisions`, bearer(adminCredential.data.token));
       expect(preflight.status).toBe(200);
-      expect(await preflight.json()).toMatchObject({ scope: { baseId: baseShortId, tableId: null }, withinKnownBudgets: true });
+      expect(await preflight.json()).toMatchObject({
+        scope: { baseId: baseShortId, tableId: null },
+        known: { numberSeries: 0, numberSeriesVersions: 0, numberAllocations: 0 },
+        tables: [],
+        withinKnownBudgets: true,
+      });
       const listed = await app.request(url, bearer(adminCredential.data.token));
       expect(listed.status).toBe(200);
       expect(await listed.json()).toMatchObject({ items: [{ id: exportShortId, baseId: baseShortId, status: "completed" }] });

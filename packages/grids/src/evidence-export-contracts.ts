@@ -130,6 +130,8 @@ export const EvidenceExportPreflightSchema = z
         fileBytes: z.number().int().nonnegative(),
         documents: z.number().int().nonnegative(),
         documentBytes: z.number().int().nonnegative(),
+        numberSeries: z.number().int().nonnegative(),
+        numberSeriesVersions: z.number().int().nonnegative(),
         numberAllocations: z.number().int().nonnegative(),
       })
       .strict(),
@@ -140,6 +142,29 @@ export const EvidenceExportPreflightSchema = z
           enabled: z.boolean(),
           startsAt: z.string().datetime({ offset: true }).nullable(),
           baselineComplete: z.boolean(),
+        })
+        .strict(),
+    ),
+    tables: z.array(
+      z
+        .object({
+          tableId: ShortIdSchema,
+          name: z.string(),
+          trashed: z.boolean(),
+          records: z.number().int().nonnegative(),
+          history: z
+            .object({
+              state: z.enum(["unavailable", "legacy", "activating", "active", "incomplete"]),
+              startsAt: z.string().datetime({ offset: true }).nullable(),
+              baselineComplete: z.boolean(),
+            })
+            .strict(),
+          finalization: z
+            .object({
+              enabled: z.boolean(),
+              finalizedRecords: z.number().int().nonnegative(),
+            })
+            .strict(),
         })
         .strict(),
     ),

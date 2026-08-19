@@ -11,6 +11,20 @@ An evidence package is not a compliance certificate. It reports the evidence Gri
 
 You need **Admin** access to the Base. Custom Apps, Workflows, API clients, and the CLI cannot bypass that gate.
 
+## Check available evidence {icon="chart-bar"}
+
+Open the Base settings and select **Evidence exports**. **Available evidence** is calculated from the Base when the page opens; it is not a saved score and does not enable or change anything.
+
+The summary counts current and deleted Records, saved revisions and audit events, stored File and Document bytes, Number Series, and durable number allocations. Expand **Coverage by stored table** to inspect each table:
+
+- **History active:** Durable History has completed its baseline. The displayed start time is the earliest coverage Grids can claim.
+- **Building history baseline:** activation is still copying the current baseline. Coverage is not complete yet.
+- **Earlier states unavailable:** the table already has Records but Durable History was not enabled, so earlier states cannot be reconstructed.
+- **History not enabled:** an empty table has no durable revision history yet.
+- **History incomplete:** saved activation state and baseline completion do not agree. Treat the coverage as incomplete and ask the operator to investigate.
+
+Finalization is reported separately because enabling Durable History does not finalize Records. The row states whether Finalization is enabled and how many Records are currently finalized. Tables in trash remain visible as evidence sources but cannot be opened from this list.
+
 ## Create a package {icon="package-export"}
 
 :::steps

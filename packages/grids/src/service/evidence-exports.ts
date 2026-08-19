@@ -173,6 +173,8 @@ export const preflight = async (params: {
       file_bytes: number | string;
       documents: number | string;
       document_bytes: number | string;
+      number_series: number | string;
+      number_series_versions: number | string;
       number_allocations: number | string;
     }>
   >`
@@ -210,6 +212,15 @@ export const preflight = async (params: {
       COALESCE((SELECT sum(file.size_bytes) FROM grids.files file WHERE file.id IN (SELECT file_id FROM selected_files)), 0)::bigint AS file_bytes,
       (SELECT count(*) FROM selected_documents)::int AS documents,
       COALESCE((SELECT sum(artifact_size_bytes) FROM selected_documents), 0)::bigint AS document_bytes,
+      (SELECT count(DISTINCT series.id) FROM grids.number_series series
+        LEFT JOIN grids.fields field ON field.id = series.field_id
+        LEFT JOIN grids.document_templates template ON template.id = series.document_template_id
+        WHERE COALESCE(field.table_id, template.table_id) IN (SELECT id FROM selected_tables))::int AS number_series,
+      (SELECT count(*) FROM grids.number_series_versions version
+        JOIN grids.number_series series ON series.id = version.series_id
+        LEFT JOIN grids.fields field ON field.id = series.field_id
+        LEFT JOIN grids.document_templates template ON template.id = series.document_template_id
+        WHERE COALESCE(field.table_id, template.table_id) IN (SELECT id FROM selected_tables))::int AS number_series_versions,
       (SELECT count(*) FROM grids.number_allocations allocation
         JOIN grids.number_series series ON series.id = allocation.series_id
         LEFT JOIN grids.fields field ON field.id = series.field_id
@@ -218,18 +229,31 @@ export const preflight = async (params: {
           AND (${params.from}::timestamptz IS NULL OR allocation.allocated_at >= ${params.from}::timestamptz)
           AND (${params.to}::timestamptz IS NULL OR allocation.allocated_at <= ${params.to}::timestamptz))::int AS number_allocations
   `;
-  const historyRows = await sql<
+  const coverageRows = await sql<
     Array<{
       table_short_id: string;
+      table_name: string;
+      deleted_at: Date | string | null;
+      records: number | string;
+      finalized_records: number | string;
       activated_at: Date | string | null;
       status: string | null;
       baseline_completed_at: Date | string | null;
+      finalization_enabled_at: Date | string | null;
     }>
   >`
-    SELECT table_info.short_id AS table_short_id, activation.activated_at, activation.status, activation.baseline_completed_at
+    SELECT table_info.short_id AS table_short_id, table_info.name AS table_name, table_info.deleted_at,
+           COUNT(record.id)::int AS records,
+           COUNT(record.id) FILTER (WHERE record.finalized_at IS NOT NULL)::int AS finalized_records,
+           history.activated_at, history.status, history.baseline_completed_at,
+           finalization.enabled_at AS finalization_enabled_at
     FROM grids.tables table_info
-    LEFT JOIN grids.durable_history_activations activation ON activation.table_id = table_info.id
-    WHERE table_info.base_id = ${params.baseId}::uuid AND (${params.tableId}::uuid IS NULL OR table_info.id = ${params.tableId}::uuid)
+    LEFT JOIN grids.records record ON record.table_id = table_info.id
+    LEFT JOIN grids.durable_history_activations history ON history.table_id = table_info.id
+    LEFT JOIN grids.table_finalization_activations finalization ON finalization.table_id = table_info.id
+    WHERE table_info.base_id = ${params.baseId}::uuid AND table_info.kind = 'stored'
+      AND (${params.tableId}::uuid IS NULL OR table_info.id = ${params.tableId}::uuid)
+    GROUP BY table_info.id, history.activated_at, history.status, history.baseline_completed_at, finalization.enabled_at
     ORDER BY table_info.position, table_info.id
   `;
   const known = {
@@ -240,6 +264,8 @@ export const preflight = async (params: {
     fileBytes: Number(counts?.file_bytes ?? 0),
     documents: Number(counts?.documents ?? 0),
     documentBytes: Number(counts?.document_bytes ?? 0),
+    numberSeries: Number(counts?.number_series ?? 0),
+    numberSeriesVersions: Number(counts?.number_series_versions ?? 0),
     numberAllocations: Number(counts?.number_allocations ?? 0),
   };
   const selected = new Set(params.sections ?? EVIDENCE_EXPORT_SECTIONS);
@@ -249,15 +275,40 @@ export const preflight = async (params: {
     (selected.has("audit") ? known.auditEvents : 0) +
     (selected.has("files") ? known.files * 2 : 0) +
     (selected.has("documents") ? known.documents * 3 : 0) +
-    (selected.has("numbers") ? known.numberAllocations : 0) +
+    (selected.has("numbers") ? known.numberSeries + known.numberSeriesVersions + known.numberAllocations : 0) +
     100;
   const estimatedBytes = (selected.has("files") ? known.fileBytes : 0) + (selected.has("documents") ? known.documentBytes : 0);
-  const history = historyRows.map((row) => ({
+  const history = coverageRows.map((row) => ({
     tableId: row.table_short_id,
     enabled: row.activated_at !== null,
     startsAt: iso(row.activated_at),
     baselineComplete: row.status === "active" && row.baseline_completed_at !== null,
   }));
+  const tables = coverageRows.map((row) => {
+    const records = Number(row.records);
+    const baselineComplete = row.status === "active" && row.baseline_completed_at !== null;
+    const historyState =
+      row.activated_at === null
+        ? records > 0
+          ? ("legacy" as const)
+          : ("unavailable" as const)
+        : row.status === "activating"
+          ? ("activating" as const)
+          : baselineComplete
+            ? ("active" as const)
+            : ("incomplete" as const);
+    return {
+      tableId: row.table_short_id,
+      name: row.table_name,
+      trashed: row.deleted_at !== null,
+      records,
+      history: { state: historyState, startsAt: iso(row.activated_at), baselineComplete },
+      finalization: {
+        enabled: row.finalization_enabled_at !== null,
+        finalizedRecords: Number(row.finalized_records),
+      },
+    };
+  });
   const warnings = selected.has("revisions")
     ? history.flatMap((item) =>
         item.enabled
@@ -273,6 +324,7 @@ export const preflight = async (params: {
     scope: { baseId: base.short_id, tableId: table?.short_id ?? null },
     known,
     history,
+    tables,
     withinKnownBudgets: estimatedEntries <= EVIDENCE_EXPORT_MAX_ENTRIES && estimatedBytes <= EVIDENCE_EXPORT_MAX_PACKAGE_BYTES,
     warnings,
   };
@@ -297,7 +349,7 @@ export const create = async (params: {
     (selected.has("audit") ? preview.known.auditEvents : 0) +
     (selected.has("files") ? preview.known.files * 2 : 0) +
     (selected.has("documents") ? preview.known.documents * 3 : 0) +
-    (selected.has("numbers") ? preview.known.numberAllocations : 0) +
+    (selected.has("numbers") ? preview.known.numberSeries + preview.known.numberSeriesVersions + preview.known.numberAllocations : 0) +
     100;
   const row = await sql.begin((tx) =>
     insertWithShortIdForDb(tx, "idx_grids_evidence_exports_short_id", async (attempt, shortId) => {

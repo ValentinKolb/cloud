@@ -192,6 +192,25 @@ describe("evidence export integration", () => {
           expect.objectContaining({ tableId: noHistoryTableShortId, enabled: false, baselineComplete: false }),
         ]),
       );
+      expect(coveragePreview.known).toMatchObject({ numberSeries: 1, numberSeriesVersions: 1, numberAllocations: 1 });
+      expect(coveragePreview.tables).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            tableId: tableShortId,
+            name: "Cases",
+            records: 2,
+            history: expect.objectContaining({ state: "active", baselineComplete: true }),
+            finalization: { enabled: true, finalizedRecords: 1 },
+          }),
+          expect.objectContaining({
+            tableId: noHistoryTableShortId,
+            name: "Cases without history",
+            records: 0,
+            history: expect.objectContaining({ state: "unavailable", baselineComplete: false }),
+            finalization: { enabled: false, finalizedRecords: 0 },
+          }),
+        ]),
+      );
       expect(coveragePreview.warnings).toContain(
         `Table ${noHistoryTableShortId} has no Durable History; earlier record states are not available.`,
       );
@@ -392,6 +411,7 @@ describe("evidence export integration", () => {
 
       const preview = await preflight({ baseId, tableId, from: null, to: null, sections: ["records"] });
       expect(preview.known.records).toBe(25_001);
+      expect(preview.tables).toEqual([expect.objectContaining({ records: 25_001, history: expect.objectContaining({ state: "legacy" }) })]);
       expect(preview.withinKnownBudgets).toBe(false);
       expect(preview.warnings).toContain("The known entry count exceeds the export package limit.");
       const created = await createExport({
