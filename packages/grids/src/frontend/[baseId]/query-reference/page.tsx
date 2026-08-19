@@ -62,7 +62,11 @@ export default ssr<AuthContext>(async (c) => {
       const groupByTable = <T extends { tableId: string }>(items: readonly T[]) => {
         const grouped: Record<string, T[]> = {};
         for (const table of publicTables) grouped[table.id] = [];
-        for (const item of items) (grouped[item.tableId] ??= []).push(item);
+        for (const item of items) {
+          const tableItems = grouped[item.tableId] ?? [];
+          tableItems.push(item);
+          grouped[item.tableId] = tableItems;
+        }
         return grouped;
       };
       const publicFieldsByTable = groupByTable(publicFields);
