@@ -19,6 +19,7 @@ import {
   requirePublicId,
   resolveBase,
   resolveBaseFromCommand,
+  resolveTableFromSearch,
 } from "./resources";
 import {
   applyDefined,
@@ -373,20 +374,26 @@ export const baseCrudCommands = [
     },
   }),
   command("bases preservation-holds list", {
-    summary: "List Base-wide preservation holds",
-    description: "Requires Base admin access. Status filtering and pagination run on the server.",
+    summary: "List preservation holds",
+    description: "Requires Base admin access. Status, scope, table filtering, and pagination run on the server.",
     args: baseArgs,
     flags: {
       ...baseFlag,
       status: flag.enum(["active", "released", "all"] as const, { default: "active", description: "Hold status" }),
+      scope: flag.enum(["base", "table", "all"] as const, { default: "all", description: "Hold scope" }),
+      table: flag.string({ description: "Filter by Table public id or exact name; requires --scope table" }),
       ...paginationFlags({ defaultPerPage: 25, maxPerPage: 100 }),
     },
     async run({ ctx, args, flags }) {
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
+      if (flags.table && flags.scope !== "table") throw new Error("--table requires --scope table.");
+      const table = flags.table ? await resolveTableFromSearch(ctx, base.id, flags.table) : null;
       const payload = await readApi<PreservationHoldsResponse>(
         ctx,
         `/bases/${encodeURIComponent(base.id)}/preservation-holds${queryString({
           status: flags.status,
+          scope: flags.scope,
+          tableId: table?.id,
           page: flags.page ?? 1,
           per_page: flags.perPage ?? 25,
         })}`,
@@ -396,6 +403,7 @@ export const baseCrudCommands = [
         payload,
         payload.items.map((item) => ({
           id: item.id,
+          scope: item.scope.type === "base" ? "Base" : `Table: ${item.scope.tableName} (${item.scope.tableId})`,
           status: item.status,
           reason: item.reason,
           createdBy: item.createdByDisplayName ?? "-",
@@ -404,6 +412,7 @@ export const baseCrudCommands = [
         })),
         [
           { key: "id", label: "ID" },
+          { key: "scope", label: "SCOPE" },
           { key: "status", label: "STATUS" },
           { key: "reason", label: "REASON" },
           { key: "createdBy", label: "CREATED BY" },
@@ -414,23 +423,35 @@ export const baseCrudCommands = [
     },
   }),
   command("bases preservation-holds create", {
-    summary: "Create a Base-wide preservation hold",
-    description: "Requires Base admin access. The hold blocks future controlled destruction only.",
+    summary: "Create a preservation hold",
+    description: "Requires Base admin access. The hold blocks future controlled destruction only in its selected scope.",
     args: baseArgs,
-    flags: { ...baseFlag, reason: flag.string({ required: true, description: "Why this Base must be preserved" }) },
+    flags: {
+      ...baseFlag,
+      scope: flag.enum(["base", "table"] as const, { default: "base", description: "Hold scope" }),
+      table: flag.string({ description: "Table public id or exact name; required for --scope table" }),
+      reason: flag.string({ required: true, description: "Why this scope must be preserved" }),
+    },
     async run({ ctx, args, flags }) {
       if (!flags.reason?.trim()) throw new Error("Pass --reason <text>.");
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
+      if (flags.scope === "table" && !flags.table) throw new Error("Pass --table <table> with --scope table.");
+      if (flags.scope === "base" && flags.table) throw new Error("--table requires --scope table.");
+      const table = flags.table ? await resolveTableFromSearch(ctx, base.id, flags.table) : null;
       const hold = await readApi<PreservationHold>(
         ctx,
         `/bases/${encodeURIComponent(base.id)}/preservation-holds`,
-        jsonRequest("POST", { reason: flags.reason.trim() }),
+        jsonRequest("POST", {
+          reason: flags.reason.trim(),
+          scope: table ? { type: "table", tableId: table.id } : { type: "base" },
+        }),
       );
-      printJsonOrMessage(ctx, hold, `Created preservation hold ${hold.id} for ${base.name} (${base.id}).`);
+      const scopeLabel = hold.scope.type === "base" ? `${base.name} (${base.id})` : `${hold.scope.tableName} (${hold.scope.tableId})`;
+      printJsonOrMessage(ctx, hold, `Created preservation hold ${hold.id} for ${scopeLabel}.`);
     },
   }),
   command("bases preservation-holds release", {
-    summary: "Release one Base-wide preservation hold",
+    summary: "Release one preservation hold",
     description: "Releasing one hold does not release any other active hold and does not delete data.",
     args: baseArgs,
     flags: {

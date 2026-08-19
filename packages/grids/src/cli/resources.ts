@@ -93,11 +93,14 @@ export const resolveBaseFromCommand = async (
   return { base: await resolveBase(ctx, baseRef), rest };
 };
 
-export const listTables = (ctx: CloudCliContext, baseId: string): Promise<PublicTable[]> =>
-  readApi<PublicTable[]>(ctx, `/tables/by-base/${encodeURIComponent(baseId)}`);
+export const listTables = (ctx: CloudCliContext, baseId: string, params: { q?: string; limit?: number } = {}): Promise<PublicTable[]> =>
+  readApi<PublicTable[]>(ctx, `/tables/by-base/${encodeURIComponent(baseId)}${queryString({ q: params.q, limit: params.limit })}`);
 
 export const resolveTable = async (ctx: CloudCliContext, baseId: string, ref: string): Promise<PublicTable> =>
   resolveNamedResource(await listTables(ctx, baseId), ref, "table");
+
+export const resolveTableFromSearch = async (ctx: CloudCliContext, baseId: string, ref: string): Promise<PublicTable> =>
+  resolveNamedResource(await listTables(ctx, baseId, { q: ref, limit: 100 }), ref, "table");
 
 export const resolveTableFromFlags = async (
   ctx: CloudCliContext,

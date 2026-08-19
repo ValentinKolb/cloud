@@ -2217,6 +2217,10 @@ const migrateRetentionPolicies = async (sql: SQL): Promise<void> => {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       short_id TEXT NOT NULL,
       base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
+      scope_type TEXT NOT NULL DEFAULT 'base',
+      table_id UUID,
+      table_short_id TEXT,
+      table_name TEXT,
       reason TEXT NOT NULL CHECK (char_length(reason) BETWEEN 1 AND 1000 AND reason = btrim(reason)),
       created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
       created_by_display_name TEXT,
@@ -2226,11 +2230,35 @@ const migrateRetentionPolicies = async (sql: SQL): Promise<void> => {
       released_by_display_name TEXT,
       released_at TIMESTAMPTZ,
       CONSTRAINT preservation_holds_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$'),
+      CONSTRAINT preservation_holds_scope_chk CHECK (
+        (scope_type = 'base' AND table_id IS NULL AND table_short_id IS NULL AND table_name IS NULL)
+        OR (scope_type = 'table' AND table_id IS NOT NULL AND table_short_id IS NOT NULL AND table_name IS NOT NULL)
+      ),
       CONSTRAINT preservation_holds_release_chk CHECK (
         (released_at IS NULL AND release_reason IS NULL AND released_by IS NULL AND released_by_display_name IS NULL)
         OR (released_at IS NOT NULL AND release_reason IS NOT NULL)
       )
     )
+  `.simple();
+  await sql`ALTER TABLE grids.preservation_holds ADD COLUMN IF NOT EXISTS scope_type TEXT NOT NULL DEFAULT 'base'`.simple();
+  await sql`ALTER TABLE grids.preservation_holds ADD COLUMN IF NOT EXISTS table_id UUID`.simple();
+  await sql`ALTER TABLE grids.preservation_holds ADD COLUMN IF NOT EXISTS table_short_id TEXT`.simple();
+  await sql`ALTER TABLE grids.preservation_holds ADD COLUMN IF NOT EXISTS table_name TEXT`.simple();
+  await sql`
+    UPDATE grids.preservation_holds hold
+    SET table_short_id = table_info.short_id, table_name = table_info.name
+    FROM grids.tables table_info
+    WHERE hold.scope_type = 'table' AND hold.table_id = table_info.id
+      AND (hold.table_short_id IS NULL OR hold.table_name IS NULL)
+  `.simple();
+  await sql`
+    ALTER TABLE grids.preservation_holds
+      DROP CONSTRAINT IF EXISTS preservation_holds_table_id_fkey,
+      DROP CONSTRAINT IF EXISTS preservation_holds_scope_chk,
+      ADD CONSTRAINT preservation_holds_scope_chk CHECK (
+        (scope_type = 'base' AND table_id IS NULL AND table_short_id IS NULL AND table_name IS NULL)
+        OR (scope_type = 'table' AND table_id IS NOT NULL AND table_short_id IS NOT NULL AND table_name IS NOT NULL)
+      )
   `.simple();
   await sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_preservation_holds_short_id
@@ -2239,6 +2267,11 @@ const migrateRetentionPolicies = async (sql: SQL): Promise<void> => {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_preservation_holds_active_base
     ON grids.preservation_holds(base_id, created_at DESC, id DESC) WHERE released_at IS NULL
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_preservation_holds_active_table
+    ON grids.preservation_holds(base_id, table_id, created_at DESC, id DESC)
+    WHERE released_at IS NULL AND scope_type = 'table'
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_file_retention_candidates_base

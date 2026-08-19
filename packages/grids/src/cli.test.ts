@@ -597,11 +597,12 @@ describe("grids CLI", () => {
     expect(confirmed.jsonValues).toEqual([{ removed: true, baseId }]);
   });
 
-  test("creates, lists, and confirms release of Base preservation holds", async () => {
+  test("creates, filters, and confirms release of preservation holds", async () => {
     const hold = {
       id: "HOLD01",
       baseId,
       reason: "Annual review",
+      scope: { type: "base" as const },
       status: "active",
       createdByDisplayName: "Base Admin",
       createdAt: "2026-08-19T16:00:00.000Z",
@@ -620,7 +621,7 @@ describe("grids CLI", () => {
       { output: "json" },
     );
     await gridsCli.run(list.ctx);
-    expect(list.calls.at(-1)?.path).toBe(`/api/grids/bases/${baseId}/preservation-holds?status=active&page=2&per_page=10`);
+    expect(list.calls.at(-1)?.path).toBe(`/api/grids/bases/${baseId}/preservation-holds?status=active&scope=all&page=2&per_page=10`);
     expect(list.jsonValues).toEqual([page]);
 
     const create = createContext(
@@ -631,8 +632,42 @@ describe("grids CLI", () => {
     );
     await gridsCli.run(create.ctx);
     expect(create.calls.at(-1)?.path).toBe(`/api/grids/bases/${baseId}/preservation-holds`);
-    expect(JSON.parse(String(create.calls.at(-1)?.init?.body))).toEqual({ reason: "Annual review" });
+    expect(JSON.parse(String(create.calls.at(-1)?.init?.body))).toEqual({ reason: "Annual review", scope: { type: "base" } });
     expect(create.jsonValues).toEqual([hold]);
+
+    const tableHold = {
+      ...hold,
+      id: "HOLD02",
+      reason: "Author dispute",
+      scope: { type: "table" as const, tableId, tableName: table.name },
+    };
+    const createTable = createContext(
+      ["bases", "preservation-holds", "create", baseId],
+      { scope: "table", table: table.name, reason: " Author dispute " },
+      [jsonResponse(basePage), jsonResponse([table]), jsonResponse(tableHold)],
+      { output: "json" },
+    );
+    await gridsCli.run(createTable.ctx);
+    expect(createTable.calls.at(-2)?.path).toBe(`/api/grids/tables/by-base/${baseId}?q=Authors&limit=100`);
+    expect(JSON.parse(String(createTable.calls.at(-1)?.init?.body))).toEqual({
+      reason: "Author dispute",
+      scope: { type: "table", tableId },
+    });
+
+    const listTable = createContext(
+      ["bases", "preservation-holds", "list", baseId],
+      { status: "active", scope: "table", table: table.name },
+      [
+        jsonResponse(basePage),
+        jsonResponse([table]),
+        jsonResponse({ ...page, items: [tableHold], pagination: { ...page.pagination, total: 1 } }),
+      ],
+      { output: "json" },
+    );
+    await gridsCli.run(listTable.ctx);
+    expect(listTable.calls.at(-1)?.path).toBe(
+      `/api/grids/bases/${baseId}/preservation-holds?status=active&scope=table&tableId=${tableId}&page=1&per_page=25`,
+    );
 
     const unconfirmed = createContext(["bases", "preservation-holds", "release", baseId, hold.id], {
       reason: "Review completed",

@@ -47,12 +47,15 @@ describe("Grids Base settings composition", () => {
     expect(html).toContain('aria-describedby="k2b-settings-field-');
   });
 
-  test("keeps Base-wide holds in the retention category with explicit consequences", () => {
+  test("keeps scoped holds in the retention category with explicit consequences", () => {
     const source = readFileSync(join(import.meta.dir, "PreservationHoldsSection.tsx"), "utf8");
-    expect(source).toContain("Base-wide preservation holds");
+    expect(source).toContain("Preservation holds");
     expect(source).toContain("query.create");
     expect(source).toContain("Every active hold must be released separately.");
-    expect(source).toContain("They do not lock Records or change access.");
+    expect(source).toContain("Base holds cover every Table. Table holds cover only their selected Table.");
+    expect(source).toContain("fetchData");
+    expect(source).toContain('limit: "25"');
+    expect(source).toContain("Could not search Tables");
     expect(source).toContain("Could not load preservation holds");
   });
 

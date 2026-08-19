@@ -16,9 +16,13 @@ describe("preservation hold routes", () => {
     const userId = testUuid();
     const baseId = testUuid();
     const otherBaseId = testUuid();
+    const tableId = testUuid();
+    const otherTableId = testUuid();
     const accessId = testUuid();
     const baseShortId = testShortId("B");
     const otherBaseShortId = testShortId("B");
+    const tableShortId = testShortId("T");
+    const otherTableShortId = testShortId("T");
     const user: User = {
       id: userId,
       uid: `hold-${userId}`,
@@ -50,6 +54,11 @@ describe("preservation hold routes", () => {
       await sql`INSERT INTO auth.users (id, uid, provider, profile, display_name, given_name, sn) VALUES (${userId}::uuid, ${user.uid}, 'local', 'user', ${user.displayName}, ${user.givenname}, ${user.sn})`;
       await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${baseId}::uuid, ${baseShortId}, 'Hold routes')`;
       await sql`INSERT INTO grids.bases (id, short_id, name) VALUES (${otherBaseId}::uuid, ${otherBaseShortId}, 'Other hold routes')`;
+      await sql`
+        INSERT INTO grids.tables (id, short_id, base_id, name, position) VALUES
+          (${tableId}::uuid, ${tableShortId}, ${baseId}::uuid, 'Invoices', 0),
+          (${otherTableId}::uuid, ${otherTableShortId}, ${otherBaseId}::uuid, 'Foreign invoices', 0)
+      `;
       await sql`INSERT INTO auth.access (id, user_id, permission) VALUES (${accessId}::uuid, ${userId}::uuid, 'read')`;
       await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${baseId}::uuid, ${accessId}::uuid)`;
       await sql`INSERT INTO grids.base_access (base_id, access_id) VALUES (${otherBaseId}::uuid, ${accessId}::uuid)`;
@@ -72,10 +81,33 @@ describe("preservation hold routes", () => {
         body: JSON.stringify({ reason: "  Annual review  " }),
       });
       expect(createdResponse.status).toBe(201);
-      const created = (await createdResponse.json()) as { id: string; baseId: string; reason: string };
-      expect(created).toMatchObject({ baseId: baseShortId, reason: "Annual review" });
+      const created = (await createdResponse.json()) as { id: string; baseId: string; reason: string; scope: { type: string } };
+      expect(created).toMatchObject({ baseId: baseShortId, reason: "Annual review", scope: { type: "base" } });
       expect(created.id).toMatch(/^[A-Za-z0-9]{6}$/);
       expect(JSON.stringify(created)).not.toContain(baseId);
+
+      const tableCreatedResponse = await app.request(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason: "Invoice dispute", scope: { type: "table", tableId: tableShortId } }),
+      });
+      expect(tableCreatedResponse.status).toBe(201);
+      const tableCreated = (await tableCreatedResponse.json()) as { id: string };
+      expect(tableCreated).toMatchObject({
+        baseId: baseShortId,
+        reason: "Invoice dispute",
+        scope: { type: "table", tableId: tableShortId, tableName: "Invoices" },
+      });
+      expect(JSON.stringify(tableCreated)).not.toContain(tableId);
+      expect(
+        (
+          await app.request(path, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ reason: "Wrong Base", scope: { type: "table", tableId: otherTableShortId } }),
+          })
+        ).status,
+      ).toBe(404);
 
       expect(
         (
@@ -87,12 +119,13 @@ describe("preservation hold routes", () => {
         ).status,
       ).toBe(404);
 
-      const listed = await app.request(`${path}?status=active&page=1&per_page=10`);
+      const listed = await app.request(`${path}?status=active&scope=table&tableId=${tableShortId}&page=1&per_page=10`);
       expect(listed.status).toBe(200);
       expect(await listed.json()).toMatchObject({
-        items: [{ id: created.id, baseId: baseShortId, status: "active", createdByDisplayName: "Hold Admin" }],
+        items: [{ id: tableCreated.id, baseId: baseShortId, status: "active", createdByDisplayName: "Hold Admin" }],
         pagination: { page: 1, per_page: 10, total: 1, has_next: false },
       });
+      expect((await app.request(`${path}?status=active&scope=all&tableId=${tableShortId}`)).status).toBe(400);
 
       const released = await app.request(`${path}/${created.id}/release`, {
         method: "POST",
@@ -101,6 +134,15 @@ describe("preservation hold routes", () => {
       });
       expect(released.status).toBe(200);
       expect(await released.json()).toMatchObject({ id: created.id, status: "released", releaseReason: "Review completed" });
+      expect(
+        (
+          await app.request(`${path}/${tableCreated.id}/release`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ reason: "Dispute resolved" }),
+          })
+        ).status,
+      ).toBe(200);
       expect(
         (
           await app.request(`${path}/${created.id}/release`, {

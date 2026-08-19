@@ -63,6 +63,43 @@ describe("grids schema migration", () => {
   );
 
   postgresTest(
+    "defines scoped preservation hold storage",
+    async () => {
+      await withIsolatedDatabase(async (database) => {
+        await migrateCoreWorkflows(database);
+        await migrate(database);
+        const columns = await database<Array<{ name: string; nullable: string; defaultValue: string | null }>>`
+          SELECT column_name AS name, is_nullable AS nullable, column_default AS "defaultValue"
+          FROM information_schema.columns
+          WHERE table_schema = 'grids' AND table_name = 'preservation_holds'
+            AND column_name IN ('scope_type', 'table_id', 'table_name', 'table_short_id')
+          ORDER BY column_name
+        `;
+        expect(columns).toEqual([
+          { name: "scope_type", nullable: "NO", defaultValue: "'base'::text" },
+          { name: "table_id", nullable: "YES", defaultValue: null },
+          { name: "table_name", nullable: "YES", defaultValue: null },
+          { name: "table_short_id", nullable: "YES", defaultValue: null },
+        ]);
+        const [constraint] = await database<Array<{ definition: string }>>`
+          SELECT pg_get_constraintdef(oid) AS definition
+          FROM pg_constraint
+          WHERE conrelid = 'grids.preservation_holds'::regclass AND conname = 'preservation_holds_scope_chk'
+        `;
+        expect(constraint?.definition).toContain("scope_type = 'table'::text");
+        expect(constraint?.definition).toContain("table_short_id IS NOT NULL");
+        const [tableForeignKey] = await database<Array<{ name: string }>>`
+          SELECT conname AS name FROM pg_constraint
+          WHERE conrelid = 'grids.preservation_holds'::regclass AND contype = 'f'
+            AND pg_get_constraintdef(oid) LIKE '%table_id%'
+        `;
+        expect(tableForeignKey).toBeUndefined();
+      });
+    },
+    30_000,
+  );
+
+  postgresTest(
     "says which container has not run yet when the kernel schema is missing",
     async () => {
       await withIsolatedDatabase(async (database) => {

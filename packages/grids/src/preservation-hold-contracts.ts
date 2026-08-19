@@ -6,16 +6,37 @@ export const PRESERVATION_HOLD_REASON_MAX_LENGTH = 1000;
 
 export const PreservationHoldReasonSchema = z.string().trim().min(1).max(PRESERVATION_HOLD_REASON_MAX_LENGTH);
 
+export const PreservationHoldScopeInputSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("base") }).strict(),
+  z.object({ type: z.literal("table"), tableId: ShortIdSchema }).strict(),
+]);
+export type PreservationHoldScopeInput = z.infer<typeof PreservationHoldScopeInputSchema>;
+
 export const PreservationHoldInputSchema = z.object({ reason: PreservationHoldReasonSchema }).strict();
 export type PreservationHoldInput = z.infer<typeof PreservationHoldInputSchema>;
 
+export const CreatePreservationHoldInputSchema = z
+  .object({
+    reason: PreservationHoldReasonSchema,
+    scope: PreservationHoldScopeInputSchema.optional().default({ type: "base" }),
+  })
+  .strict();
+export type CreatePreservationHoldInput = z.infer<typeof CreatePreservationHoldInputSchema>;
+
 export const PreservationHoldStatusSchema = z.enum(["active", "released"]);
 export type PreservationHoldStatus = z.infer<typeof PreservationHoldStatusSchema>;
+
+export const PreservationHoldScopeSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("base") }).strict(),
+  z.object({ type: z.literal("table"), tableId: ShortIdSchema, tableName: z.string().min(1) }).strict(),
+]);
+export type PreservationHoldScope = z.infer<typeof PreservationHoldScopeSchema>;
 
 export const PreservationHoldSchema = z
   .object({
     id: ShortIdSchema,
     baseId: ShortIdSchema,
+    scope: PreservationHoldScopeSchema,
     reason: PreservationHoldReasonSchema,
     status: PreservationHoldStatusSchema,
     createdByDisplayName: z.string().nullable(),
@@ -31,8 +52,15 @@ export const PreservationHoldsQuerySchema = z
   .object({
     ...PaginationQuerySchema.shape,
     status: z.enum(["active", "released", "all"]).optional().default("active"),
+    scope: z.enum(["base", "table", "all"]).optional().default("all"),
+    tableId: ShortIdSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.tableId && value.scope !== "table") {
+      context.addIssue({ code: "custom", path: ["tableId"], message: "tableId requires table scope" });
+    }
+  });
 
 export const PreservationHoldsResponseSchema = z
   .object({ items: z.array(PreservationHoldSchema), pagination: PaginationResponseSchema })

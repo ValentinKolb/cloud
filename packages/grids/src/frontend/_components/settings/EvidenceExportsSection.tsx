@@ -311,7 +311,10 @@ export function EvidenceExportsSection(props: { base: PublicBase }) {
     try {
       let available = tables();
       if (available.length === 0) {
-        const response = await apiClient.tables["by-base"][":baseId"].$get({ param: { baseId: props.base.id } });
+        const response = await apiClient.tables["by-base"][":baseId"].$get({
+          param: { baseId: props.base.id },
+          query: {},
+        });
         if (!response.ok) throw new Error(await errorMessage(response, "Could not load tables"));
         available = await response.json();
         setTables(available);

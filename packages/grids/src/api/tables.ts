@@ -50,6 +50,13 @@ const PublicRelationLookupResponseSchema = z.object({
   items: z.array(z.object({ id: ShortIdSchema, label: z.string() })),
 });
 
+const TablesByBaseQuerySchema = z
+  .object({
+    q: z.string().trim().max(100).optional().default(""),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  })
+  .strict();
+
 const requireSourceBaseAdmins = async (c: Parameters<typeof gateAt>[0], sourceTableIds: string[]) => {
   const administered = await Promise.all(
     [...new Set(sourceTableIds)].map(async (sourceTableId) => {
@@ -358,11 +365,13 @@ const app = new Hono<AuthContext>()
         404: jsonResponse(ErrorResponseSchema, "Not found"),
       },
     }),
+    v("query", TablesByBaseQuerySchema),
     async (c) => {
       const baseId = internalIdParam(c, "baseId")!;
       const gate = await gateAt(c, { baseId }, "read");
       if (!gate.ok) return respond(c, () => Promise.resolve(gate));
-      return c.json(await toPublicTables(await gridsService.table.listByBase(baseId)));
+      const query = c.req.valid("query");
+      return c.json(await toPublicTables(await gridsService.table.listByBase(baseId, { search: query.q, limit: query.limit })));
     },
   )
 

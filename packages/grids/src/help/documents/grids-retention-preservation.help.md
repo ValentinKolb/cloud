@@ -66,11 +66,11 @@ Increasing the number preserves affected trashed Records and unreferenced Files 
 
 Durable History revisions, finalized Records, immutable Documents, Number allocations, protected Files, preservation holds, and actual controlled destruction keep their separate lifecycle contracts.
 
-## Preserve the complete Base {icon="lock"}
+## Preserve a Base or one Table {icon="lock"}
 
-A Base-wide preservation hold blocks future controlled destruction across the Base. It does not lock Records, stop normal edits, grant access, change Finalization, expire automatically, or decide that the Base meets a legal requirement.
+A preservation hold blocks future controlled destruction in its selected scope. A Base hold covers every Table. A Table hold covers only the selected Table and also blocks destruction of its parent Base so the Table hold cannot be bypassed. Holds do not lock Records, stop normal edits, grant access, change Finalization, expire automatically, or decide that the Base meets a legal requirement.
 
-You need **Admin** access. Open **Base settings → Retention and preservation**, then select **Create hold**. Enter a reason that tells other administrators why the hold exists. The active-hold list shows its public ID, creator, creation time, and reason.
+You need **Admin** access. Open **Base settings → Retention and preservation**, then select **Create hold**. Choose **Entire Base** or **One Table**. Table search runs on the server and lists active Tables in this Base. Enter a reason that tells other administrators why the hold exists. The active-hold list shows the scope, public ID, creator, creation time, and reason.
 
 More than one hold can be active. Releasing one hold requires a new reason and leaves every other hold active. Releasing the last hold only removes that block; it does not delete anything or start cleanup.
 
@@ -79,7 +79,9 @@ The Cloud CLI uses the same Admin-only API:
 ```bash
 cld grids bases preservation-holds list 8yMtTb --status active --json
 cld grids bases preservation-holds create 8yMtTb --reason "Annual review" --json
+cld grids bases preservation-holds create 8yMtTb --scope table --table Invoices --reason "Invoice dispute" --json
+cld grids bases preservation-holds list 8yMtTb --scope table --table Invoices --status active --json
 cld grids bases preservation-holds release 8yMtTb HOLD01 --reason "Review completed" --yes --json
 ```
 
-Use `--status released` or `--status all` to inspect older holds. Listing and pagination run on the server. A Workflow, Custom App, direct API client, or background action cannot release or bypass an active hold through another path.
+Create defaults to `--scope base`. Use `--status released` or `--status all` to inspect older holds, and `--scope base|table|all` to narrow the list. Table lookup, filtering, and pagination run on the server. A Workflow, Custom App, direct API client, or background action cannot release or bypass an active hold through another path.

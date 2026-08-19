@@ -61,8 +61,14 @@ const mapRow = (row: DbRow): Table => ({
  * Lists active tables of a base. Pass `includeDeleted` to include
  * trashed tables (used by the trash UI).
  */
-export const listByBase = async (baseId: string, opts: { includeDeleted?: boolean; client?: SqlClient } = {}): Promise<Table[]> => {
+export const listByBase = async (
+  baseId: string,
+  opts: { includeDeleted?: boolean; search?: string; limit?: number; client?: SqlClient } = {},
+): Promise<Table[]> => {
   const client = opts.client ?? sql;
+  const search = opts.search?.trim() ?? "";
+  const searchPattern = `%${search.replace(/[\\%_]/g, (match) => `\\${match}`)}%`;
+  const limit = opts.limit ?? 2_147_483_647;
   // Live-parent invariant: tables of a trashed base never list (the trash
   // flow operates top-down — restore the base first to access its tables).
   // SELECT t.* (not the bare COLS list) — both `tables.id` and `bases.id`
@@ -74,14 +80,20 @@ export const listByBase = async (baseId: string, opts: { includeDeleted?: boolea
         FROM grids.tables t
         JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
         WHERE t.base_id = ${baseId}::uuid
-        ORDER BY t.position, t.created_at
+          AND (${search} = '' OR t.name ILIKE ${searchPattern} ESCAPE '\\' OR t.short_id ILIKE ${searchPattern} ESCAPE '\\')
+        ORDER BY CASE WHEN lower(t.name) = lower(${search}) OR t.short_id = ${search} THEN 0 ELSE 1 END,
+          t.position, t.created_at, t.id
+        LIMIT ${limit}
       `
     : await client<DbRow[]>`
         SELECT t.*
         FROM grids.tables t
         JOIN grids.bases b ON b.id = t.base_id AND b.deleted_at IS NULL
         WHERE t.base_id = ${baseId}::uuid AND t.deleted_at IS NULL
-        ORDER BY t.position, t.created_at
+          AND (${search} = '' OR t.name ILIKE ${searchPattern} ESCAPE '\\' OR t.short_id ILIKE ${searchPattern} ESCAPE '\\')
+        ORDER BY CASE WHEN lower(t.name) = lower(${search}) OR t.short_id = ${search} THEN 0 ELSE 1 END,
+          t.position, t.created_at, t.id
+        LIMIT ${limit}
       `;
   return rows.map(mapRow);
 };

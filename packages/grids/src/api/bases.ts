@@ -5,6 +5,7 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { CreateBaseSchema, UpdateBaseSchema } from "../contracts";
 import {
+  CreatePreservationHoldInputSchema,
   PreservationHoldInputSchema,
   PreservationHoldSchema,
   PreservationHoldsQuerySchema,
@@ -20,6 +21,7 @@ import {
   RetentionRecordsResponseSchema,
 } from "../retention-policy-contracts";
 import { gridsService } from "../service";
+import { resolvePublicId } from "../service/public-resources";
 import {
   currentActorUser,
   currentActorUserId,
@@ -47,6 +49,13 @@ const TrashResponseSchema = z.object({
   fields: z.array(PublicFieldSchema),
   forms: z.array(PublicFormSchema),
 });
+
+const resolveHoldTableScope = async (baseId: string, tablePublicId: string): Promise<string | null> => {
+  const tableId = await resolvePublicId("table", tablePublicId);
+  if (!tableId) return null;
+  const table = await gridsService.table.get(tableId);
+  return table?.baseId === baseId ? tableId : null;
+};
 
 export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<AuthContext> } = {}) => {
   const requireAuthenticated = deps.requireAuthenticated ?? auth.requireRole("authenticated");
@@ -188,7 +197,7 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
       requirePublicIdParam("baseId", "base", "Base"),
       describeRoute({
         tags: ["Grids:Base"],
-        summary: "List Base-wide preservation holds",
+        summary: "List preservation holds",
         responses: {
           200: jsonResponse(PreservationHoldsResponseSchema, "Preservation holds"),
           403: jsonResponse(ErrorResponseSchema, "Forbidden"),
@@ -202,8 +211,12 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const query = c.req.valid("query");
         const pagination = parsePagination(query);
+        const tableId = query.tableId ? await resolveHoldTableScope(baseId, query.tableId) : null;
+        if (query.tableId && !tableId) return c.json({ message: "Table not found" }, 404);
         const result = await gridsService.base.preservationHolds.list(baseId, {
           status: query.status,
+          scope: query.scope,
+          tableId,
           perPage: pagination.perPage,
           offset: pagination.offset,
         });
@@ -216,7 +229,7 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
       requirePublicIdParam("baseId", "base", "Base"),
       describeRoute({
         tags: ["Grids:Base"],
-        summary: "Create a Base-wide preservation hold",
+        summary: "Create a preservation hold",
         responses: {
           201: jsonResponse(PreservationHoldSchema, "Preservation hold created"),
           400: jsonResponse(ErrorResponseSchema, "Invalid reason"),
@@ -224,17 +237,28 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
           404: jsonResponse(ErrorResponseSchema, "Base not found"),
         },
       }),
-      v("json", PreservationHoldInputSchema),
+      v("json", CreatePreservationHoldInputSchema),
       async (c) => {
         const baseId = internalIdParam(c, "baseId")!;
         const gate = await gateAt(c, { baseId }, "admin");
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const actor = currentActorUser(c);
-        const hold = await gridsService.base.preservationHolds.create(baseId, c.req.valid("json"), {
-          id: actor?.id ?? null,
-          displayName: actor?.displayName ?? null,
-        });
-        return c.json(hold, 201);
+        const body = c.req.valid("json");
+        let scope: { type: "base" } | { type: "table"; tableId: string } = { type: "base" };
+        if (body.scope.type === "table") {
+          const tableId = await resolveHoldTableScope(baseId, body.scope.tableId);
+          if (!tableId) return c.json({ message: "Table not found" }, 404);
+          scope = { type: "table", tableId };
+        }
+        const result = await gridsService.base.preservationHolds.create(
+          baseId,
+          { reason: body.reason, scope },
+          {
+            id: actor?.id ?? null,
+            displayName: actor?.displayName ?? null,
+          },
+        );
+        return result.ok ? c.json(result.data, 201) : c.json({ message: result.error.message }, result.error.status);
       },
     )
 
@@ -247,7 +271,7 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
       },
       describeRoute({
         tags: ["Grids:Base"],
-        summary: "Release one Base-wide preservation hold",
+        summary: "Release one preservation hold",
         responses: {
           200: jsonResponse(PreservationHoldSchema, "Preservation hold released"),
           400: jsonResponse(ErrorResponseSchema, "Invalid reason"),

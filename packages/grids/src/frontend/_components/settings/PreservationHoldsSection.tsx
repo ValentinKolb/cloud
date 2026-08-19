@@ -1,39 +1,123 @@
 import { mutation as mutations, query } from "@k2b/stdlib/solid";
-import { Button, Placeholder, prompts, SettingsCollection, SettingsGroup, StatusBadge, toast } from "@k2b/ui";
-import { createEffect, For, onCleanup, Show } from "solid-js";
+import { Button, Placeholder, prompts, Select, SettingsCollection, SettingsGroup, StatusBadge, TextInput, toast } from "@k2b/ui";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { apiClient } from "@/api/client";
+import type { PublicTable } from "../../../api/public-dto";
 import {
+  type CreatePreservationHoldInput,
   PRESERVATION_HOLD_REASON_MAX_LENGTH,
   type PreservationHold,
   type PreservationHoldsResponse,
 } from "../../../preservation-hold-contracts";
 import { errorMessage } from "../utils/api-helpers";
 
-const askReason = (mode: "create" | "release") =>
+const askReleaseReason = () =>
   prompts.form({
-    title: mode === "create" ? "Create preservation hold" : "Release preservation hold",
-    icon: mode === "create" ? "ti ti-lock" : "ti ti-lock-open",
+    title: "Release preservation hold",
+    icon: "ti ti-lock-open",
     fields: {
       explanation: {
         type: "info" as const,
-        content:
-          mode === "create"
-            ? "This blocks future controlled destruction across the Base. Records remain editable and access does not change."
-            : "This releases only the selected hold. Other active holds continue to block controlled destruction.",
+        content: "This releases only the selected hold. Other active holds continue to block controlled destruction.",
       },
       reason: {
         type: "text" as const,
         label: "Reason",
-        description: mode === "create" ? "Why must this Base be preserved?" : "Why can this hold be released?",
+        description: "Why can this hold be released?",
         required: true,
         multiline: true,
         lines: 3,
         maxLength: PRESERVATION_HOLD_REASON_MAX_LENGTH,
       },
     },
-    confirmText: mode === "create" ? "Create hold" : "Release hold",
-    variant: mode === "release" ? "danger" : "primary",
+    confirmText: "Release hold",
+    variant: "danger",
   });
+
+const CreatePreservationHoldDialog = (props: { baseId: string; close: (input?: CreatePreservationHoldInput) => void }) => {
+  const [scope, setScope] = createSignal<"base" | "table">("base");
+  const [tableId, setTableId] = createSignal<string | null>(null);
+  const [reason, setReason] = createSignal("");
+  const valid = () =>
+    reason().trim().length > 0 && reason().trim().length <= PRESERVATION_HOLD_REASON_MAX_LENGTH && (scope() === "base" || tableId());
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        const selectedScope = scope();
+        const selectedTableId = tableId();
+        if (!valid()) return;
+        const trimmedReason = reason().trim();
+        if (selectedScope === "table") {
+          if (!selectedTableId) return;
+          props.close({ reason: trimmedReason, scope: { type: "table", tableId: selectedTableId } });
+          return;
+        }
+        props.close({ reason: trimmedReason, scope: { type: "base" } });
+      }}
+    >
+      <div class="k2b-dialog__body">
+        <p>This blocks future controlled destruction in the selected scope. Records remain editable and access does not change.</p>
+        <Select
+          label="Scope"
+          description="Choose the complete Base or one active Table."
+          required
+          value={scope}
+          onValueChange={(value) => {
+            setScope(value === "table" ? "table" : "base");
+            if (value !== "table") setTableId(null);
+          }}
+          options={[
+            { id: "base", label: "Entire Base", description: "Blocks controlled destruction across every Table." },
+            { id: "table", label: "One Table", description: "Blocks controlled destruction only for the selected Table." },
+          ]}
+        />
+        <Show when={scope() === "table"}>
+          <Select
+            label="Table"
+            description="Search active Tables in this Base."
+            placeholder="Search Tables..."
+            required
+            value={tableId}
+            onValueChange={setTableId}
+            fetchData={async (search, signal) => {
+              const response = await apiClient.tables["by-base"][":baseId"].$get(
+                { param: { baseId: props.baseId }, query: { q: search, limit: "25" } },
+                { init: { signal } },
+              );
+              if (!response.ok) throw new Error(await errorMessage(response, "Could not search Tables"));
+              return ((await response.json()) as PublicTable[]).map((table) => ({
+                id: table.id,
+                label: table.name,
+                description: `${table.kind === "federated" ? "Combined Table" : "Stored Table"} · ${table.id}`,
+                icon: table.icon ?? "ti ti-table",
+              }));
+            }}
+          />
+        </Show>
+        <TextInput
+          label="Reason"
+          description="Tell other administrators why this scope must be preserved."
+          required
+          multiline
+          lines={3}
+          maxLength={PRESERVATION_HOLD_REASON_MAX_LENGTH}
+          value={reason}
+          onValueChange={setReason}
+        />
+      </div>
+      <footer class="k2b-dialog__actions">
+        <Button type="button" variant="secondary" onClick={() => props.close()}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={!valid()}>
+          Create hold
+        </Button>
+      </footer>
+    </form>
+  );
+};
 
 export function PreservationHoldsSection(props: { baseId: string; onSavingChange: (saving: boolean) => void }) {
   const holds = query.create({
@@ -48,10 +132,10 @@ export function PreservationHoldsSection(props: { baseId: string; onSavingChange
     },
   });
 
-  const createHold = mutations.create<PreservationHold, string>({
-    mutation: async (reason, { abortSignal }) => {
+  const createHold = mutations.create<PreservationHold, CreatePreservationHoldInput>({
+    mutation: async (input, { abortSignal }) => {
       const response = await apiClient.bases[":baseId"]["preservation-holds"].$post(
-        { param: { baseId: props.baseId }, json: { reason } },
+        { param: { baseId: props.baseId }, json: input },
         { init: { signal: abortSignal } },
       );
       if (!response.ok) throw new Error(await errorMessage(response, "Could not create preservation hold"));
@@ -83,12 +167,14 @@ export function PreservationHoldsSection(props: { baseId: string; onSavingChange
   const busy = () => createHold.loading() || releaseHold.loading();
   createEffect(() => props.onSavingChange(busy()));
   const create = async () => {
-    const result = await askReason("create");
-    const reason = result?.reason.trim();
-    if (reason) createHold.mutate(reason);
+    const input = await prompts.dialog<CreatePreservationHoldInput>(
+      (close) => <CreatePreservationHoldDialog baseId={props.baseId} close={close} />,
+      { title: "Create preservation hold", icon: "ti ti-lock-plus", size: "medium" },
+    );
+    if (input) createHold.mutate(input);
   };
   const release = async (holdId: string) => {
-    const result = await askReason("release");
+    const result = await askReleaseReason();
     const reason = result?.reason.trim();
     if (reason) releaseHold.mutate({ holdId, reason });
   };
@@ -100,8 +186,8 @@ export function PreservationHoldsSection(props: { baseId: string; onSavingChange
 
   return (
     <SettingsGroup
-      title="Base-wide preservation holds"
-      description="Active holds block future controlled destruction across this Base. They do not lock Records or change access."
+      title="Preservation holds"
+      description="Base holds cover every Table. Table holds cover only their selected Table. Neither locks Records or changes access."
     >
       <Show when={!holds.loading()} fallback={<Placeholder state="loading" variant="compact" title="Loading preservation holds" />}>
         <Show
@@ -131,22 +217,26 @@ export function PreservationHoldsSection(props: { baseId: string; onSavingChange
               </Button>
             </SettingsCollection.Action>
             <For each={holds.data()?.items ?? []}>
-              {(hold) => (
-                <SettingsCollection.Item
-                  title={hold.reason}
-                  description={`Created ${new Date(hold.createdAt).toLocaleString()}${hold.createdByDisplayName ? ` by ${hold.createdByDisplayName}` : ""} · ${hold.id}`}
-                  icon={<i class="ti ti-lock" aria-hidden="true" />}
-                >
-                  <SettingsCollection.Item.Status>
-                    <StatusBadge tone="warning" label="Active" icon={null} />
-                  </SettingsCollection.Item.Status>
-                  <SettingsCollection.Item.Actions>
-                    <Button size="sm" variant="secondary" disabled={busy()} onClick={() => void release(hold.id)}>
-                      Release
-                    </Button>
-                  </SettingsCollection.Item.Actions>
-                </SettingsCollection.Item>
-              )}
+              {(hold) => {
+                const scopeLabel = hold.scope.type === "base" ? "Entire Base" : hold.scope.tableName;
+                const scopeDescription = hold.scope.type === "base" ? "Base" : `Table ${hold.scope.tableId}`;
+                return (
+                  <SettingsCollection.Item
+                    title={scopeLabel}
+                    description={`${hold.reason} · Created ${new Date(hold.createdAt).toLocaleString()}${hold.createdByDisplayName ? ` by ${hold.createdByDisplayName}` : ""} · ${hold.id}`}
+                    icon={<i class={hold.scope.type === "base" ? "ti ti-database-lock" : "ti ti-table-lock"} aria-hidden="true" />}
+                  >
+                    <SettingsCollection.Item.Status>
+                      <StatusBadge tone="warning" label={scopeDescription} icon={null} />
+                    </SettingsCollection.Item.Status>
+                    <SettingsCollection.Item.Actions>
+                      <Button size="sm" variant="secondary" disabled={busy()} onClick={() => void release(hold.id)}>
+                        Release
+                      </Button>
+                    </SettingsCollection.Item.Actions>
+                  </SettingsCollection.Item>
+                );
+              }}
             </For>
           </SettingsCollection>
           <Show when={(holds.data()?.pagination.total ?? 0) > 100}>
