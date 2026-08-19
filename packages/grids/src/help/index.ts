@@ -7,6 +7,7 @@ import customAppPagesBlocks from "./documents/grids-custom-app-pages-blocks.help
 import customAppYamlCli from "./documents/grids-custom-app-yaml-cli.help.md" with { type: "text" };
 import customApps from "./documents/grids-custom-apps.help.md" with { type: "text" };
 import documents from "./documents/grids-documents-pdfs.help.md" with { type: "text" };
+import evidenceExports from "./documents/grids-evidence-exports.help.md" with { type: "text" };
 import forms from "./documents/grids-forms.help.md" with { type: "text" };
 import formulas from "./documents/grids-formulas.help.md" with { type: "text" };
 import gql from "./documents/grids-gql.help.md" with { type: "text" };
@@ -37,6 +38,7 @@ export const gridsHelp = defineHelp({
     documents,
     workflows,
     permissions,
+    evidenceExports,
     operations,
   ],
 });

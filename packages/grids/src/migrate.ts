@@ -24,6 +24,7 @@ const PUBLIC_ID_RESOURCES = [
   { table: "record_snapshots", key: "id", parent: "table_id", index: "idx_grids_record_snapshots_short_id" },
   { table: "document_runs", key: "id", parent: "table_id", index: "idx_grids_document_runs_short_id" },
   { table: "document_links", key: "id", parent: "document_run_id", index: "idx_grids_document_links_short_id" },
+  { table: "evidence_exports", key: "id", parent: "base_id", index: "idx_grids_evidence_exports_short_id" },
   { table: "custom_apps", key: "id", parent: "base_id", index: "idx_grids_custom_apps_short_id" },
   { table: "workflow_profile", key: "id", parent: "base_id", index: "idx_grids_workflow_profile_short_id" },
   { table: "workflow_launchers", key: "id", parent: "workflow_id", index: "idx_grids_workflow_launchers_short_id" },
@@ -2134,6 +2135,65 @@ const migrateRecordScanCodes = async (sql: SQL): Promise<void> => {
   console.log("  ✓ grids.record_scan_codes");
 };
 
+const migrateEvidenceExports = async (sql: SQL): Promise<void> => {
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.evidence_exports (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
+      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
+      table_id UUID REFERENCES grids.tables(id) ON DELETE RESTRICT,
+      requested_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      requested_by_display_name TEXT,
+      sections TEXT[] NOT NULL,
+      range_from TIMESTAMPTZ,
+      range_to TIMESTAMPTZ,
+      status TEXT NOT NULL DEFAULT 'queued',
+      attempt INT NOT NULL DEFAULT 1 CHECK (attempt >= 1),
+      estimated_entries INT,
+      processed_entries INT NOT NULL DEFAULT 0 CHECK (processed_entries >= 0),
+      cut_at TIMESTAMPTZ,
+      package_filename TEXT,
+      package_size_bytes BIGINT,
+      package_sha256 TEXT,
+      manifest_sha256 TEXT,
+      manifest JSONB,
+      last_error TEXT,
+      requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      started_at TIMESTAMPTZ,
+      completed_at TIMESTAMPTZ,
+      expires_at TIMESTAMPTZ,
+      CONSTRAINT evidence_exports_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$'),
+      CONSTRAINT evidence_exports_status_chk CHECK (
+        status IN ('queued', 'running', 'cancel_requested', 'completed', 'failed', 'canceled', 'expired')
+      ),
+      CONSTRAINT evidence_exports_range_chk CHECK (range_from IS NULL OR range_to IS NULL OR range_from <= range_to),
+      CONSTRAINT evidence_exports_package_chk CHECK (
+        (status <> 'completed' AND package_filename IS NULL AND package_size_bytes IS NULL AND package_sha256 IS NULL AND manifest_sha256 IS NULL)
+        OR (status = 'completed' AND package_filename IS NOT NULL AND package_size_bytes IS NOT NULL
+          AND package_sha256 ~ '^[a-f0-9]{64}$' AND manifest_sha256 ~ '^[a-f0-9]{64}$' AND manifest IS NOT NULL)
+      )
+    )
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_evidence_exports_short_id
+    ON grids.evidence_exports(short_id)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_evidence_exports_base_page
+    ON grids.evidence_exports(base_id, requested_at DESC, id DESC)
+  `.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.evidence_export_chunks (
+      export_id UUID NOT NULL REFERENCES grids.evidence_exports(id) ON DELETE CASCADE,
+      sequence INT NOT NULL CHECK (sequence >= 0),
+      bytes BYTEA NOT NULL,
+      PRIMARY KEY (export_id, sequence),
+      CHECK (octet_length(bytes) BETWEEN 1 AND 1048576)
+    )
+  `.simple();
+  console.log("  ✓ grids.evidence_exports");
+};
+
 const assertWorkflowKernelReady = async (sql: SQL): Promise<void> => {
   /*
    * Public-reference migration and operational health read kernel tables that
@@ -2266,6 +2326,7 @@ export const migrate = async (sql: SQL = defaultSql): Promise<void> => {
     await migrateNumberSeries(connection);
     await migrateRecordFinalization(connection);
     await finalizeDocumentArtifacts(connection);
+    await migrateEvidenceExports(connection);
     await cleanupAlphaSchema(connection);
     await migrateFormsAndEvents(connection);
     await migrateCustomApps(connection);

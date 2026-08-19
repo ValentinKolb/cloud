@@ -32,6 +32,7 @@ const expectedTopics = [
   "grids-custom-apps",
   "grids-workflows",
   "grids-permissions",
+  "grids-evidence-exports",
   "grids-operations-troubleshooting",
 ];
 

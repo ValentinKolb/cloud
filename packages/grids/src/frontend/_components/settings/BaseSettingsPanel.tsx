@@ -3,6 +3,7 @@ import type { AccessEntry } from "@valentinkolb/cloud/contracts";
 import { createSignal } from "solid-js";
 import type { PublicBase } from "../../../api/public-dto";
 import { DangerZone, DocumentProfileForm, GeneralForm, PermissionsSection, TrashSection } from "./BaseSettingsSections";
+import { EvidenceExportsSection } from "./EvidenceExportsSection";
 
 type Props = {
   base: PublicBase;
@@ -109,6 +110,15 @@ export default function BaseSettingsPanel(props: Props) {
         </SettingsModal.Group>
 
         <SettingsModal.Group title="Lifecycle">
+          <SettingsModal.Tab
+            id="evidence"
+            title="Evidence exports"
+            icon="ti ti-package-export"
+            description="Bounded, verifiable packages of available evidence."
+          >
+            <EvidenceExportsSection base={props.base} />
+          </SettingsModal.Tab>
+
           <SettingsModal.Tab
             id="danger"
             title="Danger zone"

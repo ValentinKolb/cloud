@@ -7,6 +7,7 @@ import * as customApps from "./custom-apps";
 import * as documents from "./documents";
 import * as durableHistory from "./durable-history";
 import * as emailTemplates from "./email-templates";
+import * as evidenceExports from "./evidence-exports";
 import * as exporter from "./export";
 import * as federatedTables from "./federated-tables";
 import { getFieldDependents, hasBlockingDependents } from "./field-dependents";
@@ -170,6 +171,15 @@ export const gridsService = {
       describeRecord: combinedAudit.describeRecord,
       list: combinedAudit.list,
     },
+  },
+  evidenceExport: {
+    preflight: evidenceExports.preflight,
+    create: evidenceExports.create,
+    listByBase: evidenceExports.listByBase,
+    getByShortId: evidenceExports.getByShortId,
+    retry: evidenceExports.retry,
+    cancel: evidenceExports.cancel,
+    download: evidenceExports.download,
   },
   permission: {
     resolve: resolveEffectivePermission,

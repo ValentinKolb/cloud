@@ -45,6 +45,11 @@ documents, and workflows without splitting the domain across unrelated tools.
 - Use automatically provisioned durable number series for sequential ID fields
   and numbered Documents. Allocations are atomic and never reused; technical
   gaps are possible, and formatting changes affect future values only.
+- Let a Base admin create a bounded evidence package for one Base or table.
+  The short-lived TAR contains the selected current and historical sources,
+  exact stored File and Document bytes, public Grids IDs, coverage statements,
+  and SHA-256 hashes. It reports unavailable history rather than reconstructing
+  it or making a compliance claim; ordinary CSV and JSON exports remain unchanged.
 - Generate a per-record HTML value from Liquid and inline CSS when an email body, product description, or bounded export column should stay attached to the row rather than become a Document artifact.
 - Run typed, versioned workflows for repeatable record changes, document
   generation, email delivery, and bounded HTTP calls.
@@ -90,7 +95,8 @@ rendering, application discovery, and shared Help and administration surfaces.
 ## Find detailed product help
 
 Open **Help** inside Grids for the core model, schema, formulas, Views, Forms,
-Custom Apps, public publishing, documents, permissions, GQL, workflows, and troubleshooting.
+Custom Apps, public publishing, documents, evidence exports, permissions, GQL,
+workflows, and troubleshooting.
 Developers can read [Resource authorization](/en/docs/identity/authorization),
 [Workflow overview](/en/docs/automation/workflow-overview), and
 [PDF and templates](/en/docs/platform/pdf-and-templates) for shared contracts

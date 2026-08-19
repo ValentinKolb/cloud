@@ -39,7 +39,7 @@ describe("Grids Base settings composition", () => {
     );
 
     for (const group of ["Base", "Sharing", "Recovery", "Lifecycle"]) expect(html).toContain(group);
-    for (const tab of ["General", "Documents", "Access", "Trash", "Danger zone"]) expect(html).toContain(tab);
+    for (const tab of ["General", "Documents", "Access", "Trash", "Evidence exports", "Danger zone"]) expect(html).toContain(tab);
     expect(html).toContain("Identity shown across Grids.");
     expect(html).toContain("Describe this Base wherever it appears in Grids.");
     expect(html.match(/<footer class="k2b-settings__footer">/g)).toHaveLength(1);

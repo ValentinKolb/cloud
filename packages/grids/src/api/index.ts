@@ -8,6 +8,7 @@ import basesRoutes from "./bases";
 import customAppsRoutes from "./custom-apps";
 import documentsRoutes from "./documents";
 import emailTemplateRoutes from "./email-templates";
+import evidenceExportRoutes from "./evidence-exports";
 import fieldsRoutes from "./fields";
 import formsRoutes from "./forms";
 import formulasRoutes from "./formulas";
@@ -34,6 +35,7 @@ const app = new Hono()
   .route("/access", accessRoutes)
   .route("/views", viewsRoutes)
   .route("/documents", documentsRoutes)
+  .route("/evidence-exports", evidenceExportRoutes)
   .route("/email-templates", emailTemplateRoutes)
   .route("/formulas", formulasRoutes)
   .route("/html-template-fields", htmlTemplateFieldRoutes)
