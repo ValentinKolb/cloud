@@ -16,6 +16,7 @@ import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-j
 import { apiClient } from "@/api/client";
 import { RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, type RetentionPolicy, type RetentionPreview } from "../../../retention-policy-contracts";
 import { errorMessage } from "../utils/api-helpers";
+import { PreservationHoldsSection } from "./PreservationHoldsSection";
 import { openRetentionFilesDialog } from "./RetentionFilesDialog";
 import { openRetentionRecordsDialog } from "./RetentionRecordsDialog";
 
@@ -35,6 +36,7 @@ export function RetentionPolicySection(props: {
   const [days, setDays] = createSignal<number | null>(null);
   const [savedDays, setSavedDays] = createSignal<number | null>(null);
   const [initialized, setInitialized] = createSignal(false);
+  const [holdSaving, setHoldSaving] = createSignal(false);
   createEffect(() => {
     if (!policy.loading() && !policy.error() && !initialized()) {
       setDays(policy.data()?.minimumDays ?? null);
@@ -117,7 +119,7 @@ export function RetentionPolicySection(props: {
     },
   });
   const saving = () => save.loading() || remove.loading();
-  createEffect(() => props.onSavingChange(saving()));
+  createEffect(() => props.onSavingChange(saving() || holdSaving()));
   onCleanup(() => props.onSavingChange(false));
 
   return (
@@ -250,6 +252,7 @@ export function RetentionPolicySection(props: {
           </Show>
         </Show>
       </SettingsGroup>
+      <PreservationHoldsSection baseId={props.baseId} onSavingChange={setHoldSaving} />
       <SettingsModal.Footer>
         <SettingsPanelFooter
           changeCount={() => (changed() ? 1 : 0)}

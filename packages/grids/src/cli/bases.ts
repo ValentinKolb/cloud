@@ -1,5 +1,6 @@
 import { arg, command, confirmFlag, flag, paginationFlags } from "@valentinkolb/cloud/cli";
 import type { PublicBase as Base, PublicField as Field, PublicTable as Table } from "../api/public-dto";
+import type { PreservationHold, PreservationHoldsResponse } from "../preservation-hold-contracts";
 import {
   RETENTION_MAX_DAYS,
   RETENTION_MIN_DAYS,
@@ -369,6 +370,85 @@ export const baseCrudCommands = [
       const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
       await readApi<void>(ctx, `/bases/${encodeURIComponent(base.id)}/retention-policy`, jsonRequest("DELETE"));
       printJsonOrMessage(ctx, { removed: true, baseId: base.id }, `Removed minimum retention from ${base.name} (${base.id}).`);
+    },
+  }),
+  command("bases preservation-holds list", {
+    summary: "List Base-wide preservation holds",
+    description: "Requires Base admin access. Status filtering and pagination run on the server.",
+    args: baseArgs,
+    flags: {
+      ...baseFlag,
+      status: flag.enum(["active", "released", "all"] as const, { default: "active", description: "Hold status" }),
+      ...paginationFlags({ defaultPerPage: 25, maxPerPage: 100 }),
+    },
+    async run({ ctx, args, flags }) {
+      const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
+      const payload = await readApi<PreservationHoldsResponse>(
+        ctx,
+        `/bases/${encodeURIComponent(base.id)}/preservation-holds${queryString({
+          status: flags.status,
+          page: flags.page ?? 1,
+          per_page: flags.perPage ?? 25,
+        })}`,
+      );
+      printJsonOrTable(
+        ctx,
+        payload,
+        payload.items.map((item) => ({
+          id: item.id,
+          status: item.status,
+          reason: item.reason,
+          createdBy: item.createdByDisplayName ?? "-",
+          createdAt: item.createdAt,
+          releasedAt: item.releasedAt ?? "-",
+        })),
+        [
+          { key: "id", label: "ID" },
+          { key: "status", label: "STATUS" },
+          { key: "reason", label: "REASON" },
+          { key: "createdBy", label: "CREATED BY" },
+          { key: "createdAt", label: "CREATED" },
+          { key: "releasedAt", label: "RELEASED" },
+        ],
+      );
+    },
+  }),
+  command("bases preservation-holds create", {
+    summary: "Create a Base-wide preservation hold",
+    description: "Requires Base admin access. The hold blocks future controlled destruction only.",
+    args: baseArgs,
+    flags: { ...baseFlag, reason: flag.string({ required: true, description: "Why this Base must be preserved" }) },
+    async run({ ctx, args, flags }) {
+      if (!flags.reason?.trim()) throw new Error("Pass --reason <text>.");
+      const { base } = await resolveBaseFromCommand(ctx, args.args, 0);
+      const hold = await readApi<PreservationHold>(
+        ctx,
+        `/bases/${encodeURIComponent(base.id)}/preservation-holds`,
+        jsonRequest("POST", { reason: flags.reason.trim() }),
+      );
+      printJsonOrMessage(ctx, hold, `Created preservation hold ${hold.id} for ${base.name} (${base.id}).`);
+    },
+  }),
+  command("bases preservation-holds release", {
+    summary: "Release one Base-wide preservation hold",
+    description: "Releasing one hold does not release any other active hold and does not delete data.",
+    args: baseArgs,
+    flags: {
+      ...baseFlag,
+      reason: flag.string({ required: true, description: "Why this hold is being released" }),
+      yes: confirmFlag("Release this preservation hold"),
+    },
+    async run({ ctx, args, flags }) {
+      if (!flags.yes) throw new Error("Pass --yes to release the preservation hold.");
+      if (!flags.reason?.trim()) throw new Error("Pass --reason <text>.");
+      const { base, rest } = await resolveBaseFromCommand(ctx, args.args, 1);
+      const holdId = requirePublicId(requireRestArg(rest, 0, "Preservation hold public id"), "Preservation hold id");
+      const hold = await readApi<PreservationHold>(
+        ctx,
+        `/bases/${encodeURIComponent(base.id)}/preservation-holds/${encodeURIComponent(holdId)}/release`,
+        jsonRequest("POST", { reason: flags.reason.trim() }),
+      );
+      printJsonOrMessage(ctx, hold, `Released preservation hold ${hold.id} for ${base.name} (${base.id}).`);
     },
   }),
   command("bases create", {

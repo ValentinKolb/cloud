@@ -19,7 +19,8 @@ export type PublicResourceType =
   | "customApp"
   | "workflow"
   | "workflowLauncher"
-  | "workflowRun";
+  | "workflowRun"
+  | "preservationHold";
 
 const resources: Record<PublicResourceType, { table: string; key: string; live: string }> = {
   base: { table: "bases", key: "id", live: "deleted_at IS NULL" },
@@ -39,6 +40,7 @@ const resources: Record<PublicResourceType, { table: string; key: string; live: 
   workflow: { table: "workflow_profile", key: "id", live: "deleted_at IS NULL" },
   workflowLauncher: { table: "workflow_launchers", key: "id", live: "deleted_at IS NULL" },
   workflowRun: { table: "workflow_run_profile", key: "run_id", live: "TRUE" },
+  preservationHold: { table: "preservation_holds", key: "id", live: "TRUE" },
 };
 
 const unique = (values: readonly string[]): string[] => [...new Set(values)];

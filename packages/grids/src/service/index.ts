@@ -27,6 +27,7 @@ import {
   loadCustomAppGrantsForSubject,
   resolveEffectivePermission,
 } from "./permission-resolver";
+import * as preservationHolds from "./preservation-holds";
 import * as recordComments from "./record-comments";
 import { listDeadRecordEventDeliveryFailures } from "./record-event-delivery-failures";
 import * as recordFinalization from "./record-finalization";
@@ -72,6 +73,7 @@ export const gridsService = {
     remove: bases.remove,
     restore: bases.restore,
     retentionPolicy,
+    preservationHolds,
     admin: {
       list: bases.adminList,
       summary: bases.adminSummary,

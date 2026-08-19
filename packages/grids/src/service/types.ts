@@ -57,6 +57,8 @@ export type AuditAction =
   | "mutation_policy.updated"
   | "retention_policy.updated"
   | "retention_policy.removed"
+  | "preservation_hold.created"
+  | "preservation_hold.released"
   | "access.granted"
   | "access.updated"
   | "access.revoked"

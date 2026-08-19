@@ -191,6 +191,7 @@ export type StartOptions = {
 };
 
 export type StartResult = {
+  hostname: "0.0.0.0";
   port: number;
   development: boolean;
   fetch: Hono["fetch"];
@@ -618,7 +619,7 @@ export const defineApp = <
     process.on("SIGTERM", () => void shutdown().then(() => process.exit(0)));
     process.on("SIGINT", () => void shutdown().then(() => process.exit(0)));
 
-    return { port, development: isDevelopment, fetch: server.fetch };
+    return { hostname: "0.0.0.0", port, development: isDevelopment, fetch: server.fetch };
   };
 
   return {

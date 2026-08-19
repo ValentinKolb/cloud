@@ -1,8 +1,8 @@
 ---
 id: grids-retention-preservation
-title: Set a retention floor
+title: Retention and preservation
 icon: ti ti-archive
-description: Preserve trashed Records and newly unreferenced Files for a technical minimum time.
+description: Set a technical retention floor or block future controlled destruction across a Base.
 order: 148
 ---
 A retention floor is an optional technical minimum for trashed Records and newly unreferenced Files in a Base. It does not delete anything, schedule cleanup, decide whether destruction is appropriate, or establish legal compliance.
@@ -65,3 +65,21 @@ Replacing or removing an attachment can create a candidate. A new protection rem
 Increasing the number preserves affected trashed Records and unreferenced Files longer. Shortening or removing it may make future controlled destruction eligible earlier, so Grids asks for confirmation. Neither action deletes anything immediately.
 
 Durable History revisions, finalized Records, immutable Documents, Number allocations, protected Files, preservation holds, and actual controlled destruction keep their separate lifecycle contracts.
+
+## Preserve the complete Base {icon="lock"}
+
+A Base-wide preservation hold blocks future controlled destruction across the Base. It does not lock Records, stop normal edits, grant access, change Finalization, expire automatically, or decide that the Base meets a legal requirement.
+
+You need **Admin** access. Open **Base settings → Retention and preservation**, then select **Create hold**. Enter a reason that tells other administrators why the hold exists. The active-hold list shows its public ID, creator, creation time, and reason.
+
+More than one hold can be active. Releasing one hold requires a new reason and leaves every other hold active. Releasing the last hold only removes that block; it does not delete anything or start cleanup.
+
+The Cloud CLI uses the same Admin-only API:
+
+```bash
+cld grids bases preservation-holds list 8yMtTb --status active --json
+cld grids bases preservation-holds create 8yMtTb --reason "Annual review" --json
+cld grids bases preservation-holds release 8yMtTb HOLD01 --reason "Review completed" --yes --json
+```
+
+Use `--status released` or `--status all` to inspect older holds. Listing and pagination run on the server. A Workflow, Custom App, direct API client, or background action cannot release or bypass an active hold through another path.

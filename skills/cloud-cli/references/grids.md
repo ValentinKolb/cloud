@@ -126,7 +126,7 @@ Built-in templates create complete example bases with schema, views, Grids Apps,
 records are included by default; pass `--empty` to keep the complete configuration without those records. Commands are
 `templates list|instantiate`.
 
-Base commands are `list`, `use`, `current`, and `bases list|get|create|update|delete|restore|trash|retention`. Table commands are `tables list|get|create|update|delete|restore|mutation-policy|mutation-policy impact|mutation-policy set|history|history enable|finalization|finalization enable|finalization disable`.
+Base commands are `list`, `use`, `current`, and `bases list|get|create|update|delete|restore|trash|retention|preservation-holds`. Table commands are `tables list|get|create|update|delete|restore|mutation-policy|mutation-policy impact|mutation-policy set|history|history enable|finalization|finalization enable|finalization disable`.
 
 A Base Admin can configure a technical minimum age for trashed Records. Read and preview it before changing it:
 
@@ -140,6 +140,16 @@ cld grids bases retention set Bookshop --days 30 --json
 ```
 
 The preview is bounded and uses one stated observation time. It reports both trashed Records and newly unreferenced Files, including retained byte totals and bounded examples. `bases retention records list` exposes the complete current Trash set through server-side search, floor-status filtering, and pagination; finalized Records are labelled as independently protected. Use the normal table Trash view for restore or other Record actions. `bases retention files list` exposes the complete current candidate set through the same bounded pattern; `download` accepts only a File public ID returned by that list. All routes require Base Admin permission. Current attachments and Files protected by Durable History or Documents are not unreferenced candidates. Reaching the floor does not delete a Record or File or state that destruction is appropriate. Shortening an existing floor requires `--yes`; removing it always requires `bases retention remove <base> --yes`. Existing Bases have no floor by default.
+
+A Base Admin can also block future controlled destruction across the complete Base with one or more explicit preservation holds:
+
+```bash
+cld grids bases preservation-holds list Bookshop --status active --json
+cld grids bases preservation-holds create Bookshop --reason "Annual review" --json
+cld grids bases preservation-holds release Bookshop HOLD01 --reason "Review completed" --yes --json
+```
+
+Creating and releasing require a non-empty reason. Releasing one hold leaves every other active hold in force. Holds do not lock Records, change access or Finalization, expire automatically, start cleanup, or establish legal compliance. `list` supports `active`, `released`, and `all` status filters plus server-side pagination. Every command requires Base Admin permission and uses the same backend hold owner as future controlled destruction.
 
 Stored tables allow every record change source by default. Before tightening that setting, preview the active Forms, Actions, and Workflows that would stop changing the table, then apply the same policy:
 
@@ -1071,6 +1081,7 @@ bases list|get|create|update|delete|restore|trash|retention
 bases retention preview|set|remove
 bases retention records list
 bases retention files list|download
+bases preservation-holds list|create|release
 access reference|list|grant|set|revoke|search-principals
 tables list|get|create|update|delete|restore|history|finalization|mutation-policy
 tables history enable|finalization enable|finalization disable

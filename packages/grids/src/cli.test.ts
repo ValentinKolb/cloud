@@ -401,7 +401,7 @@ describe("grids CLI", () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(163);
+    expect(commands).toHaveLength(166);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {
@@ -595,6 +595,62 @@ describe("grids CLI", () => {
     expect(confirmed.calls.at(-1)?.path).toBe(`/api/grids/bases/${baseId}/retention-policy`);
     expect(confirmed.calls.at(-1)?.init?.method).toBe("DELETE");
     expect(confirmed.jsonValues).toEqual([{ removed: true, baseId }]);
+  });
+
+  test("creates, lists, and confirms release of Base preservation holds", async () => {
+    const hold = {
+      id: "HOLD01",
+      baseId,
+      reason: "Annual review",
+      status: "active",
+      createdByDisplayName: "Base Admin",
+      createdAt: "2026-08-19T16:00:00.000Z",
+      releaseReason: null,
+      releasedByDisplayName: null,
+      releasedAt: null,
+    };
+    const page = {
+      items: [hold],
+      pagination: { page: 2, per_page: 10, total: 11, total_pages: 2, has_next: false },
+    };
+    const list = createContext(
+      ["bases", "preservation-holds", "list", baseId],
+      { status: "active", page: "2", "per-page": "10" },
+      [jsonResponse(basePage), jsonResponse(page)],
+      { output: "json" },
+    );
+    await gridsCli.run(list.ctx);
+    expect(list.calls.at(-1)?.path).toBe(`/api/grids/bases/${baseId}/preservation-holds?status=active&page=2&per_page=10`);
+    expect(list.jsonValues).toEqual([page]);
+
+    const create = createContext(
+      ["bases", "preservation-holds", "create", baseId],
+      { reason: " Annual review " },
+      [jsonResponse(basePage), jsonResponse(hold)],
+      { output: "json" },
+    );
+    await gridsCli.run(create.ctx);
+    expect(create.calls.at(-1)?.path).toBe(`/api/grids/bases/${baseId}/preservation-holds`);
+    expect(JSON.parse(String(create.calls.at(-1)?.init?.body))).toEqual({ reason: "Annual review" });
+    expect(create.jsonValues).toEqual([hold]);
+
+    const unconfirmed = createContext(["bases", "preservation-holds", "release", baseId, hold.id], {
+      reason: "Review completed",
+    });
+    await expect(gridsCli.run(unconfirmed.ctx)).rejects.toThrow("Pass --yes to release the preservation hold.");
+    expect(unconfirmed.calls).toEqual([]);
+
+    const released = { ...hold, status: "released", releaseReason: "Review completed", releasedAt: "2026-08-19T17:00:00.000Z" };
+    const release = createContext(
+      ["bases", "preservation-holds", "release", baseId, hold.id],
+      { reason: " Review completed ", yes: true },
+      [jsonResponse(basePage), jsonResponse(released)],
+      { output: "json" },
+    );
+    await gridsCli.run(release.ctx);
+    expect(release.calls.at(-1)?.path).toBe(`/api/grids/bases/${baseId}/preservation-holds/${hold.id}/release`);
+    expect(JSON.parse(String(release.calls.at(-1)?.init?.body))).toEqual({ reason: "Review completed" });
+    expect(release.jsonValues).toEqual([released]);
   });
 
   test("forwards public field ids in table and view presentation updates", async () => {

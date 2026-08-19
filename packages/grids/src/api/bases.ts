@@ -5,6 +5,12 @@ import { describeRoute } from "hono-openapi";
 import { z } from "zod";
 import { CreateBaseSchema, UpdateBaseSchema } from "../contracts";
 import {
+  PreservationHoldInputSchema,
+  PreservationHoldSchema,
+  PreservationHoldsQuerySchema,
+  PreservationHoldsResponseSchema,
+} from "../preservation-hold-contracts";
+import {
   RetentionFilesQuerySchema,
   RetentionFilesResponseSchema,
   RetentionPolicyInputSchema,
@@ -34,7 +40,7 @@ import {
   toPublicForms,
   toPublicTables,
 } from "./public-dto";
-import { internalIdParam, requirePublicIdParam, requireStoredPublicIdParam } from "./route-params";
+import { internalIdParam, publicIdParam, requirePublicIdParam, requireStoredPublicIdParam } from "./route-params";
 
 const TrashResponseSchema = z.object({
   tables: z.array(PublicTableSchema),
@@ -174,6 +180,93 @@ export const createBasesApi = (deps: { requireAuthenticated?: MiddlewareHandler<
         if (!gate.ok) return respond(c, () => Promise.resolve(gate));
         const policy = await gridsService.base.retentionPolicy.get(baseId);
         return c.json({ policy: policy ? { baseId: c.req.param("baseId"), ...policy } : null });
+      },
+    )
+
+    .get(
+      "/:baseId/preservation-holds",
+      requirePublicIdParam("baseId", "base", "Base"),
+      describeRoute({
+        tags: ["Grids:Base"],
+        summary: "List Base-wide preservation holds",
+        responses: {
+          200: jsonResponse(PreservationHoldsResponseSchema, "Preservation holds"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Base not found"),
+        },
+      }),
+      v("query", PreservationHoldsQuerySchema),
+      async (c) => {
+        const baseId = internalIdParam(c, "baseId")!;
+        const gate = await gateAt(c, { baseId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const query = c.req.valid("query");
+        const pagination = parsePagination(query);
+        const result = await gridsService.base.preservationHolds.list(baseId, {
+          status: query.status,
+          perPage: pagination.perPage,
+          offset: pagination.offset,
+        });
+        return c.json({ items: result.items, pagination: createPagination(pagination, result.total) });
+      },
+    )
+
+    .post(
+      "/:baseId/preservation-holds",
+      requirePublicIdParam("baseId", "base", "Base"),
+      describeRoute({
+        tags: ["Grids:Base"],
+        summary: "Create a Base-wide preservation hold",
+        responses: {
+          201: jsonResponse(PreservationHoldSchema, "Preservation hold created"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid reason"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Base not found"),
+        },
+      }),
+      v("json", PreservationHoldInputSchema),
+      async (c) => {
+        const baseId = internalIdParam(c, "baseId")!;
+        const gate = await gateAt(c, { baseId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const actor = currentActorUser(c);
+        const hold = await gridsService.base.preservationHolds.create(baseId, c.req.valid("json"), {
+          id: actor?.id ?? null,
+          displayName: actor?.displayName ?? null,
+        });
+        return c.json(hold, 201);
+      },
+    )
+
+    .post(
+      "/:baseId/preservation-holds/:holdId/release",
+      requirePublicIdParam("baseId", "base", "Base"),
+      async (c, next) => {
+        if (!publicIdParam(c, "holdId")) return c.json({ message: "Preservation hold not found" }, 404);
+        await next();
+      },
+      describeRoute({
+        tags: ["Grids:Base"],
+        summary: "Release one Base-wide preservation hold",
+        responses: {
+          200: jsonResponse(PreservationHoldSchema, "Preservation hold released"),
+          400: jsonResponse(ErrorResponseSchema, "Invalid reason"),
+          403: jsonResponse(ErrorResponseSchema, "Forbidden"),
+          404: jsonResponse(ErrorResponseSchema, "Preservation hold not found"),
+          409: jsonResponse(ErrorResponseSchema, "Preservation hold already released"),
+        },
+      }),
+      v("json", PreservationHoldInputSchema),
+      async (c) => {
+        const baseId = internalIdParam(c, "baseId")!;
+        const gate = await gateAt(c, { baseId }, "admin");
+        if (!gate.ok) return respond(c, () => Promise.resolve(gate));
+        const actor = currentActorUser(c);
+        const result = await gridsService.base.preservationHolds.release(baseId, c.req.param("holdId"), c.req.valid("json"), {
+          id: actor?.id ?? null,
+          displayName: actor?.displayName ?? null,
+        });
+        return result.ok ? c.json(result.data) : c.json({ message: result.error.message }, result.error.status);
       },
     )
 

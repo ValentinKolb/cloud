@@ -25,6 +25,7 @@ const PUBLIC_ID_RESOURCES = [
   { table: "document_runs", key: "id", parent: "table_id", index: "idx_grids_document_runs_short_id" },
   { table: "document_links", key: "id", parent: "document_run_id", index: "idx_grids_document_links_short_id" },
   { table: "evidence_exports", key: "id", parent: "base_id", index: "idx_grids_evidence_exports_short_id" },
+  { table: "preservation_holds", key: "id", parent: "base_id", index: "idx_grids_preservation_holds_short_id" },
   { table: "custom_apps", key: "id", parent: "base_id", index: "idx_grids_custom_apps_short_id" },
   { table: "workflow_profile", key: "id", parent: "base_id", index: "idx_grids_workflow_profile_short_id" },
   { table: "workflow_launchers", key: "id", parent: "workflow_id", index: "idx_grids_workflow_launchers_short_id" },
@@ -2210,6 +2211,34 @@ const migrateRetentionPolicies = async (sql: SQL): Promise<void> => {
       base_id UUID NOT NULL,
       unreferenced_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
+  `.simple();
+  await sql`
+    CREATE TABLE IF NOT EXISTS grids.preservation_holds (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      short_id TEXT NOT NULL,
+      base_id UUID NOT NULL REFERENCES grids.bases(id) ON DELETE CASCADE,
+      reason TEXT NOT NULL CHECK (char_length(reason) BETWEEN 1 AND 1000 AND reason = btrim(reason)),
+      created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      created_by_display_name TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      release_reason TEXT CHECK (release_reason IS NULL OR (char_length(release_reason) BETWEEN 1 AND 1000 AND release_reason = btrim(release_reason))),
+      released_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+      released_by_display_name TEXT,
+      released_at TIMESTAMPTZ,
+      CONSTRAINT preservation_holds_short_id_format_chk CHECK (short_id ~ '^[A-Za-z0-9]{6}$'),
+      CONSTRAINT preservation_holds_release_chk CHECK (
+        (released_at IS NULL AND release_reason IS NULL AND released_by IS NULL AND released_by_display_name IS NULL)
+        OR (released_at IS NOT NULL AND release_reason IS NOT NULL)
+      )
+    )
+  `.simple();
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_grids_preservation_holds_short_id
+    ON grids.preservation_holds(short_id)
+  `.simple();
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_grids_preservation_holds_active_base
+    ON grids.preservation_holds(base_id, created_at DESC, id DESC) WHERE released_at IS NULL
   `.simple();
   await sql`
     CREATE INDEX IF NOT EXISTS idx_grids_file_retention_candidates_base

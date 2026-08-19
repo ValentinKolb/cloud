@@ -34,6 +34,10 @@ documents, and workflows without splitting the domain across unrelated tools.
   server-filtered Record and File lists. Record review links into the existing
   table Trash view; File review supports read-only preview and exact-byte
   download. It neither deletes data nor makes a compliance claim.
+- Let a Base admin create multiple Base-wide preservation holds with recorded
+  reasons and release each one with a second reason. Any active hold blocks
+  future controlled destruction only; Records remain editable, access and
+  Finalization do not change, and releasing a hold never starts deletion.
 - Irreversibly enable Durable History for a stored table when every future
   Record, Relation, and File state must remain inspectable from an honest
   activation baseline. Existing tables stay unchanged until an admin opts in.
