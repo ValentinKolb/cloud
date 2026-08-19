@@ -205,7 +205,7 @@ export const contactsService = {
       filter?: import("./types").ContactListFilter;
     }) => contacts.search(config),
     notes: {
-      list: (config: { bookId: string; contactId: string }) => notes.list(config),
+      list: (config: { bookId: string; contactId: string; viewerUserId?: string | null }) => notes.list(config),
       get: notes.get,
       listPage: notes.listPage,
       create: (config: {
@@ -224,7 +224,7 @@ export const contactsService = {
       },
       update: (config: { bookId: string; contactId: string; noteId: string; authorUserId: string; data: UpdateContactNoteInput }) =>
         withEvent(notes.update(config), { type: "notes.changed", bookId: config.bookId, contactId: config.contactId }),
-      remove: (config: { bookId: string; contactId: string; noteId: string; authorUserId: string; isBookAdmin: boolean }) =>
+      remove: (config: { bookId: string; contactId: string; noteId: string; authorUserId: string }) =>
         withEvent(notes.remove(config), { type: "notes.changed", bookId: config.bookId, contactId: config.contactId }),
     },
   },

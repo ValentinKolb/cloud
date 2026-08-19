@@ -110,6 +110,8 @@ const note: ContactNote = {
   content: "Follow up next week.",
   createdAt: now,
   updatedAt: now,
+  canEdit: true,
+  canDelete: true,
 };
 
 const legacyDetailClasses = [
@@ -156,6 +158,9 @@ describe("Contacts detail panels", () => {
     expect(html).toContain("Comments");
     expect(html).toContain('class="k2b-discussion');
     expect(html).toContain('class="k2b-discussion__item');
+    expect(html).toContain('aria-label="Edit comment"');
+    expect(html).toContain('class="ti ti-pencil"');
+    expect(html).toContain('aria-label="Delete comment"');
     expect(html).toContain("Follow up next week.");
     expect(html).toContain("Grace Hopper");
     expect(html).toContain("k2b-tag__label");

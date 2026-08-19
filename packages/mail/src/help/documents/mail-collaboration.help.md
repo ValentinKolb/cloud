@@ -21,7 +21,7 @@ New incoming mail changes any conversation to **Needs action**. A confirmed huma
 
 Internal comments are visible to people who can read the mailbox and are never sent to email recipients. Use them for handoffs, decisions, and shared context. Mail does not notify individual people about comments, so use assignment when a specific collaborator is responsible for the next step.
 
-Comment authors can edit or delete their own comments; mailbox administrators can moderate comments. Deleted comments leave a tombstone in the thread instead of silently removing the event from team history.
+Comment authors can edit or delete their own comments for 10 minutes after posting. Workflow and other authors' comments stay immutable, including for mailbox administrators. Deleted comments leave a tombstone in the thread instead of silently removing the event from team history.
 
 ## Use personal reminders and presence {icon="route"}
 

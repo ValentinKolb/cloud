@@ -22,7 +22,7 @@ type DbComment = {
 
 type SqlExecutor = typeof sql;
 
-const DELETE_WINDOW_MS = 10 * 60 * 1000;
+export const COMMENT_MUTATION_WINDOW_MS = 10 * 60 * 1000;
 
 const isValidOccurrenceScope = async (db: SqlExecutor, itemId: string, recurrenceId: string, dateConfig?: DateContext) => {
   const [item] = await db<
@@ -65,9 +65,9 @@ const isValidOccurrenceScope = async (db: SqlExecutor, itemId: string, recurrenc
   );
 };
 
-const canDeleteComment = (row: Pick<DbComment, "user_id" | "created_at">, viewerUserId?: string | null) => {
+const canMutateComment = (row: Pick<DbComment, "user_id" | "created_at">, viewerUserId?: string | null) => {
   if (!viewerUserId || row.user_id !== viewerUserId) return false;
-  return Date.now() - row.created_at.getTime() <= DELETE_WINDOW_MS;
+  return Date.now() - row.created_at.getTime() <= COMMENT_MUTATION_WINDOW_MS;
 };
 
 /**
@@ -83,7 +83,8 @@ const mapToComment = (row: DbComment, viewerUserId?: string | null): SpaceCommen
   content: row.content,
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
-  canDelete: canDeleteComment(row, viewerUserId),
+  canEdit: canMutateComment(row, viewerUserId),
+  canDelete: canMutateComment(row, viewerUserId),
 });
 
 /**
@@ -192,10 +193,9 @@ export const create = async (params: {
   return {
     ok: true,
     data: {
-      ...mapToComment(row),
+      ...mapToComment(row, userId),
       userName: user?.display_name ?? null,
       userAvatarHash: user?.avatar_hash ?? null,
-      canDelete: true,
     },
   };
 };
@@ -215,25 +215,29 @@ export const update = async (params: { id: string; content: string; userId: stri
   if (existing.userId !== userId) {
     return { ok: false, error: "Cannot edit another user's comment", status: 403 };
   }
+  if (!existing.canEdit) {
+    return { ok: false, error: "Comments can only be edited within 10 minutes", status: 403 };
+  }
 
   const [row] = await sql<DbComment[]>`
     UPDATE spaces.comments
     SET content = ${content}, updated_at = now()
     WHERE id = ${id}
+      AND user_id = ${userId}::uuid
+      AND created_at >= now() - interval '10 minutes'
     RETURNING id, item_id, recurrence_id, user_id, content, created_at, updated_at
   `;
 
   if (!row) {
-    return { ok: false, error: "Failed to update comment", status: 500 };
+    return { ok: false, error: "Comments can only be edited within 10 minutes", status: 403 };
   }
 
   return {
     ok: true,
     data: {
-      ...mapToComment(row),
+      ...mapToComment(row, userId),
       userName: existing.userName,
       userAvatarHash: existing.userAvatarHash,
-      canDelete: existing.canDelete,
     },
   };
 };
@@ -258,7 +262,14 @@ export const remove = async (params: { id: string; userId: string }): Promise<Mu
     return { ok: false, error: "Comments can only be deleted within 10 minutes", status: 403 };
   }
 
-  await sql`DELETE FROM spaces.comments WHERE id = ${id}`;
+  const [deleted] = await sql<{ id: string }[]>`
+    DELETE FROM spaces.comments
+    WHERE id = ${id}
+      AND user_id = ${userId}::uuid
+      AND created_at >= now() - interval '10 minutes'
+    RETURNING id
+  `;
+  if (!deleted) return { ok: false, error: "Comments can only be deleted within 10 minutes", status: 403 };
 
   return { ok: true, data: undefined };
 };

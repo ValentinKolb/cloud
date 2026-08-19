@@ -73,6 +73,8 @@ const comment: ConversationComment = {
   },
   referencedMessageId: null,
   revision: 1,
+  canEdit: true,
+  canDelete: true,
   editedAt: null,
   deletedAt: null,
   createdAt: now,
@@ -90,6 +92,8 @@ const deletedComment: ConversationComment = {
     avatarHash: null,
   },
   revision: 2,
+  canEdit: false,
+  canDelete: false,
   deletedAt: "2026-08-09T10:05:00.000Z",
   updatedAt: "2026-08-09T10:05:00.000Z",
 };
@@ -179,9 +183,7 @@ const renderPanel = (overrides: Partial<Parameters<typeof MailDetailsPanel>[0]> 
       mailboxId,
       conversationId,
       active: false,
-      currentUserId: "user-1",
       canWrite: true,
-      canAdmin: false,
       initialState: collaboration,
       initialLocalTags: [tag],
       initialConversationLocalTags: conversationTags,
@@ -271,6 +273,7 @@ describe("Mail conversation detail panel", () => {
     expect(html).toContain('data-visibility="progressive"');
     expect(html).not.toContain('data-visibility="always"');
     expect(html.indexOf('aria-label="Edit comment"')).toBeLessThan(html.indexOf('aria-label="Delete comment"'));
+    expect(html).toContain('class="ti ti-pencil"');
     expect(html).not.toContain('aria-label="Reply to Valentin Kolb"');
     expect(html.slice(html.indexOf('aria-label="Edit comment"'), html.indexOf('aria-label="Edit comment"') + 220)).toContain(
       'data-size="xs"',
@@ -289,14 +292,27 @@ describe("Mail conversation detail panel", () => {
     expect(html).not.toContain("Comment deleted");
   });
 
-  test("keeps comment action order and read-only workflow permissions", () => {
-    const html = renderPanel({ canWrite: false, canAdmin: false, currentUserId: "user-2" });
+  test("keeps expired and workflow comments immutable with a workflow icon", () => {
+    const html = renderPanel({
+      canWrite: false,
+      initialComments: [
+        { ...comment, canEdit: false, canDelete: false },
+        {
+          ...comment,
+          id: "CommWorkflow",
+          author: { kind: "workflow", id: "workflow-1", displayName: "Workflow", avatarHash: null },
+          canEdit: false,
+          canDelete: false,
+        },
+      ],
+    });
     const editIndex = html.indexOf('aria-label="Edit comment"');
     const deleteIndex = html.indexOf('aria-label="Delete comment"');
 
     expect(editIndex).toBe(-1);
     expect(deleteIndex).toBe(-1);
     expect(html).not.toContain("Reply to");
+    expect(html).toContain('class="ti ti-route"');
     expect(html).toContain('aria-label="Create tag"');
     expect(html).toContain("disabled");
     expect(html).toContain('aria-label="Add internal comment"');

@@ -259,6 +259,8 @@ const ContactNoteSchema = z.object({
   content: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  canEdit: z.boolean(),
+  canDelete: z.boolean(),
 });
 
 const ContactNoteInputSchema = z.object({
@@ -1554,6 +1556,7 @@ const app = new Hono<AuthContext>()
       const page = await contactsService.contact.notes.listPage({
         bookId: internalBookId!,
         contactId: contactIds[0]!,
+        viewerUserId: getUserBackedActor(c)?.id ?? null,
         pagination: parsePagination(c.req.valid("query")),
       });
       return respond(c, ok({ ...page, items: await projectNotes(page.items) }));
@@ -1578,7 +1581,11 @@ const app = new Hono<AuthContext>()
       if (error) return error;
       const contactIds = await resolveBookPublicIds("contacts", internalBookId!, [contactId]);
       if (!contactIds) return respond(c, fail(err.notFound("Contact")));
-      const notes = await contactsService.contact.notes.list({ bookId: internalBookId!, contactId: contactIds[0]! });
+      const notes = await contactsService.contact.notes.list({
+        bookId: internalBookId!,
+        contactId: contactIds[0]!,
+        viewerUserId: getUserBackedActor(c)?.id ?? null,
+      });
       return respond(c, ok(await projectNotes(notes)));
     },
   )
@@ -1621,7 +1628,7 @@ const app = new Hono<AuthContext>()
     documentRoute({
       tags: ["Contacts"],
       summary: "Update one note",
-      description: "Only the original author may edit their own note.",
+      description: "Only the original author may edit their own note within 10 minutes.",
       ...requiresAuth,
       responses: {
         200: jsonResponse(ContactNoteSchema, "Updated note"),
@@ -1660,7 +1667,7 @@ const app = new Hono<AuthContext>()
     documentRoute({
       tags: ["Contacts"],
       summary: "Delete one note",
-      description: "Author or book admin may delete.",
+      description: "Only the original author may delete their own note within 10 minutes.",
       ...requiresAuth,
       responses: {
         200: jsonResponse(MessageResponseSchema, "Note deleted"),
@@ -1683,11 +1690,6 @@ const app = new Hono<AuthContext>()
       ]);
       if (!contactIds || !internalNoteId) return respond(c, fail(err.notFound("Contact note")));
 
-      const permission = await contactsService.book.permission.get({
-        bookId: internalBookId!,
-        subject: { type: "user", userId: user.id },
-      });
-
       return respondMessage(
         c,
         contactsService.contact.notes.remove({
@@ -1695,7 +1697,6 @@ const app = new Hono<AuthContext>()
           contactId: contactIds[0]!,
           noteId: internalNoteId,
           authorUserId: user.id,
-          isBookAdmin: permission === "admin",
         }),
         "Note deleted",
       );

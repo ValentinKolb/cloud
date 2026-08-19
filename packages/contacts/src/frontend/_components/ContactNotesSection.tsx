@@ -16,15 +16,11 @@ type Props = {
   initialNotesPage?: Paginated<ContactNote>;
   /** Whether the current user has write access to the book. Hides compose + edit/delete when false. */
   canWrite: boolean;
-  /** Whether the current user is a book admin. Admins can delete notes from
-   *  any author (the server enforces the same rule). */
-  isBookAdmin: boolean;
 };
 
 /**
- * Append-only notes timeline for a contact. Append-only in spirit:
- * users can edit their own notes and book admins can prune — but the panel
- * presents them as chronological journal entries, oldest first.
+ * Notes timeline for a contact. Authors can correct a new note briefly; after
+ * that the panel presents it as immutable chronological context.
  */
 export default function ContactNotesSection(props: Props) {
   const perPage = props.initialNotesPage?.perPage ?? 30;
@@ -269,26 +265,28 @@ export default function ContactNotesSection(props: Props) {
                 }
                 meta={note.updatedAt !== note.createdAt ? <span title={dates.formatDateTime(note.updatedAt)}>edited</span> : undefined}
                 actions={
-                  props.canWrite && !isEditing() && (isOwn() || props.isBookAdmin) ? (
+                  props.canWrite && !isEditing() && (note.canEdit || note.canDelete) ? (
                     <>
-                      <Show when={isOwn()}>
+                      <Show when={note.canEdit && isOwn()}>
                         <Tooltip.Anchor content="Edit comment">
                           <IconButton variant="ghost" size="xs" onClick={() => startEdit(note)} label="Edit comment">
                             <i class="ti ti-pencil" aria-hidden="true" />
                           </IconButton>
                         </Tooltip.Anchor>
                       </Show>
-                      <Tooltip.Anchor content={isOwn() ? "Delete comment" : "Delete comment as admin"}>
-                        <IconButton
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => void deleteNote(note)}
-                          disabled={deleteConfirming() || deleteMutation.loading()}
-                          label={isOwn() ? "Delete comment" : "Delete comment as admin"}
-                        >
-                          <i class="ti ti-trash" aria-hidden="true" />
-                        </IconButton>
-                      </Tooltip.Anchor>
+                      <Show when={note.canDelete && isOwn()}>
+                        <Tooltip.Anchor content="Delete comment">
+                          <IconButton
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => void deleteNote(note)}
+                            disabled={deleteConfirming() || deleteMutation.loading()}
+                            label="Delete comment"
+                          >
+                            <i class="ti ti-trash" aria-hidden="true" />
+                          </IconButton>
+                        </Tooltip.Anchor>
+                      </Show>
                     </>
                   ) : undefined
                 }

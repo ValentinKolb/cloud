@@ -135,12 +135,16 @@ describe("@k2b/ui Cloud-faithful surfaces", () => {
     );
 
     const initials = renderToString(() => createComponent(Avatar, { name: "Ada Lovelace" }));
+    const icon = renderToString(() => createComponent(Avatar, { name: "Workflow", icon: "ti ti-route" }));
     const nameless = renderToString(() => createComponent(Avatar, { name: "   " }));
 
     expect(avatar).toContain('src="/ada.webp"');
     expect(avatar).toContain('data-size="lg"');
     expect(initials).toContain(">AL<");
     expect(initials).toContain('aria-label="Ada Lovelace avatar"');
+    expect(icon).toContain('class="ti ti-route"');
+    expect(icon).toContain('aria-label="Workflow avatar"');
+    expect(icon).not.toContain(">WO<");
     // An empty name renders Cloud's "?" placeholder, not initials of the
     // accessible-name fallback.
     expect(nameless).toContain(">?<");

@@ -33,8 +33,8 @@ import type { ConversationReminder } from "../../service/reminders";
 import type { MailDetailErrors } from "../../service/workspace";
 import { readApiError } from "./api-response";
 import MailConversationContext from "./MailConversationContext";
-import MailRelatedConversations from "./MailRelatedConversations";
 import { openMailMessageInspector } from "./MailMessageInspectorDialog";
+import MailRelatedConversations from "./MailRelatedConversations";
 import { presentMailActivity } from "./mail-activity-presentation";
 import { mailDraftHref } from "./mail-compose-route";
 import { listUnavailableMailDetailSections } from "./mail-detail-availability";
@@ -62,9 +62,7 @@ export default function MailDetailsPanel(props: {
   mailboxId: string;
   conversationId: string;
   active: boolean;
-  currentUserId: string;
   canWrite: boolean;
-  canAdmin: boolean;
   initialState: ConversationCollaboration;
   initialLocalTags: LocalTag[];
   initialConversationLocalTags: ConversationLocalTags;
@@ -351,7 +349,7 @@ export default function MailDetailsPanel(props: {
       const conversationId = props.conversationId;
       const values = await prompts.form({
         title: "Edit internal comment",
-        icon: "ti ti-edit",
+        icon: "ti ti-pencil",
         fields: {
           body: {
             type: "text",
@@ -706,14 +704,13 @@ export default function MailDetailsPanel(props: {
                 >
                   <For each={visibleComments()}>
                     {(comment) => {
-                      const canModerate = () =>
-                        props.canAdmin || (comment.author.kind === "user" && comment.author.id === props.currentUserId);
                       return (
                         <Discussion.Item
                           avatar={
                             <Avatar
                               name={comment.author.displayName}
                               src={avatarSource(comment.author.kind === "user" ? comment.author.id : undefined, comment.author.avatarHash)}
+                              icon={comment.author.kind === "workflow" ? "ti ti-route" : undefined}
                               size="xs"
                             />
                           }
@@ -725,24 +722,19 @@ export default function MailDetailsPanel(props: {
                           }
                           actions={
                             <>
-                              <Show when={canModerate()}>
-                                <>
-                                  <Tooltip.Anchor content="Edit comment">
-                                    <IconButton type="button" label="Edit comment" size="xs" onClick={() => editComment.mutate(comment)}>
-                                      <i class="ti ti-edit" aria-hidden="true" />
-                                    </IconButton>
-                                  </Tooltip.Anchor>
-                                  <Tooltip.Anchor content="Delete comment">
-                                    <IconButton
-                                      type="button"
-                                      label="Delete comment"
-                                      size="xs"
-                                      onClick={() => removeComment.mutate(comment)}
-                                    >
-                                      <i class="ti ti-trash" aria-hidden="true" />
-                                    </IconButton>
-                                  </Tooltip.Anchor>
-                                </>
+                              <Show when={comment.canEdit}>
+                                <Tooltip.Anchor content="Edit comment">
+                                  <IconButton type="button" label="Edit comment" size="xs" onClick={() => editComment.mutate(comment)}>
+                                    <i class="ti ti-pencil" aria-hidden="true" />
+                                  </IconButton>
+                                </Tooltip.Anchor>
+                              </Show>
+                              <Show when={comment.canDelete}>
+                                <Tooltip.Anchor content="Delete comment">
+                                  <IconButton type="button" label="Delete comment" size="xs" onClick={() => removeComment.mutate(comment)}>
+                                    <i class="ti ti-trash" aria-hidden="true" />
+                                  </IconButton>
+                                </Tooltip.Anchor>
                               </Show>
                             </>
                           }

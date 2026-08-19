@@ -2398,7 +2398,7 @@ const actionDefinitions = {
   },
   "conversation.comment.update": {
     title: "Update internal comment",
-    description: "Edit an owned internal comment using an optimistic revision.",
+    description: "Edit your own internal comment within 10 minutes using an optimistic revision.",
     input: c.CommentUpdateInputSchema,
     data: c.CommentDataSchema,
     destructive: true,
@@ -2453,7 +2453,7 @@ const actionDefinitions = {
   },
   "conversation.comment.delete": {
     title: "Delete internal comment",
-    description: "Soft-delete an internal comment using an optimistic revision.",
+    description: "Soft-delete your own internal comment within 10 minutes using an optimistic revision.",
     input: c.CommentDeleteInputSchema,
     data: c.CommentDataSchema,
     destructive: true,

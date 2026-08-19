@@ -1707,7 +1707,7 @@ const app = new Hono<AuthContext>()
     describeRoute({
       tags: ["Spaces"],
       summary: "Edit comment",
-      description: "Edit your own comment.",
+      description: "Edit your own comment within 10 minutes.",
       ...requiresAuth,
       responses: {
         200: jsonResponse(SpaceCommentSchema, "Updated comment"),

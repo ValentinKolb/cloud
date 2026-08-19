@@ -136,6 +136,7 @@ export const SpaceCommentSchema = z.object({
   content: z.string().describe("Comment content"),
   createdAt: z.string().describe("Creation timestamp (ISO)"),
   updatedAt: z.string().describe("Last update timestamp (ISO)"),
+  canEdit: z.boolean().describe("Whether the current viewer may edit this comment"),
   canDelete: z.boolean().describe("Whether the current viewer may delete this comment"),
 });
 export type SpaceComment = z.infer<typeof SpaceCommentSchema>;

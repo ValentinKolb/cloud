@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { toPgTextArray } from "@valentinkolb/cloud/services";
 import { sql } from "bun";
 import { newShortId } from "../lib/short-id";
-import { list } from "./comments";
+import { create as createComment, list, remove as removeComment, update as updateComment } from "./comments";
 import { create, splitRecurring, update } from "./items";
 
 const canUseDatabase = async () => {
@@ -18,6 +18,65 @@ const canUseDatabase = async () => {
 const suite = (await canUseDatabase()) ? describe : describe.skip;
 
 suite("Spaces comment pagination", () => {
+  test("allows only the author to edit and delete during the first 10 minutes", async () => {
+    const suffix = crypto.randomUUID().slice(0, 8);
+    const [user, otherUser] = await sql<{ id: string }[]>`
+      INSERT INTO auth.users (uid, provider, profile, display_name, admin)
+      VALUES
+        (${`spaces-comment-author-${suffix}`}, 'local', 'user', 'Comment Author', false),
+        (${`spaces-comment-other-${suffix}`}, 'local', 'user', 'Other User', false)
+      RETURNING id
+    `;
+    const [space] = await sql<{ id: string }[]>`
+      INSERT INTO spaces.spaces (short_id, name, description, color)
+      VALUES (${newShortId()}, ${`Comment policy ${suffix}`}, 'comment policy test', '#2563eb')
+      RETURNING id
+    `;
+    try {
+      const [column] = await sql<{ id: string }[]>`
+        INSERT INTO spaces.columns (short_id, space_id, name, rank, is_done)
+        VALUES (${newShortId()}, ${space!.id}::uuid, 'To Do', 1024, false)
+        RETURNING id
+      `;
+      const [item] = await sql<{ id: string }[]>`
+        INSERT INTO spaces.items (short_id, space_id, column_id, title, rank)
+        VALUES (${newShortId()}, ${space!.id}::uuid, ${column!.id}::uuid, 'Review policy', 1024)
+        RETURNING id
+      `;
+      const created = await createComment({ itemId: item!.id, userId: user!.id, content: "Initial context" });
+      expect(created).toMatchObject({ ok: true, data: { canEdit: true, canDelete: true } });
+      if (!created.ok) return;
+
+      const otherView = await list({ itemId: item!.id, viewerUserId: otherUser!.id });
+      expect(otherView.items[0]).toMatchObject({ canEdit: false, canDelete: false });
+      expect(await updateComment({ id: created.data.id, content: "Overwrite", userId: otherUser!.id })).toMatchObject({
+        ok: false,
+        status: 403,
+      });
+      expect(await updateComment({ id: created.data.id, content: "Corrected context", userId: user!.id })).toMatchObject({ ok: true });
+
+      await sql`
+        UPDATE spaces.comments
+        SET created_at = now() - interval '11 minutes'
+        WHERE id = ${created.data.id}::uuid
+      `;
+      const expiredView = await list({ itemId: item!.id, viewerUserId: user!.id });
+      expect(expiredView.items[0]).toMatchObject({ canEdit: false, canDelete: false });
+      expect(await updateComment({ id: created.data.id, content: "Too late", userId: user!.id })).toMatchObject({
+        ok: false,
+        status: 403,
+      });
+      expect(await removeComment({ id: created.data.id, userId: user!.id })).toMatchObject({ ok: false, status: 403 });
+
+      const removable = await createComment({ itemId: item!.id, userId: user!.id, content: "Remove promptly" });
+      expect(removable.ok).toBe(true);
+      if (removable.ok) expect(await removeComment({ id: removable.data.id, userId: user!.id })).toEqual({ ok: true, data: undefined });
+    } finally {
+      await sql`DELETE FROM spaces.spaces WHERE id = ${space!.id}::uuid`;
+      await sql`DELETE FROM auth.users WHERE id IN (${user!.id}::uuid, ${otherUser!.id}::uuid)`;
+    }
+  });
+
   test("returns the newest bounded page in chronological display order", async () => {
     const [space] = await sql<{ id: string }[]>`
       INSERT INTO spaces.spaces (short_id, name, description, color)

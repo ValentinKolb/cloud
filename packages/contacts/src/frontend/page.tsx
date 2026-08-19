@@ -71,6 +71,7 @@ export default ssr<AuthContext>(async (c) => {
       ? contactsService.contact.notes.listPage({
           bookId: selectedContact.bookId,
           contactId: selectedContact.id,
+          viewerUserId: user.id,
           pagination: { page: 1, perPage: 30 },
         })
       : Promise.resolve({ items: [], page: 1, perPage: 30, total: 0, hasNext: false }),

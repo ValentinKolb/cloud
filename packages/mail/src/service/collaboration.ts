@@ -54,6 +54,8 @@ export type ConversationComment = {
   };
   referencedMessageId: string | null;
   revision: number;
+  canEdit: boolean;
+  canDelete: boolean;
   editedAt: string | null;
   deletedAt: string | null;
   createdAt: string;
@@ -133,6 +135,7 @@ type MutableCommentRow = {
   author_kind: CommentActorKind;
   author_id: string;
   deleted_at: Date | string | null;
+  created_at: Date | string;
 };
 
 export type CollaborationMutation<T> = {
@@ -142,6 +145,7 @@ export type CollaborationMutation<T> = {
 
 type DateCursor = { version: 1; date: string; id: string };
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export const COMMENT_MUTATION_WINDOW_MS = 10 * 60 * 1000;
 
 const toIso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
 const toNullableIso = (value: Date | string | null): string | null => (value ? toIso(value) : null);
@@ -683,29 +687,47 @@ const commentColumns = sql`
   comment.updated_at
 `;
 
-const mapComment = (row: CommentRow): ConversationComment => ({
-  id: row.id,
-  conversationId: row.conversation_id,
-  body: row.deleted_at ? null : row.body_markdown,
-  author: {
-    kind: row.author_kind,
-    id: row.author_id,
-    displayName: row.author_display_name,
-    avatarHash: row.author_avatar_hash,
-  },
-  referencedMessageId: row.referenced_message_id,
-  revision: Number(row.revision),
-  editedAt: toNullableIso(row.edited_at),
-  deletedAt: toNullableIso(row.deleted_at),
-  createdAt: toIso(row.created_at),
-  updatedAt: toIso(row.updated_at),
-});
+const canMutateComment = (
+  row: Pick<CommentRow, "author_kind" | "author_id" | "created_at" | "deleted_at">,
+  actor?: { kind: CommentActorKind; id: string },
+): boolean =>
+  Boolean(
+    actor &&
+      !row.deleted_at &&
+      row.author_kind === actor.kind &&
+      row.author_id === actor.id &&
+      Date.now() - new Date(row.created_at).getTime() <= COMMENT_MUTATION_WINDOW_MS,
+  );
+
+const mapComment = (row: CommentRow, actor?: { kind: CommentActorKind; id: string }): ConversationComment => {
+  const canMutate = canMutateComment(row, actor);
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    body: row.deleted_at ? null : row.body_markdown,
+    author: {
+      kind: row.author_kind,
+      id: row.author_id,
+      displayName: row.author_display_name,
+      avatarHash: row.author_avatar_hash,
+    },
+    referencedMessageId: row.referenced_message_id,
+    revision: Number(row.revision),
+    canEdit: canMutate,
+    canDelete: canMutate,
+    editedAt: toNullableIso(row.edited_at),
+    deletedAt: toNullableIso(row.deleted_at),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+};
 
 const loadComment = async (params: {
   db: SqlClient;
   mailboxId: string;
   conversationId: string;
   commentId: string;
+  actor?: { kind: CommentActorKind; id: string };
 }): Promise<ConversationComment | null> => {
   const [row] = await params.db<CommentRow[]>`
     SELECT ${commentColumns}
@@ -718,7 +740,7 @@ const loadComment = async (params: {
       AND comment.conversation_id = ${params.conversationId}::uuid
       AND conversation.mailbox_id = ${params.mailboxId}::uuid
   `;
-  return row ? mapComment(row) : null;
+  return row ? mapComment(row, params.actor) : null;
 };
 
 export const getConversationComment = async (params: {
@@ -729,7 +751,7 @@ export const getConversationComment = async (params: {
 }): Promise<Result<ConversationComment>> => {
   const allowed = await requireMailboxCollaborationPermission(params.context, params.mailboxId, "read");
   if (!allowed.ok) return allowed;
-  const comment = await loadComment({ db: sql, ...params });
+  const comment = await loadComment({ db: sql, ...params, actor: actorIdentity(params.context) });
   return comment ? ok(comment) : fail(err.notFound("Comment"));
 };
 
@@ -756,11 +778,10 @@ const lockCommentForMutation = async (params: {
   commentId: string;
   expectedRevision: number;
   actor: { kind: CommentActorKind; id: string };
-  permission: PermissionLevel;
   action: "edit" | "delete";
 }): Promise<Result<MutableCommentRow>> => {
   const [comment] = await params.db<MutableCommentRow[]>`
-    SELECT comment.revision, comment.body_markdown, comment.author_kind, comment.author_id, comment.deleted_at
+    SELECT comment.revision, comment.body_markdown, comment.author_kind, comment.author_id, comment.deleted_at, comment.created_at
     FROM mail.conversation_comments comment
     JOIN mail.conversations conversation ON conversation.id = comment.conversation_id
     WHERE comment.id = ${params.commentId}::uuid
@@ -773,8 +794,9 @@ const lockCommentForMutation = async (params: {
     return fail(err.badInput(params.action === "edit" ? "Deleted comments cannot be edited" : "Comment is already deleted"));
   if (Number(comment.revision) !== params.expectedRevision) return fail(err.conflict("Comment was changed by another collaborator"));
   const owner = comment.author_kind === params.actor.kind && comment.author_id === params.actor.id;
-  if (!owner && params.permission !== "admin") {
-    return fail(err.forbidden(`Only the comment author or a mailbox admin can ${params.action} this comment`));
+  if (!owner) return fail(err.forbidden(`Only the comment author can ${params.action} this comment`));
+  if (Date.now() - new Date(comment.created_at).getTime() > COMMENT_MUTATION_WINDOW_MS) {
+    return fail(err.forbidden(`Comments can only be ${params.action === "edit" ? "edited" : "deleted"} within 10 minutes`));
   }
   return ok(comment);
 };
@@ -816,7 +838,8 @@ export const listConversationComments = async (params: {
   const hasMore = rows.length > limit;
   const pageRows = hasMore ? rows.slice(0, limit) : rows;
   const cursorRow = pageRows.at(-1);
-  const items = pageRows.map(mapComment);
+  const actor = actorIdentity(params.context);
+  const items = pageRows.map((row) => mapComment(row, actor));
   if (newestFirst) items.reverse();
   return ok({
     items,
@@ -877,6 +900,7 @@ export const createConversationComment = async (params: {
         mailboxId: params.mailboxId,
         conversationId: params.conversationId,
         commentId: comment.id,
+        actor,
       });
       if (!value) return fail(err.internal("Created comment could not be loaded"));
       const activityId = await insertActivity({
@@ -980,7 +1004,6 @@ export const updateConversationComment = async (params: {
         commentId: params.commentId,
         expectedRevision: params.input.expectedRevision,
         actor,
-        permission: allowed.data,
         action: "edit",
       });
       if (!current.ok) return current;
@@ -990,16 +1013,22 @@ export const updateConversationComment = async (params: {
           mailboxId: params.mailboxId,
           conversationId: params.conversationId,
           commentId: params.commentId,
+          actor,
         });
         if (!value) return fail(err.notFound("Comment"));
         return ok({ value, event: null });
       }
       const revision = params.input.expectedRevision + 1;
-      await tx`
+      const [updated] = await tx<{ id: string }[]>`
         UPDATE mail.conversation_comments
         SET body_markdown = ${params.input.body}, revision = ${revision}, edited_at = now()
         WHERE id = ${params.commentId}::uuid
+          AND author_kind = ${actor.kind}
+          AND author_id = ${actor.id}::uuid
+          AND created_at >= now() - interval '10 minutes'
+        RETURNING id
       `;
+      if (!updated) return fail(err.forbidden("Comments can only be edited within 10 minutes"));
       await tx`
         INSERT INTO mail.conversation_comment_versions (
           comment_id, revision, body_markdown, editor_kind, editor_id, deleted
@@ -1011,6 +1040,7 @@ export const updateConversationComment = async (params: {
         mailboxId: params.mailboxId,
         conversationId: params.conversationId,
         commentId: params.commentId,
+        actor,
       });
       if (!value) return fail(err.internal("Updated comment could not be loaded"));
       const activityId = await insertActivity({
@@ -1059,16 +1089,20 @@ export const deleteConversationComment = async (params: {
         commentId: params.commentId,
         expectedRevision: params.input.expectedRevision,
         actor,
-        permission: allowed.data,
         action: "delete",
       });
       if (!current.ok) return current;
       const revision = params.input.expectedRevision + 1;
-      await tx`
+      const [deleted] = await tx<{ id: string }[]>`
         UPDATE mail.conversation_comments
         SET revision = ${revision}, edited_at = now(), deleted_at = now()
         WHERE id = ${params.commentId}::uuid
+          AND author_kind = ${actor.kind}
+          AND author_id = ${actor.id}::uuid
+          AND created_at >= now() - interval '10 minutes'
+        RETURNING id
       `;
+      if (!deleted) return fail(err.forbidden("Comments can only be deleted within 10 minutes"));
       await tx`
         INSERT INTO mail.conversation_comment_versions (
           comment_id, revision, body_markdown, editor_kind, editor_id, deleted
@@ -1080,6 +1114,7 @@ export const deleteConversationComment = async (params: {
         mailboxId: params.mailboxId,
         conversationId: params.conversationId,
         commentId: params.commentId,
+        actor,
       });
       if (!value) return fail(err.internal("Deleted comment could not be loaded"));
       const activityId = await insertActivity({

@@ -27,3 +27,5 @@ Spaces works best when each item has a clear next action. Keep item titles short
 3. **Add context in notes or comments:** Use comments for discussion. Use notes for current instructions or durable context.
 4. **Close finished work:** Move completed items out of active views so open lists stay useful.
 :::
+
+You can edit or delete your own comment for 10 minutes after posting. Other people's comments remain unchanged, including for Space administrators.

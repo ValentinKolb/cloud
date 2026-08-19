@@ -1189,6 +1189,8 @@ describe("mail capabilities", () => {
       author: { kind: "user" as const, id: userId, displayName: "Agent", avatarHash: null },
       referencedMessageId: null,
       revision: 1,
+      canEdit: true,
+      canDelete: true,
       editedAt: null,
       deletedAt: null,
       createdAt: timestamp,

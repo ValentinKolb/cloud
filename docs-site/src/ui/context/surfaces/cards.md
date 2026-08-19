@@ -1,6 +1,6 @@
 # Cards and identity
 
-`LinkCard` is a single-destination navigation tile. `Avatar` renders an application-owned image URL or an initials fallback.
+`LinkCard` is a single-destination navigation tile. `Avatar` renders an application-owned image URL, a semantic icon, or an initials fallback.
 
 ## Use cards and identity
 
@@ -12,7 +12,7 @@ Use `LinkCard` when the complete surface leads to one destination. Use `Avatar` 
 import { Avatar, LinkCard } from "@k2b/ui";
 ```
 
-`LinkCard` accepts a title, description, icon, destination, and semantic color. `Avatar` accepts a name, optional image URL, fallback, size, and loading behavior.
+`LinkCard` accepts a title, description, icon, destination, and semantic color. `Avatar` accepts a name, optional image URL or icon, fallback, size, and loading behavior. Image content takes precedence over the icon, which takes precedence over initials.
 
 ## Accessibility
 
@@ -34,4 +34,5 @@ Both components render on the server. Link navigation works without hydration; a
 />
 
 <Avatar name="Ada Lovelace" src={profileImageUrl} size="sm" />
+<Avatar name="Workflow" icon="ti ti-route" size="sm" />
 ```

@@ -1582,9 +1582,7 @@ export default function MailWorkspace(props: {
               mailboxId={data.mailbox.id}
               conversationId={data.selectedConversationId!}
               active={detailsOpen()}
-              currentUserId={props.currentUserId}
               canWrite={canWrite()}
-              canAdmin={canAdmin()}
               initialState={data.collaborationState!}
               initialLocalTags={data.localTags}
               initialConversationLocalTags={data.conversationLocalTags!}

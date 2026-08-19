@@ -336,6 +336,7 @@ export const CommentDataSchema = z
     content: z.string().min(1).max(5000),
     createdAt: TimestampSchema,
     updatedAt: TimestampSchema,
+    canEdit: z.boolean(),
     canDelete: z.boolean(),
   })
   .strict();

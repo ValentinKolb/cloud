@@ -65,6 +65,7 @@ const comment = {
   content: "Ready",
   createdAt: "2026-01-01T01:00:00.000Z",
   updatedAt: "2026-01-01T01:00:00.000Z",
+  canEdit: true,
   canDelete: true,
 };
 

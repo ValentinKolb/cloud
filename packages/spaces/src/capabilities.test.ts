@@ -159,6 +159,7 @@ const comment: SpaceComment = {
   content: "Ready for review",
   createdAt,
   updatedAt: createdAt,
+  canEdit: true,
   canDelete: true,
 };
 
@@ -703,7 +704,7 @@ describe("spaces capabilities", () => {
   });
 
   test("reads comments through parent Space access without exposing avatar hashes", async () => {
-    spyOn(spacesService.comment, "get").mockResolvedValue({ ...comment, canDelete: false });
+    spyOn(spacesService.comment, "get").mockResolvedValue({ ...comment, canEdit: false, canDelete: false });
     spyOn(spacesService.item, "get").mockResolvedValue(task);
     spyOn(spacesService.space, "get").mockResolvedValue(space);
     spyOn(spacesService.space.permission, "get").mockResolvedValue("read");
@@ -713,7 +714,7 @@ describe("spaces capabilities", () => {
     expect(result).toMatchObject({
       ok: true,
       data: {
-        data: { id: commentId, itemId, content: comment.content, canDelete: false },
+        data: { id: commentId, itemId, content: comment.content, canEdit: false, canDelete: false },
         refs: [
           { type: "spaces.comment", id: commentId },
           { type: "spaces.item", id: itemId },
@@ -777,6 +778,7 @@ describe("spaces capabilities", () => {
       contentTruncated: true,
       createdAt,
       updatedAt: createdAt,
+      canEdit: true,
       canDelete: true,
     }));
     const events = tasks.map(({ kind: _kind, deadline: _deadline, priority: _priority, ...task }) => ({

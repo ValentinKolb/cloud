@@ -366,6 +366,7 @@ const mapComment = (comment: SpaceComment) => ({
   content: comment.content,
   createdAt: comment.createdAt,
   updatedAt: comment.updatedAt,
+  canEdit: comment.canEdit,
   canDelete: comment.canDelete,
 });
 
@@ -1438,7 +1439,7 @@ export const spacesCapabilities = defineCapabilities({
     },
     "comment.update": {
       title: "Update comment",
-      description: "Update the current user's own comment in a writable Space.",
+      description: "Update the current user's own comment within 10 minutes in a writable Space.",
       input: CommentUpdateInputSchema,
       data: CommentDataSchema,
       destructive: true,

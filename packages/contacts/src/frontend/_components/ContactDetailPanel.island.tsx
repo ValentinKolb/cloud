@@ -695,7 +695,6 @@ export default function ContactDetailPanel(props: Props) {
                           c().id === props.initialContactId && c().bookId === props.initialBookId ? props.initialNotesPage : undefined
                         }
                         canWrite={actions.canEdit()}
-                        isBookAdmin={props.adminBookIds.includes(c().bookId)}
                       />
                     )}
                   </Show>

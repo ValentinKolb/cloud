@@ -125,6 +125,8 @@ suite("Contacts public resource IDs", () => {
           content: "Note",
           createdAt: "2026-08-11T08:00:00.000Z",
           updatedAt: "2026-08-11T08:00:00.000Z",
+          canEdit: false,
+          canDelete: false,
         },
       ]).then((items) => items[0]!),
     ]);

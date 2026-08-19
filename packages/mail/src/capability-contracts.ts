@@ -785,6 +785,8 @@ export const CommentDataSchema = z
       .strict(),
     referencedMessageId: ResourceShortIdSchema.nullable(),
     revision: z.number().int().positive(),
+    canEdit: z.boolean(),
+    canDelete: z.boolean(),
     editedAt: NullableTimestampSchema,
     deletedAt: NullableTimestampSchema,
     createdAt: TimestampSchema,

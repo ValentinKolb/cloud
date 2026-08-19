@@ -16,18 +16,27 @@ type DbContactNote = {
   updated_at: Date;
 };
 
-const mapNote = (row: DbContactNote): ContactNote => ({
-  id: row.id,
-  contactId: row.contact_id,
-  authorUserId: row.author_user_id,
-  authorDisplayName: row.author_display_name,
-  authorAvatarHash: row.author_avatar_hash,
-  content: row.content,
-  createdAt: row.created_at.toISOString(),
-  updatedAt: row.updated_at.toISOString(),
-});
-
 const MAX_CONTENT_LENGTH = 10_000;
+export const NOTE_MUTATION_WINDOW_MS = 10 * 60 * 1000;
+
+const canMutateNote = (row: Pick<DbContactNote, "author_user_id" | "created_at">, viewerUserId?: string | null): boolean =>
+  Boolean(viewerUserId && row.author_user_id === viewerUserId && Date.now() - row.created_at.getTime() <= NOTE_MUTATION_WINDOW_MS);
+
+const mapNote = (row: DbContactNote, viewerUserId?: string | null): ContactNote => {
+  const canMutate = canMutateNote(row, viewerUserId);
+  return {
+    id: row.id,
+    contactId: row.contact_id,
+    authorUserId: row.author_user_id,
+    authorDisplayName: row.author_display_name,
+    authorAvatarHash: row.author_avatar_hash,
+    content: row.content,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+    canEdit: canMutate,
+    canDelete: canMutate,
+  };
+};
 
 const verifyContactInBook = async (config: { bookId: string; contactId: string; db?: SqlExecutor }): Promise<boolean> => {
   if (!isUuid(config.bookId) || !isUuid(config.contactId)) return false;
@@ -40,7 +49,12 @@ const verifyContactInBook = async (config: { bookId: string; contactId: string; 
   return !!row;
 };
 
-const loadNote = async (config: { noteId: string; contactId: string; db?: SqlExecutor }): Promise<ContactNote | null> => {
+const loadNote = async (config: {
+  noteId: string;
+  contactId: string;
+  viewerUserId?: string | null;
+  db?: SqlExecutor;
+}): Promise<ContactNote | null> => {
   const db = config.db ?? sql;
   const [row] = await db<DbContactNote[]>`
     SELECT n.id, n.contact_id, n.author_user_id, n.author_display_name, u.avatar_hash AS author_avatar_hash, n.content, n.created_at, n.updated_at
@@ -48,10 +62,10 @@ const loadNote = async (config: { noteId: string; contactId: string; db?: SqlExe
     LEFT JOIN auth.users u ON u.id = n.author_user_id
     WHERE n.id = ${config.noteId}::uuid AND n.contact_id = ${config.contactId}::uuid
   `;
-  return row ? mapNote(row) : null;
+  return row ? mapNote(row, config.viewerUserId) : null;
 };
 
-export const get = async (config: { id: string }): Promise<ContactNote | null> => {
+export const get = async (config: { id: string; viewerUserId?: string | null }): Promise<ContactNote | null> => {
   if (!isUuid(config.id)) return null;
   const [row] = await sql<DbContactNote[]>`
     SELECT n.id, n.contact_id, n.author_user_id, n.author_display_name, u.avatar_hash AS author_avatar_hash, n.content, n.created_at, n.updated_at
@@ -59,14 +73,14 @@ export const get = async (config: { id: string }): Promise<ContactNote | null> =
     LEFT JOIN auth.users u ON u.id = n.author_user_id
     WHERE n.id = ${config.id}::uuid
   `;
-  return row ? mapNote(row) : null;
+  return row ? mapNote(row, config.viewerUserId) : null;
 };
 
 /**
  * Lists notes for one contact in chronological order (newest first).
  * Caller must already have read access to the contact's book.
  */
-export const list = async (config: { bookId: string; contactId: string }): Promise<ContactNote[]> => {
+export const list = async (config: { bookId: string; contactId: string; viewerUserId?: string | null }): Promise<ContactNote[]> => {
   if (!(await verifyContactInBook(config))) return [];
 
   const rows = await sql<DbContactNote[]>`
@@ -76,11 +90,16 @@ export const list = async (config: { bookId: string; contactId: string }): Promi
     WHERE n.contact_id = ${config.contactId}::uuid
     ORDER BY n.created_at DESC
   `;
-  return rows.map(mapNote);
+  return rows.map((row) => mapNote(row, config.viewerUserId));
 };
 
 /** Lists a bounded page of notes newest first. */
-export const listPage = async (config: { bookId: string; contactId: string; pagination?: PageParams }): Promise<Paginated<ContactNote>> => {
+export const listPage = async (config: {
+  bookId: string;
+  contactId: string;
+  viewerUserId?: string | null;
+  pagination?: PageParams;
+}): Promise<Paginated<ContactNote>> => {
   const { page, perPage, offset } = paginate(config.pagination);
   if (!(await verifyContactInBook(config))) return { items: [], page, perPage, total: 0, hasNext: false };
 
@@ -99,7 +118,7 @@ export const listPage = async (config: { bookId: string; contactId: string; pagi
     `,
   ]);
   const total = countRow?.count ?? 0;
-  return { items: rows.map(mapNote), page, perPage, total, hasNext: page * perPage < total };
+  return { items: rows.map((row) => mapNote(row, config.viewerUserId)), page, perPage, total, hasNext: page * perPage < total };
 };
 
 /**
@@ -145,7 +164,7 @@ export const create = async (config: {
     return created;
   });
   if (!row) return fail(err.internal("Failed to create note"));
-  return ok(mapNote(row));
+  return ok(mapNote(row, config.authorUserId));
 };
 
 /** Creates one note exactly once with the claim and note in one transaction. */
@@ -197,7 +216,12 @@ export const createIdempotent = async (config: {
         if (!isUuid(existing.result_label) || existing.contact_id !== config.contactId) {
           return fail(err.internal("Stored idempotency result is invalid"));
         }
-        const note = await loadNote({ noteId: existing.result_label, contactId: config.contactId, db: tx });
+        const note = await loadNote({
+          noteId: existing.result_label,
+          contactId: config.contactId,
+          viewerUserId: config.authorUserId,
+          db: tx,
+        });
         return note ? ok({ note, replayed: true }) : fail(err.conflict("The note created by this idempotency key no longer exists"));
       }
 
@@ -205,15 +229,14 @@ export const createIdempotent = async (config: {
       INSERT INTO contacts.contact_notes (id, short_id, contact_id, author_user_id, author_display_name, content)
       VALUES (${allocated.id}::uuid, ${shortId}, ${config.contactId}::uuid, ${config.authorUserId}::uuid, ${config.authorDisplayName}, ${trimmed})
     `;
-      const note = await loadNote({ noteId: allocated.id, contactId: config.contactId, db: tx });
+      const note = await loadNote({ noteId: allocated.id, contactId: config.contactId, viewerUserId: config.authorUserId, db: tx });
       return note ? ok({ note, replayed: false }) : fail(err.internal("Failed to load created note"));
     }),
   );
 };
 
 /**
- * Updates one note's content. Caller must be the author. Book admins can
- * delete any note (see `remove`) but cannot edit other users' wording.
+ * Updates one note's content within the author's mutation window.
  */
 export const update = async (config: {
   bookId: string;
@@ -230,8 +253,8 @@ export const update = async (config: {
   if (!isUuid(config.noteId)) return fail(err.notFound("Note"));
   if (!(await verifyContactInBook(config))) return fail(err.notFound("Contact"));
 
-  const [existing] = await sql<{ author_user_id: string | null }[]>`
-    SELECT author_user_id FROM contacts.contact_notes
+  const [existing] = await sql<{ author_user_id: string | null; created_at: Date }[]>`
+    SELECT author_user_id, created_at FROM contacts.contact_notes
     WHERE id = ${config.noteId}::uuid
       AND contact_id = ${config.contactId}::uuid
   `;
@@ -239,45 +262,55 @@ export const update = async (config: {
   if (existing.author_user_id !== config.authorUserId) {
     return fail(err.forbidden("Only the author may edit this note"));
   }
+  if (!canMutateNote(existing, config.authorUserId)) {
+    return fail(err.forbidden("Notes can only be edited within 10 minutes"));
+  }
 
   const [row] = await sql<DbContactNote[]>`
     WITH updated AS (
       UPDATE contacts.contact_notes
       SET content = ${trimmed}, updated_at = now()
       WHERE id = ${config.noteId}::uuid
+        AND author_user_id = ${config.authorUserId}::uuid
+        AND created_at >= now() - interval '10 minutes'
       RETURNING id, contact_id, author_user_id, author_display_name, content, created_at, updated_at
     )
     SELECT u2.id, u2.contact_id, u2.author_user_id, u2.author_display_name, au.avatar_hash AS author_avatar_hash, u2.content, u2.created_at, u2.updated_at
     FROM updated u2
     LEFT JOIN auth.users au ON au.id = u2.author_user_id
   `;
-  if (!row) return fail(err.internal("Failed to update note"));
-  return ok(mapNote(row));
+  if (!row) return fail(err.forbidden("Notes can only be edited within 10 minutes"));
+  return ok(mapNote(row, config.authorUserId));
 };
 
 /**
- * Deletes one note. Caller must be the author or a book admin.
+ * Deletes one note within the author's mutation window.
  */
 export const remove = async (config: {
   bookId: string;
   contactId: string;
   noteId: string;
   authorUserId: string;
-  isBookAdmin: boolean;
 }): Promise<Result<void>> => {
   if (!isUuid(config.noteId)) return fail(err.notFound("Note"));
   if (!(await verifyContactInBook(config))) return fail(err.notFound("Contact"));
 
-  const [existing] = await sql<{ author_user_id: string | null }[]>`
-    SELECT author_user_id FROM contacts.contact_notes
+  const [existing] = await sql<{ author_user_id: string | null; created_at: Date }[]>`
+    SELECT author_user_id, created_at FROM contacts.contact_notes
     WHERE id = ${config.noteId}::uuid
       AND contact_id = ${config.contactId}::uuid
   `;
   if (!existing) return fail(err.notFound("Note"));
-  if (existing.author_user_id !== config.authorUserId && !config.isBookAdmin) {
-    return fail(err.forbidden("Only the author or a book admin may delete this note"));
-  }
+  if (existing.author_user_id !== config.authorUserId) return fail(err.forbidden("Only the author may delete this note"));
+  if (!canMutateNote(existing, config.authorUserId)) return fail(err.forbidden("Notes can only be deleted within 10 minutes"));
 
-  await sql`DELETE FROM contacts.contact_notes WHERE id = ${config.noteId}::uuid`;
+  const [deleted] = await sql<{ id: string }[]>`
+    DELETE FROM contacts.contact_notes
+    WHERE id = ${config.noteId}::uuid
+      AND author_user_id = ${config.authorUserId}::uuid
+      AND created_at >= now() - interval '10 minutes'
+    RETURNING id
+  `;
+  if (!deleted) return fail(err.forbidden("Notes can only be deleted within 10 minutes"));
   return ok(undefined);
 };

@@ -170,6 +170,8 @@ export type ContactNote = {
   content: string;
   createdAt: string;
   updatedAt: string;
+  canEdit: boolean;
+  canDelete: boolean;
 };
 
 export type CreateContactNoteInput = {

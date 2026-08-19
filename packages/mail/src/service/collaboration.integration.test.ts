@@ -279,6 +279,7 @@ suite("mail collaboration backend", () => {
     });
     expect(comment.ok).toBe(true);
     if (!comment.ok) return;
+    expect(comment.data).toMatchObject({ canEdit: true, canDelete: true });
     const forbiddenEdit = await updateConversationComment({
       context: writerContext,
       mailboxId,
@@ -296,8 +297,17 @@ suite("mail collaboration backend", () => {
       input: { expectedRevision: 1, body: "Edited internal context" },
     });
     expect(edited.ok && edited.data.revision).toBe(2);
-    const deleted = await deleteConversationComment({
+    const forbiddenAdminDelete = await deleteConversationComment({
       context: ownerContext,
+      mailboxId,
+      conversationId,
+      commentId: comment.data.id,
+      input: { expectedRevision: 2 },
+    });
+    expect(forbiddenAdminDelete.ok).toBe(false);
+    if (!forbiddenAdminDelete.ok) expect(forbiddenAdminDelete.error.status).toBe(403);
+    const deleted = await deleteConversationComment({
+      context: readerContext,
       mailboxId,
       conversationId,
       commentId: comment.data.id,
@@ -309,6 +319,38 @@ suite("mail collaboration backend", () => {
     const comments = await listConversationComments({ context: readerContext, mailboxId, conversationId, limit: 10 });
     expect(comments.ok && comments.data.items).toHaveLength(1);
     if (comments.ok) expect(comments.data.items[0]).toMatchObject({ id: comment.data.id, body: null, revision: 3 });
+
+    const expired = await createConversationComment({
+      context: readerContext,
+      mailboxId,
+      conversationId,
+      input: { body: "Expired internal context" },
+    });
+    expect(expired.ok).toBe(true);
+    if (!expired.ok) return;
+    await sql`
+      UPDATE mail.conversation_comments
+      SET created_at = now() - interval '11 minutes'
+      WHERE id = ${expired.data.id}::uuid
+    `;
+    const expiredEdit = await updateConversationComment({
+      context: readerContext,
+      mailboxId,
+      conversationId,
+      commentId: expired.data.id,
+      input: { expectedRevision: 1, body: "Too late" },
+    });
+    const expiredDelete = await deleteConversationComment({
+      context: readerContext,
+      mailboxId,
+      conversationId,
+      commentId: expired.data.id,
+      input: { expectedRevision: 1 },
+    });
+    expect(expiredEdit.ok).toBe(false);
+    expect(expiredDelete.ok).toBe(false);
+    if (!expiredEdit.ok) expect(expiredEdit.error.message).toContain("within 10 minutes");
+    if (!expiredDelete.ok) expect(expiredDelete.error.message).toContain("within 10 minutes");
     const versions = await sql<{ revision: number; deleted: boolean }[]>`
       SELECT revision::int, deleted
       FROM mail.conversation_comment_versions

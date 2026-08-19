@@ -28,6 +28,8 @@ The Contacts overview is a working view, not only a list of books. Use it to sea
 5. Use the action menu for moving, duplicating, or deleting when those actions are available.
 :::
 
+You can edit or delete your own note for 10 minutes after posting. Other people's notes remain unchanged, including for contact-book administrators.
+
 ## Keep records useful {icon="table"}
 
 - Put the most useful email address, phone number, website, or address first.

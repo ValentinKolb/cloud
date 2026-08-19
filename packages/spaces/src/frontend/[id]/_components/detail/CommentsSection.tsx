@@ -60,6 +60,42 @@ export default function CommentsSection(props: Props) {
     },
     onError: (err) => prompts.error(err.message),
   });
+  const updateCommentMutation = mutations.create<void, { id: string; content: string }>({
+    mutation: async ({ id, content }) => {
+      const res = await apiClient[":id"].items[":itemId"].comments[":commentId"].$patch({
+        param: { id: props.spaceId, itemId: props.itemId, commentId: id },
+        json: { content },
+      });
+      if (!res.ok) throw new Error(await readResponseError(res, "Failed to update comment"));
+      await res.json();
+    },
+    onSuccess: () => {
+      toast.success("Comment updated");
+      props.onUpdate();
+    },
+    onError: (err) => prompts.error(err.message),
+  });
+  const editComment = async (comment: SpaceComment) => {
+    const values = await prompts.form({
+      title: "Edit comment",
+      icon: "ti ti-pencil",
+      fields: {
+        content: {
+          type: "text",
+          label: "Comment",
+          default: comment.content,
+          required: true,
+          multiline: true,
+          lines: 5,
+        },
+      },
+      confirmText: "Save comment",
+    });
+    if (!values) return;
+    const content = String(values.content ?? "").trim();
+    if (!content) return;
+    await updateCommentMutation.mutate({ id: comment.id, content });
+  };
   let deletePromptPending = false;
   const deleteComment = async (id: string) => {
     if (deletePromptPending || deleteCommentMutation.loading()) return;
@@ -145,18 +181,34 @@ export default function CommentsSection(props: Props) {
                 </time>
               }
               actions={
-                props.canWrite && comment.canDelete ? (
-                  <Tooltip.Anchor content="Delete comment">
-                    <IconButton
-                      label="Delete comment"
-                      size="xs"
-                      onClick={() => void deleteComment(comment.id)}
-                      disabled={deleteCommentMutation.loading()}
-                      class="hover:text-red-600 dark:hover:text-red-400"
-                    >
-                      <i class="ti ti-trash" aria-hidden="true" />
-                    </IconButton>
-                  </Tooltip.Anchor>
+                props.canWrite && (comment.canEdit || comment.canDelete) ? (
+                  <>
+                    <Show when={comment.canEdit}>
+                      <Tooltip.Anchor content="Edit comment">
+                        <IconButton
+                          label="Edit comment"
+                          size="xs"
+                          onClick={() => void editComment(comment)}
+                          disabled={updateCommentMutation.loading()}
+                        >
+                          <i class="ti ti-pencil" aria-hidden="true" />
+                        </IconButton>
+                      </Tooltip.Anchor>
+                    </Show>
+                    <Show when={comment.canDelete}>
+                      <Tooltip.Anchor content="Delete comment">
+                        <IconButton
+                          label="Delete comment"
+                          size="xs"
+                          onClick={() => void deleteComment(comment.id)}
+                          disabled={deleteCommentMutation.loading()}
+                          class="hover:text-red-600 dark:hover:text-red-400"
+                        >
+                          <i class="ti ti-trash" aria-hidden="true" />
+                        </IconButton>
+                      </Tooltip.Anchor>
+                    </Show>
+                  </>
                 ) : undefined
               }
             >

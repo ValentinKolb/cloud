@@ -66,6 +66,7 @@ const comment: SpaceComment = {
   content: "Ready for review",
   createdAt: now,
   updatedAt: now,
+  canEdit: true,
   canDelete: true,
 };
 
@@ -117,6 +118,8 @@ describe("Spaces item detail panel", () => {
     expect(html).toContain('data-visibility="progressive"');
     expect(html).not.toContain('data-visibility="always"');
     expect(html).toContain("Load earlier comments");
+    expect(html).toContain('aria-label="Edit comment"');
+    expect(html).toContain('class="ti ti-pencil"');
     expect(html).toContain('aria-label="Delete comment"');
     expect(html).toContain('aria-label="Close item details"');
     expect(html).toContain('aria-label="More item actions"');

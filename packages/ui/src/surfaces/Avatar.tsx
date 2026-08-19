@@ -5,6 +5,7 @@ export type AvatarSize = "xs" | "sm" | "md" | "lg" | "xl";
 export type AvatarProps = {
   name: string;
   src?: string | null;
+  icon?: string;
   alt?: string;
   fallback?: string;
   size?: AvatarSize;
@@ -26,6 +27,7 @@ export function Avatar(props: AvatarProps): JSX.Element {
   // Derive initials from the given name, not from the accessible-name fallback:
   // an empty `name` must render "?" the way Cloud's avatar does, not "UU".
   const fallback = () => props.fallback ?? initialsFor(props.name);
+  const fallbackContent = () => (props.icon ? <i class={props.icon} aria-hidden="true" /> : fallback());
   const className = () => `k2b-avatar ${props.class ?? ""}`;
 
   createEffect(
@@ -47,7 +49,7 @@ export function Avatar(props: AvatarProps): JSX.Element {
           role="img"
           aria-label={props.alt ?? `${label()} avatar`}
         >
-          {fallback()}
+          {fallbackContent()}
         </span>
       }
     >

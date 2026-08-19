@@ -115,7 +115,12 @@ export default ssr<AuthContext>(async (c) => {
   });
   const [internalNotesPage, internalFavoriteKeys] = await Promise.all([
     selectedContact
-      ? contactsService.contact.notes.listPage({ bookId, contactId: selectedContact.id, pagination: { page: 1, perPage: 30 } })
+      ? contactsService.contact.notes.listPage({
+          bookId,
+          contactId: selectedContact.id,
+          viewerUserId: user.id,
+          pagination: { page: 1, perPage: 30 },
+        })
       : Promise.resolve({ items: [], page: 1, perPage: 30, total: 0, hasNext: false }),
     loadFavoriteKeysForContacts(user.id, selectedContact ? [...internalContacts, selectedContact] : internalContacts),
   ]);
