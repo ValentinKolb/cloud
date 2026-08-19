@@ -44,7 +44,17 @@ Grids resource references use their six-character public IDs. UUID-shaped values
 
 Open **Technical details** before downloading and retain the displayed package and manifest SHA-256 values with the handoff.
 
-After downloading:
+After downloading, select **Copy verification command** and run the copied command where the TAR is stored:
+
+```bash
+cld grids evidence verify package.tar \
+  --sha256 <package-sha256> \
+  --manifest-sha256 <manifest-sha256>
+```
+
+The verifier reads the TAR locally, does not upload or extract it, validates its safe archive shape, and checks every file declared by the manifest. It prints the scope, cut, sections, counts, and available history coverage. Use `--json` for a machine-readable result. A failed check exits with a non-zero status.
+
+The command runs offline and does not require a configured Cloud server or sign-in. If `cld` is unavailable, perform the same checks manually:
 
 1. Calculate the SHA-256 of the complete TAR file and compare it with **Package SHA-256**.
 2. Extract the TAR without editing it.
@@ -52,7 +62,7 @@ After downloading:
 4. For each file you rely on, calculate its SHA-256 and compare it with the matching entry in the manifest.
 5. Read the manifest's scope, cut, selected sections, counts, limits, and history coverage before drawing conclusions from the package.
 
-A matching hash shows that the bytes match this export. It does not establish who possessed the file after download or make a legal claim about the records.
+A successful verification shows that the bytes match the package manifest and any expected hashes supplied with the handoff. It does not establish who possessed the file after download, prove authorship or custody, or make a legal claim about the records.
 
 ## Recover from a failed or incomplete request {icon="lifebuoy"}
 

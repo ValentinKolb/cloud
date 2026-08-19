@@ -3,6 +3,7 @@ import { accessCommands } from "./cli/access";
 import { baseCrudCommands } from "./cli/bases";
 import { customAppCommands } from "./cli/custom-apps";
 import { documentCommands, documentTemplateCommands } from "./cli/documents";
+import { evidenceCommands } from "./cli/evidence";
 import { formCommands } from "./cli/forms";
 import { recordCommands, snapshotCommands } from "./cli/records";
 import { fieldCommands, tableCommands } from "./cli/schema";
@@ -19,6 +20,7 @@ export default defineCliCommands({
     bases: "Create, inspect, and manage Grids bases",
     "document-templates": "Create, preview, and manage document templates",
     documents: "Generate, browse, and manage stored documents",
+    evidence: "Verify downloaded evidence packages",
     "email-templates": "Create and manage workflow email templates",
     fields: "Create, inspect, and manage table fields",
     forms: "Create, inspect, and submit forms",
@@ -51,6 +53,7 @@ export default defineCliCommands({
     ...formCommands,
     ...documentTemplateCommands,
     ...documentCommands,
+    ...evidenceCommands,
     ...snapshotCommands,
     ...emailTemplateCommands,
     ...workflowCommands,

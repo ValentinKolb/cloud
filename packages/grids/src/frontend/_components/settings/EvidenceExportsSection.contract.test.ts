@@ -14,6 +14,9 @@ describe("Evidence exports settings contract", () => {
     expect(section).toContain("Scope could not be checked");
     expect(section).toContain("No evidence exports yet");
     expect(section).toContain("Technical details");
+    expect(section).toContain("Copy verification command");
+    expect(section).toContain("cld grids evidence verify");
+    expect(section).toContain("--manifest-sha256");
     const actionsStart = section.indexOf("<SettingsCollection.Item.Actions>");
     const actionsEnd = section.indexOf("</SettingsCollection.Item.Actions>", actionsStart);
     const technicalDetails = section.indexOf("Technical details", actionsStart);

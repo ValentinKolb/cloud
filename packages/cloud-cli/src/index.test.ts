@@ -234,7 +234,7 @@ describe("cloud CLI OAuth session handling", () => {
       expect(result.stdout).not.toMatch(/^\s+\S+\s+Commands$/m);
     }
     expect(accounts.stdout).toContain("groups         Create, inspect, and manage groups");
-    expect(grids.stdout).toMatch(/apply\s+Create or update a Custom App draft/);
+    expect(grids.stdout).toMatch(/apply\s+Create or update an App draft from its definition/);
     expect(mail.stdout).toContain("identity       Manage protected sender identities");
     expect(tools.stdout).toContain("password       Generate passwords and estimate password strength");
   });
@@ -249,6 +249,20 @@ describe("cloud CLI OAuth session handling", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("cld pulse access grant");
     expect(result.stdout).toContain("--permission <value>");
+  });
+
+  test("runs one offline command inside the Cloud-backed Grids module without a profile", async () => {
+    const dir = await createTempDir();
+    const configPath = join(dir, "config.json");
+    const missingPackage = join(dir, "missing.tar");
+
+    const result = await runCli(configPath, ["--json", "grids", "evidence", "verify", missingPackage]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    const payload = JSON.parse(result.stderr) as { error: { message: string } };
+    expect(payload.error.message).toContain("missing.tar");
+    expect(payload.error.message).not.toContain("No server configured");
   });
 
   test("lists apps visible to the current profile", async () => {

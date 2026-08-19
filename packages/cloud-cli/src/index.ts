@@ -1403,8 +1403,8 @@ export const main = async (argv = Bun.argv.slice(2)): Promise<number> => {
 
   const parsed = parseArgs(moduleArgs, new Set([...BOOLEAN_FLAGS, ...(module.booleanFlags ?? [])]));
   const helpRequest = isModuleHelpRequest(parsed.args, parsed.flags);
-  const resolvedOptions =
-    module.requiresCloud === false || helpRequest ? await resolveOfflineOptions(global) : await resolveOptions(global);
+  const requiresCloud = module.requiresCloudFor?.(parsed.args, parsed.flags) ?? module.requiresCloud !== false;
+  const resolvedOptions = !requiresCloud || helpRequest ? await resolveOfflineOptions(global) : await resolveOptions(global);
   const options: ResolvedCliOptions = {
     ...resolvedOptions,
     output: takeBooleanFlag(parsed.flags, "jsonl") ? "jsonl" : takeBooleanFlag(parsed.flags, "json") ? "json" : resolvedOptions.output,

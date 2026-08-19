@@ -35,6 +35,20 @@ const createContext = (args: string[], flags: CloudCliFlags = {}) => {
 };
 
 describe("CLI command builder", () => {
+  test("lets one command in a Cloud-backed module run offline", () => {
+    const mod = defineCliCommands({
+      name: "inventory",
+      summary: "Inventory",
+      commands: [
+        command("items list", { summary: "List items", run: () => undefined }),
+        command("package verify", { summary: "Verify a package", requiresCloud: false, run: () => undefined }),
+      ],
+    });
+
+    expect(mod.requiresCloudFor?.(["items", "list"], {})).toBe(true);
+    expect(mod.requiresCloudFor?.(["package", "verify", "local.tar"], {})).toBe(false);
+  });
+
   test("dispatches a root command without hiding named commands", async () => {
     const calls: unknown[] = [];
     const mod = defineCliCommands({

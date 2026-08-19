@@ -8,6 +8,7 @@ import { accessCommands } from "./cli/access";
 import { baseCrudCommands } from "./cli/bases";
 import { customAppCommands } from "./cli/custom-apps";
 import { documentCommands, documentTemplateCommands } from "./cli/documents";
+import { evidenceCommands } from "./cli/evidence";
 import { formCommands } from "./cli/forms";
 import { recordCommands, snapshotCommands } from "./cli/records";
 import { fieldCommands, tableCommands } from "./cli/schema";
@@ -30,6 +31,7 @@ const commandGroups = [
   formCommands,
   documentTemplateCommands,
   documentCommands,
+  evidenceCommands,
   snapshotCommands,
   emailTemplateCommands,
   workflowCommands,
@@ -372,11 +374,34 @@ const customApp = {
 };
 
 describe("grids CLI", () => {
+  test("verifies evidence packages locally and returns structured failures", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "grids-cli-evidence-"));
+    const packagePath = join(dir, "invalid.tar");
+    try {
+      await writeFile(packagePath, new Uint8Array(1024));
+      const { ctx, calls, jsonValues } = createContext(["evidence", "verify", packagePath], {}, [], { output: "json" });
+
+      const exitCode = await gridsCli.run(ctx);
+
+      expect(exitCode).toBe(1);
+      expect(calls).toEqual([]);
+      expect(jsonValues).toEqual([
+        expect.objectContaining({
+          valid: false,
+          package: expect.objectContaining({ path: packagePath }),
+          issues: expect.arrayContaining([expect.objectContaining({ code: "manifest.missing" })]),
+        }),
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("registers every command exported by its domain modules", async () => {
     const commands = commandGroups.flat();
     const paths = commands.map((item) => item.path.join(" "));
 
-    expect(commands).toHaveLength(155);
+    expect(commands).toHaveLength(156);
     expect(new Set(paths).size).toBe(paths.length);
 
     for (const path of paths) {

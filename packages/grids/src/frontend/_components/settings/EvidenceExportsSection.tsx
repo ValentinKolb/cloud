@@ -2,6 +2,7 @@ import { mutation as mutations, query } from "@k2b/stdlib/solid";
 import {
   Button,
   CheckboxCard,
+  CopyButton,
   DateRangePicker,
   dialogCore,
   NoticeCard,
@@ -74,6 +75,11 @@ const bytesLabel = (bytes: number): string => {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
+
+const verificationCommand = (item: EvidenceExport): string | null =>
+  item.package
+    ? `cld grids evidence verify ${item.package.filename} --sha256 ${item.package.sha256} --manifest-sha256 ${item.package.manifestSha256}`
+    : null;
 
 const requestRange = (range: { start: string | null; end: string | null }) => ({
   from: range.start ? `${range.start}T00:00:00.000Z` : undefined,
@@ -351,6 +357,14 @@ export function EvidenceExportsSection(props: { base: PublicBase }) {
                       >
                         Download
                       </Button>
+                      <CopyButton
+                        text={verificationCommand(item)!}
+                        label="Copy verification command"
+                        copiedLabel="Verification command copied"
+                        variant="secondary"
+                        size="sm"
+                        onCopyError={() => prompts.error("Could not copy the verification command")}
+                      />
                     </Show>
                     <Show when={item.status === "failed" || item.status === "canceled"}>
                       <Button

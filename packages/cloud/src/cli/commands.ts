@@ -123,6 +123,7 @@ export type CliCommandRunContext<TFlags extends CliFlagSpecs | undefined, TArgs 
 export type CliCommandConfig<TFlags extends CliFlagSpecs | undefined = undefined, TArgs extends CliArgSpecs | undefined = undefined> = {
   summary: string;
   description?: string;
+  requiresCloud?: boolean;
   args?: TArgs;
   flags?: TFlags;
   examples?: readonly string[];
@@ -133,6 +134,7 @@ type CliCommandDefinition = {
   path: readonly string[];
   summary: string;
   description?: string;
+  requiresCloud?: boolean;
   args?: CliArgSpecs;
   flags?: CliFlagSpecs;
   examples?: readonly string[];
@@ -244,6 +246,12 @@ export const defineCliCommands = (config: CliCommandsConfig): CloudCliModule => 
     name: config.name,
     summary: config.summary,
     requiresCloud: config.requiresCloud,
+    requiresCloudFor: (args) => {
+      const helpRequest = normalizeHelpRequest(args, {});
+      if (helpRequest) return false;
+      const match = findCommand(root, args);
+      return match?.command.requiresCloud ?? config.requiresCloud ?? true;
+    },
     booleanFlags: collectBooleanFlags(config.commands),
     help: () => renderHelp(config, root, []),
     async run(ctx) {

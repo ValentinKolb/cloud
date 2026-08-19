@@ -5,7 +5,7 @@ section: Platform services
 order: 595
 description: Expose application operations through the shared cld command-line interface.
 tags: [cli, cld, automation]
-updated: 2026-08-12
+updated: 2026-08-19
 ---
 
 # Application CLI modules
@@ -119,7 +119,11 @@ application-specific dispatcher. Reserve named command prefixes for management
 operations; for example, `cld assistant status` still selects `status`.
 
 `requiresCloud` defaults to true. Set it to false only for a module that can
-run without a server profile or token.
+run without a server profile or token. A mixed module may instead set
+`requiresCloud: false` on one `command()` that only reads local input. The CLI
+then skips profile and token requirements for that command while every other
+command in the module keeps its normal Cloud gate. An offline command must not
+call `ctx.fetch()`.
 
 ## Define arguments and flags
 

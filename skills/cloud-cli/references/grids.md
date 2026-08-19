@@ -13,6 +13,7 @@ Grids stores structured operational data in bases made of tables, fields, record
 - [Create views and forms](#create-views-and-forms)
 - [Publish a Grids App](#publish-a-grids-app)
 - [Generate documents](#generate-documents)
+- [Verify evidence packages](#verify-evidence-packages)
 - [Manage access](#manage-access)
 - [Build and operate workflows](#build-and-operate-workflows)
 - [Command index](#command-index)
@@ -686,6 +687,24 @@ cld grids documents links revoke <link-id> --json
 
 Supported lifetimes are `1d`, `7d`, `30d`, and `90d`; the default is `30d`.
 
+## Verify evidence packages
+
+`evidence verify` checks a downloaded Grids evidence TAR locally. It does not
+contact Cloud, require a profile, extract files, or upload package contents.
+Pass the hashes shown beside the completed export when they are available:
+
+```bash
+cld grids evidence verify package.tar \
+  --sha256 <package-sha256> \
+  --manifest-sha256 <manifest-sha256>
+cld grids evidence verify package.tar --json
+```
+
+The command checks the TAR shape, package and manifest hashes, every declared
+entry, and unexpected or duplicate paths. It returns a non-zero exit code when
+verification fails. The result reports the declared scope and available
+history; it does not claim compliance, authorship, custody, or legal validity.
+
 ## Manage access
 
 Grids grants access to one complete raw Base or one published Grids App. Tables, Views, Forms, document templates, and Workflows have no separate Cloud grants.
@@ -1055,6 +1074,7 @@ document-templates reference|list|get|create|update|delete
 document-templates preview-data|preview-pdf|preview-draft-data|preview-draft-pdf
 documents list|browse|by-record|generate|update|download
 documents links list|create|revoke
+evidence verify
 email-templates reference|list|get|create|update|delete
 workflows reference|list|get|create|update|history|restore|delete|validate|autocomplete|invoke
 workflow-launchers list|create|update|delete|invoke
